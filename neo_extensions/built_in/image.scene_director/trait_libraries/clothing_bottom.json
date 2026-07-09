@@ -1,0 +1,67 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "clothing_bottom",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "dark_trousers",
+      "label": "Dark tailored trousers",
+      "prompt_terms": [
+        "dark tailored trousers"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "charcoal_trousers",
+      "label": "Loose charcoal trousers",
+      "prompt_terms": [
+        "loose charcoal trousers"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "blue_jeans",
+      "label": "Blue jeans",
+      "prompt_terms": [
+        "blue jeans"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "black_pants",
+      "label": "Black pants",
+      "prompt_terms": [
+        "black pants"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "shorts",
+      "label": "Shorts",
+      "prompt_terms": [
+        "shorts"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

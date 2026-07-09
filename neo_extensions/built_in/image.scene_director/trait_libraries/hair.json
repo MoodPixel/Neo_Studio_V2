@@ -1,0 +1,69 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "hair",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "short_wavy_black",
+      "label": "Short wavy black hair",
+      "prompt_terms": [
+        "short wavy black hair"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "straight_black_undercut",
+      "label": "Straight black undercut",
+      "prompt_terms": [
+        "straight black hair",
+        "neat side-part undercut"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "curly_black",
+      "label": "Curly black hair",
+      "prompt_terms": [
+        "curly black hair"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "long_black",
+      "label": "Long black hair",
+      "prompt_terms": [
+        "long black hair"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "buzz_cut",
+      "label": "Buzz cut",
+      "prompt_terms": [
+        "buzz cut",
+        "very short hair"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

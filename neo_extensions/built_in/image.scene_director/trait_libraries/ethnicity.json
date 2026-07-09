@@ -1,0 +1,91 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "ethnicity",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "sri_lankan",
+      "label": "Sri Lankan",
+      "prompt_terms": [
+        "Sri Lankan"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "chinese",
+      "label": "Chinese",
+      "prompt_terms": [
+        "Chinese"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "korean",
+      "label": "Korean",
+      "prompt_terms": [
+        "Korean"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "thai",
+      "label": "Thai",
+      "prompt_terms": [
+        "Thai"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "american",
+      "label": "American",
+      "prompt_terms": [
+        "American"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "japanese",
+      "label": "Japanese",
+      "prompt_terms": [
+        "Japanese"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "indian",
+      "label": "Indian",
+      "prompt_terms": [
+        "Indian"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

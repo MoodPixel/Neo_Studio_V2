@@ -1,0 +1,476 @@
+{
+  "id": "image.scene_director",
+  "name": "Image · Scene Director",
+  "version": "1.0.1",
+  "description": "Built-in Image Scene Director extension for regional scene planning, prompt balancing, mask/refine metadata, IP Adapter and LoRA region targeting, and replay-safe output metadata.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img",
+    "inpaint"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generate.scene_director"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": "generate",
+      "slot": "image.generate.scene_director",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": "img2img",
+      "slot": "image.generate.scene_director",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": "inpaint",
+      "slot": "image.generate.scene_director",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd",
+    "sd15",
+    "sd1.5",
+    "sd_1_5",
+    "sd1_5",
+    "sdxl_sd"
+  ],
+  "supported_loaders": [
+    "checkpoint"
+  ],
+  "route_states": {
+    "comfyui:sdxl:checkpoint:generate": "available",
+    "comfyui:sdxl:checkpoint:img2img": "available",
+    "comfyui:sdxl:checkpoint:inpaint": "available",
+    "comfyui:sdxl:checkpoint:outpaint": "planned_gated",
+    "comfyui:sd15:checkpoint:generate": "experimental_available",
+    "comfyui:sd15:checkpoint:img2img": "experimental_available",
+    "comfyui:sd15:checkpoint:inpaint": "experimental_available",
+    "comfyui:*:gguf:*": "unsupported",
+    "comfyui:flux:*:*": "unsupported",
+    "comfyui:qwen_image:*:*": "unsupported",
+    "comfyui:z_image:*:*": "unsupported",
+    "comfyui:z_image_turbo:*:*": "unsupported",
+    "comfyui:flux2_klein:*:*": "unsupported",
+    "comfyui:qwen_rapid_aio:*:*": "unsupported",
+    "comfyui:qwen_image_edit_2509:*:*": "unsupported",
+    "comfyui:hidream:*:*": "unsupported",
+    "comfyui:wan_image:*:*": "provider_gated",
+    "comfyui:hunyuan_image:*:*": "provider_gated"
+  },
+  "required_nodes": {
+    "comfyui": [
+      "NeoSceneDirectorV054"
+    ]
+  },
+  "asset_bundle": {
+    "js": [
+      "ui/panel.js"
+    ],
+    "css": [
+      "ui/panel.css"
+    ],
+    "html": [
+      "ui/panel.html"
+    ],
+    "python": [
+      "backend/adapter.py",
+      "backend/payload_schema.py",
+      "backend/workflow_patch.py",
+      "backend/validation.py",
+      "backend/metadata.py",
+      "backend/support_matrix.py",
+      "backend/node_decision.py",
+      "backend/mount_contract.py",
+      "backend/replay.py",
+      "backend/dependency_routing.py",
+      "backend/v054_contract.py",
+      "backend/v054_node.py",
+      "comfy_node/nodes.py"
+    ],
+    "docs": [
+      "docs/SCENE_DIRECTOR_NODE_DECISION.md",
+      "docs/SCENE_DIRECTOR_NODE_DECISION.json",
+      "docs/SCENE_DIRECTOR_SUPPORT_MATRIX.md",
+      "docs/SCENE_DIRECTOR_SUPPORT_MATRIX.json",
+      "docs/SCENE_DIRECTOR_CONTRACT.md",
+      "docs/SCENE_DIRECTOR_V1_PARITY_AUDIT.md",
+      "docs/SCENE_DIRECTOR_V1_PARITY_MAP.json",
+      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.md",
+      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.json",
+      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.md",
+      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.json",
+      "docs/SCENE_DIRECTOR_UI_MIGRATION.md",
+      "docs/SCENE_DIRECTOR_UI_MIGRATION.json",
+      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.md",
+      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.json",
+      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.md",
+      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.json",
+      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.md",
+      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.json",
+      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.md",
+      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.json",
+      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.md",
+      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.json",
+      "docs/SCENE_DIRECTOR_V1_SUBSECTIONS_PARITY.md",
+      "docs/SCENE_DIRECTOR_V1_SUBSECTIONS_PARITY.json",
+      "docs/SCENE_DIRECTOR_EXTENSION_INTEROP.md",
+      "docs/SCENE_DIRECTOR_EXTENSION_INTEROP.json"
+    ],
+    "backend": [
+      "backend/workflow_patch.py"
+    ]
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true
+  },
+  "node_decision_contract": {
+    "decision": "hybrid",
+    "full_workflow_requires_node": true,
+    "preferred_node_order": [
+      "NeoSceneDirectorV054"
+    ],
+    "fallback_policy": "no_fake_graph_support",
+    "missing_node_state": "provider_gated",
+    "non_node_safe_metadata_replay": true
+  },
+  "support_matrix_contract": {
+    "phase": "D",
+    "allowed_states": [
+      "available",
+      "experimental_available",
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "mount": {
+      "workspace": "image",
+      "subtab": "generations"
+    },
+    "route_dimensions": [
+      "backend",
+      "family",
+      "loader",
+      "mode",
+      "workspace",
+      "subtab",
+      "node_availability_overlay"
+    ],
+    "node_required_for_workflow_patch": true,
+    "missing_node_state": "provider_gated",
+    "no_fake_support": true,
+    "anti_fallback_rules": [
+      "no_flux_to_sdxl_fallback",
+      "no_qwen_to_flux_or_sdxl_fallback",
+      "no_gguf_checkpoint_field_mixing",
+      "no_outpaint_graph_mutation"
+    ]
+  },
+  "workspace_app": "image",
+  "target_subtab": "generations",
+  "canonical_mount_slot": "image.generate.scene_director",
+  "phase_e_skeleton_contract": {
+    "phase": "E",
+    "self_contained_root": "neo_extensions/built_in/image.scene_director",
+    "requires_root_init": true,
+    "required_groups": [
+      "backend",
+      "ui",
+      "docs",
+      "tests"
+    ],
+    "no_external_extensions_mount": true,
+    "feature_specific_code_boundary": "extension_folder_first",
+    "skeleton_docs": [
+      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.md",
+      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.json"
+    ]
+  },
+  "entrypoints": {
+    "mount_contract": "backend/mount_contract.py",
+    "support_matrix": "backend/support_matrix.py",
+    "node_decision": "backend/node_decision.py",
+    "ui_bundle": "ui/panel.js",
+    "payload_schema": "backend/payload_schema.py",
+    "validation": "backend/validation.py",
+    "workflow_patch": "backend/workflow_patch.py",
+    "replay": "backend/replay.py",
+    "dependency_routing": "backend/dependency_routing.py",
+    "comfy_node": "comfy_node/nodes.py"
+  },
+  "phase_f_mount_contract": {
+    "phase": "F",
+    "registry_source": "neo_extensions/built_in/image.scene_director/extension_manifest.json",
+    "origin_authoritative": true,
+    "extension_id": "image.scene_director",
+    "extension_origin": "built_in",
+    "ui_mount_kind": "direct_workspace",
+    "surface": "image",
+    "workspace_app": "generations",
+    "target_subtab": "generations",
+    "canonical_mount_slot": "image.generate.scene_director",
+    "external_section_allowed": false,
+    "runtime_mount_when_disabled": false,
+    "admin_visibility_when_disabled": true,
+    "docs": [
+      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.md",
+      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.json"
+    ]
+  },
+  "phase_g_ui_migration": {
+    "phase": "G",
+    "runtime_renderer": "neo_app/static/js/neo.js",
+    "extension_ui_files": [
+      "ui/panel.html",
+      "ui/panel.css",
+      "ui/panel.js"
+    ],
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "region_card_controls": [
+      "enabled",
+      "visible",
+      "locked",
+      "label",
+      "type",
+      "bbox_xywh",
+      "prompt",
+      "negative_prompt",
+      "strength",
+      "mask_feather",
+      "mask_refine_requested",
+      "ipadapter_binding",
+      "lora_binding",
+      "duplicate",
+      "delete"
+    ],
+    "route_aware_visibility": true,
+    "expert_payload_preview": true,
+    "hidden_field_pruning_preview": true,
+    "docs": [
+      "docs/SCENE_DIRECTOR_UI_MIGRATION.md",
+      "docs/SCENE_DIRECTOR_UI_MIGRATION.json"
+    ]
+  },
+  "phase_h_payload_contract": {
+    "phase": "H",
+    "schema_version": "neo.extension.payload.v1",
+    "block_path": "extensions.image.scene_director",
+    "normalizer": "backend/payload_schema.py",
+    "legacy_flat_key_import": true,
+    "legacy_root_key_emit": false,
+    "hidden_field_pruning": true,
+    "workflow_patch_requested_requires": [
+      "enabled",
+      "active_route",
+      "active_regions"
+    ],
+    "workflow_patch_allowed_requires": [
+      "workflow_patch_requested",
+      "NeoSceneDirectorV054"
+    ],
+    "docs": [
+      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.md",
+      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.json"
+    ]
+  },
+  "phase_i_validation_hooks": {
+    "phase": "I",
+    "schema": "neo.extension.validation.v1",
+    "validator": "backend/validation.py",
+    "primary_entrypoint": "validate_scene_director_payload",
+    "compatibility_entrypoint": "validate_and_normalize_payload",
+    "hard_errors": [
+      "no_active_regions"
+    ],
+    "gated_warning_states": [
+      "provider_gated",
+      "planned_gated",
+      "unsupported"
+    ],
+    "workflow_patch_requires": [
+      "ok",
+      "enabled",
+      "active_route",
+      "active_regions",
+      "NeoSceneDirectorV054",
+      "can_emit_workflow_patch"
+    ],
+    "strict_mode_available": true,
+    "docs": [
+      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.md",
+      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.json"
+    ]
+  },
+  "phase_j_workflow_patch": {
+    "status": "implemented",
+    "patch_module": "backend/workflow_patch.py",
+    "docs": [
+      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.md",
+      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.json"
+    ],
+    "node_order": [
+      "NeoSceneDirectorV054"
+    ],
+    "fallback_policy": "no_fake_graph_support",
+    "phase_3_v054_route": "implemented",
+    "primary_payload": "scene_graph_json with NeoSceneDirectorV054 only; V052/V053 active fallback retired"
+  },
+  "phase_k_metadata_output_inspector": {
+    "status": "implemented",
+    "metadata_builder": "backend/metadata.py",
+    "output_inspector_renderer": "neo_app/static/js/neo.js::sceneDirectorOutputInspectorDetails",
+    "extension_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation",
+      "extensions.replay_payloads",
+      "extensions.assistant_summaries",
+      "extensions.memory_events"
+    ],
+    "compact_chips": [
+      "status",
+      "regions",
+      "subjects",
+      "details",
+      "ipadapter_bindings",
+      "lora_bindings",
+      "identity_units",
+      "node",
+      "route_state",
+      "workflow_patched"
+    ],
+    "restore_policy": "revalidate_route_node_assets_regions_before_enable",
+    "docs": [
+      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.md",
+      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.json"
+    ]
+  },
+  "phase_l_replay_reuse_readiness": {
+    "status": "implemented",
+    "replay_module": "backend/replay.py",
+    "frontend_restore_function": "neo_app/static/js/neo.js::restoreSceneDirectorSettingsFromReuse",
+    "restore_policy": "revalidate_route_node_assets_regions_before_enable",
+    "revalidation_required": [
+      "route",
+      "node_availability",
+      "active_regions",
+      "identity_reference_assets",
+      "ipadapter_binding_intent",
+      "lora_binding_intent"
+    ],
+    "auto_enable_requires": [
+      "validation_ok",
+      "can_emit_workflow_patch",
+      "no_missing_required_assets"
+    ],
+    "gated_restore_behavior": "restore_for_review_without_active_workflow_patch",
+    "docs": [
+      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.md",
+      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.json"
+    ]
+  },
+  "ui_hotfix_region_canvas_core_prompts": {
+    "region_canvas_visible": true,
+    "global_prompts_source": "neo_core_prompt_fields",
+    "duplicate_global_prompt_textareas_removed": true,
+    "canvas_drag_move": true
+  },
+  "phase_v1_subsections_parity": {
+    "restored_subsections": [
+      "Appearance Lock",
+      "Global Context Routing",
+      "Identity Profiles",
+      "Scene Presets",
+      "Region Layout Presets"
+    ],
+    "api_prefix": "/api/extensions/scene-director",
+    "v1_aliases": [
+      "/api/scene-director/presets",
+      "/api/scene-director/identity-profiles"
+    ],
+    "payload_params": [
+      "appearance_lock",
+      "global_context_routing"
+    ],
+    "global_prompt_source": "neo_core_positive_negative_prompts"
+  },
+  "extension_dependencies": {
+    "optional_runtime_dependencies": [
+      {
+        "extension_id": "image.ip_adapter",
+        "required_when": "identity profile or regional IPAdapter/FaceID intent is active",
+        "behavior_when_missing_or_disabled": "preserve profile intent, warn, do not claim regional identity execution"
+      },
+      {
+        "extension_id": "lora_stack",
+        "required_when": "LoRA Stack row targets apply_to=scene_region_* or identity profile optional LoRA is used",
+        "behavior_when_missing_or_disabled": "preserve LoRA target intent, warn, do not duplicate LoRA loader logic inside Scene Director"
+      }
+    ],
+    "ownership_rules": {
+      "identity_profiles": "Scene Director owns profile-to-region intent; image.ip_adapter owns IPAdapter/FaceID graph execution.",
+      "regional_loras": "image.lora_stack owns LoRA selection/library rows; Scene Director consumes apply_to=scene_region_* for regional binding metadata and node scene_json intent."
+    }
+  },
+  "phase_21_v054_retirement": {
+    "status": "implemented",
+    "active_node_order": [
+      "NeoSceneDirectorV054"
+    ],
+    "retired_active_nodes": [
+      "NeoSceneDirectorV053",
+      "NeoSceneDirectorV052"
+    ],
+    "primary_payload": "scene_graph_json",
+    "legacy_scene_json_active_path": false,
+    "fallback_policy": "hard_gate_when_v054_missing"
+  }
+}

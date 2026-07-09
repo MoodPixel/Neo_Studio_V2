@@ -1,0 +1,67 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "accessories",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "silver_necklace",
+      "label": "Silver necklace",
+      "prompt_terms": [
+        "silver necklace"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "leather_bracelet",
+      "label": "Leather bracelet",
+      "prompt_terms": [
+        "leather bracelet"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "watch",
+      "label": "Watch",
+      "prompt_terms": [
+        "watch"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "glasses",
+      "label": "Glasses",
+      "prompt_terms": [
+        "glasses"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "earring",
+      "label": "Earring",
+      "prompt_terms": [
+        "earring"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

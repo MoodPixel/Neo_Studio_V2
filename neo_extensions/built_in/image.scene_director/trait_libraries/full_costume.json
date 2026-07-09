@@ -1,0 +1,55 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "full_costume",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "streetwear",
+      "label": "Streetwear outfit",
+      "prompt_terms": [
+        "streetwear outfit"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "editorial",
+      "label": "Editorial fashion outfit",
+      "prompt_terms": [
+        "editorial fashion outfit"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "fantasy_armor",
+      "label": "Fantasy armor",
+      "prompt_terms": [
+        "fantasy armor"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "formal_suit",
+      "label": "Formal suit",
+      "prompt_terms": [
+        "formal suit"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

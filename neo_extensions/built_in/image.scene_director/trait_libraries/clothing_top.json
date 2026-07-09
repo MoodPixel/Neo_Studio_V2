@@ -1,0 +1,67 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "clothing_top",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "red_hoodie",
+      "label": "Red oversized hoodie",
+      "prompt_terms": [
+        "red oversized hoodie"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "cream_polo",
+      "label": "Cream short-sleeve knit polo",
+      "prompt_terms": [
+        "cream short-sleeve knit polo"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "white_tank",
+      "label": "White tank top",
+      "prompt_terms": [
+        "white tank top"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "linen_overshirt",
+      "label": "Linen overshirt",
+      "prompt_terms": [
+        "linen overshirt"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "black_tshirt",
+      "label": "Black t-shirt",
+      "prompt_terms": [
+        "black t-shirt"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

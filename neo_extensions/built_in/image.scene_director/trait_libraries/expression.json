@@ -1,0 +1,55 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "expression",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "calm_affectionate",
+      "label": "Calm affectionate expression",
+      "prompt_terms": [
+        "calm affectionate expression"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "soft_smile",
+      "label": "Soft smile",
+      "prompt_terms": [
+        "soft smile"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "serious_editorial",
+      "label": "Serious editorial expression",
+      "prompt_terms": [
+        "serious editorial expression"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "playful",
+      "label": "Playful expression",
+      "prompt_terms": [
+        "playful expression"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

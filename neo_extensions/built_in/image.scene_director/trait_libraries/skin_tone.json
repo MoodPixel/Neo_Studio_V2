@@ -1,0 +1,71 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "skin_tone",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "dark_brown",
+      "label": "Dark brown skin",
+      "prompt_terms": [
+        "dark brown skin",
+        "brown skin"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "warm_brown",
+      "label": "Warm brown skin",
+      "prompt_terms": [
+        "warm brown skin",
+        "medium brown skin"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "tan",
+      "label": "Tan skin",
+      "prompt_terms": [
+        "tan skin",
+        "light tan skin"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "fair",
+      "label": "Fair skin",
+      "prompt_terms": [
+        "fair skin",
+        "light skin"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "pale",
+      "label": "Pale skin",
+      "prompt_terms": [
+        "pale skin"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

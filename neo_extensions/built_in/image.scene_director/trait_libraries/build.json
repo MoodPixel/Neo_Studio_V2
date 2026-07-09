@@ -1,0 +1,73 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "build",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "slim",
+      "label": "Slim build",
+      "prompt_terms": [
+        "slim build",
+        "lean frame",
+        "narrow frame"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "average",
+      "label": "Average build",
+      "prompt_terms": [
+        "average build",
+        "natural build"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "athletic",
+      "label": "Athletic build",
+      "prompt_terms": [
+        "athletic build",
+        "toned body"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "muscular",
+      "label": "Muscular build",
+      "prompt_terms": [
+        "muscular build",
+        "defined muscles"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "stocky",
+      "label": "Stocky build",
+      "prompt_terms": [
+        "stocky build",
+        "broad frame"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

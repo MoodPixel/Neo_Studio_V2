@@ -1,0 +1,55 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "shoes",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "white_sneakers",
+      "label": "White sneakers",
+      "prompt_terms": [
+        "white sneakers"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "black_boots",
+      "label": "Black boots",
+      "prompt_terms": [
+        "black boots"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "dress_shoes",
+      "label": "Dress shoes",
+      "prompt_terms": [
+        "dress shoes"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "sandals",
+      "label": "Sandals",
+      "prompt_terms": [
+        "sandals"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

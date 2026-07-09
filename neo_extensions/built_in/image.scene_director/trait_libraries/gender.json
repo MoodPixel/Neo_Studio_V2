@@ -1,0 +1,60 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "gender",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "male",
+      "label": "Male",
+      "prompt_terms": [
+        "male",
+        "man",
+        "adult man",
+        "masculine presentation"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "female",
+      "label": "Female",
+      "prompt_terms": [
+        "female",
+        "woman",
+        "adult woman",
+        "feminine presentation"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "nonbinary",
+      "label": "Nonbinary / Androgynous",
+      "prompt_terms": [
+        "nonbinary",
+        "androgynous presentation"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "custom",
+      "label": "Custom gender expression",
+      "prompt_terms": [],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

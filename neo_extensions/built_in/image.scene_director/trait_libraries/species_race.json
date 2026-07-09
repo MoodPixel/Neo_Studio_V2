@@ -1,0 +1,94 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "species_race",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "human",
+      "label": "Human",
+      "prompt_terms": [
+        "human"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "mer",
+      "label": "Mer",
+      "prompt_terms": [
+        "mer person",
+        "aquatic humanoid"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "demon",
+      "label": "Demon",
+      "prompt_terms": [
+        "demon",
+        "demonic humanoid"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "vampire",
+      "label": "Vampire",
+      "prompt_terms": [
+        "vampire"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "elf",
+      "label": "Elf",
+      "prompt_terms": [
+        "elf",
+        "elven humanoid"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "orc",
+      "label": "Orc",
+      "prompt_terms": [
+        "orc"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "dragonborn",
+      "label": "Dragonborn",
+      "prompt_terms": [
+        "dragonborn humanoid"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}

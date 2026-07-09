@@ -1,0 +1,71 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v1",
+  "category": "pose",
+  "source": "built_in_default",
+  "items": [
+    {
+      "id": "facing_each_other",
+      "label": "Facing each other",
+      "prompt_terms": [
+        "facing each other",
+        "body angled toward each other"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "standing_close",
+      "label": "Standing close together",
+      "prompt_terms": [
+        "standing close together",
+        "close couple pose"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "hugging",
+      "label": "Hugging",
+      "prompt_terms": [
+        "hugging",
+        "arms around each other"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "holding_hands",
+      "label": "Holding hands",
+      "prompt_terms": [
+        "holding hands"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    },
+    {
+      "id": "selfie_pose",
+      "label": "Selfie pose",
+      "prompt_terms": [
+        "selfie pose",
+        "standing together for a selfie"
+      ],
+      "negative_terms": [],
+      "latent_priority": 0.75,
+      "roles": [
+        "character"
+      ]
+    }
+  ]
+}
