@@ -1,0 +1,14 @@
+<section class="neo-extension-panel neo-lora-library-panel" data-extension-id="lora_stack" data-route-aware="true" data-phase="C" data-phase-revision="C.2">
+  <header class="neo-lora-panel-header">
+    <h3>LoRA Library</h3>
+    <span class="neo-chip" data-lora-library-status>Comfy LoraLoader catalog</span>
+  </header>
+  <p class="neo-muted">Comfy backends populate LoRA choices from <code>LoraLoader.lora_name</code>. Metadata can be edited locally and enriched with CivitAI links, previews, triggers, keywords, and prompt options.</p>
+  <div class="neo-lora-library-tools">
+    <label>Search Comfy LoRAs<input type="search" data-lora-library-search placeholder="Search LoraLoader records" /></label>
+    <label>Comfy LoRA<select data-lora-library-record></select></label>
+  </div>
+  <label>CivitAI link<input type="url" data-lora-civitai-url placeholder="https://civitai.com/models/..." /></label>
+  <div data-lora-library-preview></div>
+  <div data-lora-library-details></div>
+</section>

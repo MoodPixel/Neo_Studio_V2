@@ -1,0 +1,16 @@
+.neo-lora-stack-panel { display: grid; gap: 0.85rem; min-width: 0; max-width: 100%; }
+.neo-lora-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; }
+.neo-lora-panel-header > div:first-child { display: grid; gap: 0.15rem; min-width: 0; }
+.neo-extension-status-line { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; justify-content: flex-end; min-width: 0; }
+.neo-lora-stack-toolbar { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+.neo-lora-stack-rows { display: grid; gap: 0.65rem; min-width: 0; }
+.neo-lora-stack-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.65rem; align-items: stretch; padding: 0.75rem; border: 1px solid var(--border-subtle, rgba(255,255,255,0.12)); border-radius: 14px; background: var(--panel-soft, rgba(255,255,255,0.035)); min-width: 0; max-width: 100%; }
+.neo-lora-stack-row.selected { border-color: rgba(56, 189, 248, 0.72); box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.22); }
+.neo-lora-row-main, .neo-lora-row-routing { display: grid; gap: 0.55rem; align-items: end; min-width: 0; }
+.neo-lora-row-main { grid-template-columns: auto minmax(4.5rem, auto) minmax(10rem, 1fr) minmax(5.5rem, 0.35fr) auto; }
+.neo-lora-row-routing { grid-template-columns: repeat(2, minmax(10rem, 1fr)); }
+.neo-lora-row-select { width: auto; white-space: nowrap; border-radius: 999px; }
+.neo-lora-row-actions { display: flex; flex-wrap: nowrap; gap: 0.25rem; align-items: center; justify-content: flex-end; }
+.neo-lora-row-summary { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+:where(.neo-lora-stack-panel, .neo-lora-stack-panel *) { box-sizing: border-box; min-width: 0; max-width: 100%; }
+@media (max-width: 1100px) { .neo-lora-row-main, .neo-lora-row-routing { grid-template-columns: 1fr; } .neo-lora-row-actions { justify-content: flex-start; } }
