@@ -144,26 +144,36 @@ Output deletion, metadata inspection, replay, source/control asset tracking, and
 
 When the user asks what a field does, answer from this guide. When the user asks what they are currently using, answer from the live Image snapshot and mention the selected Model Family, Main Model Type, Workflow Mode, backend profile, model, dimensions, steps/guidance, seed, source/mask status, and enabled extensions if present.
 
-## Generation extension fields
+## Workspace extension and asset fields
 
-The Image Parameters panel controls the base route. Built-in Generation extension cards add extra fields that are resolved after the active family/loader/workflow is known.
+The Image Parameters panel controls the base route. Workspace extension cards add extra fields after the active family/loader/workflow is known. Do not describe every extension as a Generation field; some belong to **Image → Assets**.
+
+### Generation extension fields
 
 | Extension | Key fields | What to explain |
 |---|---|---|
 | **CFG Fix / Dynamic Thresholding** | Apply CFG Fix, Preset, Mode, Mimic CFG, Threshold percentile. | It patches high-CFG sampler behavior on supported Comfy routes. Use for overbaked high-CFG outputs, not as a universal quality switch. |
 | **ComfyUI LayerDiffuse** | Enable, Mode, Decode, Output, SD compatibility, Weight, Sub-batch, Blend strength, foreground/background/source images. | It runs transparent/compositing workflows and may replace the base graph. It is route-gated and mainly SDXL/SD checkpoint-oriented. |
-| **LoRA Stack** | Apply LoRA Stack, rows, LoRA name, Strength, Pass, Target, row order. | It applies LoRA rows when the route exposes safe patch points. Regional targets are preserved for Scene Director. |
-| **LoRA Library** | Search Comfy LoRAs, Comfy LoRA selector, triggers, keywords, sample prompt, CivitAI link/merge/pull. | It manages LoRA metadata and can add a selected LoRA to the stack. It does not execute a LoRA by itself. |
 | **Style Stack** | Apply Style Stack, Target pass, Category, Search styles, Active style chips, manual positive/negative style, CSV import/export. | It merges style prompt text and negative style text; no graph patching. |
 | **Wildcards** | Enable Wildcards, Insert target, Preview count, Queue variants, Auto-resolve, Use generation seed, token file/value editor, ZIP import/export. | It resolves prompt tokens into text before Style Stack and before provider execution. |
 | **Scene Director** | Enable for workflow, Add Region, authority, base weight, region gain, prompt rules, region context suffix, Pair Pose, Background Space, Fix Pass Controls, Character Lock, Global Context Routing, presets, region canvas/cards, V054 role, region prompts, trait locks, and extension routing. | It plans regional subject/background/object lanes and can patch supported SDXL/SD1.5 checkpoint Comfy workflows through the V054 Scene Director node. |
 
-Use the dedicated extension guides for detailed behavior:
+### Assets extension fields
+
+| Asset extension | Key fields | What to explain |
+|---|---|---|
+| **LoRA Stack** | Apply LoRA Stack, rows, LoRA name, Strength, Pass, Target, row order. | It is an Image → Assets tool. It applies LoRA rows only when the route exposes safe patch points. Regional targets are preserved for Scene Director. |
+| **LoRA Library** | Search Comfy LoRAs, Comfy LoRA selector, triggers, keywords, sample prompt, CivitAI link/merge/pull. | It is an Image → Assets metadata/catalog manager and can add a selected LoRA to the stack. It does not execute a LoRA by itself. |
+| **Embeddings / Textual Inversion** | Apply Embeddings/TI, Scan Folder, Refresh, Embeddings folder, Search, Embedding, Prompt token, Target, Strength, Add Embedding, CivitAI link, merge mode, Applied Embeddings. | It is an Image → Assets prompt-token manager. It inserts/preserves tokens such as `embedding:name`; no custom loader node is required. |
+
+Use the dedicated guides for detailed behavior:
 
 - `guides/01_IMAGE/image_generation_extensions.md`
+- `guides/01_IMAGE/image_assets.md`
 - `guides/01_IMAGE/cfg_fix_dynamic_thresholding.md`
 - `guides/01_IMAGE/layerdiffuse.md`
 - `guides/01_IMAGE/lora_stack.md`
+- `guides/01_IMAGE/embeddings_textual_inversion.md`
 - `guides/01_IMAGE/style_stack.md`
 - `guides/01_IMAGE/wildcards.md`
 - `guides/01_IMAGE/scene_director.md`

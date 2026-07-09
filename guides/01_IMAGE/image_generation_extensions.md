@@ -10,8 +10,6 @@ applies_to:
   - extensions
   - cfg_fix_dynamic_thresholding
   - layerdiffuse
-  - lora_stack
-  - lora_library
   - style_stack
   - wildcards
   - scene_director
@@ -38,8 +36,6 @@ tags:
   - cfg fix
   - dynamic thresholding
   - layerdiffuse
-  - lora stack
-  - lora library
   - style stack
   - wildcards
   - scene director
@@ -53,7 +49,9 @@ updated: 2026-07-09
 
 # Image Generation Extensions
 
-The Image **Generation** workspace can mount built-in extension cards. Extensions are route-aware. A card can be visible, disabled, ready, experimental, or route-gated depending on:
+The Image **Generation** workspace documents generation-time extension cards such as CFG Fix, LayerDiffuse, Style Stack, Wildcards, and Scene Director. Asset-owned tools such as **LoRA Stack / LoRA Library** and **Embeddings / Textual Inversion** belong under **Image → Assets**. Reference-owned tools such as **ControlNet** and **IP Adapter / FaceID** belong under **Image → Reference**. Use `guides/01_IMAGE/image_assets.md`, `guides/01_IMAGE/lora_stack.md`, `guides/01_IMAGE/embeddings_textual_inversion.md`, `guides/01_IMAGE/image_reference.md`, `guides/01_IMAGE/controlnet.md`, and `guides/01_IMAGE/ip_adapter_faceid.md` for those areas.
+
+Extensions are route-aware. A card can be visible, disabled, ready, experimental, or route-gated depending on:
 
 ```text
 Backend profile + Model Family + Main Model Type / Loader + Workflow Mode + installed Comfy nodes
@@ -69,8 +67,6 @@ Scene Director has a larger regional/multi-entity routing contract. Use `guides/
 |---|---:|---:|---:|---:|---|
 | **CFG Fix / Dynamic Thresholding** | sampler/model patch | No | Yes, when active route supports it | Yes: `sd-dynamic-thresholding` nodes | Reduces high-CFG overbaking / blown contrast. |
 | **LayerDiffuse** | workflow replacement / external graph | Uses base prompt | Yes, replaces base workflow when enabled | Yes: ComfyUI LayerDiffuse nodes | Transparent RGBA assets, alpha masks, foreground/background compositing. |
-| **LoRA Stack** | model/clip patch + metadata-preserved regional intent | No | Yes, when route exposes safe model/clip patch points | No custom node; uses standard `LoraLoader`/`LoraLoaderModelOnly` where available | Apply one or more LoRAs with strength/pass targeting. |
-| **LoRA Library** | asset/library manager | Can append/replace prompt text from saved metadata | No | No | Browse Comfy LoRAs, enrich metadata, save triggers/prompts/previews. |
 | **Style Stack** | prompt-only extension | Yes | No | No | Add saved/manual style prompt and negative style text. |
 | **Wildcards** | prompt-only extension | Yes | No | No | Resolve `__token__` or `{a|b|c}` variants before generation. |
 | **Scene Director** | regional scene planner | Uses global + local region prompts | Yes, on V054-ready checkpoint routes | Yes: `NeoSceneDirectorV054` for active graph mutation | Region boxes, per-region prompts, Character Lock, Pair Pose, background lanes, and extension routing. |
@@ -102,11 +98,30 @@ This matters because wildcard tokens can expand into style words, embedding/TI t
 |---|---|---|---|
 | **CFG Fix** | SDXL + checkpoint + Generate | SD 1.5 + checkpoint + Generate | Most component/GGUF/API routes, Img2Img/Inpaint/Outpaint until explicitly promoted. |
 | **LayerDiffuse** | SDXL checkpoint Generate; SDXL checkpoint Img2Img for image-conditioned modes | SD 1.5 checkpoint Generate | Flux/Qwen/ZImage/HiDream/Grok/API routes; Inpaint/Outpaint. |
-| **LoRA Stack** | SDXL checkpoint Generate/Img2Img/Inpaint/Outpaint | SD 1.5 checkpoint; Flux/Flux 2/Qwen/ZImage/HiDream routes when compiler patch profile exists | Cloud API routes and routes without model/clip patch points. |
-| **LoRA Library** | All Image workspaces as asset metadata/catalog manager | N/A | It does not execute by itself. Add selected LoRAs to LoRA Stack for generation use. |
 | **Style Stack** | Provider-neutral Generate/Img2Img/Inpaint/Outpaint | N/A | It only edits prompt text; it cannot fix model/node readiness. |
 | **Wildcards** | Provider-neutral Generate/Img2Img/Inpaint/Outpaint | N/A | It only resolves prompt tokens; it does not change models/nodes. |
 | **Scene Director** | SDXL checkpoint Generate/Img2Img/Inpaint on ComfyUI with V054 node | SD 1.5 checkpoint Generate/Img2Img/Inpaint | Flux/Qwen/ZImage/HiDream/GGUF/component/API routes; Outpaint remains planned-gated. |
+
+
+## Reference-owned extension note
+
+Do not explain **ControlNet** or **IP Adapter / FaceID** as normal Generation cards. They are Image **Reference** tools:
+
+| Reference tool | Guide |
+|---|---|
+| **ControlNet** | `guides/01_IMAGE/controlnet.md` |
+| **IP Adapter / FaceID** | `guides/01_IMAGE/ip_adapter_faceid.md` |
+| **Reference workspace overview** | `guides/01_IMAGE/image_reference.md` |
+
+## Asset-owned extension note
+
+Do not explain LoRA Stack, LoRA Library, or Embeddings/Textual Inversion as normal Generation cards. They are Image **Assets** tools:
+
+| Asset tool | Guide |
+|---|---|
+| **LoRA Stack / LoRA Library** | `guides/01_IMAGE/lora_stack.md` |
+| **Embeddings / Textual Inversion** | `guides/01_IMAGE/embeddings_textual_inversion.md` |
+| **Assets workspace overview** | `guides/01_IMAGE/image_assets.md` |
 
 ## Assistant behavior
 

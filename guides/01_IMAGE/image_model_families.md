@@ -189,17 +189,54 @@ Image extensions are also family-aware and loader-aware. The same extension can 
 |---|---|---|---|---|---|
 | **CFG Fix / Dynamic Thresholding** | Available for Generate. | Experimental for Generate. | Planned/gated unless route matrix explicitly promotes it. | Planned/gated unless route matrix explicitly promotes it. | Not exposed as SD sampler patching. |
 | **LayerDiffuse** | Available for Generate; image-conditioned modes are experimental/guarded. | Experimental for Generate. | Not supported in normal routes. | Not supported in normal routes. | Not supported. |
-| **LoRA Stack** | Available for Generate, Img2Img, Inpaint, Outpaint. | Experimental for Generate, Img2Img, Inpaint, Outpaint. | Experimental where compiler-owned LoRA patch profiles exist. | Experimental or planned/gated depending on family/mode; HiDream is mainly Generate. | Not a normal graph route unless the API/backend adds explicit LoRA support. |
-| **LoRA Library** | Available as asset metadata/catalog manager. | Available as asset metadata/catalog manager. | Available as metadata/catalog manager. | Available as metadata/catalog manager. | Metadata only; does not load API LoRAs. |
+| **LoRA Stack** | Assets tool. Available for Generate, Img2Img, Inpaint, Outpaint when graph patching is route-ready. | Assets tool. Experimental for Generate, Img2Img, Inpaint, Outpaint. | Assets tool. Experimental where compiler-owned LoRA patch profiles exist. | Assets tool. Experimental or planned/gated depending on family/mode; HiDream is mainly Generate. | Not a normal graph route unless the API/backend adds explicit LoRA support. |
+| **LoRA Library** | Assets metadata/catalog manager. | Assets metadata/catalog manager. | Assets metadata/catalog manager. | Assets metadata/catalog manager. | Metadata only; does not load API LoRAs. |
+| **Embeddings / Textual Inversion** | Assets prompt-token manager. SDXL checkpoint is ready for Generate/Img2Img/Inpaint/Outpaint. | Assets prompt-token manager. SD 1.5 checkpoint is experimental. | Planned/gated until text-encoder prompt-token compatibility is validated. | Planned/gated until route-specific text encoder compatibility is validated. | Unsupported/provider gated for local TI execution. |
 | **Style Stack** | Available as prompt-only merge. | Available as prompt-only merge. | Available as prompt-only merge. | Available as prompt-only merge. | Applies only if the API profile accepts prompt text. |
 | **Wildcards** | Available as prompt-only resolution. | Available as prompt-only resolution. | Available as prompt-only resolution. | Available as prompt-only resolution. | Applies only if the API profile accepts prompt text. |
+| **ControlNet** | Reference tool. Available for map control on Generate/Img2Img/Inpaint; SD mask/canvas adapters support Inpaint/Outpaint where the base route is active. | Reference tool. Experimental parity support. | Reference tool. Flux/Flux2 component and GGUF routes have dedicated adapter policies; check live route state. | Reference tool. Qwen routes are promoted through Qwen-safe adapters; ZImage/ZImage Turbo/HiDream remain implementation target or gated unless live route says otherwise. | Not a local Comfy ControlNet graph patch. |
+| **IP Adapter / FaceID** | Reference tool. Available for Generate/Img2Img/Inpaint when nodes/models are installed; Outpaint is planned/gated. | Reference tool. Experimental for Generate/Img2Img/Inpaint; Outpaint is planned/gated. | Not active in the current IP Adapter graph contract unless live route promotes it. | Not active in the current IP Adapter graph contract unless live route promotes it. | Not a local Comfy IP Adapter/FaceID graph patch. |
 | **Scene Director** | Available for Generate/Img2Img/Inpaint with ComfyUI + V054 node. | Experimental for Generate/Img2Img/Inpaint with ComfyUI + V054 node. | Unsupported for active V054 graph mutation; adapter plans may be metadata only. | Unsupported for active V054 graph mutation; Qwen/modern component routes must not consume checkpoint-only Scene Director fields. | Not supported as a local Comfy graph patch. |
 
 Rules for Assistant answers:
 
 - Say **prompt-only** for Style Stack and Wildcards. They do not need Comfy custom nodes and do not patch graphs.
 - Say **graph/workflow patch** for CFG Fix, LayerDiffuse, and direct LoRA Stack execution.
+- Say **asset tool** for LoRA Stack, LoRA Library, and Embeddings/Textual Inversion; they belong under Image → Assets.
 - Say **metadata/catalog manager** for LoRA Library. It helps choose/enrich LoRAs but does not apply a LoRA until the LoRA is added to LoRA Stack.
-- Do not promise LoRA/CFG/LayerDiffuse execution on Grok/API routes.
+- Say **prompt-token asset** for Embeddings/Textual Inversion. It inserts/preserves `embedding:name` tokens and does not need a custom loader node.
+- Say **Reference tool** for ControlNet and IP Adapter / FaceID; they belong under Image → Reference, not Generation or Assets.
+- For ControlNet, check route state, control task, model file, control image/generated map, and preprocessor readiness before promising execution.
+- For IP Adapter / FaceID, check SDXL/SD1.5 checkpoint route, node readiness, model dropdowns, CLIP Vision, FaceID availability, and attached reference images before promising execution.
+- Do not promise LoRA/CFG/LayerDiffuse/ControlNet/IP Adapter execution on Grok/API routes unless the API/backend later exposes matching capabilities.
 - If the live snapshot says an extension is disabled, answer what it does and how to enable it, but do not describe it as active.
 - For Scene Director, check Image → Generation, ComfyUI backend, checkpoint loader, SDXL/SD1.5 family, Generate/Img2Img/Inpaint mode, and `NeoSceneDirectorV054` node readiness before promising active regional execution.
+
+## Reference guide links
+
+For Image → Reference tools, use these docs before answering field/support questions:
+
+| Reference area | Guide |
+|---|---|
+| Reference workspace overview | `guides/01_IMAGE/image_reference.md` |
+| ControlNet | `guides/01_IMAGE/controlnet.md` |
+| IP Adapter / FaceID | `guides/01_IMAGE/ip_adapter_faceid.md` |
+
+
+## Finish tool compatibility by family/loader
+
+Finish tools are family-aware, loader-aware, and backend-aware. They should not be described as universal just because the Finish subtab is visible.
+
+| Finish tool | SDXL checkpoint | SD 1.5 checkpoint | Flux/Qwen/ZImage/HiDream component or GGUF | API profiles such as Grok Imagine |
+|---|---|---|---|---|
+| **High-Res Lab** | Available on Comfy Generate/Img2Img/Inpaint/Outpaint. | Available on Comfy Generate/Img2Img/Inpaint/Outpaint. | Gated/unsupported unless the live route snapshot explicitly promotes it. | Not a local Comfy high-res graph. Stage API output into local Comfy if needed. |
+| **ADetailer** | Available on Comfy Generate/Img2Img/Inpaint; Outpaint planned/gated. | Experimental on Comfy Generate/Img2Img/Inpaint; Outpaint planned/gated. | Unsupported/gated for the current checkpoint-style detector/detailer graph. | Not a local Comfy ADetailer graph. |
+| **Image Upscale** | Available as standalone utility when a Comfy image backend is connected. | Available as standalone utility when a Comfy image backend is connected. | Available as standalone utility when a Comfy image backend is connected because it works from selected/uploaded source images. | API output can be used as a source only if a compatible local Comfy backend is connected. |
+| **Final Polish Lab** | External extension plan cockpit; render submission remains gated by lane/support state. | External extension plan cockpit; render submission remains gated by lane/support state. | Usually planned/provider-gated unless the live extension support matrix says otherwise. | Not a direct API render path in the current extension contract. |
+
+Assistant rules:
+
+- For **High-Res Lab**, check Comfy backend + SDXL/SD1.5 checkpoint + active workflow mode.
+- For **ADetailer**, check Comfy backend + SDXL/SD1.5 checkpoint + detector/SAM/Impact Pack readiness.
+- For **Image Upscale**, check for a connected Comfy image backend and a staged/selected/uploaded source image.
+- For **Final Polish Lab**, call it an external installed extension and do not promise image rendering unless the live route says runtime render is active.

@@ -6,10 +6,7 @@ scope: built_in
 applies_to:
   - image_workspace
   - image
-  - generations
   - assets
-  - reference
-  - finish
   - lora_stack
   - lora_library
   - lora
@@ -26,6 +23,7 @@ applies_to:
   - hidream
 tags:
   - image
+  - assets
   - lora
   - lora stack
   - lora library
@@ -33,21 +31,29 @@ tags:
   - triggers
   - route aware
   - loader aware
-priority: 113
-version: 1
+priority: 115
+version: 2
 updated: 2026-07-09
 ---
 
 # LoRA Stack and LoRA Library
 
-The **LoRA Stack** controls which LoRA files are requested for a generation. The **LoRA Library** manages metadata for the selected LoRA files, such as previews, triggers, keywords, sample prompts, and CivitAI details.
+The **LoRA Stack** and **LoRA Library** belong to **Image → Assets**.
 
-These are connected but not the same:
+LoRAs are reusable model assets. They should be explained as asset selection and asset routing first, not as normal base Generation parameters.
+
+```text
+Image → Assets → LoRA Stack / LoRA Library
+```
+
+## Stack vs Library
 
 | Area | Purpose |
 |---|---|
-| **LoRA Stack** | Adds active LoRA rows to the generation payload and, when route-ready, patches the Comfy graph. |
-| **LoRA Library** | Browses Comfy `LoraLoader.lora_name` choices and stores metadata/prompt helpers for LoRA records. |
+| **LoRA Stack** | Active LoRA rows requested for the next generation. Rows can target base/both/finish passes and can preserve Scene Director regional intent. |
+| **LoRA Library** | Metadata/catalog browser for LoRA files: previews, triggers, keywords, sample prompts, CivitAI data, and local notes. |
+
+LoRA Library metadata does **not** apply a LoRA by itself. To affect a generation, the LoRA must be added to **LoRA Stack** and the stack must be enabled.
 
 ## LoRA Stack fields
 
@@ -58,12 +64,12 @@ These are connected but not the same:
 | **Clean Empty/Disabled** | Removes rows that are empty or disabled. | Use this before saving/replaying a clean setup. |
 | **Use** | Enables/disables a row without deleting it. | Good for A/B testing. |
 | **LoRA** | Chooses the LoRA file/name from the connected Comfy catalog or library record. | If a LoRA shows missing from Comfy, connect/test Comfy or verify the file is in the backend LoRA folder. |
-| **Strength** | Controls LoRA influence. Values are clamped roughly from -4 to 4. | Start around 0.6–0.9 for style/character LoRAs. Lower if it overpowers the base model. |
-| **Pass** | Chooses **Both passes**, **Base only**, or **Finish / redraw only**. | Both is normal. Finish-only is for later finish/redraw paths and may be preserved without direct graph execution. |
-| **Target** | Shows global or Scene Director regional target. | LoRA Stack defaults to global. Regional assignment is owned by Scene Director’s extension routing. |
+| **Strength** | Controls LoRA influence. Values are clamped roughly from `-4` to `4`. | Start around `0.6–0.9` for style/character LoRAs. Lower if it overpowers the base model. |
+| **Pass** | Chooses **Both passes**, **Base only**, or **Finish / redraw only**. | Both is normal. Finish-only is for later finishing/redraw paths and may be preserved without direct graph execution on gated routes. |
+| **Target** | Shows global or Scene Director regional target. | LoRA Stack defaults to global. Regional assignment is owned by Scene Director → Advanced Region Control → Extension Routing. |
 | **Focus** | Marks/selects the active row for library/details interaction. | Use this to inspect or edit the selected row metadata. |
 | **Move up/down** | Reorders LoRA rows. | Order can matter because LoRAs patch in sequence. Put broad style LoRAs before specific detail/identity LoRAs when testing. |
-| **Delete row** | Removes the row. | Does not delete the LoRA file or library metadata. |
+| **Delete row** | Removes the row from the active stack. | Does not delete the LoRA file or library metadata. |
 
 ## LoRA Library fields
 
@@ -100,6 +106,7 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 
 ## Important rules
 
+- LoRA Stack is documented as an **Assets** tool. Do not describe it as a base Generation panel.
 - LoRA Library metadata does not apply a LoRA by itself. The LoRA must be in the LoRA Stack and enabled.
 - Regional LoRA targets are preserved in payload/replay, but Scene Director owns region assignment.
 - If the route is gated, Neo may preserve the user's LoRA intent in metadata without mutating the graph.
@@ -110,5 +117,5 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 Good answer pattern:
 
 ```text
-Use LoRA Library to find and enrich the LoRA, then use Add selected LoRA to stack. In LoRA Stack, enable the row, choose strength, and keep Pass on Both passes for normal generations. On your current route it is [ready/experimental/gated], so direct graph execution is [available/not available].
+Go to Image → Assets. Use LoRA Library to find and enrich the LoRA, then click Add selected LoRA to stack. In LoRA Stack, enable the row, choose strength, and keep Pass on Both passes for normal generations. On your current route it is [ready/experimental/gated], so direct graph execution is [available/not available].
 ```
