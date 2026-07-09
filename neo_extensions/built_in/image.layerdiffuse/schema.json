@@ -1,0 +1,914 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo://extensions/image.layerdiffuse/payload-contract-v1",
+  "title": "LayerDiffuse Payload + Workflow + Asset Library Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enabled",
+    "mode",
+    "source_type",
+    "decode_mode",
+    "output_policy"
+  ],
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "transparent_asset",
+        "rgb_alpha_split",
+        "foreground_on_background",
+        "background_aware_blend",
+        "extract_foreground",
+        "overlay_fx",
+        "extract_background",
+        "generate_fg_from_bg",
+        "generate_bg_from_fg",
+        "joint_bg_fg_blend_sd15"
+      ],
+      "default": "transparent_asset"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "selected_image",
+        "upload",
+        "previous_output"
+      ],
+      "default": "prompt"
+    },
+    "source_image_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "background_image_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "foreground_image_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "decode_mode": {
+      "type": "string",
+      "enum": [
+        "rgba",
+        "split",
+        "preview_only"
+      ],
+      "default": "rgba"
+    },
+    "output_policy": {
+      "type": "string",
+      "enum": [
+        "preview",
+        "new_run",
+        "append",
+        "replace"
+      ],
+      "default": "new_run"
+    },
+    "replace_target_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "save_rgba": {
+      "type": "boolean",
+      "default": true
+    },
+    "save_rgb": {
+      "type": "boolean",
+      "default": false
+    },
+    "save_alpha": {
+      "type": "boolean",
+      "default": true
+    },
+    "save_metadata": {
+      "type": "boolean",
+      "default": true
+    },
+    "compatibility_mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "sdxl",
+        "sd15"
+      ],
+      "default": "auto"
+    },
+    "workflow_template": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "transparent_asset_sdxl.json",
+        "transparent_asset_split_sdxl.json",
+        "foreground_on_background_sdxl.json",
+        "background_aware_blend_sdxl.json",
+        "extract_foreground_from_composite_sdxl.json",
+        "overlay_fx_transparent_sdxl.json",
+        "transparent_asset_sd15.json"
+      ],
+      "default": null,
+      "description": "Resolved workflow template selected by validation/effective state. Raw UI may leave this null."
+    },
+    "patch_strategy": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "replace_workflow",
+        "append_nodes",
+        "preprocess_source",
+        "postprocess_output",
+        "sidecar_run",
+        "metadata_only"
+      ],
+      "default": null,
+      "description": "Resolved workflow patch strategy selected by effective state."
+    },
+    "template_contract_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "adapter_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "description": "Effective-state adapter version; raw UI state may leave this null."
+    },
+    "validation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null,
+      "description": "Adapter validation report for effective state. Not required in raw UI state."
+    },
+    "outputs_expected": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": null,
+      "description": "Effective output types resolved by adapter."
+    },
+    "mapping_only": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "default": null,
+      "description": "True when selected template is not executable yet."
+    },
+    "payload_contract_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "const": "layerdiffuse-payload-contract-v1",
+      "description": "Canonical LayerDiffuse payload contract version."
+    },
+    "metadata_contract_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "const": "layerdiffuse-metadata-contract-v1",
+      "description": "Canonical LayerDiffuse metadata contract version."
+    },
+    "effective_enabled": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Backend-resolved active state. True only after validation passes."
+    },
+    "raw_state": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Preserved user/UI selections after type normalization only."
+    },
+    "effective_state": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Backend-resolved state that Neo may execute after validation."
+    },
+    "workflow_patch": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Visible workflow patch contract returned by adapter; Neo runtime owns application."
+    },
+    "workflow_validation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Visible validation result copied from effective_state.validation."
+    },
+    "transparency": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "raw_state_mutated": {
+          "type": "boolean",
+          "const": false
+        },
+        "effective_state_separate": {
+          "type": "boolean",
+          "const": true
+        },
+        "hidden_mutations_allowed": {
+          "type": "boolean",
+          "const": false
+        },
+        "extension_executes_workflow_directly": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "additionalProperties": true,
+      "description": "Payload transparency guardrail flags."
+    },
+    "replace_confirmed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Visible user confirmation that replace output policy may replace the selected target."
+    },
+    "identity_context_confirmed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Reserved for future identity context modes; Phase 6 does not enable identity context."
+    },
+    "workflow": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "description": "Current Neo workflow name used by server-side validation."
+    },
+    "model_family": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "description": "Resolved model family used by validation."
+    },
+    "batch_size": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "default": null,
+      "description": "Requested batch size; Phase 7 validator visibly auto-fixes to 1."
+    },
+    "available_templates": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": null,
+      "description": "Optional runtime list used to block missing workflow templates."
+    },
+    "available_nodes": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": null,
+      "description": "Optional runtime list used to block missing LayerDiffuse ComfyUI nodes."
+    },
+    "validation_result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null,
+      "description": "Phase 7 workflow validation result with valid/errors/warnings/autofixes/effective_state."
+    },
+    "output_metadata": {
+      "type": "object",
+      "description": "LayerDiffuse Phase 8 output bundle and metadata save contract.",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "base_dir": {
+          "type": "string"
+        },
+        "outputs_by_mode": {
+          "type": "object"
+        },
+        "output_roles": {
+          "type": "object"
+        },
+        "policy_behavior": {
+          "type": "object"
+        },
+        "hidden_mutations_allowed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "asset_library": {
+      "type": "object",
+      "description": "LayerDiffuse Phase 9 asset library registration contract.",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "asset_root": {
+          "type": "string"
+        },
+        "register_on_output_policies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "asset_kinds": {
+          "type": "object"
+        },
+        "reuse_targets": {
+          "type": "object"
+        },
+        "hidden_registration_allowed": {
+          "type": "boolean",
+          "const": false
+        },
+        "requires_visible_output_policy": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "asset_manifest": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Runtime asset records generated from output_bundle; Neo asset library owns persistence."
+    },
+    "raw_mode": {
+      "type": "string",
+      "enum": [
+        "transparent_asset",
+        "rgb_alpha_split",
+        "foreground_on_background",
+        "background_aware_blend",
+        "extract_foreground",
+        "overlay_fx",
+        "extract_background",
+        "generate_fg_from_bg",
+        "generate_bg_from_fg",
+        "joint_bg_fg_blend_sd15"
+      ],
+      "description": "Normalized user-selected mode preserved for transparency."
+    },
+    "effective_mode": {
+      "type": "string",
+      "enum": [
+        "transparent_asset",
+        "rgb_alpha_split",
+        "foreground_on_background",
+        "background_aware_blend",
+        "extract_foreground",
+        "overlay_fx",
+        "extract_background",
+        "generate_fg_from_bg",
+        "generate_bg_from_fg",
+        "joint_bg_fg_blend_sd15"
+      ],
+      "description": "Validated runtime mode used by workflow patch."
+    },
+    "blended_image_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "sd_version": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "sdxl",
+        "sd15"
+      ],
+      "default": "auto"
+    },
+    "workflow_variant": {
+      "type": "string",
+      "default": "auto"
+    },
+    "layerdiffuse_weight": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 1.0
+    },
+    "sub_batch_size": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64,
+      "default": 16
+    },
+    "requires_background": {
+      "type": "boolean"
+    },
+    "requires_foreground": {
+      "type": "boolean"
+    },
+    "requires_blended": {
+      "type": "boolean"
+    },
+    "requires_source": {
+      "type": "boolean"
+    },
+    "requires_prompt": {
+      "type": "boolean"
+    },
+    "required_payload_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "payload_contract": {
+      "type": "object",
+      "description": "Phase C transparent payload contract snapshot for raw/effective mode, source/output policy, node controls, and requirement booleans.",
+      "properties": {
+        "version": {
+          "const": "layerdiffuse-payload-contract-v2"
+        },
+        "extension_id": {
+          "const": "image.layerdiffuse"
+        },
+        "raw_mode": {
+          "type": "string"
+        },
+        "effective_mode": {
+          "type": "string"
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "output_policy": {
+          "type": "string"
+        },
+        "layerdiffuse_weight": {
+          "type": "number"
+        },
+        "sub_batch_size": {
+          "type": "integer"
+        },
+        "sd_version": {
+          "type": "string"
+        },
+        "workflow_variant": {
+          "type": "string"
+        },
+        "requires_background": {
+          "type": "boolean"
+        },
+        "requires_foreground": {
+          "type": "boolean"
+        },
+        "requires_blended": {
+          "type": "boolean"
+        },
+        "requires_source": {
+          "type": "boolean"
+        },
+        "requires_prompt": {
+          "type": "boolean"
+        },
+        "required_payload_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hidden_mutations_allowed": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "foreground_on_background"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "background_image_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "background_aware_blend"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "foreground_image_id",
+          "background_image_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "extract_foreground"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source_image_id",
+          "background_image_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "output_policy": {
+            "const": "replace"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "replace_target_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "extract_background"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source_image_id",
+          "foreground_image_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "generate_fg_from_bg"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "background_image_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "generate_bg_from_fg"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "foreground_image_id"
+        ]
+      }
+    }
+  ],
+  "description": "LayerDiffuse contract through Phase C. Raw state preserves user selection; effective state resolves validated runtime intent; payload_contract declares expanded controls and mode requirements without hidden mutations.",
+  "phase": "phase_c_payload_contract_expansion",
+  "definitions": {
+    "LayerDiffuseOutputItem": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "filename",
+        "relative_path",
+        "save"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "sidecar",
+            "mask",
+            "preview",
+            "debug",
+            "asset"
+          ]
+        },
+        "filename": {
+          "type": "string"
+        },
+        "relative_path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "save": {
+          "type": "boolean"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "source_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disabled_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "LayerDiffuseOutputBundle": {
+      "type": "object",
+      "required": [
+        "extension_id",
+        "contract_version",
+        "run_id",
+        "mode",
+        "output_policy",
+        "outputs"
+      ],
+      "properties": {
+        "extension_id": {
+          "const": "image.layerdiffuse"
+        },
+        "contract_version": {
+          "const": "layerdiffuse-output-metadata-contract-v1"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "output_policy": {
+          "type": "string",
+          "enum": [
+            "preview",
+            "new_run",
+            "append",
+            "replace"
+          ]
+        },
+        "base_dir": {
+          "type": "string"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LayerDiffuseOutputItem"
+          }
+        },
+        "metadata_filename": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "LayerDiffuseAssetRecord": {
+      "type": "object",
+      "required": [
+        "asset_id",
+        "extension_id",
+        "contract_version",
+        "kind",
+        "relative_path",
+        "visible",
+        "save"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "extension_id": {
+          "const": "image.layerdiffuse"
+        },
+        "contract_version": {
+          "const": "layerdiffuse-asset-library-contract-v1"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "source_output_type": {
+          "type": "string"
+        },
+        "relative_path": {
+          "type": "string"
+        },
+        "preview_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "alpha_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rgb_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metadata_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reusable_as": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visible": {
+          "type": "boolean",
+          "const": true
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "LayerDiffuseAssetManifest": {
+      "type": "object",
+      "required": [
+        "extension_id",
+        "contract_version",
+        "records",
+        "hidden_registration_allowed"
+      ],
+      "properties": {
+        "extension_id": {
+          "const": "image.layerdiffuse"
+        },
+        "contract_version": {
+          "const": "layerdiffuse-asset-library-contract-v1"
+        },
+        "asset_root": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "output_policy": {
+          "type": "string"
+        },
+        "register_assets": {
+          "type": "boolean"
+        },
+        "requires_visible_output_policy": {
+          "type": "boolean"
+        },
+        "hidden_registration_allowed": {
+          "type": "boolean",
+          "const": false
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LayerDiffuseAssetRecord"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

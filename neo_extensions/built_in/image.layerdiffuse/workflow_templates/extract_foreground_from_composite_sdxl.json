@@ -1,0 +1,145 @@
+{
+  "template_schema_version": "layerdiffuse-template-v2",
+  "extension_id": "image.layerdiffuse",
+  "mode": "extract_foreground",
+  "strategy": "replace_workflow",
+  "template_id": "extract_foreground_from_composite_sdxl.json",
+  "engine": "comfyui",
+  "status": "verified_executable",
+  "description": "Extract foreground from composite using known background.",
+  "model_family": [
+    "sdxl"
+  ],
+  "batch_policy": "force_1",
+  "required_nodes": [
+    "LayeredDiffusionDiffApply",
+    "LayeredDiffusionDecodeRGBA",
+    "LayeredDiffusionDecode"
+  ],
+  "inputs": {
+    "required": [
+      "source_image_id",
+      "background_image_id"
+    ],
+    "optional": [
+      "negative_prompt",
+      "seed",
+      "steps",
+      "cfg",
+      "sampler",
+      "scheduler",
+      "width",
+      "height"
+    ],
+    "source_policy": "image",
+    "context_policy": [
+      "prompt",
+      "model",
+      "image",
+      "metadata"
+    ]
+  },
+  "bindings": {
+    "prompt": "$context.prompt",
+    "negative_prompt": "$context.negative_prompt",
+    "model": "$context.model",
+    "seed": "$context.seed",
+    "steps": "$context.steps",
+    "cfg": "$context.cfg",
+    "sampler": "$context.sampler",
+    "scheduler": "$context.scheduler",
+    "source_image": "$extensions.image.layerdiffuse.raw_state.source_image_id",
+    "background_image": "$extensions.image.layerdiffuse.raw_state.background_image_id",
+    "foreground_image": "$extensions.image.layerdiffuse.raw_state.foreground_image_id",
+    "decode_mode": "split",
+    "output_policy": "$extensions.image.layerdiffuse.raw_state.output_policy"
+  },
+  "outputs": [
+    {
+      "type": "rgba_image",
+      "role": "primary",
+      "required": true,
+      "binding": "$graph.output.rgba"
+    },
+    {
+      "type": "rgb_image",
+      "role": "sidecar",
+      "required": true,
+      "binding": "$graph.output.rgb"
+    },
+    {
+      "type": "alpha_mask",
+      "role": "mask",
+      "required": true,
+      "binding": "$graph.output.alpha"
+    },
+    {
+      "type": "preview_image",
+      "role": "preview",
+      "required": true,
+      "binding": "$graph.output.preview"
+    }
+  ],
+  "validation": {
+    "block_if_missing_nodes": true,
+    "block_if_missing_template": true,
+    "block_if_missing_inputs": [
+      "source_image_id",
+      "background_image_id"
+    ],
+    "force_batch_size": 1,
+    "block_replace_without_target": true,
+    "warnings": [],
+    "phase12_note": "Prompt-driven RGBA templates are synced. Background/composite templates remain blocked until separate verified ComfyUI exports are tested.",
+    "phase_c_note": "Neo V2 Phase C includes executable graph wiring for this mode using stable upstream LayerDiffuse node signatures."
+  },
+  "graph": {
+    "format": "comfyui_api_prompt",
+    "status": "verified_executable",
+    "node_intent": [
+      "Load composite/source image",
+      "Load known background",
+      "Use LayerDiffuse diff apply to isolate foreground",
+      "Decode RGBA and split mask",
+      "Save foreground/mask sidecars"
+    ],
+    "placeholders": {
+      "checkpoint_loader": "$context.model_loader_node",
+      "positive_conditioning": "$context.prompt_conditioning",
+      "negative_conditioning": "$context.negative_conditioning",
+      "sampler": "$context.sampler_node",
+      "layerdiffuse_apply": "LayeredDiffusion*Apply selected by mode",
+      "layerdiffuse_decode": "LayeredDiffusionDecodeRGBA or LayeredDiffusionDecodeSplit",
+      "save_outputs": "Neo extension output collector"
+    },
+    "nodes": {
+      "1": {
+        "class_type": "LoadImage",
+        "inputs": {}
+      },
+      "2": {
+        "class_type": "VAEEncode",
+        "inputs": {}
+      },
+      "3": {
+        "class_type": "LayeredDiffusionDiffApply",
+        "inputs": {}
+      },
+      "4": {
+        "class_type": "LayeredDiffusionDecodeRGBA",
+        "inputs": {}
+      },
+      "5": {
+        "class_type": "LayeredDiffusionDecode",
+        "inputs": {}
+      },
+      "6": {
+        "class_type": "SaveImage",
+        "inputs": {}
+      }
+    },
+    "primary_output": {
+      "node_id": "12"
+    }
+  }
+}

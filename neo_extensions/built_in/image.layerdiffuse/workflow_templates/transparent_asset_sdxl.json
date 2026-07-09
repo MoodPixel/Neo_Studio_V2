@@ -1,0 +1,289 @@
+{
+    "template_schema_version": "layerdiffuse-template-v2",
+    "extension_id": "image.layerdiffuse",
+    "mode": "transparent_asset",
+    "strategy": "replace_workflow",
+    "template_id": "transparent_asset_sdxl.json",
+    "engine": "comfyui",
+    "status": "verified_executable",
+    "description": "Prompt to native transparent RGBA asset.",
+    "model_family": [
+        "sdxl"
+    ],
+    "batch_policy": "force_1",
+    "required_nodes": [
+        "LayeredDiffusionApply",
+        "LayeredDiffusionDecodeRGBA"
+    ],
+    "inputs": {
+        "required": [
+            "prompt",
+            "model"
+        ],
+        "optional": [
+            "negative_prompt",
+            "seed",
+            "steps",
+            "cfg",
+            "sampler",
+            "scheduler",
+            "width",
+            "height"
+        ],
+        "source_policy": "prompt",
+        "context_policy": [
+            "prompt",
+            "model",
+            "image",
+            "metadata"
+        ]
+    },
+    "bindings": {
+        "prompt": "$context.prompt",
+        "negative_prompt": "$context.negative_prompt",
+        "model": "$context.model",
+        "seed": "$context.seed",
+        "steps": "$context.steps",
+        "cfg": "$context.cfg",
+        "sampler": "$context.sampler",
+        "scheduler": "$context.scheduler",
+        "source_image": "$extensions.image.layerdiffuse.raw_state.source_image_id",
+        "background_image": "$extensions.image.layerdiffuse.raw_state.background_image_id",
+        "foreground_image": "$extensions.image.layerdiffuse.raw_state.foreground_image_id",
+        "decode_mode": "rgba",
+        "output_policy": "$extensions.image.layerdiffuse.raw_state.output_policy"
+    },
+    "outputs": [
+        {
+            "type": "rgba_image",
+            "role": "primary",
+            "required": true,
+            "binding": "$graph.node.11.saved_image",
+            "source_node": "10",
+            "save_node": "11"
+        },
+        {
+            "type": "preview_image",
+            "role": "preview",
+            "required": true,
+            "binding": "$graph.node.12.saved_image",
+            "source_node": "7",
+            "save_node": "12"
+        },
+        {
+            "type": "alpha_mask",
+            "role": "mask",
+            "required": false,
+            "binding": "$graph.node.10.output.0.alpha_channel",
+            "source_node": "10",
+            "source_output": 0,
+            "collector_required": true
+        }
+    ],
+    "validation": {
+        "block_if_missing_nodes": true,
+        "block_if_missing_template": true,
+        "block_if_missing_inputs": [
+            "prompt",
+            "model"
+        ],
+        "force_batch_size": 1,
+        "block_replace_without_target": true,
+        "warnings": [
+            "Phase 12 synced this template to the verified standalone ComfyUI RGBA workflow.",
+            "Dimensions are auto-rounded to multiples of 64 for DecodeRGBA compatibility.",
+            "Plain VAEDecode output is preview only and must not replace the RGBA primary output."
+        ]
+    },
+    "graph": {
+        "format": "comfyui_api_prompt",
+        "status": "executable",
+        "node_intent": [
+            "Load SDXL checkpoint",
+            "Encode positive/negative prompt",
+            "Apply LayerDiffuse foreground generation",
+            "Sample latent",
+            "Decode RGBA",
+            "Save RGBA + preview"
+        ],
+        "placeholders": {
+            "checkpoint_loader": "$context.model_loader_node",
+            "positive_conditioning": "$context.prompt_conditioning",
+            "negative_conditioning": "$context.negative_conditioning",
+            "sampler": "$context.sampler_node",
+            "layerdiffuse_apply": "LayeredDiffusion*Apply selected by mode",
+            "layerdiffuse_decode": "LayeredDiffusionDecodeRGBA or LayeredDiffusionDecodeSplit",
+            "save_outputs": "Neo extension output collector"
+        },
+        "nodes": {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {
+                    "ckpt_name": "$context.ckpt_name"
+                }
+            },
+            "2": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {
+                    "text": "$context.prompt",
+                    "clip": [
+                        "1",
+                        1
+                    ]
+                }
+            },
+            "3": {
+                "class_type": "CLIPTextEncode",
+                "inputs": {
+                    "text": "$context.negative_prompt",
+                    "clip": [
+                        "1",
+                        1
+                    ]
+                }
+            },
+            "4": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {
+                    "width": "$context.width_multiple_64",
+                    "height": "$context.height_multiple_64",
+                    "batch_size": 1
+                }
+            },
+            "5": {
+                "class_type": "LayeredDiffusionApply",
+                "inputs": {
+                    "model": [
+                        "1",
+                        0
+                    ],
+                    "config": "SDXL, Conv Injection",
+                    "weight": "$layerdiffuse.weight"
+                }
+            },
+            "6": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": [
+                        "5",
+                        0
+                    ],
+                    "positive": [
+                        "2",
+                        0
+                    ],
+                    "negative": [
+                        "3",
+                        0
+                    ],
+                    "latent_image": [
+                        "4",
+                        0
+                    ],
+                    "seed": "$context.seed",
+                    "steps": "$context.steps",
+                    "cfg": "$context.cfg",
+                    "sampler_name": "$context.sampler_name",
+                    "scheduler": "$context.scheduler",
+                    "denoise": "$context.denoise"
+                }
+            },
+            "7": {
+                "class_type": "VAEDecode",
+                "inputs": {
+                    "samples": [
+                        "6",
+                        0
+                    ],
+                    "vae": [
+                        "1",
+                        2
+                    ]
+                }
+            },
+            "10": {
+                "class_type": "LayeredDiffusionDecodeRGBA",
+                "inputs": {
+                    "samples": [
+                        "6",
+                        0
+                    ],
+                    "images": [
+                        "7",
+                        0
+                    ],
+                    "sd_version": "$layerdiffuse.sd_version",
+                    "sub_batch_size": "$layerdiffuse.sub_batch_size"
+                }
+            },
+            "11": {
+                "class_type": "SaveImage",
+                "inputs": {
+                    "filename_prefix": "Neo_LayerDiffuse_rgba",
+                    "images": [
+                        "10",
+                        0
+                    ]
+                }
+            },
+            "12": {
+                "class_type": "SaveImage",
+                "inputs": {
+                    "filename_prefix": "Neo_LayerDiffuse_preview_rgb",
+                    "images": [
+                        "7",
+                        0
+                    ]
+                }
+            }
+        },
+        "output_priority": [
+            "rgba_image",
+            "preview_image",
+            "rgb_image",
+            "alpha_mask"
+        ],
+        "primary_output": {
+            "type": "rgba_image",
+            "node": "11",
+            "source_node": "10",
+            "source_class": "LayeredDiffusionDecodeRGBA",
+            "role": "primary"
+        },
+        "verified_parity": {
+            "reference": "ComfyUI-layerdiffuse example_workflows/layer_diffusion_fg_example_rgba.json",
+            "must_apply_before_sampler": true,
+            "sampler_model_input": [
+                "5",
+                0
+            ],
+            "decode_rgba_inputs": {
+                "samples": [
+                    "6",
+                    0
+                ],
+                "images": [
+                    "7",
+                    0
+                ]
+            },
+            "primary_save_input": [
+                "10",
+                0
+            ],
+            "preview_save_input": [
+                "7",
+                0
+            ]
+        }
+    },
+    "verified_reference_workflow": "layer_diffusion_fg_example_rgba.json",
+    "verified_reference_chain": [
+        "CheckpointLoaderSimple",
+        "LayeredDiffusionApply",
+        "KSampler",
+        "VAEDecode",
+        "LayeredDiffusionDecodeRGBA",
+        "SaveImage"
+    ]
+}

@@ -1,0 +1,1283 @@
+{
+  "schema_version": 1,
+  "id": "image.layerdiffuse",
+  "extension_id": "image.layerdiffuse",
+  "type": "external_extension",
+  "extension_type": "external_extension",
+  "slug": "layerdiffuse",
+  "name": "ComfyUI LayerDiffuse",
+  "title": "Image \u00b7 LayerDiffuse",
+  "version": "0.15.0",
+  "author": "Neo Studio",
+  "description": "External Image output extension contract migrated to Neo image section targets, compatibility resolver, section mounts, cross-system conflict matrix, LayerDiffuse UI mode cards, workflow mappings, payload/output contracts, and SDXL/SD model-family support.",
+  "enabled": true,
+  "enabled_default": true,
+  "target_surface": "image",
+  "surface": "image",
+  "target_tab": "extensions",
+  "target_subtab": "extensions",
+  "workspace": "extensions",
+  "mount_type": "panel",
+  "mount_point": "image.extensions.manager",
+  "panel_title": "LayerDiffuse",
+  "target_sections": [
+    "extensions",
+    "output",
+    "assets",
+    "results"
+  ],
+  "supported_workflows": [
+    "txt2img",
+    "img2img"
+  ],
+  "supported_model_families": [
+    "sdxl",
+    "sd",
+    "sd15",
+    "sd1.5",
+    "sd_1_5",
+    "sd1_5",
+    "sdxl_sd",
+    "sdxl/sd",
+    "sdxl_sd_family"
+  ],
+  "source_policy": [
+    "prompt",
+    "selected_image",
+    "upload",
+    "output"
+  ],
+  "output_policy": [
+    "preview",
+    "new_run",
+    "append",
+    "replace"
+  ],
+  "batch_policy": "force_1",
+  "context_policy": [
+    "prompt",
+    "model",
+    "image",
+    "metadata"
+  ],
+  "policy_version": "external-extension-policy-v1",
+  "ui_entry": "static/layerdiffuse.js",
+  "entry_js": "static/layerdiffuse.js",
+  "backend_entry": "backend/adapter.py",
+  "backend_routes": "",
+  "frontend": {
+    "entry_js": "static/layerdiffuse.js",
+    "entry_css": "static/layerdiffuse.css",
+    "mount_id": "layerdiffuse-extension-panel",
+    "panel_runtime": "extension_local_panel_v1"
+  },
+  "backend": {
+    "routes": "",
+    "adapter": "backend/adapter.py",
+    "healthcheck": "backend.adapter.get_capabilities",
+    "execution_plan": "backend.adapter.build_execution_plan",
+    "payload_entry": "backend.adapter.build_payload_entry",
+    "payload_block": "backend.adapter.build_payload_block",
+    "metadata": "backend.adapter.build_run_metadata",
+    "workflow_verification": "backend.workflow_verification.build_workflow_export_verification_report"
+  },
+  "comfy": {
+    "custom_nodes": "ComfyUI-layerdiffuse",
+    "workflows": "workflow_templates",
+    "requires_nodes": [
+      "LayeredDiffusionApply",
+      "LayeredDiffusionJointApply",
+      "LayeredDiffusionCondApply",
+      "LayeredDiffusionCondJointApply",
+      "LayeredDiffusionDiffApply",
+      "LayeredDiffusionDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "LayeredDiffusionDecodeSplit"
+    ]
+  },
+  "requires_nodes": [
+    "LayeredDiffusionApply",
+    "LayeredDiffusionJointApply",
+    "LayeredDiffusionCondApply",
+    "LayeredDiffusionCondJointApply",
+    "LayeredDiffusionDiffApply",
+    "LayeredDiffusionDecode",
+    "LayeredDiffusionDecodeRGBA",
+    "LayeredDiffusionDecodeSplit"
+  ],
+  "required_nodes": [
+    "LayeredDiffusionApply",
+    "LayeredDiffusionJointApply",
+    "LayeredDiffusionCondApply",
+    "LayeredDiffusionCondJointApply",
+    "LayeredDiffusionDiffApply",
+    "LayeredDiffusionDecode",
+    "LayeredDiffusionDecodeRGBA",
+    "LayeredDiffusionDecodeSplit"
+  ],
+  "workflow_folder": "workflow_templates",
+  "workflow_schema": "schema.json",
+  "extension_config": "extension.config.json",
+  "ui_schema": {
+    "schema_version": "external-ui-schema-v1",
+    "surface": "image",
+    "mount": "image.extensions.manager",
+    "panel_id": "layerdiffuse-extension-panel",
+    "title": "LayerDiffuse",
+    "description": "LayerDiffuse migrated as an Image output/results contributor. It remains visible in the Extensions manager and mounts into section slots through Neo compatibility/section-mount resolution with family/workflow disabled reasons.",
+    "sections": [
+      {
+        "id": "status",
+        "title": "Status",
+        "controls": [
+          {
+            "key": "enabled",
+            "type": "toggle",
+            "label": "Enable LayerDiffuse",
+            "default": false
+          },
+          {
+            "key": "capability_status",
+            "type": "status_badge",
+            "label": "ComfyUI Node Status"
+          },
+          {
+            "key": "active_target",
+            "type": "target_badge",
+            "label": "Target"
+          }
+        ],
+        "description": "Shows enable state, registry/capability state, active target, and disabled reasons."
+      },
+      {
+        "id": "mode",
+        "title": "Mode",
+        "controls": [
+          {
+            "key": "mode",
+            "type": "mode_cards",
+            "label": "LayerDiffuse Mode",
+            "default": "transparent_asset",
+            "selection_policy": "visible_card_selection_with_blocked_reason",
+            "options": [
+              {
+                "value": "transparent_asset",
+                "label": "Transparent Asset",
+                "status": "ready",
+                "description": "Prompt-driven transparent RGBA asset generation.",
+                "requires": []
+              },
+              {
+                "value": "rgb_alpha_split",
+                "label": "RGB + Alpha Split",
+                "status": "ready",
+                "description": "Prompt-driven transparent asset with RGB and alpha sidecars.",
+                "requires": []
+              },
+              {
+                "value": "foreground_on_background",
+                "label": "Foreground on Background",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Prompt + background image -> foreground layer designed for that scene.",
+                "requires": [
+                  "background_image_id"
+                ]
+              },
+              {
+                "value": "background_aware_blend",
+                "label": "Background-Aware Blend",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Foreground + background -> coherent blended composite.",
+                "requires": [
+                  "foreground_image_id",
+                  "background_image_id"
+                ]
+              },
+              {
+                "value": "extract_foreground",
+                "label": "Extract Foreground",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Composite/source image + known background -> extracted RGBA foreground.",
+                "requires": [
+                  "source_image_id",
+                  "background_image_id"
+                ]
+              },
+              {
+                "value": "overlay_fx",
+                "label": "Transparent Overlay FX",
+                "status": "ready",
+                "description": "Prompt-driven semi-transparent overlay assets for editing/compositing.",
+                "requires": []
+              },
+              {
+                "value": "extract_background",
+                "label": "Extract Background",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Composite/source image + known foreground -> extracted clean background.",
+                "requires": [
+                  "source_image_id",
+                  "foreground_image_id"
+                ]
+              },
+              {
+                "value": "generate_fg_from_bg",
+                "label": "Generate FG from BG",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Background image + prompt -> generated foreground and blended preview.",
+                "requires": [
+                  "background_image_id"
+                ]
+              },
+              {
+                "value": "generate_bg_from_fg",
+                "label": "Generate BG from FG",
+                "status": "blocked_missing_verified_workflow",
+                "description": "Foreground image + prompt -> generated background and blended preview.",
+                "requires": [
+                  "foreground_image_id"
+                ]
+              },
+              {
+                "value": "joint_bg_fg_blend_sd15",
+                "label": "Joint BG + FG + Blend (SD1.5)",
+                "status": "experimental_requires_validation",
+                "description": "SD1.5 joint generation route for background, foreground, and blended result.",
+                "requires": []
+              }
+            ]
+          },
+          {
+            "key": "compatibility_mode",
+            "type": "select",
+            "label": "Compatibility mode",
+            "default": "auto",
+            "options": [
+              "auto",
+              "sdxl",
+              "sd15"
+            ]
+          },
+          {
+            "key": "sd_version",
+            "type": "select",
+            "label": "SD version",
+            "default": "auto",
+            "options": [
+              "auto",
+              "sdxl",
+              "sd15"
+            ]
+          }
+        ],
+        "description": "Mode selector is rendered as visible cards. Every mode shows status, requirements, and blocked reason before execution."
+      },
+      {
+        "id": "source",
+        "title": "Source",
+        "controls": [
+          {
+            "key": "source_type",
+            "type": "select",
+            "label": "Source",
+            "default": "prompt",
+            "options": [
+              "prompt",
+              "selected_image",
+              "upload",
+              "previous_output"
+            ]
+          },
+          {
+            "key": "source_image_id",
+            "type": "image_picker",
+            "label": "Source Image",
+            "visible_when": {
+              "source_type": [
+                "selected_image",
+                "upload",
+                "previous_output"
+              ]
+            }
+          },
+          {
+            "key": "background_image_id",
+            "type": "image_picker",
+            "label": "Background Image",
+            "visible_when": {
+              "mode": [
+                "foreground_on_background",
+                "background_aware_blend",
+                "extract_foreground"
+              ]
+            }
+          },
+          {
+            "key": "foreground_image_id",
+            "type": "image_picker",
+            "label": "Foreground Image",
+            "visible_when": {
+              "mode": [
+                "background_aware_blend"
+              ]
+            }
+          }
+        ],
+        "description": "All source images are explicit. Modes that need background/foreground inputs show those selectors."
+      },
+      {
+        "id": "output",
+        "title": "Output",
+        "controls": [
+          {
+            "key": "decode_mode",
+            "type": "select",
+            "label": "Decode Mode",
+            "default": "rgba",
+            "options": [
+              "rgba",
+              "split",
+              "preview_only"
+            ]
+          },
+          {
+            "key": "output_policy",
+            "type": "select",
+            "label": "Output Policy",
+            "default": "new_run",
+            "options": [
+              "preview",
+              "new_run",
+              "append",
+              "replace"
+            ],
+            "warning": "replace requires visible target and confirmation before validation can pass"
+          },
+          {
+            "key": "replace_target_id",
+            "type": "output_picker",
+            "label": "Replace Target",
+            "visible_when": {
+              "output_policy": "replace"
+            },
+            "requires_confirmation": true
+          },
+          {
+            "key": "save_rgba",
+            "type": "checkbox",
+            "label": "Save RGBA PNG",
+            "default": true
+          },
+          {
+            "key": "save_rgb",
+            "type": "checkbox",
+            "label": "Save RGB Image",
+            "default": false
+          },
+          {
+            "key": "save_alpha",
+            "type": "checkbox",
+            "label": "Save Alpha Mask",
+            "default": true
+          },
+          {
+            "key": "save_metadata",
+            "type": "checkbox",
+            "label": "Save Metadata",
+            "default": true
+          }
+        ],
+        "description": "Output policy is explicit: preview, new run, append, or replace selected target with confirmation."
+      },
+      {
+        "id": "advanced",
+        "title": "Advanced",
+        "collapsed": true,
+        "controls": [
+          {
+            "key": "compatibility_mode",
+            "type": "select",
+            "label": "Compatibility Mode",
+            "default": "auto",
+            "options": [
+              "auto",
+              "sdxl",
+              "sd15"
+            ]
+          },
+          {
+            "key": "workflow_template",
+            "type": "readonly",
+            "label": "Workflow Template"
+          },
+          {
+            "key": "batch_behavior",
+            "type": "readonly",
+            "label": "Batch Behavior",
+            "value": "Force 1"
+          }
+        ]
+      },
+      {
+        "id": "validation",
+        "title": "Validation",
+        "controls": [
+          {
+            "key": "validation_status",
+            "type": "validation_panel",
+            "label": "Validation"
+          }
+        ],
+        "description": "Shows blocking errors, warnings, and effective-state summary from the central external extension store."
+      }
+    ],
+    "runtime": "extension_local_panel_v1",
+    "state_store": "NeoExternalExtensionState",
+    "visibility_contract": {
+      "active_state_visible": true,
+      "source_visible": true,
+      "target_visible": true,
+      "output_policy_visible": true,
+      "disabled_reason_visible": true,
+      "hidden_behavior_allowed": false,
+      "mode_status_visible": true,
+      "mode_requirements_visible": true,
+      "blocked_mode_reason_visible": true,
+      "compatibility_status_visible": true,
+      "target_section_visible": true,
+      "cross_system_conflicts_visible": true
+    }
+  },
+  "workflow_patches": [
+    {
+      "mode": "transparent_asset",
+      "strategy": "replace_workflow",
+      "template": "transparent_asset_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "verified_executable",
+      "mapping_only": false,
+      "verified_reference": "layer_diffusion_fg_example_rgba.json"
+    },
+    {
+      "mode": "rgb_alpha_split",
+      "strategy": "replace_workflow",
+      "template": "transparent_asset_split_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "verified_executable",
+      "mapping_only": false,
+      "verified_reference": "layer_diffusion_fg_example_rgba.json"
+    },
+    {
+      "mode": "foreground_on_background",
+      "strategy": "replace_workflow",
+      "template": "foreground_on_background_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "requires_verified_workflow_export",
+      "mapping_only": true
+    },
+    {
+      "mode": "background_aware_blend",
+      "strategy": "sidecar_run",
+      "template": "background_aware_blend_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "requires_verified_workflow_export",
+      "mapping_only": true
+    },
+    {
+      "mode": "extract_foreground",
+      "strategy": "sidecar_run",
+      "template": "extract_foreground_from_composite_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "requires_verified_workflow_export",
+      "mapping_only": true
+    },
+    {
+      "mode": "overlay_fx",
+      "strategy": "replace_workflow",
+      "template": "overlay_fx_transparent_sdxl.json",
+      "adapter": "backend.adapter.build_workflow_patch",
+      "status": "verified_executable",
+      "mapping_only": false,
+      "verified_reference": "layer_diffusion_fg_example_rgba.json"
+    }
+  ],
+  "outputs": [
+    {
+      "type": "rgba_image",
+      "role": "primary",
+      "required_for": [
+        "transparent_asset",
+        "rgb_alpha_split",
+        "overlay_fx"
+      ]
+    },
+    {
+      "type": "alpha_mask",
+      "role": "mask",
+      "required_for": [
+        "rgb_alpha_split",
+        "extract_foreground"
+      ]
+    },
+    {
+      "type": "rgb_image",
+      "role": "sidecar",
+      "required_for": [
+        "rgb_alpha_split"
+      ]
+    },
+    {
+      "type": "preview_image",
+      "role": "preview",
+      "required_for": [
+        "all"
+      ]
+    }
+  ],
+  "guardrails": {
+    "source_requirements": {
+      "transparent_asset": [
+        "prompt"
+      ],
+      "rgb_alpha_split": [
+        "prompt"
+      ],
+      "foreground_on_background": [
+        "background_image_id"
+      ],
+      "background_aware_blend": [
+        "foreground_image_id",
+        "background_image_id"
+      ],
+      "extract_foreground": [
+        "source_image_id",
+        "background_image_id"
+      ],
+      "overlay_fx": [
+        "prompt"
+      ]
+    },
+    "blocked_without": [
+      "required_nodes",
+      "workflow_template",
+      "valid_source"
+    ],
+    "restricted": [
+      "output_policy.replace"
+    ],
+    "batch": "force_1",
+    "identity_context": "blocked_initially"
+  },
+  "dependencies": {
+    "python": [],
+    "npm": [],
+    "neo_extensions": [],
+    "providers": [
+      "image"
+    ],
+    "comfy_nodes": [
+      "LayeredDiffusionApply",
+      "LayeredDiffusionJointApply",
+      "LayeredDiffusionCondApply",
+      "LayeredDiffusionCondJointApply",
+      "LayeredDiffusionDiffApply",
+      "LayeredDiffusionDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "LayeredDiffusionDecodeSplit"
+    ],
+    "models": [
+      "SDXL or SD 1.5 checkpoint compatible with LayerDiffuse workflows"
+    ],
+    "external_apps": [
+      "ComfyUI",
+      "ComfyUI-layerdiffuse custom node pack"
+    ],
+    "notes": [
+      "Install huchenlei/ComfyUI-layerdiffuse in ComfyUI custom_nodes before enabling this extension."
+    ]
+  },
+  "permissions": [
+    "provider_access",
+    "comfy_access",
+    "frontend_injection",
+    "filesystem_read",
+    "filesystem_write"
+  ],
+  "compatibility": {
+    "min_neo_version": "1.0.0",
+    "max_neo_version": "",
+    "contract": "image-extension-compatibility-resolver-v2",
+    "target_contract": "image-extension-target-contract-v1",
+    "family_matrix": "model-family-capability-matrix-v1",
+    "conflict_matrix": "image-cross-system-conflict-matrix-v1",
+    "section_mount_rules": "image-extension-section-mount-rules-v1",
+    "families": [
+      "sdxl_sd"
+    ],
+    "workflows": [
+      "txt2img",
+      "img2img"
+    ],
+    "allows_with": [
+      "style_stack",
+      "scene_director",
+      "controlnet",
+      "ipadapter"
+    ],
+    "warns_with": [
+      "adetailer",
+      "highres_fix"
+    ],
+    "blocks_with": [
+      "lanpaint",
+      "outpaint_canvas_editor"
+    ],
+    "policy": "visible_block_or_warn_no_hidden_mutation"
+  },
+  "workflow_template_schema": "workflow_templates/_template_contract.schema.json",
+  "workflow_templates": {
+    "folder": "workflow_templates",
+    "contract_schema": "_template_contract.schema.json",
+    "phase": "adapter_resolves_template_contract",
+    "templates": [
+      "transparent_asset_sdxl.json",
+      "transparent_asset_split_sdxl.json",
+      "foreground_on_background_sdxl.json",
+      "background_aware_blend_sdxl.json",
+      "extract_foreground_from_composite_sdxl.json",
+      "overlay_fx_transparent_sdxl.json"
+    ],
+    "notes": [
+      "Phase 4 adapter resolves mode/model/source/output state into a transparent workflow patch contract.",
+      "Templates remain mapping-only until executable ComfyUI socket IDs are generated from object_info in the later socket-finalization phase."
+    ]
+  },
+  "adapter": {
+    "version": "layerdiffuse-adapter-v1",
+    "entry": "backend/adapter.py",
+    "capabilities": "backend.adapter.get_capabilities",
+    "normalize": "backend.adapter.normalize_raw_state",
+    "validate": "backend.adapter.validate_raw_state",
+    "effective_state": "backend.adapter.build_effective_state",
+    "workflow_patch": "backend.adapter.build_workflow_patch",
+    "execution_plan": "backend.adapter.build_execution_plan",
+    "scope": "extension_local",
+    "execution": "contract_only_mapping_templates_not_socket_finalized",
+    "graph_wiring_version": "layerdiffuse-verified-comfy-graph-v2"
+  },
+  "phase": "phase_c_payload_contract_expansion",
+  "payload_contract": {
+    "version": "layerdiffuse-payload-contract-v1",
+    "metadata_version": "layerdiffuse-metadata-contract-v1",
+    "entry_builder": "backend.adapter.build_payload_entry",
+    "block_builder": "backend.adapter.build_payload_block",
+    "raw_state_policy": "preserve_user_ui_selection_after_type_normalization",
+    "effective_state_policy": "backend_resolved_validated_runtime_intent",
+    "workflow_patch_policy": "visible_contract_only_adapter_does_not_execute",
+    "hidden_mutations_allowed": false,
+    "disabled_invalid_state_policy": "remain_visible_effective_enabled_false"
+  },
+  "payload_keys": [
+    "enabled",
+    "mode",
+    "source_type",
+    "source_image_id",
+    "background_image_id",
+    "foreground_image_id",
+    "decode_mode",
+    "output_policy",
+    "replace_target_id",
+    "save_rgba",
+    "save_rgb",
+    "save_alpha",
+    "save_metadata",
+    "compatibility_mode",
+    "raw_state",
+    "effective_state",
+    "workflow_patch",
+    "workflow_validation",
+    "transparency"
+  ],
+  "metadata_contract": {
+    "version": "layerdiffuse-metadata-contract-v1",
+    "root_key": "_neo_external_extensions.image.layerdiffuse",
+    "includes": [
+      "raw_state",
+      "effective_state",
+      "validation",
+      "workflow_template",
+      "patch_strategy",
+      "outputs_expected",
+      "mapping_only",
+      "visible",
+      "policy"
+    ],
+    "policy": "transparent_raw_effective_no_hidden_mutation"
+  },
+  "entry_css": "static/layerdiffuse.css",
+  "phase6_visibility_fix": "Enabled by default because Neo frontend hook loader only loads enabled extensions; capability/runtime validation still blocks actual execution if requirements are missing.",
+  "phase11_graph_wiring": {
+    "version": "layerdiffuse-real-comfy-graph-v1",
+    "executable_modes": [
+      "transparent_asset",
+      "rgb_alpha_split",
+      "overlay_fx"
+    ],
+    "primary_output_rule": "LayeredDiffusionDecodeRGBA -> SaveImage must be primary; VAEDecode save is preview only",
+    "dimensions_multiple_of": 64,
+    "background_modes": "blocked_until_exported_workflow_mapping"
+  },
+  "validation": {
+    "contract_version": "layerdiffuse-workflow-validation-v1",
+    "hidden_autofix_allowed": false,
+    "execution_enabled": true,
+    "phase11_graph_wiring": "layerdiffuse-real-comfy-graph-v1",
+    "capability_registry_version": "layerdiffuse-capability-registry-v1",
+    "workflow_export_verification_version": "layerdiffuse-workflow-export-verification-v1"
+  },
+  "phase12_template_sync": {
+    "status": "verified_prompt_driven_rgba_templates",
+    "reference_workflow": "layer_diffusion_fg_example_rgba.json",
+    "chain": [
+      "CheckpointLoaderSimple",
+      "LayeredDiffusionApply",
+      "KSampler",
+      "VAEDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "SaveImage"
+    ],
+    "notes": [
+      "Prompt-driven transparent_asset/rgb_alpha_split/overlay_fx templates now match the verified standalone workflow chain.",
+      "Background/composite modes remain guarded until their own verified workflow exports are available."
+    ]
+  },
+  "capability_registry": {
+    "extension_id": "image.layerdiffuse",
+    "version": "layerdiffuse-capability-registry-v1",
+    "modes": {
+      "transparent_asset": {
+        "label": "Transparent Asset",
+        "description": "Prompt-driven transparent RGBA asset generation.",
+        "status": "ready",
+        "template": {
+          "sdxl": "transparent_asset_sdxl.json",
+          "sd15": "transparent_asset_sd15.json"
+        },
+        "fallback_template": "transparent_asset_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "rgba",
+        "requires_prompt": true,
+        "requires": [],
+        "source_policy": [
+          "prompt"
+        ],
+        "output_policy": [
+          "new_run",
+          "append",
+          "preview",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl",
+          "sd15"
+        ],
+        "workflows": [
+          "txt2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "alpha_mask",
+          "preview_image"
+        ],
+        "executable": true
+      },
+      "rgb_alpha_split": {
+        "label": "RGB + Alpha Split",
+        "description": "Prompt-driven transparent asset with RGB and alpha sidecars.",
+        "status": "ready",
+        "template": {
+          "sdxl": "transparent_asset_split_sdxl.json"
+        },
+        "fallback_template": "transparent_asset_split_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "split",
+        "requires_prompt": true,
+        "requires": [],
+        "source_policy": [
+          "prompt"
+        ],
+        "output_policy": [
+          "new_run",
+          "append",
+          "preview",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "txt2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "rgb_image",
+          "alpha_mask",
+          "preview_image"
+        ],
+        "executable": true
+      },
+      "foreground_on_background": {
+        "label": "Foreground on Background",
+        "description": "Prompt + background image -> foreground layer designed for that scene.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {
+          "sdxl": "foreground_on_background_sdxl.json"
+        },
+        "fallback_template": "foreground_on_background_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "rgba",
+        "requires_prompt": true,
+        "requires": [
+          "background_image_id"
+        ],
+        "source_policy": [
+          "prompt",
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "new_run",
+          "append",
+          "preview",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "txt2img",
+          "img2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "alpha_mask",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_background_conditioning_export"
+      },
+      "background_aware_blend": {
+        "label": "Background-Aware Blend",
+        "description": "Foreground + background -> coherent blended composite.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {
+          "sdxl": "background_aware_blend_sdxl.json"
+        },
+        "fallback_template": "background_aware_blend_sdxl.json",
+        "strategy": "sidecar_run",
+        "decode_mode": "preview_only",
+        "requires_prompt": true,
+        "requires": [
+          "foreground_image_id",
+          "background_image_id"
+        ],
+        "source_policy": [
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "img2img"
+        ],
+        "outputs": [
+          "composited_image",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_foreground_background_blend_export"
+      },
+      "extract_foreground": {
+        "label": "Extract Foreground",
+        "description": "Composite/source image + known background -> extracted RGBA foreground.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {
+          "sdxl": "extract_foreground_from_composite_sdxl.json"
+        },
+        "fallback_template": "extract_foreground_from_composite_sdxl.json",
+        "strategy": "sidecar_run",
+        "decode_mode": "split",
+        "requires_prompt": false,
+        "requires": [
+          "source_image_id",
+          "background_image_id"
+        ],
+        "source_policy": [
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "img2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "rgb_image",
+          "alpha_mask",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_foreground_extraction_export"
+      },
+      "overlay_fx": {
+        "label": "Transparent Overlay FX",
+        "description": "Prompt-driven semi-transparent overlay assets for editing/compositing.",
+        "status": "ready",
+        "template": {
+          "sdxl": "overlay_fx_transparent_sdxl.json"
+        },
+        "fallback_template": "overlay_fx_transparent_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "split",
+        "requires_prompt": true,
+        "requires": [],
+        "source_policy": [
+          "prompt"
+        ],
+        "output_policy": [
+          "new_run",
+          "append",
+          "preview",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "txt2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "rgb_image",
+          "alpha_mask",
+          "preview_image"
+        ],
+        "executable": true
+      },
+      "extract_background": {
+        "label": "Extract Background",
+        "description": "Composite/source image + known foreground -> extracted clean background.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {},
+        "fallback_template": "extract_background_from_composite_sdxl.json",
+        "strategy": "sidecar_run",
+        "decode_mode": "preview_only",
+        "requires_prompt": false,
+        "requires": [
+          "source_image_id",
+          "foreground_image_id"
+        ],
+        "source_policy": [
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "img2img"
+        ],
+        "outputs": [
+          "background_image",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_background_extraction_export"
+      },
+      "generate_fg_from_bg": {
+        "label": "Generate FG from BG",
+        "description": "Background image + prompt -> generated foreground and blended preview.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {},
+        "fallback_template": "generate_foreground_from_background_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "rgba",
+        "requires_prompt": true,
+        "requires": [
+          "background_image_id"
+        ],
+        "source_policy": [
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "img2img"
+        ],
+        "outputs": [
+          "rgba_image",
+          "alpha_mask",
+          "composited_image",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_generate_foreground_from_background_export"
+      },
+      "generate_bg_from_fg": {
+        "label": "Generate BG from FG",
+        "description": "Foreground image + prompt -> generated background and blended preview.",
+        "status": "blocked_missing_verified_workflow",
+        "template": {},
+        "fallback_template": "generate_background_from_foreground_sdxl.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "preview_only",
+        "requires_prompt": true,
+        "requires": [
+          "foreground_image_id"
+        ],
+        "source_policy": [
+          "selected_image",
+          "upload",
+          "previous_output"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append",
+          "replace"
+        ],
+        "batch_policy": "force_1",
+        "model_families": [
+          "sdxl"
+        ],
+        "workflows": [
+          "img2img"
+        ],
+        "outputs": [
+          "background_image",
+          "composited_image",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_verified_generate_background_from_foreground_export"
+      },
+      "joint_bg_fg_blend_sd15": {
+        "label": "Joint BG + FG + Blend (SD1.5)",
+        "description": "SD1.5 joint generation route for background, foreground, and blended result.",
+        "status": "experimental_requires_validation",
+        "template": {},
+        "fallback_template": "joint_bg_fg_blend_sd15.json",
+        "strategy": "replace_workflow",
+        "decode_mode": "split",
+        "requires_prompt": true,
+        "requires": [],
+        "source_policy": [
+          "prompt"
+        ],
+        "output_policy": [
+          "preview",
+          "new_run",
+          "append"
+        ],
+        "batch_policy": "blocked_until_batch_rule_defined",
+        "model_families": [
+          "sd15"
+        ],
+        "workflows": [
+          "txt2img"
+        ],
+        "outputs": [
+          "background_image",
+          "rgba_image",
+          "rgb_image",
+          "alpha_mask",
+          "composited_image",
+          "preview_image"
+        ],
+        "executable": false,
+        "blocked_reason": "requires_sd15_joint_workflow_batch_policy_and_verified_export"
+      }
+    },
+    "mode_aliases": {
+      "transparent_rgba": "transparent_asset",
+      "rgba": "transparent_asset",
+      "transparent_asset_sdxl": "transparent_asset",
+      "split": "rgb_alpha_split",
+      "rgb_alpha": "rgb_alpha_split",
+      "foreground_from_background": "generate_fg_from_bg",
+      "background_from_foreground": "generate_bg_from_fg",
+      "extract_bg": "extract_background",
+      "joint_bg_fg_blend": "joint_bg_fg_blend_sd15"
+    },
+    "supported_workflows": [
+      "txt2img",
+      "img2img"
+    ],
+    "supported_model_families": [
+      "sdxl",
+      "sd",
+      "sd15",
+      "sd1.5",
+      "sd_1_5",
+      "sd1_5",
+      "sdxl_sd",
+      "sdxl/sd",
+      "sdxl_sd_family"
+    ],
+    "supported_source_types": [
+      "prompt",
+      "selected_image",
+      "upload",
+      "previous_output"
+    ],
+    "supported_output_policies": [
+      "preview",
+      "new_run",
+      "append",
+      "replace"
+    ],
+    "supported_decode_modes": [
+      "rgba",
+      "split",
+      "preview_only"
+    ],
+    "required_nodes": [
+      "LayeredDiffusionApply",
+      "LayeredDiffusionJointApply",
+      "LayeredDiffusionCondApply",
+      "LayeredDiffusionCondJointApply",
+      "LayeredDiffusionDiffApply",
+      "LayeredDiffusionDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "LayeredDiffusionDecodeSplit"
+    ],
+    "hidden_mutations_allowed": false
+  },
+  "workflow_export_verification": {
+    "contract_version": "layerdiffuse-workflow-export-verification-v1",
+    "source": "local_extension_templates",
+    "runtime_execution_performed": false,
+    "hidden_enablement_allowed": false,
+    "verified_modes": [
+      "transparent_asset",
+      "rgb_alpha_split",
+      "overlay_fx"
+    ],
+    "blocked_modes": [
+      "foreground_on_background",
+      "background_aware_blend",
+      "extract_foreground",
+      "extract_background",
+      "generate_fg_from_bg",
+      "generate_bg_from_fg",
+      "joint_bg_fg_blend_sd15"
+    ],
+    "rule": "A mode is executable only when its local template has verified_executable status, graph.nodes, required LayerDiffuse node classes, and declared outputs."
+  },
+  "extension_target_contract_version": "image-extension-target-contract-v1",
+  "extension_targets": [
+    "image.extensions_manager",
+    "image.assets",
+    "image.output",
+    "image.results",
+    "image.save_metadata"
+  ],
+  "targets": [
+    "image.extensions_manager",
+    "image.assets",
+    "image.output",
+    "image.results",
+    "image.save_metadata"
+  ],
+  "image_systems": [
+    "layerdiffuse"
+  ],
+  "systems": [
+    "layerdiffuse"
+  ],
+  "contribution_types": [
+    "workflow_patch",
+    "output_role",
+    "metadata_patch",
+    "validator_rule",
+    "ui_panel"
+  ],
+  "contribution_type": "workflow_patch",
+  "priority": 70,
+  "extension_priority": 70,
+  "workflow": {
+    "mode": "workflow_patch",
+    "target": "image.output",
+    "primary_target": "image.output",
+    "supported_workflows": [
+      "txt2img",
+      "img2img"
+    ],
+    "patch_owner": "extension_runtime",
+    "hidden_mutations_allowed": false
+  },
+  "output": {
+    "policy": "append",
+    "primary_type": "rgba",
+    "output_affecting": true,
+    "roles": [
+      "rgba_image",
+      "rgb_image",
+      "alpha_mask",
+      "preview_image",
+      "composited_image",
+      "background_image"
+    ],
+    "target": "image.results"
+  },
+  "output_visibility": {
+    "target_visible": true,
+    "output_policy_visible": true,
+    "workflow_mode_visible": true,
+    "compatibility_visible": true,
+    "disabled_reason_visible": true,
+    "hidden_behavior_allowed": false
+  }
+}

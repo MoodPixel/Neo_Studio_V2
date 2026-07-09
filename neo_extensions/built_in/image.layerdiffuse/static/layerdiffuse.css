@@ -1,0 +1,102 @@
+.layerdiffuse-panel {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 10px 0 14px;
+  background: rgba(15, 23, 42, 0.34);
+}
+.layerdiffuse-panel .ld-header,
+.layerdiffuse-panel .ld-grid,
+.layerdiffuse-panel .ld-visible-state {
+  display: grid;
+  gap: 10px;
+}
+.layerdiffuse-panel .ld-header {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.layerdiffuse-panel .ld-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.layerdiffuse-panel .ld-section {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 10px;
+  background: rgba(2, 6, 23, 0.22);
+}
+.layerdiffuse-panel .ld-section-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.layerdiffuse-panel .ld-field,
+.layerdiffuse-panel .ld-check {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+}
+.layerdiffuse-panel .ld-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.layerdiffuse-panel input,
+.layerdiffuse-panel select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 7px 9px;
+  background: rgba(15, 23, 42, 0.72);
+  color: inherit;
+}
+.layerdiffuse-panel input[type="checkbox"] {
+  width: auto;
+}
+.layerdiffuse-panel small,
+.layerdiffuse-panel .ld-muted {
+  color: rgba(203, 213, 225, 0.76);
+  font-size: 12px;
+}
+.layerdiffuse-panel .ld-status-stack,
+.layerdiffuse-panel .ld-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.layerdiffuse-panel .ld-pill,
+.layerdiffuse-panel .ld-badge {
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.layerdiffuse-panel .ld-badge.is-active,
+.layerdiffuse-panel .ld-ok {
+  border-color: rgba(74, 222, 128, 0.45);
+}
+.layerdiffuse-panel .ld-warnings {
+  display: grid;
+  gap: 5px;
+  color: #fde68a;
+}
+.layerdiffuse-panel .ld-ok {
+  color: #bbf7d0;
+}
+.layerdiffuse-panel .ld-details {
+  margin-top: 10px;
+}
+.layerdiffuse-panel pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.ld-mode-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  padding: 10px;
+}

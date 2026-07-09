@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neo.studio/extensions/image.layerdiffuse/workflow-template-contract.schema.json",
+  "title": "LayerDiffuse Workflow Template Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "template_schema_version",
+    "extension_id",
+    "mode",
+    "strategy",
+    "template_id",
+    "engine",
+    "status",
+    "required_nodes",
+    "inputs",
+    "bindings",
+    "outputs",
+    "validation",
+    "graph"
+  ],
+  "properties": {
+    "template_schema_version": {
+      "type": "string"
+    },
+    "extension_id": {
+      "const": "image.layerdiffuse"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "strategy": {
+      "type": "string"
+    },
+    "template_id": {
+      "type": "string"
+    },
+    "engine": {
+      "const": "comfyui"
+    },
+    "status": {
+      "enum": [
+        "mapping_only",
+        "executable"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "model_family": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "batch_policy": {
+      "type": "string"
+    },
+    "required_nodes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "bindings": {
+      "type": "object"
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "validation": {
+      "type": "object"
+    },
+    "graph": {
+      "type": "object"
+    }
+  }
+}

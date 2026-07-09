@@ -1,0 +1,327 @@
+{
+  "id": "image.layerdiffuse",
+  "name": "ComfyUI LayerDiffuse",
+  "version": "2.10.0",
+  "description": "Built-in Image extension for transparent RGBA generation through ComfyUI LayerDiffuse, with guarded workflow replacement, required-node validation, output metadata, and replay-visible state.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img"
+  ],
+  "workspace_apps": [
+    "generations",
+    "reference"
+  ],
+  "mount_slots": [
+    "image.generations.external.layerdiffuse",
+    "image.reference.external.layerdiffuse"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": "generate",
+      "slot": "image.generations.external.layerdiffuse",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "reference",
+      "workflow_mode": "img2img",
+      "slot": "image.reference.external.layerdiffuse",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "sd",
+    "sd1.5",
+    "sd_1_5",
+    "sd1_5"
+  ],
+  "supported_loaders": [
+    "checkpoint"
+  ],
+  "route_states": {
+    "comfyui:sdxl:checkpoint:generate": "available",
+    "comfyui_portable:sdxl:checkpoint:generate": "available",
+    "comfyui:sdxl:checkpoint:img2img": "experimental_available",
+    "comfyui_portable:sdxl:checkpoint:img2img": "experimental_available",
+    "comfyui:sd15:checkpoint:generate": "experimental_available",
+    "comfyui_portable:sd15:checkpoint:generate": "experimental_available",
+    "generate": "available",
+    "img2img": "experimental_available",
+    "inpaint": "unsupported",
+    "outpaint": "unsupported",
+    "*": "planned_gated"
+  },
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [
+      "LayeredDiffusionApply",
+      "LayeredDiffusionJointApply",
+      "LayeredDiffusionCondApply",
+      "LayeredDiffusionCondJointApply",
+      "LayeredDiffusionDiffApply",
+      "LayeredDiffusionDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "LayeredDiffusionDecodeSplit"
+    ],
+    "comfyui_portable": [
+      "LayeredDiffusionApply",
+      "LayeredDiffusionJointApply",
+      "LayeredDiffusionCondApply",
+      "LayeredDiffusionCondJointApply",
+      "LayeredDiffusionDiffApply",
+      "LayeredDiffusionDecode",
+      "LayeredDiffusionDecodeRGBA",
+      "LayeredDiffusionDecodeSplit"
+    ],
+    "forge": []
+  },
+  "capability_profiles": {
+    "sdxl_checkpoint_generate": {
+      "profile_id": "sdxl_checkpoint_generate",
+      "families": [
+        "sdxl"
+      ],
+      "loaders": [
+        "checkpoint"
+      ],
+      "modes": {
+        "generate": "available",
+        "img2img": "experimental_available"
+      },
+      "required_roles": [
+        "LayeredDiffusionApply",
+        "LayeredDiffusionJointApply",
+        "LayeredDiffusionCondApply",
+        "LayeredDiffusionCondJointApply",
+        "LayeredDiffusionDiffApply",
+        "LayeredDiffusionDecode",
+        "LayeredDiffusionDecodeRGBA",
+        "LayeredDiffusionDecodeSplit"
+      ],
+      "params": [
+        "mode",
+        "decode_mode",
+        "output_policy",
+        "layerdiffuse_weight",
+        "sub_batch_size"
+      ],
+      "notes": [
+        "Primary verified path: prompt to transparent RGBA asset."
+      ]
+    },
+    "sd15_checkpoint_generate": {
+      "profile_id": "sd15_checkpoint_generate",
+      "families": [
+        "sd15",
+        "sd",
+        "sd1.5",
+        "sd_1_5",
+        "sd1_5"
+      ],
+      "loaders": [
+        "checkpoint"
+      ],
+      "modes": {
+        "generate": "experimental_available"
+      },
+      "required_roles": [
+        "LayeredDiffusionApply",
+        "LayeredDiffusionJointApply",
+        "LayeredDiffusionCondApply",
+        "LayeredDiffusionCondJointApply",
+        "LayeredDiffusionDiffApply",
+        "LayeredDiffusionDecode",
+        "LayeredDiffusionDecodeRGBA",
+        "LayeredDiffusionDecodeSplit"
+      ],
+      "params": [
+        "mode",
+        "decode_mode",
+        "output_policy",
+        "layerdiffuse_weight",
+        "sub_batch_size"
+      ],
+      "notes": [
+        "SD1.5 route is guarded until local workflow export is confirmed."
+      ]
+    }
+  },
+  "ui_schema": {
+    "schema_version": "neo.extension.ui.v2",
+    "provider_graph_mutation": true,
+    "panel_id": "layerdiffuse-extension-panel",
+    "mount_kind": "built_in_workspace_bridge",
+    "title": "LayerDiffuse",
+    "description": "Transparent asset and alpha generation controls for LayerDiffuse workflows.",
+    "supported_modes": [
+      "transparent_asset",
+      "rgb_alpha_split",
+      "overlay_fx"
+    ],
+    "blocked_modes": [
+      "foreground_on_background",
+      "background_aware_blend",
+      "extract_foreground",
+      "extract_background",
+      "generate_fg_from_bg",
+      "generate_bg_from_fg",
+      "joint_bg_fg_blend_sd15"
+    ]
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation",
+      "extensions.replay_payloads",
+      "extensions.assistant_summaries",
+      "extensions.memory_events"
+    ],
+    "record_input_assets": true,
+    "record_route_snapshot": true,
+    "record_replay_payload": true
+  },
+  "asset_bundle": {
+    "js": [
+      "static/layerdiffuse.js"
+    ],
+    "css": [
+      "static/layerdiffuse.css"
+    ],
+    "html": [],
+    "python": [
+      "backend/adapter.py",
+      "backend/graph_wiring.py",
+      "backend/output_metadata.py"
+    ],
+    "assets": [
+      "workflow_templates/transparent_asset_sdxl.json",
+      "workflow_templates/transparent_asset_split_sdxl.json",
+      "workflow_templates/overlay_fx_transparent_sdxl.json"
+    ]
+  },
+  "entrypoints": {
+    "adapter": "backend/adapter.py",
+    "workflow_patch": "backend.adapter.build_workflow_patch",
+    "execution_plan": "backend.adapter.build_execution_plan",
+    "metadata": "backend.adapter.build_run_metadata"
+  },
+  "v2_adapter_bridge_contract": {
+    "phase": "image_layerdiffuse_v2_adapter_bridge",
+    "external_extension": true,
+    "provider_graph_mutation": true,
+    "workflow_patch_strategy": "replace_workflow_when_adapter_returns_executable_graph",
+    "required_comfy_node_repo": "huchenlei/ComfyUI-layerdiffuse",
+    "comfy_custom_nodes_path": "ComfyUI/custom_nodes/ComfyUI-layerdiffuse",
+    "core_prompt_extensions_order_safe": true,
+    "neo_data_not_required_for_extension_assets": true
+  },
+  "core_external_seed_repair_contract": {
+    "status": "implemented",
+    "random_seed_sentinel": "-1 stays UI/request state only",
+    "comfy_ksampler_seed": "always non_negative",
+    "route_context_receives_actual_params": true,
+    "external_workflow_patch_seed_guard": true,
+    "graph_wiring_last_resort_clamp": true
+  },
+  "core_external_sampler_rebase_repair_contract": {
+    "problem": "LayerDiffuse workflow replacement changes KSampler node id from base node 5 to LayerDiffuse node 6",
+    "observed_error": "LayeredDiffusionFG.apply_layered_diffusion() got an unexpected keyword argument positive",
+    "cause": "downstream workflow hooks could target the old base sampler id after LayerDiffuse replaced the graph",
+    "layerdiffuse_apply_node": "5",
+    "layerdiffuse_sampler_node": "6",
+    "rebase_sampler_node_after_workflow_replacement": true,
+    "sanitize_layerdiffuse_apply_inputs": true,
+    "allowed_layerdiffuse_apply_inputs": [
+      "model",
+      "config",
+      "weight"
+    ],
+    "forbidden_layerdiffuse_apply_inputs": [
+      "positive",
+      "negative",
+      "latent_image",
+      "seed",
+      "steps",
+      "cfg",
+      "sampler_name",
+      "scheduler",
+      "denoise"
+    ],
+    "provider_graph_mutation": true,
+    "scope": "external_extension_core_bridge_repair"
+  },
+  "core_external_prompt_injection_repair_contract": {
+    "route_params_include_effective_prompts": true,
+    "external_workflow_prompt_source_priority": [
+      "route.actual_params.effective_positive",
+      "route.actual_params.positive_prompt",
+      "route.actual_params.prompt",
+      "extension.inputs.source_positive"
+    ],
+    "layerdiffuse_clip_nodes_synced": [
+      "2",
+      "3"
+    ],
+    "prevents_stale_template_prompt": true,
+    "provider_graph_mutation": true,
+    "prompt_owner": "neo_core_provider_effective_prompt"
+  },
+  "core_extension_parent_gate_repair_contract": {
+    "phase": "core-extension-parent-gate-repair",
+    "problem": "Child regions, slots, identity units, or submit intent must not activate workflow patches when the parent extension toggle is disabled.",
+    "parent_toggle_is_authoritative": true,
+    "scene_director_child_regions_do_not_submit_when_disabled": true,
+    "scene_director_identity_units_do_not_submit_when_disabled": true,
+    "scene_director_regional_ipadapter_bindings_do_not_submit_when_disabled": true,
+    "ip_adapter_units_do_not_submit_when_disabled": true,
+    "child_state_preserved_for_later_reenable": true,
+    "runtime_effect_when_disabled": "payload enabled=false, inputs/assets empty, no workflow patch applied",
+    "layerdiffuse_compatibility": "prevents stale Scene Director/IPAdapter child state from hijacking LayerDiffuse transparent asset runs"
+  }
+}
