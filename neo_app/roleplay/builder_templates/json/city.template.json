@@ -1,0 +1,182 @@
+{
+  "id": "",
+  "kind": "city",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "world_id": "",
+      "region_id": "",
+      "parent_city_id": "",
+      "capital_of_region_id": ""
+    },
+    "related": {
+      "location_ids": [],
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "creature_ids": [],
+      "legend_ids": [],
+      "scenario_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "settlement_type": "major_city",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "city_mood": "",
+      "formal_title": "",
+      "population_scale_label": ""
+    },
+    "placement_access": {
+      "entry_overview": "",
+      "approach_routes": "",
+      "travel_reputation": "",
+      "border_or_gate_notes": ""
+    },
+    "governance_control": {
+      "governance_overview": "",
+      "ruling_authority": "",
+      "local_power_structure": "",
+      "watch_or_guard_presence": "",
+      "tax_or_toll_notes": "",
+      "justice_model": "",
+      "public_order_notes": "",
+      "political_factions": "",
+      "external_oversight": ""
+    },
+    "layout_districts": {
+      "layout_overview": "",
+      "districts_overview": "",
+      "notable_areas": "",
+      "market_areas": "",
+      "elite_vs_poor_divide": "",
+      "sacred_or_restricted_zones": "",
+      "hidden_paths_or_backways": "",
+      "infrastructure_notes": ""
+    },
+    "access_safety_restrictions": {
+      "access_notes": "",
+      "curfew_or_timing_rules": "",
+      "entry_requirements": "",
+      "danger_zones": "",
+      "safe_zones": "",
+      "guarded_spaces": "",
+      "criminal_presence": "",
+      "restricted_district_notes": "",
+      "visitor_risk_notes": ""
+    },
+    "society_local_culture": {
+      "society_overview": "",
+      "local_culture_identity": "",
+      "common_life_notes": "",
+      "class_tension_notes": "",
+      "hospitality_norms": "",
+      "speech_style_notes": "",
+      "fashion_identity": "",
+      "food_drink_identity": "",
+      "nightlife_or_evening_life": "",
+      "public_behavior_expectations": "",
+      "outsider_treatment": ""
+    },
+    "economy_trade_work": {
+      "economy_overview": "",
+      "trade_profile": "",
+      "major_work_types": "",
+      "market_identity": "",
+      "guild_or_labor_presence": "",
+      "wealth_distribution_notes": "",
+      "smuggling_or_black_market_notes": "",
+      "city_exports_imports": ""
+    },
+    "faith_magic_ritual": {
+      "faith_presence_overview": "",
+      "sacred_sites_overview": "",
+      "magic_presence_overview": "",
+      "ritual_activity_notes": "",
+      "forbidden_practice_presence": "",
+      "local_superstitions": ""
+    },
+    "organizations_power_blocs": {
+      "organization_overview": "",
+      "important_organizations": "",
+      "power_blocs": "",
+      "street_level_influence": "",
+      "hidden_power_centers": "",
+      "public_vs_hidden_control": ""
+    },
+    "creatures_environment_hazards": {
+      "local_fauna_overview": "",
+      "creature_danger_notes": "",
+      "urban_hazards": "",
+      "weather_identity": "",
+      "disease_or_contagion_notes": "",
+      "environmental_pressures": ""
+    },
+    "rumors_truths": {
+      "public_city_story": "",
+      "hidden_city_truth": "",
+      "common_rumors": "",
+      "suppressed_events": "",
+      "who_knows_the_truth": "",
+      "legend_presence_notes": "",
+      "mythic_or_secret_sites": ""
+    },
+    "scene_utility": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "roleplay_hooks": "",
+      "arrival_scene_notes": "",
+      "conflict_scene_notes": "",
+      "romance_scene_notes": "",
+      "investigation_scene_notes": "",
+      "danger_scene_notes": ""
+    },
+    "rich_authoring": {
+      "atmosphere": "",
+      "symbolism_and_motifs": "",
+      "sensory_identity": "",
+      "longform_city_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

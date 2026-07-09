@@ -1,0 +1,139 @@
+{
+  "id": "",
+  "kind": "universe",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "primary_world_id": ""
+    },
+    "related": {
+      "world_ids": [],
+      "cycle_ids": [],
+      "legend_ids": [],
+      "organization_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "universe_type": "layered_realms",
+      "tagline": "",
+      "symbolic_identity": ""
+    },
+    "cosmology": {
+      "cosmology_summary": "",
+      "structure_of_existence": "",
+      "reality_model": "layered_metaphysical",
+      "public_origin_story": "",
+      "hidden_origin_truth": "",
+      "cosmic_forces": "",
+      "divine_or_primordial_beings": ""
+    },
+    "core_laws": {
+      "universal_laws": "",
+      "metaphysical_rules": "",
+      "time_rules": "",
+      "magic_or_power_source_model": "",
+      "soul_rules": "",
+      "afterlife_rules": "",
+      "memory_rules": "",
+      "identity_rules": "",
+      "forbidden_violations": "",
+      "consequence_model": ""
+    },
+    "timeline": {
+      "timeline_summary": "",
+      "current_age": "",
+      "ages": []
+    },
+    "world_scope": {
+      "world_creation_model": "",
+      "inter_world_hierarchy_notes": "",
+      "cross_world_balance_notes": ""
+    },
+    "species_systems": {
+      "life_origin_model": "",
+      "species_system_overview": "",
+      "major_lineages": "",
+      "cross_world_species_rules": "",
+      "hybridization_rules": "",
+      "immortality_and_aging_rules": "",
+      "transformation_rules": "",
+      "species_taboo_rules": ""
+    },
+    "travel": {
+      "interworld_travel_status": "restricted",
+      "interworld_travel_rules": "",
+      "travel_methods": [],
+      "travel_restrictions": "",
+      "travel_costs": "",
+      "known_routes_or_gates": "",
+      "who_can_travel": "",
+      "illegal_travel_notes": "",
+      "boundary_instability_notes": ""
+    },
+    "systems_and_threats": {
+      "universal_systems": "",
+      "recurring_cosmic_events": "",
+      "universal_threats": "",
+      "suppressed_threats": "",
+      "safeguards": "",
+      "who_monitors_them": ""
+    },
+    "truth_layers": {
+      "public_cosmology": "",
+      "restricted_truth": "",
+      "hidden_truth": "",
+      "false_beliefs": "",
+      "competing_origin_traditions": "",
+      "who_knows_truth": "",
+      "who_suppresses_truth": "",
+      "canon_hierarchy_rules": "",
+      "reliability_notes": "",
+      "contradiction_handling_notes": ""
+    },
+    "rich_authoring": {
+      "atmosphere": "",
+      "symbolism_and_motifs": "",
+      "mythic_language_notes": "",
+      "longform_universe_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

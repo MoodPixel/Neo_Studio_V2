@@ -1,0 +1,154 @@
+{
+  "id": "",
+  "kind": "scenario",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "city_id": "",
+      "location_id": ""
+    },
+    "related": {
+      "cast_character_ids": [],
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "legend_ids": [],
+      "creature_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "tagline": "",
+      "known_for": "",
+      "scenario_mood": "",
+      "tone": "",
+      "intensity_level": "",
+      "format_hint": "roleplay_scene"
+    },
+    "placement_scene_anchor": {
+      "location_label_fallback": "",
+      "placement_notes": "",
+      "time_period_or_phase": "",
+      "environmental_context": ""
+    },
+    "premise_objective_stakes": {
+      "premise": "",
+      "objective": "",
+      "stakes": "",
+      "surface_goal": "",
+      "hidden_goal": "",
+      "failure_cost": "",
+      "success_consequence": "",
+      "why_now": ""
+    },
+    "opening_state_trigger_beat": {
+      "opening_beat": "",
+      "inciting_trigger": "",
+      "entry_state": "",
+      "what_just_happened": "",
+      "what_is_about_to_happen": "",
+      "scene_clock_notes": "",
+      "immediate_pressure": ""
+    },
+    "cast_roles_pov": {
+      "cast_role_notes": "",
+      "active_pov": "",
+      "focus_character_ids": [],
+      "offscreen_pressures": "",
+      "required_relationship_tensions": "",
+      "entry_conditions_for_cast": ""
+    },
+    "forces_in_play": {
+      "active_forces_notes": ""
+    },
+    "tone_emotional_logic_pressure": {
+      "emotional_tone_overview": "",
+      "tension_profile": "",
+      "romance_pressure": "",
+      "social_pressure": "",
+      "danger_pressure": "",
+      "mystery_pressure": "",
+      "grief_pressure": "",
+      "power_imbalance_notes": ""
+    },
+    "constraints_rules_boundaries": {
+      "scene_constraints": "",
+      "allowed_escalation_notes": "",
+      "forbidden_escalations": "",
+      "violence_expectation": "",
+      "intimacy_expectation": "",
+      "truth_reveal_limitations": "",
+      "canon_guard_notes": ""
+    },
+    "hidden_layer_secrets_twist": {
+      "hidden_pressures": "",
+      "secret_information": "",
+      "twist_potential": "",
+      "who_knows_what": "",
+      "reveal_order_notes": "",
+      "misdirection_notes": ""
+    },
+    "scene_notes_gm_narrator": {
+      "scene_notes": "",
+      "gm_posture_notes": "",
+      "narrator_posture_hint": "",
+      "continuity_mode_hint": "",
+      "improv_freedom_notes": "",
+      "fallback_if_scene_stalls": ""
+    },
+    "scene_runtime_use": {
+      "scene_use_overview": "",
+      "best_runtime_mode": "",
+      "best_scene_length": "",
+      "best_model_behavior_notes": "",
+      "entry_prompt_seed": "",
+      "continuation_prompt_seed": "",
+      "player_or_user_role_hint": ""
+    },
+    "rich_authoring": {
+      "longform_scenario_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

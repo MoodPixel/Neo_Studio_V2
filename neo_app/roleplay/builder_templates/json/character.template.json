@@ -1,0 +1,203 @@
+{
+  "id": "",
+  "kind": "character",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "origin_world_id": "",
+      "current_world_id": "",
+      "origin_region_id": "",
+      "current_region_id": "",
+      "origin_city_id": "",
+      "current_city_id": "",
+      "origin_location_id": "",
+      "current_location_id": ""
+    },
+    "related": {
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "legend_ids": [],
+      "scenario_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "designation": "",
+      "role_tier": "",
+      "species_or_race": "",
+      "gender": "",
+      "pronouns": "",
+      "occupation": "",
+      "title_or_rank": "",
+      "public_identity_label": "",
+      "known_for": ""
+    },
+    "placement_world_graph": {
+      "home_base_notes": "",
+      "movement_pattern_notes": ""
+    },
+    "age_timeline": {
+      "age": 0,
+      "apparent_age": 0,
+      "birth_era_or_marker": "",
+      "life_stage": "",
+      "timeline_relevance_notes": ""
+    },
+    "appearance_presence": {
+      "appearance_summary": "",
+      "build_and_physicality": "",
+      "face_features": "",
+      "hair_details": "",
+      "eye_details": "",
+      "style_identity": "",
+      "wardrobe_notes": "",
+      "distinctive_marks": "",
+      "body_language": "",
+      "sensory_presence": "",
+      "voice_profile": ""
+    },
+    "personality_behavior_speech": {
+      "personality_overview": "",
+      "speech_style": "",
+      "temperament": "",
+      "social_style": "",
+      "speech_quirks": "",
+      "humor_style": "",
+      "conflict_style": "",
+      "attachment_style": "",
+      "coping_style": "",
+      "default_mask": "",
+      "private_self_notes": ""
+    },
+    "beliefs_morality": {
+      "worldview": "",
+      "belief_statements": [],
+      "moral_lines": "",
+      "taboo_lines": "",
+      "faith_or_nonfaith_notes": "",
+      "political_or_social_alignment_notes": "",
+      "self_justification_style": ""
+    },
+    "goals_desire_fear_wounds": {
+      "personal_goals": "",
+      "wounds_fears_triggers": "",
+      "surface_wants": "",
+      "deep_wants": "",
+      "core_fears": "",
+      "shame_points": "",
+      "avoidance_patterns": "",
+      "self_sabotage_patterns": "",
+      "revenge_or_redemption_notes": ""
+    },
+    "family_romance_social_history": {
+      "family_structure": "",
+      "romance_history": "",
+      "friendship_history": "",
+      "rivalry_history": "",
+      "social_origin_notes": ""
+    },
+    "secrets_lies_hidden_truth": {
+      "secrets": "",
+      "lies_they_tell": "",
+      "lies_they_believe": "",
+      "hidden_truth_about_self": "",
+      "public_reputation": "",
+      "private_reputation": "",
+      "who_knows_what": ""
+    },
+    "skills_abilities_power": {
+      "abilities": "",
+      "skill_domains": "",
+      "training_background": "",
+      "power_profile": "",
+      "limitations": "",
+      "costs_or_drawbacks": ""
+    },
+    "affiliations_possessions_systems": {
+      "affiliations": "",
+      "personal_space_notes": "",
+      "status_assets_notes": ""
+    },
+    "relationships": [
+      {
+        "target_entity_id": "",
+        "target_entity_kind": "",
+        "target_label": "",
+        "link_resolution_status": "resolved",
+        "relationship_type": "",
+        "subtype": "",
+        "status": "active",
+        "visibility": "public",
+        "emotional_weight": "medium",
+        "trust_level": 5,
+        "conflict_level": 0,
+        "attachment_valence": "neutral",
+        "power_dynamic": "",
+        "public_summary": "",
+        "hidden_truth": "",
+        "history_summary": "",
+        "scene_behavior_notes": "",
+        "memory_hints": {
+          "callback_anchors": [],
+          "scene_relevance": "medium"
+        }
+      }
+    ],
+    "story_roleplay_use": {
+      "story_hooks": "",
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "conflict_hooks": "",
+      "romance_hooks": "",
+      "investigation_hooks": "",
+      "betrayal_hooks": "",
+      "growth_arc_notes": "",
+      "roleplay_dos_and_donts": ""
+    },
+    "rich_authoring": {
+      "longform_character_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "memory_anchors": [],
+    "sensory_anchors": [],
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

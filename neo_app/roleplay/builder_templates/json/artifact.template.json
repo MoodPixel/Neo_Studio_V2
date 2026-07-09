@@ -1,0 +1,162 @@
+{
+  "id": "",
+  "kind": "artifact",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "world_id": "",
+      "region_id": "",
+      "city_id": "",
+      "location_id": "",
+      "current_holder_id": "",
+      "source_organization_id": "",
+      "source_ritual_id": "",
+      "source_legend_id": ""
+    },
+    "related": {
+      "linked_character_ids": [],
+      "linked_organization_ids": [],
+      "linked_cycle_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "artifact_type": "relic",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "artifact_mood": "",
+      "formal_title": "",
+      "common_aliases": ""
+    },
+    "classification_state": {
+      "rarity": "rare",
+      "state": "dormant",
+      "quality_tier": "",
+      "condition_notes": "",
+      "authenticity_status": "",
+      "visibility_status": ""
+    },
+    "placement_ownership": {
+      "ownership_notes": "",
+      "movement_history_summary": "",
+      "storage_or_display_notes": ""
+    },
+    "origin_provenance": {
+      "source_tradition": "",
+      "maker_or_originator": "",
+      "creation_context": "",
+      "historical_origin": "",
+      "previous_holders": "",
+      "lineage_notes": ""
+    },
+    "appearance_presence": {
+      "appearance_summary": "",
+      "material_identity": "",
+      "scale_and_weight": "",
+      "distinctive_features": "",
+      "damage_or_age_marks": "",
+      "sensory_presence": "",
+      "sound_or_light_signature": "",
+      "symbolic_markings": ""
+    },
+    "function_effects_use": {
+      "effects": "",
+      "activation": "",
+      "costs": "",
+      "primary_function": "",
+      "secondary_functions": "",
+      "limitations": "",
+      "usage_requirements": "",
+      "failure_modes": "",
+      "cooldown_or_burden_notes": "",
+      "who_can_use_it": ""
+    },
+    "law_safety_restriction": {
+      "lawful_status": "",
+      "ownership_legality_notes": "",
+      "use_legality_notes": "",
+      "taboo_rules": "",
+      "confiscation_risk": "",
+      "inspection_or_registry_notes": "",
+      "who_hunts_for_it": ""
+    },
+    "dangers_pressure": {
+      "danger_profile": "",
+      "corruption_or_side_effects": "",
+      "mental_or_emotional_costs": "",
+      "physical_costs": "",
+      "social_costs": "",
+      "spiritual_or_metaphysical_costs": "",
+      "misuse_consequences": ""
+    },
+    "public_hidden_truth": {
+      "public_story": "",
+      "hidden_truth": "",
+      "common_rumors": "",
+      "legend_presence_notes": "",
+      "suppressed_history": "",
+      "who_knows_the_truth": "",
+      "mythic_status_notes": ""
+    },
+    "bonds_associations_emotional_weight": {
+      "bonded_to_notes": "",
+      "relationship_to_holder": "",
+      "house_or_faction_significance": "",
+      "personal_significance": "",
+      "grief_or_memory_weight": "",
+      "identity_tie_notes": ""
+    },
+    "scene_utility": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "reveal_scene_notes": "",
+      "conflict_scene_notes": "",
+      "investigation_scene_notes": "",
+      "ritual_scene_notes": "",
+      "handoff_or_exchange_scene_notes": "",
+      "threat_use_notes": ""
+    },
+    "rich_authoring": {
+      "longform_artifact_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

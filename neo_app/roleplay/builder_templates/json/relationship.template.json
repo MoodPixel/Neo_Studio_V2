@@ -1,0 +1,138 @@
+{
+  "id": "",
+  "kind": "relationship",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "city_id": "",
+      "location_id": ""
+    },
+    "related": {
+      "character_ids": [],
+      "scenario_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "legend_ids": [],
+      "organization_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "relationship_type": "romantic_partners",
+      "dynamic": "",
+      "public_label": "",
+      "private_label": "",
+      "known_for": "",
+      "relationship_mood": "",
+      "canon_role": "relationship_state"
+    },
+    "participants": {
+      "character_a_id": "",
+      "character_a_label": "",
+      "character_b_id": "",
+      "character_b_label": "",
+      "other_character_ids": [],
+      "participant_notes": ""
+    },
+    "history": {
+      "first_meeting": "",
+      "bond_origin": "",
+      "major_turning_points": [],
+      "shared_wounds": "",
+      "unresolved_conflict": "",
+      "public_history": "",
+      "private_history": ""
+    },
+    "emotional_logic": {
+      "attachment_pattern": "",
+      "trust_level": "",
+      "jealousy_triggers": "",
+      "comfort_language": "",
+      "conflict_language": "",
+      "repair_pattern": "",
+      "protective_instincts": "",
+      "miscommunication_pattern": ""
+    },
+    "romance_boundaries": {
+      "intimacy_level": "",
+      "allowed_tone": "",
+      "forbidden_escalations": "",
+      "consent_rules": "",
+      "public_affection_rules": "",
+      "private_affection_rules": ""
+    },
+    "secrets_lies_hidden_truth": {
+      "shared_secrets": "",
+      "secret_from_character_a": "",
+      "secret_from_character_b": "",
+      "lies_between_them": "",
+      "truth_reveal_order": "",
+      "who_knows_the_truth": ""
+    },
+    "current_state": {
+      "status_label": "",
+      "current_tension": "",
+      "current_closeness": "",
+      "current_conflict": "",
+      "active_promise_or_vow": "",
+      "active_breaking_point": "",
+      "what_each_needs_now": ""
+    },
+    "scene_use": {
+      "romance_hooks": "",
+      "conflict_hooks": "",
+      "reunion_hooks": "",
+      "betrayal_hooks": "",
+      "quiet_moment_hooks": "",
+      "investigation_hooks": "",
+      "roleplay_dos_and_donts": "",
+      "model_guard_notes": ""
+    },
+    "rich_authoring": {
+      "longform_relationship_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "relationship_anchors": [],
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

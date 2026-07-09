@@ -1,0 +1,160 @@
+{
+  "id": "",
+  "kind": "ritual",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "world_id": "",
+      "region_id": "",
+      "location_id": "",
+      "source_organization_id": "",
+      "source_legend_id": "",
+      "source_artifact_id": ""
+    },
+    "related": {
+      "linked_character_ids": [],
+      "linked_organization_ids": [],
+      "linked_artifact_ids": [],
+      "linked_cycle_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "practice_type": "ritual",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "practice_mood": "",
+      "formal_title": "",
+      "common_aliases": ""
+    },
+    "classification_school_state": {
+      "school": "",
+      "state": "active",
+      "rarity": "rare",
+      "access_tier": "",
+      "stability_status": ""
+    },
+    "placement_source_tradition": {
+      "source_tradition": "",
+      "origin_notes": ""
+    },
+    "function_effects": {
+      "effect_summary": "",
+      "primary_effect": "",
+      "secondary_effects": "",
+      "scope_of_effect": "",
+      "duration_notes": "",
+      "targeting_notes": "",
+      "limitations": "",
+      "countermeasures": ""
+    },
+    "requirements_conditions": {
+      "requirements": "",
+      "materials_or_ingredients": "",
+      "environmental_conditions": "",
+      "time_conditions": "",
+      "skill_requirements": "",
+      "role_requirements": "",
+      "witness_or_authority_requirements": "",
+      "preparation_steps": ""
+    },
+    "activation_procedure": {
+      "activation": "",
+      "step_sequence": "",
+      "phrasing_or_formula": "",
+      "gesture_or_motion_notes": "",
+      "vessel_or_focus_notes": "",
+      "interruption_risks": "",
+      "failure_points": ""
+    },
+    "risks_costs_consequences": {
+      "risks": "",
+      "cost_profile": "",
+      "physical_costs": "",
+      "mental_or_emotional_costs": "",
+      "social_costs": "",
+      "spiritual_or_metaphysical_costs": "",
+      "misuse_consequences": "",
+      "backlash_notes": ""
+    },
+    "law_ethics_restriction": {
+      "lawful_status": "",
+      "taboo_rules": "",
+      "ethical_debate_notes": "",
+      "who_controls_access": "",
+      "registry_or_licensing_notes": "",
+      "punishment_for_use": "",
+      "who_hunts_or_suppresses_it": ""
+    },
+    "users_access_transmission": {
+      "who_can_learn_it": "",
+      "who_can_perform_it": "",
+      "transmission_method": "",
+      "teaching_style": "",
+      "inheritance_or_lineage_requirements": "",
+      "secrecy_level": "",
+      "initiation_requirements": ""
+    },
+    "public_hidden_truth": {
+      "public_story": "",
+      "hidden_truth": "",
+      "common_rumors": "",
+      "legend_presence_notes": "",
+      "suppressed_history": "",
+      "who_knows_the_truth": "",
+      "mythic_status_notes": ""
+    },
+    "scene_utility": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "conflict_use_notes": "",
+      "healing_or_support_use_notes": "",
+      "ritual_scene_notes": "",
+      "investigation_use_notes": "",
+      "training_scene_notes": "",
+      "catastrophe_use_notes": ""
+    },
+    "rich_authoring": {
+      "longform_practice_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

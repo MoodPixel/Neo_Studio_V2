@@ -1,0 +1,154 @@
+{
+  "id": "",
+  "kind": "cycle",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "location_id": "",
+      "source_organization_id": "",
+      "source_legend_id": ""
+    },
+    "related": {
+      "linked_character_ids": [],
+      "linked_creature_ids": [],
+      "linked_ritual_ids": [],
+      "linked_artifact_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "system_type": "cycle",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "system_mood": "",
+      "formal_title": "",
+      "common_aliases": ""
+    },
+    "scope_reach": {
+      "scope_type": "world",
+      "reach_notes": "",
+      "contained_or_spreading_status": ""
+    },
+    "affected_targets": {
+      "affected_species": "",
+      "affected_designation": "",
+      "affected_roles": "",
+      "affected_bloodlines": "",
+      "affected_conditions": "",
+      "immune_or_resistant_groups": "",
+      "carrier_or_vector_notes": ""
+    },
+    "trigger_cadence_onset": {
+      "trigger": "",
+      "cadence": "",
+      "onset_conditions": "",
+      "seasonal_or_temporal_pattern": "",
+      "environmental_trigger_notes": "",
+      "social_trigger_notes": "",
+      "ritual_trigger_notes": "",
+      "suppression_conditions": ""
+    },
+    "stages_progression": {
+      "stages": "",
+      "progression_model": "",
+      "reversal_or_recovery_notes": "",
+      "terminal_state_notes": "",
+      "loop_or_reset_notes": "",
+      "hidden_stage_notes": ""
+    },
+    "effects_outcomes": {
+      "effects": "",
+      "physical_effects": "",
+      "mental_or_emotional_effects": "",
+      "social_effects": "",
+      "metaphysical_effects": "",
+      "environmental_effects": "",
+      "power_interaction_notes": "",
+      "side_effects": "",
+      "long_term_outcomes": ""
+    },
+    "safeguards_resistance_management": {
+      "safeguards": "",
+      "prevention_methods": "",
+      "treatment_or_relief_notes": "",
+      "containment_methods": "",
+      "resistance_factors": "",
+      "ritual_countermeasures": "",
+      "artifact_countermeasures": "",
+      "social_management_notes": ""
+    },
+    "law_ethics_cultural_handling": {
+      "lawful_status": "",
+      "ethical_debate_notes": "",
+      "taboo_rules": "",
+      "who_controls_knowledge": "",
+      "who_enforces_policy": "",
+      "stigma_notes": "",
+      "public_management_story": ""
+    },
+    "public_hidden_truth": {
+      "public_story": "",
+      "hidden_truth": "",
+      "common_rumors": "",
+      "legend_presence_notes": "",
+      "suppressed_history": "",
+      "who_knows_the_truth": "",
+      "mythic_status_notes": ""
+    },
+    "scene_utility": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "danger_scene_notes": "",
+      "investigation_scene_notes": "",
+      "body_horror_or_transformation_notes": "",
+      "social_pressure_scene_notes": "",
+      "ritual_scene_notes": "",
+      "containment_scene_notes": ""
+    },
+    "rich_authoring": {
+      "longform_system_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

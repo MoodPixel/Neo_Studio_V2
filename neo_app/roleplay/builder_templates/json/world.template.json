@@ -1,0 +1,180 @@
+{
+  "id": "",
+  "kind": "world",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": ""
+    },
+    "related": {
+      "region_ids": [],
+      "city_ids": [],
+      "location_ids": [],
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "creature_ids": [],
+      "legend_ids": [],
+      "scenario_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "realm_type": "mortal_world",
+      "world_role": "primary_setting",
+      "tagline": "",
+      "symbolic_identity": "",
+      "world_mood": "",
+      "known_for": ""
+    },
+    "calendar_chronology": {
+      "calendar_name": "",
+      "calendar_summary": "",
+      "year_structure": "",
+      "season_structure": "",
+      "holy_days_or_festivals": [],
+      "timeline_summary": "",
+      "major_eras": [],
+      "current_era": "",
+      "historical_turning_points": [],
+      "chronology_notes": ""
+    },
+    "geography_environment": {
+      "macro_geography": "",
+      "environmental_identity": "",
+      "climate_overview": "",
+      "major_regions_overview": "",
+      "terrain_notes": "",
+      "waters_and_routes": "",
+      "hazard_zones": "",
+      "natural_wonders": "",
+      "resource_regions": "",
+      "map_signal_notes": ""
+    },
+    "governance_law_diplomacy": {
+      "governance_overview": "",
+      "law_overview": "",
+      "political_systems": "",
+      "ruling_powers": "",
+      "world_order_balance": "",
+      "border_doctrine": "",
+      "diplomacy_overview": "",
+      "active_conflicts": "",
+      "conflict_map": "",
+      "justice_model": "",
+      "taboo_rules": ""
+    },
+    "society_institutions": {
+      "society_overview": "",
+      "common_life_notes": "",
+      "social_classes_or_orders": "",
+      "family_structure_norms": "",
+      "education_systems": "",
+      "institutions_overview": "",
+      "ceremonial_life": "",
+      "hospitality_norms": "",
+      "death_and_mourning_norms": "",
+      "public_behavior_rules": ""
+    },
+    "faith_magic_craft": {
+      "faith_and_belief_overview": "",
+      "magic_or_power_overview": "",
+      "major_faiths": "",
+      "sacred_orders": "",
+      "technology_scale": "",
+      "craft_systems": "",
+      "forbidden_practices": "",
+      "ritual_norms": "",
+      "power_access_rules": "",
+      "magic_law_status": ""
+    },
+    "travel_access_hazards": {
+      "travel_systems_overview": "",
+      "major_corridors": "",
+      "travel_restrictions": "",
+      "travel_dangers": "",
+      "access_rules": "",
+      "checkpoint_or_border_notes": "",
+      "remote_zone_notes": "",
+      "hazard_protocols": ""
+    },
+    "peoples_species_creatures": {
+      "people_and_species_overview": "",
+      "dominant_cultures": "",
+      "inhabitant_species": "",
+      "minority_peoples": "",
+      "creature_fauna_overview": "",
+      "hidden_beings": "",
+      "species_relations": "",
+      "domesticated_vs_wild_notes": "",
+      "dangerous_creature_notes": ""
+    },
+    "economy_language": {
+      "economy_overview": "",
+      "trade_systems": "",
+      "core_resources": "",
+      "trade_routes": "",
+      "currency_or_exchange_model": "",
+      "language_overview": "",
+      "regional_language_notes": "",
+      "cant_or_code_speech_notes": "",
+      "craft_exports": ""
+    },
+    "myths_truths": {
+      "known_myths_vs_truth": "",
+      "mythic_sites": "",
+      "oral_traditions": "",
+      "world_myth_layer": "",
+      "dragon_or_primordial_layer": "",
+      "public_world_story": "",
+      "hidden_world_truth": "",
+      "suppressed_histories": "",
+      "who_preserves_true_history": ""
+    },
+    "rich_authoring": {
+      "atmosphere": "",
+      "symbolism_and_motifs": "",
+      "sensory_identity": "",
+      "longform_world_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

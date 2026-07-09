@@ -1,0 +1,177 @@
+{
+  "id": "",
+  "kind": "organization",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "city_id": "",
+      "base_location_id": "",
+      "parent_organization_id": ""
+    },
+    "related": {
+      "leader_character_ids": [],
+      "member_character_ids": [],
+      "location_ids": [],
+      "ally_organization_ids": [],
+      "rival_organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "legend_ids": [],
+      "scenario_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "group_type": "guild",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "organization_mood": "",
+      "formal_title": "",
+      "short_label": ""
+    },
+    "placement_scope": {
+      "territory_notes": "",
+      "reach_scale": "regional"
+    },
+    "leadership_structure": {
+      "leadership_overview": "",
+      "rank_structure": "",
+      "leadership_model": "",
+      "command_style": "",
+      "member_archetypes": "",
+      "internal_divisions": "",
+      "succession_or_promotion_notes": ""
+    },
+    "beliefs_doctrine_mission": {
+      "core_beliefs": "",
+      "goals": "",
+      "doctrine_notes": "",
+      "ritual_or_operational_doctrine": "",
+      "moral_code": "",
+      "worldview": "",
+      "mission_statement": "",
+      "taboo_rules": "",
+      "ideological_splits": ""
+    },
+    "public_hidden_truth": {
+      "public_face": "",
+      "hidden_truth": "",
+      "public_reputation": "",
+      "internal_reputation": "",
+      "propaganda_style": "",
+      "who_knows_the_truth": "",
+      "contradiction_notes": ""
+    },
+    "membership_recruitment": {
+      "membership_rules": "",
+      "recruitment_methods": "",
+      "entry_requirements": "",
+      "loyalty_expectations": "",
+      "initiation_or_vetting_notes": "",
+      "retention_methods": "",
+      "punishment_for_defection": "",
+      "internal_privileges": "",
+      "who_is_excluded": ""
+    },
+    "resources_assets_territory": {
+      "resources_overview": "",
+      "wealth_sources": "",
+      "bases_and_safehouses": "",
+      "artifact_or_archive_holdings": "",
+      "transport_or_supply_lines": "",
+      "military_or_enforcement_assets": "",
+      "information_network_notes": ""
+    },
+    "allies_rivals_enemies": {
+      "allies": "",
+      "rivals": "",
+      "enemies": "",
+      "strategic_partnerships": "",
+      "soft_dependencies": "",
+      "blood_feuds": "",
+      "competing_orgs": "",
+      "public_vs_private_relations": ""
+    },
+    "local_role_influence_pressure": {
+      "influence_profile": "",
+      "how_it_controls_people": "",
+      "how_people_benefit_from_it": "",
+      "how_people_fear_it": "",
+      "street_level_presence": "",
+      "elite_level_presence": "",
+      "legal_status": "",
+      "public_visibility": ""
+    },
+    "rituals_symbols_aesthetic": {
+      "symbolism_and_iconography": "",
+      "rituals_or_formal_practices": "",
+      "uniform_or_style_notes": "",
+      "speech_code_or_cant": "",
+      "sacred_or_operational_objects": "",
+      "motto_or_oath": ""
+    },
+    "internal_conflict_instability": {
+      "internal_conflicts": "",
+      "fracture_points": "",
+      "loyalty_cracks": "",
+      "leadership_risk_notes": "",
+      "reform_vs_orthodoxy_notes": "",
+      "collapse_or_corruption_risk": ""
+    },
+    "story_roleplay_use": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "conflict_hooks": "",
+      "investigation_hooks": "",
+      "recruitment_hooks": "",
+      "betrayal_hooks": "",
+      "power_scene_notes": "",
+      "roleplay_dos_and_donts": ""
+    },
+    "rich_authoring": {
+      "longform_organization_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

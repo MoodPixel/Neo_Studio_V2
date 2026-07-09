@@ -1,0 +1,156 @@
+{
+  "id": "",
+  "kind": "creature",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "world_id": "",
+      "region_id": "",
+      "location_id": "",
+      "source_legend_id": "",
+      "source_cycle_id": "",
+      "source_organization_id": ""
+    },
+    "related": {
+      "linked_character_ids": [],
+      "linked_ritual_ids": [],
+      "linked_location_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "category": "animal",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "creature_mood": "",
+      "common_aliases": ""
+    },
+    "placement_habitat_range": {
+      "habitat": "",
+      "range_notes": "",
+      "migration_or_movement_notes": "",
+      "territorial_behavior_notes": ""
+    },
+    "sentience_social_pattern": {
+      "sentience": "",
+      "intelligence_profile": "",
+      "social_structure": "",
+      "communication_notes": "",
+      "pack_or_solitary_behavior": "",
+      "bondability": "",
+      "human_or_sentient_interaction_notes": ""
+    },
+    "physicality_appearance_presence": {
+      "appearance_summary": "",
+      "size_profile": "",
+      "movement_style": "",
+      "distinctive_features": "",
+      "coloration_notes": "",
+      "sensory_presence": "",
+      "sound_profile": "",
+      "tracks_or_sign_notes": "",
+      "environmental_presence_notes": ""
+    },
+    "diet_behavior_instinct": {
+      "diet_and_behavior": "",
+      "feeding_pattern": "",
+      "activity_cycle": "",
+      "temperament": "",
+      "hunting_or_foraging_notes": "",
+      "mating_or_breeding_notes": "",
+      "nesting_or_den_notes": "",
+      "stress_or_agitation_signs": ""
+    },
+    "danger_threat_utility": {
+      "danger_level": "",
+      "threat_profile": "",
+      "combat_or_escape_notes": "",
+      "human_risk_notes": "",
+      "environmental_risk_notes": "",
+      "practical_uses": "",
+      "ritual_or_symbolic_uses": "",
+      "transport_or_labor_uses": ""
+    },
+    "domestication_bonding_handling": {
+      "domestication_status": "",
+      "bondability": "",
+      "handling_requirements": "",
+      "training_notes": "",
+      "care_requirements": "",
+      "ownership_or_stewardship_notes": "",
+      "who_can_handle_it": ""
+    },
+    "magic_system_special_traits": {
+      "magical_traits": "",
+      "system_interactions": "",
+      "cycle_sensitivity": "",
+      "ritual_affinity": "",
+      "artifact_reactivity": "",
+      "omen_behavior": ""
+    },
+    "public_hidden_truth": {
+      "public_story": "",
+      "known_myths": "",
+      "hidden_truth": "",
+      "common_rumors": "",
+      "legend_presence_notes": "",
+      "suppressed_history": "",
+      "who_knows_the_truth": "",
+      "symbolic_or_cultural_meaning": ""
+    },
+    "role_in_world_society_scene": {
+      "world_role_notes": "",
+      "regional_role_notes": "",
+      "social_or_cultural_role": "",
+      "travel_role_notes": "",
+      "scene_use_overview": "",
+      "danger_scene_notes": "",
+      "bond_scene_notes": "",
+      "hunt_scene_notes": "",
+      "omen_scene_notes": "",
+      "investigation_scene_notes": ""
+    },
+    "rich_authoring": {
+      "longform_creature_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

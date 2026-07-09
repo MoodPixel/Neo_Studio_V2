@@ -1,0 +1,161 @@
+{
+  "id": "",
+  "kind": "location",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "city_id": "",
+      "parent_location_id": ""
+    },
+    "related": {
+      "character_ids": [],
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "creature_ids": [],
+      "legend_ids": [],
+      "scenario_ids": [],
+      "anchor_entity_id": ""
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "location_type": "hall",
+      "anchor_type": "city_anchor",
+      "function_label": "",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "location_mood": ""
+    },
+    "placement_scope": {
+      "placement_notes": ""
+    },
+    "access_entry": {
+      "access_notes": "",
+      "entry_points": "",
+      "entry_conditions": "",
+      "open_or_closed_status": "",
+      "timing_rules": "",
+      "who_can_enter": "",
+      "trespass_consequences": "",
+      "hidden_access_routes": "",
+      "travel_to_location_notes": ""
+    },
+    "spatial_layout": {
+      "layout_overview": "",
+      "subareas": "",
+      "notable_features": "",
+      "material_identity": "",
+      "scale_notes": "",
+      "visibility_lines": "",
+      "elevation_or_depth_notes": "",
+      "crowding_profile": "",
+      "environmental_conditions": ""
+    },
+    "atmosphere_sensory": {
+      "atmosphere": "",
+      "sensory_identity": "",
+      "sound_identity": "",
+      "smell_identity": "",
+      "light_identity": "",
+      "temperature_identity": "",
+      "emotional_impression": "",
+      "symbolism_and_motifs": ""
+    },
+    "rules_behavior_logic": {
+      "rules_overview": "",
+      "public_behavior_rules": "",
+      "ritual_rules": "",
+      "violence_rules": "",
+      "speech_rules": "",
+      "taboo_rules": "",
+      "surveillance_notes": "",
+      "authority_presence": "",
+      "social_expectation_notes": ""
+    },
+    "hazards_pressure": {
+      "hazards_overview": "",
+      "physical_dangers": "",
+      "social_dangers": "",
+      "ritual_dangers": "",
+      "environmental_risks": "",
+      "security_risks": "",
+      "escape_difficulty": "",
+      "danger_rating_notes": ""
+    },
+    "present_powers_systems": {
+      "organization_presence": "",
+      "artifact_presence": "",
+      "ritual_presence": "",
+      "cycle_presence": "",
+      "legend_presence": "",
+      "hidden_power_presence": ""
+    },
+    "public_hidden_truth": {
+      "public_notes": "",
+      "hidden_truth": "",
+      "common_rumors": "",
+      "suppressed_events": "",
+      "who_knows_the_truth": "",
+      "truth_layer_notes": "",
+      "secret_functions": ""
+    },
+    "scene_utility": {
+      "scene_uses": "",
+      "best_scene_types": "",
+      "arrival_use_notes": "",
+      "conflict_use_notes": "",
+      "romance_use_notes": "",
+      "investigation_use_notes": "",
+      "danger_use_notes": "",
+      "conversation_use_notes": "",
+      "transition_use_notes": ""
+    },
+    "rich_authoring": {
+      "longform_location_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

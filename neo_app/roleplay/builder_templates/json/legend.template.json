@@ -1,0 +1,139 @@
+{
+  "id": "",
+  "kind": "legend",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "universe_id": "",
+      "world_id": "",
+      "region_id": "",
+      "location_id": ""
+    },
+    "related": {
+      "linked_character_ids": [],
+      "linked_organization_ids": [],
+      "linked_artifact_ids": [],
+      "linked_ritual_ids": [],
+      "linked_cycle_ids": [],
+      "linked_creature_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "legend_type": "historical_legend",
+      "truth_status": "unknown",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "legend_mood": "",
+      "common_aliases": ""
+    },
+    "scope_placement_anchor": {
+      "scope_type": "world",
+      "anchor_notes": ""
+    },
+    "public_hidden_versions": {
+      "public_version": "",
+      "hidden_version": "",
+      "common_variants": "",
+      "regional_variants": "",
+      "ritualized_versions": "",
+      "popular_misreadings": ""
+    },
+    "believers_suppressors_keepers": {
+      "who_believes_it": "",
+      "who_repeats_it": "",
+      "who_benefits_from_it": "",
+      "who_suppresses_it": "",
+      "who_preserves_the_truer_version": "",
+      "who_fears_it": ""
+    },
+    "linked_entities_forces": {
+      "involved_places_notes": ""
+    },
+    "consequences_stakes": {
+      "consequences_if_true": "",
+      "consequences_if_false": "",
+      "consequences_if_revealed": "",
+      "stakes_for_world": "",
+      "stakes_for_factions": "",
+      "stakes_for_characters": "",
+      "why_it_matters_now": ""
+    },
+    "cultural_role_function": {
+      "cultural_role": "",
+      "moral_or_warning_function": "",
+      "ritual_role": "",
+      "political_role": "",
+      "identity_role": "",
+      "who_teaches_it": "",
+      "when_it_is_told": ""
+    },
+    "evidence_fragments_contradictions": {
+      "evidence_fragments": "",
+      "counterevidence": "",
+      "contradiction_notes": "",
+      "archive_status": "",
+      "missing_pieces": "",
+      "distortion_sources": ""
+    },
+    "public_story_texture": {
+      "iconic_images": "",
+      "key_symbols": "",
+      "sensory_impressions": "",
+      "emotional_impression": "",
+      "atmospheric_identity": ""
+    },
+    "scene_utility": {
+      "scene_use_overview": "",
+      "best_scene_types": "",
+      "reveal_scene_notes": "",
+      "investigation_scene_notes": "",
+      "prophecy_scene_notes": "",
+      "ritual_scene_notes": "",
+      "fear_or_warning_scene_notes": "",
+      "identity_conflict_scene_notes": ""
+    },
+    "rich_authoring": {
+      "longform_legend_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}

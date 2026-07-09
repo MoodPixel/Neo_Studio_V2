@@ -1,0 +1,170 @@
+{
+  "id": "",
+  "kind": "region",
+  "schema_version": 1,
+  "source_container_id": "",
+  "label": "",
+  "display_label": "",
+  "summary": "",
+  "canon_status": "primary_canon",
+  "visibility": "author_private",
+  "tags": [],
+  "tone_tags": [],
+  "links": {
+    "scope": {
+      "world_id": "",
+      "parent_region_id": "",
+      "capital_city_id": "",
+      "seat_location_id": ""
+    },
+    "related": {
+      "city_ids": [],
+      "location_ids": [],
+      "organization_ids": [],
+      "artifact_ids": [],
+      "ritual_ids": [],
+      "cycle_ids": [],
+      "creature_ids": [],
+      "legend_ids": [],
+      "scenario_ids": []
+    },
+    "reverse_links": {
+      "strategy": "derived",
+      "materialized": {}
+    }
+  },
+  "fields": {
+    "identity": {
+      "region_type": "kingdom",
+      "tagline": "",
+      "known_for": "",
+      "symbolic_identity": "",
+      "regional_mood": "",
+      "formal_title": "",
+      "capital_name_fallback": ""
+    },
+    "placement_scope": {
+      "border_regions": [],
+      "adjacent_seas_or_waters": [],
+      "core_travel_axes": []
+    },
+    "governance_ruling_power": {
+      "governance_overview": "",
+      "ruling_power": "",
+      "capital_importance": "",
+      "ruling_house_or_authority": "",
+      "succession_model": "",
+      "administrative_divisions": "",
+      "regional_power_centers": "",
+      "political_factions": "",
+      "justice_model": "",
+      "law_enforcement_model": "",
+      "patrol_or_border_doctrine": ""
+    },
+    "geography_places": {
+      "regional_geography": "",
+      "terrain_identity": "",
+      "major_routes": "",
+      "strategic_points": "",
+      "notable_places_overview": "",
+      "resource_zones": "",
+      "border_conditions": "",
+      "environmental_hazards": ""
+    },
+    "travel_access_security": {
+      "travel_access_overview": "",
+      "entry_conditions": "",
+      "checkpoint_notes": "",
+      "safe_vs_danger_routes": "",
+      "remote_access_notes": "",
+      "travel_reputation": "",
+      "border_risk_notes": "",
+      "military_presence": "",
+      "fortifications_overview": ""
+    },
+    "politics_law_diplomacy": {
+      "regional_law_overview": "",
+      "diplomacy_overview": "",
+      "political_tensions": "",
+      "external_relations": "",
+      "internal_conflicts": "",
+      "taboo_rules": "",
+      "crime_and_punishment_notes": "",
+      "disputed_claims": "",
+      "rebellion_or_unrest_notes": ""
+    },
+    "society_culture_education": {
+      "society_overview": "",
+      "cultural_identity": "",
+      "common_life_notes": "",
+      "class_or_caste_notes": "",
+      "marriage_family_norms": "",
+      "education_overview": "",
+      "festivals_and_public_rituals": "",
+      "hospitality_norms": "",
+      "speech_etiquette": "",
+      "regional_values": "",
+      "shame_honor_norms": ""
+    },
+    "faith_belief_ritual": {
+      "faith_overview": "",
+      "sacred_sites_or_orders": "",
+      "regional_religious_tensions": "",
+      "belief_customs": "",
+      "ritual_presence_notes": "",
+      "local_superstitions": ""
+    },
+    "economy_trade_language": {
+      "economy_overview": "",
+      "trade_profile": "",
+      "major_exports": "",
+      "major_imports": "",
+      "resource_dependencies": "",
+      "craft_identity": "",
+      "language_overview": "",
+      "regional_cant_or_code_speech": ""
+    },
+    "mythic_hidden_legacy": {
+      "public_region_story": "",
+      "hidden_legacy": "",
+      "mythic_sites": "",
+      "oral_traditions": "",
+      "suppressed_history": "",
+      "ancestral_claims": "",
+      "prophecy_or_omens": "",
+      "who_knows_the_truth": ""
+    },
+    "rich_authoring": {
+      "atmosphere": "",
+      "symbolism_and_motifs": "",
+      "sensory_identity": "",
+      "longform_region_overview": "",
+      "internal_notes": "",
+      "author_only_notes": "",
+      "narrative_use_notes": "",
+      "scene_use_notes": ""
+    }
+  },
+  "memory_hints": {
+    "callback_anchors": [],
+    "belief_seeds": [],
+    "recurring_omens": [],
+    "taboo_triggers": [],
+    "runtime_guard_notes": "",
+    "reveal_gating": {
+      "mode": "staged",
+      "notes": ""
+    },
+    "priority": {
+      "scene_use_relevance": "high",
+      "emotional_salience": "high",
+      "continuity_priority": "high"
+    },
+    "memory_fragment_candidates": []
+  },
+  "meta": {
+    "status": "draft",
+    "created_at": "",
+    "updated_at": ""
+  }
+}
