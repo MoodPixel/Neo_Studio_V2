@@ -296,9 +296,9 @@ for _mode in ("generate", "img2img", "inpaint", "outpaint"):
 
 WORKSPACE_SUPPORT: dict[str, dict[str, str]] = {
     "assets": {"state": AVAILABLE, "reason": "Canonical LoRA Stack owner workspace with full stack and library editing."},
-    "generations": {"state": AVAILABLE, "reason": "Generation workspace can mount and edit the shared LoRA Stack payload; graph execution remains route-matrix gated."},
-    "reference": {"state": EXPERIMENTAL, "reason": "Reference/edit workspace can mount and edit the shared LoRA Stack payload for image-conditioned routes; execution remains route-matrix gated."},
-    "finish": {"state": PLANNED, "reason": "Finish workspace can show the shared LoRA Stack shell, but finish/refine graph insertion is not validated yet."},
+    "generations": {"state": UNSUPPORTED, "reason": "LoRA Stack UI is owned by Image Assets. Generation collects the applied Assets payload at submit time but does not mount the panel."},
+    "reference": {"state": UNSUPPORTED, "reason": "LoRA Stack UI is owned by Image Assets. Reference keeps its own image/reference controls and does not mount the LoRA panel."},
+    "finish": {"state": UNSUPPORTED, "reason": "LoRA Stack UI is owned by Image Assets. Finish tools stay separate; finish-only LoRA intent remains metadata/route-gated."},
     "results": {"state": UNSUPPORTED, "reason": "Results can display LoRA metadata/replay info but must not actively edit the generation graph."},
 }
 
@@ -543,18 +543,15 @@ def manifest_sync_contract() -> dict[str, Any]:
         },
         "rule": "Routes are active only when their own compiler exposes explicit model/clip patch points and, for patch_profile_required routes, emits a compiler-owned LoRA patch profile. L6 may promote such routes to experimental_available, but available still requires physical validation. Base route availability alone is not enough. No family fallback and no checkpoint/GGUF/checkpoint_aio field mixing.",
         "l0": "Adds implementation_target state, checkpoint_aio loader coverage, edit-mode matrix coverage, base-route-aware default gating, and generated manifest route states from support_matrix.py.",
-        "l1": "Mounts the single shared LoRA Stack into Image Assets, Generation, Reference, and Finish. Assets stays canonical; Results remains metadata/replay only. Workspace exposure does not promote graph execution; route states still come from support_matrix.py.",
+        "l1": "Mounts the LoRA Stack UI only inside Image Assets. Generation submission still collects the applied Assets payload with other workspace extensions, but Generation, Reference, Finish, and Results do not mount the editable LoRA panel.",
         "l2": "Hardens manifest sync by generating backend-prefixed keys, legacy keys, generate/txt2img aliases, workspace states, and a checksum from the support matrix source of truth.",
         "l3": "Preserves LoRA apply_to targets through frontend payload cleaning, Scene Director regional assignment metadata, and gated-route requested intent metadata.",
         "l4": "Requires compiler-owned LoRA patch profiles for profile-required routes; graph patching uses declared model_ref, clip_ref, sampler_node_id, sampler_model_input, and loader_node_class instead of hardcoded family fallback refs.",
         "l5": "Upgrades graph insertion to a strategy dispatcher: standard model+clip LoraLoader, model-only LoraLoaderModelOnly, provider-specific adapter placeholders, and explicit no-op routes with metadata-only preservation.",
         "l6": "Promotes compiler-profile-backed family routes to experimental_available family by family: Flux, Flux 2 Klein, Qwen Image, Qwen Rapid AIO, Qwen Image Edit 2509, ZImage, ZImage Turbo, and HiDream txt2img. SDXL remains available; SD1.5 remains experimental; HiDream image modes, Wan, and Hunyuan stay gated.",
-        "workspace_apps": ["assets", "generations", "reference", "finish"],
+        "workspace_apps": ["assets"],
         "mount_slots": [
             "image.assets.lora_stack",
-            "image.generations.lora_stack",
-            "image.reference.lora_stack",
-            "image.finish.lora_stack",
         ],
         "canonical_workspace_app": "assets",
     }

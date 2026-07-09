@@ -2,7 +2,7 @@
   "schema_version": "neo.image.lora_stack.route_matrix.v4",
   "phase": "L6-family-enablements",
   "source": "neo_extensions/built_in/image.lora_stack/backend/support_matrix.py",
-  "checksum": "33303185bbaef6b2e18c7c3b15cafe1f74c2e2eddc0c36926d852c26191e5762",
+  "checksum": "53357c2cc78003134087f938bd270f81c05fc322a226b7a8d111355f71668a84",
   "supported_backends": [
     "comfyui",
     "comfyui_portable"
@@ -900,9 +900,9 @@
     "comfyui_portable:hunyuan_image:gguf:outpaint": "provider_gated",
     "hunyuan_image:gguf:outpaint": "provider_gated",
     "assets": "available",
-    "generations": "available",
-    "reference": "experimental_available",
-    "finish": "planned_gated",
+    "generations": "unsupported",
+    "reference": "unsupported",
+    "finish": "unsupported",
     "results": "unsupported",
     "*": "planned_gated"
   },
@@ -6836,18 +6836,18 @@
     },
     {
       "workspace_app": "generations",
-      "state": "available",
-      "reason": "Generation workspace can mount and edit the shared LoRA Stack payload; graph execution remains route-matrix gated."
+      "state": "unsupported",
+      "reason": "LoRA Stack UI is owned by Image Assets. Generation collects the applied Assets payload at submit time but does not mount the panel."
     },
     {
       "workspace_app": "reference",
-      "state": "experimental_available",
-      "reason": "Reference/edit workspace can mount and edit the shared LoRA Stack payload for image-conditioned routes; execution remains route-matrix gated."
+      "state": "unsupported",
+      "reason": "LoRA Stack UI is owned by Image Assets. Reference keeps its own image/reference controls and does not mount the LoRA panel."
     },
     {
       "workspace_app": "finish",
-      "state": "planned_gated",
-      "reason": "Finish workspace can show the shared LoRA Stack shell, but finish/refine graph insertion is not validated yet."
+      "state": "unsupported",
+      "reason": "LoRA Stack UI is owned by Image Assets. Finish tools stay separate; finish-only LoRA intent remains metadata/route-gated."
     },
     {
       "workspace_app": "results",

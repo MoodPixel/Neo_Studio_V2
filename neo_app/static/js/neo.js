@@ -13654,11 +13654,11 @@ function loraStackActiveRoute(record) {
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const workflowMode = loraStackWorkflowMode();
   const backend = activeRouteBackend();
-  const workspaceApp = normalizeWorkspaceAppId(activeWorkspaceApp().id || canonicalExtensionWorkspaceApp(record) || 'assets');
+  const workspaceApp = normalizeWorkspaceAppId(canonicalExtensionWorkspaceApp(record) || activeWorkspaceApp().id || 'assets');
   const routeKey = `${family}:${loader}:${workflowMode}`;
   const entry = routeEntryForSelection(family, loader, workflowMode, backend);
   const declared = extensionManifestRouteState(manifest, { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp });
-  const workspaceState = manifest.route_states?.[workspaceApp] || (workspaceApp === 'results' ? 'unsupported' : 'available');
+  const workspaceState = manifest.route_states?.[workspaceApp] || (workspaceApp === 'assets' ? 'available' : 'unsupported');
   const baseState = entry?.state || 'planned_gated';
   const candidates = [baseState, declared.state, workspaceState].filter(Boolean);
   const routeState = candidates.reduce((worst, item) => extensionRouteStateRank(item) > extensionRouteStateRank(worst) ? item : worst, 'available');
@@ -13668,15 +13668,15 @@ function loraStackActiveRoute(record) {
   else if (routeState === workspaceState) reason = `LoRA Stack workspace state: ${workspaceApp}`;
   if (!reason) {
     if (routeState === 'implementation_target') reason = 'LoRA Stack is visible here, but this family / loader / workflow still needs a compiler-owned LoRA patch profile before execution.';
-    if (routeState === 'planned_gated') reason = 'LoRA Stack is mounted here, but this workspace or route is not executable yet.';
+    if (routeState === 'planned_gated') reason = 'LoRA Stack is mounted only in Image Assets; this route still preserves saved LoRA intent for replay/diagnostics.';
     if (routeState === 'provider_gated') reason = 'The provider route is gated before LoRA Stack can safely patch it.';
-    if (routeState === 'unsupported') reason = 'This selected route cannot execute LoRA Stack workflow changes.';
+    if (routeState === 'unsupported') reason = workspaceApp !== 'assets' ? 'LoRA Stack controls live only in Image → Assets. This workspace does not mount the editable LoRA panel.' : 'This selected route cannot execute LoRA Stack workflow changes.';
   }
   return { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp, route_key: routeKey, route_state: routeState, base_route_state: baseState, manifest_route_state: declared.state, manifest_route_key: declared.key, workspace_state: workspaceState, reason };
 }
 function loraStackRouteVisible(route) {
   const workspace = normalizeWorkspaceAppId(route?.workspace_app || activeWorkspaceApp().id || '');
-  return ['assets', 'generations', 'reference', 'finish'].includes(workspace);
+  return workspace === 'assets';
 }
 function loraStackRouteControlsEnabled(route) {
   return route.route_state === 'available' || route.route_state === 'experimental_available';
@@ -14090,7 +14090,7 @@ function loraStackPanel(record) {
       <span class="neo-badge">${cleanCount} active</span>
     </div>
     <div class="neo-lora-stack-rows">${rows.length ? rows.map((row, index) => loraRowHtml(row, index, locked, selectedRowIndex)).join('') : '<p class="neo-muted">No LoRA rows yet. Add a row or pick one from the library below.</p>'}</div>
-    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Workspace: ${route.workspace_app}`, `State: ${route.route_state}`, 'Global workspace mount: L1', 'Regional targets: L3 preserved'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
+    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Workspace: ${route.workspace_app}`, `State: ${route.route_state}`, 'Mount: Image Assets only', 'Regional targets: L3 preserved'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
   </section>`;
   return panel('LoRA Stack', body, false, status);
 }

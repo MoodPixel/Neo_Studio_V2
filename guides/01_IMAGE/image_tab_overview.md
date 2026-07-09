@@ -24,7 +24,7 @@ tags:
   - output inspector
 priority: 100
 version: 2
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 # Image Tab Overview
@@ -40,7 +40,7 @@ When the selected Assistant scope is **Image Workspace**, questions about Image 
 | **Workspace command strip** | Selects Model Family, Main Model Type, Workflow Mode, backend readiness, and run controls. |
 | **Prompt panel** | Holds Prompt Library, Positive Prompt, Negative Prompt, Prompt Assist, style chips, and saved prompt pairs. |
 | **Parameters panel** | Holds model/component selectors, VAE, sampler/scheduler, width/height, size presets, steps, CFG/guidance, seed controls, batch count, denoise, prompt conditioning, latent capture, and route-specific inpaint/outpaint controls. |
-| **Extensions panel** | Mounts route-compatible extension cards such as ControlNet, IP Adapter, LoRA Stack, Style Stack, Wildcards, LayerDiffuse, CFG Fix, High-Res Lab, Image Upscale, and Scene Director where available. |
+| **Extensions panel** | Mounts route-compatible extension cards where each workspace owns them. LoRA Stack lives only in **Assets**; Generation still collects the applied LoRA payload during submit. ControlNet/IP Adapter live in Reference, CFG Fix/Style/Wildcards in Generation, and finishing tools in Finish. |
 | **Preview panel** | Shows live preview, selected final preview, and batch thumbnails. Output management belongs in Results/Output Inspector, not the preview panel. |
 | **Results / Output Inspector** | Reads Neo-owned metadata sidecars, source asset records, cleanup reports, run timing, replay data, and safe cascade delete manifests. |
 
@@ -83,20 +83,3 @@ When answering Image questions:
 - Use `guides/01_IMAGE/image_model_families.md` for supported families/loaders/modes.
 - Use metadata sidecars only when the user asks about previous generations, saved outputs, prompts, seeds, or history.
 - Do not dump raw JSON/metadata unless the user asks for raw trace/debug data.
-
-## Built-in Generation extensions
-
-The Generation workspace can mount built-in Image extensions. These are route-aware and should be interpreted together with the current Model Family, Main Model Type, Workflow Mode, backend profile, and installed custom nodes.
-
-| Extension | Main purpose | Guide |
-|---|---|---|
-| **CFG Fix / Dynamic Thresholding** | High-CFG sampler/model patch for overbake control. | `guides/01_IMAGE/cfg_fix_dynamic_thresholding.md` |
-| **ComfyUI LayerDiffuse** | Transparent RGBA assets, alpha masks, foreground/background compositing. | `guides/01_IMAGE/layerdiffuse.md` |
-| **LoRA Stack / LoRA Library** | LoRA rows, pass targeting, metadata, triggers, CivitAI enrichment. | `guides/01_IMAGE/lora_stack.md` |
-| **Style Stack** | Prompt-only saved/manual style text merging. | `guides/01_IMAGE/style_stack.md` |
-| **Wildcards** | Prompt-only seeded wildcard token expansion and queue variants. | `guides/01_IMAGE/wildcards.md` |
-| **Scene Director** | Regional scene planning, region masks, Character Lock, Pair Pose, background lanes, and extension routing. | `guides/01_IMAGE/scene_director.md` |
-
-Scene Director is larger than the normal Generation extension cards because it owns regional subjects, masks, Character Lock, identity/reference routing, Pair Pose, background lanes, and cross-extension assignments. Treat it as a separate guide area: `guides/01_IMAGE/scene_director.md`.
-
-When answering user questions about these cards, the Assistant should prefer the extension-specific guide plus the live Image snapshot. It should not assume a visible extension can execute; check whether the route state is Ready, Experimental, Route gated, Provider gated, or Unsupported.

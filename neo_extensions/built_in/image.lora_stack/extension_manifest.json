@@ -2,7 +2,7 @@
   "id": "lora_stack",
   "name": "LoRA Stack",
   "version": "0.1.0-p10-l6-family-enablements",
-  "description": "Built-in Image LoRA Stack extension with L6 family-by-family experimental enablement. Assets remains the canonical owner, Generation/Reference/Finish mount the shared stack, and graph execution uses compiler-declared patch profiles with family-specific route gating.",
+  "description": "Built-in Image LoRA Stack extension with L6 family-by-family experimental enablement. Assets is the only editable UI mount; Generation submission still collects the applied Assets payload with other Image workspace extensions.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -21,16 +21,10 @@
     "outpaint"
   ],
   "workspace_apps": [
-    "assets",
-    "generations",
-    "reference",
-    "finish"
+    "assets"
   ],
   "mount_slots": [
-    "image.assets.lora_stack",
-    "image.generations.lora_stack",
-    "image.reference.lora_stack",
-    "image.finish.lora_stack"
+    "image.assets.lora_stack"
   ],
   "mount_targets": [
     {
@@ -47,51 +41,6 @@
         "unsupported"
       ],
       "mount_role": "canonical_owner"
-    },
-    {
-      "surface": "image",
-      "workspace_app": "generations",
-      "workflow_mode": null,
-      "slot": "image.generations.lora_stack",
-      "route_states": [
-        "available",
-        "experimental_available",
-        "implementation_target",
-        "planned_gated",
-        "provider_gated",
-        "unsupported"
-      ],
-      "mount_role": "shared_stack_controls"
-    },
-    {
-      "surface": "image",
-      "workspace_app": "reference",
-      "workflow_mode": null,
-      "slot": "image.reference.lora_stack",
-      "route_states": [
-        "available",
-        "experimental_available",
-        "implementation_target",
-        "planned_gated",
-        "provider_gated",
-        "unsupported"
-      ],
-      "mount_role": "shared_reference_controls"
-    },
-    {
-      "surface": "image",
-      "workspace_app": "finish",
-      "workflow_mode": null,
-      "slot": "image.finish.lora_stack",
-      "route_states": [
-        "available",
-        "experimental_available",
-        "implementation_target",
-        "planned_gated",
-        "provider_gated",
-        "unsupported"
-      ],
-      "mount_role": "finish_shell_gated"
     }
   ],
   "supported_backends": [
@@ -1005,9 +954,9 @@
     "comfyui_portable:hunyuan_image:gguf:outpaint": "provider_gated",
     "hunyuan_image:gguf:outpaint": "provider_gated",
     "assets": "available",
-    "generations": "available",
-    "reference": "experimental_available",
-    "finish": "planned_gated",
+    "generations": "unsupported",
+    "reference": "unsupported",
+    "finish": "unsupported",
     "results": "unsupported",
     "*": "planned_gated"
   },
@@ -1292,11 +1241,11 @@
       "Flux/Qwen/GGUF and provider-gated families remain gated with no fallback assumptions"
     ],
     "phase_l1_features": [
-      "global Image workspace mount targets",
-      "single shared LoRA Stack state across Assets, Generation, Reference, and Finish",
       "route-gated controls remain disabled for implementation_target/planned/provider/unsupported routes",
-      "Finish workspace exposes a gated shell only; finish graph insertion is not promoted",
-      "Results workspace remains metadata/replay only"
+      "Results workspace remains metadata/replay only",
+      "Assets-only editable LoRA Stack mount",
+      "Generation submission collects the applied Assets payload without rendering duplicate LoRA panels",
+      "Reference, Finish, and Results do not mount editable LoRA Stack controls"
     ],
     "phase_l2_features": [
       "backend-prefixed route state keys",
@@ -1459,7 +1408,7 @@
     "schema_version": "neo.image.lora_stack.route_matrix.v4",
     "source": "neo_extensions/built_in/image.lora_stack/backend/support_matrix.py",
     "generator": "support_matrix.manifest_route_states",
-    "checksum": "33303185bbaef6b2e18c7c3b15cafe1f74c2e2eddc0c36926d852c26191e5762",
+    "checksum": "53357c2cc78003134087f938bd270f81c05fc322a226b7a8d111355f71668a84",
     "states": [
       "available",
       "experimental_available",
@@ -1571,23 +1520,17 @@
     },
     "rule": "Routes are active only when their own compiler exposes explicit model/clip patch points and, for patch_profile_required routes, emits a compiler-owned LoRA patch profile. L6 may promote such routes to experimental_available, but available still requires physical validation. Base route availability alone is not enough. No family fallback and no checkpoint/GGUF/checkpoint_aio field mixing.",
     "l0": "Adds implementation_target state, checkpoint_aio loader coverage, edit-mode matrix coverage, base-route-aware default gating, and generated manifest route states from support_matrix.py.",
-    "l1": "Mounts the single shared LoRA Stack into Image Assets, Generation, Reference, and Finish. Assets stays canonical; Results remains metadata/replay only. Workspace exposure does not promote graph execution; route states still come from support_matrix.py.",
+    "l1": "Mounts the LoRA Stack UI only inside Image Assets. Generation submission still collects the applied Assets payload with other workspace extensions, but Generation, Reference, Finish, and Results do not mount the editable LoRA panel.",
     "l2": "Hardens manifest sync by generating backend-prefixed keys, legacy keys, generate/txt2img aliases, workspace states, and a checksum from the support matrix source of truth.",
     "l3": "Preserves LoRA apply_to targets through frontend payload cleaning, Scene Director regional assignment metadata, and gated-route requested intent metadata.",
     "l4": "Requires compiler-owned LoRA patch profiles for profile-required routes; graph patching uses declared model_ref, clip_ref, sampler_node_id, sampler_model_input, and loader_node_class instead of hardcoded family fallback refs.",
     "l5": "Upgrades graph insertion to a strategy dispatcher: standard model+clip LoraLoader, model-only LoraLoaderModelOnly, provider-specific adapter placeholders, and explicit no-op routes with metadata-only preservation.",
     "l6": "Promotes compiler-profile-backed family routes to experimental_available family by family: Flux, Flux 2 Klein, Qwen Image, Qwen Rapid AIO, Qwen Image Edit 2509, ZImage, ZImage Turbo, and HiDream txt2img. SDXL remains available; SD1.5 remains experimental; HiDream image modes, Wan, and Hunyuan stay gated.",
     "workspace_apps": [
-      "assets",
-      "generations",
-      "reference",
-      "finish"
+      "assets"
     ],
     "mount_slots": [
-      "image.assets.lora_stack",
-      "image.generations.lora_stack",
-      "image.reference.lora_stack",
-      "image.finish.lora_stack"
+      "image.assets.lora_stack"
     ],
     "canonical_workspace_app": "assets"
   },

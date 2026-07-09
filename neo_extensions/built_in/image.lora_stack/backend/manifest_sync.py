@@ -34,8 +34,20 @@ def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
     updated["version"] = "0.1.0-p10-l6-family-enablements"
     updated["description"] = (
         "Built-in Image LoRA Stack extension with L6 family-by-family experimental enablement. "
-        "Assets remains the canonical owner, Generation/Reference/Finish mount the shared stack, and graph execution uses compiler-declared patch profiles with family-specific route gating."
+        "Assets is the only editable UI mount; Generation submission still collects the applied Assets payload with other Image workspace extensions."
     )
+    updated["workspace_apps"] = ["assets"]
+    updated["mount_slots"] = ["image.assets.lora_stack"]
+    updated["mount_targets"] = [
+        {
+            "surface": "image",
+            "workspace_app": "assets",
+            "workflow_mode": None,
+            "slot": "image.assets.lora_stack",
+            "route_states": list(support_matrix.STATE_ORDER),
+            "mount_role": "canonical_owner",
+        }
+    ]
     ui_schema = dict(updated.get("ui_schema") or {})
     ui_schema["phase"] = "L6"
     features = list(ui_schema.get("phase_l2_features") or [])
@@ -70,6 +82,21 @@ def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
         if item not in l5_features:
             l5_features.append(item)
     ui_schema["phase_l5_features"] = l5_features
+
+    l1_features = list(ui_schema.get("phase_l1_features") or [])
+    for item in [
+        "Assets-only editable LoRA Stack mount",
+        "Generation submission collects the applied Assets payload without rendering duplicate LoRA panels",
+        "Reference, Finish, and Results do not mount editable LoRA Stack controls",
+    ]:
+        if item not in l1_features:
+            l1_features.append(item)
+    l1_features = [item for item in l1_features if item not in {
+        "global Image workspace mount targets",
+        "single shared LoRA Stack state across Assets, Generation, Reference, and Finish",
+        "Finish workspace exposes a gated shell only; finish graph insertion is not promoted",
+    }]
+    ui_schema["phase_l1_features"] = l1_features
 
     l6_features = list(ui_schema.get("phase_l6_features") or [])
     for item in [
