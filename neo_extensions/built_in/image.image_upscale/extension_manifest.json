@@ -1,0 +1,686 @@
+{
+  "id": "image.image_upscale",
+  "name": "Image · Image Upscale",
+  "version": "0.11.1",
+  "description": "Built-in Image utility extension for standalone Image Upscale workflows, generated-result reuse, uploaded-source upscale, and output metadata capture.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generations",
+    "assets",
+    "reference",
+    "finish",
+    "results"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "finish",
+    "generations",
+    "assets",
+    "reference",
+    "results"
+  ],
+  "mount_slots": [
+    "image.finish.image_upscale",
+    "image.generations.image_upscale",
+    "image.assets.image_upscale",
+    "image.reference.image_upscale",
+    "image.results.image_upscale"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "image.finish.image_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.image_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "assets",
+      "workflow_mode": null,
+      "slot": "image.assets.image_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "reference",
+      "workflow_mode": null,
+      "slot": "image.reference.image_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "results",
+      "workflow_mode": null,
+      "slot": "image.results.image_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [],
+  "supported_loaders": [],
+  "route_states": {
+    "comfyui:*:*:*:finish": "available",
+    "comfyui_portable:*:*:*:finish": "available",
+    "forge:*:*:*:finish": "provider_gated",
+    "a1111:*:*:*:finish": "provider_gated",
+    "cloud_api:*:*:*:finish": "provider_gated",
+    "mock:*:*:*:finish": "provider_gated",
+    "*:*:*:*:generations": "provider_gated",
+    "*:*:*:*:assets": "provider_gated",
+    "*:*:*:*:reference": "provider_gated",
+    "*:*:*:*:results": "provider_gated",
+    "*": "provider_gated",
+    "comfyui:*:*:*:generations": "available",
+    "comfyui:*:*:*:assets": "available",
+    "comfyui:*:*:*:reference": "available",
+    "comfyui:*:*:*:results": "available",
+    "comfyui_portable:*:*:*:generations": "available",
+    "comfyui_portable:*:*:*:assets": "available",
+    "comfyui_portable:*:*:*:reference": "available",
+    "comfyui_portable:*:*:*:results": "available"
+  },
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [
+      "LoadImage",
+      "ImageScaleBy",
+      "SaveImage"
+    ],
+    "comfyui_portable": [
+      "LoadImage",
+      "ImageScaleBy",
+      "SaveImage"
+    ]
+  },
+  "node_requirements": {
+    "decision": "node_based_comfy_utility_graph",
+    "support_basis": "provider_and_required_comfy_utility_nodes_not_model_family_loader_workflow_mode_or_image_subtab",
+    "required_base_nodes": [
+      "LoadImage",
+      "ImageScaleBy",
+      "SaveImage"
+    ],
+    "optional_node_groups": {
+      "preview": [
+        "PreviewImage"
+      ],
+      "model_upscale": [
+        "UpscaleModelLoader",
+        "ImageUpscaleWithModel"
+      ],
+      "codeformer_restore": [
+        "FaceRestoreModelLoader",
+        "FaceRestoreCFWithModel"
+      ],
+      "seedvr2_experimental": [
+        "SeedVR2LoadDiTModel",
+        "SeedVR2LoadVAEModel",
+        "SeedVR2VideoUpscaler"
+      ]
+    },
+    "missing_required_policy": "Gate the whole extension with provider_gated until required base nodes are available.",
+    "missing_optional_policy": "Gate only the optional control/path; do not gate the whole extension.",
+    "codeformer_model_folder": "ComfyUI/models/facerestore_models/",
+    "seedvr2_model_folder": "ComfyUI/models/SEEDVR2/",
+    "seedvr2_decision": "experimental_available only when custom nodes are installed; model files live in ComfyUI/models/SEEDVR2 and may auto-download on first use depending on node setup."
+  },
+  "capability_profiles": {
+    "base_interpolation": {
+      "profile_id": "base_interpolation",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "available"
+      },
+      "required_roles": [
+        "source_image",
+        "comfy_upload_bridge",
+        "LoadImage",
+        "ImageScaleBy",
+        "SaveImage"
+      ],
+      "optional_roles": [
+        "PreviewImage"
+      ],
+      "readiness_gates": {
+        "comfyui": [
+          "LoadImage",
+          "ImageScaleBy",
+          "SaveImage"
+        ],
+        "comfyui_portable": [
+          "LoadImage",
+          "ImageScaleBy",
+          "SaveImage"
+        ]
+      },
+      "params": [
+        "scale",
+        "resize_method"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "LoadImage",
+            "ImageScaleBy",
+            "SaveImage"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "LoadImage",
+            "ImageScaleBy",
+            "SaveImage"
+          ]
+        }
+      },
+      "notes": [
+        "Available on Comfy providers when required utility nodes are present."
+      ]
+    },
+    "model_upscale": {
+      "profile_id": "model_upscale",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "optional_provider_gated"
+      },
+      "required_roles": [
+        "UpscaleModelLoader",
+        "ImageUpscaleWithModel"
+      ],
+      "optional_roles": [],
+      "readiness_gates": {
+        "comfyui": [
+          "UpscaleModelLoader",
+          "ImageUpscaleWithModel"
+        ],
+        "comfyui_portable": [
+          "UpscaleModelLoader",
+          "ImageUpscaleWithModel"
+        ]
+      },
+      "params": [
+        "upscale_model",
+        "scale",
+        "resize_method"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel"
+          ]
+        }
+      },
+      "notes": [
+        "Missing nodes disable only the model-upscale path; interpolation remains available."
+      ]
+    },
+    "codeformer_restore": {
+      "profile_id": "codeformer_restore",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "optional_provider_gated"
+      },
+      "required_roles": [
+        "FaceRestoreModelLoader",
+        "FaceRestoreCFWithModel"
+      ],
+      "optional_roles": [],
+      "readiness_gates": {
+        "comfyui": [
+          "FaceRestoreModelLoader",
+          "FaceRestoreCFWithModel"
+        ],
+        "comfyui_portable": [
+          "FaceRestoreModelLoader",
+          "FaceRestoreCFWithModel"
+        ]
+      },
+      "params": [
+        "restore_assist",
+        "restore_model",
+        "restore_fidelity",
+        "restore_detection"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "FaceRestoreModelLoader",
+            "FaceRestoreCFWithModel"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "FaceRestoreModelLoader",
+            "FaceRestoreCFWithModel"
+          ]
+        }
+      },
+      "notes": [
+        "Missing nodes disable only CodeFormer restore controls/path."
+      ]
+    },
+    "seedvr2_experimental": {
+      "profile_id": "seedvr2_experimental",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "experimental_available"
+      },
+      "required_roles": [
+        "SeedVR2LoadDiTModel",
+        "SeedVR2LoadVAEModel",
+        "SeedVR2VideoUpscaler"
+      ],
+      "optional_roles": [],
+      "readiness_gates": {
+        "comfyui": [
+          "SeedVR2LoadDiTModel",
+          "SeedVR2LoadVAEModel",
+          "SeedVR2VideoUpscaler"
+        ],
+        "comfyui_portable": [
+          "SeedVR2LoadDiTModel",
+          "SeedVR2LoadVAEModel",
+          "SeedVR2VideoUpscaler"
+        ]
+      },
+      "params": [
+        "upscale_engine",
+        "seedvr2_dit_model",
+        "seedvr2_vae_model",
+        "seedvr2_resolution",
+        "seedvr2_batch_size",
+        "seedvr2_blocks_to_swap",
+        "seedvr2_color_correction"
+      ],
+      "model_folder": "ComfyUI/models/SEEDVR2/",
+      "notes": [
+        "SeedVR2 official ComfyUI node supports video and image upscaling. Keep it experimental because it is heavy and has a different graph contract than ESRGAN/interpolation."
+      ]
+    }
+  },
+  "ui_schema": {
+    "phase": "J6",
+    "mount": "image.finish.image_upscale",
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "runtime_status": "route_aware_ui_panel_active",
+    "mount_ready": true,
+    "runtime_controls_ready": true,
+    "payload_runtime_ready": true,
+    "workflow_patch_ready": true,
+    "queue_route_ready": true,
+    "phase_c_skeleton_contract": {
+      "self_contained_root": "neo_extensions/built_in/image.image_upscale",
+      "requires_root_init_alias": true,
+      "required_groups": [
+        "backend",
+        "ui",
+        "docs",
+        "tests"
+      ],
+      "no_external_extensions_mount": true,
+      "runtime_activation": false,
+      "payload_emission": false,
+      "workflow_graph_mutation": false,
+      "feature_specific_code_boundary": "extension_folder_first"
+    },
+    "support_matrix_ready": true,
+    "node_gating_ready": true,
+    "selected_result_action_ready": true,
+    "uploaded_batch_action_ready": true,
+    "stale_restore_visibility_cleanup_ready": true,
+    "expert_payload_preview_ready": true,
+    "registry_mount_integrated": true,
+    "direct_workspace_mount": true,
+    "external_section_excluded": true,
+    "default_enabled_state": true,
+    "mount_slot": "image.finish.image_upscale",
+    "workspace_app": "finish",
+    "codeformer_model_folder_hint": "ComfyUI/models/facerestore_models/",
+    "face_detection_dropdown": "expert_or_codeformer_active_default_retinaface_resnet50",
+    "seedvr2_experimental_ui_ready": true
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "phase": "J6",
+    "canonical_payload_ready": true,
+    "v1_key_aliases_ready": true,
+    "disabled_suppresses_params_assets": true,
+    "gated_routes_suppress_active_payload": true,
+    "stale_restore_fields_stripped_when_restore_off": true,
+    "scale_clamp": [
+      0.25,
+      8.0
+    ],
+    "valid_resize_methods": [
+      "lanczos",
+      "bicubic",
+      "bilinear",
+      "area",
+      "nearest-exact"
+    ],
+    "valid_restore_assists": [
+      "off",
+      "codeformer"
+    ],
+    "valid_upscale_engines": [
+      "basic",
+      "seedvr2"
+    ],
+    "seedvr2_stale_fields_stripped_when_basic": true
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation",
+      "extensions.replay_payloads",
+      "extensions.assistant_summaries",
+      "extensions.memory_events"
+    ],
+    "record_input_assets": true,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "metadata_ready": true,
+    "output_inspector_chips": true,
+    "assistant_summary_required": true,
+    "replay_payload_required": true,
+    "memory_event_ready": true
+  },
+  "memory_policy": {
+    "record_events": [
+      "extension_workflow_used",
+      "job.completed"
+    ]
+  },
+  "output_policy": {
+    "write_image_upscale_metadata": false,
+    "write_replay_payload": false,
+    "render_output_inspector_chips": false
+  },
+  "asset_bundle": {
+    "html": [
+      "ui/panel.html"
+    ],
+    "js": [
+      "ui/panel.js"
+    ],
+    "css": [
+      "ui/panel.css"
+    ],
+    "python": [
+      "backend/constants.py",
+      "backend/metadata.py",
+      "backend/node_discovery.py",
+      "backend/payload_schema.py",
+      "backend/support_matrix.py",
+      "backend/support_matrix_data.json",
+      "backend/workflow.py",
+      "backend/api_routes.py"
+    ],
+    "assets": [],
+    "docs": [
+      "docs/IMAGE_UPSCALE_PHASE_J6_CODEFORMER_SEEDVR2_AUDIT.md"
+    ]
+  },
+  "entrypoints": {
+    "support_matrix": "backend/support_matrix.py",
+    "payload_schema": "backend/payload_schema.py",
+    "workflow": "backend/workflow.py",
+    "metadata": "backend/metadata.py",
+    "node_discovery": "backend/node_discovery.py",
+    "api": "neo_extensions.built_in.image_upscale.backend.api_routes:register_image_upscale_api_routes"
+  },
+  "phase_c_skeleton_contract": {
+    "phase": "G",
+    "self_contained_root": "neo_extensions/built_in/image.image_upscale",
+    "required_groups": [
+      "backend",
+      "ui",
+      "docs",
+      "tests"
+    ],
+    "root_init_alias": "image_upscale",
+    "no_external_extensions_mount": true,
+    "runtime_activation": false,
+    "queue_route_activation": false,
+    "workflow_graph_mutation": false,
+    "docs": [
+      "docs/IMAGE_UPSCALE_EXTENSION_SKELETON.md"
+    ]
+  },
+  "phase_d_support_matrix_contract": {
+    "phase": "G",
+    "support_matrix": "backend/support_matrix_data.json",
+    "provider_based_not_family_based": true,
+    "loader_restricted": false,
+    "family_restricted": false,
+    "mode_restricted": false,
+    "required_node_gate": "whole_extension_provider_gated",
+    "optional_node_gate": "optional_control_only",
+    "runtime_activation": false,
+    "queue_route_activation": false,
+    "workflow_graph_mutation": false
+  },
+  "phase_e_payload_contract": {
+    "phase": "G",
+    "payload_schema": "backend/payload_schema.py",
+    "runtime_activation": false,
+    "queue_route_activation": false,
+    "workflow_graph_mutation": false,
+    "canonical_block_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "disabled_extension_suppresses_active_params": true,
+    "unsupported_or_gated_route_suppresses_active_payload": true,
+    "supports_v1_flat_keys": true,
+    "supports_v2_extension_envelope": true
+  },
+  "api_contract": {
+    "queue_endpoint": "/api/extensions/image-upscale/queue",
+    "method": "POST multipart/form-data",
+    "fields": [
+      "profile_id",
+      "settings_json",
+      "image_files[]",
+      "image_file"
+    ],
+    "behavior": "Queues one standalone Image Upscale job per uploaded source image after provider/node validation.",
+    "phase": "G"
+  },
+  "runtime_activation": false,
+  "queue_route_activation": true,
+  "workflow_graph_mutation": true,
+  "workflow_contract": {
+    "phase": "G",
+    "builder": "backend/workflow.py:build_image_upscale_workflow",
+    "graph_paths": {
+      "interpolation_only": [
+        "LoadImage",
+        "ImageScaleBy",
+        "SaveImage"
+      ],
+      "model_upscale": [
+        "LoadImage",
+        "UpscaleModelLoader",
+        "ImageUpscaleWithModel",
+        "optional ImageScaleBy correction",
+        "SaveImage"
+      ],
+      "codeformer_restore": [
+        "current image",
+        "FaceRestoreModelLoader",
+        "FaceRestoreCFWithModel",
+        "SaveImage"
+      ],
+      "preview_diagnostic": [
+        "PreviewImage optional before SaveImage"
+      ]
+    },
+    "save_prefix": "NeoStudioUpscale",
+    "native_scale_inference": "Infer Nx from upscaler model name and add ImageScaleBy correction when target scale differs from native model scale.",
+    "prompt_context_used": false,
+    "diffusion_nodes_used": false,
+    "output_policy": "append_derived"
+  },
+  "phase_h_ui_contract": {
+    "phase": "H",
+    "panel_function": "imageUpscalePanel",
+    "bind_function": "bindImageUpscaleControls",
+    "mount": "Image → Finish",
+    "normal_ui": "available/experimental routes only",
+    "diagnostic_ui": "planned/provider-gated routes visible disabled in expert mode",
+    "compact_controls": [
+      "source images",
+      "preset",
+      "target scale",
+      "queue buttons"
+    ],
+    "guided_controls": [
+      "source images",
+      "preset",
+      "target scale",
+      "upscale model",
+      "resize method",
+      "restore assist",
+      "queue buttons"
+    ],
+    "expert_controls": [
+      "payload preview",
+      "route state",
+      "queue endpoint",
+      "mount slot"
+    ]
+  },
+  "phase": "I",
+  "phase_i_mount_integration": {
+    "mount": "Image → Finish",
+    "extension_id": "image.image_upscale",
+    "mount_slot": "image.finish.image_upscale",
+    "origin": "built_in",
+    "direct_workspace": true,
+    "external_section": false,
+    "default_enabled": true,
+    "queue_endpoint": "/api/extensions/image-upscale/queue",
+    "core_changes": [
+      "neo_data/user/extension_state.json",
+      "neo_app/static/js/neo.js",
+      "neo_app/main.py",
+      "neo_extensions/built_in/__init__.py"
+    ],
+    "untouched_routes": [
+      "txt2img",
+      "img2img",
+      "inpaint",
+      "outpaint",
+      "flux_gguf",
+      "qwen_gguf",
+      "sdxl_checkpoint"
+    ]
+  },
+  "implementation_status": {
+    "phase_i_mount_integration": "complete"
+  },
+  "phase_j_metadata_output_inspector": {
+    "metadata_builder": "neo_extensions/built_in/image.image_upscale/backend/metadata.py",
+    "output_inspector": "neo_app/static/js/neo.js::imageUpscaleOutputInspectorDetails",
+    "assistant_summary": "neo_app/image/output_records.py::_image_upscale_assistant_summary",
+    "restore_policy": "revalidate_route_nodes_image_upscale_source_assets_and_optional_models_before_enable"
+  },
+  "runtime": {
+    "batch_poll_bridge": "sequential_all_jobs",
+    "source_dropzone": "drag_drop_and_file_picker",
+    "control_layout": "three_column_responsive_grid"
+  },
+  "metadata": {
+    "phase_j5_batch_poll_accumulator": true
+  },
+  "audit_references": {
+    "seedvr2_uploaded_workflow": "5 SeedVR2 Upscale.json"
+  },
+  "global_image_tab_contract": {
+    "phase": "P8.6",
+    "model_family_independent": true,
+    "loader_independent": true,
+    "workflow_mode_independent": true,
+    "image_subtab_independent": true,
+    "supported_image_subtabs": [
+      "generations",
+      "assets",
+      "reference",
+      "finish",
+      "results"
+    ],
+    "queue_basis": "selected/source image + Comfy utility nodes",
+    "normal_generation_payload_mutation": false
+  }
+}

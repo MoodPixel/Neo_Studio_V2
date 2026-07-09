@@ -1,0 +1,129 @@
+ .neo-image-upscale-panel {
+  gap: 0.75rem;
+}
+.neo-image-upscale-grid label {
+  min-width: 0;
+}
+.neo-image-upscale-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.neo-image-upscale-panel[data-display-mode="compact"] .neo-image-upscale-grid label:nth-child(n+4) {
+  display: none;
+}
+.neo-image-upscale-panel .status-chip.muted {
+  opacity: 0.78;
+}
+
+/* Image Upscale Phase J4 — drag/drop source picker + compact 3-column field grid. */
+.neo-image-upscale-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: stretch;
+  margin: 0.35rem 0 0.75rem;
+}
+.neo-image-upscale-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.78rem 0.85rem;
+  border: 1px dashed rgba(125, 211, 252, 0.42);
+  border-radius: 14px;
+  background: rgba(8, 13, 24, 0.72);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+.neo-image-upscale-dropzone:hover,
+.neo-image-upscale-dropzone:focus-visible,
+.neo-image-upscale-dropzone.is-dragover {
+  border-color: rgba(125, 211, 252, 0.92);
+  background: rgba(14, 27, 47, 0.88);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.14);
+}
+.neo-image-upscale-dropzone.has-files {
+  border-style: solid;
+  border-color: rgba(34, 197, 94, 0.62);
+}
+.neo-image-upscale-dropzone input[type="file"] {
+  max-width: 13rem;
+}
+.neo-image-upscale-drop-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+.neo-image-upscale-dropzone span:last-child {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+.neo-image-upscale-dropzone small {
+  color: var(--neo-text-muted);
+  overflow-wrap: anywhere;
+}
+.neo-image-upscale-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.neo-image-upscale-grid.image-upscale-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 980px) {
+  .neo-image-upscale-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .neo-image-upscale-source-row,
+  .neo-image-upscale-grid,
+  .neo-image-upscale-grid.image-upscale-compact { grid-template-columns: 1fr; }
+}
+/* Phase J6 — CodeFormer helper + SeedVR2 experimental audit controls. */
+.neo-image-upscale-help {
+  grid-column: 1 / -1;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  display: grid;
+  gap: 0.25rem;
+}
+.neo-image-upscale-help code {
+  font-size: 0.84rem;
+  color: var(--neo-accent, #7dd3fc);
+}
+
+.neo-image-upscale-source-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 16rem;
+  padding: 0.48rem 0.72rem;
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.14);
+  color: var(--neo-text, #e5e7eb);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.neo-image-upscale-dropzone.has-preview-source {
+  border-style: solid;
+  border-color: rgba(14, 165, 233, 0.72);
+}
+
+/* Phase J10 — SeedVR2 output sizing preview */
+.neo-image-upscale-size-preview {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(110, 168, 255, 0.22);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--neo-text, #e6edf7);
+  display: grid;
+  gap: 4px;
+}
+.neo-image-upscale-size-preview span,
+.neo-image-upscale-size-preview small {
+  color: var(--neo-muted, #9fb2d2);
+}
