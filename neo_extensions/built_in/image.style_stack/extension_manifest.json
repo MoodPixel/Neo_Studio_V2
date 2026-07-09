@@ -1,0 +1,599 @@
+{
+  "id": "style_stack",
+  "name": "Style Stack",
+  "version": "1.4.0",
+  "description": "Built-in Image prompt-composition extension for Style Stack presets, searchable style libraries, prompt merging, output-inspector details, and replay metadata.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generations.prompt.style_stack"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.prompt.style_stack",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable",
+    "forge"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "z_image_turbo",
+    "hidream",
+    "wan_image",
+    "hunyuan_image"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "unet",
+    "gguf"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [],
+    "comfyui_portable": [],
+    "forge": []
+  },
+  "node_requirements": {
+    "required": [],
+    "optional": [],
+    "source": "prompt_only_provider_neutral_extension",
+    "notes": [
+      "Style Stack is prompt-only and provider-neutral.",
+      "It must not require custom Comfy nodes or mutate provider workflow graphs.",
+      "Prompt merge, CSV APIs, metadata, and replay are intentionally deferred beyond Phase B.",
+      "Phase H locks Style Stack out of Comfy workflow patch hooks.",
+      "All supported providers receive already-merged prompt strings through normal job.prompt fields.",
+      "No object_info/node-gate requests are required for Style Stack."
+    ]
+  },
+  "route_states": {
+    "generate": "available",
+    "img2img": "available",
+    "inpaint": "available",
+    "outpaint": "available",
+    "generations": "available",
+    "assets": "planned_gated",
+    "finish": "planned_gated",
+    "results": "unsupported",
+    "*": "available"
+  },
+  "payload_contract": {
+    "canonical_key": "extensions.style_stack",
+    "enabled_default": true,
+    "version": 1,
+    "prompt_only": true,
+    "merge_policy": "append_deduped",
+    "inputs": {
+      "active_styles": [],
+      "manual_positive": "",
+      "manual_negative": ""
+    },
+    "params": {
+      "target": "both"
+    },
+    "metadata": {
+      "source": "image.generations.prompt.style_stack",
+      "merge_policy": "append_deduped",
+      "prompt_only": true,
+      "ui_phase": "K-registry-integration",
+      "runtime_merge_status": "registered_default_enabled_phase_k",
+      "replay_payload": {}
+    },
+    "phase_f_status": "frontend_payload_builder_implemented",
+    "canonical_builder": "neo_app.static.js.neo:styleStackBuildPayload",
+    "submit_path": "job.extensions.payloads.style_stack",
+    "assets": {
+      "style_names": [],
+      "style_records": []
+    },
+    "phase_g_status": "backend_prompt_merge_hook_implemented",
+    "phase_h_status": "provider_neutral_execution_locked",
+    "provider_graph_mutation": false,
+    "provider_graph_patch_path": "disabled_for_style_stack",
+    "execution_path": "neo_app.main:image_generate -> apply_prompt_extensions -> condition_prompt_pair -> provider.run_job",
+    "phase_j_status": "output_metadata_replay_implemented",
+    "output_metadata_paths": [
+      "record.extensions.used[]",
+      "record.extensions.payloads.style_stack",
+      "record.extensions.replay_payloads.style_stack",
+      "record.extensions.assistant_summaries.style_stack",
+      "record.extensions.memory_events.style_stack"
+    ],
+    "phase_k_status": "registry_default_enable_integrated",
+    "phase_l_status": "regression_tests_implemented"
+  },
+  "storage_contract": {
+    "canonical_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
+    "csv_fields": [
+      "name",
+      "prompt",
+      "negative_prompt"
+    ],
+    "encoding_fallback": [
+      "utf-8-sig",
+      "utf-8",
+      "cp1252",
+      "latin-1"
+    ],
+    "phase_b_status": "implemented_in_phase_c",
+    "phase_c_status": "csv_store_implemented",
+    "data_dir": "neo_data/extensions/image/style_stack",
+    "imports_dir": "neo_data/extensions/image/style_stack/imports",
+    "exports_dir": "neo_data/extensions/image/style_stack/exports",
+    "write_encoding": "utf-8-sig",
+    "seeded_rows": 492,
+    "phase_m_status": "bundled_default_csv_runtime_seed_repair_implemented",
+    "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
+    "bundled_default_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
+    "seed_policy": "copy_bundled_default_to_runtime_csv_on_first_run_without_overwriting_existing_runtime_csv",
+    "repo_safe_default_assets": true,
+    "neo_data_personal_runtime_state": true
+  },
+  "ui_contract": {
+    "panel_html": "ui/panel.html",
+    "panel_js": "ui/panel.js",
+    "mount_slot": "image.generations.prompt.style_stack",
+    "phase_b_status": "placeholder_only",
+    "phase_e_status": "ui_panel_api_wired",
+    "controls": [
+      "enabled",
+      "target",
+      "search",
+      "style_select",
+      "active_style_chips",
+      "style_name",
+      "positive_style_prompt",
+      "negative_style_prompt",
+      "manual_positive",
+      "manual_negative",
+      "save_update",
+      "duplicate",
+      "delete",
+      "import_csv",
+      "export_csv",
+      "refresh",
+      "expert_payload_preview"
+    ],
+    "api_wired": true,
+    "runtime_prompt_merge": true,
+    "phase_f_status": "payload_builder_wired",
+    "phase_g_status": "active_prompt_merge_hook",
+    "phase_h_status": "provider_neutral_execution_locked",
+    "phase_j_status": "output_metadata_replay_implemented",
+    "phase_k_status": "registry_default_enable_integrated",
+    "phase_l_status": "regression_tests_implemented"
+  },
+  "phase_b_skeleton_contract": {
+    "phase": "B",
+    "self_contained_root": "neo_extensions/built_in/image.style_stack",
+    "required_groups": [
+      "backend",
+      "ui",
+      "docs",
+      "tests"
+    ],
+    "no_runtime_merge": true,
+    "no_api_routes": false,
+    "no_registry_mount_patch": true,
+    "next_phase": "Phase C complete; Phase D API Routes complete; next Phase E — UI Panel Migration"
+  },
+  "phase_c_csv_store_contract": {
+    "phase": "C",
+    "implemented_helpers": [
+      "ensure_generation_styles_file",
+      "load_generation_styles",
+      "save_generation_styles",
+      "upsert_generation_style",
+      "delete_generation_style",
+      "duplicate_generation_style",
+      "import_generation_styles_csv",
+      "export_generation_styles_path"
+    ],
+    "canonical_csv_seeded": true,
+    "seeded_rows": 492,
+    "no_api_routes": false,
+    "no_runtime_merge": true,
+    "no_registry_mount_patch": true,
+    "next_phase": "Phase D API Routes complete; next Phase E — UI Panel Migration"
+  },
+  "api_routes": [
+    {
+      "method": "GET",
+      "path": "/api/extensions/style_stack/styles",
+      "purpose": "Load the Style Stack CSV library."
+    },
+    {
+      "method": "POST",
+      "path": "/api/extensions/style_stack/styles/save",
+      "purpose": "Create or update one style row by name."
+    },
+    {
+      "method": "POST",
+      "path": "/api/extensions/style_stack/styles/save-all",
+      "purpose": "Replace the full style library with a normalized style list."
+    },
+    {
+      "method": "POST",
+      "path": "/api/extensions/style_stack/styles/delete",
+      "purpose": "Delete one style row by name."
+    },
+    {
+      "method": "POST",
+      "path": "/api/extensions/style_stack/styles/duplicate",
+      "purpose": "Duplicate one style row with a safe Copy suffix."
+    },
+    {
+      "method": "POST",
+      "path": "/api/extensions/style_stack/styles/import",
+      "purpose": "Import a CSV using merge or replace mode."
+    },
+    {
+      "method": "GET",
+      "path": "/api/extensions/style_stack/styles/export",
+      "purpose": "Export the normalized style CSV."
+    }
+  ],
+  "backend_contract": {
+    "api": "neo_extensions.built_in.style_stack.backend.api_routes:register_style_stack_api_routes",
+    "store": "neo_extensions.built_in.style_stack.backend.style_store",
+    "phase_d_status": "api_routes_implemented",
+    "route_namespace": "/api/extensions/style_stack"
+  },
+  "phase_d_api_routes_contract": {
+    "phase": "D",
+    "implemented_routes": [
+      "/api/extensions/style_stack/styles",
+      "/api/extensions/style_stack/styles/save",
+      "/api/extensions/style_stack/styles/save-all",
+      "/api/extensions/style_stack/styles/delete",
+      "/api/extensions/style_stack/styles/duplicate",
+      "/api/extensions/style_stack/styles/import",
+      "/api/extensions/style_stack/styles/export"
+    ],
+    "v2_native_namespace": "/api/extensions/style_stack/styles",
+    "v1_alias_routes_added": false,
+    "reason_no_v1_alias": "Phase A selected clean V2 extension routes; V1 endpoints stay documentation-only to avoid route ambiguity.",
+    "no_runtime_merge": true,
+    "no_registry_mount_patch": true,
+    "no_provider_graph_mutation": true,
+    "next_phase": "Phase E UI Panel Migration complete; next Phase F — Frontend State + Payload Builder"
+  },
+  "ui_schema": {
+    "phase": "G",
+    "route_aware": true,
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "panel_renderer": "neo_app.static.js.neo:styleStackPanel",
+    "local_panel": "ui/panel.html",
+    "local_script": "ui/panel.js",
+    "api_wired": true,
+    "payload_preview_only": false,
+    "runtime_prompt_merge": true,
+    "controls": [
+      "enabled",
+      "target",
+      "search",
+      "style_select",
+      "active_style_chips",
+      "editor",
+      "manual_style_fields",
+      "csv_import",
+      "csv_export"
+    ],
+    "status_chips": [
+      "enabled_state",
+      "route_state",
+      "style_count"
+    ]
+  },
+  "phase_e_ui_panel_contract": {
+    "phase": "E",
+    "implemented_controls": [
+      "workflow_enable_toggle",
+      "target_pass_select",
+      "search_styles",
+      "style_library_select",
+      "active_style_chips",
+      "style_editor",
+      "save_update",
+      "duplicate",
+      "delete",
+      "manual_positive_negative",
+      "import_csv",
+      "export_csv",
+      "refresh",
+      "expert_payload_preview"
+    ],
+    "api_routes_used": [
+      "/api/extensions/style_stack/styles",
+      "/api/extensions/style_stack/styles/save",
+      "/api/extensions/style_stack/styles/delete",
+      "/api/extensions/style_stack/styles/duplicate",
+      "/api/extensions/style_stack/styles/import",
+      "/api/extensions/style_stack/styles/export"
+    ],
+    "no_runtime_merge": true,
+    "no_provider_graph_mutation": true,
+    "no_registry_default_enable_patch": true,
+    "next_phase": "Phase F complete; next Phase G — Prompt Merge Hook"
+  },
+  "phase_f_payload_builder_contract": {
+    "phase": "F",
+    "canonical_payload_key": "extensions.style_stack",
+    "submitted_in": "job.extensions.payloads.style_stack",
+    "builder_functions": [
+      "styleStackBuildPayload",
+      "styleStackPayloadPreview",
+      "styleStackReplayPayload",
+      "styleStackResolvedStyleRecords",
+      "styleStackHasSubmitIntent"
+    ],
+    "state_fields": [
+      "enabled",
+      "target",
+      "active_styles",
+      "manual_positive",
+      "manual_negative",
+      "selected_name",
+      "editor",
+      "library",
+      "payload_version",
+      "last_payload_preview"
+    ],
+    "emitted_inputs": [
+      "active_styles",
+      "manual_positive",
+      "manual_negative"
+    ],
+    "emitted_params": [
+      "target"
+    ],
+    "emitted_assets": [
+      "style_names",
+      "style_records"
+    ],
+    "metadata_fields": [
+      "source",
+      "merge_policy",
+      "prompt_only",
+      "route_state",
+      "backend",
+      "family",
+      "loader",
+      "workflow_mode",
+      "ui_phase",
+      "runtime_merge_status",
+      "payload_builder",
+      "library_count",
+      "replay_payload"
+    ],
+    "no_runtime_merge": false,
+    "no_provider_graph_mutation": true,
+    "no_registry_default_enable_patch": true,
+    "next_phase": "Phase G complete; next Phase H — Provider-Neutral Execution"
+  },
+  "phase_g_prompt_merge_contract": {
+    "phase": "G",
+    "hook": "neo_app.image.prompt_extensions:apply_prompt_extensions",
+    "called_from": "neo_app.main:image_generate",
+    "order": "before condition_prompt_pair and before provider.run_job",
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "merge_policy": "append_deduped",
+    "supported_targets": [
+      "both",
+      "base",
+      "finish"
+    ],
+    "submitted_payload": "job.extensions.payloads.style_stack",
+    "runtime_metadata_path": "job.params.prompt_extension_merge",
+    "scene_director_interop": "deferred_to_phase_i",
+    "output_metadata_replay": "deferred_to_phase_j",
+    "next_phase": "Phase H — Provider-Neutral Execution"
+  },
+  "provider_neutral_execution_contract": {
+    "phase": "H",
+    "prompt_only": true,
+    "graph_mutation": false,
+    "comfy_workflow_hook_participation": false,
+    "object_info_node_gate_required": false,
+    "supported_backends": [
+      "comfyui",
+      "comfyui_portable",
+      "forge"
+    ],
+    "execution_order": [
+      "apply_prompt_extensions",
+      "condition_prompt_pair",
+      "provider.run_job"
+    ],
+    "runtime_metadata_paths": [
+      "job.params.prompt_extension_merge",
+      "job.params.prompt_extension_execution"
+    ],
+    "output_metadata_replay": "implemented_phase_j"
+  },
+  "scene_director_interop_contract": {
+    "phase": "I-scene-director-interop",
+    "status": "implemented",
+    "scope": "global_prompt_only",
+    "style_stack_extension_id": "style_stack",
+    "scene_director_extension_id": "image.scene_director",
+    "hook": "neo_app.image.prompt_extensions:apply_scene_director_style_stack_interop",
+    "main_integration": "neo_app.main:image_generate applies interop before provider.run_job",
+    "global_prompt_path": "extensions.payloads.image.scene_director.inputs.global.positive_prompt/negative_prompt receive Style Stack effective prompts",
+    "preserved_fields": [
+      "extensions.payloads.image.scene_director.inputs.regions",
+      "extensions.payloads.image.scene_director.assets.identity_units"
+    ],
+    "region_prompt_policy": "Style Stack does not mutate Scene Director region prompts. Region context uses the original global prompt when style_stack_global_only=true.",
+    "identity_policy": "Style Stack does not mutate Scene Director identity units, IPAdapter bindings, FaceID fields, or reference image names.",
+    "metadata_paths": [
+      "job.params.prompt_extension_merge.scene_director_interop",
+      "extensions.payloads.image.scene_director.metadata.style_stack_interop",
+      "extensions.payloads.image.scene_director.params.style_stack_interop"
+    ],
+    "provider_graph_mutation": false,
+    "updated_at": "2026-06-17",
+    "output_metadata_replay": "implemented_phase_j"
+  },
+  "output_metadata_replay_contract": {
+    "phase": "J-output-metadata-replay",
+    "status": "implemented",
+    "builder": "neo_extensions.built_in.style_stack.backend.metadata:build_output_extension_metadata",
+    "main_integration": "neo_app.main:image_generate merges Style Stack output metadata before _remember_image_job_context",
+    "output_record_consumers": [
+      "neo_app.image.output_records:normalize_extension_metadata",
+      "neo_app.image.output_records:build_assistant_output_summary",
+      "neo_app.image.output_records:build_output_replay_payload"
+    ],
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads.style_stack",
+      "extensions.validation",
+      "extensions.replay_payloads.style_stack",
+      "extensions.assistant_summaries.style_stack",
+      "extensions.memory_events.style_stack"
+    ],
+    "replay_restores": [
+      "enabled",
+      "target",
+      "active_styles",
+      "manual_positive",
+      "manual_negative",
+      "selected_name",
+      "style_records"
+    ],
+    "restore_policy": "restore_style_chips_and_revalidate_style_library_before_enable",
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "updated_at": "2026-06-17",
+    "registry_integration": "implemented_phase_k",
+    "phase_l_status": "regression_tests_implemented"
+  },
+  "registry_integration_contract": {
+    "phase": "K-registry-integration",
+    "status": "implemented",
+    "extension_id": "style_stack",
+    "origin": "built_in",
+    "default_enabled": true,
+    "default_state_sources": [
+      "neo_app.extensions.registry.DEFAULT_BUILT_IN_ENABLED_EXTENSIONS",
+      "neo_app.extensions.registry.DEFAULT_STATE.enabled_extensions",
+      "neo_data/user/extension_state.json.enabled_extensions"
+    ],
+    "manifest_discovery_root": "neo_extensions/built_in/image.style_stack",
+    "mount_slot": "image.generations.prompt.style_stack",
+    "surface_payload": "get_surface_extension_payload(surface_id=image, workspace_app=generations)",
+    "extension_payload": "get_extension_payload().built_in_extensions",
+    "remove_policy": "Normal extension state controls still apply. If the user disables/removes style_stack, state takes precedence.",
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "updated_at": "2026-06-17",
+    "phase_l_status": "regression_tests_implemented"
+  },
+  "phase_l_tests_contract": {
+    "phase": "L-tests",
+    "status": "implemented",
+    "test_suite": "neo_extensions/built_in/image.style_stack/tests",
+    "coverage_areas": [
+      "extension skeleton and manifest contract",
+      "CSV store encoding/header/492-row seed",
+      "API routes for load/save/save-all/delete/duplicate/import/export",
+      "UI panel control and frontend helper presence",
+      "frontend payload normalization and replay-safe submit shape",
+      "backend prompt merge hook and append_deduped ordering",
+      "base/finish/both target matrix",
+      "provider-neutral execution and graph mutation block",
+      "Scene Director global-only interop with regions/identity preserved",
+      "output metadata, assistant summaries, memory events, and replay payloads",
+      "registry/default-enabled surface discovery"
+    ],
+    "minimum_expected_tests": 55,
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "updated_at": "2026-06-17"
+  },
+  "phase_m_bundled_default_csv_runtime_seed_repair_contract": {
+    "phase": "M-bundled-default-csv-runtime-seed-repair",
+    "status": "implemented",
+    "extension_id": "style_stack",
+    "bundled_default_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
+    "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
+    "default_rows": 492,
+    "seed_priority": [
+      "existing_runtime_csv_preserved",
+      "explicit_seed_from",
+      "bundled_extension_default_csv",
+      "legacy_v1_csv",
+      "empty_header_fallback"
+    ],
+    "repo_upload_policy": "commit bundled default CSV under neo_extensions; do not require neo_data to ship default styles",
+    "user_data_policy": "neo_data runtime CSV remains editable local state and is not overwritten if it exists",
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "updated_at": "2026-06-18"
+  },
+  "phase_n_library_load_self_heal_category_multiselect_ui_contract": {
+    "empty_runtime_csv_self_heal": true,
+    "preserve_non_empty_user_runtime_csv": true,
+    "bundled_default_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
+    "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
+    "runtime_empty_backup": "neo_data/extensions/image/style_stack/backups/generation_styles.empty_runtime_before_bundled_seed.csv",
+    "category_headers": "rows whose name starts with ||| define browser categories",
+    "category_filter": true,
+    "category_header_rows_selectable": false,
+    "click_style_to_add_chip": true,
+    "multi_style_chips": true,
+    "provider_graph_mutation": false,
+    "workflow_patches": []
+  },
+  "phase_o_output_inspector_extension_slot_details_contract": {
+    "style_stack_extension_slot_details": true,
+    "shows_style_names_in_output_inspector": true,
+    "shows_style_count_and_target": true,
+    "shows_style_positive_negative_prompt_delta": true,
+    "preserves_prompt_only_provider_neutral_contract": true,
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "depends_on_phase_j_output_metadata_replay": true,
+    "no_prompt_behavior_change": true
+  }
+}

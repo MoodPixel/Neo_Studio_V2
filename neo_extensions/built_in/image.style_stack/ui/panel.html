@@ -1,0 +1,67 @@
+<section class="neo-extension-panel neo-style-stack-panel" data-extension-id="style_stack" data-route-aware="true" data-route-state="available" data-display-mode="guided" data-phase="F">
+  <header class="neo-style-stack-header neo-extension-card__header">
+    <div>
+      <p class="neo-kicker">Image Extension</p>
+      <h3>Style Stack</h3>
+      <p class="neo-muted">Prompt-only CSV style library stack for Image → Generations. This panel is API-wired and now emits the canonical generation payload; runtime prompt merge remains Phase G.</p>
+    </div>
+    <div class="neo-extension-status-line">
+      <span class="neo-state-pill success" data-style-stack-status>Ready</span>
+      <span class="neo-badge">Phase F Payload</span>
+    </div>
+  </header>
+
+  <div class="neo-extension-card neo-style-stack-card">
+    <div class="neo-style-stack-toolbar">
+      <label class="neo-toggle-row"><input type="checkbox" data-style-stack-field="enabled" checked> <span>Apply Style Stack</span></label>
+      <label>Target pass
+        <select data-style-stack-field="target">
+          <option value="both">Both base + finish</option>
+          <option value="base">Base only</option>
+          <option value="finish">Finish / redraw only</option>
+        </select>
+      </label>
+      <button class="neo-btn secondary" type="button" data-style-stack-action="refresh">Refresh</button>
+      <a class="neo-btn secondary" href="/api/extensions/style_stack/styles/export" download="generation_styles_export.csv">Export CSV</a>
+      <span class="neo-badge" data-style-stack-count>0 styles</span>
+    </div>
+
+    <div class="neo-style-stack-browser-row">
+      <label>Search styles<input type="search" data-style-stack-field="search" placeholder="Search name, prompt, or negative"></label>
+      <label>Style library<select size="8" data-style-stack-select><option value="">Loading styles…</option></select></label>
+      <div class="neo-style-stack-chip-zone">
+        <strong>Active style chips</strong>
+        <div class="neo-style-stack-chips" data-style-stack-active-chips><span class="neo-muted">No active style chips yet.</span></div>
+        <div class="neo-style-stack-chip-actions">
+          <button class="neo-btn primary" type="button" data-style-stack-action="add-selected">+ Add selected</button>
+          <button class="neo-btn secondary" type="button" data-style-stack-action="clear-active">Clear stack</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="neo-style-stack-editor">
+      <label>Style name<input data-style-stack-editor="name" placeholder="Style name"></label>
+      <label class="neo-field-wide">Positive style prompt<textarea data-style-stack-editor="prompt" rows="4" placeholder="Cinematic lighting, detailed texture…"></textarea></label>
+      <label class="neo-field-wide">Negative style prompt<textarea data-style-stack-editor="negative_prompt" rows="3" placeholder="low quality, flat lighting…"></textarea></label>
+      <div class="neo-style-stack-actions">
+        <button class="neo-btn primary" type="button" data-style-stack-action="save">Save / Update</button>
+        <button class="neo-btn secondary" type="button" data-style-stack-action="duplicate">Duplicate</button>
+        <button class="neo-btn danger" type="button" data-style-stack-action="delete">Delete</button>
+      </div>
+    </div>
+
+    <div class="neo-style-stack-manual-grid">
+      <label class="neo-field-wide">Manual positive style<textarea data-style-stack-field="manual_positive" rows="2"></textarea></label>
+      <label class="neo-field-wide">Manual negative style<textarea data-style-stack-field="manual_negative" rows="2"></textarea></label>
+    </div>
+
+    <div class="neo-style-stack-import-row">
+      <label>Import CSV<input type="file" accept=".csv,text/csv" data-style-stack-import-file></label>
+      <label>Mode<select data-style-stack-import-mode><option value="merge">Merge / update matching names</option><option value="replace">Replace library</option></select></label>
+      <button class="neo-btn secondary" type="button" data-style-stack-action="import">Import</button>
+    </div>
+
+    <p class="neo-muted neo-style-stack-status" data-style-stack-message>Ready.</p>
+    <div class="neo-extension-expert-block" data-style-stack-payload-preview hidden></div>
+  </div>
+</section>
