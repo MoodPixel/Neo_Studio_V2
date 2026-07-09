@@ -23366,9 +23366,25 @@ function renderOutputFileStrip(files = [], activeFileId = '') {
 }
 
 
+function outputInputAssetIsPlaceholder(item = {}) {
+  if (!item || typeof item !== 'object') return true;
+  const label = String(item.label || '').trim();
+  const filename = String(item.filename || '').trim();
+  const path = String(item.path || '').trim();
+  const url = String(item.url || '').trim();
+  const backend = String(item.backend_handoff_name || '').trim();
+  const decodedUrl = (() => {
+    try { return decodeURIComponent(url); }
+    catch (_) { return url; }
+  })();
+  const labelOnly = label && filename === label && !path && !backend;
+  const synthesizedPlaceholderUrl = /\/api\/image\/(?:source-file|mask-file)\/(?:Source image [123]|Mask|Outpaint canvas|Outpaint mask)$/i.test(decodedUrl);
+  return labelOnly && (!url || synthesizedPlaceholderUrl);
+}
+
 function outputInputAssets(metadata = {}) {
   const assets = metadata?.source?.input_assets;
-  return Array.isArray(assets) ? assets.filter((item) => item && (item.url || item.path)) : [];
+  return Array.isArray(assets) ? assets.filter((item) => item && !outputInputAssetIsPlaceholder(item) && (item.url || item.path || item.backend_handoff_name)) : [];
 }
 
 function outputExtensionAssetUrlCandidates(record = {}, fallback = {}) {

@@ -505,11 +505,13 @@ def _make_input_asset_record(
     unit: str = "",
     owned_by_result: bool = False,
 ) -> dict[str, Any] | None:
-    filename = filename or _basename(path) or _basename(url) or _basename(backend_handoff_name) or label
-    path = path or ""
-    url = url or _url_from_ref(path or filename, role=role)
-    if not (path or url or backend_handoff_name):
+    path = str(path or "").strip()
+    url = str(url or "").strip()
+    backend_handoff_name = str(backend_handoff_name or "").strip()
+    filename = str(filename or "").strip() or _basename(path) or _basename(url) or _basename(backend_handoff_name)
+    if not (path or url or backend_handoff_name or filename):
         return None
+    url = url or _url_from_ref(path or filename or backend_handoff_name, role=role)
     item: dict[str, Any] = {
         "asset_id": sanitize_path_part(asset_id, fallback="asset"),
         "role": role,
