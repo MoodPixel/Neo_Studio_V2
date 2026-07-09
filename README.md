@@ -502,14 +502,6 @@ Release/source packages should not include `neo_data/`, cache folders, generated
 
 ## 🧩 Backend Notes & Troubleshooting
 
-### ⚠️ Optional requirements
-
-Older Neo Studio virtual environments may still run basic workflows, but newer Assistant memory/retrieval systems and advanced backend integrations may need optional requirements installed.
-
-If memory/embedding/reranker features fail, check the relevant requirements file and reinstall/update the virtual environment.
-
----
-
 ### ⚠️ InsightFace / IPAdapter FaceID Setup Note (Python 3.13)
 
 If you are using newer ComfyUI portable builds with **Python 3.13**, normal:
