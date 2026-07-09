@@ -1,0 +1,89 @@
+# Python/runtime cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Neo Studio V2 public-repo boundary
+# Internal/developer-only records, release scripts, and tests are kept out of the first public source upload.
+neo_system_records/
+neo_system_records/**
+scripts/
+scripts/**
+tests/
+tests/**
+neo_app/**/tests/
+neo_extensions/**/tests/
+
+# Developer-only release tooling; not required for Neo Studio V2 user runtime.
+neo_app/release_hygiene.py
+
+# Local/private key material
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.kdbx
+
+# Neo Studio runtime data
+# Created automatically by neo_app.runtime_data.bootstrap_neo_runtime_data().
+# Do not commit Assistant scopes, sessions, project workspace data, outputs, logs,
+# vector stores, generated media, local runtime settings, or API-key stores.
+neo_data/
+neo_data/**
+
+
+# Local/private user-installed extension workspace.
+# Public Neo Studio V2 ships built-in extensions only; user/private extensions stay local.
+neo_extensions/installed/
+neo_extensions/installed/**
+
+# Internal extension implementation notes/tests stay developer-only for the first public release.
+neo_extensions/**/docs/
+neo_extensions/**/docs/**
+
+# Extension/runtime caches
+neo_extensions/cache/
+neo_extensions/cache/**
+
+# Local databases / indexes
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Generated assets and local-only files
+*.log
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*.swp
+*.swo
+
+# Local release/export archives
+/dist/
+*.zip
+
+# Local model/checkpoint folders should be user-managed, not repo-managed
+models/
+checkpoints/
