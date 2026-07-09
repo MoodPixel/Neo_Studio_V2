@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Neo Studio Support / Questions
+    url: https://github.com/MoodPixel/Neo_Studio_V2/discussions
+    about: Use discussions for general questions, ideas, and non-bug conversations if enabled.
+  - name: Security Reports
+    url: https://github.com/YOUR_USERNAME/YOUR_REPOSITORY/security/advisories/new
+    about: Please report possible security vulnerabilities privately.
