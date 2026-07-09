@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Neo Studio V2</title>
+    <link rel="icon" href="/static/assets/neo_studio_icon.ico" sizes="any" />
+    <link rel="stylesheet" href="/static/css/neo.css" />
+  </head>
+  <body>
+    <div class="neo-app-shell">
+      <aside class="neo-sidebar">
+        <div class="neo-brand" aria-label="Neo Studio V2">
+          <img class="neo-brand-icon" src="/static/assets/neo_studio_icon.png" alt="" />
+          <span class="neo-brand-wordmark">Neo Studio V2</span>
+        </div>
+        <nav class="neo-nav" id="surfaceNav" aria-label="Neo Studio V2 surfaces"></nav>
+      </aside>
+      <main class="neo-main">
+        <header class="neo-topbar">
+          <div>
+            <h1 id="surfaceTitle">Loading…</h1>
+            <p id="surfaceDescription">Loading workspace registry.</p>
+          </div>
+          <select id="detailMode" aria-label="Interface detail mode">
+            <option value="compact">Compact</option>
+            <option value="guided" selected>Guided</option>
+            <option value="expert">Expert</option>
+          </select>
+        </header>
+
+        <section class="neo-preview-banner" id="neoPreviewBanner" aria-label="Neo Studio V2 preview status">
+          <div>
+            <strong>Neo Studio V2 development preview</strong>
+            <span>Ready for testing: Image, Video, Roleplay, Assistant, Prompt & Captioning, and Admin / Backends. Voice, Board, and Music are planned placeholders.</span>
+          </div>
+          <button class="neo-btn secondary compact" type="button" onclick="setActiveSubtab('admin','backends')">Open Backends</button>
+        </section>
+
+        <section class="neo-workspace-header" id="workspaceHeader" aria-label="Backend workspace controls" hidden></section>
+
+        <section class="neo-workspace-shell" id="workspaceShell">
+          <section class="neo-subtabs" id="subtabNav" aria-label="Surface subtabs"></section>
+          <section class="neo-grid" id="surfacePanels"></section>
+        </section>
+      </main>
+    </div>
+    <script src="/static/js/image_ui_helpers.js"></script>
+    <script src="/static/js/prompt_captioning_ui_helpers.js"></script>
+    <script src="/static/js/surfaces/runtime.js"></script>
+    <script src="/static/js/surfaces/admin.js"></script>
+    <script src="/static/js/surfaces/assistant.js"></script>
+    <script src="/static/js/surfaces/image.js"></script>
+    <script src="/static/js/surfaces/prompt_captioning.js"></script>
+    <script src="/static/js/surfaces/roleplay.js"></script>
+    <script src="/static/js/surfaces/voice.js"></script>
+    <script src="/static/js/surfaces/video.js"></script>
+    <script src="/static/js/surfaces/music.js"></script>
+    <script src="/static/js/surfaces/board.js"></script>
+    <script src="/static/js/neo.js"></script>
+  </body>
+</html>
