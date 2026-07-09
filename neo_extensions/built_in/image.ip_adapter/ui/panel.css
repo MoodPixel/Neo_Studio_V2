@@ -1,0 +1,76 @@
+.neo-ip-adapter-panel { display: grid; gap: 0.85rem; min-width: 0; max-width: 100%; }
+.neo-ip-adapter-panel__header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; min-width: 0; }
+.neo-ip-adapter-panel__header > div:first-child { display: grid; gap: 0.15rem; min-width: 0; }
+.neo-ip-adapter-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
+.neo-ip-adapter-identity, .neo-ip-adapter-unit { border: 1px solid var(--border, #243044); border-radius: 1rem; padding: 0.85rem; display: grid; gap: 0.7rem; background: rgba(255,255,255,0.02); min-width: 0; }
+.neo-ip-adapter-units { display: grid; gap: 0.8rem; min-width: 0; }
+.neo-ip-adapter-unit-header { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.neo-ip-adapter-unit-actions { display: flex; align-items: center; gap: 0.35rem; }
+.neo-ip-adapter-config-row, .neo-ip-adapter-faceid-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.65rem; min-width: 0; }
+.neo-ip-adapter-row-title { grid-column: 1 / -1; color: var(--muted, #94a3b8); font-size: 0.78rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.neo-ip-adapter-config-row.compact-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.neo-ip-adapter-panel :where(label) { display: grid; gap: 0.35rem; min-width: 0; }
+.neo-ip-adapter-panel :where(input, select, textarea) { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.neo-ip-adapter-image-box { border: 1px dashed var(--border, #334155); border-radius: 0.85rem; padding: 0.65rem; display: grid; gap: 0.55rem; cursor: pointer; background: rgba(15,23,42,0.36); }
+.neo-ip-adapter-image-box.is-dragover { outline: 2px solid rgba(56,189,248,0.65); }
+.neo-ip-adapter-image-preview { min-height: 86px; display: grid; place-items: center; border-radius: 0.65rem; background: rgba(15,23,42,0.65); overflow: hidden; color: var(--muted, #94a3b8); }
+.neo-ip-adapter-image-preview img { width: 100%; max-height: 160px; object-fit: contain; display: block; }
+.neo-ip-adapter-image-list { display: flex; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.neo-ip-adapter-image-chip { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border, #334155); border-radius: 999px; padding: 0.2rem 0.35rem 0.2rem 0.55rem; max-width: 100%; }
+.neo-ip-adapter-image-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.neo-ip-adapter-image-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+:where(.neo-ip-adapter-panel, .neo-ip-adapter-panel *) { box-sizing: border-box; min-width: 0; max-width: 100%; }
+
+/* Phase D route-aware visibility contract */
+.neo-extension-route-gate {
+  border: 1px solid rgba(251, 191, 36, 0.38);
+  background: rgba(251, 191, 36, 0.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+.neo-ip-adapter-panel[data-route-state="planned_gated"] .neo-ip-adapter-unit,
+.neo-ip-adapter-panel[data-route-state="provider_gated"] .neo-ip-adapter-unit {
+  opacity: 0.72;
+}
+
+/* Phase E — node readiness diagnostics live with the feature UI. */
+.neo-ip-adapter-node-readiness { margin-block: 10px; }
+.neo-ip-adapter-node-details pre { max-height: 220px; overflow: auto; }
+.neo-ip-adapter-catalog-hint {
+  color: var(--muted, #94a3b8);
+  font-size: 0.82rem;
+}
+
+/* Phase H — Compact / Guided / Expert display layout */
+.neo-ip-adapter-panel[data-display-mode="compact"] {
+  gap: 0.55rem;
+}
+.neo-ip-adapter-panel[data-display-mode="compact"] .neo-ip-adapter-panel__header {
+  align-items: center;
+}
+.neo-ip-adapter-panel[data-display-mode="compact"] .neo-ip-adapter-unit {
+  padding: 0.65rem;
+  gap: 0.55rem;
+}
+.neo-ip-adapter-panel[data-display-mode="compact"] .neo-ip-adapter-image-preview {
+  min-height: 64px;
+}
+.neo-ip-adapter-panel[data-display-mode="guided"] .neo-ip-adapter-mode-help {
+  margin: 0;
+}
+.neo-ip-adapter-panel[data-display-mode="expert"] .neo-extension-expert-block {
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(14, 165, 233, 0.06);
+}
+.neo-ip-adapter-panel[data-display-mode="expert"] pre {
+  max-height: 320px;
+  overflow: auto;
+}
+.neo-ip-adapter-config-row--primary {
+  align-items: end;
+}
+
+.neo-ip-adapter-panel[data-display-mode="compact"] [data-ip-adapter-param="adapter_advanced"] { display: none; }
