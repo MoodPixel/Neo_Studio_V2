@@ -1,0 +1,574 @@
+{
+  "id": "cfg_fix_dynamic_thresholding",
+  "name": "CFG Fix / Dynamic Thresholding",
+  "version": "0.1.0",
+  "description": "Built-in Image Generations extension for Comfy CFG Fix and Dynamic Thresholding controls with route-aware support notes and workflow-safe parameter injection.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate"
+  ],
+  "workflow_modes": [
+    "generate"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generate.model_loader.after"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workflow_mode": "generate",
+      "workspace_app": "generations",
+      "slot": "image.generate.model_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "z_image_turbo",
+    "hidream",
+    "wan_image",
+    "hunyuan_image"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "unet",
+    "gguf"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [
+      "DynamicThresholdingSimple"
+    ],
+    "comfyui_portable": [
+      "DynamicThresholdingSimple"
+    ]
+  },
+  "node_requirements": {
+    "required": [
+      "DynamicThresholdingSimple"
+    ],
+    "optional": [
+      "DynamicThresholdingFull"
+    ],
+    "source": "https://github.com/mcmonkeyprojects/sd-dynamic-thresholding",
+    "notes": [
+      "DynamicThresholdingSimple is required for the extension to become provider-available.",
+      "DynamicThresholdingFull is optional and gates Full mode only when unavailable.",
+      "Both nodes are MODEL-in/MODEL-out Comfy nodes that patch sampler CFG behavior."
+    ]
+  },
+  "route_states": {
+    "sdxl:checkpoint:generate": "available",
+    "sd15:checkpoint:generate": "experimental_available",
+    "sdxl:diffusion_model:generate": "planned_gated",
+    "sdxl:unet:generate": "planned_gated",
+    "sd15:unet:generate": "planned_gated",
+    "flux:diffusion_model:generate": "planned_gated",
+    "flux:gguf:generate": "planned_gated",
+    "qwen_image:diffusion_model:generate": "planned_gated",
+    "qwen_image:gguf:generate": "planned_gated",
+    "z_image:diffusion_model:generate": "planned_gated",
+    "z_image:gguf:generate": "planned_gated",
+    "hidream:diffusion_model:generate": "planned_gated",
+    "hidream:gguf:generate": "planned_gated",
+    "wan_image:diffusion_model:generate": "provider_gated",
+    "wan_image:gguf:generate": "provider_gated",
+    "hunyuan_image:diffusion_model:generate": "provider_gated",
+    "hunyuan_image:gguf:generate": "provider_gated",
+    "img2img": "planned_gated",
+    "inpaint": "planned_gated",
+    "outpaint": "planned_gated",
+    "assets": "unsupported",
+    "results": "unsupported",
+    "*": "planned_gated",
+    "z_image_turbo:diffusion_model:generate": "planned_gated",
+    "z_image_turbo:gguf:generate": "planned_gated"
+  },
+  "capability_profiles": {
+    "cfg_fix_sdxl_checkpoint_generate": {
+      "profile_id": "cfg_fix_sdxl_checkpoint_generate",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "modes": {
+        "generate": "available"
+      },
+      "required_roles": [
+        "checkpoint_model",
+        "sampler_model_ref",
+        "DynamicThresholdingSimple"
+      ],
+      "optional_roles": [
+        "DynamicThresholdingFull"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "checkpoint_model",
+          "sampler_model_ref",
+          "DynamicThresholdingSimple"
+        ]
+      },
+      "params": [
+        "preset",
+        "mode",
+        "mimic_scale",
+        "threshold_percentile",
+        "custom_values",
+        "auto_disable_low_cfg",
+        "auto_disable_family"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "DynamicThresholdingSimple"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "DynamicThresholdingSimple"
+          ]
+        }
+      },
+      "notes": [
+        "Phase E patches the Comfy graph by inserting DynamicThresholdingSimple/Full before KSampler."
+      ]
+    },
+    "cfg_fix_sd15_checkpoint_generate": {
+      "profile_id": "cfg_fix_sd15_checkpoint_generate",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "modes": {
+        "generate": "experimental_available"
+      },
+      "required_roles": [
+        "checkpoint_model",
+        "sampler_model_ref",
+        "DynamicThresholdingSimple"
+      ],
+      "optional_roles": [
+        "DynamicThresholdingFull"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "checkpoint_model",
+          "sampler_model_ref",
+          "DynamicThresholdingSimple"
+        ]
+      },
+      "params": [
+        "preset",
+        "mode",
+        "mimic_scale",
+        "threshold_percentile",
+        "custom_values",
+        "auto_disable_low_cfg",
+        "auto_disable_family"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "DynamicThresholdingSimple"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "DynamicThresholdingSimple"
+          ]
+        }
+      },
+      "notes": [
+        "Marked experimental until V2 route validation confirms SD 1.5 parity."
+      ]
+    },
+    "cfg_fix_phase_d_payload_validation": {
+      "profile_id": "cfg_fix_phase_e_payload_validation_and_workflow_patch",
+      "family": "*",
+      "loader": "*",
+      "modes": {
+        "generate": "validation_only"
+      },
+      "required_roles": [
+        "extensions.cfg_fix_dynamic_thresholding",
+        "route_context",
+        "node_status"
+      ],
+      "optional_roles": [
+        "DynamicThresholdingFull"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "payload_schema",
+          "route_validation",
+          "node_validation"
+        ]
+      },
+      "params": [
+        "preset",
+        "mode",
+        "mimic_scale",
+        "threshold_percentile",
+        "custom_values",
+        "auto_disable_low_cfg",
+        "auto_disable_family"
+      ],
+      "backend_requirements": {},
+      "notes": [
+        "Phase E validates, normalizes, and patches available Comfy SD checkpoint generation graphs."
+      ]
+    }
+  },
+  "ui_schema": {
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "status_chips": [
+      "Ready",
+      "Node missing",
+      "Full node missing",
+      "Skipped: low CFG",
+      "Route gated",
+      "Disabled",
+      "Experimental"
+    ],
+    "fields": [
+      {
+        "id": "enabled",
+        "label": "Apply CFG Fix",
+        "compact_label": "CFG Fix",
+        "type": "boolean",
+        "help_text": "Apply dynamic thresholding to reduce high-CFG overbaking when the active route supports it.",
+        "expert_text": "Emits extensions.cfg_fix_dynamic_thresholding.enabled and gates workflow patching.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.enabled",
+        "default": false,
+        "visible_when": {
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      },
+      {
+        "id": "preset",
+        "label": "Preset",
+        "type": "select",
+        "help_text": "Choose the V1 parity preset before optional custom tuning.",
+        "expert_text": "Allowed values: off, safe, detail_push, aggressive, smart_auto, advanced.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.params.preset",
+        "default": "off",
+        "options": [
+          "off",
+          "safe",
+          "detail_push",
+          "aggressive",
+          "smart_auto",
+          "advanced"
+        ],
+        "visible_when": {
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      },
+      {
+        "id": "mode",
+        "label": "Mode",
+        "type": "select",
+        "help_text": "Simple uses DynamicThresholdingSimple. Full uses DynamicThresholdingFull when installed.",
+        "expert_text": "Full mode is provider-gated if DynamicThresholdingFull is not detected.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.params.mode",
+        "default": "simple",
+        "options": [
+          "simple",
+          "full"
+        ],
+        "visible_when": {
+          "route_states": [
+            "available",
+            "experimental_available"
+          ],
+          "detail_modes": [
+            "guided",
+            "expert"
+          ]
+        }
+      },
+      {
+        "id": "mimic_scale",
+        "label": "Mimic CFG",
+        "type": "number",
+        "help_text": "Target CFG behavior used by the dynamic thresholding node.",
+        "expert_text": "V1 range: min 1, max 30, step 0.1, default 7.0.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.params.mimic_scale",
+        "default": 7.0,
+        "min": 1,
+        "max": 30,
+        "step": 0.1,
+        "visible_when": {
+          "custom_values": true,
+          "detail_modes": [
+            "guided",
+            "expert"
+          ],
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      },
+      {
+        "id": "threshold_percentile",
+        "label": "Threshold Percentile",
+        "type": "number",
+        "help_text": "Percentile used for thresholding. Lower values clamp harder.",
+        "expert_text": "V1 range: min 0.80, max 1.00, step 0.01, default 1.00.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.params.threshold_percentile",
+        "default": 1.0,
+        "min": 0.8,
+        "max": 1.0,
+        "step": 0.01,
+        "visible_when": {
+          "custom_values": true,
+          "detail_modes": [
+            "guided",
+            "expert"
+          ],
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      },
+      {
+        "id": "custom_values",
+        "label": "Customize values",
+        "type": "boolean",
+        "help_text": "Unlock manual mimic CFG and threshold percentile controls.",
+        "expert_text": "When false, params are derived from the preset resolver.",
+        "payload_path": "extensions.cfg_fix_dynamic_thresholding.params.custom_values",
+        "default": false,
+        "visible_when": {
+          "detail_modes": [
+            "guided",
+            "expert"
+          ],
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      }
+    ],
+    "phase": "G",
+    "route_aware": true,
+    "normal_ui_hidden_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "diagnostic_visible_states": [
+      "planned_gated",
+      "provider_gated"
+    ],
+    "disabled_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "payload_preview": {
+      "detail_modes": [
+        "expert"
+      ],
+      "route_revalidated": true,
+      "disabled_payload_has_empty_params": true
+    },
+    "payload_validation": "server_side_contract_available",
+    "disabled_payload_has_empty_params": true,
+    "route_revalidation_required": true,
+    "layout_contract": {
+      "control_grid": "extension-local responsive grid",
+      "prevents_select_clipping": true,
+      "breakpoints": [
+        "720px",
+        "520px"
+      ],
+      "global_workspace_rows_untouched": true
+    }
+  },
+  "asset_bundle": {
+    "js": [
+      "ui/panel.js"
+    ],
+    "css": [
+      "ui/panel.css"
+    ],
+    "html": [
+      "ui/panel.html"
+    ],
+    "python": [
+      "backend/support_matrix.py",
+      "backend/payload_schema.py",
+      "backend/node_discovery.py",
+      "backend/validation.py",
+      "backend/workflow_patch.py",
+      "backend/metadata.py"
+    ],
+    "assets": []
+  },
+  "entrypoints": {
+    "support_matrix": "backend/support_matrix.py",
+    "payload_schema": "backend/payload_schema.py",
+    "node_discovery": "backend/node_discovery.py",
+    "validation": "backend/validation.py",
+    "workflow_patch": "backend/workflow_patch.py",
+    "metadata": "backend/metadata.py"
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "phase": "G",
+    "normalization_entrypoint": "backend/validation.py::validate_and_normalize_payload",
+    "disabled_payload_has_empty_params": true,
+    "validates_node_availability": true,
+    "validates_route_state": true,
+    "validates_low_cfg_auto_skip": true,
+    "active_states": [
+      "available",
+      "experimental_available"
+    ],
+    "gated_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "workflow_patch_entrypoint": "backend/workflow_patch.py::apply_cfg_fix_dynamic_thresholding_patch"
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true,
+    "phase": "F",
+    "workspace_app": "generations",
+    "replay_payload_required": true,
+    "record_workflow_summary": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation"
+    ],
+    "record_input_assets": false,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "phase": "F",
+    "record_extension_usage": true,
+    "record_node_availability_status": true,
+    "record_gated_disabled_reason": true,
+    "replay_restore_policy": "revalidate_before_enable"
+  },
+  "memory_policy": {
+    "record_events": [
+      "extension.enabled",
+      "cfg_fix_dynamic_thresholding.used",
+      "job.completed"
+    ],
+    "assistant_readiness_event": true
+  },
+  "output_policy": {
+    "write_extension_metadata": true,
+    "write_workflow_patch_summary": true,
+    "write_node_availability_status": true,
+    "write_validation_preview": true,
+    "phase": "F",
+    "write_replay_safe_payload": true,
+    "surface_in_output_inspector": true
+  },
+  "workflow_patch_contract": {
+    "phase": "G",
+    "entrypoint": "backend/workflow_patch.py::apply_cfg_fix_dynamic_thresholding_patch",
+    "graph_mutation": "MODEL-in/MODEL-out node inserted before sampler model input",
+    "simple_node": "DynamicThresholdingSimple",
+    "full_node": "DynamicThresholdingFull",
+    "mutates_when": [
+      "payload enabled",
+      "route state available or experimental_available",
+      "required node available",
+      "cfg above low-CFG skip threshold"
+    ],
+    "never_mutates_when": [
+      "disabled",
+      "preset off",
+      "planned_gated",
+      "provider_gated",
+      "unsupported",
+      "required node missing",
+      "low CFG auto-skip"
+    ],
+    "provider_hook": "neo_app.extensions.workflow_hooks::apply_comfy_workflow_extension_patches"
+  },
+  "phase_f_contract": {
+    "metadata_entrypoint": "backend/metadata.py::build_output_extension_metadata",
+    "assistant_summary_entrypoint": "backend/metadata.py::assistant_summary_from_payload",
+    "replay_policy": "revalidate_before_enable",
+    "output_inspector": "neo_app/static/js/neo.js::cfgFixOutputInspectorDetails",
+    "provider_runtime": "completed poll runtime carries compiled extension metadata for persistence"
+  },
+  "test_contract": {
+    "phase": "G",
+    "focus": "end-to-end extension queue integrity and Comfy HTTP 400 diagnostics",
+    "assertions": [
+      "V1 Full mode values mimic_scale=CFG and threshold_percentile=1.0 are queued unchanged",
+      "exact /prompt payload contains DynamicThresholdingFull and KSampler model rewiring",
+      "HTTP 400 queue errors include queue_payload, compiled_backend_payload, and Comfy response body",
+      "compiled extension workflow_patches are not lost before queue submission"
+    ]
+  },
+  "docs": [
+    "docs/CFG_FIX_DYNAMIC_THRESHOLDING_CONTRACT.md",
+    "docs/CFG_FIX_DYNAMIC_THRESHOLDING_MIGRATION_REPORT.md"
+  ],
+  "phase_h_docs": {
+    "runtime_behavior_changed": false,
+    "documents_final_contract": true,
+    "documents_support_matrix": true,
+    "documents_replay_policy": true,
+    "documents_queue_diagnostics": true,
+    "documents_test_baseline": true
+  }
+}

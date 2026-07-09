@@ -1,0 +1,42 @@
+<section class="neo-cfg-fix-panel" data-extension-id="cfg_fix_dynamic_thresholding" data-route-aware="true">
+  <header class="neo-cfg-fix-panel__header">
+    <div>
+      <strong>CFG Fix / Dynamic Thresholding</strong>
+      <span class="neo-muted">Built-in Generations extension</span>
+    </div>
+    <div class="neo-cfg-fix-status-line">
+      <span class="neo-workflow-chip disabled" data-cfg-fix-workflow-chip>Disabled</span>
+      <span class="neo-state-pill" data-cfg-fix-status>Route aware</span>
+    </div>
+  </header>
+
+  <p class="neo-cfg-fix-panel__note">
+    Reduces high-CFG overbaking by patching the sampler MODEL through DynamicThresholdingSimple or DynamicThresholdingFull when the active route supports it.
+  </p>
+
+  <div class="neo-cfg-fix-control-grid neo-cfg-fix-control-grid--main">
+    <label class="neo-toggle-row neo-cfg-fix-apply"><input id="cfgFixEnabled" type="checkbox"> <span>Apply CFG Fix</span></label>
+    <label>Preset
+      <select id="cfgFixPreset">
+        <option value="off">Off</option>
+        <option value="safe">Safe detail</option>
+        <option value="detail_push">Detail push</option>
+        <option value="aggressive">Aggressive pop control</option>
+        <option value="smart_auto">Smart auto</option>
+        <option value="advanced">Advanced / custom</option>
+      </select>
+    </label>
+    <label>Mode
+      <select id="cfgFixMode">
+        <option value="simple">Simple · DynamicThresholdingSimple</option>
+        <option value="full">Full · DynamicThresholdingFull</option>
+      </select>
+    </label>
+  </div>
+
+  <label class="neo-toggle-row"><input id="cfgFixCustomValues" type="checkbox"> Customize values</label>
+  <div class="neo-cfg-fix-control-grid neo-cfg-fix-control-grid--params neo-cfg-fix-custom-controls">
+    <label>Mimic CFG<input id="cfgFixMimicScale" type="number" min="1" max="30" step="0.1" value="7.0"></label>
+    <label>Threshold percentile<input id="cfgFixThresholdPercentile" type="number" min="0.80" max="1.00" step="0.01" value="1.00"></label>
+  </div>
+</section>

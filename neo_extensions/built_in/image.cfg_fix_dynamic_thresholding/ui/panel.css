@@ -1,0 +1,101 @@
+.neo-cfg-fix-panel {
+  display: grid;
+  gap: 0.65rem;
+}
+.neo-cfg-fix-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.neo-cfg-fix-panel__header > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+.neo-cfg-fix-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.neo-cfg-fix-panel__note,
+.neo-cfg-fix-panel .neo-muted {
+  margin: 0;
+}
+.neo-cfg-fix-panel[data-route-state="planned_gated"],
+.neo-cfg-fix-panel[data-route-state="provider_gated"] {
+  opacity: 0.78;
+}
+.neo-cfg-fix-panel select,
+.neo-cfg-fix-panel input[type="number"] {
+  width: 100%;
+}
+.neo-cfg-fix-custom-controls {
+  align-items: end;
+}
+.neo-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.neo-extension-expert-block {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.neo-cfg-fix-control-grid {
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+  min-width: 0;
+}
+.neo-cfg-fix-control-grid--main {
+  grid-template-columns: minmax(135px, 0.72fr) minmax(170px, 1fr) minmax(210px, 1.18fr);
+}
+.neo-cfg-fix-control-grid--params {
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  max-width: min(100%, 390px);
+}
+.neo-cfg-fix-control-grid > label,
+.neo-cfg-fix-panel label {
+  min-width: 0;
+}
+.neo-cfg-fix-panel select,
+.neo-cfg-fix-panel input[type="number"] {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+.neo-cfg-fix-apply {
+  align-self: end;
+  min-height: 44px;
+  white-space: nowrap;
+}
+.neo-cfg-fix-apply input {
+  flex: 0 0 auto;
+}
+@media (max-width: 720px) {
+  .neo-cfg-fix-control-grid--main {
+    grid-template-columns: minmax(135px, 0.8fr) minmax(180px, 1fr);
+  }
+  .neo-cfg-fix-control-grid--main > label:last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 520px) {
+  .neo-cfg-fix-control-grid--main,
+  .neo-cfg-fix-control-grid--params {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+  .neo-cfg-fix-control-grid--main > label:last-child {
+    grid-column: auto;
+  }
+}
+.neo-cfg-fix-panel .neo-toggle-row,
+.neo-cfg-fix-panel .neo-cfg-fix-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
