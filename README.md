@@ -128,16 +128,16 @@ Each tab in Neo Studio is designed as a focused system:
 
 | Tab | Purpose | Current State |
 |---|---|---|
-| **Image** | Build, refine, inspect, replay, and manage image generation workflows. | Active |
+| **Image** | Build, refine, inspect, replay, and manage image generation workflows. | Active / expanding |
 | **Video** | Generate, finish, inspect, and manage video workflows and source assets. | Active / expanding |
-| **Prompting & Captioning** | Generate and manage prompts, captions, and text assets. | Active |
+| **Prompting & Captioning** | Generate and manage prompts, captions, and text assets. | Active / expanding |
 | **Roleplay** | Build worlds/characters and run memory-aware scenes. | Active / expanding |
-| **Assistant** | Scope-aware chat, project brain, uploaded docs, and workflow help. | Active |
+| **Assistant** | Scope-aware chat, project brain, uploaded docs, and workflow help. | Active / expanding |
 | **Project** | Link outputs, notes, handoffs, milestones, and project context. | Active / expanding |
 | **Voice** | Voice/transcription-related surface foundation. | Early / planned expansion |
 | **Music** | Music/audio generation workflow surface. | Planned |
 | **Board** | Visual planning and creative organization workspace. | Planned |
-| **Admin** | Backend profiles, launchers, extensions, custom nodes, and system tools. | Active |
+| **Admin** | Backend profiles, launchers, extensions, custom nodes, and system tools. | Active / expanding |
 
 ---
 
