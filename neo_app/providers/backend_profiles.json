@@ -1,0 +1,3195 @@
+{
+  "profile_registry_version": "0.2.0-unified-backend-profile-schema",
+  "defaults": {
+    "image": "comfyui_local",
+    "text": "local_koboldcpp_text",
+    "prompt_captioning": "local_koboldcpp_text",
+    "assistant": "local_koboldcpp_text",
+    "video": "video.comfyui_portable",
+    "voice": "voice.chatterbox",
+    "audio": "audio.ace_step"
+  },
+  "profiles": [
+    {
+      "profile_id": "comfyui_local",
+      "display_name": "ComfyUI Local",
+      "provider_id": "comfyui",
+      "surface": "image",
+      "enabled": true,
+      "is_default": true,
+      "connection": {
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 3,
+        "auth_mode": "none",
+        "kind": "url",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Default local ComfyUI server profile.",
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8188",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "ComfyUI",
+      "profile_role": "image_generation_backend",
+      "connection_type": "local_http",
+      "capability_flags": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "capabilities": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "generation_defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": true,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Default local ComfyUI server profile."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "qwen_image",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": true,
+        "live_preview": true,
+        "cancel": true,
+        "pause": false,
+        "resume": false,
+        "clip_skip": true,
+        "prompt_conditioning": true,
+        "node_manager": true,
+        "output_handoff": "preview_image_temp_then_neo_data",
+        "progress_source": "comfyui.websocket_and_history",
+        "live_preview_source": "comfyui.websocket_preview"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "comfyui_portable_local",
+      "display_name": "ComfyUI Portable",
+      "provider_id": "comfyui_portable",
+      "surface": "image",
+      "enabled": true,
+      "is_default": false,
+      "connection": {
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 3,
+        "auth_mode": "none",
+        "portable_path": "",
+        "launch_command": "run_nvidia_gpu.bat",
+        "kind": "portable_path",
+        "auto_connect": false,
+        "auto_start": false,
+        "connection_type": "local_process_or_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Portable ComfyUI profile placeholder.",
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8188",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "ComfyUI Portable",
+      "profile_role": "image_generation_backend",
+      "connection_type": "local_process_or_http",
+      "capability_flags": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "capabilities": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "generation_defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": true,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": true,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Portable ComfyUI profile placeholder."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "outpaint"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "qwen_image",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": true,
+        "live_preview": true,
+        "cancel": true,
+        "pause": false,
+        "resume": false,
+        "clip_skip": true,
+        "prompt_conditioning": true,
+        "node_manager": true,
+        "output_handoff": "preview_image_temp_then_neo_data",
+        "progress_source": "comfyui.websocket_and_history",
+        "live_preview_source": "comfyui.websocket_preview"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "forge_local",
+      "display_name": "Forge Local",
+      "provider_id": "forge",
+      "surface": "image",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "base_url": "http://127.0.0.1:7860",
+        "timeout_seconds": 30,
+        "auth_mode": "none",
+        "kind": "url",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Forge profile placeholder until Forge provider runtime is implemented.",
+      "provider_label": "Forge / Forge Neo",
+      "profile_role": "image_generation_backend",
+      "connection_type": "local_http",
+      "capability_flags": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "capabilities": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "generation_defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": true,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Forge profile placeholder until Forge provider runtime is implemented."
+      },
+      "runtime_status": "disabled",
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:7860",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_capabilities": [
+        {
+          "capability_id": "forge_image_generation",
+          "display_name": "Forge Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "inpaint"
+          ],
+          "families": [
+            "sd15",
+            "sdxl"
+          ],
+          "loaders": [
+            "checkpoint"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "a1111_local",
+      "display_name": "A1111 Local",
+      "provider_id": "a1111",
+      "surface": "image",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "base_url": "http://127.0.0.1:7860",
+        "timeout_seconds": 30,
+        "auth_mode": "none",
+        "kind": "url",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "A1111 profile placeholder until A1111 provider runtime is implemented.",
+      "provider_label": "AUTOMATIC1111",
+      "profile_role": "image_generation_backend",
+      "connection_type": "local_http",
+      "capability_flags": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "capabilities": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": true,
+        "outpaint": true,
+        "mask_edit": true,
+        "negative_prompt": true,
+        "seed": true,
+        "steps": true,
+        "cfg": true,
+        "sampler": true,
+        "scheduler": true,
+        "lora": true,
+        "controlnet": true,
+        "ip_adapter": true,
+        "adetailer_inline": true,
+        "highres_inline": true,
+        "multi_image_edit": false
+      },
+      "generation_defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": true,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "A1111 profile placeholder until A1111 provider runtime is implemented."
+      },
+      "runtime_status": "disabled",
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:7860",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_capabilities": [
+        {
+          "capability_id": "a1111_image_generation",
+          "display_name": "A1111 Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "inpaint"
+          ],
+          "families": [
+            "sd15",
+            "sdxl"
+          ],
+          "loaders": [
+            "checkpoint"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "local_koboldcpp_text",
+      "display_name": "KoboldCpp Local",
+      "provider_id": "koboldcpp",
+      "surface": "text",
+      "profile_role": "text_backend",
+      "enabled": true,
+      "is_default": true,
+      "connection": {
+        "base_url": "http://127.0.0.1:5001",
+        "timeout_seconds": 300,
+        "auth_mode": "none",
+        "kind": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "model": "",
+        "healthcheck_path": "/v1/models",
+        "chat_path": "/v1/chat/completions",
+        "auto_connect": false,
+        "auto_start": false,
+        "connection_type": "local_http",
+        "portable_path": "",
+        "launch_command": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "capability_flags": {
+        "supports_text": true,
+        "supports_vision": false,
+        "supports_captioning": false,
+        "streaming_enabled": false
+      },
+      "generation_defaults": {
+        "max_tokens": 512,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "stop_sequences": [],
+        "streaming_enabled": false
+      },
+      "notes": "Default local KoboldCpp backend profile for Assistant, Prompt Builder, and Caption Studio. Captioning can unlock from explicit profile flags or from detected KoboldCpp runtime vision support.",
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:5001",
+        "message": "Text backend has not been checked yet. Start the local text backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "compatible_surfaces": [
+        "assistant",
+        "prompt_captioning",
+        "roleplay",
+        "text"
+      ],
+      "provider_label": "KoboldCpp Local",
+      "connection_type": "local_http",
+      "capabilities": {
+        "supports_text": true,
+        "supports_vision": false,
+        "supports_captioning": false,
+        "streaming_enabled": false
+      },
+      "defaults": {
+        "max_tokens": 512,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "stop_sequences": [],
+        "streaming_enabled": false
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": true
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Default local KoboldCpp backend profile for Assistant, Prompt Builder, and Caption Studio. Captioning can unlock from explicit profile flags or from detected KoboldCpp runtime vision support."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "text_generation",
+          "display_name": "Text Generation",
+          "surface": "prompt_captioning",
+          "modes": [
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt"
+          ],
+          "families": [
+            "local_llm",
+            "gguf"
+          ],
+          "loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ]
+        },
+        {
+          "capability_id": "prompt_captioning_text_generation",
+          "display_name": "Prompt & Captioning Text Generation",
+          "surface": "prompt_captioning",
+          "modes": [
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "families": [],
+          "loaders": []
+        },
+        {
+          "capability_id": "prompt_captioning_image_captioning",
+          "display_name": "Prompt & Captioning Image Captioning",
+          "surface": "prompt_captioning",
+          "modes": [
+            "image_captioning",
+            "result_image_captioning",
+            "batch_captioning"
+          ],
+          "families": [],
+          "loaders": []
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "video.comfyui",
+      "display_name": "Video · ComfyUI Local",
+      "provider_id": "comfyui",
+      "surface": "video",
+      "enabled": true,
+      "is_default": false,
+      "connection": {
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 3,
+        "auth_mode": "none",
+        "kind": "url",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Future Video surface profile using ComfyUI workflow JSON for txt2video/img2video. Runtime tab is not implemented yet.",
+      "capability_flags": {
+        "txt2video": true,
+        "img2video": true,
+        "queue_jobs": true,
+        "video_upscale": true,
+        "frame_interpolation": true,
+        "workflow_json": true,
+        "custom_nodes_required": true
+      },
+      "generation_defaults": {
+        "workflow_mode": "text_to_video",
+        "output_format": "mp4",
+        "fps": 24,
+        "duration_seconds": 4
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8188",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "ComfyUI",
+      "profile_role": "video_generation_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "txt2video": true,
+        "img2video": true,
+        "queue_jobs": true,
+        "video_upscale": true,
+        "frame_interpolation": true,
+        "workflow_json": true,
+        "custom_nodes_required": true
+      },
+      "defaults": {
+        "workflow_mode": "text_to_video",
+        "output_format": "mp4",
+        "fps": 24,
+        "duration_seconds": 4
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Future Video surface profile using ComfyUI workflow JSON for txt2video/img2video. Runtime tab is not implemented yet."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "qwen_image",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": true,
+        "live_preview": true,
+        "cancel": true,
+        "pause": false,
+        "resume": false,
+        "clip_skip": true,
+        "prompt_conditioning": true,
+        "node_manager": true,
+        "output_handoff": "preview_image_temp_then_neo_data",
+        "progress_source": "comfyui.websocket_and_history",
+        "live_preview_source": "comfyui.websocket_preview"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "video.comfyui_portable",
+      "display_name": "Video · ComfyUI Portable",
+      "provider_id": "comfyui_portable",
+      "surface": "video",
+      "enabled": true,
+      "is_default": true,
+      "connection": {
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 3,
+        "auth_mode": "none",
+        "portable_path": "",
+        "launch_command": "run_nvidia_gpu.bat",
+        "kind": "portable_path",
+        "auto_connect": false,
+        "auto_start": false,
+        "connection_type": "local_process_or_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Default future Video surface profile using ComfyUI Portable workflow JSON for txt2video/img2video.",
+      "capability_flags": {
+        "txt2video": true,
+        "img2video": true,
+        "queue_jobs": true,
+        "video_upscale": true,
+        "frame_interpolation": true,
+        "workflow_json": true,
+        "custom_nodes_required": true
+      },
+      "generation_defaults": {
+        "workflow_mode": "image_to_video",
+        "output_format": "mp4",
+        "fps": 24,
+        "duration_seconds": 4
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8188",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "ComfyUI Portable",
+      "profile_role": "video_generation_backend",
+      "connection_type": "local_process_or_http",
+      "capabilities": {
+        "txt2video": true,
+        "img2video": true,
+        "queue_jobs": true,
+        "video_upscale": true,
+        "frame_interpolation": true,
+        "workflow_json": true,
+        "custom_nodes_required": true
+      },
+      "defaults": {
+        "workflow_mode": "image_to_video",
+        "output_format": "mp4",
+        "fps": 24,
+        "duration_seconds": 4
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": true,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Default future Video surface profile using ComfyUI Portable workflow JSON for txt2video/img2video."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "outpaint"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "qwen_image",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": true,
+        "live_preview": true,
+        "cancel": true,
+        "pause": false,
+        "resume": false,
+        "clip_skip": true,
+        "prompt_conditioning": true,
+        "node_manager": true,
+        "output_handoff": "preview_image_temp_then_neo_data",
+        "progress_source": "comfyui.websocket_and_history",
+        "live_preview_source": "comfyui.websocket_preview"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "voice.chatterbox",
+      "display_name": "Voice · Chatterbox",
+      "provider_id": "chatterbox",
+      "surface": "voice",
+      "enabled": true,
+      "is_default": true,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Primary future Voice backend profile. Chatterbox is the first planned real TTS adapter for low/mid VRAM voice preview/render.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "chatterbox",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Chatterbox TTS",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "chatterbox",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Primary future Voice backend profile. Chatterbox is the first planned real TTS adapter for low/mid VRAM voice preview/render."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "chatterbox_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "voice.kokoro",
+      "display_name": "Voice · Kokoro Preview",
+      "provider_id": "kokoro",
+      "surface": "voice",
+      "enabled": true,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "VO-V10 active low-end lightweight TTS fallback profile. Preview/render only; clone/reference/dialogue controls are intentionally hidden.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": false,
+        "reference_audio": false,
+        "multilingual": false,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": false,
+        "emotion": false,
+        "seed": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "en",
+        "preview_seconds": 12,
+        "model_family": "kokoro_preview",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Kokoro TTS",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": false,
+        "reference_audio": false,
+        "multilingual": false,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": false,
+        "emotion": false,
+        "seed": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "en",
+        "preview_seconds": 12,
+        "model_family": "kokoro_preview",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "VO-V10 active low-end lightweight TTS fallback profile. Preview/render only; clone/reference/dialogue controls are intentionally hidden."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "kokoro_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "voice.fish_speech",
+      "display_name": "Voice · Fish Speech HQ",
+      "provider_id": "fish_speech",
+      "surface": "voice",
+      "enabled": true,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "VO-V11 active HQ/advanced Voice backend profile. Richer clone, multilingual, prosody, tag, and backend-native controls are capability-visible; VO-V12 dialogue/multi-speaker lane and VO-V13 batch/script import lane are active through Neo manifests.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": true,
+        "dialogue": true,
+        "emotion": true,
+        "seed": true,
+        "tags": true,
+        "prosody": true,
+        "pause_handling": true,
+        "artifact_cleanup": true,
+        "backend_native_extras": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "fish_hq",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.65,
+        "reference_strength": 0.75,
+        "tag_blocks": [],
+        "prosody": "balanced_hq"
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Fish Speech HQ",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": true,
+        "dialogue": true,
+        "emotion": true,
+        "seed": true,
+        "tags": true,
+        "prosody": true,
+        "pause_handling": true,
+        "artifact_cleanup": true,
+        "backend_native_extras": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "fish_hq",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.65,
+        "reference_strength": 0.75,
+        "tag_blocks": [],
+        "prosody": "balanced_hq"
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "VO-V11 active HQ/advanced Voice backend profile. Richer clone, multilingual, prosody, tag, and backend-native controls are capability-visible; VO-V12 dialogue/multi-speaker lane and VO-V13 batch/script import lane are active through Neo manifests."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "fish_speech_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "voice.zonos",
+      "display_name": "Voice · Zonos Experimental",
+      "provider_id": "zonos",
+      "surface": "voice",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Optional/experimental Voice backend profile kept for compatibility with earlier admin backend planning.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": false,
+        "reference_audio": false,
+        "multilingual": false,
+        "saved_voice_profiles": true,
+        "batch": false,
+        "multi_speaker_later": false,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "generate_speech",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "zonos",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Zonos Voice",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": false,
+        "reference_audio": false,
+        "multilingual": false,
+        "saved_voice_profiles": true,
+        "batch": false,
+        "multi_speaker_later": false,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "defaults": {
+        "job_lane": "generate_speech",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "zonos",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Optional/experimental Voice backend profile kept for compatibility with earlier admin backend planning."
+      },
+      "runtime_status": "disabled",
+      "provider_capabilities": [
+        {
+          "capability_id": "zonos_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "voice.custom_tts",
+      "display_name": "Voice · Custom TTS Adapter",
+      "provider_id": "custom_tts",
+      "surface": "voice",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Custom TTS adapter slot for power users.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": false,
+        "multi_speaker_later": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "generate_speech",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "custom_tts",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Custom TTS",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": false,
+        "multi_speaker_later": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "defaults": {
+        "job_lane": "generate_speech",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "custom_tts",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Custom TTS adapter slot for power users."
+      },
+      "runtime_status": "disabled",
+      "provider_capabilities": [
+        {
+          "capability_id": "custom_tts_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "audio.ace_step",
+      "display_name": "Music · ACE-Step",
+      "provider_id": "ace_step",
+      "surface": "audio",
+      "enabled": true,
+      "is_default": true,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/audio/health",
+        "timeout_seconds": 60,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Primary future Music/Audio backend profile for song, instrumental, lyrics, and VRAM-aware music generation.",
+      "capability_flags": {
+        "song": true,
+        "instrumental": true,
+        "sfx": false,
+        "queue_jobs": true,
+        "ambience": false,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": false,
+        "history": true
+      },
+      "generation_defaults": {
+        "lane": "song",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "ace_step",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "",
+        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "ACE-Step Music",
+      "profile_role": "audio_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "song": true,
+        "instrumental": true,
+        "sfx": false,
+        "queue_jobs": true,
+        "ambience": false,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": false,
+        "history": true
+      },
+      "defaults": {
+        "lane": "song",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "ace_step",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Primary future Music/Audio backend profile for song, instrumental, lyrics, and VRAM-aware music generation."
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "ace_step_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "instrumental",
+            "audio_preview",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled"
+    },
+    {
+      "profile_id": "audio.stable_audio",
+      "display_name": "Music · Stable Audio Open",
+      "provider_id": "stable_audio",
+      "surface": "audio",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/audio/health",
+        "timeout_seconds": 60,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Future short-form SFX/ambience/texture helper profile; not the primary song backend.",
+      "capability_flags": {
+        "song": false,
+        "instrumental": true,
+        "sfx": true,
+        "queue_jobs": true,
+        "ambience": true,
+        "lyrics": false,
+        "prompt_only": true,
+        "reference_audio_later": false,
+        "audio_continuation_later": false,
+        "history": true
+      },
+      "generation_defaults": {
+        "lane": "sfx",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "stable_audio",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Stable Audio Open",
+      "profile_role": "audio_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "song": false,
+        "instrumental": true,
+        "sfx": true,
+        "queue_jobs": true,
+        "ambience": true,
+        "lyrics": false,
+        "prompt_only": true,
+        "reference_audio_later": false,
+        "audio_continuation_later": false,
+        "history": true
+      },
+      "defaults": {
+        "lane": "sfx",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "stable_audio",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Future short-form SFX/ambience/texture helper profile; not the primary song backend."
+      },
+      "runtime_status": "disabled",
+      "provider_capabilities": [
+        {
+          "capability_id": "stable_audio_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "sfx",
+            "ambience",
+            "audio_preview",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "audio.yue",
+      "display_name": "Music · YuE Song HQ",
+      "provider_id": "yue",
+      "surface": "audio",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/audio/health",
+        "timeout_seconds": 60,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Future advanced lyrics-to-song backend profile for power users.",
+      "capability_flags": {
+        "song": true,
+        "instrumental": true,
+        "sfx": false,
+        "queue_jobs": true,
+        "ambience": false,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": true,
+        "history": true
+      },
+      "generation_defaults": {
+        "lane": "song",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "yue",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "YuE Song",
+      "profile_role": "audio_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "song": true,
+        "instrumental": true,
+        "sfx": false,
+        "queue_jobs": true,
+        "ambience": false,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": true,
+        "history": true
+      },
+      "defaults": {
+        "lane": "song",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "yue",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Future advanced lyrics-to-song backend profile for power users."
+      },
+      "runtime_status": "disabled",
+      "provider_capabilities": [
+        {
+          "capability_id": "yue_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "lyrics_to_song",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "profile_id": "audio.custom_audio",
+      "display_name": "Music · Custom Audio Adapter",
+      "provider_id": "custom_audio",
+      "surface": "audio",
+      "enabled": false,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/audio/health",
+        "timeout_seconds": 60,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "Custom audio adapter slot for power users.",
+      "capability_flags": {
+        "song": true,
+        "instrumental": true,
+        "sfx": true,
+        "queue_jobs": true,
+        "ambience": true,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": true,
+        "history": true
+      },
+      "generation_defaults": {
+        "lane": "sfx",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "custom_audio",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "runtime": {
+        "status": "disabled",
+        "reachable": false,
+        "base_url": "",
+        "message": "Profile is disabled. Enable it in Admin > Backends before testing.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Custom Audio",
+      "profile_role": "audio_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "song": true,
+        "instrumental": true,
+        "sfx": true,
+        "queue_jobs": true,
+        "ambience": true,
+        "lyrics": true,
+        "prompt_only": true,
+        "reference_audio_later": true,
+        "audio_continuation_later": true,
+        "history": true
+      },
+      "defaults": {
+        "lane": "sfx",
+        "duration_seconds": 30,
+        "output_format": "wav",
+        "model_family": "custom_audio",
+        "bpm": "",
+        "key": "",
+        "time_signature": "4/4"
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Custom audio adapter slot for power users."
+      },
+      "runtime_status": "disabled",
+      "provider_capabilities": [
+        {
+          "capability_id": "custom_audio_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "instrumental",
+            "sfx",
+            "ambience",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": false,
+        "live_preview": false,
+        "cancel": false,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "provider_native",
+        "progress_source": "polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "disabled"
+    },
+    {
+      "provider_label": "Grok Imagine",
+      "surface": "image",
+      "provider_id": "xai_grok",
+      "profile_role": "image_generation_backend",
+      "connection_type": "cloud_api",
+      "connection": {
+        "base_url": "https://api.x.ai/v1",
+        "auth_mode": "env",
+        "api_key_mode": "env",
+        "api_key_env": "XAI_API_KEY",
+        "api_key_is_configured": false,
+        "healthcheck_path": "/models",
+        "timeout_seconds": 120,
+        "kind": "cloud_api",
+        "connection_type": "cloud_api",
+        "api_key_status": "missing",
+        "api_key_source": "env",
+        "api_key_status_message": "Environment key XAI_API_KEY is missing."
+      },
+      "capabilities": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": false,
+        "outpaint": false,
+        "mask_edit": false,
+        "negative_prompt": false,
+        "seed": false,
+        "steps": false,
+        "cfg": false,
+        "sampler": false,
+        "scheduler": false,
+        "lora": false,
+        "controlnet": false,
+        "ip_adapter": false,
+        "adetailer_inline": false,
+        "highres_inline": false,
+        "multi_image_edit": true
+      },
+      "defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1,
+        "resolution": "1k",
+        "aspect_ratio": "1:1",
+        "n": 1,
+        "response_format": "b64_json",
+        "generation_path": "/images/generations",
+        "edit_path": "/images/edits"
+      },
+      "model": {
+        "default_model": "grok-imagine-image",
+        "available_models": [
+          "grok-imagine-image",
+          "grok-imagine-image-quality"
+        ]
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": false,
+        "show_api_auth_fields": true,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": true,
+        "show_text_generation_fields": false
+      },
+      "notes": "Grok Imagine image profile template. Supports text-to-image and image edit/multi-image edit; no native mask inpaint/outpaint controls.",
+      "profile_id": "image.xai_grok_imagine",
+      "display_name": "Grok Imagine",
+      "enabled": true,
+      "is_default": false,
+      "seeded_profile": true,
+      "profile_source": "phase_m_seeded_cloud_image_profile",
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Seeded so Admin > Backends and Image backend selector show Grok Imagine without manual profile creation."
+      },
+      "capability_flags": {
+        "txt2img": true,
+        "img2img": true,
+        "inpaint": false,
+        "outpaint": false,
+        "mask_edit": false,
+        "negative_prompt": false,
+        "seed": false,
+        "steps": false,
+        "cfg": false,
+        "sampler": false,
+        "scheduler": false,
+        "lora": false,
+        "controlnet": false,
+        "ip_adapter": false,
+        "adetailer_inline": false,
+        "highres_inline": false,
+        "multi_image_edit": true
+      },
+      "generation_defaults": {
+        "mode": "generate",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1,
+        "resolution": "1k",
+        "aspect_ratio": "1:1",
+        "n": 1,
+        "response_format": "b64_json",
+        "generation_path": "/images/generations",
+        "edit_path": "/images/edits"
+      },
+      "runtime_status": "missing_key",
+      "runtime": {
+        "status": "missing_key",
+        "reachable": false,
+        "base_url": "https://api.x.ai/v1",
+        "message": "API key is not configured. Set XAI_API_KEY or add a local key in Admin > Backends.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      }
+    }
+  ]
+}

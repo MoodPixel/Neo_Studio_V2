@@ -1,0 +1,3391 @@
+{
+  "provider_registry_version": "0.2.0-unified-provider-templates",
+  "providers": [
+    {
+      "provider_id": "comfyui",
+      "display_name": "ComfyUI",
+      "provider_type": "local_image_backend",
+      "surfaces": [
+        "image",
+        "video"
+      ],
+      "status": "configured",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "upscale",
+        "edit",
+        "image_to_video",
+        "text_to_video"
+      ],
+      "supported_families": [
+        "sd15",
+        "sdxl",
+        "flux",
+        "flux1_fill",
+        "flux2_klein",
+        "qwen_image",
+        "qwen_rapid_aio",
+        "qwen_image_edit_2509",
+        "z_image",
+        "z_image_turbo",
+        "wan_image",
+        "hunyuan_image",
+        "other"
+      ],
+      "supported_loaders": [
+        "checkpoint",
+        "checkpoint_aio",
+        "diffusion_model",
+        "unet",
+        "gguf"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "http://127.0.0.1:8188",
+        "portable_path": "optional",
+        "timeout_seconds": 3
+      },
+      "notes": "Phase 12.31: active Comfy image adapter. Route support is resolved through backend-specific route contracts; provider adapters must not inherit routes from another backend.",
+      "backend_route_policy": {
+        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "route_source": "neo_app.models.route_matrix",
+        "current_adapter": "implemented",
+        "notes": "Comfy is the active V2 base image compiler backend; routes still require capability/asset discovery before queueing."
+      },
+      "profile_templates": {
+        "image": {
+          "display_name": "ComfyUI",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "upscale",
+            "edit",
+            "image_to_video",
+            "text_to_video"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "flux",
+            "flux1_fill",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo",
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "unet",
+            "gguf"
+          ],
+          "default_profile": {
+            "provider_label": "ComfyUI",
+            "surface": "image",
+            "provider_id": "comfyui",
+            "profile_role": "image_generation_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:8188",
+              "timeout_seconds": 3,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": false,
+              "inpaint": true,
+              "outpaint": true,
+              "mask_edit": true,
+              "negative_prompt": true,
+              "seed": true,
+              "steps": true,
+              "cfg": true,
+              "sampler": true,
+              "scheduler": true,
+              "lora": true,
+              "controlnet": true,
+              "ip_adapter": true,
+              "adetailer_inline": true,
+              "highres_inline": true,
+              "qwen_rapid_aio_checkpoint": true
+            },
+            "defaults": {
+              "mode": "generate",
+              "width": 1024,
+              "height": 1024,
+              "batch_size": 1
+            },
+            "model": {},
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": true,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_sd_generation_fields": true,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "Local ComfyUI image backend template. Runtime adapter already exists."
+          },
+          "notes": "Local ComfyUI image backend template. Runtime adapter already exists."
+        },
+        "video": {
+          "display_name": "ComfyUI Video",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "upscale",
+            "edit",
+            "image_to_video",
+            "text_to_video"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "flux",
+            "flux1_fill",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo",
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "unet",
+            "gguf"
+          ],
+          "default_profile": {
+            "provider_label": "ComfyUI Video",
+            "surface": "video",
+            "provider_id": "comfyui",
+            "profile_role": "video_generation_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:8188",
+              "timeout_seconds": 3,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "queue_jobs": true
+            },
+            "defaults": {
+              "workflow_mode": "text_to_video",
+              "output_format": "mp4",
+              "fps": 24,
+              "duration_seconds": 4
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": false,
+              "show_api_auth_fields": false,
+              "show_model_fields": true
+            },
+            "notes": "Future video surface profile through Comfy workflows."
+          },
+          "notes": "Future video surface profile through Comfy workflows."
+        }
+      }
+    },
+    {
+      "provider_id": "comfyui_portable",
+      "display_name": "ComfyUI Portable",
+      "provider_type": "local_image_backend",
+      "surfaces": [
+        "image",
+        "video"
+      ],
+      "status": "configured",
+      "connection_kind": "local_process_or_http",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "upscale",
+        "edit",
+        "image_to_video",
+        "text_to_video"
+      ],
+      "supported_families": [
+        "sd15",
+        "sdxl",
+        "flux",
+        "flux1_fill",
+        "flux2_klein",
+        "qwen_image",
+        "qwen_rapid_aio",
+        "qwen_image_edit_2509",
+        "z_image",
+        "z_image_turbo",
+        "wan_image",
+        "hunyuan_image",
+        "other"
+      ],
+      "supported_loaders": [
+        "checkpoint",
+        "checkpoint_aio",
+        "diffusion_model",
+        "unet",
+        "gguf"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "image_generation",
+          "display_name": "Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "outpaint"
+          ],
+          "families": [
+            "sdxl",
+            "flux",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        {
+          "capability_id": "video_generation",
+          "display_name": "Video Generation",
+          "surface": "video",
+          "modes": [
+            "image_to_video",
+            "text_to_video"
+          ],
+          "families": [
+            "wan_image",
+            "hunyuan_image"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ]
+        }
+      ],
+      "config_schema": {
+        "install_path": "",
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 3
+      },
+      "notes": "Phase 12.31: active Comfy image adapter. Route support is resolved through backend-specific route contracts; provider adapters must not inherit routes from another backend.",
+      "backend_route_policy": {
+        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "route_source": "neo_app.models.route_matrix",
+        "current_adapter": "implemented",
+        "notes": "Comfy is the active V2 base image compiler backend; routes still require capability/asset discovery before queueing."
+      },
+      "profile_templates": {
+        "image": {
+          "display_name": "ComfyUI Portable",
+          "connection_type": "local_process_or_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "upscale",
+            "edit",
+            "image_to_video",
+            "text_to_video"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "flux",
+            "flux1_fill",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo",
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "unet",
+            "gguf"
+          ],
+          "default_profile": {
+            "provider_label": "ComfyUI Portable",
+            "surface": "image",
+            "provider_id": "comfyui_portable",
+            "profile_role": "image_generation_backend",
+            "connection_type": "local_process_or_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:8188",
+              "timeout_seconds": 3,
+              "auth_mode": "none",
+              "portable_path": "",
+              "launch_command": ""
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": false,
+              "inpaint": true,
+              "outpaint": true,
+              "mask_edit": true,
+              "negative_prompt": true,
+              "seed": true,
+              "steps": true,
+              "cfg": true,
+              "sampler": true,
+              "scheduler": true,
+              "lora": true,
+              "controlnet": true,
+              "ip_adapter": true,
+              "adetailer_inline": true,
+              "highres_inline": true
+            },
+            "defaults": {
+              "mode": "generate",
+              "width": 1024,
+              "height": 1024,
+              "batch_size": 1
+            },
+            "model": {},
+            "ui": {
+              "show_local_launch_fields": true,
+              "show_local_http_fields": true,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_sd_generation_fields": true,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "Portable ComfyUI image backend template."
+          },
+          "notes": "Portable ComfyUI image backend template."
+        },
+        "video": {
+          "display_name": "ComfyUI Portable Video",
+          "connection_type": "local_process_or_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "upscale",
+            "edit",
+            "image_to_video",
+            "text_to_video"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "flux",
+            "flux1_fill",
+            "flux2_klein",
+            "qwen_image",
+            "qwen_rapid_aio",
+            "qwen_image_edit_2509",
+            "z_image",
+            "z_image_turbo",
+            "wan_image",
+            "hunyuan_image",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint",
+            "checkpoint_aio",
+            "diffusion_model",
+            "unet",
+            "gguf"
+          ],
+          "default_profile": {
+            "provider_label": "ComfyUI Portable Video",
+            "surface": "video",
+            "provider_id": "comfyui_portable",
+            "profile_role": "video_generation_backend",
+            "connection_type": "local_process_or_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:8188",
+              "timeout_seconds": 3,
+              "auth_mode": "none",
+              "portable_path": "",
+              "launch_command": ""
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "queue_jobs": true
+            },
+            "defaults": {
+              "workflow_mode": "text_to_video",
+              "output_format": "mp4",
+              "fps": 24,
+              "duration_seconds": 4
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": true,
+              "show_api_auth_fields": false,
+              "show_model_fields": true
+            },
+            "notes": "Future video surface profile through portable Comfy workflows."
+          },
+          "notes": "Future video surface profile through portable Comfy workflows."
+        }
+      }
+    },
+    {
+      "provider_id": "forge",
+      "display_name": "Forge / Forge Neo",
+      "provider_type": "local_image_backend",
+      "surfaces": [
+        "image"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "upscale"
+      ],
+      "supported_families": [
+        "sd15",
+        "sdxl",
+        "other"
+      ],
+      "supported_loaders": [
+        "checkpoint"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "forge_image_generation",
+          "display_name": "Forge Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "inpaint"
+          ],
+          "families": [
+            "sd15",
+            "sdxl"
+          ],
+          "loaders": [
+            "checkpoint"
+          ]
+        }
+      ],
+      "config_schema": {
+        "base_url": "http://127.0.0.1:7860"
+      },
+      "notes": "Phase 12.31: future backend adapter. Forge/A1111 must keep independent route contracts and must not borrow Comfy compiler availability.",
+      "backend_route_policy": {
+        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "route_source": "neo_app.models.route_matrix",
+        "current_adapter": "planned_gated",
+        "notes": "Forge/A1111 routes are intentionally gated until their own adapters translate Neo jobs into backend API payloads."
+      },
+      "profile_templates": {
+        "image": {
+          "display_name": "Forge / Forge Neo",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "upscale"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint"
+          ],
+          "default_profile": {
+            "provider_label": "Forge / Forge Neo",
+            "surface": "image",
+            "provider_id": "forge",
+            "profile_role": "image_generation_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:7860",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": false,
+              "inpaint": true,
+              "outpaint": false,
+              "mask_edit": true,
+              "negative_prompt": true,
+              "seed": true,
+              "steps": true,
+              "cfg": true,
+              "sampler": true,
+              "scheduler": true,
+              "lora": true,
+              "controlnet": true,
+              "ip_adapter": false,
+              "adetailer_inline": false,
+              "highres_inline": false
+            },
+            "defaults": {
+              "mode": "generate",
+              "width": 1024,
+              "height": 1024,
+              "batch_size": 1
+            },
+            "model": {},
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": true,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_sd_generation_fields": true,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "forge profile template remains route-gated until its adapter is implemented."
+          },
+          "notes": "forge profile template remains route-gated until its adapter is implemented."
+        }
+      }
+    },
+    {
+      "provider_id": "a1111",
+      "display_name": "AUTOMATIC1111",
+      "provider_type": "local_image_backend",
+      "surfaces": [
+        "image"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "upscale"
+      ],
+      "supported_families": [
+        "sd15",
+        "sdxl",
+        "other"
+      ],
+      "supported_loaders": [
+        "checkpoint"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "a1111_image_generation",
+          "display_name": "A1111 Image Generation",
+          "surface": "image",
+          "modes": [
+            "txt2img",
+            "img2img",
+            "inpaint"
+          ],
+          "families": [
+            "sd15",
+            "sdxl"
+          ],
+          "loaders": [
+            "checkpoint"
+          ]
+        }
+      ],
+      "config_schema": {
+        "base_url": "http://127.0.0.1:7860"
+      },
+      "notes": "Phase 12.31: future backend adapter. Forge/A1111 must keep independent route contracts and must not borrow Comfy compiler availability.",
+      "backend_route_policy": {
+        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "route_source": "neo_app.models.route_matrix",
+        "current_adapter": "planned_gated",
+        "notes": "Forge/A1111 routes are intentionally gated until their own adapters translate Neo jobs into backend API payloads."
+      },
+      "profile_templates": {
+        "image": {
+          "display_name": "AUTOMATIC1111",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "upscale"
+          ],
+          "supported_families": [
+            "sd15",
+            "sdxl",
+            "other"
+          ],
+          "supported_loaders": [
+            "checkpoint"
+          ],
+          "default_profile": {
+            "provider_label": "AUTOMATIC1111",
+            "surface": "image",
+            "provider_id": "a1111",
+            "profile_role": "image_generation_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:7860",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": false,
+              "inpaint": true,
+              "outpaint": false,
+              "mask_edit": true,
+              "negative_prompt": true,
+              "seed": true,
+              "steps": true,
+              "cfg": true,
+              "sampler": true,
+              "scheduler": true,
+              "lora": true,
+              "controlnet": true,
+              "ip_adapter": false,
+              "adetailer_inline": false,
+              "highres_inline": false
+            },
+            "defaults": {
+              "mode": "generate",
+              "width": 1024,
+              "height": 1024,
+              "batch_size": 1
+            },
+            "model": {},
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": true,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_sd_generation_fields": true,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "a1111 profile template remains route-gated until its adapter is implemented."
+          },
+          "notes": "a1111 profile template remains route-gated until its adapter is implemented."
+        }
+      }
+    },
+    {
+      "provider_id": "cloud_api",
+      "display_name": "Cloud API Generic",
+      "provider_type": "cloud_multi_backend",
+      "surfaces": [
+        "image",
+        "video",
+        "voice",
+        "prompt_captioning",
+        "roleplay",
+        "assistant"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "text_to_video",
+        "tts",
+        "stt",
+        "chat",
+        "caption"
+      ],
+      "supported_families": [
+        "api_model",
+        "other"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "api_key_env": "NEO_CLOUD_API_KEY",
+        "provider_name": "openai_or_other"
+      },
+      "notes": "Cloud/API generation is selected inside each compatible surface; Admin manages keys and provider settings."
+    },
+    {
+      "provider_id": "whisper",
+      "display_name": "Whisper Local",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice",
+        "prompt_captioning"
+      ],
+      "status": "mock",
+      "connection_kind": "local_process",
+      "supported_modes": [
+        "stt",
+        "translate"
+      ],
+      "supported_families": [
+        "whisper"
+      ],
+      "supported_loaders": [
+        "local_model"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "speech_to_text",
+          "display_name": "Speech To Text",
+          "surface": "voice",
+          "modes": [
+            "stt",
+            "translate"
+          ],
+          "families": [
+            "whisper"
+          ],
+          "loaders": [
+            "local_model"
+          ]
+        }
+      ],
+      "config_schema": {
+        "model_root": "neo_data/models/voice"
+      },
+      "notes": "Voice provider contract follows the same job pattern."
+    },
+    {
+      "provider_id": "koboldcpp",
+      "display_name": "KoboldCpp Local",
+      "provider_type": "local_text_backend",
+      "surfaces": [
+        "text",
+        "prompt_captioning",
+        "assistant",
+        "roleplay"
+      ],
+      "status": "configured",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "chat",
+        "prompt_generate",
+        "prompt_rewrite",
+        "prompt_enhance",
+        "prompt_cleanup",
+        "negative_prompt",
+        "text_transform"
+      ],
+      "supported_families": [
+        "local_llm",
+        "gguf",
+        "other"
+      ],
+      "supported_loaders": [
+        "koboldcpp_http",
+        "openai_compatible_chat"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "text_generation",
+          "display_name": "Text Generation",
+          "surface": "prompt_captioning",
+          "modes": [
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt"
+          ],
+          "families": [
+            "local_llm",
+            "gguf"
+          ],
+          "loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ]
+        },
+        {
+          "capability_id": "prompt_captioning_text_generation",
+          "display_name": "Prompt & Captioning Text Generation",
+          "surface": "prompt_captioning",
+          "modes": [
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "requires": [
+            "supports_text"
+          ],
+          "route_state": "available"
+        },
+        {
+          "capability_id": "prompt_captioning_image_captioning",
+          "display_name": "Prompt & Captioning Image Captioning",
+          "surface": "prompt_captioning",
+          "modes": [
+            "image_captioning",
+            "result_image_captioning",
+            "batch_captioning"
+          ],
+          "requires": [
+            "supports_vision",
+            "supports_captioning"
+          ],
+          "route_state": "provider_gated",
+          "notes": "KoboldCpp profiles are text-only by default; Admin must explicitly enable vision + captioning support for compatible models."
+        }
+      ],
+      "config_schema": {
+        "base_url": "http://127.0.0.1:5001",
+        "model": "optional",
+        "api_key_mode": "none",
+        "timeout_seconds": 10
+      },
+      "notes": "Phase D: first-class local KoboldCpp backend profile source. Captioning can be enabled by explicit profile flags or by detected KoboldCpp runtime vision/mmproj support.",
+      "profile_templates": {
+        "text": {
+          "display_name": "KoboldCpp Local",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "supported_families": [
+            "local_llm",
+            "gguf",
+            "other"
+          ],
+          "supported_loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ],
+          "default_profile": {
+            "provider_label": "KoboldCpp Local",
+            "surface": "text",
+            "provider_id": "koboldcpp",
+            "profile_role": "text_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:5001",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": false
+            },
+            "defaults": {
+              "max_tokens": 512,
+              "temperature": 0.7,
+              "top_p": 0.9,
+              "stop_sequences": []
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": false,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Local KoboldCpp text-compatible backend template."
+          },
+          "notes": "Local KoboldCpp text-compatible backend template."
+        },
+        "prompt_captioning": {
+          "display_name": "KoboldCpp Local",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "supported_families": [
+            "local_llm",
+            "gguf",
+            "other"
+          ],
+          "supported_loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ],
+          "default_profile": {
+            "provider_label": "KoboldCpp Local",
+            "surface": "prompt_captioning",
+            "provider_id": "koboldcpp",
+            "profile_role": "text_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:5001",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": false
+            },
+            "defaults": {
+              "max_tokens": 512,
+              "temperature": 0.7,
+              "top_p": 0.9,
+              "stop_sequences": []
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": false,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Local KoboldCpp text-compatible backend template."
+          },
+          "notes": "Local KoboldCpp text-compatible backend template."
+        },
+        "assistant": {
+          "display_name": "KoboldCpp Local",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "supported_families": [
+            "local_llm",
+            "gguf",
+            "other"
+          ],
+          "supported_loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ],
+          "default_profile": {
+            "provider_label": "KoboldCpp Local",
+            "surface": "assistant",
+            "provider_id": "koboldcpp",
+            "profile_role": "text_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:5001",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": false
+            },
+            "defaults": {
+              "max_tokens": 512,
+              "temperature": 0.7,
+              "top_p": 0.9,
+              "stop_sequences": []
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": false,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Local KoboldCpp text-compatible backend template."
+          },
+          "notes": "Local KoboldCpp text-compatible backend template."
+        },
+        "roleplay": {
+          "display_name": "KoboldCpp Local",
+          "connection_type": "local_http",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "prompt_enhance",
+            "prompt_cleanup",
+            "negative_prompt",
+            "text_transform"
+          ],
+          "supported_families": [
+            "local_llm",
+            "gguf",
+            "other"
+          ],
+          "supported_loaders": [
+            "koboldcpp_http",
+            "openai_compatible_chat"
+          ],
+          "default_profile": {
+            "provider_label": "KoboldCpp Local",
+            "surface": "roleplay",
+            "provider_id": "koboldcpp",
+            "profile_role": "text_backend",
+            "connection_type": "local_http",
+            "connection": {
+              "base_url": "http://127.0.0.1:5001",
+              "timeout_seconds": 10,
+              "auth_mode": "none"
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": false
+            },
+            "defaults": {
+              "max_tokens": 512,
+              "temperature": 0.7,
+              "top_p": 0.9,
+              "stop_sequences": []
+            },
+            "model": {},
+            "ui": {
+              "show_local_http_fields": true,
+              "show_local_launch_fields": false,
+              "show_api_auth_fields": false,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Local KoboldCpp text-compatible backend template."
+          },
+          "notes": "Local KoboldCpp text-compatible backend template."
+        }
+      }
+    },
+    {
+      "provider_id": "chatterbox",
+      "display_name": "Chatterbox TTS",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "tts",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "tts",
+        "voice_clone",
+        "multilingual",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "chatterbox_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future primary Voice adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "kokoro",
+      "display_name": "Kokoro TTS",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "tts",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "tts",
+        "voice_clone",
+        "multilingual",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "kokoro_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future lightweight Voice fallback profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "fish_speech",
+      "display_name": "Fish Speech HQ",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "tts",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "tts",
+        "voice_clone",
+        "multilingual",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "fish_speech_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future HQ Voice adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "zonos",
+      "display_name": "Zonos Voice",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "tts",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "tts",
+        "voice_clone",
+        "multilingual",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "zonos_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Optional/experimental Voice profile kept for compatibility.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "custom_tts",
+      "display_name": "Custom TTS",
+      "provider_type": "local_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "tts",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "tts",
+        "voice_clone",
+        "multilingual",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "custom_tts_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Custom Voice adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "ace_step",
+      "display_name": "ACE-Step Music",
+      "provider_type": "local_audio_backend",
+      "surfaces": [
+        "audio"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "song",
+        "instrumental",
+        "audio_preview",
+        "audio_render"
+      ],
+      "supported_families": [
+        "music",
+        "sfx",
+        "ambience",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "ace_step_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "instrumental",
+            "audio_preview",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future primary Music/Audio adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "stable_audio",
+      "display_name": "Stable Audio Open",
+      "provider_type": "local_audio_backend",
+      "surfaces": [
+        "audio"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "sfx",
+        "ambience",
+        "audio_preview",
+        "audio_render"
+      ],
+      "supported_families": [
+        "music",
+        "sfx",
+        "ambience",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "stable_audio_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "sfx",
+            "ambience",
+            "audio_preview",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future short-form SFX/ambience helper profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "yue",
+      "display_name": "YuE Song",
+      "provider_type": "local_audio_backend",
+      "surfaces": [
+        "audio"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "song",
+        "lyrics_to_song",
+        "audio_render"
+      ],
+      "supported_families": [
+        "music",
+        "sfx",
+        "ambience",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "yue_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "lyrics_to_song",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Future advanced lyrics-to-song adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "custom_audio",
+      "display_name": "Custom Audio",
+      "provider_type": "local_audio_backend",
+      "surfaces": [
+        "audio"
+      ],
+      "status": "mock",
+      "connection_kind": "local_http",
+      "supported_modes": [
+        "song",
+        "instrumental",
+        "sfx",
+        "ambience",
+        "audio_render"
+      ],
+      "supported_families": [
+        "music",
+        "sfx",
+        "ambience",
+        "other"
+      ],
+      "supported_loaders": [
+        "local_model",
+        "adapter_api"
+      ],
+      "capabilities": [
+        {
+          "capability_id": "custom_audio_audio",
+          "display_name": "Audio / Music Generation",
+          "surface": "audio",
+          "modes": [
+            "song",
+            "instrumental",
+            "sfx",
+            "ambience",
+            "audio_render"
+          ],
+          "families": [
+            "music",
+            "sfx",
+            "ambience",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ],
+          "route_state": "future_surface_profile"
+        }
+      ],
+      "config_schema": {
+        "base_url": "",
+        "timeout_seconds": 30
+      },
+      "notes": "Custom Music/Audio adapter profile.",
+      "backend_route_policy": {
+        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "current_adapter": "profile_only_future_surface",
+        "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
+      }
+    },
+    {
+      "provider_id": "xai_grok",
+      "display_name": "xAI Grok / Imagine",
+      "provider_type": "cloud_multi_backend",
+      "surfaces": [
+        "image",
+        "video",
+        "text",
+        "assistant",
+        "prompt_captioning"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.x.ai/v1",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "XAI_API_KEY"
+      },
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "multi_image_edit",
+        "text_to_video",
+        "image_to_video",
+        "chat",
+        "prompt_generate"
+      ],
+      "supported_families": [
+        "api_model",
+        "grok_imagine",
+        "grok_text"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.x.ai/v1",
+        "api_key_env": "XAI_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Cloud xAI provider template. Runtime adapters are added in later phases.",
+      "profile_templates": {
+        "image": {
+          "display_name": "Grok Imagine",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "multi_image_edit",
+            "text_to_video",
+            "image_to_video",
+            "chat",
+            "prompt_generate"
+          ],
+          "supported_families": [
+            "api_model",
+            "grok_imagine",
+            "grok_text"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Grok Imagine",
+            "surface": "image",
+            "provider_id": "xai_grok",
+            "profile_role": "image_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.x.ai/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "XAI_API_KEY",
+              "api_key_value": "",
+              "api_key_is_configured": false,
+              "healthcheck_path": "/models",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": true,
+              "inpaint": false,
+              "outpaint": false,
+              "mask_edit": false,
+              "negative_prompt": false,
+              "seed": false,
+              "steps": false,
+              "cfg": false,
+              "sampler": false,
+              "scheduler": false,
+              "lora": false,
+              "controlnet": false,
+              "ip_adapter": false,
+              "adetailer_inline": false,
+              "highres_inline": false
+            },
+            "defaults": {
+              "mode": "generate",
+              "resolution": "1k",
+              "aspect_ratio": "1:1",
+              "n": 1,
+              "response_format": "b64_json",
+              "generation_path": "/images/generations",
+              "edit_path": "/images/edits"
+            },
+            "model": {
+              "default_model": "grok-imagine-image",
+              "available_models": [
+                "grok-imagine-image",
+                "grok-imagine-image-quality"
+              ]
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_sd_generation_fields": false,
+              "show_cloud_generation_fields": true
+            },
+            "notes": "Grok Imagine image profile template. Supports text-to-image and image edit/multi-image edit; no native mask inpaint/outpaint controls."
+          },
+          "notes": "Grok Imagine image profile template. Supports text-to-image and image edit/multi-image edit; no native mask inpaint/outpaint controls."
+        },
+        "video": {
+          "display_name": "Grok Imagine Video",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "multi_image_edit",
+            "text_to_video",
+            "image_to_video",
+            "chat",
+            "prompt_generate"
+          ],
+          "supported_families": [
+            "api_model",
+            "grok_imagine",
+            "grok_text"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Grok Imagine Video",
+            "surface": "video",
+            "provider_id": "xai_grok",
+            "profile_role": "video_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.x.ai/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "XAI_API_KEY",
+              "healthcheck_path": "/models",
+              "timeout_seconds": 300
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "video_extend": true,
+              "async_jobs": true
+            },
+            "defaults": {
+              "mode": "text_to_video",
+              "resolution": "720p",
+              "aspect_ratio": "16:9",
+              "duration_seconds": 4
+            },
+            "model": {
+              "default_model": "grok-imagine-video",
+              "available_models": [
+                "grok-imagine-video",
+                "grok-imagine-video-1.5"
+              ]
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future Grok Imagine video profile template; runtime adapter not active in Phase B."
+          },
+          "notes": "Future Grok Imagine video profile template; runtime adapter not active in Phase B."
+        },
+        "text": {
+          "display_name": "Grok Text",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "multi_image_edit",
+            "text_to_video",
+            "image_to_video",
+            "chat",
+            "prompt_generate"
+          ],
+          "supported_families": [
+            "api_model",
+            "grok_imagine",
+            "grok_text"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Grok Text",
+            "surface": "text",
+            "provider_id": "xai_grok",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.x.ai/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "XAI_API_KEY",
+              "healthcheck_path": "/models",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": true,
+              "streaming_enabled": true,
+              "tools": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future xAI text profile template; specific model selection is configured by user/admin."
+          },
+          "notes": "Future xAI text profile template; specific model selection is configured by user/admin."
+        }
+      }
+    },
+    {
+      "provider_id": "openai",
+      "display_name": "OpenAI",
+      "provider_type": "cloud_multi_backend",
+      "surfaces": [
+        "image",
+        "voice",
+        "text",
+        "assistant",
+        "prompt_captioning"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.openai.com/v1",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "OPENAI_API_KEY"
+      },
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "tts",
+        "stt",
+        "chat",
+        "caption"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Cloud OpenAI provider template stub. Runtime adapters are added in later phases.",
+      "profile_templates": {
+        "image": {
+          "display_name": "OpenAI Images",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "tts",
+            "stt",
+            "chat",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenAI Images",
+            "surface": "image",
+            "provider_id": "openai",
+            "profile_role": "image_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.openai.com/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENAI_API_KEY",
+              "healthcheck_path": "/models",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "txt2img": true,
+              "img2img": true,
+              "multi_image_edit": true,
+              "inpaint": false,
+              "outpaint": false,
+              "mask_edit": false,
+              "negative_prompt": false,
+              "seed": false,
+              "steps": false,
+              "cfg": false,
+              "sampler": false,
+              "scheduler": false,
+              "lora": false,
+              "controlnet": false,
+              "ip_adapter": false,
+              "adetailer_inline": false,
+              "highres_inline": false
+            },
+            "defaults": {
+              "mode": "generate",
+              "n": 1,
+              "response_format": "b64_json"
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_sd_generation_fields": false,
+              "show_cloud_generation_fields": true
+            },
+            "notes": "Future OpenAI image backend profile template."
+          },
+          "notes": "Future OpenAI image backend profile template."
+        },
+        "voice": {
+          "display_name": "OpenAI Voice",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "tts",
+            "stt",
+            "chat",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenAI Voice",
+            "surface": "voice",
+            "provider_id": "openai",
+            "profile_role": "voice_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.openai.com/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENAI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "tts": true,
+              "stt": true,
+              "realtime": false
+            },
+            "defaults": {
+              "job_lane": "generate_speech",
+              "language": "auto",
+              "preview_seconds": 12
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future OpenAI voice backend profile template."
+          },
+          "notes": "Future OpenAI voice backend profile template."
+        },
+        "text": {
+          "display_name": "OpenAI Text",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "tts",
+            "stt",
+            "chat",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenAI Text",
+            "surface": "text",
+            "provider_id": "openai",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.openai.com/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENAI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": true,
+              "streaming_enabled": true,
+              "tools": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future OpenAI text backend profile template."
+          },
+          "notes": "Future OpenAI text backend profile template."
+        }
+      }
+    },
+    {
+      "provider_id": "runway",
+      "display_name": "Runway",
+      "provider_type": "cloud_video_backend",
+      "surfaces": [
+        "video"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.runwayml.com",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "RUNWAY_API_KEY"
+      },
+      "supported_modes": [
+        "txt2video",
+        "img2video",
+        "video_extend"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.runwayml.com",
+        "api_key_env": "RUNWAY_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 300
+      },
+      "notes": "Future Runway video backend profile template. Runtime adapter not active in Phase B.",
+      "profile_templates": {
+        "video": {
+          "display_name": "Runway",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2video",
+            "img2video",
+            "video_extend"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Runway",
+            "surface": "video",
+            "provider_id": "runway",
+            "profile_role": "video_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.runwayml.com",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "RUNWAY_API_KEY",
+              "timeout_seconds": 300
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "video_extend": false,
+              "async_jobs": true
+            },
+            "defaults": {
+              "mode": "text_to_video",
+              "duration_seconds": 4,
+              "aspect_ratio": "16:9"
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future Runway video profile template; profile creation only in Phase B."
+          },
+          "notes": "Future Runway video profile template; profile creation only in Phase B."
+        }
+      }
+    },
+    {
+      "provider_id": "kling",
+      "display_name": "Kling",
+      "provider_type": "cloud_video_backend",
+      "surfaces": [
+        "video"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "KLING_API_KEY"
+      },
+      "supported_modes": [
+        "txt2video",
+        "img2video",
+        "video_extend"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "",
+        "api_key_env": "KLING_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 300
+      },
+      "notes": "Future Kling video backend profile template. Runtime adapter not active in Phase B.",
+      "profile_templates": {
+        "video": {
+          "display_name": "Kling",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2video",
+            "img2video",
+            "video_extend"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Kling",
+            "surface": "video",
+            "provider_id": "kling",
+            "profile_role": "video_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "KLING_API_KEY",
+              "timeout_seconds": 300
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "video_extend": false,
+              "async_jobs": true
+            },
+            "defaults": {
+              "mode": "text_to_video",
+              "duration_seconds": 4,
+              "aspect_ratio": "16:9"
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future Kling video profile template; profile creation only in Phase B."
+          },
+          "notes": "Future Kling video profile template; profile creation only in Phase B."
+        }
+      }
+    },
+    {
+      "provider_id": "pika",
+      "display_name": "Pika",
+      "provider_type": "cloud_video_backend",
+      "surfaces": [
+        "video"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "PIKA_API_KEY"
+      },
+      "supported_modes": [
+        "txt2video",
+        "img2video",
+        "video_extend"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "",
+        "api_key_env": "PIKA_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 300
+      },
+      "notes": "Future Pika video backend profile template. Runtime adapter not active in Phase B.",
+      "profile_templates": {
+        "video": {
+          "display_name": "Pika",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2video",
+            "img2video",
+            "video_extend"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Pika",
+            "surface": "video",
+            "provider_id": "pika",
+            "profile_role": "video_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "PIKA_API_KEY",
+              "timeout_seconds": 300
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "video_extend": false,
+              "async_jobs": true
+            },
+            "defaults": {
+              "mode": "text_to_video",
+              "duration_seconds": 4,
+              "aspect_ratio": "16:9"
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future Pika video profile template; profile creation only in Phase B."
+          },
+          "notes": "Future Pika video profile template; profile creation only in Phase B."
+        }
+      }
+    },
+    {
+      "provider_id": "luma",
+      "display_name": "Luma",
+      "provider_type": "cloud_video_backend",
+      "surfaces": [
+        "video"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "LUMA_API_KEY"
+      },
+      "supported_modes": [
+        "txt2video",
+        "img2video",
+        "video_extend"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "",
+        "api_key_env": "LUMA_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 300
+      },
+      "notes": "Future Luma video backend profile template. Runtime adapter not active in Phase B.",
+      "profile_templates": {
+        "video": {
+          "display_name": "Luma",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "txt2video",
+            "img2video",
+            "video_extend"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Luma",
+            "surface": "video",
+            "provider_id": "luma",
+            "profile_role": "video_generation_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "LUMA_API_KEY",
+              "timeout_seconds": 300
+            },
+            "capabilities": {
+              "txt2video": true,
+              "img2video": true,
+              "video_extend": false,
+              "async_jobs": true
+            },
+            "defaults": {
+              "mode": "text_to_video",
+              "duration_seconds": 4,
+              "aspect_ratio": "16:9"
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future Luma video profile template; profile creation only in Phase B."
+          },
+          "notes": "Future Luma video profile template; profile creation only in Phase B."
+        }
+      }
+    },
+    {
+      "provider_id": "elevenlabs",
+      "display_name": "ElevenLabs",
+      "provider_type": "cloud_voice_backend",
+      "surfaces": [
+        "voice"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.elevenlabs.io/v1",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "ELEVENLABS_API_KEY"
+      },
+      "supported_modes": [
+        "tts",
+        "voice_clone",
+        "voice_preview",
+        "voice_render"
+      ],
+      "supported_families": [
+        "api_model",
+        "voice_clone"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.elevenlabs.io/v1",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Future ElevenLabs voice backend profile template.",
+      "profile_templates": {
+        "voice": {
+          "display_name": "ElevenLabs",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "tts",
+            "voice_clone",
+            "voice_preview",
+            "voice_render"
+          ],
+          "supported_families": [
+            "api_model",
+            "voice_clone"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "ElevenLabs",
+            "surface": "voice",
+            "provider_id": "elevenlabs",
+            "profile_role": "voice_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.elevenlabs.io/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "ELEVENLABS_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "tts": true,
+              "voice_clone": true,
+              "preview": true,
+              "render": true
+            },
+            "defaults": {
+              "job_lane": "generate_speech",
+              "language": "auto",
+              "preview_seconds": 12
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true
+            },
+            "notes": "Future ElevenLabs voice profile template."
+          },
+          "notes": "Future ElevenLabs voice profile template."
+        }
+      }
+    },
+    {
+      "provider_id": "anthropic",
+      "display_name": "Anthropic Claude",
+      "provider_type": "cloud_text_backend",
+      "surfaces": [
+        "text",
+        "assistant",
+        "prompt_captioning",
+        "roleplay"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.anthropic.com",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "ANTHROPIC_API_KEY"
+      },
+      "supported_modes": [
+        "chat",
+        "prompt_generate",
+        "prompt_rewrite",
+        "caption"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.anthropic.com",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Future Anthropic Claude text backend profile template.",
+      "profile_templates": {
+        "text": {
+          "display_name": "Anthropic Claude",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Anthropic Claude",
+            "surface": "text",
+            "provider_id": "anthropic",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.anthropic.com",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "ANTHROPIC_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Anthropic Claude profile template for text."
+          },
+          "notes": "Future Anthropic Claude profile template for text."
+        },
+        "assistant": {
+          "display_name": "Anthropic Claude",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Anthropic Claude",
+            "surface": "assistant",
+            "provider_id": "anthropic",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.anthropic.com",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "ANTHROPIC_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Anthropic Claude profile template for assistant."
+          },
+          "notes": "Future Anthropic Claude profile template for assistant."
+        },
+        "prompt_captioning": {
+          "display_name": "Anthropic Claude",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Anthropic Claude",
+            "surface": "prompt_captioning",
+            "provider_id": "anthropic",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.anthropic.com",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "ANTHROPIC_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Anthropic Claude profile template for prompt_captioning."
+          },
+          "notes": "Future Anthropic Claude profile template for prompt_captioning."
+        },
+        "roleplay": {
+          "display_name": "Anthropic Claude",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Anthropic Claude",
+            "surface": "roleplay",
+            "provider_id": "anthropic",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.anthropic.com",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "ANTHROPIC_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Anthropic Claude profile template for roleplay."
+          },
+          "notes": "Future Anthropic Claude profile template for roleplay."
+        }
+      }
+    },
+    {
+      "provider_id": "google_gemini",
+      "display_name": "Google Gemini",
+      "provider_type": "cloud_text_backend",
+      "surfaces": [
+        "text",
+        "assistant",
+        "prompt_captioning",
+        "roleplay"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "GEMINI_API_KEY"
+      },
+      "supported_modes": [
+        "chat",
+        "prompt_generate",
+        "prompt_rewrite",
+        "caption"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "",
+        "api_key_env": "GEMINI_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Future Google Gemini text backend profile template.",
+      "profile_templates": {
+        "text": {
+          "display_name": "Google Gemini",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Google Gemini",
+            "surface": "text",
+            "provider_id": "google_gemini",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "GEMINI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Google Gemini profile template for text."
+          },
+          "notes": "Future Google Gemini profile template for text."
+        },
+        "assistant": {
+          "display_name": "Google Gemini",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Google Gemini",
+            "surface": "assistant",
+            "provider_id": "google_gemini",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "GEMINI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Google Gemini profile template for assistant."
+          },
+          "notes": "Future Google Gemini profile template for assistant."
+        },
+        "prompt_captioning": {
+          "display_name": "Google Gemini",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Google Gemini",
+            "surface": "prompt_captioning",
+            "provider_id": "google_gemini",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "GEMINI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Google Gemini profile template for prompt_captioning."
+          },
+          "notes": "Future Google Gemini profile template for prompt_captioning."
+        },
+        "roleplay": {
+          "display_name": "Google Gemini",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "Google Gemini",
+            "surface": "roleplay",
+            "provider_id": "google_gemini",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "GEMINI_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future Google Gemini profile template for roleplay."
+          },
+          "notes": "Future Google Gemini profile template for roleplay."
+        }
+      }
+    },
+    {
+      "provider_id": "openrouter",
+      "display_name": "OpenRouter",
+      "provider_type": "cloud_text_backend",
+      "surfaces": [
+        "text",
+        "assistant",
+        "prompt_captioning",
+        "roleplay"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://openrouter.ai/api/v1",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "OPENROUTER_API_KEY"
+      },
+      "supported_modes": [
+        "chat",
+        "prompt_generate",
+        "prompt_rewrite",
+        "caption"
+      ],
+      "supported_families": [
+        "api_model"
+      ],
+      "supported_loaders": [
+        "api_model"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120
+      },
+      "notes": "Future OpenRouter text backend profile template.",
+      "profile_templates": {
+        "text": {
+          "display_name": "OpenRouter",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenRouter",
+            "surface": "text",
+            "provider_id": "openrouter",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://openrouter.ai/api/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENROUTER_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future OpenRouter profile template for text."
+          },
+          "notes": "Future OpenRouter profile template for text."
+        },
+        "assistant": {
+          "display_name": "OpenRouter",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenRouter",
+            "surface": "assistant",
+            "provider_id": "openrouter",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://openrouter.ai/api/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENROUTER_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future OpenRouter profile template for assistant."
+          },
+          "notes": "Future OpenRouter profile template for assistant."
+        },
+        "prompt_captioning": {
+          "display_name": "OpenRouter",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenRouter",
+            "surface": "prompt_captioning",
+            "provider_id": "openrouter",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://openrouter.ai/api/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENROUTER_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future OpenRouter profile template for prompt_captioning."
+          },
+          "notes": "Future OpenRouter profile template for prompt_captioning."
+        },
+        "roleplay": {
+          "display_name": "OpenRouter",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "chat",
+            "prompt_generate",
+            "prompt_rewrite",
+            "caption"
+          ],
+          "supported_families": [
+            "api_model"
+          ],
+          "supported_loaders": [
+            "api_model"
+          ],
+          "default_profile": {
+            "provider_label": "OpenRouter",
+            "surface": "roleplay",
+            "provider_id": "openrouter",
+            "profile_role": "text_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://openrouter.ai/api/v1",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "OPENROUTER_API_KEY",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "supports_text": true,
+              "supports_vision": false,
+              "supports_captioning": false,
+              "streaming_enabled": true
+            },
+            "defaults": {
+              "max_tokens": 1024,
+              "temperature": 0.7,
+              "top_p": 0.9
+            },
+            "model": {
+              "default_model": "",
+              "available_models": []
+            },
+            "ui": {
+              "show_api_auth_fields": true,
+              "show_model_fields": true,
+              "show_text_generation_fields": true
+            },
+            "notes": "Future OpenRouter profile template for roleplay."
+          },
+          "notes": "Future OpenRouter profile template for roleplay."
+        }
+      }
+    }
+  ],
+  "surfaces": [
+    {
+      "surface": "image",
+      "display_name": "Image Generation",
+      "status": "active"
+    },
+    {
+      "surface": "video",
+      "display_name": "Video Generation",
+      "status": "future_profile"
+    },
+    {
+      "surface": "voice",
+      "display_name": "Voice / Speech",
+      "status": "future_profile"
+    },
+    {
+      "surface": "audio",
+      "display_name": "Music / Audio",
+      "status": "future_profile"
+    },
+    {
+      "surface": "text",
+      "display_name": "Text / Chat",
+      "status": "active"
+    },
+    {
+      "surface": "prompt_captioning",
+      "display_name": "Prompt & Captioning",
+      "status": "active"
+    },
+    {
+      "surface": "assistant",
+      "display_name": "Assistant",
+      "status": "active"
+    },
+    {
+      "surface": "roleplay",
+      "display_name": "Roleplay",
+      "status": "active"
+    }
+  ]
+}
