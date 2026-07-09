@@ -1,0 +1,354 @@
+{
+  "admin_version": "0.4.0",
+  "global": {
+    "ui_preferences": {
+      "detail_mode": "guided",
+      "theme": "dark",
+      "show_beginner_help": true,
+      "collapse_sections_by_default": false
+    },
+    "memory_resources": {
+      "embedding_model_assignment": "default",
+      "reranker_model_assignment": "default",
+      "resource_root": "neo_data/models",
+      "namespaces_enabled": [
+        "global",
+        "image",
+        "video",
+        "voice",
+        "prompt_captioning",
+        "roleplay",
+        "assistant",
+        "board",
+        "admin"
+      ],
+      "memory_mode": "sqlite_required_semantic_optional",
+      "sqlite_path": "neo_data/memory/global/neo_memory.sqlite3",
+      "semantic_requirements_file": "requirements-memory.txt",
+      "optional_dependencies": [
+        "chromadb",
+        "sentence-transformers",
+        "transformers"
+      ],
+      "assignment_policy": "global_resources_assigned_per_surface"
+    },
+    "storage_paths": {
+      "projects": "neo_data/projects",
+      "outputs": "neo_data/outputs",
+      "cache": "neo_data/cache",
+      "logs": "neo_data/logs",
+      "extensions": "neo_extensions"
+    },
+    "api_keys": {
+      "status": "not configured",
+      "storage_policy": "local_config_later"
+    },
+    "logs": {
+      "level": "info",
+      "retention_days": 14
+    },
+    "provider_api_management": {
+      "status": "planned",
+      "policy": "API/cloud providers are managed globally in Admin, then selected inside each backend-driven surface.",
+      "sections": [
+        "provider_registry",
+        "api_keys",
+        "usage_placeholders",
+        "cost_placeholders"
+      ]
+    },
+    "engine_resources": {
+      "status_endpoint": "/api/admin/engine/state",
+      "owner": "admin",
+      "data_root": "neo_data/admin/engine",
+      "vector_store_root": "neo_data/vector_store",
+      "sections": [
+        "overview",
+        "sources",
+        "text_bridge",
+        "embeddings",
+        "reranker",
+        "vector_store",
+        "retrieval",
+        "indexing",
+        "runtime_defaults",
+        "inspector"
+      ],
+      "policy": "Memory Engine settings are shared globally and consumed by Roleplay/Assistant/memory-aware surfaces through bridge endpoints.",
+      "label": "Memory Engine"
+    },
+    "control_center": {
+      "status_endpoint": "/api/admin/control-center",
+      "sections": [
+        "overview",
+        "backends",
+        "extensions",
+        "memory",
+        "memory_engine",
+        "projects",
+        "assistant_operator",
+        "diagnostics",
+        "libraries",
+        "storage",
+        "health",
+        "logs",
+        "records"
+      ],
+      "policy": "Admin is the shared control center. Surfaces consume settings and health state instead of duplicating global controls."
+    },
+    "memory_engine_resources": {
+      "status_endpoint": "/api/admin/engine/state",
+      "owner": "admin",
+      "data_root": "neo_data/admin/engine",
+      "vector_store_root": "neo_data/vector_store",
+      "sections": [
+        "overview",
+        "sources",
+        "text_bridge",
+        "embeddings",
+        "reranker",
+        "vector_store",
+        "retrieval",
+        "indexing",
+        "runtime_defaults",
+        "inspector"
+      ],
+      "policy": "Memory Engine settings are shared globally and consumed by Roleplay/Assistant/memory-aware surfaces through bridge endpoints.",
+      "label": "Memory Engine"
+    }
+  },
+  "surfaces": {
+    "image": {
+      "admin_sections": [
+        "backends",
+        "model_families",
+        "model_paths",
+        "nodes",
+        "extensions",
+        "workflow_templates",
+        "output_rules"
+      ],
+      "backends": [
+        "comfyui",
+        "comfyui_portable",
+        "forge",
+        "a1111",
+        "cloud_api"
+      ],
+      "nodes_scope": "image",
+      "extensions_scope": "image"
+    },
+    "video": {
+      "admin_sections": [
+        "backends",
+        "extensions",
+        "output_rules"
+      ],
+      "backends": [
+        "comfyui_video",
+        "wan_local",
+        "cloud_video_api"
+      ],
+      "extensions_scope": "video"
+    },
+    "voice": {
+      "admin_sections": [
+        "backends",
+        "voice_models",
+        "extensions",
+        "output_rules"
+      ],
+      "backends": [
+        "whisper",
+        "piper",
+        "elevenlabs",
+        "openai_audio"
+      ],
+      "nodes_scope": "voice",
+      "extensions_scope": "voice"
+    },
+    "prompt_captioning": {
+      "admin_sections": [
+        "text_backends",
+        "caption_vision_backends",
+        "prompt_presets",
+        "caption_presets",
+        "libraries",
+        "extensions",
+        "memory_policy"
+      ],
+      "backends": [
+        "koboldcpp",
+        "openai_compatible_text",
+        "ollama",
+        "local_gguf_text",
+        "local_gguf_vision",
+        "cloud_text_api"
+      ],
+      "extensions_scope": "prompt_captioning"
+    },
+    "roleplay": {
+      "admin_sections": [
+        "world_libraries",
+        "lore_memory",
+        "llm_backends",
+        "extensions"
+      ],
+      "backends": [
+        "local_llm",
+        "cloud_text_api"
+      ],
+      "extensions_scope": "roleplay"
+    },
+    "assistant": {
+      "admin_sections": [
+        "assistant_models",
+        "retrieval_policy",
+        "tool_access",
+        "extensions"
+      ],
+      "backends": [
+        "local_llm",
+        "cloud_text_api"
+      ],
+      "extensions_scope": "assistant"
+    },
+    "board": {
+      "admin_sections": [
+        "asset_rules",
+        "library_paths",
+        "extensions",
+        "memory_policy"
+      ],
+      "backends": [],
+      "extensions_scope": "board"
+    },
+    "text": {
+      "admin_sections": [
+        "text_backends",
+        "caption_vision_backends",
+        "prompt_presets",
+        "caption_presets",
+        "extensions",
+        "output_rules"
+      ],
+      "backends": [
+        "koboldcpp",
+        "openai_compatible_text",
+        "ollama",
+        "local_gguf_text",
+        "cloud_text_api"
+      ],
+      "extensions_scope": "text"
+    },
+    "music": {
+      "admin_sections": [
+        "backends",
+        "extensions",
+        "output_rules"
+      ],
+      "backends": [
+        "local_music",
+        "cloud_music_api"
+      ],
+      "extensions_scope": "music"
+    },
+    "engine": {
+      "admin_sections": [
+        "overview",
+        "text_bridge",
+        "embedding_profiles",
+        "reranker_profiles",
+        "vector_store",
+        "retrieval_defaults",
+        "indexing",
+        "runtime_defaults",
+        "inspector"
+      ],
+      "backends": [
+        "backend_profiles",
+        "sentence_transformers",
+        "openai_compatible_embeddings",
+        "cross_encoder",
+        "chroma",
+        "sqlite_fts"
+      ],
+      "extensions_scope": "admin"
+    }
+  },
+  "extension_controls": {
+    "actions": [
+      "install",
+      "enable",
+      "disable",
+      "remove",
+      "repair",
+      "reload",
+      "update",
+      "view_manifest",
+      "view_dependencies",
+      "view_logs",
+      "open_folder"
+    ],
+    "statuses": [
+      "enabled",
+      "disabled",
+      "missing_requirements",
+      "backend_unsupported",
+      "parent_missing",
+      "update_available",
+      "invalid_manifest",
+      "removed"
+    ],
+    "registry_endpoint": "/api/extensions",
+    "compatibility_endpoint": "/api/extensions/check-compatibility"
+  },
+  "provider_controls": {
+    "actions": [
+      "view_status",
+      "check_connection",
+      "discover_models",
+      "validate_job",
+      "compile_preview",
+      "open_provider_config"
+    ],
+    "statuses": [
+      "available",
+      "configured",
+      "mock",
+      "disabled",
+      "missing_config",
+      "error"
+    ],
+    "registry_endpoint": "/api/providers"
+  },
+  "memory_controls": {
+    "status_endpoint": "/api/memory/status",
+    "events_endpoint": "/api/memory/events",
+    "search_endpoint": "/api/memory/search",
+    "actions": [
+      "view_status",
+      "record_event",
+      "list_events",
+      "search_events",
+      "check_optional_dependencies"
+    ],
+    "required_layer": "sqlite",
+    "optional_layers": [
+      "chromadb",
+      "sentence-transformers",
+      "transformers"
+    ],
+    "namespaces": [
+      "global",
+      "image",
+      "video",
+      "voice",
+      "prompt_captioning",
+      "roleplay",
+      "assistant",
+      "board",
+      "admin"
+    ]
+  }
+}
