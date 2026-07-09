@@ -502,6 +502,30 @@ Release/source packages should not include `neo_data/`, cache folders, generated
 
 ## 🧩 Backend Notes & Troubleshooting
 
+### 🧩 Extensions Not Showing in a Workspace
+
+If an extension is installed but does not appear inside a workspace, first check whether it is enabled for that surface.
+
+Neo Studio extensions can be enabled or disabled per surface. For example, an Image extension may be installed but hidden if it is disabled under the Image surface settings.
+
+To check this:
+
+1. Open **Neo Studio**.
+2. Go to **Admin**.
+3. Open **Extention**.
+4. Select the surface you want to check, for example **Image**.
+5. Review the available extensions.
+6. Enable or disable the extension as needed.
+7. Return to the workspace and refresh/reload if required.
+
+Example path:
+
+```text
+Admin → Extention → Image
+```
+
+---
+
 ### ⚠️ InsightFace / IPAdapter FaceID Setup Note (Python 3.13)
 
 If you are using newer ComfyUI portable builds with **Python 3.13**, normal:
