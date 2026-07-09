@@ -1,0 +1,824 @@
+{
+  "id": "wildcards",
+  "name": "Wildcards",
+  "version": "1.4.0",
+  "description": "Built-in Image prompt-transform extension for Wildcards libraries, controlled randomization, prompt preview, output metadata, and replay-safe prompt expansion.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generations.prompt.wildcards"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.prompt.wildcards",
+      "route_states": [
+        "available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable",
+    "forge"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "z_image_turbo",
+    "hidream",
+    "wan_image",
+    "hunyuan_image"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "unet",
+    "gguf"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [],
+    "comfyui_portable": [],
+    "forge": []
+  },
+  "node_requirements": {
+    "required": [],
+    "optional": [],
+    "source": "prompt_only_provider_neutral_extension",
+    "notes": [
+      "Wildcards is prompt-only and provider-neutral.",
+      "It must not require custom Comfy nodes or mutate provider workflow graphs.",
+      "Resolution must run before Style Stack so expanded style/embedding/LoRA trigger text stays visible downstream.",
+      "Backend seeded resolution is implemented in Phase G before Style Stack and before provider execution."
+    ]
+  },
+  "route_states": {
+    "generate": "available",
+    "img2img": "available",
+    "inpaint": "available",
+    "outpaint": "available",
+    "generations": "available",
+    "assets": "available",
+    "finish": "available",
+    "results": "unsupported",
+    "*": "available"
+  },
+  "payload_contract": {
+    "canonical_key": "extensions.payloads.wildcards",
+    "enabled_default": true,
+    "version": 1,
+    "prompt_only": true,
+    "resolution_policy": "seeded_replace_tokens",
+    "resolution_order": "before_style_stack",
+    "inputs": {
+      "root": "",
+      "selected_token": "",
+      "target": "positive",
+      "source_positive": "",
+      "source_negative": ""
+    },
+    "params": {
+      "auto_resolve": true,
+      "use_seed": true,
+      "preview_count": 3,
+      "queue_count": 3,
+      "variant_offset": 0,
+      "max_passes": 24
+    },
+    "assets": {
+      "tokens": [],
+      "token_labels": []
+    },
+    "metadata": {
+      "source": "image.generations.prompt.wildcards",
+      "prompt_only": true,
+      "resolution_policy": "seeded_replace_tokens",
+      "runtime_resolution_status": "applied_phase_g",
+      "storage_status": "implemented_phase_c",
+      "api_status": "implemented_phase_d",
+      "ui_status": "runtime_active_phase_g5_repaired",
+      "payload_submit_status": "implemented_phase_f",
+      "prompt_extension_order_status": "implemented_phase_h_phase_j_phase_k_interop",
+      "prompt_extension_order": [
+        "wildcards",
+        "style_stack",
+        "embeddings_ti",
+        "image.scene_director"
+      ],
+      "active_prompt_mutation_order": [
+        "wildcards",
+        "style_stack"
+      ],
+      "migration_state_status": "repaired_phase_g5",
+      "style_embeddings_interop_status": "implemented_phase_j",
+      "embedding_visibility_stage": "after_wildcards_and_style_stack",
+      "lora_trigger_visibility_stage": "after_wildcards_and_style_stack",
+      "scene_director_interop_status": "implemented_phase_k",
+      "scene_director_stage": "after_wildcards_and_style_stack_global_prompt_only",
+      "region_wildcard_resolution": "not_in_scope_phase_k",
+      "output_sidecar_status": "implemented_phase_m",
+      "replay_status": "implemented_phase_m",
+      "assistant_summary_status": "implemented_phase_m",
+      "memory_event_status": "implemented_phase_m",
+      "registry_status": "implemented_phase_n",
+      "default_enabled_status": "implemented_phase_n",
+      "phase_n_status": "registry_integrated_default_enabled",
+      "phase_o_status": "final_tests_v1_parity_closeout_complete",
+      "v1_parity_closeout_status": "complete_phase_o",
+      "final_regression_status": "implemented_phase_o",
+      "migration_complete_through": "phase_o"
+    },
+    "phase_b_status": "skeleton_only",
+    "phase_f_status": "implemented",
+    "frontend_state_key": "state.imageDraft.wildcards",
+    "submit_payload_key": "job.extensions.payloads.wildcards",
+    "replay_payload": {
+      "enabled": true,
+      "root": "",
+      "selected_token": "",
+      "target": "positive_prompt",
+      "auto_resolve": true,
+      "use_seed": true,
+      "preview_count": 3,
+      "queue_count": 3,
+      "variant_offset": 0,
+      "max_passes": 24
+    },
+    "runtime_resolution_status": "applied_phase_g",
+    "phase_h_status": "implemented",
+    "phase_g5_status": "implemented",
+    "migration_state_status": "repaired_phase_g5",
+    "phase_i_status": "implemented",
+    "provider_neutral_execution": "implemented_phase_i",
+    "provider_graph_mutation": false,
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "phase_j_status": "implemented",
+    "style_embeddings_interop": "implemented_phase_j",
+    "embedding_visibility_stage": "after_wildcards_and_style_stack_metadata_only",
+    "lora_trigger_visibility_stage": "after_wildcards_and_style_stack_metadata_only",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k",
+    "phase_m_status": "implemented",
+    "output_metadata_replay": "implemented_phase_m",
+    "phase_o_status": "implemented",
+    "v1_parity_closeout": "implemented_phase_o"
+  },
+  "storage_contract": {
+    "canonical_library_root": "neo_data/extensions/image/wildcards/library",
+    "legacy_import_root": "neo_library_data/wildcards",
+    "supported_file_extensions": [
+      ".txt",
+      ".json",
+      ".yaml",
+      ".yml"
+    ],
+    "token_patterns": [
+      "__token__",
+      "__folder/token__",
+      "{option A|option B|option C}"
+    ],
+    "phase_b_status": "completed_by_phase_c",
+    "phase_c_status": "implemented",
+    "implemented_functions": [
+      "default_wildcard_root",
+      "legacy_wildcard_root",
+      "resolve_wildcard_root",
+      "list_wildcard_files",
+      "wildcard_token_for_path",
+      "load_wildcard_values_file",
+      "load_wildcard_values",
+      "save_wildcard_values_file",
+      "import_wildcard_pack",
+      "export_wildcard_pack",
+      "ensure_wildcard_library"
+    ],
+    "format_rules": {
+      ".txt": "one value per line; blank lines and # comments ignored",
+      ".json": "list, {items: [...]}, or dict/list values",
+      ".yaml": "list or {items: [...]} when PyYAML is available",
+      ".yml": "list or {items: [...]} when PyYAML is available"
+    },
+    "runtime_resolution": true,
+    "phase_g5_canonical_folder_repair": "implemented",
+    "canonical_library_folder_exists": true
+  },
+  "ui_contract": {
+    "panel_html": "ui/panel.html",
+    "panel_js": "ui/panel.js",
+    "mount_slot": "image.generations.prompt.wildcards",
+    "phase_b_status": "completed_by_phase_e",
+    "planned_controls": [
+      "enabled",
+      "root_display",
+      "refresh_library",
+      "wildcard_select",
+      "insert_target",
+      "insert_token",
+      "auto_resolve",
+      "use_seed",
+      "preview_count",
+      "preview_resolve",
+      "apply_first_result",
+      "queue_count",
+      "queue_variants",
+      "values_preview",
+      "resolved_prompt_preview",
+      "expert_payload_preview"
+    ],
+    "api_wired": true,
+    "runtime_prompt_resolution": true,
+    "phase_e_status": "implemented",
+    "panel_controls": [
+      "enabled",
+      "root_display",
+      "refresh_library",
+      "wildcard_select",
+      "insert_target",
+      "insert_token",
+      "auto_resolve",
+      "use_seed",
+      "preview_count",
+      "preview_resolve",
+      "apply_first_result",
+      "queue_count",
+      "values_preview",
+      "editor_token",
+      "editor_values",
+      "save_update",
+      "delete",
+      "import_zip",
+      "export_zip",
+      "expert_payload_preview"
+    ],
+    "api_routes_used": [
+      "GET /api/extensions/wildcards/files",
+      "GET /api/extensions/wildcards/values",
+      "POST /api/extensions/wildcards/save",
+      "POST /api/extensions/wildcards/delete",
+      "POST /api/extensions/wildcards/import",
+      "GET /api/extensions/wildcards/export",
+      "POST /api/extensions/wildcards/preview-resolve"
+    ],
+    "submit_payload_status": "implemented_phase_f",
+    "phase_f_payload_builder": "implemented",
+    "runtime_resolution_status": "applied_phase_g",
+    "migration_state_status": "repaired_phase_g5",
+    "display_phase": "N-registry-integration",
+    "phase_i_status": "implemented",
+    "provider_neutral_execution": "implemented_phase_i",
+    "provider_graph_mutation": false,
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "phase_j_status": "implemented",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k",
+    "phase_n_status": "registry_default_enable_integrated",
+    "registry_default_enabled": true
+  },
+  "phase_b_skeleton_contract": {
+    "phase": "B",
+    "self_contained_root": "neo_extensions/built_in/image.wildcards",
+    "required_groups": [
+      "backend",
+      "ui",
+      "docs",
+      "tests"
+    ],
+    "no_runtime_resolution": true,
+    "no_api_routes": true,
+    "no_registry_default_enable": true,
+    "no_prompt_mutation": true,
+    "no_provider_graph_mutation": true,
+    "next_phase": "C-store-migration-completed"
+  },
+  "metadata_contract": {
+    "planned_output_paths": [
+      "record.extensions.used[]",
+      "record.extensions.payloads.wildcards",
+      "record.extensions.replay_payloads.wildcards",
+      "record.extensions.assistant_summaries.wildcards",
+      "record.extensions.memory_events.wildcards"
+    ],
+    "phase_b_status": "planned_only",
+    "phase_f_status": "payload_replay_shape_implemented_frontend_only",
+    "output_sidecar_status": "implemented_phase_m",
+    "phase_m_status": "implemented",
+    "metadata_builder": "neo_extensions.built_in.wildcards.backend.metadata.build_output_extension_metadata",
+    "status_function": "neo_extensions.built_in.wildcards.backend.metadata.phase_m_output_metadata_replay_status",
+    "replay_restore_policy": "restore_wildcard_library_payload_and_revalidate_tokens_before_enable",
+    "source_effective_prompt_tracking": true,
+    "resolved_missing_token_tracking": true,
+    "seed_variant_tracking": true,
+    "assistant_summary": true,
+    "memory_event": true
+  },
+  "registry_integration_contract": {
+    "phase": "N-registry-integration",
+    "status": "implemented",
+    "extension_id": "wildcards",
+    "origin": "built_in",
+    "surface": "image",
+    "workspace_apps": [
+      "generations"
+    ],
+    "workflow_modes": [
+      "generate",
+      "img2img",
+      "inpaint",
+      "outpaint"
+    ],
+    "mount_slot": "image.generations.prompt.wildcards",
+    "payload_key": "extensions.payloads.wildcards",
+    "default_enabled": true,
+    "default_state_sources": [
+      "neo_app.extensions.registry.DEFAULT_BUILT_IN_ENABLED_EXTENSIONS",
+      "neo_app.extensions.registry.DEFAULT_STATE.enabled_extensions",
+      "neo_data/user/extension_state.json"
+    ],
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "prompt_only": true,
+    "built_in_direct_mount": true,
+    "external_section_mount": false,
+    "route_states_repaired": true,
+    "phase_m_output_metadata_replay_preserved": true,
+    "next_phase": "O-tests"
+  },
+  "phase_c_store_migration_contract": {
+    "phase": "C",
+    "status": "implemented",
+    "storage_only": true,
+    "no_api_routes": true,
+    "no_prompt_mutation": true,
+    "no_provider_graph_mutation": true,
+    "canonical_library_root": "neo_data/extensions/image/wildcards/library",
+    "legacy_import_root": "neo_library_data/wildcards",
+    "supported_file_extensions": [
+      ".txt",
+      ".json",
+      ".yaml",
+      ".yml"
+    ],
+    "token_generation": "relative path without extension, slash-normalized, wrapped as __token__ in UI/API payloads",
+    "next_phase": "D-api-routes"
+  },
+  "api_contract": {
+    "phase": "D",
+    "status": "implemented",
+    "namespace": "/api/extensions/wildcards",
+    "routes": [
+      "GET /api/extensions/wildcards/files",
+      "GET /api/extensions/wildcards/values",
+      "POST /api/extensions/wildcards/save",
+      "POST /api/extensions/wildcards/delete",
+      "POST /api/extensions/wildcards/import",
+      "GET /api/extensions/wildcards/export",
+      "POST /api/extensions/wildcards/preview-resolve"
+    ],
+    "runtime_resolution": true,
+    "preview_resolve_status": "implemented_phase_g_seeded_backend_resolver",
+    "provider_graph_mutation": false,
+    "next_phase": "E-ui-panel",
+    "ui_wired": "implemented_phase_e",
+    "phase_i_status": "implemented",
+    "provider_neutral_execution": "implemented_phase_i",
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "phase_j_status": "implemented",
+    "style_embeddings_interop": "implemented_phase_j",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k"
+  },
+  "phase_d_api_routes_contract": {
+    "phase": "D",
+    "status": "implemented",
+    "storage_routes": true,
+    "non_mutating_preview_route": true,
+    "no_prompt_mutation": true,
+    "no_provider_graph_mutation": true,
+    "no_registry_default_enable": true
+  },
+  "phase_e_ui_panel_contract": {
+    "phase": "E",
+    "status": "implemented",
+    "ui_panel_migrated": true,
+    "api_wired": true,
+    "frontend_state_key": "state.imageDraft.wildcards",
+    "mount_slot": "image.generations.prompt.wildcards",
+    "no_submit_payload": true,
+    "no_prompt_mutation": true,
+    "no_backend_seeded_resolution": true,
+    "no_provider_graph_mutation": true,
+    "next_phase": "F-frontend-state-payload-builder-completed"
+  },
+  "phase_f_payload_builder_contract": {
+    "phase": "F",
+    "status": "implemented",
+    "frontend_state_key": "state.imageDraft.wildcards",
+    "payload_builder": "wildcardsBuildPayload",
+    "payload_preview": "wildcardsPayloadPreview",
+    "validation_preview": "wildcardsValidationPreview",
+    "replay_builder": "wildcardsReplayPayload",
+    "canonical_payload_path": "job.extensions.payloads.wildcards",
+    "included_in_activeWorkflowExtensionMetadata": true,
+    "submit_condition": "enabled + route controls available + auto_resolve + prompt token/inline choice or selected token",
+    "runtime_resolution": false,
+    "no_prompt_mutation": true,
+    "no_provider_graph_mutation": true,
+    "next_phase": "G-backend-resolver-completed"
+  },
+  "phase_g_backend_resolver_contract": {
+    "phase": "G",
+    "status": "implemented",
+    "resolver": "neo_extensions.built_in.wildcards.backend.resolver",
+    "runtime_resolution": true,
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "resolution_order": "before_style_stack",
+    "supported_syntax": [
+      "__token__",
+      "__folder/token__",
+      "{option A|option B|option C}"
+    ],
+    "max_passes_default": 24,
+    "seeded_deterministic": true,
+    "variant_offsets": "positive=variant_offset*2, negative=variant_offset*2+1",
+    "missing_token_policy": "leave literal token visible and record missing_tokens",
+    "hook": "neo_app.image.prompt_extensions.apply_prompt_extensions",
+    "api_preview_route": "POST /api/extensions/wildcards/preview-resolve",
+    "next_phase": "H-prompt-extension-order-completed",
+    "phase_i_status": "implemented",
+    "provider_neutral_execution": "implemented_phase_i",
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "phase_j_status": "implemented",
+    "style_embeddings_interop": "implemented_phase_j",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k"
+  },
+  "phase_h_prompt_extension_order_contract": {
+    "phase": "H",
+    "status": "implemented",
+    "hook": "neo_app.image.prompt_extensions.apply_prompt_extensions",
+    "status_function": "neo_app.image.prompt_extensions.phase_h_prompt_extension_order_status",
+    "prompt_extension_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "active_prompt_mutation_order": [
+      "wildcards",
+      "style_stack"
+    ],
+    "wildcards_runs_before_style_stack": true,
+    "style_stack_runs_after_wildcards": true,
+    "embeddings_ti_stage": "metadata_visibility_after_style_stack",
+    "scene_director_stage": "global_prompt_interop_after_style_stack",
+    "conditioning_boundary": "apply_prompt_extensions before condition_prompt_pair before provider.run_job",
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "no_comfy_graph_mutation": true,
+    "no_forge_patch": true,
+    "next_phase": "J-style-stack-embeddings-interop",
+    "phase_i_status": "implemented",
+    "provider_neutral_execution": "implemented_phase_i",
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "phase_j_status": "implemented",
+    "style_embeddings_interop": "implemented_phase_j",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k"
+  },
+  "phase_g5_migration_state_repair_contract": {
+    "status": "implemented",
+    "repair_scope": "migration_state_only_no_new_runtime_features",
+    "canonical_library_root": "neo_data/extensions/image/wildcards/library",
+    "canonical_library_folder_exists": true,
+    "canonical_library_gitkeep": "neo_data/extensions/image/wildcards/library/.gitkeep",
+    "legacy_import_root": "neo_library_data/wildcards",
+    "runtime_resolution_status": "applied_phase_g",
+    "route_states_repaired_to": "available",
+    "stale_runtime_gating_labels_removed": true,
+    "ui_runtime_resolution": true,
+    "manifest_version": "0.7.1-phase-g5-migration-state-repair",
+    "keeps_phase_h_prompt_order": true,
+    "prompt_extension_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "not_in_scope": [
+      "queue_variants_execution",
+      "output_metadata_replay",
+      "scene_director_region_wildcard_resolution",
+      "provider_graph_mutation"
+    ],
+    "keeps_phase_i_provider_neutral_execution": true
+  },
+  "provider_graph_mutation": false,
+  "workflow_patches": [],
+  "phase_i_provider_neutral_execution_contract": {
+    "phase": "I",
+    "status": "implemented",
+    "formal_closeout_for": "provider-neutral-execution",
+    "depends_on": "H-prompt-extension-order",
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "no_comfy_graph_mutation": true,
+    "no_forge_patch": true,
+    "no_object_info_request": true,
+    "workflow_patch_detection": "excluded_for_prompt_only_extensions",
+    "workflow_hook": "neo_app.extensions.workflow_hooks.has_comfy_workflow_extension_requests",
+    "workflow_prompt_only_set": "neo_app.extensions.workflow_hooks.PROMPT_ONLY_EXTENSION_IDS",
+    "execution_snapshot": "neo_app.image.prompt_extensions.build_prompt_extension_execution_snapshot",
+    "status_function": "neo_app.image.prompt_extensions.phase_i_provider_neutral_execution_status",
+    "supported_backends": [
+      "comfyui",
+      "comfyui_portable",
+      "forge"
+    ],
+    "providers_receive_only_prompt_fields": [
+      "job.prompt",
+      "job.positive_prompt",
+      "job.negative_prompt"
+    ],
+    "prompt_extension_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "active_prompt_mutation_order": [
+      "wildcards",
+      "style_stack"
+    ],
+    "wildcards_excluded_from_workflow_patches": true,
+    "style_stack_excluded_from_workflow_patches": true,
+    "not_in_scope": [
+      "queue_variants_execution",
+      "output_metadata_replay",
+      "scene_director_region_wildcard_resolution",
+      "registry_default_enable"
+    ],
+    "phase_j_status": "implemented",
+    "style_embeddings_interop": "implemented_phase_j",
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k"
+  },
+  "phase_j_style_stack_embeddings_interop_contract": {
+    "phase": "J",
+    "status": "implemented",
+    "formal_closeout_for": "style-stack-embeddings-ti-interop",
+    "depends_on": "I-provider-neutral-execution",
+    "hook": "neo_app.image.prompt_extensions.apply_prompt_extensions",
+    "status_function": "neo_app.image.prompt_extensions.phase_j_style_embeddings_interop_status",
+    "metadata_builder": "neo_app.image.prompt_extensions.build_phase_j_style_embeddings_interop_metadata",
+    "prompt_extension_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "active_prompt_mutation_order": [
+      "wildcards",
+      "style_stack"
+    ],
+    "wildcards_runs_before_style_stack": true,
+    "style_stack_runs_after_wildcards": true,
+    "embeddings_ti_stage": "metadata_visibility_after_wildcards_and_style_stack",
+    "lora_trigger_stage": "metadata_visibility_after_wildcards_and_style_stack",
+    "embedding_token_from_wildcard_remains_visible": true,
+    "lora_trigger_from_wildcard_remains_visible": true,
+    "duplicate_embedding_metadata_policy": "record_and_avoid_duplicate_metadata_claims",
+    "same_seed_same_variant_offset": "same_deterministic_expansion",
+    "same_seed_different_variant_offset": "different_deterministic_expansion_when_choices_allow",
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "prompt_mutated_by_phase_j": false,
+    "not_in_scope": [
+      "scene_director_region_wildcard_resolution",
+      "queue_variants_execution",
+      "output_metadata_replay",
+      "provider_workflow_patch_mutation"
+    ],
+    "phase_k_status": "implemented",
+    "scene_director_interop": "implemented_phase_k"
+  },
+  "phase_k_scene_director_interop_contract": {
+    "phase": "K",
+    "status": "implemented",
+    "formal_closeout_for": "scene-director-interop",
+    "depends_on": "J-style-stack-embeddings-interop",
+    "hook": "neo_app.image.prompt_extensions.apply_scene_director_prompt_extension_interop",
+    "wildcards_hook": "neo_app.image.prompt_extensions.apply_scene_director_wildcards_interop",
+    "style_stack_compat_hook": "neo_app.image.prompt_extensions.apply_scene_director_style_stack_interop",
+    "status_function": "neo_app.image.prompt_extensions.phase_k_scene_director_interop_status",
+    "prompt_extension_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "active_prompt_mutation_order": [
+      "wildcards",
+      "style_stack"
+    ],
+    "scene_director_stage": "after_wildcards_and_style_stack_global_prompt_only",
+    "wildcards_affect_scene_director_global_prompt": true,
+    "style_stack_affects_scene_director_global_prompt": true,
+    "region_prompts_preserved_by_default": true,
+    "region_wildcards_resolved": false,
+    "region_wildcard_resolution": "not_in_scope_phase_k",
+    "identity_units_preserved": true,
+    "ipadapter_bindings_preserved": true,
+    "lora_bindings_preserved": true,
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "not_in_scope": [
+      "scene_director_region_wildcard_resolution",
+      "queue_variants_execution",
+      "output_metadata_replay",
+      "registry_default_enable"
+    ]
+  },
+  "phase_l_queue_variants_contract": {
+    "status": "implemented",
+    "depends_on": "phase_k_scene_director_interop_contract",
+    "submission_owner": "neo_app.static.js.neo:runWildcardVariantQueue",
+    "separate_jobs": true,
+    "queue_count_source": "extensions.payloads.wildcards.params.queue_count",
+    "variant_offset_source": "extensions.payloads.wildcards.params.variant_offset",
+    "offset_policy": "positive=variant_offset*2, negative=variant_offset*2+1",
+    "stable_seed_policy": "one_base_seed_per_queue",
+    "large_queue_warning_threshold": 20,
+    "max_queue_count": 50,
+    "provider_graph_mutation": false,
+    "prompt_only": true,
+    "not_in_scope": [
+      "output_metadata_replay",
+      "registry_default_enable",
+      "scene_director_region_wildcard_resolution"
+    ]
+  },
+  "phase_m_output_metadata_replay_contract": {
+    "phase": "M",
+    "status": "implemented",
+    "formal_closeout_for": "output-metadata-replay",
+    "depends_on": "phase_l_queue_variants_contract",
+    "metadata_builder": "neo_extensions.built_in.wildcards.backend.metadata.build_output_extension_metadata",
+    "status_function": "neo_extensions.built_in.wildcards.backend.metadata.phase_m_output_metadata_replay_status",
+    "output_record_integration": "neo_app.main:image_generate merges Wildcards metadata before Style Stack metadata",
+    "output_record_slots": [
+      "extensions.used[]",
+      "extensions.payloads.wildcards",
+      "extensions.replay_payloads.wildcards",
+      "extensions.assistant_summaries.wildcards",
+      "extensions.memory_events.wildcards"
+    ],
+    "replay_restores": [
+      "enabled",
+      "root",
+      "selected_token",
+      "target",
+      "auto_resolve",
+      "use_seed",
+      "preview_count",
+      "queue_count",
+      "variant_offset",
+      "max_passes"
+    ],
+    "source_effective_prompt_tracking": true,
+    "resolved_missing_token_tracking": true,
+    "inline_file_choice_counts": true,
+    "seed_variant_tracking": true,
+    "assistant_summary": true,
+    "memory_event": true,
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "not_in_scope": [
+      "registry_default_enable",
+      "scene_director_region_wildcard_resolution",
+      "provider_workflow_patch_mutation"
+    ],
+    "registry_integration": "implemented_phase_n"
+  },
+  "phase_n_registry_integration_contract": {
+    "phase": "N",
+    "status": "implemented",
+    "registry_default_enable_integrated": true,
+    "admin_registry_discovers_enabled": true,
+    "surface_registry_discovers_generations_mount": true,
+    "manifest_record_updated": true,
+    "mount_slot_record_updated": true,
+    "default_enabled_extension_id": "wildcards",
+    "state_path": "neo_data/user/extension_state.json",
+    "registry_path": "neo_app/extensions/registry.py",
+    "system_records": [
+      "neo_system_records/04_EXTENSION_SYSTEM/V2_EXTENSION_MANIFEST.md",
+      "neo_system_records/04_EXTENSION_SYSTEM/V2_EXTENSION_MOUNT_SLOTS.md",
+      "neo_system_records/04_EXTENSION_SYSTEM/IMAGE_WILDCARDS_PHASE_N_REGISTRY_INTEGRATION.md"
+    ],
+    "not_in_scope": [
+      "Phase O final regression wall",
+      "Scene Director regional wildcard resolution",
+      "provider workflow graph mutation"
+    ]
+  },
+  "phase_o_final_tests_v1_parity_closeout_contract": {
+    "phase": "O",
+    "status": "implemented",
+    "depends_on": "phase_n_registry_integration_contract",
+    "migration_scope": "Neo V1 Image Wildcards to Neo V2 built-in prompt-transform extension",
+    "v1_parity_closeout": true,
+    "final_regression_wall": true,
+    "prompt_only": true,
+    "provider_graph_mutation": false,
+    "provider_neutral": true,
+    "default_enabled": true,
+    "canonical_library_root": "neo_data/extensions/image/wildcards/library",
+    "legacy_import_root": "neo_library_data/wildcards",
+    "supported_file_extensions": [
+      ".txt",
+      ".json",
+      ".yaml",
+      ".yml"
+    ],
+    "supported_syntax": [
+      "__token__",
+      "__folder/token__",
+      "{option A|option B|option C}"
+    ],
+    "max_expansion_passes": 24,
+    "execution_order": [
+      "wildcards",
+      "style_stack",
+      "embeddings_ti",
+      "image.scene_director"
+    ],
+    "active_prompt_mutation_order": [
+      "wildcards",
+      "style_stack"
+    ],
+    "queue_variants": "implemented_phase_l",
+    "output_metadata_replay": "implemented_phase_m",
+    "registry_integration": "implemented_phase_n",
+    "scene_director_region_wildcards": "not_enabled_by_default",
+    "workflow_patches": [],
+    "tests": [
+      "neo_extensions/built_in/image.wildcards/tests/test_wildcards_phase_o_final_v1_parity_closeout.py"
+    ],
+    "not_in_scope": [
+      "Scene Director regional wildcard expansion by default",
+      "provider workflow graph mutation",
+      "new extension UX beyond V1 parity"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+<section class="neo-extension-panel neo-wildcards-panel" data-extension-id="wildcards" data-route-aware="true" data-route-state="available" data-display-mode="guided" data-phase="H">
+  <header class="neo-extension-card__header neo-wildcards-header">
+    <div>
+      <p class="neo-kicker">Image Extension</p>
+      <h3>Wildcards</h3>
+      <p class="neo-muted">Prompt-only wildcard token browser migrated from Neo V1. Backend seeded runtime resolution is active, and Phase H locks Wildcards before Style Stack in the prompt pipeline.</p>
+    </div>
+    <div class="neo-extension-status-line">
+      <span class="neo-state-pill success">Runtime Ready</span>
+      <span class="neo-badge">Phase H</span>
+    </div>
+  </header>
+
+  <p class="neo-muted">Supported syntax: <code>__token__</code> <code>__folder/token__</code> <code>{soft|dramatic|cinematic}</code></p>
+
+  <div class="neo-wildcards-toolbar">
+    <label class="neo-toggle-row"><input id="wildcardsEnabled" type="checkbox" checked> <span>Enable Wildcards</span></label>
+    <label>Insert target<select id="wildcardsTarget"><option value="positive_prompt">Positive prompt</option><option value="negative_prompt">Negative prompt</option></select></label>
+    <label>Preview count<input id="wildcardsPreviewCount" type="number" min="1" max="10" value="3"></label>
+    <label>Queue variants<input id="wildcardsQueueCount" type="number" min="1" max="50" value="3"></label>
+    <button class="neo-btn secondary" type="button" id="wildcardsRefresh">Refresh</button>
+    <a class="neo-btn secondary" href="/api/extensions/wildcards/export" download="wildcards_pack.zip">Export ZIP</a>
+  </div>
+
+  <div class="neo-wildcards-toggle-row">
+    <label class="neo-toggle-row"><input id="wildcardsAutoResolve" type="checkbox" checked> <span>Auto-resolve on generation</span></label>
+    <label class="neo-toggle-row"><input id="wildcardsUseSeed" type="checkbox" checked> <span>Use generation seed</span></label>
+    <span class="neo-badge">Root: neo_data/extensions/image/wildcards/library</span>
+  </div>
+
+  <div class="neo-wildcards-browser-row">
+    <label>Search tokens<input id="wildcardsSearch" type="search" placeholder="Search token or path"></label>
+    <label>Wildcard files<select id="wildcardsSelect" size="8"></select></label>
+    <div class="neo-wildcards-card">
+      <strong>Values preview</strong>
+      <ul class="neo-wildcards-values"></ul>
+      <div class="neo-wildcards-actions">
+        <button class="neo-btn primary" type="button" id="wildcardsInsertToken">Insert token</button>
+        <button class="neo-btn secondary" type="button" id="wildcardsPreviewResolve">Preview resolve</button>
+        <button class="neo-btn secondary" type="button" id="wildcardsApplyFirst">Apply first result</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="neo-wildcards-editor">
+    <label>Token name<input id="wildcardsEditorToken" placeholder="hair/colors"></label>
+    <label>Format<select id="wildcardsEditorExtension"><option value=".txt">TXT</option><option value=".json">JSON</option><option value=".yaml">YAML</option><option value=".yml">YML</option></select></label>
+    <label class="neo-field-wide">Wildcard values<textarea id="wildcardsValuesText" rows="7" placeholder="one value per line"></textarea></label>
+    <div class="neo-wildcards-actions">
+      <button class="neo-btn primary" type="button" id="wildcardsSave">Save / Update</button>
+      <button class="neo-btn danger" type="button" id="wildcardsDelete">Delete</button>
+    </div>
+  </div>
+
+  <div class="neo-wildcards-import-row">
+    <label>Import wildcard ZIP<input id="wildcardsImportFile" type="file" accept=".zip,application/zip"></label>
+    <label>Mode<select id="wildcardsImportMode"><option value="merge">Merge</option><option value="replace">Replace library</option></select></label>
+    <button class="neo-btn secondary" type="button" id="wildcardsImport">Import</button>
+  </div>
+
+  <div class="neo-wildcards-preview"><strong>Resolved preview</strong><p class="neo-muted">Payload submit and backend seeded resolution are active. Generation resolves Wildcards before Style Stack.</p></div>
+  <p class="neo-muted neo-wildcards-status">Ready</p>
+</section>
+
+<!-- Phase G.5 repair: generation payload key is extensions.payloads.wildcards; backend runtime resolution is active. -->
