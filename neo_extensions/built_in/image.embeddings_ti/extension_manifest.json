@@ -1,0 +1,992 @@
+{
+  "id": "embeddings_ti",
+  "name": "Embeddings / Textual Inversion",
+  "version": "0.1.0",
+  "description": "Built-in Image Assets extension for Embeddings and Textual Inversion discovery, prompt insertion, metadata capture, and replay-aware prompt composition.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "assets"
+  ],
+  "mount_slots": [
+    "image.assets.embeddings_ti"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "assets",
+      "workflow_mode": null,
+      "slot": "image.assets.embeddings_ti",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "z_image_turbo",
+    "hidream",
+    "wan_image",
+    "hunyuan_image"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "unet",
+    "gguf"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [],
+    "comfyui_portable": []
+  },
+  "node_requirements": {
+    "required": [],
+    "optional": [],
+    "source": "non_node_based_prompt_asset",
+    "notes": [
+      "Embeddings/TI is treated as a prompt asset and prompt-token patch extension, not a custom-node extension.",
+      "No custom Comfy node is required for the Phase C manifest contract.",
+      "Route support is gated by text-encoder/prompt-token compatibility rather than node discovery.",
+      "Modern diffusion/GGUF families remain planned-gated until a compatible textual inversion path is validated; no family fallback is allowed."
+    ]
+  },
+  "route_states": {
+    "sdxl:checkpoint:generate": "available",
+    "sdxl:checkpoint:img2img": "available",
+    "sdxl:checkpoint:inpaint": "available",
+    "sdxl:checkpoint:outpaint": "available",
+    "sdxl:diffusion_model:generate": "planned_gated",
+    "sdxl:diffusion_model:img2img": "planned_gated",
+    "sdxl:diffusion_model:inpaint": "planned_gated",
+    "sdxl:diffusion_model:outpaint": "planned_gated",
+    "sdxl:unet:generate": "planned_gated",
+    "sdxl:unet:img2img": "planned_gated",
+    "sdxl:unet:inpaint": "planned_gated",
+    "sdxl:unet:outpaint": "planned_gated",
+    "sdxl:gguf:generate": "planned_gated",
+    "sdxl:gguf:img2img": "planned_gated",
+    "sdxl:gguf:inpaint": "planned_gated",
+    "sdxl:gguf:outpaint": "planned_gated",
+    "sd15:checkpoint:generate": "experimental_available",
+    "sd15:checkpoint:img2img": "experimental_available",
+    "sd15:checkpoint:inpaint": "experimental_available",
+    "sd15:checkpoint:outpaint": "experimental_available",
+    "sd15:diffusion_model:generate": "planned_gated",
+    "sd15:diffusion_model:img2img": "planned_gated",
+    "sd15:diffusion_model:inpaint": "planned_gated",
+    "sd15:diffusion_model:outpaint": "planned_gated",
+    "sd15:unet:generate": "planned_gated",
+    "sd15:unet:img2img": "planned_gated",
+    "sd15:unet:inpaint": "planned_gated",
+    "sd15:unet:outpaint": "planned_gated",
+    "sd15:gguf:generate": "planned_gated",
+    "sd15:gguf:img2img": "planned_gated",
+    "sd15:gguf:inpaint": "planned_gated",
+    "sd15:gguf:outpaint": "planned_gated",
+    "flux:checkpoint:generate": "planned_gated",
+    "flux:checkpoint:img2img": "planned_gated",
+    "flux:checkpoint:inpaint": "planned_gated",
+    "flux:checkpoint:outpaint": "planned_gated",
+    "flux:diffusion_model:generate": "planned_gated",
+    "flux:diffusion_model:img2img": "planned_gated",
+    "flux:diffusion_model:inpaint": "planned_gated",
+    "flux:diffusion_model:outpaint": "planned_gated",
+    "flux:unet:generate": "planned_gated",
+    "flux:unet:img2img": "planned_gated",
+    "flux:unet:inpaint": "planned_gated",
+    "flux:unet:outpaint": "planned_gated",
+    "flux:gguf:generate": "planned_gated",
+    "flux:gguf:img2img": "planned_gated",
+    "flux:gguf:inpaint": "planned_gated",
+    "flux:gguf:outpaint": "planned_gated",
+    "qwen_image:checkpoint:generate": "planned_gated",
+    "qwen_image:checkpoint:img2img": "planned_gated",
+    "qwen_image:checkpoint:inpaint": "planned_gated",
+    "qwen_image:checkpoint:outpaint": "planned_gated",
+    "qwen_image:diffusion_model:generate": "planned_gated",
+    "qwen_image:diffusion_model:img2img": "planned_gated",
+    "qwen_image:diffusion_model:inpaint": "planned_gated",
+    "qwen_image:diffusion_model:outpaint": "planned_gated",
+    "qwen_image:unet:generate": "planned_gated",
+    "qwen_image:unet:img2img": "planned_gated",
+    "qwen_image:unet:inpaint": "planned_gated",
+    "qwen_image:unet:outpaint": "planned_gated",
+    "qwen_image:gguf:generate": "planned_gated",
+    "qwen_image:gguf:img2img": "planned_gated",
+    "qwen_image:gguf:inpaint": "planned_gated",
+    "qwen_image:gguf:outpaint": "planned_gated",
+    "z_image:checkpoint:generate": "planned_gated",
+    "z_image:checkpoint:img2img": "planned_gated",
+    "z_image:checkpoint:inpaint": "planned_gated",
+    "z_image:checkpoint:outpaint": "planned_gated",
+    "z_image:diffusion_model:generate": "planned_gated",
+    "z_image:diffusion_model:img2img": "planned_gated",
+    "z_image:diffusion_model:inpaint": "planned_gated",
+    "z_image:diffusion_model:outpaint": "planned_gated",
+    "z_image:unet:generate": "planned_gated",
+    "z_image:unet:img2img": "planned_gated",
+    "z_image:unet:inpaint": "planned_gated",
+    "z_image:unet:outpaint": "planned_gated",
+    "z_image:gguf:generate": "planned_gated",
+    "z_image:gguf:img2img": "planned_gated",
+    "z_image:gguf:inpaint": "planned_gated",
+    "z_image:gguf:outpaint": "planned_gated",
+    "hidream:checkpoint:generate": "planned_gated",
+    "hidream:checkpoint:img2img": "planned_gated",
+    "hidream:checkpoint:inpaint": "planned_gated",
+    "hidream:checkpoint:outpaint": "planned_gated",
+    "hidream:diffusion_model:generate": "planned_gated",
+    "hidream:diffusion_model:img2img": "planned_gated",
+    "hidream:diffusion_model:inpaint": "planned_gated",
+    "hidream:diffusion_model:outpaint": "planned_gated",
+    "hidream:unet:generate": "planned_gated",
+    "hidream:unet:img2img": "planned_gated",
+    "hidream:unet:inpaint": "planned_gated",
+    "hidream:unet:outpaint": "planned_gated",
+    "hidream:gguf:generate": "planned_gated",
+    "hidream:gguf:img2img": "planned_gated",
+    "hidream:gguf:inpaint": "planned_gated",
+    "hidream:gguf:outpaint": "planned_gated",
+    "wan_image:checkpoint:generate": "provider_gated",
+    "wan_image:checkpoint:img2img": "provider_gated",
+    "wan_image:checkpoint:inpaint": "provider_gated",
+    "wan_image:checkpoint:outpaint": "provider_gated",
+    "wan_image:diffusion_model:generate": "provider_gated",
+    "wan_image:diffusion_model:img2img": "provider_gated",
+    "wan_image:diffusion_model:inpaint": "provider_gated",
+    "wan_image:diffusion_model:outpaint": "provider_gated",
+    "wan_image:unet:generate": "provider_gated",
+    "wan_image:unet:img2img": "provider_gated",
+    "wan_image:unet:inpaint": "provider_gated",
+    "wan_image:unet:outpaint": "provider_gated",
+    "wan_image:gguf:generate": "provider_gated",
+    "wan_image:gguf:img2img": "provider_gated",
+    "wan_image:gguf:inpaint": "provider_gated",
+    "wan_image:gguf:outpaint": "provider_gated",
+    "hunyuan_image:checkpoint:generate": "provider_gated",
+    "hunyuan_image:checkpoint:img2img": "provider_gated",
+    "hunyuan_image:checkpoint:inpaint": "provider_gated",
+    "hunyuan_image:checkpoint:outpaint": "provider_gated",
+    "hunyuan_image:diffusion_model:generate": "provider_gated",
+    "hunyuan_image:diffusion_model:img2img": "provider_gated",
+    "hunyuan_image:diffusion_model:inpaint": "provider_gated",
+    "hunyuan_image:diffusion_model:outpaint": "provider_gated",
+    "hunyuan_image:unet:generate": "provider_gated",
+    "hunyuan_image:unet:img2img": "provider_gated",
+    "hunyuan_image:unet:inpaint": "provider_gated",
+    "hunyuan_image:unet:outpaint": "provider_gated",
+    "hunyuan_image:gguf:generate": "provider_gated",
+    "hunyuan_image:gguf:img2img": "provider_gated",
+    "hunyuan_image:gguf:inpaint": "provider_gated",
+    "hunyuan_image:gguf:outpaint": "provider_gated",
+    "assets": "available",
+    "generations": "available",
+    "reference": "experimental_available",
+    "finish": "experimental_available",
+    "results": "unsupported",
+    "*": "planned_gated",
+    "z_image_turbo:checkpoint:generate": "planned_gated",
+    "z_image_turbo:checkpoint:img2img": "planned_gated",
+    "z_image_turbo:checkpoint:inpaint": "planned_gated",
+    "z_image_turbo:checkpoint:outpaint": "planned_gated",
+    "z_image_turbo:diffusion_model:generate": "planned_gated",
+    "z_image_turbo:diffusion_model:img2img": "planned_gated",
+    "z_image_turbo:diffusion_model:inpaint": "planned_gated",
+    "z_image_turbo:diffusion_model:outpaint": "planned_gated",
+    "z_image_turbo:unet:generate": "planned_gated",
+    "z_image_turbo:unet:img2img": "planned_gated",
+    "z_image_turbo:unet:inpaint": "planned_gated",
+    "z_image_turbo:unet:outpaint": "planned_gated",
+    "z_image_turbo:gguf:generate": "planned_gated",
+    "z_image_turbo:gguf:img2img": "planned_gated",
+    "z_image_turbo:gguf:inpaint": "planned_gated",
+    "z_image_turbo:gguf:outpaint": "planned_gated"
+  },
+  "capability_profiles": {
+    "embeddings_ti_sdxl_checkpoint": {
+      "profile_id": "embeddings_ti_sdxl_checkpoint",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "modes": {
+        "generate": "available",
+        "img2img": "available",
+        "inpaint": "available",
+        "outpaint": "available"
+      },
+      "required_roles": [
+        "checkpoint_prompt_encoder",
+        "prompt_patch_contract"
+      ],
+      "optional_roles": [
+        "textual_inversion_library",
+        "preview_image",
+        "finish_prompt_slots"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "img2img": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "inpaint": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "outpaint": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ]
+      },
+      "params": [
+        "enabled",
+        "items",
+        "target",
+        "strength",
+        "selected_embedding",
+        "selected_embedding_id",
+        "selected_embedding_token",
+        "selected_embeddings",
+        "civitai_url"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": []
+        },
+        "comfyui_portable": {
+          "required_roles": []
+        }
+      },
+      "notes": [
+        "Classic SDXL checkpoint routes are the primary active target for textual inversion prompt-token patching.",
+        "Phase E.1 exposes chip params only; prompt mutation stays deferred to the workflow patch implementation phase."
+      ],
+      "prompt_patch": "classic_ti_prompt_token_append",
+      "parameter_profile": "classic_ti_prompt_fields",
+      "graph_patch": "none"
+    },
+    "embeddings_ti_sd15_checkpoint": {
+      "profile_id": "embeddings_ti_sd15_checkpoint",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "modes": {
+        "generate": "experimental_available",
+        "img2img": "experimental_available",
+        "inpaint": "experimental_available",
+        "outpaint": "experimental_available"
+      },
+      "required_roles": [
+        "checkpoint_prompt_encoder",
+        "prompt_patch_contract"
+      ],
+      "optional_roles": [
+        "textual_inversion_library",
+        "preview_image",
+        "finish_prompt_slots"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "img2img": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "inpaint": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ],
+        "outpaint": [
+          "checkpoint_prompt_encoder",
+          "prompt_patch_contract"
+        ]
+      },
+      "params": [
+        "enabled",
+        "items",
+        "target",
+        "strength",
+        "selected_embedding",
+        "selected_embedding_id",
+        "selected_embedding_token",
+        "selected_embeddings",
+        "civitai_url"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": []
+        },
+        "comfyui_portable": {
+          "required_roles": []
+        }
+      },
+      "notes": [
+        "SD1.5 checkpoint routes are declared experimental until full V1 parity testing is complete.",
+        "Phase E.1 exposes chip params only; prompt mutation stays deferred to the workflow patch implementation phase."
+      ],
+      "prompt_patch": "classic_ti_prompt_token_append",
+      "parameter_profile": "classic_ti_prompt_fields",
+      "graph_patch": "none"
+    },
+    "embeddings_ti_prompt_asset_library": {
+      "profile_id": "embeddings_ti_prompt_asset_library",
+      "families": [
+        "*"
+      ],
+      "loaders": [
+        "*"
+      ],
+      "modes": {
+        "generate": "metadata_only",
+        "img2img": "metadata_only",
+        "inpaint": "metadata_only",
+        "outpaint": "metadata_only"
+      },
+      "required_roles": [
+        "extensions.embeddings_ti",
+        "route_context",
+        "payload_schema"
+      ],
+      "optional_roles": [
+        "library_scan",
+        "library_search",
+        "preview_image",
+        "output_metadata",
+        "replay_payload"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "payload_schema"
+        ],
+        "img2img": [
+          "payload_schema"
+        ],
+        "inpaint": [
+          "payload_schema"
+        ],
+        "outpaint": [
+          "payload_schema"
+        ]
+      },
+      "params": [
+        "selected_embedding",
+        "selected_embedding_token",
+        "items",
+        "civitai_url"
+      ],
+      "backend_requirements": {},
+      "notes": [
+        "The Assets browser can list and preview embeddings independently from active route support.",
+        "Applying selected tokens to generation payloads still requires an active available/experimental route."
+      ],
+      "prompt_patch": "metadata_only",
+      "graph_patch": "none",
+      "parameter_profile": "asset_library_metadata_only"
+    }
+  },
+  "ui_schema": {
+    "phase": "E.1",
+    "route_aware": true,
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "normal_ui_hidden_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "diagnostic_visible_states": [
+      "planned_gated",
+      "provider_gated"
+    ],
+    "disabled_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "panels": [
+      "embeddings_panel"
+    ],
+    "fields": [
+      {
+        "id": "enabled",
+        "label": "Enable Embeddings/TI",
+        "compact_label": "TI",
+        "type": "checkbox",
+        "default": false,
+        "payload_path": "extensions.embeddings_ti.enabled"
+      },
+      {
+        "id": "scan_folder",
+        "label": "Embeddings Folder",
+        "type": "path",
+        "help_text": "Folder scanned for .pt, .safetensors, and .bin textual inversion files. Provider catalogs may also populate the dropdown when available.",
+        "payload_path": "extensions.embeddings_ti.inputs.scan_folder"
+      },
+      {
+        "id": "library_query",
+        "label": "Search Embeddings",
+        "compact_label": "Search",
+        "type": "search",
+        "payload_path": "extensions.embeddings_ti.inputs.library_query"
+      },
+      {
+        "id": "selected_embedding",
+        "label": "Embedding",
+        "type": "select",
+        "payload_path": "extensions.embeddings_ti.assets.selected_embedding"
+      },
+      {
+        "id": "selected_embedding_token",
+        "label": "Prompt Token",
+        "compact_label": "Token",
+        "type": "text",
+        "payload_path": "extensions.embeddings_ti.assets.selected_embedding.token"
+      },
+      {
+        "id": "target",
+        "label": "Target Prompt",
+        "type": "select",
+        "options": [
+          "positive_prompt",
+          "negative_prompt",
+          "finish_positive",
+          "finish_negative"
+        ],
+        "default": "negative_prompt",
+        "payload_path": "extensions.embeddings_ti.params.items[].target"
+      },
+      {
+        "id": "strength",
+        "label": "Strength",
+        "type": "number",
+        "min": 0,
+        "max": 2,
+        "step": 0.05,
+        "default": 1,
+        "payload_path": "extensions.embeddings_ti.params.items[].strength"
+      },
+      {
+        "id": "items",
+        "label": "Applied Embedding Chips",
+        "compact_label": "Chips",
+        "type": "array",
+        "payload_path": "extensions.embeddings_ti.params.items"
+      },
+      {
+        "id": "civitai_url",
+        "label": "CivitAI Link",
+        "type": "url",
+        "payload_path": "extensions.embeddings_ti.metadata.civitai_url"
+      },
+      {
+        "id": "civitai_pull",
+        "label": "Pull from CivitAI",
+        "type": "button",
+        "payload_path": "extensions.embeddings_ti.actions.civitai_pull"
+      }
+    ],
+    "phase_c_features": [
+      "LoRA Stack style built-in Assets mount declaration",
+      "extension-local asset bundle declaration",
+      "extension-local backend entrypoint declaration",
+      "non-node-based prompt asset requirements",
+      "route-aware visible/disabled state policy",
+      "payload/output/memory contracts aligned with extension runtime",
+      "no workflow graph mutation in Phase C"
+    ],
+    "phase_e_features": [
+      "specialized built-in Assets panel rendered by neo_app/static/js/neo.js",
+      "route-aware visibility and disabled/gated states",
+      "folder/search/provider embedding dropdown controls",
+      "LoRA-style chip behavior for applied embedding tokens",
+      "positive/negative target prompt selector with finish targets reserved for expert mode",
+      "strength control using Comfy prompt-token weighting syntax",
+      "CivitAI Textual Inversion pull entry point aligned with LoRA library UX",
+      "selected embedding metadata and preview shell",
+      "expert payload preview",
+      "clean extension payload preview with no active payload on gated routes",
+      "no workflow graph mutation in Phase E.1",
+      "Phase F payload preview emits canonical items-only contract"
+    ]
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "phase": "G",
+    "extension_block_shape": {
+      "enabled": "bool",
+      "version": "int",
+      "inputs": "dict",
+      "params": "dict with items[] chip records",
+      "assets": "dict",
+      "metadata": "dict"
+    },
+    "active_route_states": [
+      "available",
+      "experimental_available"
+    ],
+    "disabled_route_states": [
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "example": {
+      "extensions": {
+        "embeddings_ti": {
+          "enabled": true,
+          "version": 1,
+          "inputs": {},
+          "params": {
+            "items": [
+              {
+                "token": "embedding:EasyNegative",
+                "name": "EasyNegative",
+                "strength": 1,
+                "target": "negative_prompt"
+              }
+            ]
+          },
+          "assets": {
+            "selected_embeddings": [
+              {
+                "token": "embedding:EasyNegative",
+                "name": "EasyNegative",
+                "target": "negative_prompt",
+                "strength": 1
+              }
+            ]
+          },
+          "metadata": {
+            "source": "image.assets.embeddings_ti"
+          }
+        }
+      }
+    },
+    "allowed_params": [
+      "items"
+    ],
+    "legacy_accepted_params": [
+      "selected_tokens",
+      "helper_target",
+      "base_positive",
+      "base_negative",
+      "finish_positive",
+      "finish_negative"
+    ],
+    "active_params": [
+      "items"
+    ],
+    "inputs_policy": "always_empty",
+    "params_policy": "items_only_after_legacy_migration",
+    "asset_policy": "selected_embeddings_metadata_only",
+    "hidden_field_policy": "strip_from_clean_block_and_report_in_validation",
+    "disabled_behavior": "no_active_params_no_assets_no_workflow_mutation",
+    "allowed_item_keys": [
+      "uid",
+      "id",
+      "source_record_id",
+      "token",
+      "name",
+      "strength",
+      "target"
+    ],
+    "validation_phase": "I"
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true,
+    "phase": "J",
+    "schema_version": "neo.embeddings_ti.memory_event.v1",
+    "record_embedding_tokens": true,
+    "record_target_groups": true,
+    "restore_policy": "revalidate_before_enable",
+    "revalidation_required": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation",
+      "extensions.assistant_summaries",
+      "extensions.replay_payloads",
+      "extensions.memory_events"
+    ],
+    "record_input_assets": true,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "inspector_summary_fields": [
+      "enabled",
+      "items",
+      "target",
+      "strength",
+      "route_state",
+      "gated_reason"
+    ],
+    "phase": "J",
+    "record_assistant_summary": true,
+    "record_memory_event": true,
+    "record_embedding_tokens": true,
+    "replay_restore_policy": "revalidate_before_enable"
+  },
+  "memory_policy": {
+    "phase": "J",
+    "assistant_features": "not_implemented",
+    "event_shape_prepared": true,
+    "event_shape": "extension_workflow_used",
+    "schema_version": "neo.embeddings_ti.memory_event.v1",
+    "restore_policy": "revalidate_before_enable"
+  },
+  "output_policy": {
+    "phase": "J",
+    "inspector_summary_prepared": true,
+    "workflow_mutation": "prompt_text_only",
+    "top_level_sidecar_keys": "forbidden",
+    "assistant_summaries": "extensions.assistant_summaries.embeddings_ti",
+    "replay_payload": "extensions.replay_payloads.embeddings_ti",
+    "memory_event": "extensions.memory_events.embeddings_ti"
+  },
+  "asset_bundle": {
+    "html": [
+      "ui/embeddings_panel.html"
+    ],
+    "js": [
+      "ui/embeddings_panel.js"
+    ],
+    "css": [
+      "ui/embeddings_panel.css"
+    ],
+    "python": [
+      "backend/payload_schema.py",
+      "backend/support_matrix.py",
+      "backend/validation.py",
+      "backend/workflow_patch.py",
+      "backend/metadata.py",
+      "backend/replay.py",
+      "backend/memory_event.py",
+      "backend/library_schema.py",
+      "backend/library_store.py",
+      "backend/library_scan.py",
+      "backend/library_routes.py",
+      "backend/field_sources.py"
+    ],
+    "assets": []
+  },
+  "entrypoints": {
+    "support_matrix": "backend/support_matrix.py",
+    "payload_schema": "backend/payload_schema.py",
+    "validation": "backend/validation.py",
+    "workflow_patch": "backend/workflow_patch.py",
+    "metadata": "backend/metadata.py",
+    "replay": "backend/replay.py",
+    "memory_event": "backend/memory_event.py",
+    "field_sources": "backend/field_sources.py"
+  },
+  "workflow_patch_contract": {
+    "phase": "G",
+    "entrypoint": "backend/workflow_patch.py::apply_embeddings_ti_patch",
+    "node": "none",
+    "graph_node_mutation": false,
+    "applies_to": "Validated positive/negative prompt-token patching on available/experimental checkpoint routes.",
+    "rewrites": [
+      "positive_prompt_text_nodes",
+      "negative_prompt_text_nodes"
+    ],
+    "never_mutates_when": [
+      "extension disabled",
+      "route planned_gated/provider_gated/unsupported",
+      "no valid selected tokens",
+      "finish-only target in base compiler phase",
+      "duplicate token already present"
+    ],
+    "strategy": "classic_ti_prompt_token_append",
+    "prompt_patch": "implemented_phase_g",
+    "graph_patch": "prompt_text_only",
+    "validation_gate": "validate_and_normalize_payload.workflow_patch_allowed"
+  },
+  "support_matrix_contract": {
+    "phase": "D",
+    "source": "neo_extensions/built_in/image.embeddings_ti/backend/support_matrix.py",
+    "states": [
+      "available",
+      "experimental_available",
+      "planned_gated",
+      "provider_gated",
+      "unsupported"
+    ],
+    "active_states": [
+      "available",
+      "experimental_available"
+    ],
+    "families": [
+      "sdxl",
+      "sd15",
+      "flux",
+      "qwen_image",
+      "qwen_rapid_aio",
+      "z_image",
+      "hidream",
+      "wan_image",
+      "hunyuan_image"
+    ],
+    "loaders": [
+      "checkpoint",
+      "diffusion_model",
+      "unet",
+      "gguf"
+    ],
+    "workflow_modes": [
+      "generate",
+      "img2img",
+      "inpaint",
+      "outpaint"
+    ],
+    "prompt_patch_strategies": [
+      "classic_ti_prompt_token_append",
+      "metadata_only",
+      "none"
+    ],
+    "graph_patch_strategies": [
+      "none"
+    ],
+    "rule": "Routes are active only when a compatible classic checkpoint prompt-token path is validated. Asset browsing is metadata-only. No family fallback, no checkpoint/GGUF field mixing, and no active payload on gated routes.",
+    "node_based": false,
+    "parameter_profiles": "classic_ti_prompt_fields now exposes item/chip params only; legacy staging fields are compatibility-only and hidden from UI.",
+    "library_api_prefix": "/api/extensions/embeddings_ti/library",
+    "library_routes_owned_by_extension": true
+  },
+  "implementation_notes": {
+    "phase_b_features": [
+      "extension-local skeleton",
+      "manifest declaration",
+      "support matrix",
+      "payload sanitizer",
+      "validation shell",
+      "no-op workflow patch",
+      "metadata/replay/memory shells",
+      "UI placeholder panel",
+      "contract docs",
+      "skeleton tests"
+    ],
+    "phase_c_features": [
+      "manifest upgraded to LoRA Stack pattern",
+      "mount targets and workspace app normalized",
+      "asset bundle and entrypoints declared extension-relative",
+      "payload contract records Phase C active/disabled route states",
+      "output and memory contracts prepared",
+      "capability profiles split active prompt patch routes from metadata-only library browsing"
+    ],
+    "phase_h_features": [
+      "extension-owned backend library routes",
+      "normalized Embeddings/TI record schema",
+      "local .pt/.safetensors/.bin scan and safe merge",
+      "provider embedding catalog bridge when available",
+      "record resolve/save/delete/insert-token APIs",
+      "preview-file serving and CivitAI preview cache",
+      "CivitAI Textual Inversion metadata import with model-type guard"
+    ],
+    "phase_j_features": [
+      "output metadata records usage status, embedding tokens, target counts, workflow patch summary, and route state",
+      "replay payload stores the clean chip payload with revalidate_before_enable restore policy",
+      "memory-readiness event shape records params, assets, route, outputs, validation, assistant summary, and replay payload",
+      "no Assistant automation is implemented; Phase J only prepares safe metadata/event shapes"
+    ],
+    "phase_k_features": [
+      "regression tests cover every implemented Embeddings/TI migration phase from skeleton through metadata/replay",
+      "combined runtime tests protect LoRA Stack, Embeddings/TI, and CFG Fix ordering in one Comfy workflow",
+      "duplicate prompt-token runs now surface as used_existing_prompt_token instead of ambiguous validated status",
+      "tests assert no custom-node/graph-loader behavior is introduced for Embeddings/TI"
+    ],
+    "phase_l_features": [
+      "extension-local contract and migration docs rewritten as the canonical Phase L source of truth",
+      "mapped neo_system_records updated for read-first, extension manifest, mount slots, provider/surface contracts, memory event schema, and changelog",
+      "documentation contract added to the manifest so future phases know where authoritative docs live",
+      "documentation tests added to prevent drift between manifest, extension docs, and mapped system records",
+      "no runtime, route, UI, workflow, provider, mask, or canvas behavior changed in Phase L"
+    ]
+  },
+  "workspace_support": [
+    {
+      "workspace_app": "assets",
+      "state": "available",
+      "reason": "Primary Embeddings/TI asset browser, scanner, metadata editor, and prompt-chip surface.",
+      "behavior": "library_and_chip_staging"
+    },
+    {
+      "workspace_app": "generations",
+      "state": "available",
+      "reason": "Generation compile may consume validated embeddings_ti payload blocks on active classic checkpoint routes only.",
+      "behavior": "consume_validated_prompt_patch"
+    },
+    {
+      "workspace_app": "reference",
+      "state": "experimental_available",
+      "reason": "Reference/edit workflows may consume Embeddings/TI only when their active route resolves to SDXL/SD1.5 checkpoint prompt patching.",
+      "behavior": "route_gated_consumption"
+    },
+    {
+      "workspace_app": "finish",
+      "state": "experimental_available",
+      "reason": "Expert finish-target chips are preserved; compile consumption must revalidate the selected finish route.",
+      "behavior": "route_gated_finish_prompt_patch"
+    },
+    {
+      "workspace_app": "results",
+      "state": "unsupported",
+      "reason": "Results can display metadata/replay summaries but must not actively edit prompt fields.",
+      "behavior": "metadata_display_only"
+    }
+  ],
+  "parameter_profiles": {
+    "classic_ti_prompt_fields": {
+      "state": "available",
+      "visible_controls": [
+        "selected_embedding",
+        "selected_embedding_token",
+        "target",
+        "strength",
+        "items",
+        "civitai_url"
+      ],
+      "expert_controls": [
+        "finish_positive",
+        "finish_negative"
+      ],
+      "payload_params": [
+        "items"
+      ],
+      "payload_assets": [
+        "selected_embedding",
+        "selected_embeddings"
+      ],
+      "stale_field_policy": "strip_hidden_or_gated_values_before_generation"
+    },
+    "diagnostic_gated": {
+      "state": "planned_gated",
+      "visible_controls": [],
+      "diagnostic_controls": [
+        "selected_embedding",
+        "selected_embedding_token",
+        "route_reason"
+      ],
+      "payload_params": [],
+      "payload_assets": [],
+      "stale_field_policy": "strip_all_active_generation_values"
+    },
+    "diagnostic_provider_gated": {
+      "state": "provider_gated",
+      "visible_controls": [],
+      "diagnostic_controls": [
+        "route_reason"
+      ],
+      "payload_params": [],
+      "payload_assets": [],
+      "stale_field_policy": "strip_all_active_generation_values"
+    }
+  },
+  "validation_contract": {
+    "phase": "I",
+    "route_policy": "support_matrix_required_before_active_payload",
+    "shape_policy": "unsupported_keys_reported_and_clean_block_strips_them",
+    "stale_field_policy": "report_stripped_fields_and_disable_on_gated_routes",
+    "semantic_policy": "normalize_tokens_targets_strengths_and_warn_on_dropped_items",
+    "workflow_policy": "workflow_patch_allowed_only_for_active_routes_with_classic_ti_prompt_token_append",
+    "node_policy": "non_node_based_no_required_nodes",
+    "replay_policy": "revalidate_route_and_payload_before_enable"
+  },
+  "test_contract": {
+    "phase": "L",
+    "suite": "neo_extensions/built_in/image.embeddings_ti/tests",
+    "required_coverage": [
+      "manifest and built-in mount contract",
+      "support matrix and route gating",
+      "chip payload schema and stale field stripping",
+      "library scan/store/CivitAI metadata import guards",
+      "validation route visibility and workflow_patch_allowed gating",
+      "prompt-text-only workflow patching and duplicate prevention",
+      "metadata, replay, assistant summary, and memory-readiness slots",
+      "combined LoRA Stack + Embeddings/TI + CFG Fix runtime ordering",
+      "runtime log shape where Embeddings/TI token is already in the prompt",
+      "documentation map and Phase L source-of-truth records"
+    ],
+    "required_commands": [
+      "PYTHONPATH=. pytest -q neo_extensions/built_in/image.embeddings_ti/tests",
+      "PYTHONPATH=. pytest -q tests/test_phase12_46_extension_mount_boundaries.py tests/test_phase12_47_extension_workflow_chips.py tests/test_extension_runtime.py",
+      "PYTHONPATH=. pytest -q neo_extensions/built_in/image.lora_stack/tests/test_lora_stack_phase_c_ui.py",
+      "node --check neo_app/static/js/neo.js",
+      "node --check neo_extensions/built_in/image.embeddings_ti/ui/embeddings_panel.js",
+      "python -m py_compile neo_app/extensions/workflow_hooks.py neo_app/image/output_records.py neo_extensions/built_in/image.embeddings_ti/backend/*.py"
+    ],
+    "status_policy": {
+      "mutated_prompt_text": "used",
+      "token_already_present": "used_existing_prompt_token",
+      "validated_but_not_mutated": "validated",
+      "disabled_or_gated": "disabled"
+    }
+  },
+  "documentation_contract": {
+    "phase": "L",
+    "canonical_extension_docs": [
+      "neo_extensions/built_in/image.embeddings_ti/docs/EMBEDDINGS_TI_CONTRACT.md",
+      "neo_extensions/built_in/image.embeddings_ti/docs/EMBEDDINGS_TI_MIGRATION_REPORT.md"
+    ],
+    "mapped_system_records": [
+      "neo_system_records/00_READ_FIRST/V2_AI_READ_FIRST.md",
+      "neo_system_records/04_EXTENSION_SYSTEM/V2_EXTENSION_MANIFEST.md",
+      "neo_system_records/04_EXTENSION_SYSTEM/V2_EXTENSION_MOUNT_SLOTS.md",
+      "neo_system_records/03_PROVIDER_SYSTEM/V2_PROVIDER_CONTRACT.md",
+      "neo_system_records/06_SURFACES/V2_SURFACE_CONTRACT.md",
+      "neo_system_records/05_MEMORY_SYSTEM/V2_MEMORY_EVENT_SCHEMA.md",
+      "neo_system_records/07_CHANGELOG/V2_CHANGELOG.md"
+    ],
+    "source_of_truth_policy": "Extension-specific behavior lives in the extension docs and manifest; global runtime rules are summarized only in mapped neo_system_records.",
+    "no_duplicate_docs_policy": true,
+    "runtime_change": false
+  }
+}
