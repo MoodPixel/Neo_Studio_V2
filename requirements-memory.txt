@@ -1,0 +1,7 @@
+# Neo Studio V2 semantic memory / local retrieval stack
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+transformers>=4.51.0
+accelerate>=0.33.0
+safetensors>=0.4.5
+torch>=2.3.0

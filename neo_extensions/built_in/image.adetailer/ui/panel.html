@@ -1,0 +1,148 @@
+<section class="neo-adetailer-panel" data-extension-id="image.adetailer" data-phase="G" data-mount-slot="image.finish.adetailer" data-route-state="unchecked" data-display-mode="guided">
+  <header class="neo-adetailer-panel__header">
+    <div>
+      <span class="neo-adetailer-panel__eyebrow">Finish</span>
+      <h3>ADetailer</h3>
+      <p class="neo-adetailer-panel__subtitle">Selective repair for faces, hands, and detected regions after the base image is generated.</p>
+    </div>
+    <div class="neo-adetailer-panel__status" aria-live="polite">
+      <span class="neo-adetailer-chip" data-adetailer-status-chip>Route unchecked</span>
+      <span class="neo-adetailer-chip neo-adetailer-chip--muted" data-adetailer-enabled-chip>Disabled</span>
+    </div>
+  </header>
+
+  <div class="neo-adetailer-gate" data-adetailer-gate hidden>
+    <strong data-adetailer-gate-title>ADetailer unavailable for this route.</strong>
+    <p data-adetailer-gate-reason>No route has been resolved yet.</p>
+  </div>
+
+  <div class="neo-adetailer-toolbar">
+    <label class="neo-adetailer-toggle">
+      <input type="checkbox" data-adetailer-field="enabled" />
+      <span>Enable ADetailer</span>
+    </label>
+    <label class="neo-adetailer-select-label">
+      <span>Mode</span>
+      <select data-adetailer-display-mode>
+        <option value="compact">Compact</option>
+        <option value="guided" selected>Guided</option>
+        <option value="expert">Expert</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="neo-adetailer-grid" data-adetailer-controls>
+    <label class="neo-adetailer-field" data-display="compact guided expert">
+      <span>Detector model</span>
+      <input type="text" data-adetailer-field="detector_model" placeholder="face_yolov8m.pt" autocomplete="off" />
+      <small>Use a scanned Impact Pack detector model or a custom model name/path.</small>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Detector type</span>
+      <select data-adetailer-field="detector_type">
+        <option value="bbox">BBox detector</option>
+        <option value="segm">Segmentation detector</option>
+        <option value="onnx_bbox">ONNX bbox detector</option>
+        <option value="onnx_segm">ONNX segmentation detector</option>
+      </select>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Confidence</span>
+      <input type="number" data-adetailer-field="confidence" min="0" max="1" step="0.01" value="0.30" />
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Targets</span>
+      <input type="number" data-adetailer-field="top_k" min="1" max="50" step="1" value="1" />
+    </label>
+
+    <label class="neo-adetailer-field" data-display="compact guided expert">
+      <span>Repair strength</span>
+      <input type="number" data-adetailer-field="denoise" min="0" max="1" step="0.01" value="0.35" />
+      <small>Denoise for the local detailer pass.</small>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Steps</span>
+      <input type="number" data-adetailer-field="steps" min="1" max="150" step="1" value="20" />
+    </label>
+
+    <label class="neo-adetailer-field" data-display="expert">
+      <span>Detailer CFG</span>
+      <input type="number" data-adetailer-field="cfg" min="0" max="30" step="0.5" placeholder="auto / capped at 15" />
+      <small>V1 safety cap prevents high base CFG from leaking into repair passes.</small>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Mask grow</span>
+      <input type="number" data-adetailer-field="bbox_grow" min="-128" max="512" step="1" value="16" />
+    </label>
+
+    <label class="neo-adetailer-field" data-display="guided expert">
+      <span>Mask blur</span>
+      <input type="number" data-adetailer-field="mask_blur" min="0" max="128" step="1" value="4" />
+    </label>
+
+    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert">
+      <span>Repair prompt</span>
+      <textarea data-adetailer-field="positive_prompt" rows="3" placeholder="Optional local positive prompt. Use [SEP] to map prompt targets."></textarea>
+    </label>
+
+    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert">
+      <span>Negative repair prompt</span>
+      <textarea data-adetailer-field="negative_prompt" rows="3" placeholder="Optional local negative prompt. [SEP] is supported."></textarea>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="expert">
+      <span>SAM model</span>
+      <input type="text" data-adetailer-field="sam_model" placeholder="sam_vit_b_01ec64.pth" autocomplete="off" />
+    </label>
+
+    <label class="neo-adetailer-field" data-display="expert">
+      <span>Target order</span>
+      <select data-adetailer-field="target_order">
+        <option value="area_desc">Largest first</option>
+        <option value="area_asc">Smallest first</option>
+        <option value="left_to_right">Left to right</option>
+        <option value="right_to_left">Right to left</option>
+        <option value="top_to_bottom">Top to bottom</option>
+        <option value="bottom_to_top">Bottom to top</option>
+        <option value="confidence_desc">Highest confidence</option>
+      </select>
+    </label>
+
+    <label class="neo-adetailer-field" data-display="expert">
+      <span>Prompt target mode</span>
+      <select data-adetailer-field="target_split_mode">
+        <option value="sep_prompt_targets">Use [SEP] target mapping</option>
+        <option value="single_prompt">Single prompt for every target</option>
+        <option value="repeat_prompt">Repeat prompts across targets</option>
+      </select>
+    </label>
+
+    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
+      <span>Custom classes</span>
+      <textarea data-adetailer-field="custom_classes" rows="2" placeholder="face, hand, person"></textarea>
+    </label>
+
+    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
+      <span>Manual boxes</span>
+      <textarea data-adetailer-field="manual_boxes" rows="3" placeholder="x,y,w,h,label or JSON box list"></textarea>
+      <small>Text contract preserved from V1. Visual box drawer returns in a later UI parity phase.</small>
+    </label>
+  </div>
+
+  <details class="neo-adetailer-expert" data-display="expert">
+    <summary>Route / payload inspector</summary>
+    <dl>
+      <dt>Extension ID</dt><dd>image.adetailer</dd>
+      <dt>Mount</dt><dd>image.finish.adetailer</dd>
+      <dt>Workflow patch</dt><dd>Deferred until workflow patch phase</dd>
+      <dt>Current route</dt><dd data-adetailer-route-label>unresolved</dd>
+    </dl>
+  </details>
+</section>
+
+<!-- Phase G2 parity markers: shared_defaults smart_presets detailer_pass_cards manual_target_maker prompt_mapper adetailer_report -->

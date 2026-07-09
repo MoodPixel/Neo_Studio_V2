@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-07-09T17:12:25.330329+00:00",
+  "local_audit_summary": {
+    "excluded_path_count": 708,
+    "sensitive_runtime_path_count": 124,
+    "status": "runtime_artifacts_present"
+  },
+  "phase": "V25.1",
+  "policy": {
+    "neo_data_is_runtime_only": true,
+    "neo_data_may_exist_locally": true,
+    "raw_api_keys_must_stay_inside_gitignored_neo_data": true,
+    "release_exports_must_exclude_neo_data": true,
+    "runtime_bootstrap_recreates_missing_neo_data": true,
+    "shipped_defaults_must_live_outside_neo_data": true
+  },
+  "schema_id": "neo.release_hygiene.clean_release_manifest.v25_1",
+  "source_root": "/mnt/data/phase_i_work"
+}

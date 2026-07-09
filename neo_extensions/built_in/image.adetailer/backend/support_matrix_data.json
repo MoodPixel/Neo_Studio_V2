@@ -1,0 +1,4006 @@
+{
+  "schema_version": "adetailer-support-matrix-v4",
+  "phase": "L",
+  "skeleton_only": false,
+  "default_state": "unsupported",
+  "backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "hidream",
+    "wan_image",
+    "hunyuan_image"
+  ],
+  "loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "gguf",
+    "native"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_subtabs": {
+    "generations": {
+      "state": "planned_gated",
+      "reason_code": "finish_mount_only"
+    },
+    "assets": {
+      "state": "unsupported",
+      "reason_code": "not_generation_compiler"
+    },
+    "reference": {
+      "state": "planned_gated",
+      "reason_code": "reference_route_not_migrated"
+    },
+    "finish": {
+      "state": "available",
+      "reason_code": "finish_mount"
+    },
+    "results": {
+      "state": "unsupported",
+      "reason_code": "not_generation_compiler"
+    }
+  },
+  "rows": [
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "outpaint_not_validated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": []
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "outpaint_not_validated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": []
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "available",
+      "reason_code": "sdxl_checkpoint_impact_pack_route",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": []
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "outpaint_not_validated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": []
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sdxl",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "sd15_checkpoint_compatible_experimental",
+      "parameter_profile": "adetailer_checkpoint_finish",
+      "workflow_patch_profile": "face_detailer_or_segs_after_base_image",
+      "notes": [
+        "Marked experimental until SD1.5 image parity regressions are validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "outpaint_not_validated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": []
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "sd15",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "checkpoint_only_for_v1_parity",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V1 parity path depends on checkpoint-style image finishing graph roles."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    }
+  ],
+  "reasons": {
+    "sdxl_checkpoint_impact_pack_route": "V1 parity route: SDXL checkpoint generate/img2img/inpaint can be patched after the base image with Impact Pack detailer nodes.",
+    "sd15_checkpoint_compatible_experimental": "SD1.5 checkpoint appears compatible with the same Impact Pack path, but remains experimental until runtime visual parity is validated.",
+    "outpaint_not_validated": "Outpaint needs mode-specific canvas/mask safety validation before ADetailer can mutate the graph.",
+    "modern_or_gguf_route_unproven": "Flux/Qwen/Z-Image/HiDream and GGUF/native routes do not have a proven safe Impact Pack patch path and must not fallback to SDXL/checkpoint behavior.",
+    "checkpoint_only_for_v1_parity": "V1 parity is checkpoint-image-detailer based; diffusion_model/native/GGUF loader mutation is not proven for this feature.",
+    "provider_family_gated": "Provider/video-family routes are gated because they cannot safely use Comfy Impact Pack image detailer nodes.",
+    "finish_mount_only": "ADetailer is a built-in Image → Finish extension; non-Finish configuration surfaces do not mount the normal UI.",
+    "finish_mount": "ADetailer mounts in Image → Finish; route state still controls whether controls are active.",
+    "reference_route_not_migrated": "Reference workspace is not the V1 ADetailer finishing surface and stays diagnostic/planned until a reference-edit policy exists.",
+    "not_generation_compiler": "This workspace does not compile an image generation graph for ADetailer to patch.",
+    "unknown_route": "No explicit ADetailer support entry exists for this normalized route.",
+    "nodes_missing": "ComfyUI Impact Pack detailer nodes were not detected. Install/enable the required custom nodes before ADetailer can patch the graph.",
+    "nodes_unchecked": "Node availability was not provided, so ADetailer remains provider-gated for runtime mutation.",
+    "nodes_ready": "Required Impact Pack nodes were detected for the selected route."
+  }
+}
