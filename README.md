@@ -504,7 +504,7 @@ Release/source packages should not include `neo_data/`, cache folders, generated
 
 ### 🧩 Extensions Not Showing in a Workspace
 
-If an extension is installed but does not appear inside a workspace, first check whether it is enabled for that surface.
+If an extension is installed/built in but does not appear inside a workspace, first check whether it is enabled for that surface.
 
 Neo Studio extensions can be enabled or disabled per surface. For example, an Image extension may be installed but hidden if it is disabled under the Image surface settings.
 
