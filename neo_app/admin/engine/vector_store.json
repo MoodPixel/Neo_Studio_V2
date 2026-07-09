@@ -1,0 +1,15 @@
+{
+  "active_store": "chroma",
+  "collection_prefix": "neo",
+  "collections": [],
+  "persist_path": "neo_data\\vector_store",
+  "root": "neo_data\\vector_store",
+  "status": "foundation",
+  "supported_store_ids": [
+    "chroma",
+    "sqlite_fts",
+    "jsonl_debug"
+  ],
+  "updated_at": "2026-06-16T15:44:27.041499+00:00",
+  "write_enabled": false
+}

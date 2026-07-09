@@ -1,0 +1,9 @@
+{
+  "continuity_mode": "checkpoint_first_then_session_then_storyline",
+  "max_tokens": 480,
+  "memory_window": "runtime_anchored",
+  "status": "ready",
+  "temperature": 0.82,
+  "top_k": 60,
+  "top_p": 0.92
+}

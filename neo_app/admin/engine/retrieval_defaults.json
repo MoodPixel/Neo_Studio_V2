@@ -1,0 +1,16 @@
+{
+  "filters": {
+    "canon_priority": true,
+    "include_archived": false
+  },
+  "max_context_chars": 9000,
+  "namespaces": [
+    "roleplay",
+    "assistant",
+    "global"
+  ],
+  "query_top_k": 12,
+  "rerank_top_n": 6,
+  "scoring_policy": "embedding_then_optional_rerank",
+  "status": "ready"
+}

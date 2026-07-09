@@ -1,0 +1,21 @@
+{
+  "active_api_key_env": "",
+  "active_base_url": "",
+  "active_model_name": "bge-m3",
+  "active_model_path": "E:\\LLM Model\\bge-m3",
+  "active_profile_id": "bge-m3",
+  "active_provider_id": "sentence_transformers",
+  "default_dimension": 1024,
+  "notes": "Set a local model path or API-backed model name here. Roleplay reads this through the Memory Engine bridge.",
+  "profiles": [],
+  "request_timeout": 60,
+  "status": "ready",
+  "storage_policy": "admin_owned_surface_consumed",
+  "supported_provider_ids": [
+    "sentence_transformers",
+    "openai_compatible_embeddings",
+    "local_embedding_model",
+    "local_hash_embeddings"
+  ],
+  "updated_at": "2026-06-16T15:44:27.040487+00:00"
+}

@@ -1,0 +1,17 @@
+{
+  "fallback_order": [
+    "roleplay",
+    "text",
+    "prompt_captioning",
+    "assistant"
+  ],
+  "note": "Text profiles stay in the existing backend profile system; Memory Engine exposes bridge/readiness only.",
+  "profile_surfaces": [
+    "roleplay",
+    "text",
+    "prompt_captioning",
+    "assistant"
+  ],
+  "source": "backend_profiles",
+  "status": "ready"
+}

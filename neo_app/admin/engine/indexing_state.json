@@ -1,0 +1,19 @@
+{
+  "active_job_id": "",
+  "cancelled_job_count": 0,
+  "completed_job_count": 0,
+  "failed_job_count": 0,
+  "job_queue_enabled": true,
+  "last_indexed_at": null,
+  "last_job_at": null,
+  "pending_jobs": [],
+  "planned_jobs": [
+    "roleplay_forge_records",
+    "roleplay_memory_fragments",
+    "story_checkpoints",
+    "assistant_knowledge"
+  ],
+  "running_jobs": [],
+  "status": "ready",
+  "write_enabled": true
+}

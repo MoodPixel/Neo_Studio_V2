@@ -1,0 +1,62 @@
+{
+  "schema_version": "neo.admin.image.node_records.v1",
+  "records": [
+    {
+      "name": "ComfyUI-IC-Light-Native",
+      "folder_name": "ComfyUI-IC-Light-Native",
+      "source": "github",
+      "repo_url": "https://github.com/huchenlei/ComfyUI-IC-Light-Native.git",
+      "branch": "",
+      "installed_at": "2026-06-22T12:44:06.381972+00:00"
+    },
+    {
+      "name": "ComfyUI-facerestore_advanced",
+      "folder_name": "ComfyUI-facerestore_advanced",
+      "source": "github",
+      "repo_url": "https://github.com/flickleafy/ComfyUI-facerestore_advanced.git",
+      "branch": "",
+      "installed_at": "2026-06-30T18:51:04.600610+00:00"
+    },
+    {
+      "name": "facerestore_cf",
+      "folder_name": "facerestore_cf",
+      "source": "github",
+      "repo_url": "https://github.com/mav-rik/facerestore_cf.git",
+      "branch": "",
+      "installed_at": "2026-06-30T18:57:27.089893+00:00"
+    },
+    {
+      "name": "ComfyUI-TeaCache",
+      "folder_name": "ComfyUI-TeaCache",
+      "source": "github",
+      "repo_url": "https://github.com/welltop-cn/ComfyUI-TeaCache.git",
+      "branch": "",
+      "installed_at": "2026-07-01T15:18:18.054357+00:00"
+    },
+    {
+      "name": "ComfyUI-LTXVideo",
+      "folder_name": "ComfyUI-LTXVideo",
+      "source": "github",
+      "repo_url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
+      "branch": "",
+      "installed_at": "2026-07-01T15:21:07.530459+00:00"
+    },
+    {
+      "name": "ComfyUI-VFI",
+      "folder_name": "ComfyUI-VFI",
+      "source": "github",
+      "repo_url": "https://github.com/GACLove/ComfyUI-VFI.git",
+      "branch": "",
+      "installed_at": "2026-07-04T16:17:23.572512+00:00"
+    },
+    {
+      "name": "ComfyUI-Frame-Interpolation",
+      "folder_name": "ComfyUI-Frame-Interpolation",
+      "source": "github",
+      "repo_url": "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git",
+      "branch": "",
+      "installed_at": "2026-07-04T16:41:37.054194+00:00"
+    }
+  ],
+  "last_updated": "2026-07-04T16:41:37.054194+00:00"
+}

@@ -1,0 +1,15 @@
+{
+  "checked_at": "2026-07-09T17:44:52.878655+00:00",
+  "embeddings_ready": true,
+  "indexing_ready": true,
+  "notes": [
+    "Foundation files created",
+    "External semantic engine integration enabled with safe fallback",
+    "Chroma/vector collection export-import enabled",
+    "Background indexing job queue enabled"
+  ],
+  "reranker_ready": true,
+  "status": "ready",
+  "text_bridge_ready": true,
+  "vector_store_ready": true
+}

@@ -1,0 +1,23 @@
+{
+  "active_job_id": "",
+  "jobs": [],
+  "notes": [
+    "Admin owns background indexing jobs.",
+    "Roleplay requests indexing through Admin Engine and keeps direct synchronous indexing as fallback."
+  ],
+  "paths": {
+    "jobs_state": "neo_data\\admin\\engine\\index_jobs.json",
+    "logs_root": "neo_data\\admin\\engine\\index_job_logs"
+  },
+  "schema_id": "neo.admin.engine.index_jobs.v1",
+  "status": "ready",
+  "supported_job_types": [
+    "roleplay_memory_vectors"
+  ],
+  "supported_modes": [
+    "changed_only",
+    "force_reindex"
+  ],
+  "updated_at": "2026-06-16T15:42:50.694742+00:00",
+  "version": "0.1.0-background-indexing"
+}
