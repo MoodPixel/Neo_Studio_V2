@@ -1,0 +1,61 @@
+{
+  "id": "video.output_recorder",
+  "name": "Video \u00b7 Output Recorder",
+  "version": "0.1.0-video-ui-cleanup",
+  "description": "Video built-in output ledger, replay metadata, memory export, and Project handoff recorder.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "results",
+    "generation"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "results",
+    "generation"
+  ],
+  "mount_slots": [
+    "video.results.output_recorder"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "results",
+      "workflow_mode": null,
+      "slot": "video.results.output_recorder",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "video",
+      "workspace_app": "generation",
+      "workflow_mode": null,
+      "slot": "video.generation.output_recorder",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "wan22",
+    "ltx23"
+  ],
+  "supported_loaders": [
+    "unet",
+    "gguf",
+    "native_workflow"
+  ],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "id": "video.vram_profile_advisor",
+  "name": "Video \u00b7 VRAM Profile Advisor",
+  "version": "0.1.0-video-ui-cleanup",
+  "description": "Video built-in guard that keeps size, timing, steps, and decode settings aligned with the selected VRAM profile.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "generation",
+    "workspace"
+  ],
+  "workflow_modes": [
+    "txt2vid",
+    "img2vid",
+    "first_last_frame",
+    "multiscene",
+    "extend",
+    "vid2vid",
+    "depth_motion",
+    "prompt_schedule",
+    "audio_video"
+  ],
+  "workspace_apps": [
+    "generation",
+    "workspace"
+  ],
+  "mount_slots": [
+    "video.generation.vram_profile_advisor"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "generation",
+      "workflow_mode": null,
+      "slot": "video.generation.vram_profile_advisor",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "video",
+      "workspace_app": "workspace",
+      "workflow_mode": null,
+      "slot": "video.workspace.vram_profile_advisor",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "wan22",
+    "ltx23"
+  ],
+  "supported_loaders": [
+    "unet",
+    "gguf",
+    "native_workflow"
+  ],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true
+  }
+}

@@ -1,0 +1,1380 @@
+{
+  "id": "video.finish_interpolation",
+  "name": "Frame Interpolation",
+  "version": "0.1.0",
+  "description": "Built-in Video Finish tool for post-generation or uploaded-source frame interpolation. Accepts Neo-owned generated results or browser-uploaded source videos and writes non-destructive child outputs.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "finish"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "finish"
+  ],
+  "mount_slots": [
+    "video.finish.finish_interpolation"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "video.finish.finish_interpolation",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [],
+  "supported_loaders": [],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true,
+    "panel_type": "finishing_tool",
+    "post_generation_only": true,
+    "requires_selected_result": true,
+    "creates_child_output": true,
+    "stable_default": {
+      "vram_profile": "medium",
+      "method": "rife",
+      "fps_multiplier": 2,
+      "output_fps_policy": "derive_from_source_fps_times_multiplier",
+      "output_format": "webm",
+      "clear_cache_after_n_frames": 8,
+      "creates_child_output": true,
+      "readiness_schema": "neo.video.finish.frame_interpolation.readiness.v1",
+      "clean_ui_schema": "neo.video.finish.frame_interpolation.ui.v25_9_19"
+    },
+    "labels": {
+      "empty_state": "Select a generated video result before running Frame Interpolation.",
+      "missing_dependencies": "Frame Interpolation needs VideoHelperSuite and ComfyUI-Frame-Interpolation nodes. Base video generation is unaffected.",
+      "readiness_unchecked": "Readiness not checked. Check Admin > Extensions."
+    },
+    "fields": [
+      {
+        "id": "vram_profile",
+        "label": "VRAM Profile",
+        "type": "select",
+        "help_text": "Medium is the stable default for 12GB-16GB GPUs. Profiles tune interpolation safety; they do not affect base video generation.",
+        "payload_path": "params.vram_profile"
+      },
+      {
+        "id": "method",
+        "label": "Method",
+        "type": "select",
+        "help_text": "Auto uses the safest detected stable method. RIFE is the recommended default for low/medium VRAM.",
+        "payload_path": "params.method"
+      },
+      {
+        "id": "fps_multiplier",
+        "label": "Multiplier",
+        "type": "select",
+        "help_text": "2x is the stable default. Higher multipliers are heavier and should be validated locally.",
+        "payload_path": "params.fps_multiplier"
+      },
+      {
+        "id": "output_fps",
+        "label": "Output FPS",
+        "type": "number",
+        "help_text": "Leave empty for backend/default behavior. Later phases may derive this from source FPS and multiplier.",
+        "payload_path": "params.output_fps"
+      },
+      {
+        "id": "output_format",
+        "label": "Output Format",
+        "type": "select",
+        "help_text": "WebM remains the safest current default until MP4 handling is validated per backend.",
+        "payload_path": "params.output_format"
+      },
+      {
+        "id": "clear_cache_after_n_frames",
+        "label": "Clear Cache Every N Frames",
+        "type": "number",
+        "help_text": "Advanced memory safety control. Lower values reduce OOM risk but can slow interpolation.",
+        "payload_path": "params.clear_cache_after_n_frames"
+      },
+      {
+        "id": "frame_load_cap",
+        "label": "Frame Load Cap",
+        "type": "number",
+        "help_text": "Advanced cap for cautious/low-VRAM testing. Leave empty for the selected profile default.",
+        "payload_path": "params.frame_load_cap"
+      }
+    ],
+    "actions": [
+      {
+        "id": "compile_interpolation",
+        "label": "Compile Interpolation",
+        "endpoint": "/api/video/compile/interpolate"
+      },
+      {
+        "id": "run_interpolation",
+        "label": "Run Interpolation",
+        "endpoint": "/api/video/finish/interpolate"
+      }
+    ],
+    "slot_contract": {
+      "schema_version": "neo.extension.slot_contract.v1",
+      "workspace_app": "finish",
+      "surface_lane_slot": "video.finish.interpolate",
+      "direct_card_slot": "video.finish.finish_interpolation",
+      "relationship": "direct_card_inside_broad_finish_lane",
+      "rendering_rule": "Render Frame Interpolation as the built-in direct card mounted inside the broader Video > Finish interpolation lane.",
+      "compatibility_rule": "Keep video.finish.interpolate as the broad surface lane; keep video.finish.finish_interpolation as the extension-owned direct card slot.",
+      "generation_mount_allowed": false
+    },
+    "vram_profile_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.vram_profiles.v1",
+      "default_profile": "medium",
+      "profile_order": [
+        "low",
+        "medium",
+        "high",
+        "custom"
+      ],
+      "profile_selection_payload_path": "params.vram_profile",
+      "profile_application_stage": "finish_compile_payload_normalization",
+      "inheritance_rule": "Custom starts from Medium defaults and only overrides explicitly changed advanced fields.",
+      "dependency_rule": "VRAM profiles tune interpolation params only; they must not add dependencies or block base Video Generation.",
+      "fps_rule": "When output_fps is empty or auto, backend should derive target FPS from source_fps * fps_multiplier to preserve clip duration.",
+      "profiles": {
+        "low": {
+          "profile_id": "low",
+          "label": "Low VRAM",
+          "target": "8GB class GPUs, cautious systems, or unknown memory headroom",
+          "default_method": "rife",
+          "allowed_methods": [
+            "auto",
+            "rife"
+          ],
+          "default_multiplier": 2,
+          "allowed_multipliers": [
+            2
+          ],
+          "max_multiplier_without_override": 2,
+          "output_fps_policy": "derive_from_source_fps_times_multiplier",
+          "output_format_default": "webm",
+          "cache_policy": "aggressive",
+          "clear_cache_after_n_frames": 4,
+          "frame_load_cap_default": 72,
+          "skip_first_frames_default": 0,
+          "select_every_nth_default": 1,
+          "advanced_controls": [
+            "frame_load_cap",
+            "skip_first_frames",
+            "select_every_nth",
+            "clear_cache_after_n_frames"
+          ],
+          "ui_warnings": [
+            "Avoid 4x on Low VRAM.",
+            "Use short clips and lower resolutions first.",
+            "FILM/AMT stay hidden unless a later readiness phase explicitly promotes them."
+          ],
+          "recommended_for_user_12gb": false
+        },
+        "medium": {
+          "profile_id": "medium",
+          "label": "Medium VRAM",
+          "target": "12GB-16GB GPUs; default local Neo workflow profile",
+          "default_method": "rife",
+          "allowed_methods": [
+            "auto",
+            "rife",
+            "film",
+            "amt"
+          ],
+          "method_availability_rule": "FILM and AMT may appear only after VFI readiness detection confirms their nodes.",
+          "default_multiplier": 2,
+          "allowed_multipliers": [
+            2,
+            4
+          ],
+          "max_multiplier_without_override": 2,
+          "heavy_multiplier_requires_warning": 4,
+          "output_fps_policy": "derive_from_source_fps_times_multiplier",
+          "output_format_default": "webm",
+          "cache_policy": "balanced",
+          "clear_cache_after_n_frames": 8,
+          "frame_load_cap_default": null,
+          "skip_first_frames_default": 0,
+          "select_every_nth_default": 1,
+          "advanced_controls": [
+            "frame_load_cap",
+            "skip_first_frames",
+            "select_every_nth",
+            "clear_cache_after_n_frames"
+          ],
+          "ui_warnings": [
+            "4x is allowed only for short clips and should show a heavy-workload warning.",
+            "FILM/AMT are test methods, not defaults."
+          ],
+          "recommended_for_user_12gb": true
+        },
+        "high": {
+          "profile_id": "high",
+          "label": "High VRAM",
+          "target": "24GB+ GPUs or remote GPU instances",
+          "default_method": "rife",
+          "allowed_methods": [
+            "auto",
+            "rife",
+            "film",
+            "amt"
+          ],
+          "experimental_methods_visible_as_diagnostics": [
+            "rife_tensorrt",
+            "gimm_vfi",
+            "vsrfi_stream"
+          ],
+          "default_multiplier": 2,
+          "allowed_multipliers": [
+            2,
+            4
+          ],
+          "max_multiplier_without_override": 4,
+          "output_fps_policy": "derive_from_source_fps_times_multiplier",
+          "output_format_default": "webm",
+          "cache_policy": "relaxed_but_enabled_for_long_clips",
+          "clear_cache_after_n_frames": 16,
+          "frame_load_cap_default": null,
+          "skip_first_frames_default": 0,
+          "select_every_nth_default": 1,
+          "advanced_controls": [
+            "frame_load_cap",
+            "skip_first_frames",
+            "select_every_nth",
+            "clear_cache_after_n_frames"
+          ],
+          "ui_warnings": [
+            "Experimental TensorRT/GIMM/VSRFI methods remain diagnostics only until separate implementation phases."
+          ],
+          "recommended_for_user_12gb": false
+        },
+        "custom": {
+          "profile_id": "custom",
+          "label": "Custom",
+          "target": "Expert override profile for local validation and troubleshooting",
+          "inherits_from": "medium",
+          "default_method": "rife",
+          "allowed_methods": [
+            "auto",
+            "rife",
+            "film",
+            "amt"
+          ],
+          "default_multiplier": 2,
+          "allowed_multipliers": [
+            2,
+            4
+          ],
+          "output_fps_policy": "derive_from_source_fps_times_multiplier_unless_overridden",
+          "output_format_default": "webm",
+          "cache_policy": "user_controlled",
+          "clear_cache_after_n_frames": 8,
+          "requires_expert_mode": true,
+          "must_preserve_dependency_gates": true,
+          "must_preserve_child_output_policy": true,
+          "ui_warnings": [
+            "Custom does not bypass dependency readiness.",
+            "Custom must still create a child output and must never overwrite the source video."
+          ],
+          "recommended_for_user_12gb": false
+        }
+      },
+      "blocked_by_contract": [
+        "profile-driven generation mounts",
+        "profile-driven auto-installers",
+        "profile-driven base WAN/LTX generation blocking",
+        "source video overwrite",
+        "default 4x interpolation on low/medium VRAM"
+      ]
+    },
+    "admin_readiness_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.readiness.v1",
+      "phase": "V24.5",
+      "panel_test_id": "video-frame-interpolation-admin-readiness",
+      "admin_location": "Admin > Extensions > Video > External Node Packs",
+      "surface_location": "Video > Finish > Frame Interpolation",
+      "readiness_payload_paths": [
+        "frame_interpolation_readiness",
+        "finish_readiness.frame_interpolation"
+      ],
+      "status_values": [
+        "ready",
+        "partial",
+        "missing"
+      ],
+      "ready_requires": [
+        "video_helper_suite",
+        "frame_interpolation",
+        "rife_vfi_default"
+      ],
+      "method_groups": {
+        "stable": [
+          "rife",
+          "film",
+          "amt"
+        ],
+        "default": "rife",
+        "optional_when_detected": [
+          "film",
+          "amt"
+        ],
+        "experimental_diagnostic_only": [
+          "rife_tensorrt",
+          "gimm_vfi",
+          "vsrfi_stream"
+        ]
+      },
+      "profile_readiness_keys": [
+        "low",
+        "medium",
+        "high",
+        "custom"
+      ],
+      "gating_policy": {
+        "disable_finish_interpolation_when_missing": true,
+        "disable_base_generation_when_missing": false,
+        "auto_install_nodes": false,
+        "promote_experimental_methods": false
+      }
+    },
+    "ui_panel_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.ui.v25_9_19",
+      "phase": "V25.9.19",
+      "surface_location": "Video > Finish > Frame Interpolation",
+      "panel_test_id": "video-finish-interpolation-panel",
+      "runtime_schema_preserved": "neo.video.finish.interpolation.v12",
+      "source_section": {
+        "test_id": "video-finish-interpolation-source-card",
+        "default_visibility": "hidden_in_video_finish_ui",
+        "owner": "backend_payload_and_admin_debug",
+        "requires_selected_result": true,
+        "requires_neo_owned_video_file": true
+      },
+      "readiness_section": {
+        "test_id": "video-finish-interpolation-readiness-card",
+        "default_visibility": "hidden_in_video_finish_ui",
+        "owner": "Admin > Extensions",
+        "readiness_schema": "neo.video.finish.frame_interpolation.readiness.v1",
+        "finish_action_gated_when_not_ready": true,
+        "base_generation_unaffected_message_required": false
+      },
+      "controls_section": {
+        "test_id": "video-finish-interpolation-controls",
+        "fields": [
+          "source_video",
+          "method",
+          "fps_multiplier",
+          "output_format",
+          "advanced_visibility"
+        ],
+        "default_vram_profile": "medium",
+        "default_method": "rife",
+        "default_multiplier": 2,
+        "output_fps_policy": "derive_from_source_fps_times_multiplier_when_empty",
+        "method_visibility": "Show Auto/RIFE by default; show FILM/AMT only as stable optional methods after readiness detection.",
+        "multiplier_policy": "2x stable default; 4x visible as warned/heavier where profile permits."
+      },
+      "advanced_section": {
+        "test_id": "video-finish-interpolation-advanced-controls",
+        "fields": [
+          "vram_profile",
+          "output_fps_override",
+          "clear_cache_after_n_frames",
+          "frame_load_cap"
+        ],
+        "default_visibility": "hidden_except_custom",
+        "custom_profile_opens_by_default": true,
+        "safety_rule": "Advanced controls never bypass readiness gates or child-output-only policy."
+      },
+      "profile_summary_section": {
+        "test_id": "video-finish-interpolation-profile-summary",
+        "default_visibility": "removed_from_default_ui",
+        "owner": "Admin/debug metadata only"
+      },
+      "button_policy": {
+        "compile_button_id": "videoCompileInterpolationBtn",
+        "run_button_id": "videoGenerateInterpolationBtn",
+        "enabled_when": [
+          "selected_neo_owned_video_result",
+          "stable_frame_interpolation_readiness"
+        ],
+        "disabled_scope": "video.finish.finish_interpolation_only",
+        "must_not_block_generation": true
+      },
+      "blocked_by_contract": [
+        "generation_mount",
+        "source_overwrite",
+        "auto_install_external_nodes",
+        "experimental_method_promotion",
+        "4x_as_low_or_medium_default"
+      ],
+      "default_surface_policy": {
+        "mode": "clean_creative_controls",
+        "visible_fields": [
+          "source_video",
+          "method",
+          "fps_multiplier",
+          "output_format",
+          "advanced_visibility"
+        ],
+        "visible_status": [],
+        "default_hidden_sections": [
+          "selected_source_card",
+          "readiness_card",
+          "profile_summary_card",
+          "last_interpolation_none_row",
+          "source_fps_details",
+          "output_behavior_explanation"
+        ],
+        "inline_status_only_when_needed": [
+          "No source selected.",
+          "Readiness not checked. Check Admin > Extensions.",
+          "Needs Frame Interpolation nodes. Check Admin > Extensions.",
+          "Queued.",
+          "Completed.",
+          "Failed."
+        ],
+        "status_behavior": {
+          "schema_version": "neo.video.finish.frame_interpolation.status_behavior.v25_9_19_phase_2",
+          "phase": "V25.9.19 Phase 2",
+          "inline_status_test_id": "video-finish-interpolation-inline-status",
+          "rendering_rule": "Render status only when source/readiness/action state needs user attention; do not render permanent source-ready/readiness/child-output badges.",
+          "show_only_when": [
+            "missing_source",
+            "readiness_unchecked",
+            "stable_interpolation_nodes_missing",
+            "matching_active_source_action_queued",
+            "matching_active_source_action_completed",
+            "matching_active_source_action_failed"
+          ],
+          "hidden_when_ready_and_idle": true,
+          "stale_result_rule": "Ignore last interpolation status unless source_result_id and source_file_id match the active selected result/file.",
+          "allowed_copy": [
+            "No source selected.",
+            "Readiness not checked. Check Admin > Extensions.",
+            "Needs Frame Interpolation nodes. Check Admin > Extensions.",
+            "Queued.",
+            "Completed.",
+            "Failed."
+          ],
+          "blocked_default_badges": [
+            "Source ready",
+            "Select video result",
+            "Ready",
+            "Check Admin",
+            "Child output only"
+          ]
+        }
+      },
+      "finish_layout_policy": {
+        "schema_version": "neo.video.finish.layout_source_picker.v25_9_19_phase_10b",
+        "render_under_single_finish_stack": false,
+        "render_as_individual_collapsible_section": true,
+        "collapsible_title": "Frame Interpolation"
+      },
+      "source_picker_section": {
+        "test_id": "video-finish-interpolation-source-video-picker",
+        "default_visibility": "visible_compact_picker",
+        "owner": "Video Finish UI selection + backend payload",
+        "requires_selected_result": true,
+        "requires_neo_owned_video_file": true,
+        "selection_control_id": "videoInterpolationSourceVideo",
+        "source_mode": "drag_drop_or_browse_lane_scoped_upload",
+        "upload_mutates_main_preview": false,
+        "upload_mutates_active_result": false,
+        "shared_between_finish_lanes": false,
+        "visible_default_status_rows": false,
+        "source_record_visibility": "hidden_from_main_results_until_finish_task_runs"
+      },
+      "source_upload_policy": {
+        "schema_version": "neo.video.finish.source_video_upload.v25_9_19_phase_10c",
+        "visible_control": "drag_drop_or_browse_video",
+        "upload_endpoint": "/api/video/source-video/upload",
+        "stored_category": "source",
+        "result_contract": "uploaded video is registered as a Neo-owned Video ledger result before finish execution",
+        "allowed_extensions": [
+          "mp4",
+          "webm",
+          "mov",
+          "mkv",
+          "gif"
+        ]
+      },
+      "preview_action_policy": {
+        "interpolate_icon": "🎞️",
+        "upscale_icon": "⬆️",
+        "overlay_wrapper": "neo-preview-action-wrap neo-video-preview-action-wrap",
+        "runs_main_video_progress_pipeline": true
+      }
+    },
+    "backend_normalization_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.backend_normalization.v24_7",
+      "runtime_schema_preserved": "neo.video.finish.interpolation.v12",
+      "normalization_stage": "backend_compile_before_workflow_build",
+      "server_is_source_of_truth": true,
+      "normalized_fields": [
+        "vram_profile",
+        "method",
+        "fps_multiplier",
+        "output_fps",
+        "output_fps_policy",
+        "output_format",
+        "clear_cache_after_n_frames",
+        "frame_load_cap",
+        "skip_first_frames",
+        "select_every_nth"
+      ],
+      "profile_enforcement": {
+        "default_profile": "medium",
+        "low_allowed_multipliers": [
+          2
+        ],
+        "medium_allowed_multipliers": [
+          2,
+          4
+        ],
+        "high_allowed_multipliers": [
+          2,
+          4
+        ],
+        "custom_inherits_from": "medium",
+        "unsupported_profile_fallback": "medium"
+      },
+      "method_enforcement": {
+        "stable_default": "rife",
+        "auto_resolves_to": "rife_when_available",
+        "optional_methods": [
+          "film",
+          "amt"
+        ],
+        "optional_methods_require_detection": true,
+        "experimental_methods_promoted": false,
+        "unsupported_or_missing_method_fallback": "rife"
+      },
+      "fps_policy": {
+        "auto_policy": "derive_from_source_fps_times_multiplier",
+        "manual_override_allowed": true,
+        "source_fps_resolution_order": [
+          "payload.source_fps",
+          "selected_result.parameters.fps",
+          "selected_result.replay_payload.fps"
+        ],
+        "fallback_when_source_fps_unknown": 24,
+        "fallback_warning_required": true
+      },
+      "compiler_param_wiring": {
+        "load_video": [
+          "force_rate_when_source_fps_known",
+          "frame_load_cap",
+          "skip_first_frames",
+          "select_every_nth"
+        ],
+        "interpolator": [
+          "multiplier",
+          "clear_cache_after_n_frames_when_supported"
+        ],
+        "saver": [
+          "fps",
+          "format_when_supported"
+        ]
+      },
+      "guardrails": {
+        "finish_run_requires_readiness": true,
+        "compile_may_return_diagnostic_payload": true,
+        "base_generation_blocked": false,
+        "creates_child_output_only": true,
+        "parent_result_unchanged": true
+      }
+    },
+    "output_metadata_schema": "neo.video.finish.frame_interpolation.output_metadata.v24_8",
+    "metadata_lineage_phase": "V24.8",
+    "experimental_method_research_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+      "phase": "V24.9",
+      "stable_runtime_methods": [
+        "rife",
+        "film",
+        "amt"
+      ],
+      "stable_default_method": "rife",
+      "optional_stable_methods": [
+        "film",
+        "amt"
+      ],
+      "experimental_diagnostic_methods": [
+        "rife_tensorrt",
+        "gimm_vfi"
+      ],
+      "future_research_methods": [
+        "vsrfi_stream"
+      ],
+      "promote_experimental_methods": false,
+      "runtime_route_changes": false,
+      "generation_mount_allowed": false,
+      "auto_install_allowed": false,
+      "base_generation_blocked_by_experimental_missing": false,
+      "promotion_requires": [
+        "local CUDA/TensorRT/CuPy compatibility validation",
+        "license review",
+        "low/medium/high VRAM smoke matrix",
+        "Comfy object_info class-name validation",
+        "explicit user-facing Experimental badge",
+        "separate runtime implementation phase"
+      ],
+      "method_policies": {
+        "rife_tensorrt": {
+          "status": "experimental_diagnostics_only",
+          "neo_policy": "Detect in Admin only; never expose as stable Finish runtime method in V24.9.",
+          "risks": [
+            "CUDA/TensorRT environment fragility",
+            "engine build/profile requirements",
+            "GPU/driver/Torch version mismatch risk",
+            "license review required before packaged recommendation",
+            "not suitable as default local 12GB workflow lane without validation"
+          ],
+          "diagnostic_aliases": [
+            "RIFE_Tensorrt",
+            "RIFE TensorRT",
+            "RIFETensorrt",
+            "RIFE_TRT",
+            "TensorRT_RIFE",
+            "TRT_RIFE"
+          ]
+        },
+        "gimm_vfi": {
+          "status": "experimental_diagnostics_only",
+          "neo_policy": "Detect in Admin only; never promote through VRAM profile selection in V24.9.",
+          "risks": [
+            "CuPy/CUDA package matching is required",
+            "separate model/dependency lane from stable ComfyUI-Frame-Interpolation",
+            "needs local 12GB validation before any runtime promotion"
+          ],
+          "diagnostic_aliases": [
+            "GIMM_VFI",
+            "GIMM VFI",
+            "GIMM-VFI",
+            "GIMMModelLoader",
+            "GIMMInterpolation"
+          ]
+        },
+        "vsrfi_stream": {
+          "status": "future_research_only",
+          "neo_policy": "Record as future research; keep out of stable Finish runtime and default UI choices.",
+          "risks": [
+            "combined super-resolution and interpolation workflow is not the clean first interpolation lane",
+            "extra license/dependency/model-download policy needed",
+            "separate long-video routing phase required before runtime exposure"
+          ],
+          "diagnostic_aliases": [
+            "VSRFI",
+            "VSRFI_VFI",
+            "VSRFI Stream",
+            "VSRFIStreaming",
+            "VSRFIUpscale",
+            "VSRFIInterpolate"
+          ]
+        }
+      }
+    },
+    "clean_ui_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.clean_ui.v25_9_19",
+      "phase": "V25.9.19",
+      "reason": "Remove diagnostic/source/profile noise from the creative Finish panel while preserving backend safety and Admin readiness ownership.",
+      "removed_from_default_ui": [
+        "Selected Source card",
+        "Readiness card",
+        "Source FPS details",
+        "Output behavior explanation",
+        "Profile Summary card",
+        "Auto FPS policy explanation",
+        "4x warning paragraph unless 4x is selected",
+        "Last interpolation: none row"
+      ],
+      "kept_visible_by_default": [
+        "Method",
+        "Multiplier",
+        "Format",
+        "Advanced toggle",
+        "Compile button",
+        "Run button",
+        "short source/readiness badges"
+      ],
+      "moved_to_advanced": [
+        "VRAM Profile",
+        "Output FPS Override",
+        "Clear Cache Every N Frames",
+        "Frame Load Cap"
+      ],
+      "moved_to_admin": [
+        "full dependency readiness",
+        "missing node detail",
+        "method diagnostics"
+      ],
+      "backend_policy_unchanged": [
+        "selected Neo-owned video required",
+        "stable readiness gate required",
+        "child output only",
+        "source FPS preserved through backend normalization",
+        "base generation unaffected"
+      ]
+    },
+    "runtime_prompt_validation_fix_schema": "neo.video.finish.frame_interpolation.runtime_prompt_validation_fix.v25_9_19_phase_10f"
+  },
+  "route_states": {
+    "comfyui:*:*:*:finish": "available",
+    "comfyui_portable:*:*:*:finish": "available",
+    "forge:*:*:*:finish": "provider_gated",
+    "a1111:*:*:*:finish": "provider_gated",
+    "cloud_api:*:*:*:finish": "provider_gated",
+    "mock:*:*:*:finish": "provider_gated",
+    "*:*:*:*:generation": "unsupported",
+    "*:*:*:*:generate": "unsupported",
+    "*:*:*:*:workspace": "unsupported",
+    "*:*:*:*:assets": "unsupported",
+    "*:*:*:*:reference": "unsupported",
+    "*:*:*:*:results": "unsupported",
+    "*": "provider_gated"
+  },
+  "depends_on": [],
+  "extends": [],
+  "node_requirements": {
+    "decision": "finish_only_post_generation_utility",
+    "support_basis": "selected_neo_owned_video_plus_detected_video_io_and_vfi_packs",
+    "stable_required_packs": [
+      "video_helper_suite",
+      "frame_interpolation"
+    ],
+    "stable_default_method": "rife",
+    "stable_default_multiplier": 2,
+    "class_aliases": {
+      "video_loader": [
+        "VHS_LoadVideo",
+        "LoadVideo",
+        "LoadVideoUpload",
+        "VHS_LoadVideoPath",
+        "LoadVideoPath"
+      ],
+      "video_saver": [
+        "VHS_VideoCombine",
+        "VideoCombine",
+        "SaveWEBM",
+        "SaveAnimatedWEBP"
+      ],
+      "rife": [
+        "RIFE_VFI",
+        "RIFE VFI"
+      ],
+      "film": [
+        "FILM_VFI",
+        "FILM VFI"
+      ],
+      "amt": [
+        "AMT_VFI",
+        "AMT VFI"
+      ],
+      "generic_vfi": [
+        "FrameInterpolation",
+        "VFI"
+      ]
+    },
+    "missing_required_policy": "Gate only Video > Finish > Frame Interpolation; never gate Video > Generation or WAN/LTX compile readiness.",
+    "missing_optional_policy": "Hide or mark method-specific options as unavailable without disabling the stable RIFE lane when the stable lane is ready.",
+    "experimental_packs": [
+      "rife_tensorrt",
+      "gimm_vfi",
+      "vsrfi_stream"
+    ],
+    "experimental_policy": "Detected experimental packs may be reported in Admin diagnostics, but must not become defaults or auto-install targets in V24.2.",
+    "vram_profile_dependency_policy": "VRAM profiles modify method/multiplier/cache/frame-window params only; they do not add installer behavior and must not gate base Video Generation.",
+    "vram_profiles": {
+      "default_profile": "medium",
+      "profile_keys": [
+        "low",
+        "medium",
+        "high",
+        "custom"
+      ],
+      "stable_profile_requires": [
+        "video_helper_suite",
+        "frame_interpolation",
+        "rife_vfi"
+      ],
+      "optional_method_profiles": [
+        "medium",
+        "high",
+        "custom"
+      ],
+      "experimental_profiles_diagnostics_only": [
+        "high"
+      ]
+    },
+    "admin_readiness_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.readiness.v1",
+      "phase": "V24.5",
+      "source_endpoint": "/api/video/external-node-manager",
+      "payload_key": "frame_interpolation_readiness",
+      "required_packs": [
+        "video_helper_suite",
+        "frame_interpolation"
+      ],
+      "required_stable_method": "rife",
+      "stable_method_aliases": {
+        "rife": [
+          "RIFE_VFI",
+          "RIFE VFI",
+          "RIFE",
+          "RifeVFI"
+        ],
+        "film": [
+          "FILM_VFI",
+          "FILM VFI",
+          "FILM",
+          "FilmVFI"
+        ],
+        "amt": [
+          "AMT_VFI",
+          "AMT VFI",
+          "AMT",
+          "AMTVFI"
+        ]
+      },
+      "experimental_method_aliases": {
+        "rife_tensorrt": [
+          "RIFE_Tensorrt",
+          "RIFE TensorRT",
+          "RIFETensorrt",
+          "RIFE_TRT",
+          "TensorRT_RIFE",
+          "TRT_RIFE"
+        ],
+        "gimm_vfi": [
+          "GIMM_VFI",
+          "GIMM VFI",
+          "GIMM-VFI",
+          "GIMMModelLoader",
+          "GIMMInterpolation"
+        ],
+        "vsrfi_stream": [
+          "VSRFI",
+          "VSRFI_VFI",
+          "VSRFI Stream",
+          "VSRFIStreaming",
+          "VSRFIUpscale",
+          "VSRFIInterpolate"
+        ]
+      },
+      "blocking_scope": "video.finish.finish_interpolation_only",
+      "base_generation_blocked": false,
+      "generation_mount_allowed": false
+    },
+    "experimental_method_research_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+      "phase": "V24.9",
+      "diagnostic_only_packs": [
+        "rife_tensorrt",
+        "gimm_vfi",
+        "vsrfi_stream"
+      ],
+      "required_for_stable_lane": [],
+      "stable_required_packs_unchanged": [
+        "video_helper_suite",
+        "frame_interpolation"
+      ],
+      "stable_default_node_role_unchanged": "rife_vfi_default",
+      "blocking_scope": "none_for_experimental_missing",
+      "finish_stable_blocking_scope": "video.finish.finish_interpolation_only",
+      "base_generation_blocked": false
+    }
+  },
+  "capability_profiles": {
+    "finish_frame_interpolation_stable": {
+      "profile_id": "finish_frame_interpolation_stable",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "available"
+      },
+      "required_roles": [
+        "selected_video_result",
+        "neo_owned_video_path",
+        "video_helper_suite",
+        "frame_interpolation",
+        "rife_vfi"
+      ],
+      "optional_roles": [
+        "film_vfi",
+        "amt_vfi",
+        "output_fps_override"
+      ],
+      "readiness_gates": {
+        "comfyui": [
+          "video_helper_suite",
+          "frame_interpolation"
+        ],
+        "comfyui_portable": [
+          "video_helper_suite",
+          "frame_interpolation"
+        ]
+      },
+      "params": [
+        "method",
+        "fps_multiplier",
+        "output_fps",
+        "output_format",
+        "profile_id",
+        "vram_profile",
+        "clear_cache_after_n_frames",
+        "frame_load_cap",
+        "skip_first_frames",
+        "select_every_nth",
+        "output_fps_policy"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "video_helper_suite",
+            "frame_interpolation"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "video_helper_suite",
+            "frame_interpolation"
+          ]
+        }
+      },
+      "notes": [
+        "Stable first lane is RIFE VFI at 2x multiplier for low/medium VRAM.",
+        "The extension requires an existing Neo-owned source video and creates a child output.",
+        "Exact class-name detection remains owned by Video external node readiness, not raw manifest required_nodes.",
+        "V24.4 locks Medium VRAM as the stable default profile: RIFE, 2x, balanced cache, child output only.",
+        "V24.9 keeps RIFE TensorRT, GIMM-VFI, and VSRFI out of stable runtime despite Admin diagnostics.",
+        "Experimental method research does not change the V24.7 backend normalization or V24.8 output metadata schema."
+      ]
+    },
+    "finish_frame_interpolation_experimental": {
+      "profile_id": "finish_frame_interpolation_experimental",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "diagnostic_only"
+      },
+      "required_roles": [
+        "selected_video_result",
+        "neo_owned_video_path"
+      ],
+      "optional_roles": [
+        "rife_tensorrt",
+        "gimm_vfi",
+        "vsrfi_stream",
+        "film_vfi",
+        "amt_vfi"
+      ],
+      "readiness_gates": {
+        "comfyui": [
+          "video_helper_suite"
+        ],
+        "comfyui_portable": [
+          "video_helper_suite"
+        ]
+      },
+      "params": [
+        "method",
+        "fps_multiplier",
+        "output_fps",
+        "output_format",
+        "profile_id",
+        "vram_profile",
+        "clear_cache_after_n_frames",
+        "frame_load_cap",
+        "skip_first_frames",
+        "select_every_nth",
+        "output_fps_policy"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "video_helper_suite"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "video_helper_suite"
+          ]
+        }
+      },
+      "notes": [
+        "Experimental methods must stay behind readiness diagnostics and should not be defaults.",
+        "TensorRT/GIMM/VSRFI need separate implementation phases before stable exposure.",
+        "V24.4 keeps experimental methods diagnostics-only; VRAM profile selection must not promote TensorRT/GIMM/VSRFI to default.",
+        "V24.9 documents experimental methods but does not promote them to runtime choices.",
+        "RIFE TensorRT requires separate CUDA/TensorRT validation and license review before any future runtime phase.",
+        "GIMM-VFI requires CuPy/CUDA matching and local VRAM validation before any future runtime phase.",
+        "VSRFI Stream is a future long-video Finish research lane, not a clean first-pass interpolation method."
+      ],
+      "runtime_enabled": false,
+      "research_schema": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+      "method_groups": {
+        "schema_version": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+        "phase": "V24.9",
+        "stable_runtime_methods": [
+          "rife",
+          "film",
+          "amt"
+        ],
+        "stable_default_method": "rife",
+        "optional_stable_methods": [
+          "film",
+          "amt"
+        ],
+        "experimental_diagnostic_methods": [
+          "rife_tensorrt",
+          "gimm_vfi"
+        ],
+        "future_research_methods": [
+          "vsrfi_stream"
+        ],
+        "promote_experimental_methods": false,
+        "runtime_route_changes": false,
+        "generation_mount_allowed": false,
+        "auto_install_allowed": false,
+        "base_generation_blocked_by_experimental_missing": false,
+        "promotion_requires": [
+          "local CUDA/TensorRT/CuPy compatibility validation",
+          "license review",
+          "low/medium/high VRAM smoke matrix",
+          "Comfy object_info class-name validation",
+          "explicit user-facing Experimental badge",
+          "separate runtime implementation phase"
+        ],
+        "method_policies": {
+          "rife_tensorrt": {
+            "status": "experimental_diagnostics_only",
+            "neo_policy": "Detect in Admin only; never expose as stable Finish runtime method in V24.9.",
+            "risks": [
+              "CUDA/TensorRT environment fragility",
+              "engine build/profile requirements",
+              "GPU/driver/Torch version mismatch risk",
+              "license review required before packaged recommendation",
+              "not suitable as default local 12GB workflow lane without validation"
+            ],
+            "diagnostic_aliases": [
+              "RIFE_Tensorrt",
+              "RIFE TensorRT",
+              "RIFETensorrt",
+              "RIFE_TRT",
+              "TensorRT_RIFE",
+              "TRT_RIFE"
+            ]
+          },
+          "gimm_vfi": {
+            "status": "experimental_diagnostics_only",
+            "neo_policy": "Detect in Admin only; never promote through VRAM profile selection in V24.9.",
+            "risks": [
+              "CuPy/CUDA package matching is required",
+              "separate model/dependency lane from stable ComfyUI-Frame-Interpolation",
+              "needs local 12GB validation before any runtime promotion"
+            ],
+            "diagnostic_aliases": [
+              "GIMM_VFI",
+              "GIMM VFI",
+              "GIMM-VFI",
+              "GIMMModelLoader",
+              "GIMMInterpolation"
+            ]
+          },
+          "vsrfi_stream": {
+            "status": "future_research_only",
+            "neo_policy": "Record as future research; keep out of stable Finish runtime and default UI choices.",
+            "risks": [
+              "combined super-resolution and interpolation workflow is not the clean first interpolation lane",
+              "extra license/dependency/model-download policy needed",
+              "separate long-video routing phase required before runtime exposure"
+            ],
+            "diagnostic_aliases": [
+              "VSRFI",
+              "VSRFI_VFI",
+              "VSRFI Stream",
+              "VSRFIStreaming",
+              "VSRFIUpscale",
+              "VSRFIInterpolate"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "preset_contract": {
+      "profile_payload_key": "params.vram_profile",
+      "supported_profiles": [
+        "low",
+        "medium",
+        "high",
+        "custom"
+      ],
+      "default_profile": "medium",
+      "profile_defaults_may_be_materialized_by_backend": false,
+      "disabled_extension_must_not_emit_profile_params": true
+    },
+    "readiness_contract": {
+      "required_before_finish_run": true,
+      "readiness_payload_key": "frame_interpolation_readiness",
+      "stable_ready_key": "stable_lane_ready",
+      "missing_nodes_block_scope": "finish_interpolation_only",
+      "base_generation_blocked": false
+    },
+    "backend_normalization_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.backend_normalization.v24_7",
+      "request_object": "VideoInterpolationRequest",
+      "normalized_payload_key": "normalization",
+      "parameters_materialized_from_normalization": true,
+      "warnings_include_normalization_warnings": true,
+      "ui_payload_must_be_revalidated_server_side": true
+    },
+    "output_metadata_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.output_metadata.v24_8",
+      "compiled_payload_key": "output_metadata",
+      "record_payload_key": "output_metadata",
+      "replay_payload_includes_finish_context": true
+    },
+    "experimental_method_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+      "experimental_methods_must_not_be_accepted_as_stable_method": true,
+      "backend_must_fallback_or_reject_experimental_runtime_method_until_future_phase": true,
+      "browser_payload_must_not_promote_experimental_method": true,
+      "output_metadata_schema_unchanged": "neo.video.finish.frame_interpolation.output_metadata.v24_8"
+    }
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true,
+    "namespace": "extension:video.finish_interpolation",
+    "record_method_requested_vs_used": true,
+    "record_parent_result_id": true,
+    "record_source_fps": true,
+    "record_vram_profile": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.workflow_patches",
+      "extensions.validation",
+      "lineage.parent_result_id",
+      "extensions.payloads.video.finish_interpolation.params.vram_profile",
+      "extensions.payloads.video.finish_interpolation.params.clear_cache_after_n_frames",
+      "output_metadata.schema_version",
+      "finish.operation",
+      "finish.method_requested",
+      "finish.method_used",
+      "finish.vram_profile",
+      "finish.source_fps",
+      "finish.output_fps",
+      "lineage.relationship",
+      "lineage.source_file_id",
+      "memory_event.event_type",
+      "memory_event.namespace",
+      "extensions.payloads.video.finish_interpolation.params.source_fps",
+      "extensions.payloads.video.finish_interpolation.params.output_fps",
+      "extensions.payloads.video.finish_interpolation.metadata.method_used"
+    ],
+    "record_input_assets": true,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "lineage_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.output_metadata.v24_8",
+      "phase": "V24.8",
+      "relationship": "child_of",
+      "requires_parent_result": true,
+      "parent_result_unchanged": true,
+      "child_category": "interpolate",
+      "child_operation": "frame_interpolation",
+      "source_result_id_required_when_available": true,
+      "source_file_id_required_when_available": true
+    },
+    "extension_payload_contract": {
+      "extension_id": "video.finish_interpolation",
+      "stores_method_requested_vs_used": true,
+      "stores_vram_profile": true,
+      "stores_source_and_output_fps": true,
+      "stores_backend_normalization_snapshot": true,
+      "stores_readiness_validation": true
+    },
+    "record_memory_event": true
+  },
+  "memory_policy": {
+    "namespace": "extension:video.finish_interpolation",
+    "record_events": [
+      "video.finish_interpolation.compiled",
+      "video.finish_interpolation.generate_requested",
+      "extension_workflow_used"
+    ]
+  },
+  "output_policy": {
+    "category": "interpolate",
+    "non_destructive": true,
+    "requires_parent_result": true,
+    "creates_child_result": true,
+    "parent_result_unchanged": true,
+    "vram_profile_record_required": true,
+    "default_vram_profile": "medium",
+    "readiness_metadata_required": true,
+    "readiness_schema": "neo.video.finish.frame_interpolation.readiness.v1",
+    "ui_panel_schema": "neo.video.finish.frame_interpolation.ui.v24_6",
+    "backend_normalization_schema": "neo.video.finish.frame_interpolation.backend_normalization.v24_7",
+    "compiler_param_wiring_phase": "V24.7",
+    "metadata_lineage_phase": "V24.8",
+    "output_metadata_schema": "neo.video.finish.frame_interpolation.output_metadata.v24_8",
+    "memory_event_schema": "extension_workflow_used",
+    "lineage_relationship": "child_of",
+    "records_method_requested_vs_used": true,
+    "records_source_fps": true,
+    "records_extension_payload": true,
+    "experimental_method_research_schema": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+    "experimental_methods_recorded_as_research_only": [
+      "rife_tensorrt",
+      "gimm_vfi",
+      "vsrfi_stream"
+    ]
+  },
+  "documentation_contract": {
+    "phase": "V24.9",
+    "source_records": [
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_0_FINISH_FRAME_INTERPOLATION_RESEARCH_MATRIX.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_1_FINISH_FRAME_INTERPOLATION_RECORDS_UPDATE.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_2_FINISH_FRAME_INTERPOLATION_MANIFEST_POLISH.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_3_FINISH_SLOT_CONTRACT_ALIGNMENT.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_4_FINISH_FRAME_INTERPOLATION_VRAM_PROFILE_PRESET_CONTRACT.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_4_FINISH_FRAME_INTERPOLATION_VRAM_PROFILE_PRESET_CONTRACT.json",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_5_FINISH_FRAME_INTERPOLATION_ADMIN_READINESS_UPGRADE.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_6_FINISH_FRAME_INTERPOLATION_UI_PANEL_REDESIGN.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_7_FINISH_FRAME_INTERPOLATION_BACKEND_PAYLOAD_NORMALIZATION.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_8_FINISH_FRAME_INTERPOLATION_RESULT_METADATA_LINEAGE.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_8_FINISH_FRAME_INTERPOLATION_RESULT_METADATA_LINEAGE.json",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_9_FINISH_FRAME_INTERPOLATION_EXPERIMENTAL_METHOD_RESEARCH_RECORD.md",
+      "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_9_FINISH_FRAME_INTERPOLATION_EXPERIMENTAL_METHOD_RESEARCH_RECORD.json"
+    ],
+    "runtime_origin": "neo_app/video/interpolation_finish.py",
+    "routes_unchanged": [
+      "/api/video/compile/interpolate",
+      "/api/video/finish/interpolate"
+    ],
+    "slot_contract": {
+      "surface_lane_slot": "video.finish.interpolate",
+      "direct_card_slot": "video.finish.finish_interpolation",
+      "backend_routes_unchanged": true
+    },
+    "vram_profile_contract": {
+      "default_profile": "medium",
+      "profile_keys": [
+        "low",
+        "medium",
+        "high",
+        "custom"
+      ],
+      "backend_routes_unchanged": true,
+      "ui_backend_wiring_deferred_to": "V24.6/V24.7"
+    },
+    "latest_ui_phase": "V24.6",
+    "latest_phase": "V24.9",
+    "metadata_lineage_contract": {
+      "output_metadata_schema": "neo.video.finish.frame_interpolation.output_metadata.v24_8",
+      "parent_result_unchanged": true,
+      "child_output_owns_lineage": true
+    },
+    "latest_backend_phase": "V24.7",
+    "latest_metadata_phase": "V24.8",
+    "latest_research_phase": "V24.9",
+    "experimental_method_research_contract": {
+      "schema_version": "neo.video.finish.frame_interpolation.experimental_methods.v24_9",
+      "source_records": [
+        "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_9_FINISH_FRAME_INTERPOLATION_EXPERIMENTAL_METHOD_RESEARCH_RECORD.md",
+        "neo_system_records/06_SURFACES/video/VIDEO_SURFACE_PHASE_V24_9_FINISH_FRAME_INTERPOLATION_EXPERIMENTAL_METHOD_RESEARCH_RECORD.json"
+      ],
+      "runtime_promotion": false
+    }
+  },
+  "implementation_notes": {
+    "v25_9_19_phase_2_status_behavior": {
+      "status": "implemented",
+      "ui_rule": "small inline state only when needed",
+      "next_phase": "Phase 3 — SeedVR2 Upscale extension redesign"
+    }
+  },
+  "runtime_prompt_validation_fix": {
+    "schema_version": "neo.video.finish.frame_interpolation.runtime_prompt_validation_fix.v25_9_19_phase_10f",
+    "fixes": [
+      "Map browser mp4/webm requests to VHS_VideoCombine format values video/h264-mp4 and video/webm.",
+      "Use frame_rate when VHS_VideoCombine exposes frame_rate instead of fps.",
+      "Populate required VHS_VideoCombine runtime inputs pingpong, loop_count, and save_output when present.",
+      "Select execution VFI nodes that accept IMAGE frames/images and avoid INTERP_MODEL loader nodes."
+    ],
+    "comfy_validation_errors_addressed": [
+      "format_value_not_in_list",
+      "images_type_mismatch_interp_model_to_image",
+      "missing_frame_rate",
+      "missing_pingpong",
+      "missing_loop_count",
+      "missing_save_output"
+    ],
+    "source_policy": "neo_owned_video_only",
+    "base_generation_blocked": false
+  },
+  "advanced_encoder_controls": {
+    "schema_version": "neo.video.finish.frame_interpolation.advanced_encoder_controls.v25_9_19_phase_10h",
+    "status": "implemented",
+    "ui_location": "Frame Interpolation > Advanced",
+    "controls": [
+      "pix_fmt",
+      "crf",
+      "save_metadata",
+      "trim_to_audio"
+    ],
+    "defaults": {
+      "pix_fmt": "yuv420p",
+      "crf": 20,
+      "save_metadata": true,
+      "trim_to_audio": false
+    },
+    "runtime_target": "VHS_VideoCombine",
+    "base_generation_blocked": false
+  },
+  "motion_timing_contract": {
+    "schema_version": "neo.video.finish.motion_timing_repair.v25_9_19_phase_10k",
+    "pipeline_preset_schema": "neo.video.finish.pipeline_presets.v25_9_19_phase_10k",
+    "policies": [
+      "same_duration",
+      "motion_speed_repair",
+      "slow_motion"
+    ],
+    "child_output_only": true,
+    "auto_chain_jobs": false
+  }
+}

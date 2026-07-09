@@ -1,0 +1,796 @@
+{
+  "id": "video.finish_upscale",
+  "name": "Video · Finish Upscale",
+  "version": "0.1.0",
+  "description": "Built-in Video Finish tool for SeedVR2-style non-destructive upscale child outputs from Neo-owned generated results or browser-uploaded source videos.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "finish"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "finish"
+  ],
+  "mount_slots": [
+    "video.finish.finish_upscale"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "video.finish.finish_upscale",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "finish"
+  ],
+  "supported_loaders": [
+    "external_nodes"
+  ],
+  "required_nodes": {
+    "comfyui": [
+      "LoadVideo",
+      "GetVideoComponents",
+      "SeedVR2LoadDiTModel",
+      "SeedVR2LoadVAEModel",
+      "SeedVR2VideoUpscaler",
+      "CreateVideo",
+      "SaveVideo"
+    ],
+    "comfyui_portable": [
+      "LoadVideo",
+      "GetVideoComponents",
+      "SeedVR2LoadDiTModel",
+      "SeedVR2LoadVAEModel",
+      "SeedVR2VideoUpscaler",
+      "CreateVideo",
+      "SaveVideo"
+    ]
+  },
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true,
+    "ui_panel_contract": {
+      "schema_version": "neo.video.finish.seedvr2_upscale.ui.v25_9_19_phase_3",
+      "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+      "engine_policy": {
+        "visible_engine_selector": false,
+        "visible_engine": "seedvr2",
+        "basic_fallback_visible": false,
+        "generation_mount_allowed": false,
+        "creates_child_output": true,
+        "source_policy": "neo_owned_video_only",
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "engine": "seedvr2_only",
+        "route_id": "finish.upscale",
+        "mount_slot": "video.finish.finish_upscale",
+        "admin_readiness_key": "finish_readiness.upscale"
+      },
+      "default_surface_policy": {
+        "visible_fields": [
+          "source_video",
+          "vram_profile",
+          "target_preset",
+          "output_format",
+          "advanced_visibility"
+        ],
+        "visible_status": [],
+        "default_hidden_sections": [
+          "selected_source_card",
+          "readiness_card",
+          "source_file_details",
+          "node_dependency_details",
+          "legacy_engine_selector",
+          "basic_fallback_copy",
+          "output_fps_override",
+          "advanced_seedvr2_knobs"
+        ],
+        "status_behavior": {
+          "schema_version": "neo.video.finish.seedvr2_upscale.status_behavior.v25_9_19_phase_3",
+          "inline_status_test_id": "video-finish-upscale-inline-status",
+          "hidden_when_ready_and_idle": true,
+          "show_only_when": [
+            "missing_source",
+            "matching_active_source_action_queued",
+            "matching_active_source_action_completed",
+            "matching_active_source_action_failed"
+          ],
+          "stale_result_rule": "ignore last upscale state unless source_result_id/source_file_id match the active result/file"
+        }
+      },
+      "advanced_policy": {
+        "revealed_by": "advanced_visibility_or_custom_profile_or_custom_target",
+        "fields": [
+          "seed",
+          "dit_model",
+          "vae_model",
+          "custom_width",
+          "custom_height",
+          "output_fps_override",
+          "batch_size",
+          "temporal_overlap",
+          "color_correction",
+          "encode_tile_size",
+          "decode_tile_size",
+          "blocks_to_swap"
+        ],
+        "safety_note": "Advanced controls do not bypass Neo-owned source, child-output, or backend readiness rules.",
+        "layout": "three_columns_on_desktop"
+      },
+      "payload_policy": {
+        "engine": "seedvr2",
+        "output_fps_policy": "preserve_source_fps",
+        "default_output_format": "auto",
+        "default_target_preset": "hd_1080",
+        "default_vram_profile": "medium",
+        "request_schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+        "default_output_fps": null,
+        "manual_output_fps_policy": "manual_override",
+        "preserve_audio": true,
+        "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "extension_payload_key": "extensions.video.finish_upscale",
+        "route_id": "finish.upscale",
+        "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+      },
+      "backend_request_contract": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+        "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+        "phase": "V25.9.19 Phase 10",
+        "request_class": "VideoSeedVR2UpscaleRequest",
+        "engine_forced": "seedvr2",
+        "source_policy": "neo_owned_video_only",
+        "creates_child_output": true,
+        "default_fps_policy": "preserve_source_fps",
+        "default_output_fps": null,
+        "manual_fps_policy": "manual_override",
+        "basic_fallback_request_allowed": false,
+        "normalizes_legacy_aliases": [
+          "block_swap",
+          "blocks_to_swap",
+          "upscale_vram_profile",
+          "upscale_target_preset",
+          "video_path",
+          "parent_result_id"
+        ],
+        "validated_fields": [
+          "vram_profile",
+          "target_preset",
+          "resolution",
+          "max_resolution",
+          "output_format",
+          "batch_size",
+          "temporal_overlap",
+          "blocks_to_swap",
+          "encode/decode tile sizes",
+          "offload devices",
+          "preserve_audio",
+          "dry_run",
+          "vram profile contracts",
+          "profile-specific batch clamps",
+          "profile-specific BlockSwap clamps",
+          "profile-specific model defaults"
+        ],
+        "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+        "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+        "blocked_request_modes": [
+          "basic",
+          "image_scale",
+          "interpolation",
+          "rife",
+          "vfi"
+        ],
+        "interpolation_request_allowed": false,
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "route_id": "finish.upscale",
+        "mount_slot": "video.finish.finish_upscale",
+        "admin_readiness_key": "finish_readiness.upscale",
+        "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+      },
+      "vram_profile_policy": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+        "backend_owned": true,
+        "custom_is_safety_clamped": true,
+        "default_profile": "medium",
+        "profiles": {
+          "low": {
+            "target": "safe_720",
+            "resolution": 720,
+            "recommended_dit_model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+            "recommended_vae_model": "ema_vae_fp16.safetensors",
+            "batch_size": 5,
+            "max_batch_size": 5,
+            "blocks_to_swap": 32,
+            "min_blocks_to_swap": 32,
+            "max_blocks_to_swap": 64,
+            "encode_tile_size": 768,
+            "decode_tile_size": 512,
+            "cpu_offload": true,
+            "swap_io_components": true,
+            "force_tiled_vae": true
+          },
+          "medium": {
+            "target": "hd_1080",
+            "resolution": 1080,
+            "recommended_dit_model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+            "recommended_vae_model": "ema_vae_fp16.safetensors",
+            "batch_size": 9,
+            "max_batch_size": 9,
+            "blocks_to_swap": 24,
+            "min_blocks_to_swap": 16,
+            "max_blocks_to_swap": 32,
+            "encode_tile_size": 1024,
+            "decode_tile_size": 768,
+            "cpu_offload": true,
+            "swap_io_components": false,
+            "force_tiled_vae": true
+          },
+          "high": {
+            "target": "hd_1080",
+            "resolution": 1080,
+            "max_short_edge": 2160,
+            "recommended_dit_model": "seedvr2_ema_3b_fp16.safetensors",
+            "recommended_vae_model": "ema_vae_fp16.safetensors",
+            "batch_size": 21,
+            "max_batch_size": 33,
+            "blocks_to_swap": 8,
+            "min_blocks_to_swap": 0,
+            "max_blocks_to_swap": 16,
+            "encode_tile_size": 1024,
+            "decode_tile_size": 1024,
+            "cpu_offload": false,
+            "swap_io_components": false,
+            "force_tiled_vae": true
+          },
+          "custom": {
+            "target": "custom_allowed",
+            "max_short_edge": 4320,
+            "max_batch_size": 65,
+            "min_blocks_to_swap": 0,
+            "max_blocks_to_swap": 64,
+            "custom_values_safety_clamped": true
+          }
+        },
+        "safety_rules": [
+          "Low profile clamps batch size to 5 and short edge to 720.",
+          "Medium profile clamps batch size to 9 and short edge to 1080.",
+          "High profile allows larger batches but still caps profile fields.",
+          "Custom can change values but cannot bypass Neo-owned source, child-output, readiness, FPS, or numeric clamps."
+        ],
+        "phase": "V25.9.19 Phase 5"
+      },
+      "workflow_compiler_contract": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+        "phase": "V25.9.19 Phase 10",
+        "compiler": "seedvr2_native_no_interpolation_phase7",
+        "graph_nodes": [
+          "LoadVideo",
+          "GetVideoComponents",
+          "SeedVR2LoadDiTModel",
+          "SeedVR2LoadVAEModel",
+          "SeedVR2VideoUpscaler",
+          "CreateVideo",
+          "SaveVideo"
+        ],
+        "interpolation_nodes_allowed": false,
+        "basic_fallback_nodes_allowed": false,
+        "preserve_source_fps_default": true,
+        "preserve_audio_default": true,
+        "source_output_rule": "creates_child_output_only",
+        "rife_vfi_nodes_allowed": false,
+        "fps_math_nodes_allowed": false,
+        "bypass_switch_nodes_allowed": false,
+        "primitive_interpolation_controls_allowed": false,
+        "strip_interpolation_lock_schema": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+        "forbidden_node_families": [
+          "RIFE/VFI interpolation",
+          "ComfyMathExpression FPS multiplication",
+          "ComfySwitchNode bypass switching",
+          "PrimitiveBoolean/PrimitiveInt interpolation controls",
+          "Basic/ImageScale fallback"
+        ],
+        "sample_optional_rife_branch_ignored": true,
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "route_id": "finish.upscale"
+      },
+      "strip_interpolation_lock_policy": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+        "phase": "V25.9.19 Phase 10",
+        "scope": "video.finish.finish_upscale",
+        "active": true,
+        "upscale_engine": "seedvr2",
+        "interpolation_branch_allowed": false,
+        "basic_fallback_branch_allowed": false,
+        "admin_diagnostics_only": true,
+        "ui_panel_changed": false,
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10"
+      },
+      "admin_readiness_contract": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+        "phase": "V25.9.19 Phase 10",
+        "mount_slot": "video.finish.finish_upscale",
+        "lane_slot": "video.finish.upscale",
+        "admin_key": "finish_readiness.upscale",
+        "top_level_key": "seedvr2_upscale_readiness",
+        "blocking_scope": "video.finish.finish_upscale_only",
+        "base_generation_blocked": false,
+        "generation_mount_allowed": false,
+        "disable_finish_upscale_when_missing": true,
+        "required_groups": [
+          "video_io_load",
+          "video_io_components",
+          "video_io_create",
+          "video_io_save",
+          "seedvr2_dit_loader",
+          "seedvr2_vae_loader",
+          "seedvr2_video_upscaler",
+          "seedvr2_dit_model_catalog",
+          "seedvr2_vae_model_catalog"
+        ],
+        "optional_groups": [
+          "SeedVR2TorchCompileSettings"
+        ],
+        "model_catalog_policy": {
+          "requires_any_dit_model": true,
+          "requires_vae_model": true,
+          "recommended_low_vram_dit_model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+          "recommended_vae_model": "ema_vae_fp16.safetensors"
+        },
+        "ui_policy": {
+          "admin_owns_diagnostics": true,
+          "video_finish_panel_keeps_short_inline_status_only": true,
+          "default_upscale_panel_changed": false
+        },
+        "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "dependency_block_scope": "finish_upscale_only"
+      },
+      "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+      "manifest_contract": {
+        "schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+        "phase": "V25.9.19 Phase 10",
+        "extension_id": "video.finish_upscale",
+        "stable_internal_id": "video.finish_upscale",
+        "surface": "video",
+        "workspace_app": "finish",
+        "mount_slot": "video.finish.finish_upscale",
+        "lane_slot": "video.finish.upscale",
+        "route_id": "finish.upscale",
+        "compile_endpoint": "/api/video/compile/upscale",
+        "finish_endpoint": "/api/video/finish/upscale",
+        "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+        "ui_schema_version": "neo.video.finish.seedvr2_upscale.ui.v25_9_19_phase_3",
+        "request_schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+        "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+        "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+        "strip_interpolation_lock_schema_version": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+        "admin_readiness_schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+        "engine": "seedvr2_only",
+        "visible_engine": "seedvr2",
+        "source_policy": "neo_owned_video_only",
+        "creates_child_output": true,
+        "parent_mutation_allowed": false,
+        "generation_mount_allowed": false,
+        "admin_readiness_key": "finish_readiness.upscale",
+        "top_level_readiness_key": "seedvr2_upscale_readiness",
+        "dependency_block_scope": "finish_upscale_only",
+        "base_generation_blocked": false,
+        "admin_owns_diagnostics": true,
+        "surface_ui_policy": "clean_default_panel_short_inline_status_only",
+        "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+      },
+      "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10",
+      "source_section": {
+        "test_id": "video-finish-upscale-source-video-picker",
+        "default_visibility": "visible_compact_picker",
+        "owner": "Video Finish UI selection + backend payload",
+        "selection_control_id": "videoUpscaleSourceVideo",
+        "source_policy": "neo_owned_video_only",
+        "source_mode": "drag_drop_or_browse_lane_scoped_upload",
+        "upload_mutates_main_preview": false,
+        "upload_mutates_active_result": false,
+        "shared_between_finish_lanes": false,
+        "visible_default_status_rows": false,
+        "source_record_visibility": "hidden_from_main_results_until_finish_task_runs"
+      },
+      "finish_layout_policy": {
+        "schema_version": "neo.video.finish.layout_source_picker.v25_9_19_phase_10b",
+        "render_under_single_finish_stack": false,
+        "render_as_individual_collapsible_section": true,
+        "collapsible_title": "Video Upscale"
+      },
+      "source_upload_policy": {
+        "schema_version": "neo.video.finish.source_video_upload.v25_9_19_phase_10c",
+        "visible_control": "drag_drop_or_browse_video",
+        "upload_endpoint": "/api/video/source-video/upload",
+        "stored_category": "source",
+        "result_contract": "uploaded video is registered as a Neo-owned Video ledger result before finish execution",
+        "allowed_extensions": [
+          "mp4",
+          "webm",
+          "mov",
+          "mkv",
+          "gif"
+        ]
+      },
+      "preview_action_policy": {
+        "interpolate_icon": "🎞️",
+        "upscale_icon": "⬆️",
+        "overlay_wrapper": "neo-preview-action-wrap neo-video-preview-action-wrap",
+        "runs_main_video_progress_pipeline": true
+      }
+    },
+    "manifest_contract": {
+      "schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+      "phase": "V25.9.19 Phase 10",
+      "extension_id": "video.finish_upscale",
+      "stable_internal_id": "video.finish_upscale",
+      "surface": "video",
+      "workspace_app": "finish",
+      "mount_slot": "video.finish.finish_upscale",
+      "lane_slot": "video.finish.upscale",
+      "route_id": "finish.upscale",
+      "compile_endpoint": "/api/video/compile/upscale",
+      "finish_endpoint": "/api/video/finish/upscale",
+      "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+      "ui_schema_version": "neo.video.finish.seedvr2_upscale.ui.v25_9_19_phase_3",
+      "request_schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+      "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+      "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+      "strip_interpolation_lock_schema_version": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+      "admin_readiness_schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+      "engine": "seedvr2_only",
+      "visible_engine": "seedvr2",
+      "source_policy": "neo_owned_video_only",
+      "creates_child_output": true,
+      "parent_mutation_allowed": false,
+      "generation_mount_allowed": false,
+      "admin_readiness_key": "finish_readiness.upscale",
+      "top_level_readiness_key": "seedvr2_upscale_readiness",
+      "dependency_block_scope": "finish_upscale_only",
+      "base_generation_blocked": false,
+      "admin_owns_diagnostics": true,
+      "surface_ui_policy": "clean_default_panel_short_inline_status_only"
+    },
+    "panel_type": "finishing_tool",
+    "fields": [
+      {
+        "id": "vram_profile",
+        "label": "VRAM Profile",
+        "type": "select",
+        "payload_path": "params.vram_profile",
+        "help_text": "Backend-owned SeedVR2 memory profile."
+      },
+      {
+        "id": "target_preset",
+        "label": "Target",
+        "type": "select",
+        "payload_path": "params.target_preset",
+        "help_text": "720p Safe, 1080p HD, or Custom."
+      },
+      {
+        "id": "output_format",
+        "label": "Format",
+        "type": "select",
+        "payload_path": "params.output_format",
+        "help_text": "Auto, MP4, or WebM."
+      },
+      "dit_model"
+    ],
+    "visible_dit_model_selector_v25_9_19_phase_10h": {
+      "status": "implemented",
+      "control_id": "videoUpscaleDitModel",
+      "visible_by_default": true,
+      "catalog_source": "Admin SeedVR2 Upscale readiness model catalog with profile recommendations as fallback"
+    }
+  },
+  "runtime_contract": {
+    "route_id": "finish.upscale",
+    "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+    "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+    "compiler": "seedvr2_native_no_interpolation_phase7",
+    "creates_child_output": true,
+    "neo_owned_source_only": true,
+    "strip_interpolation_lock_schema": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+    "interpolation_branch_allowed": false,
+    "basic_fallback_branch_allowed": false,
+    "phase": "V25.9.19 Phase 10",
+    "admin_readiness_schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+    "admin_readiness_key": "finish_readiness.upscale",
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "engine": "seedvr2_only",
+    "source_policy": "neo_owned_video_only",
+    "parent_mutation_allowed": false,
+    "generation_mount_allowed": false,
+    "dependency_block_scope": "finish_upscale_only",
+    "base_generation_blocked": false,
+    "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10",
+    "records_output_metadata": true,
+    "records_lineage": true,
+    "records_memory_event": true,
+    "source_loader_policy_v25_9_19_phase_10h": {
+      "prefer_path_loaders": [
+        "VHS_LoadVideoPath",
+        "LoadVideoPath",
+        "LoadVideoFromPath"
+      ],
+      "fallback_upload_loaders": [
+        "LoadVideo",
+        "VHS_LoadVideo",
+        "LoadVideoUpload"
+      ],
+      "reason": "Direct Finish uploads are Neo-owned files under neo_data/outputs/video/source and should not be treated as Comfy input-folder filenames."
+    },
+    "audio_guard": {
+      "schema_version": "neo.video.finish.seedvr2_upscale.audio_probe.v25_9_19_phase_10l",
+      "preserve_audio_requested_field": "preserve_audio",
+      "preserve_audio_effective_field": "preserve_audio_effective",
+      "behavior": "Wire audio into CreateVideo only when the source video is proven to contain an audio stream; silent sources rebuild without audio to avoid VHS/Core audio extraction failures."
+    }
+  },
+  "node_requirements": {
+    "admin_readiness_contract": {
+      "schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+      "blocking_scope": "finish_upscale_only",
+      "base_generation_blocked": false,
+      "required_video_io_aliases": {
+        "load": [
+          "LoadVideo",
+          "VHS_LoadVideo",
+          "LoadVideoUpload"
+        ],
+        "components": [
+          "GetVideoComponents",
+          "VHS_GetVideoComponents"
+        ],
+        "create": [
+          "CreateVideo",
+          "VHS_CreateVideo"
+        ],
+        "save": [
+          "SaveVideo",
+          "VHS_SaveVideo",
+          "VideoCombine",
+          "VHS_VideoCombine"
+        ]
+      },
+      "required_seedvr2_aliases": {
+        "dit_loader": [
+          "SeedVR2LoadDiTModel",
+          "SeedVR2LoadDITModel"
+        ],
+        "vae_loader": [
+          "SeedVR2LoadVAEModel"
+        ],
+        "upscaler": [
+          "SeedVR2VideoUpscaler",
+          "SeedVR2Upscaler"
+        ]
+      },
+      "optional_seedvr2_aliases": {
+        "torch_compile": [
+          "SeedVR2TorchCompileSettings"
+        ]
+      },
+      "model_catalogs_required": true,
+      "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+      "admin_readiness_key": "finish_readiness.upscale",
+      "top_level_readiness_key": "seedvr2_upscale_readiness"
+    },
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "phase": "V25.9.19 Phase 10"
+  },
+  "schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+  "route_states": {
+    "comfyui:*:*:*:finish": "available",
+    "comfyui_portable:*:*:*:finish": "available",
+    "forge:*:*:*:finish": "provider_gated",
+    "a1111:*:*:*:finish": "provider_gated",
+    "cloud_api:*:*:*:finish": "provider_gated",
+    "mock:*:*:*:finish": "provider_gated",
+    "*:*:*:*:generation": "unsupported",
+    "*:*:*:*:generate": "unsupported",
+    "*:*:*:*:workspace": "unsupported",
+    "*:*:*:*:assets": "unsupported",
+    "*:*:*:*:reference": "unsupported",
+    "*:*:*:*:results": "unsupported",
+    "*": "provider_gated"
+  },
+  "depends_on": [],
+  "extends": [],
+  "manifest_contract": {
+    "schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "phase": "V25.9.19 Phase 10",
+    "extension_id": "video.finish_upscale",
+    "stable_internal_id": "video.finish_upscale",
+    "surface": "video",
+    "workspace_app": "finish",
+    "mount_slot": "video.finish.finish_upscale",
+    "lane_slot": "video.finish.upscale",
+    "route_id": "finish.upscale",
+    "compile_endpoint": "/api/video/compile/upscale",
+    "finish_endpoint": "/api/video/finish/upscale",
+    "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+    "ui_schema_version": "neo.video.finish.seedvr2_upscale.ui.v25_9_19_phase_3",
+    "request_schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+    "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+    "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+    "strip_interpolation_lock_schema_version": "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7",
+    "admin_readiness_schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+    "engine": "seedvr2_only",
+    "visible_engine": "seedvr2",
+    "source_policy": "neo_owned_video_only",
+    "creates_child_output": true,
+    "parent_mutation_allowed": false,
+    "generation_mount_allowed": false,
+    "admin_readiness_key": "finish_readiness.upscale",
+    "top_level_readiness_key": "seedvr2_upscale_readiness",
+    "dependency_block_scope": "finish_upscale_only",
+    "base_generation_blocked": false,
+    "admin_owns_diagnostics": true,
+    "surface_ui_policy": "clean_default_panel_short_inline_status_only",
+    "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "phase": "V25.9.19 Phase 10",
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "extension_payload_key": "extensions.video.finish_upscale",
+    "route_id": "finish.upscale",
+    "request_schema_version": "neo.video.finish.seedvr2_upscale.request.v25_9_19_phase_4",
+    "vram_profile_schema_version": "neo.video.finish.seedvr2_upscale.vram_profiles.v25_9_19_phase_5",
+    "workflow_schema_version": "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7",
+    "admin_readiness_schema_version": "neo.video.finish.seedvr2_upscale.admin_readiness.v25_9_19_phase_8",
+    "engine_policy": {
+      "engine": "seedvr2_only",
+      "visible_engine_selector": false,
+      "basic_fallback_request_allowed": false,
+      "interpolation_request_allowed": false,
+      "generation_mount_allowed": false
+    },
+    "source_policy": {
+      "neo_owned_video_only": true,
+      "source_result_id_required_or_source_path_required": true,
+      "parent_mutation_allowed": false,
+      "creates_child_output": true
+    },
+    "readiness_contract": {
+      "required_before_finish_run": true,
+      "readiness_payload_key": "finish_readiness.upscale",
+      "top_level_payload_key": "seedvr2_upscale_readiness",
+      "admin_readiness_key": "finish_readiness.upscale",
+      "missing_dependencies_block_scope": "finish_upscale_only",
+      "base_generation_blocked": false
+    },
+    "runtime_contract": {
+      "compile_endpoint": "/api/video/compile/upscale",
+      "finish_endpoint": "/api/video/finish/upscale",
+      "runtime_schema_preserved": "neo.video.finish.upscale.v13",
+      "default_output_fps": null,
+      "output_fps_policy": "preserve_source_fps",
+      "preserve_audio": true,
+      "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+    },
+    "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10"
+  },
+  "memory_contract": {
+    "event_type": "extension_workflow_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true,
+    "phase": "V25.9.19 Phase 10",
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "workspace_app": "finish",
+    "route_id": "finish.upscale",
+    "finish_operation": "upscale",
+    "record_source_result": true,
+    "record_child_result": true,
+    "record_vram_profile": true,
+    "record_readiness_snapshot": true,
+    "record_output_metadata_schema": true,
+    "record_lineage": true,
+    "record_seedvr2_finish_payload": true
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "finish",
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.payloads.video.finish_upscale",
+      "extensions.validation",
+      "extensions.workflow_patches",
+      "lineage",
+      "memory_event",
+      "output_metadata",
+      "output_metadata.replay_context",
+      "output_metadata.extensions.validation.readiness_snapshot"
+    ],
+    "record_input_assets": false,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "phase": "V25.9.19 Phase 10",
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "finish_operation": "upscale",
+    "child_result_only": true,
+    "parent_mutation_allowed": false,
+    "record_parent_result_id": true,
+    "record_source_fps_policy": true,
+    "record_preserve_audio": true,
+    "record_vram_profile": true,
+    "record_seedvr2_models": true,
+    "record_readiness_snapshot": true,
+    "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10",
+    "record_lineage": true,
+    "record_memory_event": true,
+    "record_replay_context": true,
+    "record_finish_envelope": true,
+    "record_extension_payload": true,
+    "audio_guard": {
+      "records": [
+        "preserve_audio",
+        "preserve_audio_effective",
+        "source_has_audio",
+        "audio_probe"
+      ],
+      "silent_video_safe": true
+    }
+  },
+  "output_policy": {
+    "schema_version": "neo.video.finish.seedvr2_upscale.output_policy.v25_9_19_phase_10",
+    "manifest_schema_version": "neo.video.finish.seedvr2_upscale.manifest.v25_9_19_phase_10",
+    "output_root": "neo_data/outputs/video/upscale",
+    "finish_operation": "upscale",
+    "child_result_only": true,
+    "parent_result_is_never_overwritten": true,
+    "metadata_contract_slot": "extensions.payloads.video.finish_upscale",
+    "lineage_required": true,
+    "memory_event_required": true,
+    "output_metadata_schema_version": "neo.video.finish.seedvr2_upscale.output_metadata.v25_9_19_phase_10",
+    "replay_context_required": true,
+    "readiness_snapshot_required": true,
+    "audio_guard_schema_version": "neo.video.finish.seedvr2_upscale.audio_probe.v25_9_19_phase_10l",
+    "silent_source_audio_is_not_wired": true
+  },
+  "asset_bundle": {
+    "js": [],
+    "css": [],
+    "html": [],
+    "python": [],
+    "assets": []
+  },
+  "entrypoints": {},
+  "motion_timing_contract": {
+    "schema_version": "neo.video.finish.motion_timing_repair.v25_9_19_phase_10k",
+    "pipeline_preset_schema": "neo.video.finish.pipeline_presets.v25_9_19_phase_10k",
+    "policies": [
+      "same_duration",
+      "motion_speed_repair",
+      "slow_motion"
+    ],
+    "child_output_only": true,
+    "auto_chain_jobs": false
+  }
+}

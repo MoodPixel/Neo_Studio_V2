@@ -1,0 +1,49 @@
+{
+  "id": "video.finish_repair",
+  "name": "Video \u00b7 Finish Repair / Cleanup",
+  "version": "0.1.0-video-ui-cleanup",
+  "description": "Video built-in Finish lane for non-destructive repair, cleanup, and passthrough child outputs.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "finish"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "finish"
+  ],
+  "mount_slots": [
+    "video.finish.finish_repair"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "video.finish.finish_repair",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "wan22",
+    "ltx23"
+  ],
+  "supported_loaders": [
+    "unet",
+    "gguf",
+    "native_workflow"
+  ],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true
+  }
+}

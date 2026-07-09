@@ -1,0 +1,593 @@
+{
+  "id": "image.gguf_loader",
+  "name": "GGUF Loader Support",
+  "version": "0.2.0",
+  "description": "Declares backend-neutral GGUF loader capability profiles for supported image model families without placing GGUF workflow logic inside the base Image surface.",
+  "extension_type": "loader_extension",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img",
+    "edit",
+    "outpaint"
+  ],
+  "mount_slots": [
+    "image.generate.model_loader.after",
+    "image.img2img.model_loader.after",
+    "image.edit.model_loader.after",
+    "image.outpaint.model_loader.after",
+    "image.parameters.family_loader.after"
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "flux",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "qwen_rapid_aio",
+    "z_image",
+    "z_image_turbo",
+    "wan_image",
+    "hunyuan_image",
+    "hidream"
+  ],
+  "supported_loaders": [
+    "gguf"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [
+      "UnetLoaderGGUF",
+      "LoaderGGUF",
+      "CLIPLoaderGGUF",
+      "ClipLoaderGGUF",
+      "DualCLIPLoaderGGUF"
+    ],
+    "comfyui_portable": [
+      "UnetLoaderGGUF",
+      "LoaderGGUF",
+      "CLIPLoaderGGUF",
+      "ClipLoaderGGUF",
+      "DualCLIPLoaderGGUF"
+    ]
+  },
+  "capability_profiles": {
+    "flux_gguf": {
+      "profile_id": "flux_gguf",
+      "family": "flux",
+      "loader": "gguf",
+      "modes": {
+        "generate": "native",
+        "img2img": "native",
+        "edit": "variant_required",
+        "outpaint": "experimental"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "gguf_text_encoder_primary",
+        "gguf_text_encoder_secondary",
+        "vae_or_ae",
+        "flux_guidance"
+      ],
+      "optional_roles": [
+        "gguf_vae"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "gguf_text_encoder_primary",
+          "gguf_text_encoder_secondary",
+          "flux_guidance"
+        ],
+        "img2img": [
+          "source_image",
+          "gguf_unet",
+          "gguf_text_encoder_primary",
+          "gguf_text_encoder_secondary",
+          "flux_guidance"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "gguf_unet",
+          "gguf_text_encoder_primary",
+          "gguf_text_encoder_secondary",
+          "flux_guidance"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "text_encoder_1",
+        "text_encoder_2",
+        "vae",
+        "flux_guidance"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary",
+            "gguf_text_encoder_secondary",
+            "flux_guidance"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary",
+            "gguf_text_encoder_secondary",
+            "flux_guidance"
+          ]
+        }
+      },
+      "notes": [
+        "Comfy node names are diagnostics; provider compiler selects backend nodes later.",
+        "Outpaint remains experimental until Phase 12.14/12.19 routes are implemented."
+      ]
+    },
+    "qwen_image_gguf": {
+      "profile_id": "qwen_image_gguf",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "modes": {
+        "generate": "native",
+        "img2img": "mmproj_required",
+        "edit": "mmproj_required",
+        "outpaint": "mmproj_required",
+        "inpaint": "mmproj_required"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "gguf_text_encoder_primary",
+        "vae_or_ae"
+      ],
+      "optional_roles": [
+        "qwen_mmproj",
+        "gguf_vae"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "img2img": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "edit": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "inpaint": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen_text_encoder",
+        "qwen_mmproj",
+        "vae",
+        "route_readiness"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        }
+      },
+      "notes": [
+        "Qwen txt2img must not require mmproj.",
+        "Qwen img2img/inpaint/edit/outpaint must require mmproj.",
+        "Qwen GGUF must not fallback to Flux routing."
+      ]
+    },
+    "z_image_gguf": {
+      "profile_id": "z_image_gguf",
+      "family": "z_image",
+      "loader": "gguf",
+      "modes": {
+        "generate": "native",
+        "img2img": "provider_gated",
+        "edit": "provider_gated",
+        "outpaint": "provider_gated"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "gguf_text_encoder_primary",
+        "vae_or_ae"
+      ],
+      "optional_roles": [
+        "gguf_vae"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen3_text_encoder",
+        "vae",
+        "turbo_mode"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        }
+      },
+      "notes": [
+        "Only txt2img/generate is declared native for the first Z-Image GGUF foundation."
+      ]
+    },
+    "wan_image_gguf": {
+      "profile_id": "wan_image_gguf",
+      "family": "wan_image",
+      "loader": "gguf",
+      "modes": {
+        "generate": "provider_gated",
+        "img2img": "provider_gated",
+        "inpaint": "provider_gated",
+        "outpaint": "provider_gated",
+        "edit": "unsupported"
+      },
+      "required_roles": [
+        "gguf_unet"
+      ],
+      "optional_roles": [
+        "umt5_text_encoder",
+        "wan_vae",
+        "wan_task"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "provider_route"
+        ],
+        "img2img": [
+          "provider_route"
+        ],
+        "inpaint": [
+          "provider_route"
+        ],
+        "outpaint": [
+          "provider_route"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "umt5_text_encoder",
+        "wan_vae",
+        "wan_task",
+        "provider_status"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        }
+      },
+      "notes": [
+        "Phase 12.17 keeps Wan Image modes provider-gated in the Image surface.",
+        "No txt2img/img2img/inpaint/outpaint compiler is enabled until a confirmed image workflow exists.",
+        "Wan video/image-to-video workflows belong behind explicit provider/video routes, not SDXL-style Image-tab assumptions."
+      ]
+    },
+    "hunyuan_image_gguf": {
+      "profile_id": "hunyuan_image_gguf",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "modes": {
+        "generate": "provider_gated",
+        "img2img": "provider_gated",
+        "inpaint": "provider_gated",
+        "outpaint": "provider_gated"
+      },
+      "required_roles": [
+        "gguf_unet"
+      ],
+      "optional_roles": [
+        "hunyuan_variant",
+        "text_encoder_primary",
+        "vae_or_ae"
+      ],
+      "readiness_gates": {},
+      "params": [
+        "gguf_model",
+        "hunyuan_variant",
+        "provider_status"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        }
+      },
+      "notes": [
+        "Phase 12.18: Hunyuan remains provider-gated until the exact branch/workflow compiler is selected."
+      ]
+    },
+    "hidream_gguf": {
+      "profile_id": "hidream_gguf",
+      "family": "hidream",
+      "loader": "gguf",
+      "modes": {
+        "generate": "provider_gated",
+        "img2img": "variant_required",
+        "edit": "variant_required",
+        "outpaint": "variant_required"
+      },
+      "required_roles": [
+        "gguf_unet"
+      ],
+      "optional_roles": [
+        "text_encoder_primary",
+        "vae_or_ae"
+      ],
+      "readiness_gates": {},
+      "params": [
+        "gguf_model",
+        "hidream_variant",
+        "hidream_task",
+        "provider_status"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        }
+      },
+      "notes": [
+        "HiDream GGUF remains provider-gated until Phase 12.16+ routes are implemented."
+      ]
+    },
+    "qwen_rapid_aio_gguf": {
+      "profile_id": "qwen_rapid_aio_gguf",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "modes": {
+        "generate": "native",
+        "img2img": "mmproj_required",
+        "edit": "mmproj_required",
+        "outpaint": "mmproj_required",
+        "inpaint": "mmproj_required"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "gguf_text_encoder_primary",
+        "vae_or_ae"
+      ],
+      "optional_roles": [
+        "qwen_mmproj",
+        "gguf_vae"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "img2img": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "edit": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ],
+        "inpaint": [
+          "source_image",
+          "qwen_mmproj",
+          "gguf_unet",
+          "gguf_text_encoder_primary"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen_text_encoder",
+        "qwen_mmproj",
+        "vae",
+        "route_readiness"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet",
+            "gguf_text_encoder_primary"
+          ]
+        }
+      },
+      "notes": [
+        "Qwen txt2img must not require mmproj.",
+        "Qwen img2img/inpaint/edit/outpaint must require mmproj.",
+        "Qwen GGUF must not fallback to Flux routing.",
+        "V25.9.20 Pass E: visible Qwen Rapid AIO family uses the same Qwen single-encoder GGUF runtime shape; this is Neo route support, not a global official-file claim."
+      ]
+    }
+  },
+  "ui_schema": {
+    "profile_selector": "family_loader_mode",
+    "fields": [
+      {
+        "id": "gguf_model",
+        "label": "GGUF Model",
+        "help_text": "Select the GGUF model file for the active family.",
+        "expert_text": "Mapped to loader=gguf and resolved by backend capability roles."
+      },
+      {
+        "id": "text_encoder_1",
+        "label": "Primary Text Encoder",
+        "help_text": "Primary encoder role used by Flux/Qwen/Z-Image GGUF profiles."
+      },
+      {
+        "id": "text_encoder_2",
+        "label": "Secondary Text Encoder",
+        "help_text": "Secondary encoder role required by Flux GGUF."
+      },
+      {
+        "id": "qwen_mmproj",
+        "label": "Qwen MMProj",
+        "help_text": "Required for Qwen image-conditioned routes: img2img, edit/inpaint, and outpaint."
+      },
+      {
+        "id": "flux_guidance",
+        "label": "Flux Guidance",
+        "help_text": "Required by Flux GGUF routes."
+      },
+      {
+        "id": "route_readiness",
+        "label": "Route Readiness",
+        "help_text": "Shows profile blockers from capability discovery and mode gates."
+      }
+    ]
+  },
+  "memory_policy": {
+    "record_events": [
+      "extension.enabled",
+      "extension.compatibility_checked",
+      "capability.profile.selected",
+      "job.compiled"
+    ]
+  },
+  "output_policy": {
+    "write_loader_metadata": true,
+    "write_capability_profile": true,
+    "write_readiness_snapshot": true
+  },
+  "extension_origin": "built_in",
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "generations",
+    "reference"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workflow_mode": "generate",
+      "workspace_app": "generations",
+      "slot": "image.generate.model_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workflow_mode": "img2img",
+      "workspace_app": "reference",
+      "slot": "image.img2img.model_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workflow_mode": "inpaint",
+      "workspace_app": "reference",
+      "slot": "image.inpaint.model_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workflow_mode": "outpaint",
+      "workspace_app": "reference",
+      "slot": "image.outpaint.model_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workflow_mode": null,
+      "workspace_app": "generations",
+      "slot": "image.parameters.family_loader.after",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "route_states": {
+    "generate": "available",
+    "img2img": "available",
+    "inpaint": "available",
+    "outpaint": "experimental_available"
+  }
+}

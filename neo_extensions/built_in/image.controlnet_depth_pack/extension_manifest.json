@@ -1,0 +1,86 @@
+{
+  "id": "image.controlnet_depth_pack",
+  "name": "ControlNet Depth Pack",
+  "version": "0.1.0",
+  "description": "Adds depth preprocessor options into the parent ControlNet extension.",
+  "extension_type": "extension_pack",
+  "surface": "image",
+  "subtabs": [
+    "generate",
+    "img2img"
+  ],
+  "mount_slots": [
+    "image.controlnet.preprocessor_list"
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "sd15",
+    "sdxl",
+    "flux"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "unet",
+    "gguf"
+  ],
+  "depends_on": [
+    "image.controlnet"
+  ],
+  "extends": [
+    "image.controlnet"
+  ],
+  "required_nodes": {
+    "comfyui": [
+      "DepthAnythingPreprocessor"
+    ],
+    "comfyui_portable": [
+      "DepthAnythingPreprocessor"
+    ]
+  },
+  "ui_schema": {
+    "fields": [
+      {
+        "id": "depth_preprocessor",
+        "label": "Depth Preprocessor",
+        "help_text": "Adds depth extraction options to ControlNet.",
+        "expert_text": "Mounted only through image.controlnet.preprocessor_list."
+      }
+    ]
+  },
+  "memory_policy": {
+    "record_events": [
+      "extension.enabled",
+      "controlnet.depth.used"
+    ]
+  },
+  "output_policy": {
+    "write_preprocessor_metadata": true
+  },
+  "extension_origin": "built_in",
+  "workflow_modes": [
+    "generate",
+    "img2img"
+  ],
+  "workspace_apps": [
+    "reference"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workflow_mode": null,
+      "workspace_app": "reference",
+      "slot": "image.controlnet.preprocessor_list",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "route_states": {
+    "*": "planned_gated"
+  }
+}
