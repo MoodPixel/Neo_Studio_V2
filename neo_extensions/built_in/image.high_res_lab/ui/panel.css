@@ -1,0 +1,19 @@
+.neo-high-res-lab-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+.neo-high-res-lab-panel[data-route-state="provider_gated"],
+.neo-high-res-lab-panel[data-route-state="planned_gated"] {
+  opacity: 0.82;
+}
+.neo-high-res-lab-ui-contract {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.neo-high-res-lab-ui-contract span {
+  border: 1px solid var(--neo-border, rgba(255,255,255,0.16));
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.82rem;
+}
