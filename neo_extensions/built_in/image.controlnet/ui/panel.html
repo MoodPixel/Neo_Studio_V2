@@ -1,0 +1,74 @@
+<section class="neo-controlnet-panel" data-extension-id="image.controlnet" data-workspace-app="reference" data-route-aware="true" data-route-state="available" data-display-mode="guided">
+  <header class="neo-controlnet-panel__header">
+    <div>
+      <h3>ControlNet</h3>
+      <p data-guided-help>Guide generation with canny, depth, pose, lineart, or other structural maps.</p>
+    </div>
+    <span class="neo-controlnet-chip" data-controlnet-state="disabled">Disabled</span>
+  </header>
+  <div class="neo-controlnet-panel__body">
+    <label class="neo-controlnet-row">
+      <input type="checkbox" data-controlnet-field="enabled" />
+      <span>Apply ControlNet</span>
+    </label>
+    <div class="neo-controlnet-task-card" data-testid="controlnet-task-selector">
+      <strong>ControlNet Usage</strong>
+      <select data-controlnet-field="controlnet_task" aria-label="ControlNet usage">
+        <option value="map_control">Standard map control</option>
+        <option value="inpaint_control">Inpaint / Outpaint control</option>
+        <option value="outpaint_control">Outpaint mask/canvas control</option>
+      </select>
+      <p data-guided-help>Inpaint/outpaint control tasks are saved in the payload contract but remain adapter-gated until the dedicated source+mask resolver exists.</p>
+    </div>
+    <div class="neo-controlnet-task-card" data-testid="controlnet-qwen-adapter-selector">
+      <strong>Qwen adapter</strong>
+      <select data-controlnet-field="qwen_controlnet_adapter" aria-label="Qwen ControlNet adapter">
+        <option value="auto">Auto · prefer DiffSynth</option>
+        <option value="diffsynth">DiffSynth model patch</option>
+        <option value="instantx">InstantX Qwen ControlNet</option>
+      </select>
+      <p data-guided-help>Used only on Qwen inpaint/outpaint ControlNet routes.</p>
+    </div>
+    <div class="neo-controlnet-task-card" data-testid="controlnet-flux-adapter-selector">
+      <strong>Flux adapter</strong>
+      <select data-controlnet-field="flux_controlnet_adapter" aria-label="Flux ControlNet adapter">
+        <option value="auto">Auto · match Flux route</option>
+        <option value="alimama">Alimama Flux.1 Inpaint ControlNet</option>
+        <option value="fun_union">FLUX.2 Klein Fun Union ControlNet</option>
+      </select>
+      <p data-guided-help>Used only on Flux GGUF inpaint/outpaint ControlNet routes. Use Fun Union for FLUX.2 Klein.</p>
+    </div>
+    <div class="neo-controlnet-toolbar">
+      <button type="button" data-controlnet-add-unit>+ Add Unit</button>
+      <span class="neo-badge" data-controlnet-active-count>0 active</span>
+    </div>
+    <div class="neo-controlnet-unit" data-controlnet-unit-template>
+      <select data-controlnet-field="unit" aria-label="Control type">
+        <option value="canny">Canny</option>
+        <option value="depth">Depth</option>
+        <option value="openpose">OpenPose / DWPose</option>
+        <option value="lineart">Lineart</option>
+        <option value="lineart_anime">Anime Lineart</option>
+        <option value="softedge">SoftEdge</option>
+        <option value="scribble">Scribble</option>
+        <option value="normalbae">NormalBae</option>
+        <option value="tile">Tile</option>
+      </select>
+      <select data-controlnet-field="preprocessor" aria-label="Preprocessor">
+        <option value="none">None / use image as map</option>
+        <option value="canny">Canny</option>
+        <option value="depth">Depth</option>
+        <option value="openpose">OpenPose</option>
+        <option value="dwpose">DWPose</option>
+        <option value="lineart">Lineart</option>
+        <option value="softedge">SoftEdge</option>
+      </select>
+      <input data-controlnet-field="model" placeholder="ControlNet model" aria-label="ControlNet model" />
+      <input data-controlnet-field="control_image" placeholder="control image asset/path" aria-label="Control image" />
+      <input type="number" min="0" max="2" step="0.05" value="0.45" data-controlnet-field="strength" aria-label="Strength" />
+    </div>
+    <div class="neo-controlnet-diagnostics" data-detail-mode="expert" hidden>
+      <code data-controlnet-payload-preview>{}</code>
+    </div>
+  </div>
+</section>

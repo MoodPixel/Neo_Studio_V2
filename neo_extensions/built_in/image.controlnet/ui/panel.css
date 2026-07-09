@@ -1,0 +1,299 @@
+.neo-controlnet-panel { display: grid; gap: 0.85rem; min-width: 0; max-width: 100%; }
+.neo-controlnet-panel__header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; min-width: 0; }
+.neo-controlnet-panel__header > div:first-child { display: grid; gap: 0.15rem; min-width: 0; }
+.neo-controlnet-chip, .neo-controlnet-status-chip { border-radius: 999px; padding: 0.25rem 0.6rem; border: 1px solid var(--border-subtle, rgba(255,255,255,0.14)); background: rgba(255,255,255,0.05); white-space: nowrap; }
+.neo-controlnet-chip[data-controlnet-state="enabled"] { border-color: rgba(34,197,94,0.42); }
+.neo-controlnet-chip[data-controlnet-state="gated"] { border-color: rgba(245,158,11,0.45); }
+.neo-controlnet-toolbar { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+.neo-controlnet-units { display: grid; gap: 0.65rem; min-width: 0; }
+.neo-controlnet-unit { display: grid; gap: 0.65rem; padding: 0.75rem; border: 1px solid var(--border-subtle, rgba(255,255,255,0.12)); border-radius: 14px; background: var(--panel-soft, rgba(255,255,255,0.035)); min-width: 0; max-width: 100%; }
+.neo-controlnet-unit-main, .neo-controlnet-unit-advanced, .neo-controlnet-unit-conditional, .neo-controlnet-unit-expert { display: grid; grid-template-columns: repeat(4, minmax(8rem, 1fr)); gap: 0.6rem; align-items: end; min-width: 0; }
+.neo-controlnet-unit-main { grid-template-columns: auto minmax(8rem, 0.75fr) minmax(12rem, 1fr) minmax(5rem, 0.35fr) auto; }
+.neo-controlnet-panel :where(input, select) { min-width: 0; max-width: 100%; }
+:where(.neo-controlnet-panel, .neo-controlnet-panel *) { box-sizing: border-box; min-width: 0; max-width: 100%; }
+@media (max-width: 1100px) { .neo-controlnet-unit-main, .neo-controlnet-unit-advanced, .neo-controlnet-unit-conditional, .neo-controlnet-unit-expert { grid-template-columns: 1fr; } }
+.neo-controlnet-unit-header { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
+.neo-controlnet-config-row { display:grid; grid-template-columns:minmax(10rem,1fr) minmax(10rem,1fr) minmax(14rem,1.45fr); gap:.75rem; align-items:end; }
+.neo-controlnet-assets-row { display:grid; grid-template-columns:minmax(15rem,1fr) minmax(15rem,1fr) auto; gap:.75rem; align-items:end; }
+.neo-controlnet-strength-row { display:grid; grid-template-columns:minmax(7rem,.8fr) minmax(7rem,.65fr) minmax(7rem,.65fr) minmax(10rem,1fr); gap:.75rem; align-items:end; }
+.neo-controlnet-canny-row { display:grid; grid-template-columns:repeat(3,minmax(8rem,1fr)); gap:.75rem; align-items:end; }
+.neo-controlnet-image-field { display:grid; gap:.4rem; }
+.neo-controlnet-image-box { display:grid; gap:.4rem; min-height:96px; padding:.65rem; border:1px dashed rgba(148,163,184,.45); border-radius:14px; background:rgba(2,6,23,.42); }
+.neo-controlnet-image-field.is-dragover .neo-controlnet-image-box { border-color:rgba(56,189,248,.78); background:rgba(14,116,144,.14); }
+.neo-controlnet-image-box small { opacity:.72; }
+@media (max-width: 1180px) { .neo-controlnet-config-row, .neo-controlnet-assets-row, .neo-controlnet-strength-row, .neo-controlnet-canny-row { grid-template-columns:1fr; } }
+
+
+/* ControlNet visual asset boxes + clipping fixes */
+:where(.neo-controlnet-panel, .neo-controlnet-panel *) {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.neo-controlnet-config-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: visible;
+}
+.neo-controlnet-config-row > label,
+.neo-controlnet-strength-row > label,
+.neo-controlnet-canny-row > label,
+.neo-controlnet-assets-row > label {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.neo-controlnet-config-row select,
+.neo-controlnet-strength-row select,
+.neo-controlnet-panel input,
+.neo-controlnet-panel select {
+  width: 100%;
+  max-width: 100%;
+}
+.neo-controlnet-assets-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(6.8rem, max-content);
+  align-items: stretch;
+}
+.neo-controlnet-assets-row > .neo-btn {
+  align-self: center;
+  justify-self: start;
+  min-width: 6.8rem;
+  max-width: 7.4rem;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+  padding-inline: 0.85rem;
+}
+.neo-controlnet-image-box {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 8px;
+  min-height: 132px;
+  padding: 10px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.neo-controlnet-image-box input[type="hidden"] {
+  display: none !important;
+}
+.neo-controlnet-image-placeholder,
+.neo-controlnet-image-preview {
+  width: 100%;
+  min-height: 84px;
+  border-radius: 12px;
+}
+.neo-controlnet-image-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, .25);
+  background: rgba(15, 23, 42, .46);
+  color: var(--neo-text-muted);
+  text-align: center;
+  font-size: .86rem;
+}
+.neo-controlnet-image-preview {
+  display: block;
+  height: 92px;
+  object-fit: cover;
+  background: rgba(2, 6, 23, .65);
+}
+.neo-controlnet-image-ref {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--neo-text-muted);
+  font-size: .76rem;
+}
+@media (max-width: 900px) {
+  .neo-controlnet-config-row,
+  .neo-controlnet-assets-row,
+  .neo-controlnet-strength-row,
+  .neo-controlnet-canny-row {
+    grid-template-columns: 1fr;
+  }
+  .neo-controlnet-assets-row > .neo-btn {
+    justify-self: stretch;
+    max-width: none;
+  }
+}
+
+
+/* ControlNet UI fix 3: true visual image boxes and hard clipping guards */
+:where(.neo-controlnet-panel, .neo-controlnet-panel *) {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.neo-controlnet-unit {
+  overflow: visible;
+}
+.neo-controlnet-config-row {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 0.9fr) minmax(8.5rem, 1fr) minmax(13rem, 1.55fr);
+  gap: 12px;
+  align-items: end;
+  overflow: visible;
+}
+.neo-controlnet-config-row > label,
+.neo-controlnet-strength-row > label,
+.neo-controlnet-canny-row > label,
+.neo-controlnet-assets-row > label {
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+.neo-controlnet-config-row select,
+.neo-controlnet-panel select,
+.neo-controlnet-panel input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.neo-controlnet-assets-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(5.75rem, 5.75rem);
+  gap: 12px;
+  align-items: stretch;
+  overflow: visible;
+}
+.neo-controlnet-assets-row > .neo-btn {
+  width: 100%;
+  min-width: 0;
+  max-width: 5.75rem;
+  align-self: stretch;
+  justify-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.1;
+  padding: 0.7rem 0.55rem;
+}
+.neo-controlnet-image-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.neo-controlnet-image-box {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(104px, 1fr) auto;
+  gap: 8px;
+  min-height: 146px;
+  padding: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px dashed rgba(56, 189, 248, .5);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15,23,42,.48), rgba(2,6,23,.56));
+}
+.neo-controlnet-image-box input[type="hidden"] {
+  display: none !important;
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  inline-size: 0 !important;
+  block-size: 0 !important;
+}
+.neo-controlnet-image-placeholder,
+.neo-controlnet-image-preview {
+  width: 100%;
+  min-height: 104px;
+  border-radius: 13px;
+}
+.neo-controlnet-image-placeholder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+  padding: 14px;
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(56,189,248,.16), transparent 46%),
+    rgba(15, 23, 42, .35);
+  color: var(--neo-text-muted, #94a3b8);
+  text-align: center;
+}
+.neo-controlnet-image-icon {
+  font-size: 1.65rem;
+  line-height: 1;
+  opacity: .8;
+}
+.neo-controlnet-image-title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+  color: var(--neo-text, #dbeafe);
+}
+.neo-controlnet-image-placeholder small {
+  margin: 0;
+  font-size: .76rem;
+  color: var(--neo-text-muted, #94a3b8);
+}
+.neo-controlnet-image-preview {
+  display: block;
+  height: 104px;
+  object-fit: cover;
+  background: rgba(2, 6, 23, .65);
+}
+.neo-controlnet-image-ref {
+  display: block;
+  min-height: 1.2rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--neo-text-muted, #94a3b8);
+  font-size: .74rem;
+  padding: 0 2px;
+}
+.neo-controlnet-image-ref.is-empty {
+  opacity: .72;
+  font-family: inherit;
+}
+@media (max-width: 760px) {
+  .neo-controlnet-config-row,
+  .neo-controlnet-assets-row,
+  .neo-controlnet-strength-row,
+  .neo-controlnet-canny-row {
+    grid-template-columns: 1fr;
+  }
+  .neo-controlnet-assets-row > .neo-btn {
+    max-width: none;
+    min-height: 2.75rem;
+  }
+}
+
+/* UI fix 4 mirrors the app stylesheet: V1-style image tiles and clipping guards. */
+.neo-controlnet-config-row{grid-template-columns:minmax(9rem,.9fr) minmax(12rem,1.05fr) minmax(18rem,1.85fr)!important;gap:14px!important;align-items:end!important}
+.neo-controlnet-config-row select{min-height:38px;padding-right:2.25rem;text-overflow:ellipsis}
+.neo-controlnet-assets-row{grid-template-columns:minmax(14rem,1fr) minmax(14rem,1fr) minmax(8.25rem,8.25rem)!important;gap:14px!important;align-items:stretch!important}
+.neo-controlnet-assets-row>.neo-btn{width:100%!important;max-width:none!important;min-width:8.25rem!important;min-height:3.2rem!important;align-self:center!important;justify-self:stretch!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+.neo-controlnet-image-box{display:grid!important;grid-template-rows:minmax(124px,1fr) auto!important;min-height:174px!important;padding:10px!important;border-radius:16px!important;border:1px dashed rgba(148,163,184,.48)!important;background:rgba(2,6,23,.28)!important}
+.neo-controlnet-image-box.has-preview{border-color:rgba(56,189,248,.72)!important}
+.neo-controlnet-image-box.preview-error::before{content:'Preview unavailable';display:grid;place-items:center;min-height:124px;border-radius:13px;background:rgba(15,23,42,.42);color:var(--neo-text-muted,#94a3b8);font-weight:700}
+.neo-controlnet-image-placeholder,.neo-controlnet-image-preview{min-height:124px!important;height:124px!important;border-radius:13px!important}
+.neo-controlnet-image-preview{width:100%!important;object-fit:contain!important;background:rgba(0,0,0,.34)!important}
+.neo-controlnet-image-placeholder{border:1px solid rgba(148,163,184,.22)!important;background:radial-gradient(circle at 50% 20%,rgba(56,189,248,.12),transparent 42%),rgba(15,23,42,.42)!important}
+.neo-controlnet-image-ref{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;max-width:100%!important}
+@media(max-width:960px){.neo-controlnet-config-row,.neo-controlnet-assets-row,.neo-controlnet-strength-row,.neo-controlnet-canny-row{grid-template-columns:1fr!important}.neo-controlnet-assets-row>.neo-btn{min-width:0!important}}
+
+/* Phase M — task selector shell for standalone extension panel */
+.neo-controlnet-task-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, .28);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .24);
+}
+.neo-controlnet-task-card select {
+  width: 100%;
+}
