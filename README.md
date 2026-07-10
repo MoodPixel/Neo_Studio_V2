@@ -39,6 +39,7 @@ In short: **Neo Studio exists to turn scattered local AI tools into one streamli
 
 - [✨ Features](#-features)
 - [🚧 Project Status](#-project-status)
+- [🛠️ Updates](#️-updates)
 - [🧭 Main Tabs Overview](#-main-tabs-overview)
 - [⚙️ Installation](#️-installation)
 - [🔌 Backend Setup](#-backend-setup)
@@ -96,6 +97,7 @@ In short: **Neo Studio exists to turn scattered local AI tools into one streamli
 - Configure and launch local backends such as ComfyUI Portable and KoboldCPP.
 - Manage backend profiles, provider capability checks, connection tests, extension panels, and custom node setup.
 - Runtime/user settings are stored under `neo_data/`, not inside the main source folders.
+- Model Guide / Model Manifest support for browsing curated model sources, checking local installed models, planning model downloads, and organizing Image, Video, LLM, LoRA, ControlNet, VAE, encoder, and utility model assets.
 
 ---
 
@@ -119,6 +121,18 @@ Still evolving:
 - Additional video route hardening.
 - Voice/Music/Board expansion.
 - More project automation and delivery tooling.
+
+---
+
+## 🛠️ Updates
+
+**July/10/2026 - Admin / Model Guide**
+
+| System | Update | Details |
+|---|---|---|
+| Neo Model Guide | ✅ Model Support Manifest | Added **Admin → Models** with a curated model manifest foundation to make it easier to find, filter, organize, and manage model sources across Image, Video, LLM, LoRA, ControlNet, VAE, encoder, and utility workflows. |
+| Model Sources | ✅ Hugging Face / Civitai Source Support | Added source-aware model entries so users can discover supported model files and variants from Hugging Face and Civitai where available, instead of manually hunting through scattered model pages. |
+| Local Model Management | ✅ Paths, Installed Scan, and Download Planning | Added model path setup, installed-model scanning, model packs, workspace requirement checks, and safe download planning under Admin so users can better understand what is installed, what is missing, and where model files should go. |
 
 ---
 
@@ -662,6 +676,7 @@ Recommended starting points:
 |---|---|
 | Global overview | `guides/00_GLOBAL/neo_overview.md` |
 | Backend profiles | `guides/00_GLOBAL/backend_profiles.md` |
+| Admin Model Guide | `guides/07_ADMIN/model_guide.md` |
 | xAI Grok Imagine backend | `guides/01_IMAGE/xai_grok_imagine.md` |
 | Image overview | `guides/01_IMAGE/image_tab_overview.md` |
 | Image parameters | `guides/01_IMAGE/image_parameters.md` |
