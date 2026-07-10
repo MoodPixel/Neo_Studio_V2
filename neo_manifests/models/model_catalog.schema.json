@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neo-studio.local/schemas/model_catalog.v1.json",
+  "title": "Neo Studio Model Catalog Manifest",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "version",
+    "catalog",
+    "records"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.models.catalog.v1"
+    },
+    "version": {
+      "type": "string"
+    },
+    "catalog": {
+      "type": "object",
+      "required": [
+        "id",
+        "display_name",
+        "status",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "policy": {
+          "type": "string"
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "category",
+          "base_model",
+          "model_type",
+          "source_mode",
+          "source",
+          "install",
+          "ui"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "image",
+              "video",
+              "llm",
+              "utility",
+              "voice"
+            ]
+          },
+          "base_model": {
+            "type": "string"
+          },
+          "model_type": {
+            "type": "string"
+          },
+          "source_mode": {
+            "enum": [
+              "static_file",
+              "discover_files",
+              "manual_only"
+            ]
+          },
+          "source": {
+            "type": "object"
+          },
+          "file_rules": {
+            "type": "object"
+          },
+          "install": {
+            "type": "object"
+          },
+          "ui": {
+            "type": "object"
+          },
+          "hardware": {
+            "type": "object"
+          },
+          "license": {
+            "type": "object"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

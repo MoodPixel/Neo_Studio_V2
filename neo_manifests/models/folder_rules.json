@@ -1,0 +1,158 @@
+{
+  "schema_id": "neo.models.folder_rules.v1",
+  "version": "0.7.0-curated-base-model-guide",
+  "policy": "Folder rules map backend + model_type to target subfolders. User root paths are configured later in neo_data and are not stored in the repo.",
+  "backends": {
+    "comfyui": {
+      "checkpoint": "models/checkpoints",
+      "lora": "models/loras",
+      "vae": "models/vae",
+      "clip": "models/clip",
+      "text_encoder": "models/text_encoders",
+      "controlnet": "models/controlnet",
+      "ipadapter": "models/ipadapter",
+      "upscaler": "models/upscale_models",
+      "unet": "models/unet",
+      "unet_gguf": "models/unet",
+      "embedding": "models/embeddings",
+      "face_model": "models/facerestore_models",
+      "diffusion_model": "models/diffusion_models",
+      "video_diffusion": "models/diffusion_models",
+      "video_gguf": "models/diffusion_models",
+      "audio_encoder": "models/audio_encoders",
+      "clip_vision": "models/clip_vision",
+      "faceid": "models/ipadapter",
+      "faceid_lora": "models/loras",
+      "pose_detection": "models/detection",
+      "detection": "models/detection",
+      "model_patch": "models/diffusion_models"
+    },
+    "forge": {
+      "checkpoint": "models/Stable-diffusion",
+      "lora": "models/Lora",
+      "vae": "models/VAE",
+      "embedding": "embeddings"
+    },
+    "koboldcpp": {
+      "llm_gguf": "{user_llm_models_root}",
+      "llm_mmproj": "{user_llm_models_root}",
+      "llm_transformers": "{user_llm_models_root}"
+    },
+    "local_llm": {
+      "llm_gguf": "{user_llm_models_root}",
+      "embedding": "{user_embedding_models_root}",
+      "reranker": "{user_reranker_models_root}",
+      "llm_mmproj": "{user_llm_models_root}",
+      "llm_transformers": "{user_llm_models_root}"
+    }
+  },
+  "allowed_extensions": {
+    "checkpoint": [
+      ".safetensors",
+      ".ckpt"
+    ],
+    "lora": [
+      ".safetensors",
+      ".pt"
+    ],
+    "vae": [
+      ".safetensors",
+      ".ckpt",
+      ".gguf"
+    ],
+    "controlnet": [
+      ".safetensors",
+      ".pth",
+      ".ckpt"
+    ],
+    "unet": [
+      ".safetensors",
+      ".gguf"
+    ],
+    "unet_gguf": [
+      ".gguf"
+    ],
+    "llm_gguf": [
+      ".gguf"
+    ],
+    "upscaler": [
+      ".pth",
+      ".safetensors"
+    ],
+    "embedding": [
+      ".pt",
+      ".bin",
+      ".safetensors"
+    ],
+    "reranker": [
+      ".safetensors",
+      ".bin",
+      ".gguf"
+    ],
+    "ipadapter": [
+      ".safetensors",
+      ".bin"
+    ],
+    "text_encoder": [
+      ".safetensors",
+      ".bin",
+      ".gguf"
+    ],
+    "diffusion_model": [
+      ".safetensors",
+      ".ckpt"
+    ],
+    "video_diffusion": [
+      ".safetensors",
+      ".ckpt"
+    ],
+    "video_gguf": [
+      ".gguf"
+    ],
+    "clip_vision": [
+      ".safetensors",
+      ".bin"
+    ],
+    "audio_encoder": [
+      ".safetensors",
+      ".bin",
+      ".gguf"
+    ],
+    "model_patch": [
+      ".safetensors",
+      ".ckpt"
+    ],
+    "faceid": [
+      ".safetensors",
+      ".bin"
+    ],
+    "faceid_lora": [
+      ".safetensors",
+      ".bin",
+      ".pt"
+    ],
+    "pose_detection": [
+      ".onnx",
+      ".pt",
+      ".pth",
+      ".safetensors"
+    ],
+    "detection": [
+      ".onnx",
+      ".pt",
+      ".pth",
+      ".safetensors"
+    ],
+    "llm_mmproj": [
+      ".gguf"
+    ],
+    "llm_transformers": [
+      ".safetensors",
+      ".bin",
+      ".json",
+      ".model",
+      ".txt",
+      ".tokenizer"
+    ]
+  }
+}

@@ -74,6 +74,7 @@ from neo_app.admin.engine import admin_engine_state_payload, update_model_paths,
 from neo_app.admin.semantic_engine import semantic_engine_state_payload, semantic_engine_test_payload
 from neo_app.admin.chroma_collections import chroma_collection_state_payload, export_chroma_collection_payload, export_archive_path, import_chroma_archive_payload
 from neo_app.admin.index_jobs import index_job_queue_state_payload, create_index_job_payload, cancel_index_job_payload, read_index_job_log_payload
+from neo_app.admin.models.model_catalog_service import admin_model_catalog_payload, admin_model_catalog_summary_payload, admin_model_category_map_payload, admin_model_folder_rules_payload, admin_model_schema_payload, admin_model_paths_state_payload, admin_model_paths_save_payload, admin_model_target_resolution_payload, admin_model_installed_state_payload, admin_model_scan_installed_payload, admin_model_huggingface_metadata_state_payload, admin_model_huggingface_discover_files_state_payload, admin_model_civitai_metadata_state_payload, admin_model_civitai_discover_files_state_payload, admin_model_filter_state_payload, admin_model_download_plan_state_payload, admin_model_download_start_state_payload, admin_model_download_cancel_state_payload, admin_model_download_jobs_state_payload, admin_model_download_job_state_payload, admin_model_packs_state_payload, admin_model_pack_status_state_payload, admin_model_pack_download_plan_state_payload, admin_model_workspace_requirements_state_payload, admin_model_workspace_status_state_payload, admin_model_workspace_download_plan_state_payload
 from neo_app.admin.image_node_manager import (
     get_node_manager_state,
     save_node_manager_settings,
@@ -1704,7 +1705,7 @@ def _admin_control_center_payload() -> dict:
         "surface_blueprints": surface_blueprint_payload(include_disabled=True),
         "surface_module_architecture": module_architecture_status(),
         "backends": {"providers": providers, "profiles": list_backend_profiles()},
-        "models": {"families_endpoint": "/api/model-families", "parameter_profiles_endpoint": "/api/model-families/parameter-profiles"},
+        "models": {"families_endpoint": "/api/model-families", "parameter_profiles_endpoint": "/api/model-families/parameter-profiles", "model_guide": admin_model_catalog_summary_payload()},
         "memory": memory_payload,
         "engine": engine_payload,
         "memory_engine": get_memory_service().memory_engine_status(),
@@ -1756,6 +1757,132 @@ def admin_surface(surface_id: str) -> dict:
     if match is None:
         raise HTTPException(status_code=404, detail=f"Unknown admin surface: {surface_id}")
     return match
+
+
+@app.get("/api/admin/models/catalog")
+def admin_models_catalog() -> dict:
+    return admin_model_catalog_payload()
+
+
+@app.get("/api/admin/models/folder-rules")
+def admin_models_folder_rules() -> dict:
+    return admin_model_folder_rules_payload()
+
+
+@app.get("/api/admin/models/category-map")
+def admin_models_category_map() -> dict:
+    return admin_model_category_map_payload()
+
+
+@app.get("/api/admin/models/schema")
+def admin_models_schema() -> dict:
+    return admin_model_schema_payload()
+
+
+@app.get("/api/admin/models/paths")
+def admin_models_paths() -> dict:
+    return admin_model_paths_state_payload()
+
+
+@app.post("/api/admin/models/paths")
+def admin_models_paths_save(payload: dict | None = None) -> dict:
+    return admin_model_paths_save_payload(payload)
+
+
+@app.post("/api/admin/models/resolve-target")
+def admin_models_resolve_target(payload: dict | None = None) -> dict:
+    return admin_model_target_resolution_payload(payload)
+
+
+@app.get("/api/admin/models/installed")
+def admin_models_installed() -> dict:
+    return admin_model_installed_state_payload()
+
+
+@app.post("/api/admin/models/scan-installed")
+def admin_models_scan_installed(payload: dict | None = None) -> dict:
+    return admin_model_scan_installed_payload(payload)
+
+
+@app.post("/api/admin/models/remote/huggingface/metadata")
+def admin_models_huggingface_metadata(payload: dict | None = None) -> dict:
+    return admin_model_huggingface_metadata_state_payload(payload)
+
+
+@app.post("/api/admin/models/remote/huggingface/discover-files")
+def admin_models_huggingface_discover_files(payload: dict | None = None) -> dict:
+    return admin_model_huggingface_discover_files_state_payload(payload)
+
+
+@app.post("/api/admin/models/remote/civitai/metadata")
+def admin_models_civitai_metadata(payload: dict | None = None) -> dict:
+    return admin_model_civitai_metadata_state_payload(payload)
+
+
+@app.post("/api/admin/models/remote/civitai/discover-files")
+def admin_models_civitai_discover_files(payload: dict | None = None) -> dict:
+    return admin_model_civitai_discover_files_state_payload(payload)
+
+
+@app.post("/api/admin/models/filter")
+def admin_models_filter(payload: dict | None = None) -> dict:
+    return admin_model_filter_state_payload(payload)
+
+
+@app.post("/api/admin/models/download/plan")
+def admin_models_download_plan(payload: dict | None = None) -> dict:
+    return admin_model_download_plan_state_payload(payload)
+
+
+@app.post("/api/admin/models/download/start")
+def admin_models_download_start(payload: dict | None = None) -> dict:
+    return admin_model_download_start_state_payload(payload)
+
+
+@app.post("/api/admin/models/download/cancel")
+def admin_models_download_cancel(payload: dict | None = None) -> dict:
+    return admin_model_download_cancel_state_payload(payload)
+
+
+@app.get("/api/admin/models/download/jobs")
+def admin_models_download_jobs() -> dict:
+    return admin_model_download_jobs_state_payload()
+
+
+@app.get("/api/admin/models/download/jobs/{job_id}")
+def admin_models_download_job(job_id: str) -> dict:
+    return admin_model_download_job_state_payload(job_id)
+
+
+@app.get("/api/admin/models/packs")
+def admin_models_packs() -> dict:
+    return admin_model_packs_state_payload()
+
+
+@app.post("/api/admin/models/packs/status")
+def admin_models_pack_status(payload: dict | None = None) -> dict:
+    return admin_model_pack_status_state_payload(payload)
+
+
+@app.post("/api/admin/models/packs/download/plan")
+def admin_models_pack_download_plan(payload: dict | None = None) -> dict:
+    return admin_model_pack_download_plan_state_payload(payload)
+
+
+
+@app.get("/api/admin/models/workspaces")
+def admin_models_workspaces() -> dict:
+    return admin_model_workspace_requirements_state_payload()
+
+
+@app.post("/api/admin/models/workspaces/status")
+def admin_models_workspace_status(payload: dict | None = None) -> dict:
+    return admin_model_workspace_status_state_payload(payload)
+
+
+@app.post("/api/admin/models/workspaces/download/plan")
+def admin_models_workspace_download_plan(payload: dict | None = None) -> dict:
+    return admin_model_workspace_download_plan_state_payload(payload)
 
 @app.get("/api/admin/engine/state")
 def admin_engine_state() -> dict:

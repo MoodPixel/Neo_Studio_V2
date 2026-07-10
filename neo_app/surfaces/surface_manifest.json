@@ -727,6 +727,20 @@
           ]
         },
         {
+          "subtab_id": "models",
+          "display_name": "Models",
+          "description": "Model Guide, model paths, installed scan status, source discovery, download planning, model packs, and workspace requirements.",
+          "slots": [
+            "admin.models.catalog",
+            "admin.models.paths",
+            "admin.models.installed",
+            "admin.models.sources",
+            "admin.models.downloads",
+            "admin.models.packs",
+            "admin.models.workspaces"
+          ]
+        },
+        {
           "subtab_id": "extensions",
           "display_name": "Extensions",
           "description": "Global extension registry, compatibility, install state, and surface-scoped extension managers.",

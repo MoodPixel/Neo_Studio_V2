@@ -1,0 +1,248 @@
+{
+  "schema_id": "neo.models.category_map.v1",
+  "version": "0.7.0-curated-base-model-guide",
+  "policy": "Remote tags are treated as hints. Neo normalized categories control UI filters.",
+  "domains": [
+    "image",
+    "video",
+    "llm",
+    "utility",
+    "voice"
+  ],
+  "technical_types": [
+    "checkpoint",
+    "unet",
+    "unet_gguf",
+    "lora",
+    "vae",
+    "clip",
+    "text_encoder",
+    "controlnet",
+    "ipadapter",
+    "upscaler",
+    "embedding",
+    "reranker",
+    "llm_gguf",
+    "video_diffusion",
+    "motion_module",
+    "face_model",
+    "segmentation",
+    "depth",
+    "pose",
+    "detection",
+    "diffusion_model",
+    "video_gguf",
+    "llm_mmproj",
+    "llm_transformers",
+    "audio_encoder",
+    "clip_vision",
+    "faceid",
+    "faceid_lora",
+    "model_patch",
+    "pose_detection",
+    "vision",
+    "captioning"
+  ],
+  "base_models": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "pony",
+    "wan",
+    "hunyuan",
+    "qwen",
+    "general",
+    "z_image",
+    "ltx",
+    "torii_gate",
+    "llama",
+    "gemma",
+    "mistral"
+  ],
+  "creative_categories": {
+    "base": [
+      "base",
+      "foundation",
+      "general"
+    ],
+    "character": [
+      "character",
+      "person",
+      "oc",
+      "portrait",
+      "face",
+      "celebrity"
+    ],
+    "style": [
+      "style",
+      "artstyle",
+      "painting",
+      "illustration",
+      "anime style"
+    ],
+    "clothing": [
+      "clothing",
+      "outfit",
+      "dress",
+      "armor",
+      "uniform"
+    ],
+    "pose": [
+      "pose",
+      "standing",
+      "sitting",
+      "action pose"
+    ],
+    "expression": [
+      "expression",
+      "emotion",
+      "smile",
+      "angry",
+      "crying"
+    ],
+    "concept": [
+      "concept",
+      "theme",
+      "aesthetic"
+    ],
+    "object": [
+      "object",
+      "prop",
+      "weapon",
+      "item"
+    ],
+    "vehicle": [
+      "vehicle",
+      "car",
+      "ship",
+      "aircraft"
+    ],
+    "creature": [
+      "creature",
+      "monster",
+      "animal",
+      "dragon"
+    ],
+    "environment": [
+      "background",
+      "landscape",
+      "city",
+      "room",
+      "environment"
+    ],
+    "architecture": [
+      "architecture",
+      "building",
+      "interior"
+    ],
+    "lighting": [
+      "lighting",
+      "cinematic lighting",
+      "neon"
+    ],
+    "anime": [
+      "anime",
+      "manga",
+      "toon"
+    ],
+    "realistic": [
+      "realistic",
+      "photo",
+      "photorealistic"
+    ],
+    "cinematic": [
+      "cinematic",
+      "film",
+      "movie"
+    ],
+    "depth": [
+      "depth",
+      "midas",
+      "zoe"
+    ],
+    "utility": [
+      "utility",
+      "helper",
+      "tool",
+      "encoder",
+      "vae",
+      "clip",
+      "text encoder",
+      "audio encoder",
+      "preprocessor",
+      "model patch"
+    ],
+    "general": [
+      "general",
+      "all purpose",
+      "multipurpose"
+    ],
+    "gguf": [
+      "gguf",
+      "quant",
+      "quantized",
+      "q4_k_m",
+      "q5_k_m",
+      "q8_0"
+    ],
+    "chat": [
+      "chat",
+      "conversation",
+      "instruct"
+    ],
+    "assistant": [
+      "assistant",
+      "agent",
+      "tool use",
+      "productivity"
+    ],
+    "roleplay": [
+      "roleplay",
+      "rp",
+      "story",
+      "narrative",
+      "character chat"
+    ],
+    "mature": [
+      "mature",
+      "adult",
+      "nsfw"
+    ],
+    "vision": [
+      "vision",
+      "visual",
+      "vl",
+      "llava",
+      "mmproj",
+      "projector"
+    ],
+    "captioning": [
+      "caption",
+      "captioning",
+      "joycaption",
+      "image captioning"
+    ],
+    "video": [
+      "video",
+      "t2v",
+      "i2v",
+      "wan",
+      "ltx"
+    ],
+    "detection": [
+      "detection",
+      "detector",
+      "yolo",
+      "onnx"
+    ],
+    "face": [
+      "face",
+      "faceid",
+      "identity"
+    ]
+  },
+  "normalization": {
+    "policy": "Remote source tags are hints only. Neo maps them into controlled creative_categories for UI filtering.",
+    "matching": "Exact category ids and aliases are preferred; containment matching is used only for multi-word remote tags."
+  }
+}

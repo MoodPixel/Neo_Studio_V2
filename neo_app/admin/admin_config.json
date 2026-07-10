@@ -82,6 +82,7 @@
       "sections": [
         "overview",
         "backends",
+        "models",
         "extensions",
         "memory",
         "memory_engine",
@@ -115,6 +116,23 @@
       ],
       "policy": "Memory Engine settings are shared globally and consumed by Roleplay/Assistant/memory-aware surfaces through bridge endpoints.",
       "label": "Memory Engine"
+    },
+    "model_guide": {
+      "status_endpoint": "/api/admin/models/catalog",
+      "owner": "admin",
+      "data_root": "neo_manifests/models",
+      "runtime_root": "neo_data",
+      "label": "Model Guide",
+      "policy": "Public model manifests live in the repo. User paths, installed scan indexes, and download jobs remain local under neo_data.",
+      "sections": [
+        "guide",
+        "sources",
+        "installed",
+        "paths",
+        "packs",
+        "workspace_needs",
+        "downloads"
+      ]
     }
   },
   "surfaces": {

@@ -17,6 +17,8 @@ const state = {
   adminIndexJobLog: null,
   adminChromaExport: null,
   adminChromaImport: null,
+  adminModels: { catalog: null, paths: null, installed: null, packs: null, workspaces: null, downloadJobs: null, discovery: {}, metadata: {}, downloadPlans: {}, lastStart: null, filters: { search: '', category: '', base_model: '', model_type: '', provider: '', creative_category: '', backend: '', recommended: '' }, error: '', status: '', lastLoadedAt: '' },
+  adminModelsLoading: false,
   memory: null,
   memoryDiagnostics: null,
   memoryObservability: null,
@@ -279,6 +281,7 @@ const state = {
   adminProjectsChildTab: 'workspaces',
   adminAssistantOperatorChildTab: 'assistant_workspaces',
   adminDashboardChildTab: 'cockpit',
+  adminModelsChildTab: 'sources',
   adminLogTailViews: {},
   detailMode: 'guided',
   promptCaptioning: {
@@ -13654,11 +13657,11 @@ function loraStackActiveRoute(record) {
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const workflowMode = loraStackWorkflowMode();
   const backend = activeRouteBackend();
-  const workspaceApp = normalizeWorkspaceAppId(canonicalExtensionWorkspaceApp(record) || activeWorkspaceApp().id || 'assets');
+  const workspaceApp = normalizeWorkspaceAppId(activeWorkspaceApp().id || canonicalExtensionWorkspaceApp(record) || 'assets');
   const routeKey = `${family}:${loader}:${workflowMode}`;
   const entry = routeEntryForSelection(family, loader, workflowMode, backend);
   const declared = extensionManifestRouteState(manifest, { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp });
-  const workspaceState = manifest.route_states?.[workspaceApp] || (workspaceApp === 'assets' ? 'available' : 'unsupported');
+  const workspaceState = manifest.route_states?.[workspaceApp] || (workspaceApp === 'results' ? 'unsupported' : 'available');
   const baseState = entry?.state || 'planned_gated';
   const candidates = [baseState, declared.state, workspaceState].filter(Boolean);
   const routeState = candidates.reduce((worst, item) => extensionRouteStateRank(item) > extensionRouteStateRank(worst) ? item : worst, 'available');
@@ -13668,15 +13671,15 @@ function loraStackActiveRoute(record) {
   else if (routeState === workspaceState) reason = `LoRA Stack workspace state: ${workspaceApp}`;
   if (!reason) {
     if (routeState === 'implementation_target') reason = 'LoRA Stack is visible here, but this family / loader / workflow still needs a compiler-owned LoRA patch profile before execution.';
-    if (routeState === 'planned_gated') reason = 'LoRA Stack is mounted only in Image Assets; this route still preserves saved LoRA intent for replay/diagnostics.';
+    if (routeState === 'planned_gated') reason = 'LoRA Stack is mounted here, but this workspace or route is not executable yet.';
     if (routeState === 'provider_gated') reason = 'The provider route is gated before LoRA Stack can safely patch it.';
-    if (routeState === 'unsupported') reason = workspaceApp !== 'assets' ? 'LoRA Stack controls live only in Image → Assets. This workspace does not mount the editable LoRA panel.' : 'This selected route cannot execute LoRA Stack workflow changes.';
+    if (routeState === 'unsupported') reason = 'This selected route cannot execute LoRA Stack workflow changes.';
   }
   return { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp, route_key: routeKey, route_state: routeState, base_route_state: baseState, manifest_route_state: declared.state, manifest_route_key: declared.key, workspace_state: workspaceState, reason };
 }
 function loraStackRouteVisible(route) {
   const workspace = normalizeWorkspaceAppId(route?.workspace_app || activeWorkspaceApp().id || '');
-  return workspace === 'assets';
+  return ['assets', 'generations', 'reference', 'finish'].includes(workspace);
 }
 function loraStackRouteControlsEnabled(route) {
   return route.route_state === 'available' || route.route_state === 'experimental_available';
@@ -14090,7 +14093,7 @@ function loraStackPanel(record) {
       <span class="neo-badge">${cleanCount} active</span>
     </div>
     <div class="neo-lora-stack-rows">${rows.length ? rows.map((row, index) => loraRowHtml(row, index, locked, selectedRowIndex)).join('') : '<p class="neo-muted">No LoRA rows yet. Add a row or pick one from the library below.</p>'}</div>
-    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Workspace: ${route.workspace_app}`, `State: ${route.route_state}`, 'Mount: Image Assets only', 'Regional targets: L3 preserved'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
+    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Workspace: ${route.workspace_app}`, `State: ${route.route_state}`, 'Global workspace mount: L1', 'Regional targets: L3 preserved'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
   </section>`;
   return panel('LoRA Stack', body, false, status);
 }
@@ -22490,6 +22493,817 @@ function adminDiagnosticsPanel(center) {
   return `<div class="neo-admin-diagnostics-shell neo-admin-smart-split-right" data-child-tab="${escapeAttr(adminDiagnosticsActiveChildTab())}">${adminDiagnosticsChildTabs()}<div class="neo-admin-diagnostics-child-panel">${adminDiagnosticsChildTabBody(center)}</div></div>`;
 }
 
+
+const ADMIN_MODELS_CHILD_TABS = Object.freeze([
+  { id: 'sources', label: 'Sources', description: 'Browse manifest-backed sources and discover Hugging Face/Civitai files.' },
+  { id: 'installed', label: 'Installed', description: 'Scan configured model folders and compare local files against the manifest.' },
+  { id: 'paths', label: 'Paths', description: 'Set local model roots for ComfyUI, Forge, KoboldCPP, and local LLM folders.' },
+  { id: 'packs', label: 'Packs', description: 'Review recommended model packs and missing dependencies.' },
+  { id: 'workspaces', label: 'Workspace Needs', description: 'Check Image, Roleplay, and Assistant workspace model requirements.' },
+  { id: 'downloads', label: 'Downloads', description: 'Review local download jobs and dry-run download tests.' },
+  { id: 'raw', label: 'Raw', description: 'Inspect raw model guide payloads in Expert mode.' },
+]);
+
+function ensureAdminModelsState() {
+  state.adminModels = state.adminModels || {};
+  state.adminModels.discovery = state.adminModels.discovery || {};
+  state.adminModels.metadata = state.adminModels.metadata || {};
+  state.adminModels.downloadPlans = state.adminModels.downloadPlans || {};
+  state.adminModels.selectedVariants = state.adminModels.selectedVariants || {};
+  state.adminModels.lastPlannedVariant = state.adminModels.lastPlannedVariant || {};
+  state.adminModels.filters = {
+    search: '',
+    category: '',
+    base_model: '',
+    model_type: '',
+    provider: '',
+    creative_category: '',
+    backend: '',
+    recommended: '',
+    catalog_id: '',
+    ...(state.adminModels.filters || {}),
+  };
+  return state.adminModels;
+}
+
+function adminModelsActiveChildTab() {
+  const active = state.adminModelsChildTab || 'sources';
+  return ADMIN_MODELS_CHILD_TABS.some((tab) => tab.id === active) ? active : 'sources';
+}
+
+function setAdminModelsChildTab(tabId) {
+  state.adminModelsChildTab = ADMIN_MODELS_CHILD_TABS.some((tab) => tab.id === tabId) ? tabId : 'sources';
+  saveUiState();
+  render();
+}
+
+function adminModelsChildTabs() {
+  const active = adminModelsActiveChildTab();
+  return `<nav class="neo-subtabs neo-admin-models-child-tabs" aria-label="Admin Models child tabs">${ADMIN_MODELS_CHILD_TABS.map((tab) => `<button type="button" class="${tab.id === active ? 'active' : ''}" title="${escapeAttr(tab.description)}" onclick="setAdminModelsChildTab('${escapeAttr(tab.id)}')">${escapeHtml(tab.label)}</button>`).join('')}</nav>`;
+}
+
+async function adminModelsPostJson(url, payload = {}) {
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+async function reloadAdminModelsState() {
+  const models = ensureAdminModelsState();
+  state.adminModelsLoading = true;
+  models.error = '';
+  models.status = 'loading';
+  render();
+  try {
+    models.catalog = await loadJson('/api/admin/models/catalog', null);
+    models.paths = await loadJson('/api/admin/models/paths', null);
+    models.installed = await loadJson('/api/admin/models/installed', null);
+    models.packs = await loadJson('/api/admin/models/packs', null);
+    models.workspaces = await loadJson('/api/admin/models/workspaces', null);
+    models.downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+    models.lastLoadedAt = new Date().toLocaleString();
+    models.status = 'ready';
+  } catch (error) {
+    models.error = error?.message || 'Could not load Admin Model Guide.';
+    models.status = 'error';
+  } finally {
+    state.adminModelsLoading = false;
+    render();
+  }
+}
+
+function adminModelCatalogRecords() {
+  const records = ensureAdminModelsState().catalog?.records;
+  return Array.isArray(records) ? records : [];
+}
+
+const ADMIN_MODEL_KNOWN_DOMAINS = Object.freeze(['image', 'video', 'llm', 'utility']);
+
+function adminModelIsPlaceholderGuide(record) {
+  const id = String(record?.id || '').toLowerCase();
+  const source = record?.source || {};
+  const sourceMode = String(record?.source_mode || '').toLowerCase();
+  const hasConcreteSource = Boolean(source.repo || source.model_id || source.version_id || source.filename || source.source_url || source.download_url);
+  if (record?.ui?.source_visibility === 'hidden' || record?.ui?.template === true) return true;
+  if (id.endsWith('-guide') || id.includes('-source-guide')) return true;
+  if (sourceMode === 'manual_only' && !hasConcreteSource) return true;
+  if (source.discovery === false && !hasConcreteSource) return true;
+  return false;
+}
+
+function adminModelIsVisibleRecord(record) {
+  return Boolean(record) && !adminModelIsPlaceholderGuide(record);
+}
+
+function adminModelIsActionableSourceRecord(record) {
+  if (!adminModelIsVisibleRecord(record)) return false;
+  const source = record?.source || {};
+  const provider = String(source.provider || '').toLowerCase();
+  const sourceMode = String(record?.source_mode || '').toLowerCase();
+  if (!['huggingface', 'civitai'].includes(provider)) return false;
+  if (sourceMode !== 'discover_files' && sourceMode !== 'static_file') return false;
+  if (provider === 'huggingface') return Boolean(source.repo || source.download_url || source.source_url);
+  if (provider === 'civitai') return Boolean(source.model_id || source.version_id || source.download_url || source.source_url);
+  return false;
+}
+
+function adminModelVisibleCatalogRecords() {
+  return adminModelCatalogRecords().filter(adminModelIsVisibleRecord);
+}
+
+function adminModelFilterOptions() {
+  const catalog = ensureAdminModelsState().catalog || {};
+  const options = catalog.filter_options || {};
+  const records = adminModelVisibleCatalogRecords();
+  function valuesFor(key, ignoreKeys = []) {
+    const rows = records.filter((record) => adminModelRecordMatchesFilters(record, { ignoreKeys, ignoreCatalog: true }));
+    return Array.from(new Set(rows.map((record) => record?.[key]).filter(Boolean))).sort();
+  }
+  function sourceProviders() {
+    const rows = records.filter((record) => adminModelRecordMatchesFilters(record, { ignoreKeys: ['provider', 'catalog_id'], ignoreCatalog: true }));
+    return Array.from(new Set(rows.map((record) => record?.source?.provider).filter(Boolean))).sort();
+  }
+  function loraCategories() {
+    const filters = ensureAdminModelsState().filters || {};
+    if (filters.model_type && filters.model_type !== 'lora') return [];
+    const rows = records.filter((record) => record?.model_type === 'lora' && adminModelRecordMatchesFilters(record, { ignoreKeys: ['creative_category', 'catalog_id', 'model_type'], ignoreCatalog: true }));
+    const values = [];
+    rows.forEach((record) => adminModelCreativeCategories(record).forEach((item) => values.push(item)));
+    return Array.from(new Set(values.filter(Boolean))).sort();
+  }
+  const domainValues = Array.from(new Set([...(options.domains || options.categories || []), ...ADMIN_MODEL_KNOWN_DOMAINS, ...records.map((record) => record?.category).filter(Boolean)])).sort();
+  return {
+    domains: domainValues,
+    base_models: valuesFor('base_model', ['base_model', 'model_type', 'creative_category', 'catalog_id']),
+    model_types: valuesFor('model_type', ['model_type', 'creative_category', 'catalog_id']),
+    providers: sourceProviders(),
+    creative_categories: loraCategories(),
+    backends: options.backends || ['comfyui', 'forge', 'koboldcpp', 'local_llm'],
+  };
+}
+
+function adminModelCreativeCategories(record) {
+  return record?.normalized?.creative_categories || record?.ui?.creative_categories || [];
+}
+
+function adminModelSearchText(record) {
+  const source = record?.source || {};
+  const creative = adminModelCreativeCategories(record);
+  return [record?.id, record?.display_name, record?.description, record?.category, record?.base_model, record?.model_type, source.provider, source.repo, source.model_id, ...(creative || [])].filter(Boolean).join(' ').toLowerCase();
+}
+
+function adminModelRecordMatchesFilters(record, options = {}) {
+  const activeFilters = ensureAdminModelsState().filters || {};
+  const filters = { ...activeFilters, ...(options.filters || {}) };
+  const ignore = new Set(options.ignoreKeys || []);
+  const source = record.source || {};
+  const install = record.install || {};
+  const creative = adminModelCreativeCategories(record);
+  const search = String(filters.search || '').trim().toLowerCase();
+  if (!ignore.has('search') && search && !adminModelSearchText(record).includes(search)) return false;
+  if (!ignore.has('category') && filters.category && record.category !== filters.category) return false;
+  if (!ignore.has('base_model') && filters.base_model && record.base_model !== filters.base_model) return false;
+  if (!ignore.has('model_type') && filters.model_type && record.model_type !== filters.model_type) return false;
+  if (!ignore.has('provider') && filters.provider && source.provider !== filters.provider) return false;
+  if (!ignore.has('creative_category') && filters.creative_category) {
+    if (record.model_type !== 'lora') return false;
+    if (!creative.includes(filters.creative_category)) return false;
+  }
+  if (!ignore.has('backend') && filters.backend && !(install.backend_targets || []).includes(filters.backend)) return false;
+  if (!ignore.has('recommended') && filters.recommended === 'yes' && !record.ui?.recommended) return false;
+  if (!ignore.has('recommended') && filters.recommended === 'no' && record.ui?.recommended) return false;
+  if (!ignore.has('catalog_id') && !options.ignoreCatalog && filters.catalog_id && record.id !== filters.catalog_id) return false;
+  return true;
+}
+
+function adminModelFilteredRecords() {
+  return adminModelVisibleCatalogRecords().filter((record) => adminModelRecordMatchesFilters(record));
+}
+
+function adminModelSourceSelectRecords() {
+  return adminModelVisibleCatalogRecords().filter((record) => adminModelIsActionableSourceRecord(record) && adminModelRecordMatchesFilters(record, { ignoreCatalog: true, ignoreKeys: ['catalog_id'] }));
+}
+
+function setAdminModelFilter(key, value) {
+  const models = ensureAdminModelsState();
+  const next = { ...(models.filters || {}), [key]: value || '' };
+  if (key === 'category') {
+    next.base_model = '';
+    next.model_type = '';
+    next.creative_category = '';
+    next.catalog_id = '';
+  }
+  if (key === 'base_model') {
+    next.model_type = '';
+    next.creative_category = '';
+    next.catalog_id = '';
+  }
+  if (key === 'model_type') {
+    next.creative_category = value === 'lora' ? next.creative_category : '';
+    next.catalog_id = '';
+  }
+  if (key === 'creative_category' && value) {
+    next.model_type = 'lora';
+    next.catalog_id = '';
+  }
+  models.filters = next;
+  if (key !== 'catalog_id' && next.catalog_id) {
+    const selected = adminModelCatalogRecords().find((record) => record?.id === next.catalog_id);
+    if (!selected || !adminModelRecordMatchesFilters(selected, { ignoreCatalog: true }) || !adminModelIsActionableSourceRecord(selected)) {
+      models.filters.catalog_id = '';
+    }
+  }
+  render();
+}
+
+function adminModelsSelectOptions(values = [], selected = '', allLabel = 'All', emptyLabel = '') {
+  const cleanValues = Array.from(new Set((values || []).filter(Boolean))).sort();
+  if (!cleanValues.length && emptyLabel) return `<option value="">${escapeHtml(emptyLabel)}</option>`;
+  return `<option value="">${escapeHtml(allLabel)}</option>${cleanValues.map((value) => `<option value="${escapeAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(humanize(value))}</option>`).join('')}`;
+}
+
+function adminModelSourceSelectOptions(selected = '') {
+  const records = adminModelSourceSelectRecords();
+  const options = records.map((record) => {
+    const source = record.source || {};
+    const sourceName = source.repo || source.model_id || source.source_url || record.id;
+    const suffix = record.source_mode === 'discover_files' ? ` · ${sourceName}` : ` · ${record.model_type || 'file'}`;
+    return `<option value="${escapeAttr(record.id)}" ${record.id === selected ? 'selected' : ''}>${escapeHtml(`${record.display_name || record.id}${suffix}`)}</option>`;
+  }).join('');
+  return `<option value="">${records.length ? 'All sources / files' : 'No matching actionable sources'}</option>${options}`;
+}
+
+function adminModelsFilterControlsHtml() {
+  const models = ensureAdminModelsState();
+  const filters = models.filters || {};
+  const options = adminModelFilterOptions();
+  const creativeDisabled = filters.model_type !== 'lora';
+  return `<div class="neo-ui-card neo-admin-model-filter-card">
+    <div class="neo-ui-section-head"><div><strong>Source filters</strong><p>Filters cascade from Domain → Base → Type. Guide/template records are hidden; only concrete sources are selectable.</p></div><span class="neo-badge">${adminModelFilteredRecords().length}/${adminModelVisibleCatalogRecords().length} shown</span></div>
+    <div class="neo-ui-field-grid four compact admin-model-filter-grid">
+      <div><label>Search</label><input id="admin-model-filter-search" value="${escapeAttr(filters.search || '')}" placeholder="sdxl, lora, qwen, gguf" oninput="setAdminModelFilter('search', this.value)"></div>
+      <div><label>Domain</label><select onchange="setAdminModelFilter('category', this.value)">${adminModelsSelectOptions(options.domains, filters.category, 'All domains')}</select></div>
+      <div><label>Base</label><select onchange="setAdminModelFilter('base_model', this.value)">${adminModelsSelectOptions(options.base_models, filters.base_model, filters.category ? `All ${humanize(filters.category)} bases` : 'All bases', filters.category ? `No ${humanize(filters.category)} bases in manifest` : 'No bases')}</select></div>
+      <div><label>Type</label><select onchange="setAdminModelFilter('model_type', this.value)">${adminModelsSelectOptions(options.model_types, filters.model_type, filters.base_model ? `All ${humanize(filters.base_model)} types` : 'All types', 'No matching types')}</select></div>
+      <div><label>Provider</label><select onchange="setAdminModelFilter('provider', this.value)">${adminModelsSelectOptions(options.providers, filters.provider, 'All providers', 'No matching providers')}</select></div>
+      <div><label>LoRA category</label><select ${creativeDisabled ? 'disabled' : ''} onchange="setAdminModelFilter('creative_category', this.value)">${adminModelsSelectOptions(options.creative_categories, filters.creative_category, creativeDisabled ? 'Select LoRA type first' : 'All LoRA categories', creativeDisabled ? 'Select LoRA type first' : 'No LoRA categories')}</select></div>
+      <div><label>Backend</label><select onchange="setAdminModelFilter('backend', this.value)">${adminModelsSelectOptions(options.backends, filters.backend, 'All backends')}</select></div>
+      <div><label>Recommended</label><select onchange="setAdminModelFilter('recommended', this.value)"><option value="" ${!filters.recommended ? 'selected' : ''}>All</option><option value="yes" ${filters.recommended === 'yes' ? 'selected' : ''}>Recommended</option><option value="no" ${filters.recommended === 'no' ? 'selected' : ''}>Optional</option></select></div>
+      <div class="neo-ui-field-wide"><label>Source / file</label><select onchange="setAdminModelFilter('catalog_id', this.value)">${adminModelSourceSelectOptions(filters.catalog_id)}</select><p class="neo-muted small">Only concrete Hugging Face/Civitai sources appear here. Manifest guide templates are hidden.</p></div>
+    </div>
+  </div>`;
+}
+
+function adminModelRecordById(catalogId) {
+  return adminModelCatalogRecords().find((record) => record?.id === catalogId) || null;
+}
+
+function adminModelSourceUrl(record) {
+  const source = record?.source || {};
+  if (source.source_url) return source.source_url;
+  if (source.url) return source.url;
+  if (source.download_url) return source.download_url;
+  const provider = String(source.provider || '').toLowerCase();
+  if (provider === 'huggingface' && source.repo) return `https://huggingface.co/${source.repo}`;
+  if (provider === 'civitai') {
+    if (source.model_id) return `https://civitai.com/models/${source.model_id}`;
+    if (source.version_id) return `https://civitai.com/api/download/models/${source.version_id}`;
+  }
+  return '';
+}
+
+function adminModelInstallStatus(catalogId) {
+  const installed = ensureAdminModelsState().installed || {};
+  const rows = Array.isArray(installed.catalog_status) ? installed.catalog_status : [];
+  return rows.find((item) => item?.catalog_id === catalogId) || null;
+}
+
+function adminModelStatusBadge(record) {
+  const status = adminModelInstallStatus(record.id);
+  const label = status?.overall_status || 'not scanned';
+  const variant = label === 'installed' ? 'success' : label === 'missing' ? 'warning' : label === 'local_candidates' ? 'active' : '';
+  return NeoUI.statusBadge(label, variant || label);
+}
+
+function adminModelDiscoveryVariants(catalogId) {
+  const discovery = ensureAdminModelsState().discovery?.[catalogId];
+  return Array.isArray(discovery?.variants) ? discovery.variants : [];
+}
+
+function adminModelVariantKey(variant) {
+  return String(variant?.path || variant?.filename || variant?.source_path || variant?.download_url || '').trim();
+}
+
+function adminModelVariantLabel(variant) {
+  return variant?.variant || variant?.quality_label || variant?.filename || variant?.path || 'variant';
+}
+
+function adminModelSelectedVariant(record) {
+  const variants = adminModelDiscoveryVariants(record.id);
+  if (!variants.length) return null;
+  const selectedKey = ensureAdminModelsState().selectedVariants?.[record.id] || '';
+  return variants.find((variant) => adminModelVariantKey(variant) === selectedKey) || variants[0];
+}
+
+function setAdminModelSelectedVariant(catalogId, value) {
+  const models = ensureAdminModelsState();
+  models.selectedVariants[catalogId] = value || '';
+  render();
+}
+
+function adminModelVariantSelectHtml(record, variants) {
+  if (!variants.length) return '';
+  const selected = adminModelVariantKey(adminModelSelectedVariant(record));
+  const options = variants.map((variant, index) => {
+    const key = adminModelVariantKey(variant);
+    const size = variant.size_bytes ? ` · ${(Number(variant.size_bytes) / (1024 * 1024 * 1024)).toFixed(2)} GB` : '';
+    const tag = variant.recommended ? ' · recommended' : '';
+    return `<option value="${escapeAttr(key)}" ${key === selected ? 'selected' : ''}>${escapeHtml(`${index + 1}. ${adminModelVariantLabel(variant)}${size}${tag}`)}</option>`;
+  }).join('');
+  return `<div class="neo-ui-field-grid two compact"><div><label>Available file / variant</label><select onchange="setAdminModelSelectedVariant('${escapeAttr(record.id)}', this.value)">${options}</select></div><div>${NeoUI.metaList([`Showing 1 selected file from ${variants.length} discovered variants.`, 'Use the dropdown to avoid cramming every variant card on screen.'], { code: false })}</div></div>`;
+}
+
+function adminModelPreviewUrls(payload) {
+  const metadata = payload?.metadata || {};
+  const urls = [];
+  [metadata.preview_urls, metadata.card_data?.preview_urls, payload?.selected_version?.preview_urls].forEach((rows) => {
+    if (Array.isArray(rows)) rows.forEach((url) => { if (typeof url === 'string' && url.startsWith('http') && !urls.includes(url)) urls.push(url); });
+  });
+  return urls;
+}
+
+function adminModelMetadataPanel(record) {
+  const payload = ensureAdminModelsState().metadata?.[record.id];
+  if (!payload) return '';
+  if (payload.ok === false) return `<div class="neo-warning-panel">${NeoUI.metaList(payload.errors || ['Remote details could not be loaded.'], { code: false })}</div>`;
+  const metadata = payload.metadata || {};
+  const description = metadata.description || metadata.card_data?.description || metadata.card_data?.summary || record.description || '';
+  const tags = (metadata.tags || []).slice(0, 12);
+  const previews = adminModelPreviewUrls(payload).slice(0, 4).map((url) => `<a href="${escapeAttr(url)}" target="_blank" rel="noopener"><img src="${escapeAttr(url)}" alt="Remote model preview" loading="lazy" referrerpolicy="no-referrer" style="width:92px;height:92px;object-fit:cover;border-radius:12px;border:1px solid var(--neo-border,#2f3a4f);margin:4px;"></a>`).join('');
+  const detailRows = [
+    metadata.creator?.username ? `Creator: ${metadata.creator.username}` : '',
+    metadata.downloads != null ? `Downloads: ${metadata.downloads}` : '',
+    metadata.likes != null ? `Likes: ${metadata.likes}` : '',
+    metadata.version_count != null ? `Versions: ${metadata.version_count}` : '',
+    metadata.pipeline_tag ? `Pipeline: ${metadata.pipeline_tag}` : '',
+    metadata.library_name ? `Library: ${metadata.library_name}` : '',
+    metadata.gated ? 'Access: gated/private may require token' : '',
+  ].filter(Boolean);
+  return `<div class="neo-ui-card neo-admin-model-remote-details"><div class="neo-ui-section-head"><div><strong>Remote details</strong><p>Loaded from ${escapeHtml(payload.provider || record.source?.provider || 'source')} for this session only.</p></div>${NeoUI.statusBadge(payload.status || 'ready')}</div>${previews ? `<div class="neo-admin-model-preview-strip">${previews}</div>` : ''}${description ? `<p class="neo-muted">${escapeHtml(description).slice(0, 600)}</p>` : ''}${NeoUI.badgeRow(tags)}${detailRows.length ? NeoUI.metaList(detailRows, { code: false }) : ''}</div>`;
+}
+
+async function loadAdminModelMetadata(catalogId) {
+  const record = adminModelRecordById(catalogId);
+  if (!record) return;
+  const provider = String(record.source?.provider || '').toLowerCase();
+  const endpoint = provider === 'civitai' ? '/api/admin/models/remote/civitai/metadata' : '/api/admin/models/remote/huggingface/metadata';
+  const models = ensureAdminModelsState();
+  models.status = `details:${catalogId}`;
+  render();
+  try {
+    const result = await adminModelsPostJson(endpoint, { catalog_id: catalogId });
+    models.metadata[catalogId] = result;
+    models.status = result.ok ? 'ready' : (result.status || 'needs_attention');
+  } catch (error) {
+    models.metadata[catalogId] = { ok: false, status: 'error', errors: [error?.message || String(error)] };
+    models.status = 'error';
+  }
+  render();
+}
+
+function adminModelSelectedVariantPanel(record) {
+  const variants = adminModelDiscoveryVariants(record.id);
+  if (!variants.length) return '';
+  const variant = adminModelSelectedVariant(record);
+  if (!variant) return '';
+  const key = adminModelVariantKey(variant);
+  const label = adminModelVariantLabel(variant);
+  const size = variant.size_bytes ? `${(Number(variant.size_bytes) / (1024 * 1024 * 1024)).toFixed(2)} GB` : '';
+  const plan = ensureAdminModelsState().downloadPlans?.[record.id];
+  const plannedKey = ensureAdminModelsState().lastPlannedVariant?.[record.id] || '';
+  const hasMatchingPlan = plan?.ok && plannedKey === key;
+  const actions = [
+    `<button type="button" class="neo-btn small primary" onclick="planAdminModelDownload('${escapeAttr(record.id)}', '${escapeAttr(key)}')">Plan selected file</button>`,
+    hasMatchingPlan ? `<button type="button" class="neo-btn small" onclick="startAdminModelDownload('${escapeAttr(record.id)}')">Download planned file</button>` : '',
+    hasMatchingPlan ? `<button type="button" class="neo-btn small secondary" onclick="startAdminModelDryRun('${escapeAttr(record.id)}')">Dry-run job</button>` : '',
+  ].filter(Boolean).join('');
+  return `<article class="neo-ui-record-card neo-admin-model-variant-card selected">
+    <div class="neo-ui-section-head"><div><strong>${escapeHtml(label)}</strong><p>${escapeHtml(variant.filename || variant.path || '')}</p></div>${variant.recommended ? '<span class="neo-badge success">recommended</span>' : '<span class="neo-badge">selected file</span>'}</div>
+    ${NeoUI.badgeRow([variant.provider, variant.extension, variant.base_model, size].filter(Boolean))}
+    ${NeoUI.metaList([variant.path ? `Path: ${variant.path}` : '', variant.download_url ? 'Direct download URL available' : 'Download URL will be resolved from the source', hasMatchingPlan ? `Planned target: ${plan.target?.final_path || plan.target?.target_folder || 'target resolved'}` : 'Create a plan before downloading.'].filter(Boolean), { code: false })}
+    ${plan?.errors?.length && plannedKey === key ? `<p class="neo-error-text">${escapeHtml(plan.errors.join(' · '))}</p>` : ''}
+    <div class="neo-ui-toolbar">${actions}</div>
+  </article>`;
+}
+
+function adminModelCard(record) {
+  const source = record.source || {};
+  const install = record.install || {};
+  const ui = record.ui || {};
+  const categories = record.normalized?.creative_categories || ui.creative_categories || [];
+  const discovery = ensureAdminModelsState().discovery?.[record.id];
+  const variantCount = discovery?.summary?.variant_count ?? (Array.isArray(discovery?.variants) ? discovery.variants.length : 0);
+  const badges = [record.category, record.base_model, record.model_type, source.provider, ...(install.backend_targets || []), ...(categories || []).slice(0, 3)].filter(Boolean);
+  const canDiscover = ['huggingface', 'civitai'].includes(String(source.provider || '').toLowerCase()) && record.source_mode === 'discover_files';
+  const actions = [
+    canDiscover ? `<button type="button" class="neo-btn small primary" onclick="discoverAdminModelFiles('${escapeAttr(record.id)}')">Discover files</button>` : '',
+    `<button type="button" class="neo-btn small" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">Load details</button>`,
+    `<button type="button" class="neo-btn small" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan</button>`,
+    adminModelSourceUrl(record) ? `<a class="neo-btn small secondary" href="${escapeAttr(adminModelSourceUrl(record))}" target="_blank" rel="noopener">Open source</a>` : '',
+  ].filter(Boolean).join('');
+  const discovered = discovery ? `<div class="neo-admin-model-discovery-note"><span class="neo-badge ${discovery.ok ? 'success' : 'warning'}">${escapeHtml(discovery.status || 'discovery')}</span><span>${escapeHtml(`${variantCount} variant(s)`)}</span></div>` : '';
+  return `<article class="neo-ui-record-card neo-admin-model-card" data-admin-model-id="${escapeAttr(record.id)}">
+    <div class="neo-ui-section-head"><div><strong>${escapeHtml(record.display_name || record.id)}</strong><p>${escapeHtml(record.description || record.id || '')}</p></div>${adminModelStatusBadge(record)}</div>
+    ${NeoUI.badgeRow(badges)}
+    ${NeoUI.metaList([`ID: ${record.id}`, `Source mode: ${record.source_mode || 'static_file'}`, `Target: ${install.target_type || record.model_type || 'unknown'}`], { code: false })}
+    ${discovered}
+    ${adminModelMetadataPanel(record)}
+    <div class="neo-ui-toolbar">${actions}</div>
+  </article>`;
+}
+
+function adminModelVariantCard(record, variant) {
+  const label = variant.variant || variant.quality_label || variant.filename || 'variant';
+  const size = variant.size_bytes ? `${(Number(variant.size_bytes) / (1024 * 1024 * 1024)).toFixed(2)} GB` : '';
+  return `<article class="neo-ui-record-card neo-admin-model-variant-card">
+    <div class="neo-ui-section-head"><div><strong>${escapeHtml(label)}</strong><p>${escapeHtml(variant.filename || variant.path || '')}</p></div>${variant.recommended ? '<span class="neo-badge success">recommended</span>' : '<span class="neo-badge">variant</span>'}</div>
+    ${NeoUI.badgeRow([variant.provider, variant.extension, variant.base_model, size].filter(Boolean))}
+    <div class="neo-ui-toolbar"><button type="button" class="neo-btn small primary" onclick="planAdminModelDownload('${escapeAttr(record.id)}', '${escapeAttr(variant.path || variant.filename || '')}')">Plan this file</button></div>
+  </article>`;
+}
+
+async function discoverAdminModelFiles(catalogId) {
+  const record = adminModelRecordById(catalogId);
+  if (!record) return;
+  const provider = String(record.source?.provider || '').toLowerCase();
+  const endpoint = provider === 'civitai' ? '/api/admin/models/remote/civitai/discover-files' : '/api/admin/models/remote/huggingface/discover-files';
+  const models = ensureAdminModelsState();
+  models.status = `discovering:${catalogId}`;
+  render();
+  try {
+    const result = await adminModelsPostJson(endpoint, { catalog_id: catalogId });
+    models.discovery[catalogId] = result;
+    const variants = Array.isArray(result?.variants) ? result.variants : [];
+    if (variants.length && !models.selectedVariants[catalogId]) models.selectedVariants[catalogId] = adminModelVariantKey(variants[0]);
+    models.status = result.ok ? 'ready' : (result.status || 'needs_attention');
+  } catch (error) {
+    models.discovery[catalogId] = { ok: false, status: 'error', errors: [error?.message || String(error)] };
+    models.status = 'error';
+  }
+  render();
+}
+
+async function planAdminModelDownload(catalogId, variantPath = '') {
+  const record = adminModelRecordById(catalogId);
+  if (!record) return;
+  const install = record.install || {};
+  const backend = (install.backend_targets || [])[0] || 'comfyui';
+  const discovery = ensureAdminModelsState().discovery?.[catalogId];
+  let variant = null;
+  if (variantPath && Array.isArray(discovery?.variants)) variant = discovery.variants.find((item) => (item.path || item.filename) === variantPath) || null;
+  const payload = { catalog_id: catalogId, backend };
+  const variantKey = variant ? adminModelVariantKey(variant) : '';
+  if (variant) payload.variant = variant;
+  try {
+    const result = await adminModelsPostJson('/api/admin/models/download/plan', payload);
+    ensureAdminModelsState().downloadPlans[catalogId] = result;
+    ensureAdminModelsState().lastPlannedVariant[catalogId] = variantKey;
+  } catch (error) {
+    ensureAdminModelsState().downloadPlans[catalogId] = { ok: false, status: 'error', errors: [error?.message || String(error)] };
+  }
+  render();
+}
+
+async function startAdminModelDryRun(catalogId) {
+  const plan = ensureAdminModelsState().downloadPlans?.[catalogId];
+  if (!plan) { window.alert('Create a download plan first.'); return; }
+  const result = await adminModelsPostJson('/api/admin/models/download/start', { plan, confirmed: true, dry_run: true });
+  ensureAdminModelsState().lastStart = result;
+  ensureAdminModelsState().downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+  render();
+}
+
+async function startAdminModelDownload(catalogId) {
+  const plan = ensureAdminModelsState().downloadPlans?.[catalogId];
+  if (!plan?.ok) { window.alert('Create a valid download plan first.'); return; }
+  const filename = plan.file?.filename || 'selected model file';
+  const target = plan.target?.final_path || plan.target?.target_folder || 'configured model folder';
+  const message = `Download ${filename}?\n\nTarget:\n${target}\n\nLarge model downloads can take time. Neo will use a temp .part file first.`;
+  if (!window.confirm(message)) return;
+  try {
+    const result = await adminModelsPostJson('/api/admin/models/download/start', { plan, confirmed: true, dry_run: false, overwrite: false });
+    ensureAdminModelsState().lastStart = result;
+    ensureAdminModelsState().downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+    state.adminModelsChildTab = 'downloads';
+  } catch (error) {
+    ensureAdminModelsState().error = error?.message || String(error);
+  }
+  render();
+}
+
+async function scanAdminInstalledModels() {
+  try {
+    ensureAdminModelsState().installed = await adminModelsPostJson('/api/admin/models/scan-installed', {});
+    render();
+  } catch (error) {
+    ensureAdminModelsState().error = error?.message || String(error);
+    render();
+  }
+}
+
+async function saveAdminModelPaths() {
+  const payload = {
+    backends: {
+      comfyui: { enabled: document.getElementById('admin-model-path-comfyui-enabled')?.checked, root: document.getElementById('admin-model-path-comfyui-root')?.value || '', models_root: document.getElementById('admin-model-path-comfyui-models')?.value || '' },
+      forge: { enabled: document.getElementById('admin-model-path-forge-enabled')?.checked, root: document.getElementById('admin-model-path-forge-root')?.value || '', models_root: document.getElementById('admin-model-path-forge-models')?.value || '' },
+      koboldcpp: { enabled: document.getElementById('admin-model-path-koboldcpp-enabled')?.checked, root: document.getElementById('admin-model-path-koboldcpp-root')?.value || '', models_root: document.getElementById('admin-model-path-koboldcpp-models')?.value || '' },
+      local_llm: { enabled: document.getElementById('admin-model-path-local-llm-enabled')?.checked, user_llm_models_root: document.getElementById('admin-model-path-local-llm-root')?.value || '', user_embedding_models_root: document.getElementById('admin-model-path-embedding-root')?.value || '', user_reranker_models_root: document.getElementById('admin-model-path-reranker-root')?.value || '' },
+    },
+    download: {
+      temp_root: document.getElementById('admin-model-download-temp-root')?.value || 'neo_data/downloads/tmp',
+      completed_root: document.getElementById('admin-model-download-completed-root')?.value || 'neo_data/downloads/completed',
+      failed_root: document.getElementById('admin-model-download-failed-root')?.value || 'neo_data/downloads/failed',
+    },
+  };
+  const models = ensureAdminModelsState();
+  try {
+    models.paths = await adminModelsPostJson('/api/admin/models/paths', payload);
+    models.status = 'paths_saved';
+  } catch (error) {
+    models.error = error?.message || String(error);
+  }
+  render();
+}
+
+async function refreshAdminModelDownloadJobs() {
+  ensureAdminModelsState().downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+  render();
+}
+
+
+function adminModelFormatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
+}
+
+function adminModelFormatDuration(seconds) {
+  const value = Number(seconds || 0);
+  if (!value || value < 0) return '';
+  if (value < 60) return `${Math.ceil(value)}s`;
+  if (value < 3600) return `${Math.ceil(value / 60)}m`;
+  return `${Math.floor(value / 3600)}h ${Math.ceil((value % 3600) / 60)}m`;
+}
+
+async function cancelAdminModelDownload(jobId) {
+  if (!jobId) return;
+  if (!window.confirm('Cancel this model download?')) return;
+  try {
+    ensureAdminModelsState().lastCancel = await adminModelsPostJson('/api/admin/models/download/cancel', { job_id: jobId });
+    ensureAdminModelsState().downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+  } catch (error) {
+    ensureAdminModelsState().error = error?.message || String(error);
+  }
+  render();
+}
+
+function adminModelsOverviewPanel() {
+  const models = ensureAdminModelsState();
+  const catalog = models.catalog || {};
+  const summary = catalog.summary || {};
+  const validation = catalog.validation || {};
+  const badges = [`Records ${summary.record_count || 0}`, `Recommended ${summary.recommended_count || 0}`, `Dynamic ${summary.dynamic_source_count || 0}`, `Status ${catalog.status || models.status || 'not loaded'}`];
+  const status = models.error ? 'needs attention' : (catalog.status || models.status || 'ready');
+  return `<div class="neo-admin-models-overview-left">${NeoUI.card({
+    title: 'Models',
+    description: 'Manifest-driven source catalog for Image, Video, LLM, LoRA, ControlNet, GGUF, packs, paths, and workspace requirements.',
+    badge: NeoUI.statusBadge(status),
+    body: `${NeoUI.badgeRow(badges)}${models.error ? `<p class="neo-error-text">${escapeHtml(models.error)}</p>` : ''}${NeoUI.metaList([`Manifest validation: ${validation.ok === false ? 'needs attention' : 'ready'}`, `Last loaded: ${models.lastLoadedAt || 'not loaded yet'}`, 'Public manifests live in neo_manifests/models. User paths and jobs stay in neo_data.'], { code: false })}`,
+    actions: '<button type="button" class="neo-btn primary" onclick="reloadAdminModelsState()">Refresh Models</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'paths\')">Open Paths</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'installed\')">Open Installed</button>'
+  })}${NeoUI.card({
+    title: 'Capabilities',
+    description: 'Backend contracts already available for this UI.',
+    body: NeoUI.badgeRow(Object.entries(catalog.capabilities || {}).filter(([, enabled]) => enabled).map(([key]) => key.replaceAll('_', ' ')).slice(0, 18)),
+  })}</div>`;
+}
+
+function adminModelsGuideBody() {
+  const records = adminModelFilteredRecords();
+  return `<div class="neo-admin-models-guide" data-admin-model-tab="guide">${adminModelsFilterControlsHtml()}<div class="neo-ui-record-list admin-model-card-list">${records.length ? records.slice(0, 80).map(adminModelCard).join('') : NeoUI.emptyState('No manifest records match the current filters.', 'Try clearing search or filters.')}</div></div>`;
+}
+
+function adminModelsSourcesBody() {
+  const records = adminModelFilteredRecords().filter((record) => ['huggingface', 'civitai'].includes(String(record.source?.provider || '').toLowerCase()));
+  const sections = records.map((record) => {
+    const discovery = ensureAdminModelsState().discovery?.[record.id];
+    const variants = adminModelDiscoveryVariants(record.id);
+    const sourceLabel = record.source?.repo || record.source?.model_id || record.source?.source_url || '';
+    const detailsLoaded = ensureAdminModelsState().metadata?.[record.id];
+    const sourceUrl = adminModelSourceUrl(record);
+    const openSourceAction = sourceUrl ? `<a class="neo-btn secondary" href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener">Open source</a>` : '';
+    return NeoUI.card({
+      title: record.display_name || record.id,
+      description: `${record.source?.provider || 'source'} · ${sourceLabel}`,
+      badge: NeoUI.statusBadge(discovery?.status || 'not discovered'),
+      body: `${NeoUI.badgeRow([record.category, record.base_model, record.model_type, record.source_mode])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="discoverAdminModelFiles('${escapeAttr(record.id)}')">Discover files</button><button type="button" class="neo-btn" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">${detailsLoaded ? 'Refresh details' : 'Load details / previews'}</button><button type="button" class="neo-btn" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan default</button>${openSourceAction}</div>${discovery?.errors?.length ? `<p class="neo-error-text">${escapeHtml(discovery.errors.join(' · '))}</p>` : ''}${adminModelMetadataPanel(record)}${variants.length ? `${adminModelVariantSelectHtml(record, variants)}${adminModelSelectedVariantPanel(record)}` : NeoUI.emptyState('No variants loaded yet.', 'Click Discover files to query the remote source for this session.')}`,
+    });
+  }).join('');
+  return `<div class="neo-admin-models-sources">${adminModelsFilterControlsHtml()}${sections || NeoUI.emptyState('No remote source records match the current filters.')}</div>`;
+}
+
+function adminModelsInstalledScanPayload() {
+  const installed = ensureAdminModelsState().installed || {};
+  if (installed && installed.scan && typeof installed.scan === 'object') return installed.scan;
+  return installed;
+}
+
+function adminModelCatalogRecordById(catalogId) {
+  return adminModelCatalogRecords().find((record) => record?.id === catalogId) || null;
+}
+
+function adminModelInstalledVisibleCatalogRows(scan) {
+  const rows = Array.isArray(scan?.catalog_status) ? scan.catalog_status : [];
+  return rows.filter((item) => {
+    const record = adminModelCatalogRecordById(item?.catalog_id);
+    if (!record) return true;
+    if (adminModelIsPlaceholderGuide(record)) return false;
+    return adminModelIsActionableSourceRecord(record) || item?.overall_status === 'installed' || item?.overall_status === 'local_candidates';
+  });
+}
+
+function adminModelLocalFiles(scan) {
+  const files = Array.isArray(scan?.detected_files) ? scan.detected_files : [];
+  return files.slice().sort((a, b) => {
+    const backend = String(a.backend || '').localeCompare(String(b.backend || ''));
+    if (backend) return backend;
+    const type = String(a.target_type || '').localeCompare(String(b.target_type || ''));
+    if (type) return type;
+    return String(a.filename || '').localeCompare(String(b.filename || ''));
+  });
+}
+
+function adminModelLocalFileCard(file) {
+  const size = adminModelFormatBytes(file.size_bytes);
+  const badges = [file.backend, file.target_type, file.extension, size].filter(Boolean);
+  const pathLine = file.relative_path || file.path || '';
+  return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(file.filename || 'local model file')}</strong><p>${escapeHtml(pathLine)}</p></div>${NeoUI.statusBadge('local')}</div>${NeoUI.badgeRow(badges)}${NeoUI.metaList([file.target_root ? `Folder: ${file.target_root}` : '', file.modified_at ? `Modified: ${file.modified_at}` : ''].filter(Boolean), { code: false })}</article>`;
+}
+
+function adminModelCatalogComparisonCard(item) {
+  const record = adminModelCatalogRecordById(item.catalog_id);
+  const title = item.display_name || record?.display_name || item.catalog_id || 'catalog item';
+  const backendText = (item.backends || []).map((backend) => {
+    const bits = [backend.backend, backend.target_type, backend.status].filter(Boolean);
+    return bits.join(' · ');
+  }).join(' | ');
+  const candidatePreview = (item.backends || []).flatMap((backend) => backend.candidate_preview || []).slice(0, 5);
+  return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(backendText || item.catalog_id || '')}</p></div>${NeoUI.statusBadge(item.overall_status || 'unknown')}</div>${candidatePreview.length ? NeoUI.metaList(candidatePreview.map((candidate) => `${candidate.filename || candidate.relative_path || 'candidate'}${candidate.size_bytes ? ` · ${adminModelFormatBytes(candidate.size_bytes)}` : ''}`), { code: false }) : ''}</article>`;
+}
+
+function adminModelsInstalledBody() {
+  const installedPayload = ensureAdminModelsState().installed || {};
+  const scan = adminModelsInstalledScanPayload();
+  const summary = scan?.summary || {};
+  const localFiles = adminModelLocalFiles(scan);
+  const catalogRows = adminModelInstalledVisibleCatalogRows(scan);
+  const hasScan = Boolean(scan?.schema_id || installedPayload?.has_scan || localFiles.length || catalogRows.length);
+  const localBody = localFiles.length
+    ? localFiles.slice(0, 200).map(adminModelLocalFileCard).join('')
+    : NeoUI.emptyState(hasScan ? 'No local model files found in configured paths.' : 'No installed scan index yet.', hasScan ? 'Check Admin → Models → Paths, then scan again.' : 'Set model paths, then run Scan installed models.');
+  const comparisonBody = catalogRows.length
+    ? `<details class="neo-ui-details"><summary>Manifest comparison (${catalogRows.length})</summary><div class="neo-ui-record-list">${catalogRows.slice(0, 120).map(adminModelCatalogComparisonCard).join('')}</div></details>`
+    : '';
+  return `<div class="neo-admin-models-installed">${NeoUI.card({
+    title: 'Installed scanner',
+    description: 'Shows actual local model files found in configured folders first. Manifest comparison is secondary and hides guide/template records.',
+    badge: NeoUI.statusBadge(scan?.status || installedPayload?.status || 'not scanned'),
+    body: NeoUI.badgeRow([`Local files ${summary.detected_file_count || localFiles.length || 0}`, `Targets ${summary.target_ready_count || 0}/${summary.target_count || 0}`, `Manifest installed ${summary.catalog_installed_count || 0}`, `Missing ${summary.catalog_missing_count || 0}`, `Candidates ${summary.catalog_with_local_candidates_count || 0}`]),
+    actions: '<button type="button" class="neo-btn primary" onclick="scanAdminInstalledModels()">Scan installed models</button><button type="button" class="neo-btn" onclick="reloadAdminModelsState()">Refresh</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'paths\')">Open Paths</button>'
+  })}<div class="neo-ui-record-list">${localBody}</div>${comparisonBody}</div>`;
+}
+
+function adminModelPathField(id, label, value = '', placeholder = '') {
+  return `<div><label>${escapeHtml(label)}</label><input id="${escapeAttr(id)}" value="${escapeAttr(value || '')}" placeholder="${escapeAttr(placeholder || '')}"></div>`;
+}
+
+function adminModelsPathsBody() {
+  const pathsPayload = ensureAdminModelsState().paths || {};
+  const paths = pathsPayload.paths || {};
+  const backends = paths.backends || {};
+  const download = paths.download || {};
+  const comfy = backends.comfyui || {};
+  const forge = backends.forge || {};
+  const kobold = backends.koboldcpp || {};
+  const local = backends.local_llm || {};
+  return `<div class="neo-admin-models-paths">${NeoUI.card({
+    title: 'Model paths',
+    description: 'Local-only settings saved under neo_data/config/model_paths.json. These are never part of the repo manifest.',
+    badge: NeoUI.statusBadge(pathsPayload.status || 'ready'),
+    body: `<div class="neo-ui-field-grid two compact admin-model-path-grid">
+      <label class="neo-ui-check-card"><input id="admin-model-path-comfyui-enabled" type="checkbox" ${comfy.enabled !== false ? 'checked' : ''}> Enable ComfyUI</label>
+      ${adminModelPathField('admin-model-path-comfyui-root', 'ComfyUI root', comfy.root, 'F:/Backends/ComfyUI_windows_portable')}
+      ${adminModelPathField('admin-model-path-comfyui-models', 'ComfyUI models root', comfy.models_root, 'F:/Backends/ComfyUI_windows_portable/ComfyUI/models')}
+      <label class="neo-ui-check-card"><input id="admin-model-path-forge-enabled" type="checkbox" ${forge.enabled ? 'checked' : ''}> Enable Forge</label>
+      ${adminModelPathField('admin-model-path-forge-root', 'Forge root', forge.root, 'F:/Backends/stable-diffusion-webui')}
+      ${adminModelPathField('admin-model-path-forge-models', 'Forge models root', forge.models_root, 'F:/Backends/stable-diffusion-webui/models')}
+      <label class="neo-ui-check-card"><input id="admin-model-path-koboldcpp-enabled" type="checkbox" ${kobold.enabled !== false ? 'checked' : ''}> Enable KoboldCPP</label>
+      ${adminModelPathField('admin-model-path-koboldcpp-root', 'KoboldCPP root', kobold.root, 'F:/LLM/KoboldCPP')}
+      ${adminModelPathField('admin-model-path-koboldcpp-models', 'KoboldCPP models root', kobold.models_root, 'F:/LLM/Models')}
+      <label class="neo-ui-check-card"><input id="admin-model-path-local-llm-enabled" type="checkbox" ${local.enabled !== false ? 'checked' : ''}> Enable local LLM roots</label>
+      ${adminModelPathField('admin-model-path-local-llm-root', 'General LLM models root', local.user_llm_models_root, 'F:/LLM/Models')}
+      ${adminModelPathField('admin-model-path-embedding-root', 'Embedding models root', local.user_embedding_models_root, 'F:/LLM/Embeddings')}
+      ${adminModelPathField('admin-model-path-reranker-root', 'Reranker models root', local.user_reranker_models_root, 'F:/LLM/Rerankers')}
+      ${adminModelPathField('admin-model-download-temp-root', 'Download temp root', download.temp_root, 'neo_data/downloads/tmp')}
+      ${adminModelPathField('admin-model-download-completed-root', 'Download completed root', download.completed_root, 'neo_data/downloads/completed')}
+      ${adminModelPathField('admin-model-download-failed-root', 'Download failed root', download.failed_root, 'neo_data/downloads/failed')}
+    </div>`,
+    actions: '<button type="button" class="neo-btn primary" onclick="saveAdminModelPaths()">Save paths</button><button type="button" class="neo-btn" onclick="scanAdminInstalledModels()">Save then scan manually</button>'
+  })}</div>`;
+}
+
+function adminModelsPacksBody() {
+  const packsPayload = ensureAdminModelsState().packs || {};
+  const packs = Array.isArray(packsPayload.packs) ? packsPayload.packs : [];
+  const body = packs.map((pack) => NeoUI.card({
+    title: pack.display_name || pack.id,
+    description: pack.description || '',
+    badge: NeoUI.statusBadge(pack.status || 'pack'),
+    body: `${NeoUI.badgeRow([pack.category, pack.base_model, ...(pack.backend_targets || [])].filter(Boolean))}${NeoUI.metaList((pack.items || []).map((item) => `${item.required ? 'Required' : 'Optional'} · ${item.catalog_id}${item.variant_required ? ' · variant required' : ''}`), { code: false })}`,
+  })).join('');
+  return `<div class="neo-admin-models-packs">${body || NeoUI.emptyState('No recommended packs loaded yet.', 'Refresh the Model Guide.')}</div>`;
+}
+
+function adminModelsWorkspacesBody() {
+  const workspacePayload = ensureAdminModelsState().workspaces || {};
+  const workspaces = Array.isArray(workspacePayload.workspaces) ? workspacePayload.workspaces : [];
+  const body = workspaces.map((workspace) => NeoUI.card({
+    title: workspace.display_name || workspace.id,
+    description: workspace.description || '',
+    badge: NeoUI.statusBadge(workspace.status || 'workspace'),
+    body: `${NeoUI.badgeRow([workspace.surface, workspace.backend, workspace.base_model].filter(Boolean))}${NeoUI.metaList([`Guide filter: ${JSON.stringify(workspace.guide_filter || {})}`, `Packs: ${(workspace.model_pack_ids || []).join(', ') || 'none'}`], { code: false })}`,
+  })).join('');
+  return `<div class="neo-admin-models-workspaces">${body || NeoUI.emptyState('No workspace requirements loaded yet.', 'Refresh the Model Guide.')}</div>`;
+}
+
+function adminModelsDownloadsBody() {
+  const jobsPayload = ensureAdminModelsState().downloadJobs || {};
+  const jobs = Array.isArray(jobsPayload.jobs) ? jobsPayload.jobs : [];
+  const plans = ensureAdminModelsState().downloadPlans || {};
+  const planCards = Object.entries(plans).map(([catalogId, plan]) => NeoUI.card({
+    title: `Plan · ${catalogId}`,
+    description: plan.ok ? `${plan.file?.filename || 'file'} → ${plan.target?.final_path || plan.target?.target_folder || 'target'}` : 'Download plan needs attention.',
+    badge: NeoUI.statusBadge(plan.status || (plan.ok ? 'ready' : 'needs attention')),
+    body: `${plan.errors?.length ? `<p class="neo-error-text">${escapeHtml(plan.errors.join(' · '))}</p>` : ''}${NeoUI.metaList([`Provider: ${plan.source?.provider || 'unknown'}`, `Backend: ${plan.target?.backend || 'unknown'}`, `Target: ${plan.target?.final_path || 'not resolved'}`], { code: false })}`,
+    actions: plan.ok ? `<button type="button" class="neo-btn primary" onclick="startAdminModelDownload('${escapeAttr(catalogId)}')">Download</button><button type="button" class="neo-btn" onclick="startAdminModelDryRun('${escapeAttr(catalogId)}')">Dry-run job</button>` : '',
+  })).join('');
+  const jobRows = jobs.map((job) => {
+    const progress = job.progress || {};
+    const percent = Number(progress.percent ?? job.progress_percent ?? 0);
+    const downloaded = adminModelFormatBytes(progress.bytes_downloaded);
+    const total = adminModelFormatBytes(progress.size_bytes || job.file?.size_bytes);
+    const speed = adminModelFormatBytes(progress.speed_bytes_per_second);
+    const eta = adminModelFormatDuration(progress.eta_seconds);
+    const elapsed = adminModelFormatDuration(progress.elapsed_seconds || job.metrics?.elapsed_seconds);
+    const active = ['queued', 'downloading', 'cancelling'].includes(String(job.status || '').toLowerCase());
+    const cancelAction = active ? `<button type="button" class="neo-btn small danger" onclick="cancelAdminModelDownload('${escapeAttr(job.job_id)}')">Cancel</button>` : '';
+    return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(job.display_name || job.catalog_id || job.job_id)}</strong><p>${escapeHtml(job.paths?.final_path || job.source?.download_url || '')}</p></div>${NeoUI.statusBadge(job.status || 'job')}</div>${NeoUI.badgeRow([job.provider, job.dry_run ? 'dry-run' : '', percent ? `${percent}%` : '', speed ? `${speed}/s` : '', eta ? `ETA ${eta}` : ''].filter(Boolean))}<progress value="${escapeAttr(String(Math.min(Math.max(percent, 0), 100)))}" max="100" style="width:100%;height:12px;"></progress>${NeoUI.metaList([downloaded || total ? `Progress: ${downloaded || '0 B'}${total ? ` / ${total}` : ''}` : '', speed ? `Speed: ${speed}/s` : '', eta ? `Estimated time left: ${eta}` : '', elapsed ? `Elapsed: ${elapsed}` : ''].filter(Boolean), { code: false })}<div class="neo-ui-toolbar">${cancelAction}</div></article>`;
+  }).join('');
+  return `<div class="neo-admin-models-downloads">${NeoUI.card({ title: 'Download jobs', description: 'Download manager state with progress, speed, ETA, and cancel support.', badge: NeoUI.statusBadge(jobsPayload.status || 'ready'), body: NeoUI.badgeRow([`Jobs ${jobs.length}`, `Active ${jobsPayload.summary?.active_count || 0}`, `Completed ${jobsPayload.summary?.completed_count || 0}`, `Failed ${jobsPayload.summary?.failed_count || 0}`]), actions: '<button type="button" class="neo-btn primary" onclick="refreshAdminModelDownloadJobs()">Refresh jobs</button>' })}${planCards || NeoUI.emptyState('No download plans yet.', 'Open Sources and click Plan.')}${jobRows ? `<div class="neo-ui-record-list">${jobRows}</div>` : ''}</div>`;
+}
+
+function adminModelsRawBody() {
+  const models = ensureAdminModelsState();
+  if (state.detailMode !== 'expert') return NeoUI.emptyState('Raw payloads are hidden in Guided/Compact mode.', 'Switch the top-right detail mode to Expert.');
+  return `${NeoUI.card({ title: 'Catalog payload', body: NeoUI.codeBlock(models.catalog || {}) })}${NeoUI.card({ title: 'Paths payload', body: NeoUI.codeBlock(models.paths || {}) })}${NeoUI.card({ title: 'Installed payload', body: NeoUI.codeBlock(models.installed || {}) })}`;
+}
+
+function adminModelsChildTabBody() {
+  const active = adminModelsActiveChildTab();
+  if (active === 'sources') return adminModelsSourcesBody();
+  if (active === 'installed') return adminModelsInstalledBody();
+  if (active === 'paths') return adminModelsPathsBody();
+  if (active === 'packs') return adminModelsPacksBody();
+  if (active === 'workspaces') return adminModelsWorkspacesBody();
+  if (active === 'downloads') return adminModelsDownloadsBody();
+  if (active === 'raw') return adminModelsRawBody();
+  return adminModelsSourcesBody();
+}
+
+function adminModelsPanel() {
+  const models = ensureAdminModelsState();
+  if (!models.catalog && !state.adminModelsLoading) setTimeout(() => reloadAdminModelsState(), 0);
+  if (state.adminModelsLoading && !models.catalog) return NeoUI.card({ title: 'Loading Models…', description: 'Reading public model manifests and local model path state.', body: NeoUI.emptyState('Loading Admin Models.', 'This should only take a moment.') });
+  return `<div class="neo-admin-models-shell" data-child-tab="${escapeAttr(adminModelsActiveChildTab())}">${adminModelsChildTabs()}<div class="neo-admin-models-child-panel">${models.catalog ? adminModelsChildTabBody() : NeoUI.emptyState('Models are not loaded yet.', 'Click Refresh Models.', 'compact')}</div></div>`;
+}
+
+
 function renderAdminPanels(subtab) {
   const columns = beginTwoColumnWorkspace();
   const admin = state.admin || {};
@@ -22510,8 +23324,8 @@ function renderAdminPanels(subtab) {
   }
 
   if (id === 'models') {
-    // Legacy deep link: Models was consolidated into Memory Engine.
-    renderAdminEnginePanels(columns);
+    columns.left.appendChild(panel('Models Overview', adminModelsOverviewPanel(), true, 'models'));
+    columns.right.appendChild(panel('Model Guide Tools', adminModelsPanel(), true, 'models'));
     return;
   }
 
@@ -23366,25 +24180,9 @@ function renderOutputFileStrip(files = [], activeFileId = '') {
 }
 
 
-function outputInputAssetIsPlaceholder(item = {}) {
-  if (!item || typeof item !== 'object') return true;
-  const label = String(item.label || '').trim();
-  const filename = String(item.filename || '').trim();
-  const path = String(item.path || '').trim();
-  const url = String(item.url || '').trim();
-  const backend = String(item.backend_handoff_name || '').trim();
-  const decodedUrl = (() => {
-    try { return decodeURIComponent(url); }
-    catch (_) { return url; }
-  })();
-  const labelOnly = label && filename === label && !path && !backend;
-  const synthesizedPlaceholderUrl = /\/api\/image\/(?:source-file|mask-file)\/(?:Source image [123]|Mask|Outpaint canvas|Outpaint mask)$/i.test(decodedUrl);
-  return labelOnly && (!url || synthesizedPlaceholderUrl);
-}
-
 function outputInputAssets(metadata = {}) {
   const assets = metadata?.source?.input_assets;
-  return Array.isArray(assets) ? assets.filter((item) => item && !outputInputAssetIsPlaceholder(item) && (item.url || item.path || item.backend_handoff_name)) : [];
+  return Array.isArray(assets) ? assets.filter((item) => item && (item.url || item.path)) : [];
 }
 
 function outputExtensionAssetUrlCandidates(record = {}, fallback = {}) {

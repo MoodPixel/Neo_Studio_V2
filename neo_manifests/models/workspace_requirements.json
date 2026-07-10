@@ -1,0 +1,166 @@
+{
+  "schema_id": "neo.models.workspace_requirements.v1",
+  "version": "0.1.0-phase10-workspace-integration",
+  "updated_at": "2026-07-10",
+  "description": "Workspace-to-model requirement mappings for Neo Studio. This public manifest connects Image, Roleplay/Assistant, and future workspaces to recommended model packs without storing user paths, tokens, or installed scan data.",
+  "workspaces": [
+    {
+      "id": "image.sdxl.comfyui.foundation",
+      "surface_id": "image",
+      "workspace_label": "Image",
+      "display_name": "Image \u2014 SDXL ComfyUI Foundation",
+      "description": "Baseline SDXL image workflow requirements for ComfyUI-backed generation, including the base checkpoint and optional depth ControlNet support.",
+      "backend": "comfyui",
+      "base_model": "sdxl",
+      "workflow_family": "sdxl",
+      "recommended": true,
+      "model_pack_ids": [
+        "sdxl-comfyui-foundation-pack"
+      ],
+      "required_catalog_ids": [
+        "sdxl-checkpoint-heirloom-male-xl"
+      ],
+      "optional_catalog_ids": [
+        "controlnet-union-sdxl-promax",
+        "sdxl-checkpoint-photorealistic-all-purpose",
+        "sdxl-checkpoint-wai-illustrious-sdxl"
+      ],
+      "triggers": {
+        "surface_id": "image",
+        "backend": "comfyui",
+        "base_model": "sdxl",
+        "model_types": [
+          "checkpoint",
+          "lora",
+          "controlnet"
+        ]
+      },
+      "guide_filter": {
+        "domain": "image",
+        "backend": "comfyui",
+        "base_model": "sdxl"
+      },
+      "ui": {
+        "severity_when_missing": "warning",
+        "cta_label": "Open Admin \u2192 Models \u2192 Image \u2192 SDXL",
+        "empty_state": "Configure model paths and run an installed-model scan to check SDXL readiness."
+      }
+    },
+    {
+      "id": "image.flux.comfyui.gguf",
+      "surface_id": "image",
+      "workspace_label": "Image",
+      "display_name": "Image \u2014 Flux ComfyUI GGUF",
+      "description": "Flux image workflow requirements for ComfyUI GGUF/UNet-based generation. Users choose a discovered GGUF variant before download planning.",
+      "backend": "comfyui",
+      "base_model": "flux",
+      "workflow_family": "flux",
+      "recommended": true,
+      "model_pack_ids": [
+        "flux-comfyui-gguf-starter-pack"
+      ],
+      "required_catalog_ids": [
+        "flux1-dev-gguf-city96"
+      ],
+      "optional_catalog_ids": [],
+      "triggers": {
+        "surface_id": "image",
+        "backend": "comfyui",
+        "base_model": "flux",
+        "model_types": [
+          "unet_gguf",
+          "unet"
+        ]
+      },
+      "guide_filter": {
+        "domain": "image",
+        "backend": "comfyui",
+        "base_model": "flux",
+        "dynamic_source": true
+      },
+      "ui": {
+        "severity_when_missing": "warning",
+        "cta_label": "Open Admin \u2192 Models \u2192 Image \u2192 Flux",
+        "empty_state": "Discover/select a Flux GGUF variant, then plan or download it into the ComfyUI UNet folder."
+      }
+    },
+    {
+      "id": "roleplay.koboldcpp.gguf",
+      "surface_id": "roleplay",
+      "workspace_label": "Roleplay",
+      "display_name": "Roleplay \u2014 KoboldCPP GGUF",
+      "description": "Local roleplay/chat model readiness check for KoboldCPP or a user-defined local LLM model folder.",
+      "backend": "koboldcpp",
+      "base_model": "torii_gate",
+      "workflow_family": "roleplay_llm",
+      "recommended": true,
+      "model_pack_ids": [
+        "roleplay-llm-gguf-starter-pack"
+      ],
+      "required_catalog_ids": [
+        "llm-gguf-toriigate-05-draconicdragon"
+      ],
+      "optional_catalog_ids": [
+        "llm-gguf-toriigate-05-draconicdragon-mmproj",
+        "llm-gguf-dolphin30-r1-mistral-24b-bartowski"
+      ],
+      "triggers": {
+        "surface_id": "roleplay",
+        "backend": "koboldcpp",
+        "base_model": "general",
+        "model_types": [
+          "llm_gguf"
+        ]
+      },
+      "guide_filter": {
+        "domain": "llm",
+        "backend": "koboldcpp",
+        "base_model": "general",
+        "dynamic_source": true
+      },
+      "ui": {
+        "severity_when_missing": "blocking",
+        "cta_label": "Open Admin \u2192 Models \u2192 LLM \u2192 Roleplay",
+        "empty_state": "Select a GGUF roleplay model variant and set the local LLM model folder before running local roleplay."
+      }
+    },
+    {
+      "id": "assistant.local_llm.gguf",
+      "surface_id": "assistant",
+      "workspace_label": "Assistant",
+      "display_name": "Assistant \u2014 Local LLM GGUF",
+      "description": "Local assistant model readiness check using the same GGUF model catalog contract as Roleplay when a local LLM backend is used.",
+      "backend": "local_llm",
+      "base_model": "general",
+      "workflow_family": "assistant_llm",
+      "recommended": false,
+      "model_pack_ids": [],
+      "required_catalog_ids": [
+        "llm-gguf-dolphin30-r1-mistral-24b-bartowski"
+      ],
+      "optional_catalog_ids": [
+        "llm-gguf-qwen3-vl-32b-instruct",
+        "llm-gguf-gemma3-27b-it-abliterated-bartowski"
+      ],
+      "triggers": {
+        "surface_id": "assistant",
+        "backend": "local_llm",
+        "base_model": "general",
+        "model_types": [
+          "llm_gguf"
+        ]
+      },
+      "guide_filter": {
+        "domain": "llm",
+        "backend": "local_llm",
+        "base_model": "general",
+        "dynamic_source": true
+      },
+      "ui": {
+        "severity_when_missing": "warning",
+        "cta_label": "Open Admin \u2192 Models \u2192 LLM",
+        "empty_state": "Set a local LLM model folder and scan installed models before selecting a local assistant backend."
+      }
+    }
+  ]
+}

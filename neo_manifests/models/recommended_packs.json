@@ -1,0 +1,222 @@
+{
+  "schema_id": "neo.models.packs.v1",
+  "version": "0.1.0-phase9-model-packs",
+  "updated_at": "2026-07-10",
+  "description": "Recommended model packs for Neo Studio Admin Model Guide. Packs group catalog records into workflow-ready sets. Pack metadata is public; user paths, tokens, installed scans, and download jobs remain under neo_data.",
+  "packs": [
+    {
+      "id": "flux-comfyui-gguf-starter-pack",
+      "display_name": "Flux ComfyUI GGUF Starter Pack",
+      "category": "image",
+      "base_model": "flux",
+      "description": "Flux image workflow starter pack using the curated FLUX.1-dev GGUF source plus common VAE/text encoder companion entries.",
+      "backend_targets": [
+        "comfyui"
+      ],
+      "recommended": true,
+      "tags": [
+        "image",
+        "flux",
+        "gguf",
+        "comfyui",
+        "starter"
+      ],
+      "items": [
+        {
+          "catalog_id": "flux1-dev-gguf-city96",
+          "label": "FLUX.1-dev GGUF UNet variant",
+          "role": "diffusion_model",
+          "required": true,
+          "backend": "comfyui",
+          "requires_variant_selection": true,
+          "notes": "Select an exact GGUF quant/file discovered from the city96 source."
+        },
+        {
+          "catalog_id": "flux-ae-vae",
+          "label": "Flux AE VAE",
+          "role": "vae",
+          "required": false,
+          "backend": "comfyui"
+        },
+        {
+          "catalog_id": "t5-v11-xxl-encoder-gguf-city96",
+          "label": "T5 XXL encoder GGUF variant",
+          "role": "text_encoder",
+          "required": false,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        }
+      ]
+    },
+    {
+      "id": "sdxl-comfyui-foundation-pack",
+      "display_name": "SDXL ComfyUI Foundation Pack",
+      "category": "image",
+      "base_model": "sdxl",
+      "description": "Curated SDXL starter pack using user-preferred SDXL checkpoint sources plus useful SDXL VAE and ControlNet entries.",
+      "backend_targets": [
+        "comfyui"
+      ],
+      "recommended": true,
+      "tags": [
+        "image",
+        "sdxl",
+        "checkpoint",
+        "controlnet",
+        "comfyui"
+      ],
+      "items": [
+        {
+          "catalog_id": "sdxl-checkpoint-heirloom-male-xl",
+          "label": "Heirloom Male XL SDXL checkpoint",
+          "role": "base_checkpoint",
+          "required": true,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "vae-sdxl-vae-safetensors",
+          "label": "SDXL VAE",
+          "role": "vae",
+          "required": false,
+          "backend": "comfyui"
+        },
+        {
+          "catalog_id": "controlnet-union-sdxl-promax",
+          "label": "ControlNet Union SDXL ProMax",
+          "role": "controlnet",
+          "required": false,
+          "backend": "comfyui"
+        }
+      ]
+    },
+    {
+      "id": "roleplay-llm-gguf-starter-pack",
+      "display_name": "Roleplay LLM GGUF Starter Pack",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "description": "Curated roleplay/chat starter pack using ToriiGate GGUF sources with optional vision projector handling when available.",
+      "backend_targets": [
+        "koboldcpp"
+      ],
+      "recommended": true,
+      "tags": [
+        "llm",
+        "roleplay",
+        "gguf",
+        "koboldcpp"
+      ],
+      "items": [
+        {
+          "catalog_id": "llm-gguf-toriigate-05-draconicdragon",
+          "label": "ToriiGate 0.5 GGUF model variant",
+          "role": "chat_model",
+          "required": true,
+          "backend": "koboldcpp",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "llm-gguf-toriigate-05-draconicdragon-mmproj",
+          "label": "ToriiGate 0.5 vision projector / mmproj",
+          "role": "vision_projector",
+          "required": false,
+          "backend": "koboldcpp",
+          "requires_variant_selection": true
+        }
+      ]
+    },
+    {
+      "id": "qwen-image-edit-comfyui-starter-pack",
+      "display_name": "Qwen Image Edit ComfyUI Starter Pack",
+      "category": "image",
+      "base_model": "qwen",
+      "description": "Curated Qwen Image Edit starter pack covering Rapid AIO, split diffusion models, VAE, and text encoders. Pick either AIO/checkpoint or split/GGUF route according to workflow.",
+      "backend_targets": [
+        "comfyui"
+      ],
+      "recommended": true,
+      "tags": [
+        "image",
+        "qwen",
+        "edit",
+        "comfyui"
+      ],
+      "items": [
+        {
+          "catalog_id": "qwen-image-edit-rapid-aio-hf",
+          "label": "Qwen Rapid AIO checkpoint variant",
+          "role": "checkpoint_aio",
+          "required": false,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "qwen-image-comfyui-diffusion-models",
+          "label": "Qwen split diffusion model",
+          "role": "diffusion_model",
+          "required": false,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "qwen-image-vae-safetensors",
+          "label": "Qwen Image VAE",
+          "role": "vae",
+          "required": false,
+          "backend": "comfyui"
+        },
+        {
+          "catalog_id": "qwen-image-comfyui-text-encoders",
+          "label": "Qwen Image text encoder",
+          "role": "text_encoder",
+          "required": false,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        }
+      ]
+    },
+    {
+      "id": "wan22-comfyui-gguf-starter-pack",
+      "display_name": "Wan 2.2 ComfyUI GGUF Starter Pack",
+      "category": "video",
+      "base_model": "wan",
+      "description": "Wan 2.2 starter shape. For QuantStack T2V/I2V GGUF workflows, HighNoise and LowNoise entries must be installed as matched pairs.",
+      "backend_targets": [
+        "comfyui"
+      ],
+      "recommended": false,
+      "tags": [
+        "video",
+        "wan",
+        "gguf",
+        "comfyui"
+      ],
+      "items": [
+        {
+          "catalog_id": "wan22-t2v-a14b-gguf-highnoise",
+          "label": "Wan2.2 T2V HighNoise GGUF",
+          "role": "video_diffusion_highnoise",
+          "required": true,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "wan22-t2v-a14b-gguf-lownoise",
+          "label": "Wan2.2 T2V LowNoise GGUF",
+          "role": "video_diffusion_lownoise",
+          "required": true,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        },
+        {
+          "catalog_id": "wan22-vae",
+          "label": "Wan 2.2 VAE",
+          "role": "vae",
+          "required": false,
+          "backend": "comfyui",
+          "requires_variant_selection": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5105 @@
+{
+  "schema_id": "neo.models.catalog.v1",
+  "version": "0.7.0-curated-base-model-guide",
+  "catalog": {
+    "id": "neo-model-guide-public-preview",
+    "display_name": "Neo Model Guide",
+    "status": "phase10_workspace_integration_seed_models",
+    "updated_at": "2026-07-10",
+    "description": "Curated Neo Studio model source manifest for Image, Video, LLM, ControlNet/IPAdapter, VAE, text encoders, GGUF variants, and utility assets.",
+    "policy": "The manifest defines model meaning, grouping, source intent, and install targets. User paths, tokens, installed scans, and download state belong in neo_data, not in the repo."
+  },
+  "records": [
+    {
+      "id": "sdxl-base-checkpoint-foundation",
+      "display_name": "SDXL Base Checkpoint",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "checkpoint",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "manual",
+        "source_url": "",
+        "notes": "Add the preferred SDXL base checkpoint source during catalog curation."
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ],
+        "comfyui_subdir": "models/checkpoints",
+        "forge_subdir": "models/Stable-diffusion"
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "base",
+          "realistic",
+          "general"
+        ],
+        "badges": [
+          "foundation",
+          "sdxl"
+        ],
+        "filter_group": "Image / SDXL / Checkpoints"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "User must confirm the model license from the source page."
+      },
+      "notes": [
+        "Phase 1 entry is a guide placeholder until curated download sources are added."
+      ]
+    },
+    {
+      "id": "sdxl-lora-character-guide",
+      "display_name": "SDXL Character LoRA",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "lora",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "",
+        "version_id": "",
+        "discovery": false,
+        "notes": "Curated Civitai model/version IDs can be supplied by the manifest later or passed ad hoc through the Phase 5 Civitai discovery endpoint. Remote metadata/previews are session-only and are not persisted."
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".pt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample"
+        ],
+        "variant_detection": "safetensors_lora"
+      },
+      "install": {
+        "target_type": "lora",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ],
+        "comfyui_subdir": "models/loras",
+        "forge_subdir": "models/Lora"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "character"
+        ],
+        "badges": [
+          "sdxl",
+          "lora",
+          "character"
+        ],
+        "filter_group": "Image / SDXL / LoRA / Character"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model licenses vary by version."
+      },
+      "notes": [
+        "Phase 5 can fetch Civitai metadata, versions, preview URLs, and file rows when a model_id or version_id is supplied. No downloads or token storage are enabled."
+      ]
+    },
+    {
+      "id": "sdxl-lora-style-guide",
+      "display_name": "SDXL Style LoRA",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "lora",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "",
+        "version_id": "",
+        "discovery": false,
+        "notes": "Curated Civitai model/version IDs can be supplied by the manifest later or passed ad hoc through the Phase 5 Civitai discovery endpoint. Remote metadata/previews are session-only and are not persisted."
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".pt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample"
+        ],
+        "variant_detection": "safetensors_lora"
+      },
+      "install": {
+        "target_type": "lora",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ],
+        "comfyui_subdir": "models/loras",
+        "forge_subdir": "models/Lora"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "style"
+        ],
+        "badges": [
+          "sdxl",
+          "lora",
+          "style"
+        ],
+        "filter_group": "Image / SDXL / LoRA / Style"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model licenses vary by version."
+      },
+      "notes": [
+        "Phase 5 can fetch Civitai metadata, versions, preview URLs, and file rows when a model_id or version_id is supplied. No downloads or token storage are enabled."
+      ]
+    },
+    {
+      "id": "flux-gguf-unet-source-guide",
+      "display_name": "Flux GGUF UNet Source",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "notes": "Curated Hugging Face repo IDs are added later. Phase 1 only defines GGUF discovery shape and install routing."
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          "mmproj"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/unet"
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "base",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "flux",
+          "gguf",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / Flux / GGUF"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "User must confirm source license and access requirements."
+      },
+      "notes": [
+        "This entry proves repo/folder-level discovery without storing every quant as a separate manifest record."
+      ]
+    },
+    {
+      "id": "llm-gguf-roleplay-source-guide",
+      "display_name": "Roleplay LLM GGUF Source",
+      "category": "llm",
+      "base_model": "general",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "notes": "Curated Hugging Face repo IDs are added later. Phase 1 only defines LLM GGUF discovery shape and routing."
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          "mmproj"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q4_K_M",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ],
+        "path_rule": "user_llm_models_root"
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "roleplay",
+          "chat",
+          "assistant"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "llm",
+          "gguf",
+          "dynamic-source"
+        ],
+        "filter_group": "LLM / Roleplay / GGUF"
+      },
+      "hardware": {
+        "minimum_vram": "CPU/GPU dependent",
+        "recommended_vram": "Depends on quant and context size"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "LLM model licenses vary significantly by source."
+      },
+      "notes": [
+        "LLM paths are user-owned and must be configured under neo_data in later phases."
+      ]
+    },
+    {
+      "id": "controlnet-depth-guide",
+      "display_name": "ControlNet Depth Model",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "controlnet",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "manual",
+        "source_url": "",
+        "notes": "Curated ControlNet source is added later. Phase 1 declares routing and UI grouping."
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/controlnet"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "depth",
+          "utility"
+        ],
+        "badges": [
+          "controlnet",
+          "depth",
+          "sdxl"
+        ],
+        "filter_group": "Image / SDXL / ControlNet / Depth"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Confirm license from source page before use."
+      },
+      "notes": [
+        "Control models are routed separately from checkpoints and LoRAs."
+      ]
+    },
+    {
+      "id": "controlnet-flux-1-dev-controlnet-inpainting-beta",
+      "display_name": "FLUX.1-dev ControlNet Inpainting Beta",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "ControlNet/FLUX.1-dev-Controlnet-Inpainting-Beta.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/ControlNet/FLUX.1-dev-Controlnet-Inpainting-Beta.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "controlnet-flux-1-dev-controlnet-union-pro",
+      "display_name": "FLUX.1-dev ControlNet Union Pro",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "ControlNet/FLUX.1-dev-ControlNet-Union-Pro.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/ControlNet/FLUX.1-dev-ControlNet-Union-Pro.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "controlnet-flux-1-dev-controlnet-upscaler",
+      "display_name": "FLUX.1-dev ControlNet Upscaler",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "ControlNet/flux.1-dev-controlnet-upscaler.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/ControlNet/flux.1-dev-controlnet-upscaler.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "controlnet-flux-2-dev-fun-controlnet-union",
+      "display_name": "FLUX.2-dev Fun ControlNet Union",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union",
+        "filename": "FLUX.2-dev-Fun-Controlnet-Union.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/blob/main/FLUX.2-dev-Fun-Controlnet-Union.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "controlnet-flux-2-dev-fun-controlnet-union-2602",
+      "display_name": "FLUX.2-dev Fun ControlNet Union 2602",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union",
+        "filename": "FLUX.2-dev-Fun-Controlnet-Union-2602.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/blob/main/FLUX.2-dev-Fun-Controlnet-Union-2602.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "flux1-dev-safetensors",
+      "display_name": "FLUX.1-dev",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "diffusion_model",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "black-forest-labs/FLUX.1-dev",
+        "filename": "flux1-dev.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev/blob/main/flux1-dev.safetensors",
+        "requires_token": true,
+        "gated": true
+      },
+      "install": {
+        "target_type": "diffusion_model",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base"
+        ],
+        "badges": [
+          "flux",
+          "diffusion_model",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / diffusion_model"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Requires accepting source terms/access before download."
+      ]
+    },
+    {
+      "id": "flux2-klein-9b-safetensors",
+      "display_name": "FLUX.2 Klein 9B",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "diffusion_model",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "black-forest-labs/FLUX.2-klein-9B",
+        "filename": "flux-2-klein-9b.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9B/blob/main/flux-2-klein-9b.safetensors",
+        "requires_token": true,
+        "gated": true
+      },
+      "install": {
+        "target_type": "diffusion_model",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base"
+        ],
+        "badges": [
+          "flux",
+          "diffusion_model",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / diffusion_model"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Requires accepting source terms/access before download."
+      ]
+    },
+    {
+      "id": "flux-clip-l-chatpig",
+      "display_name": "Flux CLIP-L Encoder",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "text_encoder",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "chatpig/encoder",
+        "filename": "clip_l.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/chatpig/encoder/blob/main/clip_l.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "text_encoder",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen3-8b-fp8mixed-text-encoder",
+      "display_name": "Qwen 3 8B FP8 Mixed Text Encoder",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "text_encoder",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "smegmarip/ComfyUI",
+        "filename": "text_encoders/qwen_3_8b_fp8mixed.safetensors",
+        "revision": "0bfd2388b93a6fdd52730b05cedfdbeae411f5cd",
+        "discovery": false,
+        "source_url": "https://huggingface.co/smegmarip/ComfyUI/blob/0bfd2388b93a6fdd52730b05cedfdbeae411f5cd/text_encoders/qwen_3_8b_fp8mixed.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "text_encoder",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "t5-v11-xxl-encoder-gguf-city96",
+      "display_name": "T5 v1.1 XXL Encoder GGUF",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "city96/t5-v1_1-xxl-encoder-gguf",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "flux",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / flux / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "flux1-dev-gguf-city96",
+      "display_name": "FLUX.1-dev GGUF",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "city96/FLUX.1-dev-gguf",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/city96/FLUX.1-dev-gguf/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "flux",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / flux / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "flux2-klein-9b-gguf-unsloth",
+      "display_name": "FLUX.2 Klein 9B GGUF",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "unsloth/FLUX.2-klein-9B-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "flux",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / flux / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "flux-ae-vae",
+      "display_name": "Flux AE VAE",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/ae.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/ae.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "flux2-vae-ernie",
+      "display_name": "Flux2 VAE",
+      "category": "image",
+      "base_model": "flux",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/ERNIE-Image",
+        "filename": "vae/flux2-vae.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Comfy-Org/ERNIE-Image/blob/main/vae/flux2-vae.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "flux",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / flux / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "clip-vision-vit-h-laion-ipadapter",
+      "display_name": "CLIP Vision ViT-H 14 LAION IPAdapter",
+      "category": "image",
+      "base_model": "general",
+      "model_type": "clip_vision",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "axssel/IPAdapter_ClipVision_models",
+        "filename": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/axssel/IPAdapter_ClipVision_models/blob/main/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "clip_vision",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "utility"
+        ],
+        "badges": [
+          "general",
+          "clip_vision",
+          "huggingface"
+        ],
+        "filter_group": "Image / general / clip_vision"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "clip-vision-vit-bigg-laion-ipadapter",
+      "display_name": "CLIP Vision ViT-bigG 14 LAION IPAdapter",
+      "category": "image",
+      "base_model": "general",
+      "model_type": "clip_vision",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "axssel/IPAdapter_ClipVision_models",
+        "filename": "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/axssel/IPAdapter_ClipVision_models/blob/main/CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "clip_vision",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "utility"
+        ],
+        "badges": [
+          "general",
+          "clip_vision",
+          "huggingface"
+        ],
+        "filter_group": "Image / general / clip_vision"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "ipadapter-faceid-models-h94",
+      "display_name": "IP-Adapter FaceID Models",
+      "category": "image",
+      "base_model": "general",
+      "model_type": "faceid",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "h94/IP-Adapter-FaceID",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/h94/IP-Adapter-FaceID/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "lora"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "faceid",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "character",
+          "face",
+          "utility"
+        ],
+        "badges": [
+          "general",
+          "faceid",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / general / faceid"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "ipadapter-faceid-loras-h94",
+      "display_name": "IP-Adapter FaceID LoRAs",
+      "category": "image",
+      "base_model": "general",
+      "model_type": "faceid_lora",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "h94/IP-Adapter-FaceID",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/h94/IP-Adapter-FaceID/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin"
+        ],
+        "include_patterns": [
+          "lora"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt"
+        ],
+        "variant_detection": "safetensors_lora"
+      },
+      "install": {
+        "target_type": "faceid_lora",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "character",
+          "face",
+          "lora"
+        ],
+        "badges": [
+          "general",
+          "faceid_lora",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / general / faceid_lora"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "comfyui-detection-pose-onnx-f5ai",
+      "display_name": "ComfyUI Detection / Pose ONNX Models",
+      "category": "image",
+      "base_model": "general",
+      "model_type": "pose_detection",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "path": "detection",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/tree/main/detection",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".onnx"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "generic_file"
+      },
+      "install": {
+        "target_type": "pose_detection",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "pose",
+          "detection",
+          "utility"
+        ],
+        "badges": [
+          "general",
+          "pose_detection",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / general / pose_detection"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Pose/detection preprocessor assets, not ControlNet weights. Route to ComfyUI models/detection."
+      ]
+    },
+    {
+      "id": "qwen-image-edit-rapid-aio-hf",
+      "display_name": "Qwen Image Edit Rapid AIO",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "checkpoint",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Phr00t/Qwen-Image-Edit-Rapid-AIO",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "include_patterns": [
+          "Qwen-Rapid-AIO"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "general",
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "checkpoint",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / checkpoint"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "AIO checkpoint style source; variants are large."
+      ]
+    },
+    {
+      "id": "qwen-controlnet-inpainting-instantx",
+      "display_name": "Qwen Image ControlNet Inpainting",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "InstantX/Qwen-Image-ControlNet-Inpainting",
+        "filename": "diffusion_pytorch_model.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/InstantX/Qwen-Image-ControlNet-Inpainting/blob/main/diffusion_pytorch_model.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / qwen / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-instantx-controlnets",
+      "display_name": "Qwen Image InstantX ControlNets",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "controlnet",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Qwen-Image-InstantX-ControlNets",
+        "path": "split_files/controlnet",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/tree/main/split_files/controlnet",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_controlnet"
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "controlnet",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-image-comfyui-diffusion-models",
+      "display_name": "Qwen Image ComfyUI Diffusion Models",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "diffusion_model",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+        "path": "split_files/diffusion_models",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main/split_files/diffusion_models",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "diffusion_model",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "diffusion_model",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / diffusion_model"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-diffsynth-controlnet-model-patches",
+      "display_name": "Qwen Image DiffSynth ControlNet Model Patches",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "model_patch",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Qwen-Image-DiffSynth-ControlNets",
+        "path": "split_files/model_patches",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Qwen-Image-DiffSynth-ControlNets/tree/main/split_files/model_patches",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "model_patch",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "model_patch",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / model_patch"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "These are model patches, not regular ControlNet weights. Workflow/custom-node folder expectations may vary."
+      ]
+    },
+    {
+      "id": "qwen-image-comfyui-text-encoders",
+      "display_name": "Qwen Image Text Encoders",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+        "path": "split_files/text_encoders",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main/split_files/text_encoders",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin",
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen25-vl-7b-abliterated-gguf-mradermacher",
+      "display_name": "Qwen2.5 VL 7B Instruct Abliterated GGUF Text/Vision Encoder",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/Qwen2.5-VL-7B-Instruct-abliterated-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-abliterated-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "utility",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "qwen",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen25-vl-7b-instruct-gguf-unsloth",
+      "display_name": "Qwen2.5 VL 7B Instruct GGUF Text/Vision Encoder",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "utility",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "qwen",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-image-edit-2509-gguf-unsloth",
+      "display_name": "Qwen Image Edit 2509 GGUF",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "unsloth/Qwen-Image-Edit-2509-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/unsloth/Qwen-Image-Edit-2509-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "base"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "qwen",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-image-edit-rapid-aio-gguf-novice25",
+      "display_name": "Qwen Image Edit Rapid AIO GGUF",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Novice25/Qwen-Image-Edit-Rapid-AIO-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Novice25/Qwen-Image-Edit-Rapid-AIO-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "base"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "qwen",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / qwen / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-image-vae-gguf-pig",
+      "display_name": "Qwen Image Edit Plus VAE GGUF",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "calcuis/qwen-image-edit-plus-gguf",
+        "filename": "pig_qwen_image_vae_fp32-f16.gguf",
+        "revision": "8c872fd6a8bc2a339f149f0323085c74b825dbe4",
+        "discovery": false,
+        "source_url": "https://huggingface.co/calcuis/qwen-image-edit-plus-gguf/blob/8c872fd6a8bc2a339f149f0323085c74b825dbe4/pig_qwen_image_vae_fp32-f16.gguf",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "gguf"
+        ],
+        "badges": [
+          "qwen",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / qwen / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "qwen-image-vae-safetensors",
+      "display_name": "Qwen Image VAE",
+      "category": "image",
+      "base_model": "qwen",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+        "filename": "split_files/vae/qwen_image_vae.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / qwen / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "sdxl-checkpoint-heirloom-male-xl",
+      "display_name": "Heirloom Male XL - SDXL Personal Merge",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "checkpoint",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "2284365",
+        "version_id": "",
+        "discovery": true,
+        "source_url": "https://civitai.red/models/2284365/heirloom-male-xl-sdxl-personal-merge-shared",
+        "source_host": "civitai.red"
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".ckpt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample",
+          "preview",
+          "image",
+          "metadata"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "character",
+          "realistic",
+          "general"
+        ],
+        "badges": [
+          "sdxl",
+          "checkpoint",
+          "civitai"
+        ],
+        "filter_group": "Image / SDXL / Checkpoint"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model permissions vary by Civitai model/version. Review the source page before download or commercial use."
+      },
+      "notes": [
+        "User-preferred SDXL personal merge/source."
+      ]
+    },
+    {
+      "id": "sdxl-checkpoint-photorealistic-all-purpose",
+      "display_name": "Photorealistic All-Purpose XL",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "checkpoint",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "659428",
+        "version_id": "",
+        "discovery": true,
+        "source_url": "https://civitai.red/models/659428/photorealistic-all-purpose-porn-and-gay-friendly-xl-model",
+        "source_host": "civitai.red"
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".ckpt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample",
+          "preview",
+          "image",
+          "metadata"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "realistic",
+          "general",
+          "mature"
+        ],
+        "badges": [
+          "sdxl",
+          "checkpoint",
+          "civitai"
+        ],
+        "filter_group": "Image / SDXL / Checkpoint"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model permissions vary by Civitai model/version. Review the source page before download or commercial use."
+      },
+      "notes": [
+        "User-curated SDXL checkpoint. Contains mature/source-page wording; keep license/content review warning visible."
+      ]
+    },
+    {
+      "id": "sdxl-checkpoint-wai-illustrious-sdxl",
+      "display_name": "WAI-illustrious-SDXL",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "checkpoint",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "827184",
+        "version_id": "",
+        "discovery": true,
+        "source_url": "https://civitai.red/models/827184/wai-illustrious-sdxl",
+        "source_host": "civitai.red"
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".ckpt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample",
+          "preview",
+          "image",
+          "metadata"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "anime",
+          "style",
+          "general"
+        ],
+        "badges": [
+          "sdxl",
+          "checkpoint",
+          "civitai"
+        ],
+        "filter_group": "Image / SDXL / Checkpoint"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model permissions vary by Civitai model/version. Review the source page before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "sdxl-checkpoint-xl-sat-ior-needs-url-check",
+      "display_name": "XL-Sat-IOR - Imitation Of Reality",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "checkpoint",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "civitai",
+        "model_id": "2284365",
+        "version_id": "",
+        "discovery": true,
+        "source_url": "https://civitai.red/models/2284365/heirloom-male-xl-sdxl-personal-merge-shared",
+        "source_host": "civitai.red"
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".ckpt"
+        ],
+        "exclude_patterns": [
+          "training",
+          "dataset",
+          "sample",
+          "preview",
+          "image",
+          "metadata"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "checkpoint",
+        "backend_targets": [
+          "comfyui",
+          "forge"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "realistic",
+          "general"
+        ],
+        "badges": [
+          "sdxl",
+          "checkpoint",
+          "civitai"
+        ],
+        "filter_group": "Image / SDXL / Checkpoint"
+      },
+      "hardware": {
+        "minimum_vram": "8 GB",
+        "recommended_vram": "12 GB+"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Community model permissions vary by Civitai model/version. Review the source page before download or commercial use."
+      },
+      "notes": [
+        "The supplied source URL duplicates Heirloom Male XL. Verify the correct XL-Sat-IOR URL before relying on discovery/download."
+      ]
+    },
+    {
+      "id": "controlnet-union-sdxl-promax",
+      "display_name": "ControlNet Union SDXL 1.0 ProMax",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "controlnet",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/controlnet-models",
+        "filename": "controlnet-union-sdxl-1.0-promax.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/controlnet-models/blob/main/controlnet-union-sdxl-1.0-promax.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "controlnet",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "depth"
+        ],
+        "badges": [
+          "sdxl",
+          "controlnet",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / controlnet"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "vae-sdxl-fp16-fix-safetensors",
+      "display_name": "sdxl_fp16_fix.safetensors",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/sdxl_fp16_fix.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/sdxl_fp16_fix.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "sdxl",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "vae-sdxl-fp32-safetensors",
+      "display_name": "sdxl_fp32.safetensors",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/sdxl_fp32.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/sdxl_fp32.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "sdxl",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "vae-sdxl-vae-safetensors",
+      "display_name": "sdxl_vae.safetensors",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/sdxl_vae.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/sdxl_vae.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "sdxl",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "vae-vae-ft-ema-560000-ema-pruned-safetensors",
+      "display_name": "vae-ft-ema-560000-ema-pruned.safetensors",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/vae-ft-ema-560000-ema-pruned.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/vae-ft-ema-560000-ema-pruned.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "sdxl",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "vae-vae-ft-mse-840000-ema-pruned-safetensors",
+      "display_name": "vae-ft-mse-840000-ema-pruned.safetensors",
+      "category": "image",
+      "base_model": "sdxl",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/vae-ft-mse-840000-ema-pruned.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/vae-ft-mse-840000-ema-pruned.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "utility"
+        ],
+        "badges": [
+          "sdxl",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / sdxl / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-turbo-diffusion-models",
+      "display_name": "Z-Image Turbo Diffusion Models",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "diffusion_model",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/z_image_turbo",
+        "path": "split_files/diffusion_models",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/z_image_turbo/tree/main/split_files/diffusion_models",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "diffusion_model",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base"
+        ],
+        "badges": [
+          "z_image",
+          "diffusion_model",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / z_image / diffusion_model"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-turbo-loras",
+      "display_name": "Z-Image Turbo LoRAs",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "lora",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/z_image_turbo",
+        "path": "split_files/loras",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/z_image_turbo/tree/main/split_files/loras",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".pt"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_lora"
+      },
+      "install": {
+        "target_type": "lora",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "style",
+          "utility"
+        ],
+        "badges": [
+          "z_image",
+          "lora",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / z_image / lora"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-turbo-text-encoders",
+      "display_name": "Z-Image Turbo Text Encoders",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/z_image_turbo",
+        "path": "split_files/text_encoders",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/z_image_turbo/tree/main/split_files/text_encoders",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin",
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "z_image",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / z_image / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-gguf-unsloth",
+      "display_name": "Z-Image GGUF",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "unsloth/Z-Image-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/unsloth/Z-Image-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "z_image",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / z_image / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-turbo-gguf-unsloth",
+      "display_name": "Z-Image Turbo GGUF",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "unet_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "unsloth/Z-Image-Turbo-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "unet_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "gguf"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "z_image",
+          "unet_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Image / z_image / unet_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "z-image-ae-vae",
+      "display_name": "Z-Image AE VAE",
+      "category": "image",
+      "base_model": "z_image",
+      "model_type": "vae",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "repo": "f5aiteam/ComfyUI",
+        "filename": "VAE/ae.safetensors",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/f5aiteam/ComfyUI/blob/main/VAE/ae.safetensors",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility"
+        ],
+        "badges": [
+          "z_image",
+          "vae",
+          "huggingface"
+        ],
+        "filter_group": "Image / z_image / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "llm-gguf-gemma3-27b-it-abliterated-bartowski",
+      "display_name": "Gemma 3 27B IT Abliterated GGUF Models",
+      "category": "llm",
+      "base_model": "gemma",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "bartowski/mlabonne_gemma-3-27b-it-abliterated-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/bartowski/mlabonne_gemma-3-27b-it-abliterated-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "gemma",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / gemma / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-transformers-gemma3-27b-it-abliterated",
+      "display_name": "Gemma 3 27B IT Abliterated Transformers",
+      "category": "llm",
+      "base_model": "gemma",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mlabonne/gemma-3-27b-it-abliterated",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/mlabonne/gemma-3-27b-it-abliterated/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / gemma / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-gguf-llama4-scout-17b-abliterated-mradermacher",
+      "display_name": "Llama 4 Scout 17B 16E Instruct Abliterated GGUF Models",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/Llama-4-Scout-17B-16E-Instruct-abliterated-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/Llama-4-Scout-17B-16E-Instruct-abliterated-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "llama",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / llama / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-gguf-llama-joycaption-beta-one-mradermacher",
+      "display_name": "Llama JoyCaption Beta One HF LLaVA GGUF Models",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/llama-joycaption-beta-one-hf-llava-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/llama-joycaption-beta-one-hf-llava-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "captioning",
+          "vision",
+          "vision"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "llama",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / llama / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-gguf-llama-joycaption-beta-one-mradermacher-mmproj",
+      "display_name": "Llama JoyCaption Beta One HF LLaVA Vision Projector / MMProj",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_mmproj",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/llama-joycaption-beta-one-hf-llava-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/llama-joycaption-beta-one-hf-llava-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "include_patterns": [
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt"
+        ],
+        "variant_detection": "gguf_generic"
+      },
+      "install": {
+        "target_type": "llm_mmproj",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "captioning",
+          "utility"
+        ],
+        "badges": [
+          "llama",
+          "llm_mmproj",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / llama / llm_mmproj"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows only mmproj/projector files for vision-capable GGUF backends. Keep this paired with the matching GGUF model file."
+      ]
+    },
+    {
+      "id": "llm-transformers-llama4-scout-17b-abliterated-v2",
+      "display_name": "Llama 4 Scout 17B 16E Instruct Abliterated v2 Transformers",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "jiangchengchengNLP/Llama-4-Scout-17B-16E-Instruct-abliterated-v2",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/jiangchengchengNLP/Llama-4-Scout-17B-16E-Instruct-abliterated-v2/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / llama / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-transformers-llama-joycaption-alpha-two",
+      "display_name": "Llama JoyCaption Alpha Two HF LLaVA Transformers",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "fancyfeast/llama-joycaption-alpha-two-hf-llava",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "captioning",
+          "vision"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / llama / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-transformers-llama-joycaption-beta-one",
+      "display_name": "Llama JoyCaption Beta One HF LLaVA Transformers",
+      "category": "llm",
+      "base_model": "llama",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "fancyfeast/llama-joycaption-beta-one-hf-llava",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/fancyfeast/llama-joycaption-beta-one-hf-llava/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "captioning",
+          "vision"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / llama / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-gguf-dolphin30-r1-mistral-24b-bartowski",
+      "display_name": "Dolphin3.0 R1 Mistral 24B GGUF Models",
+      "category": "llm",
+      "base_model": "mistral",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "bartowski/cognitivecomputations_Dolphin3.0-R1-Mistral-24B-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/bartowski/cognitivecomputations_Dolphin3.0-R1-Mistral-24B-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat",
+          "roleplay"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "mistral",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / mistral / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-transformers-dolphin30-r1-mistral-24b",
+      "display_name": "Dolphin3.0 R1 Mistral 24B Transformers",
+      "category": "llm",
+      "base_model": "mistral",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "dphn/Dolphin3.0-R1-Mistral-24B",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/dphn/Dolphin3.0-R1-Mistral-24B/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat",
+          "roleplay"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / mistral / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-gguf-qwen3-vl-32b-instruct",
+      "display_name": "Qwen3 VL 32B Instruct GGUF Models",
+      "category": "llm",
+      "base_model": "qwen",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Qwen/Qwen3-VL-32B-Instruct-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat",
+          "vision"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "qwen",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / qwen / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-gguf-qwen3-vl-32b-instruct-mmproj",
+      "display_name": "Qwen3 VL 32B Instruct Vision Projector / MMProj",
+      "category": "llm",
+      "base_model": "qwen",
+      "model_type": "llm_mmproj",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Qwen/Qwen3-VL-32B-Instruct-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "include_patterns": [
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt"
+        ],
+        "variant_detection": "gguf_generic"
+      },
+      "install": {
+        "target_type": "llm_mmproj",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "captioning",
+          "utility"
+        ],
+        "badges": [
+          "qwen",
+          "llm_mmproj",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / qwen / llm_mmproj"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows only mmproj/projector files for vision-capable GGUF backends. Keep this paired with the matching GGUF model file."
+      ]
+    },
+    {
+      "id": "llm-transformers-qwen3-vl-32b-instruct",
+      "display_name": "Qwen3 VL 32B Instruct Transformers",
+      "category": "llm",
+      "base_model": "qwen",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Qwen/Qwen3-VL-32B-Instruct",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "assistant",
+          "chat",
+          "vision",
+          "captioning"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / qwen / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-gguf-toriigate-05-draconicdragon",
+      "display_name": "ToriiGate 0.5 GGUF Models",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "DraconicDragon/ToriiGate-0.5-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/DraconicDragon/ToriiGate-0.5-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "roleplay",
+          "chat",
+          "vision"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "torii_gate",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / torii_gate / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-gguf-toriigate-v04-mradermacher",
+      "display_name": "ToriiGate v0.4 7B GGUF Models",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/ToriiGate-v0.4-7B-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/ToriiGate-v0.4-7B-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "llm_gguf",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "roleplay",
+          "chat",
+          "vision"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "torii_gate",
+          "llm_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / torii_gate / llm_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows GGUF model files only. mmproj / vision projector files are filtered into a separate manifest entry when available."
+      ]
+    },
+    {
+      "id": "llm-gguf-toriigate-05-draconicdragon-mmproj",
+      "display_name": "ToriiGate 0.5 Vision Projector / MMProj",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_mmproj",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "DraconicDragon/ToriiGate-0.5-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/DraconicDragon/ToriiGate-0.5-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "include_patterns": [
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt"
+        ],
+        "variant_detection": "gguf_generic"
+      },
+      "install": {
+        "target_type": "llm_mmproj",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "captioning",
+          "utility"
+        ],
+        "badges": [
+          "torii_gate",
+          "llm_mmproj",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / torii_gate / llm_mmproj"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows only mmproj/projector files for vision-capable GGUF backends. Keep this paired with the matching GGUF model file."
+      ]
+    },
+    {
+      "id": "llm-gguf-toriigate-v04-mradermacher-mmproj",
+      "display_name": "ToriiGate v0.4 7B Vision Projector / MMProj",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_mmproj",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "mradermacher/ToriiGate-v0.4-7B-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/mradermacher/ToriiGate-v0.4-7B-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "include_patterns": [
+          "mmproj",
+          "mm_proj",
+          "projector"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt"
+        ],
+        "variant_detection": "gguf_generic"
+      },
+      "install": {
+        "target_type": "llm_mmproj",
+        "backend_targets": [
+          "koboldcpp",
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "vision",
+          "captioning",
+          "utility"
+        ],
+        "badges": [
+          "torii_gate",
+          "llm_mmproj",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Llm / torii_gate / llm_mmproj"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Shows only mmproj/projector files for vision-capable GGUF backends. Keep this paired with the matching GGUF model file."
+      ]
+    },
+    {
+      "id": "llm-transformers-toriigate-05",
+      "display_name": "ToriiGate 0.5 Transformers",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Minthy/ToriiGate-0.5",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Minthy/ToriiGate-0.5/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "roleplay",
+          "chat",
+          "vision"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / torii_gate / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "llm-transformers-toriigate-v04",
+      "display_name": "ToriiGate v0.4 7B Transformers",
+      "category": "llm",
+      "base_model": "torii_gate",
+      "model_type": "llm_transformers",
+      "source_mode": "manual_only",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Minthy/ToriiGate-v0.4-7B",
+        "path": "",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Minthy/ToriiGate-v0.4-7B/tree/main",
+        "notes": "HF Transformers/safetensors repos are multi-file model directories. Neo single-file download manager should not install these yet."
+      },
+      "install": {
+        "target_type": "llm_transformers",
+        "backend_targets": [
+          "local_llm"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "roleplay",
+          "chat",
+          "vision"
+        ],
+        "badges": [
+          "llm",
+          "transformers",
+          "safetensors",
+          "manual-review"
+        ],
+        "filter_group": "LLM / torii_gate / Transformers Safetensors"
+      },
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review license and install with a backend that supports Transformers/safetensors snapshots. Neo needs snapshot/multi-file install support before automating these."
+      },
+      "notes": [
+        "Manifest-only entry for now. Needs future snapshot_download/multi-file folder install support; downloading a single shard is not enough."
+      ]
+    },
+    {
+      "id": "ltx23-gguf-quantstack",
+      "display_name": "LTX 2.3 GGUF",
+      "category": "video",
+      "base_model": "ltx",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "QuantStack/LTX-2.3-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/QuantStack/LTX-2.3-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "ltx",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / ltx / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-audio-encoders",
+      "display_name": "Wan 2.2 Audio Encoders",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "audio_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        "path": "split_files/audio_encoders",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files/audio_encoders",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin",
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "audio_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "audio_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / audio_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-loras",
+      "display_name": "Wan 2.2 LoRAs",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "lora",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        "path": "split_files/loras",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files/loras",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".pt"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_lora"
+      },
+      "install": {
+        "target_type": "lora",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "style",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "lora",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / lora"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-text-encoders",
+      "display_name": "Wan 2.2 Text Encoders",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "text_encoder",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        "path": "split_files/text_encoders",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files/text_encoders",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".bin",
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "text_encoder",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "text_encoder",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / text_encoder"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-vae",
+      "display_name": "Wan 2.2 VAE",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "vae",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        "path": "split_files/vae",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files/vae",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors",
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_generic"
+      },
+      "install": {
+        "target_type": "vae",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "utility",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "vae",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / vae"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-14b-rapid-aio-safetensors",
+      "display_name": "WAN2.2 14B Rapid All-In-One",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_diffusion",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Phr00t/WAN2.2-14B-Rapid-AllInOne",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Phr00t/WAN2.2-14B-Rapid-AllInOne/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "video_diffusion",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "video_diffusion",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_diffusion"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-comfyui-diffusion-models",
+      "display_name": "Wan 2.2 ComfyUI Diffusion Models",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_diffusion",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        "path": "split_files/diffusion_models",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/tree/main/split_files/diffusion_models",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".safetensors"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "safetensors_checkpoint"
+      },
+      "install": {
+        "target_type": "video_diffusion",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "base",
+          "video"
+        ],
+        "badges": [
+          "wan",
+          "video_diffusion",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_diffusion"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-14b-rapid-aio-gguf",
+      "display_name": "WAN2.2 14B Rapid All-In-One GGUF",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "lllongggg/WAN2.2-14B-Rapid-AllInOne-GGUF",
+        "path": "",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/lllongggg/WAN2.2-14B-Rapid-AllInOne-GGUF/tree/main",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "wan",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": []
+    },
+    {
+      "id": "wan22-i2v-a14b-gguf-highnoise",
+      "display_name": "Wan2.2 I2V A14B GGUF HighNoise",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "QuantStack/Wan2.2-I2V-A14B-GGUF",
+        "path": "HighNoise",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/QuantStack/Wan2.2-I2V-A14B-GGUF/tree/main/HighNoise",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "wan",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Wan2.2 I2V requires matching HighNoise and LowNoise models. Add/download both."
+      ]
+    },
+    {
+      "id": "wan22-i2v-a14b-gguf-lownoise",
+      "display_name": "Wan2.2 I2V A14B GGUF LowNoise",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "QuantStack/Wan2.2-I2V-A14B-GGUF",
+        "path": "LowNoise",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/QuantStack/Wan2.2-I2V-A14B-GGUF/tree/main/LowNoise",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "wan",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Wan2.2 I2V requires matching HighNoise and LowNoise models. Add/download both."
+      ]
+    },
+    {
+      "id": "wan22-t2v-a14b-gguf-highnoise",
+      "display_name": "Wan2.2 T2V A14B GGUF HighNoise",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "QuantStack/Wan2.2-T2V-A14B-GGUF",
+        "path": "HighNoise",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/tree/main/HighNoise",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "wan",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Wan2.2 T2V requires matching HighNoise and LowNoise models. Add/download both."
+      ]
+    },
+    {
+      "id": "wan22-t2v-a14b-gguf-lownoise",
+      "display_name": "Wan2.2 T2V A14B GGUF LowNoise",
+      "category": "video",
+      "base_model": "wan",
+      "model_type": "video_gguf",
+      "source_mode": "discover_files",
+      "source": {
+        "provider": "huggingface",
+        "repo": "QuantStack/Wan2.2-T2V-A14B-GGUF",
+        "path": "LowNoise",
+        "revision": "main",
+        "discovery": true,
+        "source_url": "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/tree/main/LowNoise",
+        "requires_token": false,
+        "gated": false
+      },
+      "file_rules": {
+        "include_extensions": [
+          ".gguf"
+        ],
+        "exclude_patterns": [
+          "README",
+          "LICENSE",
+          ".json",
+          ".md",
+          ".txt",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          "preview",
+          "sample"
+        ],
+        "variant_detection": "gguf_quant",
+        "quant_patterns": [
+          "Q2_K",
+          "Q3_K_S",
+          "Q3_K_M",
+          "Q3_K_L",
+          "Q4_0",
+          "Q4_K_S",
+          "Q4_K_M",
+          "Q5_0",
+          "Q5_K_S",
+          "Q5_K_M",
+          "Q6_K",
+          "Q8_0",
+          "F16",
+          "BF16"
+        ]
+      },
+      "install": {
+        "target_type": "video_gguf",
+        "backend_targets": [
+          "comfyui"
+        ]
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "gguf",
+          "video"
+        ],
+        "recommended_variants": [
+          "Q4_K_M",
+          "Q5_K_M"
+        ],
+        "badges": [
+          "wan",
+          "video_gguf",
+          "huggingface",
+          "dynamic-source"
+        ],
+        "filter_group": "Video / wan / video_gguf"
+      },
+      "hardware": {},
+      "license": {
+        "requires_user_review": true,
+        "notes": "Review the source model card/license before download or commercial use."
+      },
+      "notes": [
+        "Wan2.2 T2V requires matching HighNoise and LowNoise models. Add/download both."
+      ]
+    }
+  ]
+}
