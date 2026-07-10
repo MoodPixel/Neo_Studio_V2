@@ -38,8 +38,8 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 2
-updated: 2026-07-09
+version: 3
+updated: 2026-07-10
 ---
 
 # Image Parameters
@@ -205,3 +205,15 @@ After adding models to ComfyUI:
 4. Select the exact filename shown by ComfyUI.
 
 Do not rename a file merely to match an old guide/default. P2.2 removes those filename assumptions. If a selector remains empty, check the Comfy `/object_info` or `/models/...` catalog and backend connection status.
+
+## Qwen Rapid AIO CFG — P2.3
+
+For `Qwen Rapid AIO + Safetensors / Bundled`, **CFG Scale** is visible and maps directly to `KSampler.inputs.cfg`.
+
+| Setting | Recommended interpretation |
+|---|---|
+| `1.0` | Route default and safest starting point for Rapid/distilled AIO checkpoints. |
+| Higher values | Stronger guidance only when the selected checkpoint recommends it; increase gradually. |
+| CFG Fix extension | Separate dynamic-thresholding graph patch. It is not automatically enabled just because normal CFG is visible. |
+
+If generation fails, Neo distinguishes a genuine Comfy node exception from a successful history record that contains no output references.

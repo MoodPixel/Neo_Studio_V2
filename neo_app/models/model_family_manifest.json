@@ -836,7 +836,7 @@
       ],
       "category": "image",
       "status": "extension_ready",
-      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1\u20133 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
+      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1–3 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -932,7 +932,7 @@
       ],
       "notes": [
         "V25.9.20 Pass G adds Qwen Image Edit 2509 as its own visible Image family instead of overloading normal qwen_image.",
-        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1\u20133 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
+        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1–3 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
         "V25.9.20 P3 promotes Safetensors / Components img2img/edit/inpaint/outpaint routes as implemented workflows through the Qwen native edit compiler.",
         "Safetensors / Components uses the Qwen native edit compiler with max_images=3 for qwen_image_edit_2509 img2img/edit.",
         "Safetensors / Components inpaint/outpaint compile as single-source mask/canvas workflows; extra source lanes are pruned/ignored for those modes.",
@@ -4353,7 +4353,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -4431,7 +4431,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "diffusion_model",
-          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1\u20133 image multi-source editing."
+          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1–3 image multi-source editing."
         },
         {
           "field_id": "qwen_text_encoder",
@@ -4476,7 +4476,7 @@
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1\u20133 source image lanes and compile through comfy.qwen_native_edit.",
+        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1–3 source image lanes and compile through comfy.qwen_native_edit.",
         "Normal qwen_image remains single-source; do not share this profile with qwen_image.",
         "P3: native inpaint/outpaint are implemented single-source mask/canvas workflows, not planned gates; source_image_2/source_image_3 are mode-scoped to img2img/edit only."
       ]
@@ -4545,6 +4545,16 @@
           "advanced": false,
           "default": 4,
           "help_text": "Qwen Rapid AIO commonly uses low-step generation; explicit user values are preserved."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Qwen Rapid AIO uses the KSampler CFG input. Start near 1.0 for rapid/distilled checkpoints and raise only when the selected model recommends it."
         },
         {
           "field_id": "seed",
@@ -4753,7 +4763,8 @@
       "notes": [
         "Qwen Rapid AIO uses CheckpointLoaderSimple plus Qwen edit conditioning; source image is optional for txt2img and required for edit/img2img/inpaint/outpaint.",
         "V25.9.20 Pass E: profile applies to the visible qwen_rapid_aio family; legacy qwen_image + checkpoint_aio is no longer a normal selectable UI route.",
-        "V25.9.20 P2: checkpoint_aio payload cleanup prunes external text encoder, VAE/AE, MMProj, GGUF, and split diffusion model fields before compile so hidden controls cannot leak into the AIO graph."
+        "V25.9.20 P2: checkpoint_aio payload cleanup prunes external text encoder, VAE/AE, MMProj, GGUF, and split diffusion model fields before compile so hidden controls cannot leak into the AIO graph.",
+        "V25.9.20 P2.3 exposes KSampler CFG for checkpoint_aio because the compiled Qwen Rapid AIO graph already consumes params.cfg; the route default remains 1.0."
       ]
     },
     {
@@ -5194,7 +5205,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -5340,7 +5351,7 @@
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1\u20133 source lanes for img2img/edit.",
+        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1–3 source lanes for img2img/edit.",
         "MMProj remains optional for txt2img and required for image-conditioned modes.",
         "Inpaint/outpaint are available through the existing Qwen GGUF source/mask/padding graph, but multi-source behavior is scoped to img2img/edit."
       ]

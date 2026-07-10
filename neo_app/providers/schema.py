@@ -5,7 +5,20 @@ from pydantic import BaseModel, Field
 
 
 ProviderStatus = Literal["available", "configured", "mock", "disabled", "missing_config", "error"]
-JobStatus = Literal["queued", "running", "completed", "failed", "cancelled", "paused"]
+JobStatus = Literal[
+    "queued",
+    "running",
+    "importing",
+    "completed",
+    "completed_with_warnings",
+    "failed",
+    "cancelled",
+    "paused",
+    "saved_in_comfy_only",
+    "import_failed",
+    "completed_no_outputs_recoverable",
+    "completed_import_failed",
+]
 
 
 class ProviderCapability(BaseModel):

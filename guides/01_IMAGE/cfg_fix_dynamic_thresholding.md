@@ -23,8 +23,8 @@ tags:
   - high cfg
   - route aware
 priority: 112
-version: 1
-updated: 2026-07-09
+version: 2
+updated: 2026-07-10
 ---
 
 # CFG Fix / Dynamic Thresholding
@@ -81,3 +81,7 @@ CFG Fix helps when high CFG makes the image look too harsh or overbaked. On your
 ```
 
 Do not promise CFG Fix on routes that do not expose a safe sampler MODEL patch point.
+
+## Qwen Rapid AIO clarification — P2.3
+
+Qwen Rapid AIO now exposes its normal base sampler **CFG Scale**. That does not promote this Dynamic Thresholding extension to an active Qwen AIO route. The extension remains planned/gated until its `MODEL` patch placement is physically validated for the bundled Qwen graph. At the usual low Rapid CFG around `1.0`, CFG Fix would normally be unnecessary and may be auto-skipped.

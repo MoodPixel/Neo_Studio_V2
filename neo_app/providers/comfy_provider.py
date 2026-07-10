@@ -80,6 +80,89 @@ def _image_run_timing(runtime: dict[str, Any] | None, *, completed: bool = False
     }
 
 
+_COMFY_HISTORY_FAILURE_STATES = {"error", "failed", "execution_error", "execution_failed"}
+
+
+def _comfy_history_failure_details(history_item: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract a concise Comfy execution error from a history record.
+
+    Comfy writes failed executions into ``/history`` too. A history record with
+    no image outputs is therefore not automatically a successful completion.
+    This helper keeps backend execution failure separate from Neo output-import
+    recovery so the original node/exception message reaches the user.
+    """
+
+    item = history_item if isinstance(history_item, dict) else {}
+    status_payload = item.get("status") if isinstance(item.get("status"), dict) else {}
+    status_str = str(status_payload.get("status_str") or item.get("status_str") or "").strip().lower()
+    messages = status_payload.get("messages") if isinstance(status_payload.get("messages"), list) else item.get("messages")
+    messages = messages if isinstance(messages, list) else []
+
+    event_name = ""
+    event_payload: dict[str, Any] = {}
+    for raw_event in reversed(messages):
+        if not isinstance(raw_event, (list, tuple)) or len(raw_event) < 2:
+            continue
+        name = str(raw_event[0] or "").strip()
+        payload = raw_event[1] if isinstance(raw_event[1], dict) else {}
+        if name in {"execution_error", "execution_failed", "execution_interrupted"}:
+            event_name = name
+            event_payload = payload
+            break
+
+    node_errors = item.get("node_errors") if isinstance(item.get("node_errors"), dict) else {}
+    explicit_error = item.get("error")
+    failed = status_str in _COMFY_HISTORY_FAILURE_STATES or bool(event_name) or bool(node_errors) or bool(explicit_error)
+    if not failed:
+        return {}
+
+    node_id = str(event_payload.get("node_id") or "").strip()
+    node_type = str(event_payload.get("node_type") or event_payload.get("class_type") or "").strip()
+    exception_type = str(event_payload.get("exception_type") or "").strip()
+    exception_message = str(
+        event_payload.get("exception_message")
+        or event_payload.get("message")
+        or explicit_error
+        or ""
+    ).strip()
+
+    if not exception_message and node_errors:
+        first_node_id, first_node_error = next(iter(node_errors.items()))
+        node_id = node_id or str(first_node_id or "").strip()
+        if isinstance(first_node_error, dict):
+            node_type = node_type or str(first_node_error.get("class_type") or first_node_error.get("node_type") or "").strip()
+            raw_errors = first_node_error.get("errors")
+            if isinstance(raw_errors, list) and raw_errors:
+                first_error = raw_errors[0]
+                if isinstance(first_error, dict):
+                    exception_message = str(first_error.get("message") or first_error.get("details") or first_error.get("type") or "").strip()
+                else:
+                    exception_message = str(first_error or "").strip()
+            exception_message = exception_message or str(first_node_error.get("message") or first_node_error.get("error") or "").strip()
+        else:
+            exception_message = str(first_node_error or "").strip()
+
+    location = ""
+    if node_id and node_type:
+        location = f" at node {node_id} ({node_type})"
+    elif node_id:
+        location = f" at node {node_id}"
+    elif node_type:
+        location = f" in {node_type}"
+    reason = exception_message or exception_type or status_str or "Unknown ComfyUI execution error"
+    summary = f"ComfyUI execution failed{location}: {reason}"
+
+    return {
+        "status_str": status_str or "error",
+        "event": event_name or "history_error",
+        "node_id": node_id,
+        "node_type": node_type,
+        "exception_type": exception_type,
+        "exception_message": exception_message,
+        "summary": summary,
+    }
+
+
 def normalize_comfy_clip_skip(value: Any) -> dict[str, Any]:
     """Map Neo Clip Skip to Comfy's CLIPSetLastLayer semantics.
 
@@ -2992,7 +3075,55 @@ class ComfyProvider(BaseProvider):
                     log_image_event("job_registry_running_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
                 log_image_event("poll_running", run_id=job_id, payload={"percent": percent, "history_has_job": bool(history and job_id in history), "job_registry": self._registry_summary(job_id)})
                 return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="running", message="ComfyUI job still running or not in history yet.", runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": _image_run_timing(runtime, completed=False), "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
-            outputs = self._extract_outputs(job_id, history[job_id])
+            history_item = history[job_id] if isinstance(history.get(job_id), dict) else {}
+            backend_failure = _comfy_history_failure_details(history_item)
+            if backend_failure:
+                completed_at = time.time()
+                runtime["completed_at"] = completed_at
+                runtime["backend_error"] = backend_failure
+                run_timing = _image_run_timing(runtime, completed=True)
+                runtime["run_timing"] = run_timing
+                progress = {
+                    "source": "comfyui.history",
+                    "percent": 100,
+                    "label": "Failed in ComfyUI",
+                    "batch_total": int(runtime.get("batch_total") or 1),
+                    "batch_done": int(runtime.get("batch_done") or 0),
+                }
+                runtime["progress"] = progress
+                message = str(backend_failure.get("summary") or "ComfyUI execution failed.")
+                try:
+                    self.job_registry.mark_failed(job_id, message=message, error=message, runtime=runtime)
+                except Exception as exc:  # noqa: BLE001
+                    log_image_event("job_registry_backend_failure_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
+                log_image_event("poll_backend_execution_failed", run_id=job_id, level="ERROR", payload={"backend_error": backend_failure, "run_timing": run_timing, "job_registry": self._registry_summary(job_id)})
+                record_generation_error(
+                    run_id=job_id,
+                    message=message,
+                    payload={"job_id": job_id, "backend_error": backend_failure, "job_registry": self._registry_summary(job_id)},
+                )
+                return ProviderRunResult(
+                    job_id=job_id,
+                    provider_id=self.manifest.provider_id,
+                    status="failed",
+                    message=message,
+                    outputs=[],
+                    runtime={
+                        "debug_logs": {"run_id": job_id},
+                        "poll": poll_runtime,
+                        "run_timing": run_timing,
+                        "progress": progress,
+                        "backend_error": backend_failure,
+                        "actual_params": runtime.get("actual_params") or {},
+                        "route_snapshot": runtime.get("route_snapshot") or {},
+                        "workflow_node_map": runtime.get("workflow_node_map") or {},
+                        "extensions": runtime.get("extensions") or {},
+                        "capabilities": self.feature_capability_payload(),
+                        "job_registry": self._registry_summary(job_id),
+                    },
+                )
+
+            outputs = self._extract_outputs(job_id, history_item)
             runtime["batch_done"] = len(outputs)
             completed_at = time.time()
             runtime["completed_at"] = completed_at

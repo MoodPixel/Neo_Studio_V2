@@ -18,8 +18,8 @@ tags:
   - parameters
   - model
 priority: 100
-version: 2
-updated: 2026-07-09
+version: 3
+updated: 2026-07-10
 ---
 
 # Qwen Rapid AIO Image Workflow
@@ -95,3 +95,15 @@ When a newly downloaded model is missing from the dropdown:
 3. Select the checkpoint explicitly before generating.
 
 Neo no longer guesses `Qwen-Image-Edit-Rapid-AIO.safetensors`. A missing selection is reported as a readiness error instead of submitting a likely invalid filename.
+
+## P2.3 — CFG and generation error behavior
+
+The **Safetensors / Bundled** route now exposes **CFG Scale** because its graph uses `KSampler.cfg` directly.
+
+- Start at **1.0** for Rapid/distilled AIO checkpoints unless the model documentation recommends another value.
+- Raise CFG carefully; Rapid models are usually designed around low guidance.
+- Neo preserves the exact selected CFG in the Comfy graph.
+
+This is the normal sampler CFG field. It is **not** the separate **CFG Fix / Dynamic Thresholding** extension. CFG Fix remains route-gated for Qwen Rapid AIO until that model-patch path is physically validated.
+
+When Comfy fails during execution, Neo now reports the backend node and exception reason. A successful completion with no output files remains recoverable, but a real Comfy execution error is shown as failed instead of being masked by a no-output recovery state.

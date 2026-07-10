@@ -2009,6 +2009,29 @@ function applyZImageRuntimeDefaultsIfNeeded({ force = false } = {}) {
   saveUiState();
 }
 
+function applyQwenRapidAioRuntimeDefaultsIfNeeded({ force = false } = {}) {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  if (family !== 'qwen_rapid_aio' || loader !== 'checkpoint_aio') return;
+  const key = `${family}:${loader}`;
+  const lastKey = state.imageDraft._last_qwen_rapid_aio_defaults_key || '';
+  const savedRaw = state.imageDraft._qwen_rapid_aio_cfg;
+  const savedCfg = Number(savedRaw);
+  const currentCfg = Number(state.imageDraft.cfg);
+  const hasSavedCfg = savedRaw !== undefined && savedRaw !== null && savedRaw !== '' && Number.isFinite(savedCfg);
+  if (!force && lastKey === key && hasSavedCfg) return;
+  state.imageDraft._last_qwen_rapid_aio_defaults_key = key;
+  if (hasSavedCfg) {
+    state.imageDraft.cfg = savedCfg;
+  } else if (!force && Number.isFinite(currentCfg) && currentCfg !== 7) {
+    state.imageDraft._qwen_rapid_aio_cfg = currentCfg;
+  } else {
+    state.imageDraft.cfg = 1.0;
+    state.imageDraft._qwen_rapid_aio_cfg = 1.0;
+  }
+  saveUiState();
+}
+
 function profileMatches(profile, family, loader, mode) {
   const has = (values, value) => !Array.isArray(values) || !values.length || values.includes(value);
   return has(profile.families, family) && has(profile.loaders, loader) && has(profile.modes, mode);
@@ -26572,6 +26595,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     return `${help}<label>Edit Instruction</label><textarea placeholder="Tell the model what to change..."></textarea>${expert}`;
   }
   if (section.section_id === 'params') {
+    applyQwenRapidAioRuntimeDefaultsIfNeeded();
     const p = { ...(imageSetup.default_params || {}), ...state.imageDraft };
     if (isCloudImageProfile()) return `${help}${renderCloudImageParameterRows(p)}${expert}`;
     const presets = imageSizePresetOptions();
@@ -42345,11 +42369,13 @@ function bindImageDraftInputs() {
       updateDraftValue(key, Number(event.target.value));
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
+      if (key === 'cfg' && state.imageDraft.family === 'qwen_rapid_aio' && state.imageDraft.loader === 'checkpoint_aio') state.imageDraft._qwen_rapid_aio_cfg = Number(event.target.value);
     });
     node.addEventListener('change', (event) => {
       updateDraftValue(key, Number(event.target.value));
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
+      if (key === 'cfg' && state.imageDraft.family === 'qwen_rapid_aio' && state.imageDraft.loader === 'checkpoint_aio') state.imageDraft._qwen_rapid_aio_cfg = Number(event.target.value);
     });
   });
 
@@ -42419,6 +42445,7 @@ function bindImageDraftInputs() {
     }
     applyQwenGgufStabilityPresetIfNeeded();
     applyZImageRuntimeDefaultsIfNeeded({ force: true });
+    applyQwenRapidAioRuntimeDefaultsIfNeeded({ force: true });
     render();
   };
   const family = document.getElementById('imageWorkspaceFamily');
@@ -42971,6 +42998,7 @@ function parameterProfileParams() {
 
 function buildImageJobPayload() {
   applyZImageRuntimeDefaultsIfNeeded();
+  applyQwenRapidAioRuntimeDefaultsIfNeeded();
   const profile = activeImageProfile();
   const draft = state.imageDraft;
   const forcedPreviewMode = String(draft._preview_action_force_workflow_mode || '').trim();
@@ -43016,7 +43044,7 @@ function buildImageJobPayload() {
       provider_hook_required: true,
     };
   }
-  if (usesField('cfg')) params.cfg = Number(draft.cfg || numberValue('imageCfg', 7));
+  if (usesField('cfg')) params.cfg = Number(draft.cfg ?? numberValue('imageCfg', 7));
   if (usesField('clip_skip')) params.clip_skip = Number(draft.clip_skip || numberValue('imageClipSkip', 1));
   if (usesField('denoise')) params.denoise = Number(draft.denoise || numberValue('imageDenoise', 1));
   if (usesField('source_image')) {
