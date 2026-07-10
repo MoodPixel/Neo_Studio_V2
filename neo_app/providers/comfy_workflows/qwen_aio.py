@@ -9,6 +9,7 @@ from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
+from neo_app.models.asset_selection import first_explicit_asset_selection, require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
@@ -33,7 +34,7 @@ class QwenRapidAioDefaults:
     denoise_inpaint: float = 0.9
     sampler: str = "euler"
     scheduler: str = "simple"
-    checkpoint: str = "Qwen-Image-Edit-Rapid-AIO.safetensors"
+    checkpoint: str = ""
     edit_node: str = "TextEncodeQwenImageEditPlus"
 
 
@@ -51,9 +52,9 @@ class QwenNativeEditDefaults:
     aura_shift: float = 3.1
     clip_type: str = "qwen_image"
     clip_device: str = "default"
-    model: str = "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
-    text_encoder: str = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
-    vae: str = "qwen_image_vae.safetensors"
+    model: str = ""
+    text_encoder: str = ""
+    vae: str = ""
 
 
 QWEN_RAPID_AIO_DEFAULTS = QwenRapidAioDefaults()
@@ -95,9 +96,6 @@ QWEN_RAPID_AIO_BUNDLED_COMPONENT_FIELDS = {
     "gguf_clip_mode",
 }
 
-QWEN_RAPID_AIO_PROVIDER_DEFAULT_SENTINELS = {"", "provider_default", "automatic", "auto", "none", "null"}
-
-
 def _param(params: dict[str, Any], *names: str, default: Any = None) -> Any:
     for name in names:
         value = params.get(name)
@@ -106,22 +104,16 @@ def _param(params: dict[str, Any], *names: str, default: Any = None) -> Any:
     return default
 
 
-def _is_provider_default_model(value: Any) -> bool:
-    return str(value or "").strip().lower() in QWEN_RAPID_AIO_PROVIDER_DEFAULT_SENTINELS
-
-
 def _select_qwen_rapid_aio_checkpoint(job: NeoJob, params: dict[str, Any], defaults: QwenRapidAioDefaults) -> str:
-    for value in (
+    return first_explicit_asset_selection((
         job.model,
         params.get("qwen_rapid_aio_checkpoint"),
         params.get("checkpoint"),
         params.get("ckpt_name"),
         params.get("model"),
         params.get("model_name"),
-    ):
-        if not _is_provider_default_model(value):
-            return str(value).strip()
-    return defaults.checkpoint
+        defaults.checkpoint,
+    ))
 
 
 def _prune_qwen_rapid_aio_bundled_params(params: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -371,7 +363,11 @@ def compile_qwen_rapid_aio_checkpoint(
 
     raw_params = job.params or {}
     defaults = QWEN_RAPID_AIO_DEFAULTS
-    checkpoint = _select_qwen_rapid_aio_checkpoint(job, raw_params, defaults)
+    checkpoint = require_explicit_asset_selection(
+        validation,
+        "Qwen Rapid AIO checkpoint",
+        _select_qwen_rapid_aio_checkpoint(job, raw_params, defaults),
+    )
     params, pruned_component_fields = _prune_qwen_rapid_aio_bundled_params(raw_params)
     params["qwen_rapid_aio_checkpoint"] = checkpoint
     params["checkpoint"] = checkpoint
@@ -605,7 +601,7 @@ def compile_qwen_rapid_aio_checkpoint(
             "backend_capabilities": backend_capabilities or {},
             "phase_notes": [
                 "V25.9.20 Pass N3 completes Qwen Rapid AIO normal workflow implementation.",
-                "V25.9.20 P2 cleans the bundled checkpoint route: provider_default model values defer to qwen_rapid_aio_checkpoint and external encoder/VAE/MMProj/split-model fields are pruned before compile metadata.",
+                "V25.9.20 P2.1 binds qwen_rapid_aio_checkpoint to the normal Comfy checkpoint catalog, removes guessed checkpoint filenames, and rejects an unselected bundled checkpoint.",
                 "Rapid AIO uses CheckpointLoaderSimple + TextEncodeQwenImageEditPlus conditioning; img2img/edit can use Image 1 plus optional Image 2/Image 3, while inpaint/outpaint stay single-source mask/canvas routes.",
                 *route_notes,
                 f"Prompt conditioning mode: {conditioning_mode}.",
@@ -668,9 +664,21 @@ def compile_qwen_native_edit(
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
     visible_family = str(job.family or "qwen_image")
-    diffusion_model = job.model or _param(params, "qwen_image_edit_model", "diffusion_model", "model", "model_name", default=defaults.model)
-    text_encoder = _param(params, "qwen_text_encoder", "text_encoder_1", "text_encoder_primary", "clip_name", default=defaults.text_encoder)
-    vae = _param(params, "vae", "qwen_vae", "vae_or_ae", default=defaults.vae)
+    diffusion_model = require_explicit_asset_selection(
+        validation,
+        f"{visible_family.replace('_', ' ')} diffusion model",
+        job.model, params.get("qwen_image_edit_model"), params.get("diffusion_model"), params.get("model"), params.get("model_name"),
+    )
+    text_encoder = require_explicit_asset_selection(
+        validation,
+        "Qwen Image text encoder",
+        params.get("qwen_text_encoder"), params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name"),
+    )
+    vae = require_explicit_asset_selection(
+        validation,
+        "Qwen Image VAE",
+        params.get("vae"), params.get("qwen_vae"), params.get("vae_or_ae"),
+    )
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
     steps = int(_param(params, "steps", default=defaults.steps))

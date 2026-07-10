@@ -4,6 +4,7 @@ from typing import Any
 
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.extensions.registry import check_extension_compatibility, get_extension_records
+from neo_app.models.asset_selection import is_explicit_asset_selection
 from neo_app.models.registry import (
     MODE_BLOCKING_STATUSES,
     check_model_family_compatibility,
@@ -36,6 +37,8 @@ ASSET_ALIASES = {
     "gguf_text_encoder_secondary": ["gguf_text_encoder_secondary", "text_encoder_secondary", "text_encoder_2"],
     "qwen_text_encoder": ["qwen_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
     "qwen3_text_encoder": ["qwen3_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
+    "text_encoder_if_required": ["text_encoder_if_required", "text_encoder_primary", "text_encoder_1", "clip", "clip_name", "qwen_text_encoder", "qwen3_text_encoder"],
+    "vae_if_required": ["vae_if_required", "vae", "vae_or_ae", "ae_or_vae"],
     "vae": ["vae", "vae_or_ae", "ae_or_vae", "gguf_vae", "gguf_vae_optional"],
     "vae_or_ae": ["vae_or_ae", "vae", "ae_or_vae", "gguf_vae", "gguf_vae_optional"],
     "ae_or_vae": ["ae_or_vae", "vae", "vae_or_ae", "gguf_vae", "gguf_vae_optional"],
@@ -49,6 +52,25 @@ ASSET_ALIASES = {
 }
 
 OPTIONAL_SUFFIXES = ("_optional", "_if_required")
+
+
+EXPLICIT_COMPONENT_ASSET_ROLES = {
+    "diffusion_model",
+    "unet",
+    "text_encoder_primary",
+    "text_encoder_secondary",
+    "qwen_text_encoder",
+    "qwen3_text_encoder",
+    "text_encoder_if_required",
+    "vae_if_required",
+    "vae",
+    "vae_or_ae",
+    "ae_or_vae",
+}
+
+
+def _requires_explicit_component_asset(request: ReadinessValidationRequest, role_id: str) -> bool:
+    return request.loader in {"diffusion_model", "unet"} and role_id in EXPLICIT_COMPONENT_ASSET_ROLES
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:
@@ -90,7 +112,14 @@ def _selected_assets(request: ReadinessValidationRequest) -> dict[str, Any]:
 
 def _has_selected_asset(role_id: str, assets: dict[str, Any]) -> bool:
     keys = [role_id, *ASSET_ALIASES.get(role_id, [])]
-    return any(_truthy(assets.get(key)) for key in dict.fromkeys(keys))
+    for key in dict.fromkeys(keys):
+        value = assets.get(key)
+        if isinstance(value, str):
+            if is_explicit_asset_selection(value):
+                return True
+        elif _truthy(value):
+            return True
+    return False
 
 
 def _loader_capability(request: ReadinessValidationRequest) -> dict[str, Any]:
@@ -181,6 +210,8 @@ def _gate_ready(gate: str, request: ReadinessValidationRequest, backend_capabili
         return has_value and has_backend, "Missing Flux guidance value or backend support."
     if gate in {"model", "qwen_text_encoder", "qwen3_text_encoder", "ae_or_vae", "vae_or_ae", "variant", "wan_task", "edit_instruction"}:
         if gate == "model":
+            if loader in {"diffusion_model", "unet"}:
+                return _has_selected_asset("diffusion_model", assets) or _has_selected_asset("unet", assets), "Select an installed diffusion model."
             return any(_role_available(backend_capabilities, loader, role, assets) for role in ("checkpoint", "diffusion_model", "unet", "gguf_unet", "api_model", "wan_model")), "Missing model asset."
         if gate == "variant":
             return (
@@ -193,6 +224,8 @@ def _gate_ready(gate: str, request: ReadinessValidationRequest, backend_capabili
             return _truthy(request.params.get("wan_task")), "Missing Wan task."
         if gate == "edit_instruction":
             return _truthy(request.params.get("edit_instruction")) or _truthy(request.params.get("prompt")), "Missing edit instruction."
+        if _requires_explicit_component_asset(request, gate):
+            return _has_selected_asset(gate, assets), f"Select an installed {gate.replace('_', ' ')}."
         return _role_available(backend_capabilities, loader, gate, assets), f"Missing {gate}."
     if gate in ROUTE_GATES:
         return _has_route_flag(request, gate), f"Missing provider/variant route flag: {gate}."
@@ -210,7 +243,11 @@ def _check_required_roles(
     for role in required_roles:
         if role.endswith(OPTIONAL_SUFFIXES) or role in {"mmproj_optional", "turbo_mode_optional", "provider_prompt_encoder", "provider_qwen_image_model", "provider_z_image_model", "provider_wan_model", "provider_hunyuan_model", "provider_hidream_model"}:
             continue
-        ready = _role_available(backend_capabilities, request.loader, role, assets)
+        ready = (
+            _has_selected_asset(role, assets)
+            if _requires_explicit_component_asset(request, role)
+            else _role_available(backend_capabilities, request.loader, role, assets)
+        )
         if ready:
             satisfied.append(role)
         else:

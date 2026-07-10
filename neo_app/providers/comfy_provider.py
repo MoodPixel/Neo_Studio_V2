@@ -286,6 +286,27 @@ class ComfyProvider(BaseProvider):
                     merged.append(item)
         return merged
 
+    @classmethod
+    def _merged_node_choices(cls, object_info: dict[str, Any], aliases: list[str], *input_names: str) -> list[str]:
+        """Merge model choices from every compatible Comfy loader alias.
+
+        Custom/portable Comfy builds may register an empty UNETLoader while a
+        DiffusionModelLoader alias contains the actual catalog. Selecting only
+        the first existing node hides valid component models.
+        """
+
+        merged: list[str] = []
+        seen: set[str] = set()
+        for node_name in aliases:
+            if node_name not in object_info:
+                continue
+            for item in cls._node_required_choices(object_info, node_name, *input_names):
+                key = item.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(item)
+        return merged
+
     @staticmethod
     def _first_existing_node(object_info: dict[str, Any], aliases: list[str]) -> str:
         return next((alias for alias in aliases if alias in object_info), "")
@@ -294,7 +315,13 @@ class ComfyProvider(BaseProvider):
     def _extract_model_names_from_endpoint_payload(payload: Any) -> list[str]:
         candidates: list[Any] = []
         if isinstance(payload, dict):
-            for key in ("models", "files", "items", "upscalers", "upscale_models", "upscale_model"):
+            for key in (
+                "models", "files", "items", "checkpoints", "checkpoint",
+                "diffusion_models", "diffusion_model", "unets", "unet",
+                "text_encoders", "text_encoder", "clip", "clips",
+                "vaes", "vae", "loras", "lora",
+                "upscalers", "upscale_models", "upscale_model",
+            ):
                 value = payload.get(key)
                 if isinstance(value, list):
                     candidates.extend(value)
@@ -429,19 +456,29 @@ class ComfyProvider(BaseProvider):
         for name in checkpoint_names:
             models.append({"kind": "checkpoint", "name": name, "provider_id": self.manifest.provider_id})
 
-        unet_node = self._first_existing_node(info, ["UNETLoader", "DiffusionModelLoader", "LoadDiffusionModel"])
-        diffusion_model_names = self._node_required_choices(info, unet_node, "unet_name", "model_name", "diffusion_model_name")
+        diffusion_model_names = self._merged_node_choices(
+            info,
+            ["UNETLoader", "DiffusionModelLoader", "LoadDiffusionModel"],
+            "unet_name", "model_name", "diffusion_model_name",
+        )
+        if not diffusion_model_names:
+            diffusion_model_names = self._discover_model_folder_names(["diffusion_models", "unet", "unets"])
         self._append_model_records(models, "diffusion_model", diffusion_model_names)
 
-        clip_node = self._first_existing_node(info, ["CLIPLoader"])
-        text_encoder_names = self._node_required_choices(info, clip_node, "clip_name", "clip_name1", "text_encoder_name")
+        text_encoder_names = self._merged_node_choices(
+            info,
+            ["CLIPLoader", "DualCLIPLoader", "TextEncoderLoader", "LoadCLIP"],
+            "clip_name", "clip_name1", "clip_name2", "text_encoder_name", "text_encoder_name1", "text_encoder_name2",
+        )
+        if not text_encoder_names:
+            text_encoder_names = self._discover_model_folder_names(["text_encoders", "clip", "clips"])
         self._append_model_records(models, "text_encoder", text_encoder_names)
         self._append_model_records(models, "qwen_text_encoder", [item for item in text_encoder_names if self._is_qwen_text_encoder_asset(item)])
 
-        vae_inputs = (((info.get("VAELoader") or {}).get("input") or {}).get("required") or {})
-        vae_names = vae_inputs.get("vae_name", [[]])[0] if vae_inputs.get("vae_name") else []
-        for name in vae_names:
-            models.append({"kind": "vae", "name": name, "provider_id": self.manifest.provider_id})
+        vae_names = self._merged_node_choices(info, ["VAELoader", "LoadVAE"], "vae_name", "model_name")
+        if not vae_names:
+            vae_names = self._discover_model_folder_names(["vae", "vaes"])
+        self._append_model_records(models, "vae", vae_names)
 
         lora_node = self._first_existing_node(info, ["LoraLoader", "LoraLoaderModelOnly"])
         lora_names = self._node_required_choices(info, lora_node, "lora_name")

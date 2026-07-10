@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
+from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
@@ -74,24 +75,21 @@ def compile_qwen_native_txt2img(
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
-    diffusion_model = job.model or _param(
-        params,
-        "diffusion_model",
-        "qwen_model",
-        "unet",
-        "model",
-        "model_name",
-        default="qwen_image_fp8_e4m3fn.safetensors",
+    diffusion_model = require_explicit_asset_selection(
+        validation,
+        "Qwen Image diffusion model",
+        job.model, params.get("diffusion_model"), params.get("qwen_model"), params.get("unet"), params.get("model"), params.get("model_name"),
     )
-    text_encoder = _param(
-        params,
-        "qwen_text_encoder",
-        "text_encoder_1",
-        "text_encoder_primary",
-        "clip_name",
-        default="qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    text_encoder = require_explicit_asset_selection(
+        validation,
+        "Qwen Image text encoder",
+        params.get("qwen_text_encoder"), params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name"),
     )
-    vae = _param(params, "vae", "vae_or_ae", default="qwen_image_vae.safetensors")
+    vae = require_explicit_asset_selection(
+        validation,
+        "Qwen Image VAE",
+        params.get("vae"), params.get("vae_or_ae"),
+    )
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
     steps = int(_param(params, "steps", default=defaults.steps))

@@ -9,6 +9,7 @@ from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
+from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
@@ -191,16 +192,22 @@ def compile_flux_klein_txt2img(
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
 
-    diffusion_model = job.model or _param(params, "diffusion_model", "model", "unet", "model_name", default="flux-2-klein-4b-fp8.safetensors")
-    text_encoder = _param(
-        params,
-        "qwen3_text_encoder",
-        "text_encoder_1",
-        "text_encoder_primary",
-        "clip_name",
-        default="qwen_3_4b.safetensors",
+    diffusion_model = require_explicit_asset_selection(
+        validation,
+        "Flux 2 Klein diffusion model",
+        job.model,
+        params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name"),
     )
-    vae = _param(params, "vae", "vae_or_ae", "ae", default="flux2-vae.safetensors")
+    text_encoder = require_explicit_asset_selection(
+        validation,
+        "Flux 2 Klein Qwen3 text encoder",
+        params.get("qwen3_text_encoder"), params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name"),
+    )
+    vae = require_explicit_asset_selection(
+        validation,
+        "Flux 2 Klein VAE / AE",
+        params.get("vae"), params.get("vae_or_ae"), params.get("ae"),
+    )
     flux_guidance = float(_param(params, "flux_guidance", "guidance", default=1.0))
     sampler = str(_param(params, "sampler", default="euler"))
     scheduler = str(_param(params, "scheduler", default="simple"))
@@ -487,10 +494,18 @@ def compile_flux_native_txt2img(
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
-    diffusion_model = job.model or _param(params, "diffusion_model", "model", "unet", "model_name", default="flux1-dev.safetensors")
-    text_encoder_1 = _param(params, "text_encoder_1", "text_encoder_primary", "clip_name1", default="clip_l.safetensors")
-    text_encoder_2 = _param(params, "text_encoder_2", "text_encoder_secondary", "clip_name2", default="t5xxl_fp16.safetensors")
-    vae = _param(params, "vae", "vae_or_ae", "ae", default="ae.safetensors")
+    diffusion_model = require_explicit_asset_selection(
+        validation, "Flux 1 diffusion model", job.model, params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name")
+    )
+    text_encoder_1 = require_explicit_asset_selection(
+        validation, "Flux 1 primary text encoder", params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name1")
+    )
+    text_encoder_2 = require_explicit_asset_selection(
+        validation, "Flux 1 secondary text encoder", params.get("text_encoder_2"), params.get("text_encoder_secondary"), params.get("clip_name2")
+    )
+    vae = require_explicit_asset_selection(
+        validation, "Flux 1 VAE / AE", params.get("vae"), params.get("vae_or_ae"), params.get("ae")
+    )
     flux_guidance = float(_param(params, "flux_guidance", "guidance", default=defaults.flux_guidance))
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
@@ -663,12 +678,18 @@ def compile_flux_fill_workflow(
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
-    diffusion_model = job.model or _param(params, "diffusion_model", "model", "unet", "model_name", default="flux1-fill-dev.safetensors")
-    # Official Comfy Flux Fill docs list the same encoders as full Flux.1, with
-    # workflow examples commonly loading t5xxl and clip_l in DualCLIPLoader.
-    text_encoder_1 = _param(params, "text_encoder_1", "text_encoder_primary", "clip_name1", default="t5xxl_fp16.safetensors")
-    text_encoder_2 = _param(params, "text_encoder_2", "text_encoder_secondary", "clip_name2", default="clip_l.safetensors")
-    vae = _param(params, "vae", "vae_or_ae", "ae", default="ae.safetensors")
+    diffusion_model = require_explicit_asset_selection(
+        validation, "Flux 1 Fill diffusion model", job.model, params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name")
+    )
+    text_encoder_1 = require_explicit_asset_selection(
+        validation, "Flux 1 Fill primary text encoder", params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name1")
+    )
+    text_encoder_2 = require_explicit_asset_selection(
+        validation, "Flux 1 Fill secondary text encoder", params.get("text_encoder_2"), params.get("text_encoder_secondary"), params.get("clip_name2")
+    )
+    vae = require_explicit_asset_selection(
+        validation, "Flux 1 Fill VAE / AE", params.get("vae"), params.get("vae_or_ae"), params.get("ae")
+    )
     flux_guidance = float(_param(params, "flux_guidance", "guidance", default=30.0))
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))

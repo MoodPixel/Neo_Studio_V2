@@ -26278,22 +26278,45 @@ function imageFieldDraftKey(fieldId) {
     text_encoder_1: 'text_encoder_1',
     text_encoder_2: 'text_encoder_2',
     qwen_text_encoder: 'qwen_text_encoder',
+    qwen3_text_encoder: 'qwen3_text_encoder',
     qwen_mmproj: 'qwen_mmproj',
   };
   return map[fieldId] || fieldId;
 }
 // Regression guard: const samplerOptions = profileModelOptions('samplers'); const schedulerOptions = profileModelOptions('schedulers');
+const IMAGE_MODEL_FIELD_CATALOGS = Object.freeze({
+  checkpoint: 'models',
+  qwen_rapid_aio_checkpoint: 'models',
+  diffusion_model: 'diffusion_models',
+  gguf_model: 'gguf_models',
+  text_encoder_1: 'text_encoders',
+  text_encoder_2: 'text_encoders',
+  qwen_text_encoder: 'qwen_text_encoders',
+  qwen3_text_encoder: 'qwen_text_encoders',
+});
+function imageModelCatalogForField(fieldId) {
+  return IMAGE_MODEL_FIELD_CATALOGS[fieldId] || '';
+}
+// Regression guard: if (fieldId === 'diffusion_model') return profileModelOptions('diffusion_models');
 function imageOptionsForField(fieldId) {
-  if (fieldId === 'checkpoint') return profileModelOptions('models');
-  if (fieldId === 'diffusion_model') return profileModelOptions('diffusion_models');
-  if (fieldId === 'gguf_model') return profileModelOptions('gguf_models');
+  if (isImageGgufRuntimeActive()) {
+    if (fieldId === 'text_encoder_1') return profileModelOptions('gguf_text_encoder_primary');
+    if (fieldId === 'text_encoder_2') return profileModelOptions('gguf_text_encoder_secondary');
+    if (['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return profileModelOptions('gguf_text_encoders');
+  }
+  const modelCatalog = imageModelCatalogForField(fieldId);
+  if (modelCatalog) {
+    const options = profileModelOptions(modelCatalog);
+    if (options.length || !['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return options;
+    return profileModelOptions('text_encoders');
+  }
   if (fieldId === 'vae') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_vaes') : profileModelOptions('vaes');
   if (fieldId === 'sampler') return profileModelOptions('samplers');
   if (fieldId === 'scheduler') return profileModelOptions('schedulers');
   if (fieldId === 'text_encoder_1') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_primary') : profileModelOptions('text_encoders');
   if (fieldId === 'text_encoder_2') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_secondary') : profileModelOptions('text_encoders');
-  if (fieldId === 'qwen_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : (profileModelOptions('qwen_text_encoders').length ? profileModelOptions('qwen_text_encoders') : profileModelOptions('text_encoders'));
-  if (fieldId === 'qwen3_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : (profileModelOptions('qwen_text_encoders').length ? profileModelOptions('qwen_text_encoders') : profileModelOptions('text_encoders'));
+  if (fieldId === 'qwen_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
+  if (fieldId === 'qwen3_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
   if (fieldId === 'qwen_mmproj') return profileModelOptions('mmproj');
   if (fieldId === 'hidream_variant') return [
     { id: 'HiDream-I1', label: 'HiDream-I1' },
@@ -26345,6 +26368,36 @@ function renderImageParameterField(field, p) {
   const inputType = field.control_type === 'slider' || field.control_type === 'number' ? 'number' : 'text';
   return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}" value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
 }
+const IMAGE_COMPONENT_PARAMETER_FIELD_IDS = new Set([
+  'text_encoder_1',
+  'text_encoder_2',
+  'qwen_text_encoder',
+  'qwen3_text_encoder',
+  'flux_guidance',
+  'hidream_variant',
+]);
+
+function activeImageComponentParameterFields() {
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || 'checkpoint';
+  if (!['diffusion_model', 'unet'].includes(loader)) return [];
+  const hidden = activeParameterProfileHiddenFields();
+  return activeImageParameterFields().filter((field) => (
+    IMAGE_COMPONENT_PARAMETER_FIELD_IDS.has(field.field_id)
+    && !hidden.has(field.field_id)
+  ));
+}
+
+function renderImageComponentParameterRows(p = {}) {
+  const fields = activeImageComponentParameterFields();
+  if (!fields.length) return '';
+  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
+  if (!fieldHtml) return '';
+  return `<div class="neo-parameter-profile-card neo-component-asset-card" data-testid="image-safetensors-component-assets">
+    <div class="neo-ui-section-head"><div><strong>Required Model Components</strong><p class="neo-muted">Select the exact ComfyUI text encoder and route-specific component values. Neo does not guess installed filenames.</p></div><span class="neo-badge">Safetensors / Components</span></div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+  </div>`;
+}
+
 function renderDynamicImageParameterRows(p) {
   const profile = activeImageParameterProfile();
   const rawFields = activeImageParameterFields();
@@ -26445,9 +26498,13 @@ function renderImagePrimaryModelRow(p) {
     : fieldId === 'diffusion_model'
       ? (state.imageDraft.diffusion_model || p.diffusion_model || 'provider_default')
       : (state.imageDraft[fieldId] || state.imageDraft.model || p.model || 'provider_default');
-  return `<div class="neo-parameter-row neo-model-vae-row">
+  const bundledCheckpoint = (state.imageDraft.loader || imageCommandValue('loader')) === 'checkpoint_aio';
+  const vaeField = bundledCheckpoint
+    ? ''
+    : `<label>VAE${optionSelect('imageVae', imageOptionsForField('vae'), p.vae || 'automatic')}</label>`;
+  return `<div class="neo-parameter-row neo-model-vae-row${bundledCheckpoint ? ' neo-model-bundled-row' : ''}">
     <label>${label}${optionSelect(fieldId === 'model' ? 'imageModel' : `imageParam_${fieldId}`, imageOptionsForField(fieldId), value)}</label>
-    <label>VAE${optionSelect('imageVae', imageOptionsForField('vae'), p.vae || 'automatic')}</label>
+    ${vaeField}
     <span class="neo-muted neo-param-note">${escapeHtml(imageModelComponentRouteNote())}</span>
   </div>`;
 }
@@ -26520,6 +26577,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     const presets = imageSizePresetOptions();
     const ggufRuntime = renderGgufRuntimeCard(p);
     const primaryModelRow = renderImagePrimaryModelRow(p);
+    const componentParameterRows = renderImageComponentParameterRows(p);
     const cfgVisible = shouldShowProfileField('cfg');
     const clipSkipVisible = shouldShowProfileField('clip_skip');
     const denoiseVisible = shouldShowProfileField('denoise');
@@ -26530,6 +26588,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     ];
     return `${help}<div class="neo-parameter-stack">
       ${primaryModelRow}
+      ${componentParameterRows}
       ${ggufRuntime}
       <div class="neo-parameter-row neo-sampler-scheduler-row">
         <label>Sampler${optionSelect('imageSampler', imageOptionsForField('sampler'), p.sampler || 'provider_default')}</label>
@@ -42314,6 +42373,7 @@ function bindImageDraftInputs() {
         updateDraftValue('text_encoder_1', raw);
         updateDraftValue('gguf_text_encoder_1', raw);
       }
+      if (fieldId === 'qwen3_text_encoder') updateDraftValue('text_encoder_1', raw);
       if (fieldId === 'gguf_clip_type') {
         if (['qwen_image', 'z_image', 'hidream', 'flux2_klein'].includes(raw)) updateDraftValue('gguf_clip_mode', 'single');
         if (raw === 'flux' && !state.imageDraft.gguf_clip_mode) updateDraftValue('gguf_clip_mode', 'dual');
@@ -42322,7 +42382,7 @@ function bindImageDraftInputs() {
         updateDraftValue('gguf_clip_mode', 'single');
         if ((state.imageDraft.loader || imageCommandValue('loader')) === 'gguf') updateDraftValue('gguf_clip_type', 'flux2_klein');
       }
-      if (['checkpoint', 'diffusion_model', 'gguf_model'].includes(fieldId)) updateDraftValue('model', raw);
+      if (['checkpoint', 'qwen_rapid_aio_checkpoint', 'diffusion_model', 'gguf_model'].includes(fieldId)) updateDraftValue('model', raw);
       refreshGgufBundleCheck();
       if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant'].includes(fieldId)) render();
     };

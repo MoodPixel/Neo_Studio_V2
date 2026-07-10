@@ -6476,19 +6476,21 @@
           "field_id": "text_encoder_1",
           "label": "Primary Text Encoder",
           "control_type": "select",
-          "required": false,
+          "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "text_encoder_primary"
+          "role_id": "text_encoder_primary",
+          "help_text": "Select the exact installed HiDream text encoder reported by ComfyUI."
         },
         {
           "field_id": "vae",
           "label": "VAE / AE",
           "control_type": "select",
-          "required": false,
+          "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "vae_or_ae"
+          "role_id": "vae_or_ae",
+          "help_text": "Select the exact installed HiDream VAE/AE reported by ComfyUI."
         },
         {
           "field_id": "hidream_variant",

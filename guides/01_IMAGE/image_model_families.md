@@ -240,3 +240,29 @@ Assistant rules:
 - For **ADetailer**, check Comfy backend + SDXL/SD1.5 checkpoint + detector/SAM/Impact Pack readiness.
 - For **Image Upscale**, check for a connected Comfy image backend and a staged/selected/uploaded source image.
 - For **Final Polish Lab**, call it an external installed extension and do not promise image rendering unless the live route says runtime render is active.
+
+## Qwen Rapid AIO bundled checkpoint catalog — P2.1
+
+`Qwen Rapid AIO + Safetensors / Bundled` is backed by ComfyUI `CheckpointLoaderSimple`, so its model selector uses Neo's shared checkpoint `models` catalog. Seeing a Qwen file in another checkpoint-family dropdown reflects the shared loader catalog; it does not reclassify the model as SDXL or SD 1.5.
+
+## Safetensors / Components catalog behavior — P2.2
+
+Modern component families use separate files instead of one bundled checkpoint. Neo discovers these files from ComfyUI and shows the exact installed names.
+
+Covered families:
+
+- Flux 1
+- Flux 2 Klein
+- Qwen Image
+- Qwen Image Edit 2509
+- Z-Image
+- Z-Image Turbo
+- HiDream
+
+For these routes, selecting the main diffusion model is not enough. You must also select the required text encoder(s) and VAE/AE shown in **Required Model Components** and the primary model row.
+
+Neo merges choices from compatible Comfy loader nodes. If a node exists but its dropdown is empty, Neo checks other loader aliases and then conventional `/models/...` endpoints. After installing a new file, refresh/reconnect the Comfy backend so Neo can rebuild the catalog.
+
+Neo does not assume filenames such as `clip_l.safetensors`, `qwen_3_4b.safetensors`, or `ae.safetensors`. Select the exact installed file. Subfolder paths and capitalization are preserved.
+
+`provider_default`, `automatic`, and similar placeholders mean **not selected**. Generation remains blocked until every required component has a real file selection.

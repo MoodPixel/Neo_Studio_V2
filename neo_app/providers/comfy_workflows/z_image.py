@@ -9,6 +9,7 @@ from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
+from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
@@ -301,22 +302,36 @@ def compile_z_image_txt2img(
     if seed < 0:
         seed = int(time.time() * 1000) % 2147483647
 
-    diffusion_model = job.model or _param(
-        params,
-        "diffusion_model",
-        "model",
-        "unet",
-        "model_name",
-        default="z_image_turbo_bf16.safetensors" if is_turbo_family else "z_image_bf16.safetensors",
-    )
-    gguf_model = job.model or _param(
-        params,
-        "gguf_model",
-        "gguf_unet",
-        "model",
-        "model_name",
-        default="z_image_turbo_Q4_K_M.gguf" if is_turbo_family else "z_image_Q8_0.gguf",
-    )
+    if loader == "gguf":
+        diffusion_model = ""
+        gguf_model = job.model or _param(
+            params,
+            "gguf_model",
+            "gguf_unet",
+            "model",
+            "model_name",
+            default="z_image_turbo_Q4_K_M.gguf" if is_turbo_family else "z_image_Q8_0.gguf",
+        )
+        text_encoder = _param(params, "qwen3_text_encoder", "text_encoder_1", "text_encoder_primary", "clip_name", default="qwen_3_4b.safetensors")
+        vae = _param(params, "vae", "ae", "vae_or_ae", default="ae.safetensors")
+    else:
+        diffusion_model = require_explicit_asset_selection(
+            validation,
+            f"{'Z-Image Turbo' if is_turbo_family else 'Z-Image'} diffusion model",
+            job.model, params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name"),
+        )
+        gguf_model = ""
+        text_encoder = require_explicit_asset_selection(
+            validation,
+            "Z-Image Qwen3 text encoder",
+            params.get("qwen3_text_encoder"), params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name"),
+        )
+        vae = require_explicit_asset_selection(
+            validation,
+            "Z-Image VAE / AE",
+            params.get("vae"), params.get("ae"), params.get("vae_or_ae"),
+        )
+
     selected_model_for_variant = str(gguf_model if loader == "gguf" else diffusion_model)
     z_image_variant = "turbo" if is_turbo_family else _z_image_variant_from_model(selected_model_for_variant)
     turbo_raw = _param(params, "turbo_mode", "z_image_turbo", default=None)
@@ -328,8 +343,6 @@ def compile_z_image_txt2img(
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
-    text_encoder = _param(params, "qwen3_text_encoder", "text_encoder_1", "text_encoder_primary", "clip_name", default="qwen_3_4b.safetensors")
-    vae = _param(params, "vae", "ae", "vae_or_ae", default="ae.safetensors")
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
     width = int(_param(params, "width", default=defaults.width))

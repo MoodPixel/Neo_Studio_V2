@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
+from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
@@ -204,10 +205,28 @@ def compile_hidream_txt2img(
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
-    diffusion_model = job.model or _param(params, "diffusion_model", "model", "unet", "model_name", default="hidream_i1_dev.safetensors")
-    gguf_model = job.model or _param(params, "gguf_model", "gguf_unet", "model", "model_name", default="hidream_i1_dev_Q4_K_M.gguf")
-    text_encoder = _param(params, "text_encoder_1", "text_encoder_primary", "clip_name", default="provider_default")
-    vae = _param(params, "vae", "ae", "vae_or_ae", default="ae.safetensors")
+    if loader == "gguf":
+        diffusion_model = ""
+        gguf_model = job.model or _param(params, "gguf_model", "gguf_unet", "model", "model_name", default="hidream_i1_dev_Q4_K_M.gguf")
+        text_encoder = _param(params, "text_encoder_1", "text_encoder_primary", "clip_name", default="provider_default")
+        vae = _param(params, "vae", "ae", "vae_or_ae", default="ae.safetensors")
+    else:
+        diffusion_model = require_explicit_asset_selection(
+            validation,
+            "HiDream diffusion model",
+            job.model, params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name"),
+        )
+        gguf_model = ""
+        text_encoder = require_explicit_asset_selection(
+            validation,
+            "HiDream text encoder",
+            params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name"),
+        )
+        vae = require_explicit_asset_selection(
+            validation,
+            "HiDream VAE / AE",
+            params.get("vae"), params.get("ae"), params.get("vae_or_ae"),
+        )
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_type = str(_param(params, "clip_type", "text_encoder_type", default=defaults.clip_type))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))

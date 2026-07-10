@@ -177,3 +177,31 @@ Use the dedicated guides for detailed behavior:
 - `guides/01_IMAGE/style_stack.md`
 - `guides/01_IMAGE/wildcards.md`
 - `guides/01_IMAGE/scene_director.md`
+
+## Bundled checkpoint model fields — P2.1
+
+The Qwen Rapid AIO field `qwen_rapid_aio_checkpoint` is a checkpoint-role field and receives options from the shared Comfy checkpoint catalog. For `checkpoint_aio`, normal UI shows only the bundled main model selector; external VAE and component selectors remain hidden.
+
+## Required Model Components — P2.2
+
+When **Main Model Type** is **Safetensors / Components**, Neo may show a separate **Required Model Components** card.
+
+| Control | Used by | What to select |
+|---|---|---|
+| Primary Text Encoder | Flux 1, HiDream, and compatible component profiles | Exact installed primary/CLIP encoder from ComfyUI. |
+| Secondary Text Encoder | Flux 1 dual-encoder routes | Exact installed secondary/T5 encoder. |
+| Qwen Text Encoder | Qwen Image and Qwen Image Edit | Exact installed Qwen vision-language text encoder. |
+| Qwen3 Text Encoder | Flux 2 Klein, Z-Image, Z-Image Turbo | Exact installed Qwen3 encoder. |
+| Flux Guidance | Flux component routes | Flux-specific guidance value; this replaces normal SD CFG. |
+| Family Variant | Routes such as HiDream where a compiler variant is required | Select the variant supported by the current route. |
+
+The main diffusion model and VAE/AE stay in the primary model row. A component route is ready only when every required file has been explicitly selected.
+
+After adding models to ComfyUI:
+
+1. Confirm the file is in the correct Comfy model folder.
+2. Refresh or reconnect the Neo backend profile.
+3. Reopen the family/model controls.
+4. Select the exact filename shown by ComfyUI.
+
+Do not rename a file merely to match an old guide/default. P2.2 removes those filename assumptions. If a selector remains empty, check the Comfy `/object_info` or `/models/...` catalog and backend connection status.

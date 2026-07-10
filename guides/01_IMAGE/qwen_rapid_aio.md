@@ -81,3 +81,17 @@ For identity/source preservation, avoid vague prompts like “make it better.”
 - **Qwen Image Edit 2509** can expose newer multi-source behavior where live route readiness confirms it.
 
 When answering a Qwen question, mention the selected Model Family, Main Model Type, Workflow Mode, source image/mask status, and whether the route is bundled, GGUF, or edit-focused.
+
+## V25.9.20 P2.1 — Selecting the bundled Safetensors checkpoint
+
+Qwen Rapid AIO bundled models are discovered by ComfyUI through its normal checkpoint loader. In Neo Studio, choose **Qwen Rapid AIO** and **Safetensors / Bundled**; the **Main Model** dropdown reads the same installed checkpoint catalog used by standard checkpoint families.
+
+The bundled route does not need a separate VAE, text encoder, diffusion model, or MMProj file. Neo passes the selected filename exactly as ComfyUI reports it.
+
+When a newly downloaded model is missing from the dropdown:
+
+1. Confirm the file is inside a ComfyUI checkpoint model path.
+2. Refresh or reconnect the ComfyUI backend so `/object_info` is rebuilt.
+3. Select the checkpoint explicitly before generating.
+
+Neo no longer guesses `Qwen-Image-Edit-Rapid-AIO.safetensors`. A missing selection is reported as a readiness error instead of submitting a likely invalid filename.

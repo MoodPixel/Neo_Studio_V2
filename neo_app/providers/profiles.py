@@ -1110,7 +1110,13 @@ def _extract_model_names_from_endpoint_payload(payload: Any) -> list[str]:
     """
     candidates: list[Any] = []
     if isinstance(payload, dict):
-        for key in ("models", "files", "items", "upscalers", "upscale_models", "upscale_model"):
+        for key in (
+            "models", "files", "items", "checkpoints", "checkpoint",
+            "diffusion_models", "diffusion_model", "unets", "unet",
+            "text_encoders", "text_encoder", "clip", "clips",
+            "vaes", "vae", "loras", "lora",
+            "upscalers", "upscale_models", "upscale_model",
+        ):
             value = payload.get(key)
             if isinstance(value, list):
                 candidates.extend(value)
@@ -1224,6 +1230,22 @@ def _node_required_choices(object_info: dict[str, Any], node_name: str, *input_n
     return merged
 
 
+def _merged_node_choices(object_info: dict[str, Any], aliases: list[str], *input_names: str) -> list[str]:
+    """Merge model choices from all compatible Comfy loader aliases."""
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for node_name in aliases:
+        if node_name not in object_info:
+            continue
+        for item in _node_required_choices(object_info, node_name, *input_names):
+            key = item.casefold()
+            if key not in seen:
+                seen.add(key)
+                merged.append(item)
+    return merged
+
+
 def _first_existing_node(object_info: dict[str, Any], aliases: list[str]) -> str:
     return next((alias for alias in aliases if alias in object_info), "")
 
@@ -1273,20 +1295,30 @@ def _discover_comfy_models(base_url: str, timeout: float = 3.0, backend_details:
     for name in checkpoint_names:
         buckets["models"].append({"kind": "checkpoint", "name": name})
 
-    unet_node = _first_existing_node(info, ["UNETLoader", "DiffusionModelLoader", "LoadDiffusionModel"])
-    diffusion_model_names = _node_required_choices(info, unet_node, "unet_name", "model_name", "diffusion_model_name") if unet_node else []
+    diffusion_model_names = _merged_node_choices(
+        info,
+        ["UNETLoader", "DiffusionModelLoader", "LoadDiffusionModel"],
+        "unet_name", "model_name", "diffusion_model_name",
+    )
+    if not diffusion_model_names:
+        diffusion_model_names = _discover_comfy_model_folder_names(base_url, ["diffusion_models", "unet", "unets"], timeout=timeout)
     _append_unique(buckets["diffusion_models"], "diffusion_model", diffusion_model_names)
     _append_unique(buckets["models"], "diffusion_model", diffusion_model_names)
 
-    clip_node = _first_existing_node(info, ["CLIPLoader"])
-    text_encoder_names = _node_required_choices(info, clip_node, "clip_name", "clip_name1", "text_encoder_name") if clip_node else []
+    text_encoder_names = _merged_node_choices(
+        info,
+        ["CLIPLoader", "DualCLIPLoader", "TextEncoderLoader", "LoadCLIP"],
+        "clip_name", "clip_name1", "clip_name2", "text_encoder_name", "text_encoder_name1", "text_encoder_name2",
+    )
+    if not text_encoder_names:
+        text_encoder_names = _discover_comfy_model_folder_names(base_url, ["text_encoders", "clip", "clips"], timeout=timeout)
     _append_unique(buckets["text_encoders"], "text_encoder", text_encoder_names)
     _append_unique(buckets["qwen_text_encoders"], "qwen_text_encoder", [item for item in text_encoder_names if _is_qwen_text_encoder_asset(item)])
 
-    vae_inputs = (((info.get("VAELoader") or {}).get("input") or {}).get("required") or {})
-    vae_names = vae_inputs.get("vae_name", [[]])[0] if vae_inputs.get("vae_name") else []
-    for name in vae_names:
-        buckets["vaes"].append({"kind": "vae", "name": name})
+    vae_names = _merged_node_choices(info, ["VAELoader", "LoadVAE"], "vae_name", "model_name")
+    if not vae_names:
+        vae_names = _discover_comfy_model_folder_names(base_url, ["vae", "vaes"], timeout=timeout)
+    _append_unique(buckets["vaes"], "vae", vae_names)
 
     lora_node = _first_existing_node(info, ["LoraLoader", "LoraLoaderModelOnly"])
     lora_names = _node_required_choices(info, lora_node, "lora_name") if lora_node else []
