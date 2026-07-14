@@ -274,13 +274,23 @@ def node_gate_status(available_nodes: list[str] | set[str] | tuple[str, ...] | N
     optional_groups: dict[str, dict[str, Any]] = {}
     for group, required in OPTIONAL_NODE_GROUPS.items():
         missing = [node for node in required if node not in nodes]
+        if group == "model_upscale":
+            missing_reason = "missing_optional_model_nodes"
+        elif group == "codeformer_restore":
+            missing_reason = "missing_optional_codeformer_nodes"
+        elif group == "seedvr2_experimental":
+            missing_reason = "missing_optional_seedvr2_nodes"
+        elif group == "seedvr2_rgba":
+            missing_reason = "missing_optional_seedvr2_rgba_nodes"
+        else:
+            missing_reason = "missing_required_nodes"
         optional_groups[group] = {
             "state": "available" if not missing else "provider_gated",
             "ready": not missing,
             "required_nodes": list(required),
             "missing_nodes": missing,
-            "reason_code": None if not missing else ("missing_optional_model_nodes" if group == "model_upscale" else "missing_optional_codeformer_nodes" if group == "codeformer_restore" else "missing_optional_seedvr2_nodes" if group == "seedvr2_experimental" else "missing_required_nodes"),
-            "reason": "Optional path is available." if not missing else reason_text("missing_optional_model_nodes" if group == "model_upscale" else "missing_optional_codeformer_nodes" if group == "codeformer_restore" else "missing_optional_seedvr2_nodes" if group == "seedvr2_experimental" else "missing_required_nodes"),
+            "reason_code": None if not missing else missing_reason,
+            "reason": "Optional path is available." if not missing else reason_text(missing_reason),
         }
     return {
         "extension_id": EXTENSION_ID,

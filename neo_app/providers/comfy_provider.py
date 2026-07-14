@@ -2179,6 +2179,7 @@ class ComfyProvider(BaseProvider):
         actual_params = backend_payload.get("actual_params") if isinstance(backend_payload.get("actual_params"), dict) else {}
         route_payload = {
             **route.as_dict(),
+            "comfy_base_url": self.base_url,
             "workflow_mode": "generate" if route.mode == "txt2img" else route.mode,
             "route_state": "available" if route.status == "available" else route.status,
             "params": actual_params,
@@ -2631,6 +2632,7 @@ class ComfyProvider(BaseProvider):
 
         route_payload = {
             **route.as_dict(),
+            "comfy_base_url": self.base_url,
             "workflow_mode": "generate" if route.mode == "txt2img" else route.mode,
             "route_state": "available" if route.status == "available" else route.status,
             "params": actual_params,

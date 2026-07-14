@@ -232,6 +232,38 @@ def persist_image_outputs(
     input_assets = collect_input_asset_records(record_params, extensions=record_extensions)
     record.setdefault("source", {})["input_assets"] = input_assets
     record.setdefault("source", {})["asset_contract"] = build_input_asset_contract(input_assets)
+
+    background_block = (record_extensions.get("payloads") or {}).get("image.background_removal") if isinstance(record_extensions.get("payloads"), dict) else None
+    if isinstance(background_block, dict) and background_block.get("enabled"):
+        try:
+            from neo_extensions.built_in.background_removal.backend.verification import verify_background_removal_outputs
+
+            background_params = background_block.get("params") if isinstance(background_block.get("params"), dict) else {}
+            verification = verify_background_removal_outputs(
+                root_dir=ROOT_DIR,
+                provider_outputs=image_outputs,
+                persisted_files=files,
+                save_mask=bool(background_params.get("save_mask", True)),
+            )
+            record.setdefault("persistence", {})["background_removal_verification"] = verification
+            memory_events = record_extensions.setdefault("memory_events", {})
+            event = memory_events.get("image.background_removal") if isinstance(memory_events.get("image.background_removal"), dict) else {}
+            memory_events["image.background_removal"] = {**event, "output_verification": verification}
+            record["extensions"] = record_extensions
+            if verification.get("errors"):
+                errors.extend([f"Background Removal verification: {item}" for item in verification.get("errors") or []])
+                record["status"] = "completed_with_warnings"
+        except Exception as exc:  # noqa: BLE001
+            verification_error = f"Background Removal output verification could not run: {exc}"
+            errors.append(verification_error)
+            record.setdefault("persistence", {})["background_removal_verification"] = {
+                "schema_version": "neo.image.background_removal_verification.v1",
+                "status": "failed",
+                "ok": False,
+                "errors": [verification_error],
+            }
+            record["status"] = "completed_with_warnings"
+
     record["assistant_summary"] = build_assistant_output_summary(record)
     record["replay"] = build_output_replay_metadata(record)
     record["replay_payload"] = build_output_replay_payload(record)

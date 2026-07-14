@@ -1,0 +1,692 @@
+{
+  "id": "image.background_removal",
+  "name": "Image · Remove Background",
+  "version": "0.6.7",
+  "description": "Built-in background-removal utility with local BiRefNet/rembg, multi-subject Interactive SAM, standard Comfy SAM discovery, non-destructive mask refinement, and optional opt-in commercial providers.",
+  "extension_type": "utility_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "subtabs": [
+    "generations",
+    "assets",
+    "reference",
+    "finish",
+    "results"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "finish",
+    "generations",
+    "assets",
+    "reference",
+    "results"
+  ],
+  "mount_slots": [
+    "image.finish.background_removal",
+    "image.generations.background_removal",
+    "image.assets.background_removal",
+    "image.reference.background_removal",
+    "image.results.background_removal"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "image.finish.background_removal",
+      "route_states": [
+        "available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.background_removal",
+      "route_states": [
+        "available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "assets",
+      "workflow_mode": null,
+      "slot": "image.assets.background_removal",
+      "route_states": [
+        "available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "reference",
+      "workflow_mode": null,
+      "slot": "image.reference.background_removal",
+      "route_states": [
+        "available"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "results",
+      "workflow_mode": null,
+      "slot": "image.results.background_removal",
+      "route_states": [
+        "available"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable",
+    "neo_native",
+    "remove_bg",
+    "clipdrop_remove_bg"
+  ],
+  "supported_families": [],
+  "supported_loaders": [],
+  "route_states": {
+    "comfyui:*:*:*:finish": "available",
+    "comfyui_portable:*:*:*:finish": "available",
+    "comfyui:*:*:*:generations": "available",
+    "comfyui:*:*:*:assets": "available",
+    "comfyui:*:*:*:reference": "available",
+    "comfyui:*:*:*:results": "available",
+    "comfyui_portable:*:*:*:generations": "available",
+    "comfyui_portable:*:*:*:assets": "available",
+    "comfyui_portable:*:*:*:reference": "available",
+    "comfyui_portable:*:*:*:results": "available",
+    "forge:*:*:*:finish": "provider_gated",
+    "a1111:*:*:*:finish": "provider_gated",
+    "cloud_api:*:*:*:finish": "provider_gated",
+    "*": "available",
+    "neo_native:*:*:*:finish": "available",
+    "neo_native:*:*:*:generations": "available",
+    "neo_native:*:*:*:assets": "available",
+    "neo_native:*:*:*:reference": "available",
+    "neo_native:*:*:*:results": "available",
+    "remove_bg:*:*:*:finish": "available",
+    "remove_bg:*:*:*:generations": "available",
+    "remove_bg:*:*:*:assets": "available",
+    "remove_bg:*:*:*:reference": "available",
+    "remove_bg:*:*:*:results": "available",
+    "clipdrop_remove_bg:*:*:*:finish": "available",
+    "clipdrop_remove_bg:*:*:*:generations": "available",
+    "clipdrop_remove_bg:*:*:*:assets": "available",
+    "clipdrop_remove_bg:*:*:*:reference": "available",
+    "clipdrop_remove_bg:*:*:*:results": "available"
+  },
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {
+    "comfyui": [
+      "LoadImage",
+      "LoadRembgByBiRefNetModel",
+      "RembgByBiRefNetAdvanced",
+      "MaskToImage",
+      "SaveImage"
+    ],
+    "comfyui_portable": [
+      "LoadImage",
+      "LoadRembgByBiRefNetModel",
+      "RembgByBiRefNetAdvanced",
+      "MaskToImage",
+      "SaveImage"
+    ]
+  },
+  "capability_profiles": {
+    "birefnet_core": {
+      "profile_id": "birefnet_core",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "available"
+      },
+      "required_roles": [
+        "source_image",
+        "birefnet_model",
+        "soft_alpha",
+        "rgba_png",
+        "mask_png",
+        "reviewed_mask"
+      ],
+      "optional_roles": [
+        "PreviewImage",
+        "GrowMask",
+        "FeatherMask",
+        "BlurFusionForegroundEstimation",
+        "JoinImageWithAlpha"
+      ],
+      "readiness_gates": {
+        "comfyui": [
+          "LoadImage",
+          "LoadRembgByBiRefNetModel",
+          "RembgByBiRefNetAdvanced",
+          "MaskToImage",
+          "SaveImage"
+        ],
+        "comfyui_portable": [
+          "LoadImage",
+          "LoadRembgByBiRefNetModel",
+          "RembgByBiRefNetAdvanced",
+          "MaskToImage",
+          "SaveImage"
+        ]
+      },
+      "params": [
+        "workflow_mode",
+        "engine",
+        "fallback_policy",
+        "preset",
+        "model",
+        "native_model",
+        "native_provider",
+        "native_alpha_matting",
+        "native_post_process_mask",
+        "native_foreground_threshold",
+        "native_background_threshold",
+        "native_erode_size",
+        "device",
+        "dtype",
+        "width",
+        "height",
+        "upscale_method",
+        "mask_threshold",
+        "mask_expand",
+        "mask_feather",
+        "foreground_estimation",
+        "blur_size",
+        "blur_size_two",
+        "save_mask",
+        "preview_background",
+        "manual_mask",
+        "sam_prompts",
+        "sam_detection_confidence",
+        "sam_detector_type",
+        "sam_detector_model",
+        "sam_comfy_model",
+        "sam_execution",
+        "sam_subjects",
+        "sam_model_variant",
+        "sam_quantized",
+        "sam_refine_mode",
+        "sam_refine_model",
+        "sam_refine_fallback",
+        "sam_gate_expand",
+        "sam_gate_feather",
+        "commercial_profile_id",
+        "commercial_upload_consent",
+        "commercial_output_size",
+        "commercial_subject_type",
+        "commercial_preserve_semitransparency",
+        "commercial_transparency_handling"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "LoadImage",
+            "LoadRembgByBiRefNetModel",
+            "RembgByBiRefNetAdvanced",
+            "MaskToImage",
+            "SaveImage"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "LoadImage",
+            "LoadRembgByBiRefNetModel",
+            "RembgByBiRefNetAdvanced",
+            "MaskToImage",
+            "SaveImage"
+          ]
+        }
+      },
+      "notes": [
+        "Smart mode prefers the installed Comfy BiRefNet route for general, portrait, product, fine-edge, and low-VRAM presets.",
+        "Anime prefers the optional native rembg ISNet Anime route when that runtime is installed.",
+        "Fallback never guesses missing assets: exact Comfy models come from the live catalog and native models come from rembg-supported model IDs.",
+        "Mask Review remains a Comfy-only non-destructive refinement route and never reruns segmentation.",
+        "Interactive Select can keep multiple independently selected subjects. Box-only selections prefer the exact Impact Pack SAMLoader/SAMDetectorCombined route and reuse ADetailer models from ComfyUI/models/sams; point corrections use Native ONNX SAM.",
+        "Comfy SAM loads one .pth checkpoint per workflow, creates one mask per selected subject, unions only selected masks, and can hand the combined gate to an installed Comfy BiRefNet model for soft-edge refinement."
+      ]
+    },
+    "birefnet_mask_review": {
+      "profile_id": "birefnet_mask_review",
+      "families": [],
+      "loaders": [],
+      "modes": {
+        "finish": "available_when_nodes_ready"
+      },
+      "required_roles": [
+        "source_image",
+        "reviewed_mask",
+        "rgba_png",
+        "mask_png"
+      ],
+      "optional_roles": [
+        "GrowMask",
+        "FeatherMask",
+        "BlurFusionForegroundEstimation",
+        "JoinImageWithAlpha"
+      ],
+      "readiness_gates": {
+        "comfyui": [
+          "LoadImage",
+          "ImageToMask",
+          "MaskToImage",
+          "SaveImage"
+        ],
+        "comfyui_portable": [
+          "LoadImage",
+          "ImageToMask",
+          "MaskToImage",
+          "SaveImage"
+        ]
+      },
+      "params": [
+        "workflow_mode",
+        "mask_expand",
+        "mask_feather",
+        "foreground_estimation",
+        "blur_size",
+        "blur_size_two",
+        "save_mask",
+        "preview_background",
+        "manual_mask",
+        "commercial_profile_id",
+        "commercial_upload_consent",
+        "commercial_output_size",
+        "commercial_subject_type",
+        "commercial_preserve_semitransparency",
+        "commercial_transparency_handling"
+      ],
+      "notes": [
+        "Runs from the saved source plus a reviewed grayscale mask and never reruns BiRefNet segmentation.",
+        "GrowMask, FeatherMask, and the chosen composition node are required only when their controls activate them."
+      ]
+    },
+    "native_rembg_fallback": {
+      "profile_id": "native_rembg_fallback",
+      "families": [],
+      "loaders": [
+        "rembg_onnx"
+      ],
+      "modes": {
+        "finish": "available_when_optional_runtime_ready"
+      },
+      "required_roles": [
+        "source_image",
+        "native_rembg_model",
+        "rgba_png"
+      ],
+      "optional_roles": [
+        "mask_png",
+        "alpha_matting",
+        "mask_post_processing"
+      ],
+      "params": [
+        "engine",
+        "fallback_policy",
+        "preset",
+        "native_model",
+        "native_provider",
+        "native_alpha_matting",
+        "native_post_process_mask",
+        "native_foreground_threshold",
+        "native_background_threshold",
+        "native_erode_size",
+        "mask_threshold",
+        "mask_expand",
+        "mask_feather",
+        "save_mask",
+        "commercial_profile_id",
+        "commercial_upload_consent",
+        "commercial_output_size",
+        "commercial_subject_type",
+        "commercial_preserve_semitransparency",
+        "commercial_transparency_handling"
+      ],
+      "backend_requirements": {
+        "neo_native": {
+          "python_package": [
+            "rembg"
+          ],
+          "runtime_backends": [
+            "onnxruntime",
+            "onnxruntime-gpu",
+            "onnxruntime-rocm"
+          ],
+          "model_cache": [
+            "U2NET_HOME or ~/.u2net/"
+          ]
+        }
+      },
+      "notes": [
+        "This runtime is optional and is not installed by Neo core requirements.",
+        "Choose exactly one rembg CPU, CUDA, or ROCm installation appropriate for the machine.",
+        "rembg downloads the selected ONNX model on first use; Neo reports this before execution.",
+        "Model licenses are separate from the rembg wrapper license and must be reviewed per model."
+      ]
+    },
+    "interactive_sam_selection": {
+      "profile_id": "interactive_sam_selection",
+      "families": [],
+      "loaders": [
+        "sam_impact_shared",
+        "sam_onnx"
+      ],
+      "modes": {
+        "finish": "available_when_shared_or_native_runtime_ready"
+      },
+      "required_roles": [
+        "source_image",
+        "sam_subject_groups",
+        "sam_mask",
+        "rgba_png"
+      ],
+      "optional_roles": [
+        "birefnet_soft_edge_refinement",
+        "mask_png",
+        "selection_box",
+        "negative_points",
+        "comfy_sam_model",
+        "person_detector_boxes",
+        "multi_subject_union"
+      ],
+      "detector_source_contract": {
+        "schema_id": "neo.image.background_removal.detector_source.v1",
+        "owner": "image.adetailer.model_scan",
+        "active_profile_aware": true,
+        "admin_models_root_aware": true,
+        "comfy_registered_folders_aware": true,
+        "bbox_segm_separated": true,
+        "absolute_paths_browser_exposed": false,
+        "phase_scope": "models_endpoint_only"
+      },
+      "detect_subjects_execution_contract": {
+        "schema_id": "neo.image.background_removal.detect_subjects_execution.v1",
+        "active_profile_bound": true,
+        "selected_type_pool_validated": true,
+        "flat_adetailer_files_resolved": true,
+        "selected_detector_strict": true,
+        "opencv_fallback_after_selected_model_failure": false,
+        "explicit_custom_choice_preserved": true,
+        "absolute_paths_browser_exposed": false,
+        "phase_scope": "detect_subjects_only"
+      },
+      "frontend_model_scan_reliability_contract": {
+        "schema_id": "neo.image.background_removal.frontend_model_scan_reliability.v1",
+        "profile_scoped_runtime_cache": true,
+        "same_profile_single_flight": true,
+        "stale_response_guard": true,
+        "last_good_preserved_on_failure": true,
+        "saved_selection_preserved_if_missing": true,
+        "detector_type_change_uses_typed_default": true,
+        "automatic_profile_change_scan": true,
+        "accessible_loading_error_empty_states": true,
+        "absolute_paths_browser_exposed": false,
+        "phase_scope": "frontend_model_scan_only"
+      },
+      "public_hygiene_verification_contract": {
+        "schema_id": "neo.image.background_removal.public_hygiene_verification.v1",
+        "absolute_model_choices_normalized": true,
+        "server_only_roots_removed": true,
+        "detector_response_portable": true,
+        "catalog_runtime_only": true,
+        "frontend_custom_path_fields": false,
+        "public_path_literals": false,
+        "cross_phase_regression_verified": true,
+        "phase_scope": "hygiene_and_verification_only"
+      },
+      "params": [
+        "workflow_mode",
+        "preset",
+        "sam_prompts",
+        "sam_detection_confidence",
+        "sam_detector_type",
+        "sam_detector_model",
+        "sam_comfy_model",
+        "sam_execution",
+        "sam_subjects",
+        "sam_model_variant",
+        "sam_quantized",
+        "sam_refine_mode",
+        "sam_refine_model",
+        "sam_refine_fallback",
+        "sam_gate_expand",
+        "sam_gate_feather",
+        "native_provider",
+        "mask_threshold",
+        "mask_expand",
+        "mask_feather",
+        "save_mask",
+        "commercial_profile_id",
+        "commercial_upload_consent",
+        "commercial_output_size",
+        "commercial_subject_type",
+        "commercial_preserve_semitransparency",
+        "commercial_transparency_handling"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_nodes": [
+            "SAMLoader",
+            "SAMDetectorCombined",
+            "MaskToSEGS",
+            "SolidMask",
+            "MaskComposite",
+            "JoinImageWithAlpha",
+            "MaskToImage",
+            "SaveImage"
+          ],
+          "model_folders": [
+            "ComfyUI/models/sams",
+            "ComfyUI/models/ultralytics/bbox",
+            "ComfyUI/models/ultralytics/segm"
+          ],
+          "optional_refinement_nodes": [
+            "LoadRembgByBiRefNetModel",
+            "GetMaskByBiRefNet",
+            "GrowMask",
+            "FeatherMask",
+            "BlurFusionForegroundEstimation"
+          ]
+        },
+        "comfyui_portable": {
+          "required_nodes": [
+            "SAMLoader",
+            "SAMDetectorCombined",
+            "MaskToSEGS",
+            "SolidMask",
+            "MaskComposite",
+            "JoinImageWithAlpha",
+            "MaskToImage",
+            "SaveImage"
+          ],
+          "model_folders": [
+            "ComfyUI/models/sams",
+            "ComfyUI/models/ultralytics/bbox",
+            "ComfyUI/models/ultralytics/segm"
+          ],
+          "optional_refinement_nodes": [
+            "LoadRembgByBiRefNetModel",
+            "GetMaskByBiRefNet",
+            "GrowMask",
+            "FeatherMask",
+            "BlurFusionForegroundEstimation"
+          ]
+        },
+        "neo_native": {
+          "python_package": [
+            "rembg"
+          ],
+          "session_model": [
+            "sam"
+          ],
+          "runtime_backends": [
+            "onnxruntime",
+            "onnxruntime-gpu",
+            "onnxruntime-rocm"
+          ],
+          "model_cache": [
+            "U2NET_HOME or ~/.u2net/"
+          ]
+        }
+      },
+      "notes": [
+        "Smart mode prefers the installed Comfy BiRefNet route for general, portrait, product, fine-edge, and low-VRAM presets.",
+        "Anime prefers the optional native rembg ISNet Anime route when that runtime is installed.",
+        "Fallback never guesses missing assets: exact Comfy models come from the live catalog and native models come from rembg-supported model IDs.",
+        "Mask Review remains a Comfy-only non-destructive refinement route and never reruns segmentation.",
+        "Interactive Select can keep multiple independently selected subjects. Box-only selections use the exact Impact Pack SAMLoader/SAMDetectorCombined route with models discovered from ComfyUI/models/sams; point corrections use Native ONNX SAM.",
+        "Comfy SAM loads one .pth checkpoint per workflow, creates one mask per selected subject, unions only selected masks, and can hand the combined gate to an installed Comfy BiRefNet model for soft-edge refinement.",
+        "Detector choices come from the same active-profile/Admin Models source snapshot as ADetailer; BBox and Segmentation lists remain separate and absolute paths stay server-side."
+      ]
+    },
+    "commercial_background_removal": {
+      "profile_id": "commercial_background_removal",
+      "families": [],
+      "loaders": [
+        "commercial_api"
+      ],
+      "modes": {
+        "finish": "available"
+      },
+      "required_roles": [
+        "source_image",
+        "commercial_profile",
+        "per_run_upload_consent",
+        "rgba_png"
+      ],
+      "optional_roles": [
+        "mask_png",
+        "provider_credit_headers"
+      ],
+      "readiness_gates": {
+        "remove_bg": [
+          "api_key_configured"
+        ],
+        "clipdrop_remove_bg": [
+          "api_key_configured"
+        ]
+      },
+      "params": [
+        "commercial_profile_id",
+        "commercial_upload_consent",
+        "commercial_output_size",
+        "commercial_subject_type",
+        "commercial_preserve_semitransparency",
+        "commercial_transparency_handling",
+        "save_mask",
+        "preview_background"
+      ],
+      "privacy": {
+        "external_upload": true,
+        "consent_scope": "per_run",
+        "replay_consent_persisted": false,
+        "automatic_fallback": false
+      }
+    }
+  },
+  "ui_schema": {
+    "mount": "image.finish.background_removal",
+    "panel_function": "backgroundRemovalPanel",
+    "bind_function": "bindBackgroundRemovalControls",
+    "display_modes": [
+      "compact",
+      "guided",
+      "expert"
+    ],
+    "runtime_status": "active"
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v2",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "commercial_provider_policy": {
+      "engine": "commercial_api",
+      "consent_required": true,
+      "fallback": "never",
+      "api_key_browser_exposure": false
+    }
+  },
+  "memory_contract": {
+    "event_type": "background_removal_mask_refinement_interactive_sam_or_multi_subject_selection_used",
+    "namespace_pattern": "extension:{extension_id}",
+    "assistant_summary_required": true,
+    "record_route": true,
+    "record_assets": true,
+    "record_params": true,
+    "commercial_provider": [
+      "provider_id",
+      "profile_id",
+      "consent_recorded",
+      "credits",
+      "external_upload"
+    ]
+  },
+  "output_contract": {
+    "metadata_slots": [
+      "extensions.used",
+      "extensions.payloads",
+      "extensions.validation",
+      "extensions.replay_payloads",
+      "extensions.assistant_summaries"
+    ],
+    "record_input_assets": true,
+    "record_route_snapshot": true,
+    "record_replay_payload": true,
+    "commercial_provider_output": "provider image normalized to Neo-owned RGBA PNG with optional alpha-mask PNG"
+  },
+  "memory_policy": {
+    "write_event": true,
+    "assistant_summary": true
+  },
+  "output_policy": {
+    "mode": "append_derived",
+    "foreground": "rgba_png",
+    "mask": "grayscale_png",
+    "mask_review": "non_destructive_child",
+    "engine_resolution": "record_requested_resolved_engine_model_and_fallback_reason",
+    "native_runtime": "persist_through_standard_image_output_ledger",
+    "interactive_sam": "append_derived_child_with_subject_group_and_prompt_replay"
+  },
+  "asset_bundle": {
+    "html": [
+      "ui/panel.html"
+    ],
+    "js": [
+      "ui/panel.js"
+    ],
+    "css": [
+      "ui/panel.css"
+    ],
+    "python": [
+      "backend/constants.py",
+      "backend/payload_schema.py",
+      "backend/workflow.py",
+      "backend/metadata.py",
+      "backend/api_routes.py",
+      "backend/verification.py",
+      "backend/engine_resolver.py",
+      "backend/native_rembg.py",
+      "backend/native_sam.py",
+      "backend/shared_sam.py"
+    ],
+    "assets": []
+  },
+  "entrypoints": {
+    "payload_schema": "backend/payload_schema.py",
+    "workflow": "backend/workflow.py",
+    "metadata": "backend/metadata.py",
+    "api": "neo_extensions.built_in.background_removal.backend.api_routes:register_background_removal_api_routes"
+  }
+}

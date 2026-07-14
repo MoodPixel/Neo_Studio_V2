@@ -24,7 +24,7 @@ tags:
   - output inspector
 priority: 100
 version: 2
-updated: 2026-07-09
+updated: 2026-07-11
 ---
 
 # Image Tab Overview
@@ -96,7 +96,7 @@ The Image tab has workspace apps. The Assistant should answer from the guide tha
 | **Generation** | Base generation controls and generation-time extension cards. | `guides/01_IMAGE/image_generation_extensions.md`, `guides/01_IMAGE/cfg_fix_dynamic_thresholding.md`, `guides/01_IMAGE/layerdiffuse.md`, `guides/01_IMAGE/style_stack.md`, `guides/01_IMAGE/wildcards.md`, `guides/01_IMAGE/scene_director.md` |
 | **Assets** | Source/reusable assets, LoRA assets, and Embeddings/Textual Inversion assets. | `guides/01_IMAGE/image_assets.md`, `guides/01_IMAGE/lora_stack.md`, `guides/01_IMAGE/embeddings_textual_inversion.md` |
 | **Reference** | Source/reference controls, structural guidance, identity/reference helpers, ControlNet, and IP Adapter / FaceID. | `guides/01_IMAGE/image_reference.md`, `guides/01_IMAGE/controlnet.md`, `guides/01_IMAGE/ip_adapter_faceid.md` |
-| **Finish** | Finish/reuse/upscale/repair preparation and post-output actions. | `guides/01_IMAGE/image_finish.md`, `guides/01_IMAGE/high_res_lab.md`, `guides/01_IMAGE/adetailer.md`, `guides/01_IMAGE/image_upscale.md`, `guides/01_IMAGE/final_polish_lab.md` |
+| **Finish** | Finish/reuse/upscale/repair preparation and post-output actions. | `guides/01_IMAGE/image_finish.md`, `guides/01_IMAGE/high_res_lab.md`, `guides/01_IMAGE/adetailer.md`, `guides/01_IMAGE/image_upscale.md`, `guides/01_IMAGE/background_removal.md`, `guides/01_IMAGE/final_polish_lab.md` |
 | **Results** | Saved outputs, metadata, replay, cleanup, and deletion. | `guides/01_IMAGE/image_results.md`, `guides/01_IMAGE/output_inspector.md` |
 
 
@@ -147,6 +147,7 @@ The Finish workspace owns post-generation/refinement tools. It is route-aware an
 | **High-Res Lab** | Highres-style diffusion refine, target scaling, tiled VAE safety, selected-output finish passes. | `guides/01_IMAGE/high_res_lab.md` |
 | **ADetailer** | Selective repair for faces, hands, people, products, or manual boxes. | `guides/01_IMAGE/adetailer.md` |
 | **Image Upscale** | Standalone upscale utility for selected results or uploaded image batches, with optional CodeFormer / SeedVR2 paths. | `guides/01_IMAGE/image_upscale.md` |
+| **Remove Background** | Standalone BiRefNet foreground extraction for transparent PNG and optional alpha-mask output. | `guides/01_IMAGE/background_removal.md` |
 | **Final Polish Lab** | External installed finish cockpit for Relight, Layer Polish, Camera Finish, Look Library, and batch polish plans. | `guides/01_IMAGE/final_polish_lab.md` |
 
 Use Finish when the user wants to improve or modify an output. Use Results when the user wants to inspect, replay, reuse, organize, or delete saved outputs.

@@ -8,6 +8,7 @@ import json
 from neo_app.providers.comfy_provider import ComfyProvider
 from neo_app.providers.mock_provider import MockProvider
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
+from neo_app.providers.commercial_background_removal_provider import CommercialBackgroundRemovalProvider, COMMERCIAL_PROVIDER_IDS
 from neo_app.providers.schema import NeoJob, ProviderManifest
 from neo_app.providers.backend_route_contract import backend_route_contract_payload
 from neo_app.core.pydantic_compat import model_from_dict, model_to_dict
@@ -28,23 +29,25 @@ def list_providers() -> list[ProviderManifest]:
     return [model_from_dict(ProviderManifest, item) for item in payload.get("providers", [])]
 
 
-def build_provider(manifest: ProviderManifest):
+def build_provider(manifest: ProviderManifest, *, profile: dict[str, Any] | None = None):
     if manifest.provider_id in {"comfyui", "comfyui_portable"}:
         return ComfyProvider(manifest)
     if manifest.provider_id == "xai_grok":
-        return XaiGrokProvider(manifest)
+        return XaiGrokProvider(manifest, profile=profile)
+    if manifest.provider_id in COMMERCIAL_PROVIDER_IDS:
+        return CommercialBackgroundRemovalProvider(manifest, profile=profile)
     return MockProvider(manifest)
 
 
-def get_provider(provider_id: str):
+def get_provider(provider_id: str, *, profile: dict[str, Any] | None = None):
     for manifest in list_providers():
         if manifest.provider_id == provider_id:
-            return build_provider(manifest)
+            return build_provider(manifest, profile=profile)
     return None
 
 
-def get_provider_feature_capabilities(provider_id: str) -> dict[str, Any]:
-    provider = get_provider(provider_id)
+def get_provider_feature_capabilities(provider_id: str, *, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    provider = get_provider(provider_id, profile=profile)
     if provider is None:
         return {
             "progress": False,

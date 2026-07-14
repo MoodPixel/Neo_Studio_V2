@@ -16,6 +16,7 @@ from .constants import (
     EXTENSION_ID,
     EXTENSION_VERSION,
     SEEDVR2_ATTENTION_MODES,
+    SEEDVR2_ALPHA_MODES,
     SEEDVR2_COLOR_CORRECTION_OPTIONS,
     SEEDVR2_DIT_DEFAULT,
     SEEDVR2_VAE_DEFAULT,
@@ -71,6 +72,15 @@ DEFAULTS: dict[str, Any] = {
     "seedvr2_input_noise_scale": 0.0,
     "seedvr2_latent_noise_scale": 0.0,
     "seedvr2_enable_debug": False,
+    "seedvr2_alpha_mode": "auto",
+    "seedvr2_source_format": "",
+    "seedvr2_source_image_mode": "",
+    "seedvr2_source_has_alpha": False,
+    "seedvr2_source_has_transparency": False,
+    "seedvr2_alpha_min": 255,
+    "seedvr2_alpha_max": 255,
+    "seedvr2_alpha_route_applied": False,
+    "seedvr2_output_format": "png",
 }
 
 V1_KEY_ALIASES = {
@@ -108,6 +118,15 @@ V1_KEY_ALIASES = {
     "seedvr2_input_noise_scale": "seedvr2_input_noise_scale",
     "seedvr2_latent_noise_scale": "seedvr2_latent_noise_scale",
     "seedvr2_enable_debug": "seedvr2_enable_debug",
+    "seedvr2_alpha_mode": "seedvr2_alpha_mode",
+    "seedvr2_source_format": "seedvr2_source_format",
+    "seedvr2_source_image_mode": "seedvr2_source_image_mode",
+    "seedvr2_source_has_alpha": "seedvr2_source_has_alpha",
+    "seedvr2_source_has_transparency": "seedvr2_source_has_transparency",
+    "seedvr2_alpha_min": "seedvr2_alpha_min",
+    "seedvr2_alpha_max": "seedvr2_alpha_max",
+    "seedvr2_alpha_route_applied": "seedvr2_alpha_route_applied",
+    "seedvr2_output_format": "seedvr2_output_format",
     "_neo_source_output_id": "source_output_id",
     "_neo_parent_output_id": "parent_output_id",
 }
@@ -246,6 +265,22 @@ def _normalize_seedvr2_sizing_mode(value: Any) -> str:
     return aliases.get(mode, DEFAULTS["seedvr2_sizing_mode"])
 
 
+def _normalize_seedvr2_alpha_mode(value: Any) -> str:
+    mode = _text(value, DEFAULTS["seedvr2_alpha_mode"]).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "automatic": "auto",
+        "auto_preserve": "auto",
+        "force": "preserve",
+        "force_preserve": "preserve",
+        "rgba": "preserve",
+        "flatten": "discard",
+        "opaque": "discard",
+        "remove_alpha": "discard",
+    }
+    mode = aliases.get(mode, mode)
+    return mode if mode in SEEDVR2_ALPHA_MODES else DEFAULTS["seedvr2_alpha_mode"]
+
+
 def compute_seedvr2_resolution_contract(settings: dict[str, Any]) -> dict[str, Any]:
     """Compute SeedVR2 output sizing from source dimensions + target scale.
 
@@ -354,6 +389,7 @@ def normalize_settings(settings: dict[str, Any] | str | None = None) -> dict[str
 
     if clean["upscale_engine"] == "seedvr2":
         raw = compute_seedvr2_resolution_contract({**raw, "upscale_engine": clean["upscale_engine"], "scale": clean["scale"]})
+        clean["seedvr2_alpha_mode"] = _normalize_seedvr2_alpha_mode(raw.get("seedvr2_alpha_mode", DEFAULTS["seedvr2_alpha_mode"]))
         clean["seedvr2_sizing_mode"] = _normalize_seedvr2_sizing_mode(raw.get("seedvr2_sizing_mode", DEFAULTS["seedvr2_sizing_mode"]))
         clean["seedvr2_source_width"] = max(0, _int(raw.get("seedvr2_source_width", 0), 0))
         clean["seedvr2_source_height"] = max(0, _int(raw.get("seedvr2_source_height", 0), 0))
@@ -381,6 +417,14 @@ def normalize_settings(settings: dict[str, Any] | str | None = None) -> dict[str
         clean["seedvr2_input_noise_scale"] = round(_clamp(_float(raw.get("seedvr2_input_noise_scale", DEFAULTS["seedvr2_input_noise_scale"]), DEFAULTS["seedvr2_input_noise_scale"]), 0.0, 1.0), 4)
         clean["seedvr2_latent_noise_scale"] = round(_clamp(_float(raw.get("seedvr2_latent_noise_scale", DEFAULTS["seedvr2_latent_noise_scale"]), DEFAULTS["seedvr2_latent_noise_scale"]), 0.0, 1.0), 4)
         clean["seedvr2_enable_debug"] = _bool(raw.get("seedvr2_enable_debug", DEFAULTS["seedvr2_enable_debug"]), DEFAULTS["seedvr2_enable_debug"])
+        clean["seedvr2_source_format"] = _text(raw.get("seedvr2_source_format", DEFAULTS["seedvr2_source_format"])).upper()
+        clean["seedvr2_source_image_mode"] = _text(raw.get("seedvr2_source_image_mode", DEFAULTS["seedvr2_source_image_mode"])).upper()
+        clean["seedvr2_source_has_alpha"] = _bool(raw.get("seedvr2_source_has_alpha", DEFAULTS["seedvr2_source_has_alpha"]), DEFAULTS["seedvr2_source_has_alpha"])
+        clean["seedvr2_source_has_transparency"] = _bool(raw.get("seedvr2_source_has_transparency", DEFAULTS["seedvr2_source_has_transparency"]), DEFAULTS["seedvr2_source_has_transparency"])
+        clean["seedvr2_alpha_min"] = max(0, min(_int(raw.get("seedvr2_alpha_min", DEFAULTS["seedvr2_alpha_min"]), DEFAULTS["seedvr2_alpha_min"]), 255))
+        clean["seedvr2_alpha_max"] = max(0, min(_int(raw.get("seedvr2_alpha_max", DEFAULTS["seedvr2_alpha_max"]), DEFAULTS["seedvr2_alpha_max"]), 255))
+        clean["seedvr2_alpha_route_applied"] = _bool(raw.get("seedvr2_alpha_route_applied", DEFAULTS["seedvr2_alpha_route_applied"]), DEFAULTS["seedvr2_alpha_route_applied"])
+        clean["seedvr2_output_format"] = "png"
 
     return clean
 
@@ -404,18 +448,25 @@ def validate_payload_settings(settings: dict[str, Any] | str | None = None, *, r
     errors: list[str] = []
     warnings: list[str] = []
 
-    if params.get("restore_assist") == "codeformer" and not params.get("restore_model"):
+    force_rgba = params.get("upscale_engine") == "seedvr2" and params.get("seedvr2_alpha_mode") == "preserve"
+    if params.get("restore_assist") == "codeformer" and not params.get("restore_model") and not force_rgba:
         errors.append("CodeFormer restore requires a restore_model before Image Upscale can queue. Place CodeFormer models in ComfyUI/models/facerestore_models/.")
     if params.get("upscale_engine") == "seedvr2":
         if not params.get("seedvr2_dit_model"):
             errors.append("Choose a SeedVR2 DiT model before queueing SeedVR2. Models live in ComfyUI/models/SEEDVR2/.")
         if not params.get("seedvr2_vae_model"):
             errors.append("Choose a SeedVR2 VAE model before queueing SeedVR2. Models live in ComfyUI/models/SEEDVR2/.")
+        if params.get("seedvr2_alpha_mode") == "preserve" and params.get("restore_assist") == "codeformer":
+            warnings.append("CodeFormer restore will be skipped because Force Preserve RGBA is active and the current restore route is not alpha-safe.")
+        elif params.get("seedvr2_alpha_mode") == "auto" and params.get("restore_assist") == "codeformer":
+            warnings.append("Auto Preserve applies CodeFormer only to opaque sources and skips it per job when real transparency is detected.")
     has_source_ref = bool(inputs.get("source_output_id") or inputs.get("source_image_name") or assets.get("source_images"))
     if require_source and not has_source_ref:
         errors.append("Pick at least one source image for Image Upscale.")
     if params.get("upscale_engine") == "seedvr2":
         warnings.append("SeedVR2 is experimental for Image Upscale and may use heavy VRAM; install ComfyUI-SeedVR2_VideoUpscaler and place models in ComfyUI/models/SEEDVR2/.")
+        if params.get("seedvr2_alpha_mode") == "auto":
+            warnings.append("SeedVR2 transparency is detected independently for each source image; transparent sources use the RGBA graph when JoinImageWithAlpha is available.")
     elif not params.get("upscale_model"):
         warnings.append("Image Upscale will use interpolation-only resize because no upscale model is selected.")
 

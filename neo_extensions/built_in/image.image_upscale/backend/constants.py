@@ -4,7 +4,7 @@ from __future__ import annotations
 EXTENSION_ID = "image.image_upscale"
 EXTENSION_NAME = "Image · Image Upscale"
 EXTENSION_TYPE = "built_in"
-EXTENSION_VERSION = "0.8.1-phase-j-global-route-lock"
+EXTENSION_VERSION = "0.12.0-p5-seedvr2-rgba"
 WORKSPACE_APP = "finish"
 MOUNT_SLOT = "image.finish.image_upscale"
 QUEUE_ENDPOINT = "/api/extensions/image-upscale/queue"
@@ -31,12 +31,14 @@ OPTIONAL_PREVIEW_NODES = ("PreviewImage",)
 OPTIONAL_UPSCALE_MODEL_NODES = ("UpscaleModelLoader", "ImageUpscaleWithModel")
 OPTIONAL_CODEFORMER_NODES = ("FaceRestoreModelLoader", "FaceRestoreCFWithModel")
 OPTIONAL_SEEDVR2_NODES = ("SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler")
+OPTIONAL_SEEDVR2_RGBA_NODES = ("JoinImageWithAlpha",)
 
 OPTIONAL_NODE_GROUPS = {
     "preview": OPTIONAL_PREVIEW_NODES,
     "model_upscale": OPTIONAL_UPSCALE_MODEL_NODES,
     "codeformer_restore": OPTIONAL_CODEFORMER_NODES,
     "seedvr2_experimental": OPTIONAL_SEEDVR2_NODES,
+    "seedvr2_rgba": OPTIONAL_SEEDVR2_RGBA_NODES,
 }
 
 CODEFORMER_MODEL_FOLDER_HINT = "ComfyUI/models/facerestore_models/"
@@ -47,6 +49,7 @@ SEEDVR2_VAE_DEFAULT = "ema_vae_fp16.safetensors"
 SEEDVR2_ATTENTION_MODES = ("sdpa", "flash_attn_2", "flash_attn_3", "sageattn_2", "sageattn_3")
 SEEDVR2_COLOR_CORRECTION_OPTIONS = ("lab", "wavelet", "wavelet_adaptive", "hsv", "adain", "none")
 SEEDVR2_ENGINE_ID = "seedvr2"
+SEEDVR2_ALPHA_MODES = ("auto", "preserve", "discard")
 
 # Discovered V2 route axes. Image Upscale itself does not depend on these axes,
 # but Phase D documents every discovered route so UI/diagnostics can explain

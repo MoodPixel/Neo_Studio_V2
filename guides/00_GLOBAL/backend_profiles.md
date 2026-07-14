@@ -21,101 +21,89 @@ tags:
   - xai
   - connection
 priority: 85
-version: 3
-updated: 2026-07-09
+version: 5
+updated: 2026-07-12
 ---
 
 # Backend Profiles and Connection State
 
-Neo Studio V2 manages backend setup from **Admin → Backends**.
-
-Neo uses a profile-based backend system. Backend profiles describe how Neo connects to local or cloud providers, including surface, provider, connection URL, launcher fields, auth mode, model defaults, capability flags, and runtime connection state.
+Neo Studio manages backend setup from **Admin → Backends**. Profiles describe the surface, provider, connection, authentication source, model defaults, capabilities, and runtime state.
 
 ## Core rule
 
-Neo Studio already ships with seeded backend profiles for the main surfaces. In normal setup, users should **select and use the existing profile** instead of creating a new one.
+Use the shipped profile for the required surface whenever possible. Users normally add only machine-specific paths, local launch commands, API credentials, or deliberate custom URLs.
 
-Users usually only need to add machine-specific or private values:
+## Surface profiles
 
-- local backend folder/path;
-- launcher command or BAT path;
-- API key for cloud profiles;
-- custom port/base URL only if their backend is not using the default.
+- **Text**: Text, Assistant, Roleplay, and Prompt/Captioning backends.
+- **Image**: ComfyUI and cloud Image profiles such as Grok Imagine.
+- **Video**: ComfyUI Video profiles and Grok Imagine Video.
+- **Voice** and **Music / Audio**: provider-specific local/cloud profiles.
+- **Provider Diagnostics**: read-only profile/default/capability diagnostics.
 
-Only recommend creating or heavily editing profiles when the user has a custom backend, custom port, separate test setup, or a failed connection that needs troubleshooting.
+Typical seeded profiles include:
 
-## Backend surfaces
+| Surface | Examples |
+|---|---|
+| Image | ComfyUI Local, ComfyUI Portable, Grok Imagine |
+| Video | Video · ComfyUI Local, Video · ComfyUI Portable, Grok Imagine Video |
+| Text | KoboldCpp Local |
 
-Neo's Admin Backends area is split into child tabs:
+The active/default profile is user-controlled and is not replaced by seed reconciliation.
 
-- **Text**: Text, Assistant, Roleplay, and Prompt/Captioning backend profiles.
-- **Image**: Image generation backend profiles, including ComfyUI / ComfyUI Portable and cloud image API profiles such as Grok Imagine.
-- **Video**: Video workflow profiles, primarily ComfyUI / ComfyUI Portable routes in the current V2 build.
-- **Voice**: early/future Voice/TTS backend profiles.
-- **Music / Audio**: early/future music, sound effect, and audio backend profiles.
-- **Provider Diagnostics**: read-only backend profile/default/capability diagnostics.
+## Utility-only commercial profiles
 
-## Seeded profile examples
+Some profiles belong to a Finish utility rather than the primary generation backend selector. P6.5 adds:
 
-Current seeded profile examples include:
+```text
+image.remove_bg_background_removal
+image.clipdrop_background_removal
+```
 
-| Surface | Seeded profiles | Typical default |
-|---|---|---|
-| **Image** | ComfyUI Local, ComfyUI Portable, Grok Imagine | `comfyui_local` |
-| **Video** | Video · ComfyUI Local, Video · ComfyUI Portable | `video.comfyui_portable` |
-| **Text** | KoboldCpp Local | `local_koboldcpp_text` |
-| **Voice** | Chatterbox, Kokoro Preview, Fish Speech HQ, Zonos, Custom TTS Adapter | `voice.chatterbox` |
-| **Music / Audio** | ACE-Step, Stable Audio Open, YuE Song HQ, Custom Audio Adapter | `audio.ace_step` |
+Both use `profile_role=image_background_removal_backend`. They remain visible under **Admin → Backends → Image** for credential setup and connection diagnostics, but Neo excludes them from the main Image generation backend selector and rejects attempts to set them as the Image default. Select them from **Image → Finish → Remove Background** instead.
 
-The exact default may change if the user clicks **Set Default**.
+Credential options:
 
-## Local backend profiles
+```text
+remove.bg  → REMOVE_BG_API_KEY or Manual Local API Key
+Clipdrop   → CLIPDROP_API_KEY or Manual Local API Key
+```
 
-Common local profiles:
+Manual keys are stored under `neo_data/settings/secrets`; raw keys are not written into repository JSON or returned to the browser. remove.bg can test its account endpoint without processing an image. Clipdrop uses a configured-only profile check so **Test Connection** verifies configuration without spending a removal credit. A real image request occurs only after per-run consent inside the Finish utility.
 
-- **ComfyUI / ComfyUI Portable** for image/video workflows. Typical base URL: `http://127.0.0.1:8188`.
-- **KoboldCPP** for local text/chat workflows. Typical base URL: `http://127.0.0.1:5001`.
+## Grok linked surface profiles
 
-Local launcher profiles may include a portable path and launch command. Use the same launcher or BAT file the user normally uses to start the backend manually.
+Grok uses the existing Image and Video workspaces through two surface-scoped bindings:
 
-If the user starts ComfyUI/KoboldCPP manually and the default URL is correct, they may only need to click **Test Connection**.
+```text
+image.xai_grok_imagine
+video.xai_grok_imagine
+```
 
-## Cloud API profiles
+They share the same `xai_grok` provider and can share `XAI_API_KEY`. The Video profile links to the Image profile for manual credential resolution, so users do not need to paste the key twice. The raw key is never copied into repository profile JSON.
 
-Cloud profiles do not need a local backend folder. They need an API key source, base URL, health check path, model defaults, and capability flags.
+The profiles are separate only because Neo selects/defaults backends by surface. They do not create duplicate Grok workspaces or provider implementations.
 
-The current V2 seeded cloud Image profile is:
+## Existing installation migration
 
-- **Grok Imagine** (`image.xai_grok_imagine`)
-- provider ID: `xai_grok`
-- surface: `image`
-- base URL: `https://api.x.ai/v1`
-- environment key: `XAI_API_KEY`
-- health check path: `/models`
-- default model: `grok-imagine-image`
-- available models: `grok-imagine-image`, `grok-imagine-image-quality`
+When Neo introduces a new shipped profile, startup may merge that missing seeded profile into the runtime profile store. It must not overwrite user profiles, edited connection values, defaults, selections, or saved settings.
 
-For Grok Imagine, users usually only need to add their API key, save, and test the existing Image profile. Do not tell users to create a new Grok profile unless they need an experimental duplicate.
+## Setup pattern
 
-Neo currently treats Grok Imagine as an **Image workspace backend** for text-to-image, image edit, and multi-image edit where supported by the selected model/profile. Do not describe it as a Neo Text or Video backend unless a later profile explicitly wires those surfaces.
+1. Open **Admin → Backends** and select the correct surface.
+2. Select the existing seeded profile.
+3. Add only the missing path, launcher setting, or API credential.
+4. Save and test the profile.
+5. Set it as default only when desired.
 
-## Recommended setup answer pattern
+For Grok:
 
-When a user asks how to set up backends, answer in this order:
-
-1. Tell them to open **Admin → Backends**.
-2. Tell them to select the existing profile for the surface.
-3. Tell them to add only missing local paths/API keys.
-4. Tell them to click **Save Profile** and **Test Connection**.
-5. Tell them to click **Set Default** only if they want that profile to be used by default.
-6. Tell them to read this guide or the Grok guide only if they need custom setup or troubleshooting.
-
-Avoid implying the user must build backend profiles from scratch.
+1. Configure/test **Grok Imagine** under Image.
+2. Select/test **Grok Imagine Video** under Video.
+3. The Video profile may reuse the Image profile's manual key or `XAI_API_KEY`.
 
 ## Connection state
 
-A connected profile means Neo has a current runtime status that can be used for tasks. If a profile is disconnected, missing an API key, disabled, or unreachable, ask the user to open **Admin → Backends**, test the correct profile, and retry the task.
+A connected profile requires a current successful runtime status. Use live surface/profile snapshots rather than passive configuration alone. After restarting Neo or a local backend, users may need to test/connect again.
 
-For Assistant text, the live task-facing profile should be trusted over a passive settings record. For local manual-connect profiles, the user may need to Connect/Test again after restarting Neo.
-
-Surface snapshots may include backend selection, status, model counts, available models, and runtime capability flags. Use those live values when answering current-state questions.
+Runtime/user secrets and connection state belong under `neo_data` or the environment, not repository source folders.

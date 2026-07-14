@@ -1,7 +1,7 @@
 {
   "schema_version": "neo.admin.image.node_manager.settings.v1",
-  "comfy_root_path": "F:\\LLM\\ComfyUI_windows_portable",
-  "custom_nodes_path": "F:\\LLM\\ComfyUI_windows_portable\\ComfyUI\\custom_nodes",
-  "python_path": "F:\\LLM\\ComfyUI_windows_portable\\python_embeded\\python.exe",
-  "last_updated": "2026-07-04T17:20:23.089507+00:00"
+  "comfy_root_path": "",
+  "custom_nodes_path": "",
+  "python_path": "",
+  "last_updated": null
 }

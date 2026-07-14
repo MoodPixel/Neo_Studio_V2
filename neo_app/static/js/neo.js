@@ -81,6 +81,7 @@ const state = {
   videoRunProgress: null,
   videoProgressSocket: null,
   videoResultPoller: null,
+  videoProviderJobPoller: null,
   videoLivePreviewUrl: '',
   videoLivePreviewLabel: '',
   videoLivePreviewFrameCount: 0,
@@ -90,6 +91,10 @@ const state = {
     family: 'wan22',
     loader: 'unet',
     mode: 'txt2vid',
+    cloud_model: 'grok-imagine-video',
+    cloud_duration_seconds: 4,
+    cloud_aspect_ratio: '16:9',
+    cloud_resolution: '720p',
     vram_profile: 'balanced',
     performance_profile: 'safe_12gb',
     enable_sage_attention: false,
@@ -1625,6 +1630,7 @@ function backendProfilesForSurface(surfaceId) {
   const aliases = surfaceId === 'prompt_captioning' ? new Set(['prompt_captioning', 'text']) : (surfaceId === 'roleplay' ? new Set(['roleplay', 'text']) : new Set([surfaceId]));
   return (state.backendProfiles?.profiles || []).filter((profile) => {
     if (profile.enabled === false) return false;
+    if (surfaceId === 'image' && profile.profile_role === 'image_background_removal_backend') return false;
     return aliases.has(profile.surface);
   });
 }
@@ -3452,6 +3458,7 @@ function videoCanQueueLtxAudioVideo() {
 }
 function videoCanQueueActiveWanRoute() {
   if (!videoBackendConnected()) return false;
+  if (isCloudVideoProfile()) return videoCloudCanGenerate();
   return videoCanQueueWanTxt2Vid() || videoCanQueueWanImg2Vid() || videoCanQueueWanGgufImg2Vid() || videoCanQueueWanRapidAioGguf() || videoCanQueueLtxTxt2Vid() || videoCanQueueLtxImg2Vid() || videoCanQueueLtxFirstLastFrame() || videoCanQueueLtxMultiScene() || videoCanQueueLtxExtend() || videoCanQueueLtxVid2Vid() || videoCanQueueLtxDepthMotion() || videoCanQueueLtxSchedule() || videoCanQueueLtxAudioVideo();
 }
 
@@ -3738,7 +3745,128 @@ async function applyVideoWanGgufFirstTestPreset() {
   render();
   return result;
 }
+function videoCloudPayload() {
+  const mode = ensureCloudVideoMode();
+  const profile = videoActiveBackendProfile();
+  const defaultDuration = Number(videoCloudDefault('duration_seconds', 4));
+  const model = videoCloudModel();
+  const resolution = String(state.videoDraft.cloud_resolution || videoCloudDefault('resolution', '720p'));
+  return {
+    profile_id: videoBackendProfileId(),
+    backend_profile_id: videoBackendProfileId(),
+    provider_id: profile?.provider_id || 'xai_grok',
+    family: 'grok_imagine',
+    loader: 'api_model',
+    generation_type: mode,
+    mode,
+    model,
+    prompt: String(state.videoDraft.positive_prompt || '').trim(),
+    duration_seconds: Math.max(1, Math.min(15, Number(state.videoDraft.cloud_duration_seconds || defaultDuration || 4))),
+    aspect_ratio: String(state.videoDraft.cloud_aspect_ratio || videoCloudDefault('aspect_ratio', '16:9')),
+    resolution,
+    ...(mode === 'img2vid' ? {
+      source_image: state.videoDraft.source_image || '',
+      source_image_path: state.videoDraft.source_image || '',
+      source_image_name: state.videoDraft.source_image_name || '',
+    } : {}),
+  };
+}
+
+function stopVideoProviderJobPoller() {
+  if (state.videoProviderJobPoller) {
+    clearInterval(state.videoProviderJobPoller);
+    state.videoProviderJobPoller = null;
+  }
+}
+
+function grokVideoProgressFromResult(result = {}) {
+  const runtime = result?.runtime || {};
+  const progress = runtime?.progress || result?.job_registry?.progress || {};
+  return {
+    percent: Number(progress?.percent ?? (result?.status === 'completed' ? 100 : result?.status === 'running' ? 35 : 10)),
+    label: progress?.label || result?.message || 'Grok Video is processing',
+    status: result?.status || 'running',
+  };
+}
+
+async function pollGrokVideoJob(profileId, jobId) {
+  const response = await fetch(`/api/video/jobs/${encodeURIComponent(profileId)}/${encodeURIComponent(jobId)}`);
+  const result = await response.json().catch(() => ({}));
+  state.videoLastGenerate = result;
+  const progress = grokVideoProgressFromResult(result);
+  setVideoWorkspaceProgress(progress.label, progress.percent, { status: progress.status, result_id: result?.result_id || '' });
+  const persistedRecord = result?.neo_persisted?.record || result?.runtime?.neo_persisted?.record || null;
+  if (persistedRecord) {
+    state.videoActiveResultId = persistedRecord.result_id || result?.result_id || state.videoActiveResultId;
+    state.videoResults = [persistedRecord, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== persistedRecord.result_id) : [])];
+  }
+  if (result?.status === 'completed') {
+    stopVideoProviderJobPoller();
+    await refreshVideoResults({ renderAfter: false });
+    setVideoWorkspaceProgress('Grok Video completed and saved to Neo', 100, { status: 'completed', result_id: result?.result_id || '' });
+    saveUiState();
+    recordMemoryEvent('video.xai_grok.completed', 'video', { job_id: jobId, result_id: result?.result_id || '', profile_id: profileId });
+    render();
+  } else if (['failed', 'cancelled'].includes(result?.status)) {
+    stopVideoProviderJobPoller();
+    setVideoWorkspaceProgress(result?.message || 'Grok Video failed', 100, { status: 'failed' });
+    saveUiState();
+    recordMemoryEvent('video.xai_grok.failed', 'video', { job_id: jobId, profile_id: profileId, error: result?.message || '' });
+    render();
+  }
+  return result;
+}
+
+function startGrokVideoJobPoller(profileId, jobId) {
+  stopVideoProviderJobPoller();
+  const tick = async () => {
+    try { await pollGrokVideoJob(profileId, jobId); }
+    catch (error) { setVideoWorkspaceProgress(`Grok Video status check failed: ${error.message || error}`, Math.max(15, videoProgressPercent()), { status: 'poll_retry' }); }
+  };
+  tick();
+  state.videoProviderJobPoller = window.setInterval(tick, 5000);
+}
+
+async function generateCloudVideoRoute() {
+  if (!videoBackendConnected()) {
+    const profile = videoActiveBackendProfile();
+    setVideoWorkspaceProgress('Backend not connected', 100, { status: 'blocked', reset_timing: true });
+    alert(backendProfileBlockedMessage(profile, 'Video generation'));
+    return { ok: false, queued: false, error: backendProfileBlockedMessage(profile, 'Video generation') };
+  }
+  if (!videoCloudCanGenerate()) {
+    const message = ensureCloudVideoMode() === 'img2vid' ? 'Add a prompt and source image before generating.' : 'Add a prompt before generating.';
+    setVideoWorkspaceProgress(message, 100, { status: 'blocked', reset_timing: true });
+    return { ok: false, queued: false, error: message };
+  }
+  const payload = videoCloudPayload();
+  setVideoWorkspaceProgress('Submitting Grok Video request…', 8, { status: 'starting', reset_timing: true });
+  revokeVideoLivePreview();
+  const response = await fetch('/api/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const result = await response.json().catch(() => ({}));
+  state.videoLastGenerate = result;
+  const resultId = result?.neo_persisted?.result_id || result?.result_id || '';
+  if (result?.neo_persisted?.record) {
+    state.videoActiveResultId = resultId || state.videoActiveResultId;
+    state.videoResults = [result.neo_persisted.record, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== resultId) : [])];
+  }
+  if (result?.queued && result?.job_id) {
+    setVideoWorkspaceProgress('Grok Video queued — provider polling active', 10, { status: 'queued', result_id: resultId });
+    startGrokVideoJobPoller(payload.profile_id, result.job_id);
+  } else if (result?.status === 'completed') {
+    setVideoWorkspaceProgress('Grok Video completed', 100, { status: 'completed', result_id: resultId });
+    await refreshVideoResults({ renderAfter: false });
+  } else {
+    setVideoWorkspaceProgress(result?.message || result?.detail || result?.error || 'Grok Video request failed', 100, { status: 'failed', result_id: resultId });
+  }
+  saveUiState();
+  recordMemoryEvent('video.xai_grok.generate_requested', 'video', { ok: Boolean(result?.ok), queued: Boolean(result?.queued), job_id: result?.job_id || '', result_id: resultId, mode: payload.generation_type, model: payload.model });
+  render();
+  return result;
+}
+
 async function generateVideoWanRoute() {
+  if (isCloudVideoProfile()) return generateCloudVideoRoute();
   if (!videoBackendConnected()) {
     const profile = videoActiveBackendProfile();
     setVideoWorkspaceProgress('Backend not connected', 100, { status: 'blocked', reset_timing: true });
@@ -4861,14 +4989,15 @@ function activeImageWorkspaceWorkflowSummary(subtab = null) {
 }
 
 function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = null) {
-  const mode = normalizeImageWorkflowMode(imageCommandValue('workflowMode') || subtab?.subtab_id || getImageWorkflowMode() || 'generate');
+  const forcedPreviewMode = String(state.imageDraft?._preview_action_force_workflow_mode || '').trim();
+  const mode = normalizeImageWorkflowMode(forcedPreviewMode || imageCommandValue('workflowMode') || subtab?.subtab_id || getImageWorkflowMode() || 'generate');
   const workflowOption = IMAGE_WORKFLOW_MODES.find((item) => item.id === mode) || IMAGE_WORKFLOW_MODES[0];
   const runtimeStatus = backendProfileStatus(profile);
   const sourceReady = Boolean(state.imageDraft.source_image || state.imageDraft.source_image_url);
   const maskReady = Boolean(state.imageDraft.mask_image || state.imageDraft.mask_image_url || state.imageDraft.mask_image_preview_url);
   const promptText = String(state.imageDraft.positive_prompt || valueOf('imagePositivePrompt') || '').trim();
   const requiresSource = imageSourceModes().has(mode);
-  const requiresMask = mode === 'inpaint' || routeUsesParameterField('mask');
+  const requiresMask = forcedPreviewMode ? mode === 'inpaint' : (mode === 'inpaint' || routeUsesParameterField('mask'));
   const checks = [];
   const push = (id, label, status, message, blocking = false) => checks.push({ id, label, status, message, blocking });
   const hasProfile = Boolean(profile && profile.profile_id && profile.profile_id !== 'not_configured');
@@ -5170,6 +5299,29 @@ function renderImageCommandStrip(ctx = {}) {
 }
 
 function renderVideoCommandStrip(ctx = {}) {
+  const cloudProfile = isCloudVideoProfile();
+  if (cloudProfile) {
+    const mode = ensureCloudVideoMode();
+    const canRun = videoCloudCanGenerate();
+    const backendConnected = videoBackendConnected();
+    const profile = videoActiveBackendProfile();
+    const configHtml = `
+      <div class="neo-workspace-row compact-row" data-testid="video-workspace-model-route-row" data-command-role="video-route" data-video-provider-route="cloud_api">
+        <label>Workflow Mode <span class="neo-field-hint">existing Video workspace</span>${optionSelect('videoGenerationMode', videoCloudModeOptions(), mode)}</label>
+        <div class="neo-ui-card compact"><strong>${escapeHtml(profile?.display_name || profile?.provider_label || 'Cloud Video')}</strong><small>${escapeHtml(profile?.provider_id || '')} · API model route</small></div>
+      </div>
+      <div class="neo-route-mode-badges" data-testid="video-route-badges">${badgeRow([`Provider: ${profile?.display_name || 'Cloud Video'}`, mode === 'img2vid' ? 'Image to Video' : 'Text to Video', 'Existing Video workspace', 'Provider polling'])}</div>`;
+    const actionsHtml = `
+      <div class="neo-workspace-actions neo-run-actions" data-testid="video-workspace-runtime-actions" data-command-role="video-run-actions">
+        <button class="neo-btn primary" id="videoGenerateWanTxt2VidBtn" type="button" ${canRun ? '' : 'disabled'}>Generate</button>
+        <button class="neo-btn secondary" id="videoRefreshResultsBtn" type="button">Refresh Results</button>
+      </div>
+      <div class="neo-progress-wrap" aria-label="Video generation progress" data-command-role="video-progress">
+        <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="videoProgressLabel">${videoProgressLabel(canRun ? 'Ready' : backendConnected ? (mode === 'img2vid' ? 'Add a prompt and source image' : 'Add a prompt') : 'Backend disconnected')}</span><span id="videoProgressElapsed" class="neo-progress-elapsed">${videoProgressElapsedLabel()}</span></span></div>
+        <div class="neo-progress-track"><span id="videoProgressFill" style="width: ${videoProgressPercent()}%"></span></div>
+      </div>`;
+    return commandStripShell('video', 'video-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-video-command-strip neo-cloud-video-command-strip');
+  }
   const canRun = Boolean(ctx.videoHeaderCanRun);
   const headerRoute = ctx.videoHeaderRoute || null;
   const backendConnected = Boolean(ctx.videoHeaderBackendConnected);
@@ -5356,6 +5508,7 @@ function renderWorkspaceHeader(surface, subtab) {
   if (providerSelect) {
     providerSelect.addEventListener('change', async (event) => {
       await persistBackendProfileSelection(surface.surface_id, event.target.value);
+      if (surface.surface_id === 'image') void backgroundRemovalRefreshModelCatalog({ silent: true });
       render();
       recordMemoryEvent(`${surface.surface_id}.backend_profile.changed`, surface.surface_id, { profile_id: state.activeBackendProfileId, surface: surface.surface_id, persisted: true });
     });
@@ -5381,6 +5534,10 @@ function renderWorkspaceHeader(surface, subtab) {
           await refreshBackendProfiles();
         }
         recordMemoryEvent(`${surface.surface_id}.backend.connected`, surface.surface_id, { profile_id: activeProfile.profile_id });
+        if (surface.surface_id === 'image' && ['comfyui', 'comfyui_portable'].includes(String(activeProfile.provider_id || '').toLowerCase()) && response.ok && result?.ok !== false) {
+          void adetailerFetchModelCatalog({ silent: true });
+          void backgroundRemovalRefreshModelCatalog({ silent: true });
+        }
       } catch (error) {
         console.warn('Backend connect/test failed', error);
         alert(`Backend check failed. ${error?.message || 'Please confirm the backend is running and try again.'}`);
@@ -5509,6 +5666,17 @@ function renderWorkspaceHeader(surface, subtab) {
         return;
       }
       if (surface.surface_id === 'video') {
+        if (isCloudVideoProfile()) {
+          const requestedMode = String(event.target.value || 'txt2vid');
+          state.videoDraft.mode = videoCloudModeOptions().some((option) => option.id === requestedMode) ? requestedMode : 'txt2vid';
+          if (state.videoDraft.mode !== 'img2vid') {
+            state.videoDraft.source_image = state.videoDraft.source_image || '';
+          }
+          saveUiState();
+          render();
+          recordMemoryEvent('video.workflow_mode.changed', 'video', { mode: state.videoDraft.mode, workspace_app: state.activeWorkspaceAppId, provider_id: videoActiveBackendProfile()?.provider_id || '', parameter_profile: 'neo.video.cloud_parameter_profile.v1' });
+          return;
+        }
         setVideoGenerationMode(event.target.value);
         ensureVideoRouteSelectable();
         state.videoDraft.wan_model_mode = videoWanModelModeValue(videoFindRoute());
@@ -5929,7 +6097,10 @@ function backendProfileCard(profile) {
   const ui = backendProfileUiVisibility(profile);
   const connectionType = backendProfileConnectionType(profile);
   const status = profile.runtime_status || profile.profile_status || 'missing_config';
-  const defaultBadge = profile.is_default ? '<span class="neo-state-pill success">Default</span>' : '<span class="neo-state-pill muted">Not default</span>';
+  const isUtilityProfile = profile.profile_role === 'image_background_removal_backend';
+  const defaultBadge = isUtilityProfile
+    ? '<span class="neo-state-pill info">Finish utility</span>'
+    : (profile.is_default ? '<span class="neo-state-pill success">Default</span>' : '<span class="neo-state-pill muted">Not default</span>');
   const enabledBadge = profile.enabled ? '<span class="neo-state-pill success">Enabled</span>' : '<span class="neo-state-pill muted">Disabled</span>';
   const isTextProfile = ['text', 'prompt_captioning', 'assistant', 'roleplay'].includes(profile.surface) || ['koboldcpp', 'openai_compatible_text', 'ollama', 'local_gguf_text', 'local_gguf_vision'].includes(profile.provider_id);
   const modelOptions = backendProfileModelOptions(profile);
@@ -6043,7 +6214,9 @@ function backendProfileCard(profile) {
       <button class="neo-btn secondary" type="button" data-backend-profile-action="test">Test Connection</button>
       ${ui.show_api_auth_fields && connection.api_key_source === 'manual' && connection.api_key_is_configured ? '<button class="neo-btn danger" type="button" data-backend-profile-action="clear-key">Clear saved key</button>' : ''}
       <button class="neo-btn primary" type="button" data-backend-profile-action="save">Save Profile</button>
-      <button class="neo-btn success" type="button" data-backend-profile-action="default" ${profile.is_default ? 'disabled' : ''}>Set Default</button>
+      ${isUtilityProfile
+        ? '<button class="neo-btn secondary" type="button" disabled title="This profile is selected inside Image → Finish → Remove Background.">Utility profile</button>'
+        : `<button class="neo-btn success" type="button" data-backend-profile-action="default" ${profile.is_default ? 'disabled' : ''}>Set Default</button>`}
     </div>
     ${state.detailMode !== 'compact' ? `<p class="neo-muted">Models discovered: ${escapeHtml(modelSummary)}. ${escapeHtml(profile.notes || '')}</p>` : ''}
   </div>`;
@@ -6063,7 +6236,7 @@ function backendProfilesForSurface(surfaceId) {
     assistant: ['assistant', 'text'],
   };
   const aliases = new Set(aliasMap[id] || [id]);
-  return (state.backendProfiles?.profiles || []).filter((profile) => aliases.has(profile.surface));
+  return (state.backendProfiles?.profiles || []).filter((profile) => aliases.has(profile.surface) && !(id === 'image' && profile.profile_role === 'image_background_removal_backend'));
 }
 
 function adminSurfaceBackendSummary(surfaceId, label = '') {
@@ -10449,7 +10622,7 @@ const IMAGE_UPSCALE_PROFILE_PRESETS = {
   preserve_4x: { label: 'Preserve 4×', profile: 'preserve_4x', scale: 4.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'off' },
   portrait_restore_2x: { label: 'Portrait restore 2×', profile: 'portrait_restore_2x', scale: 2.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'codeformer', restore_fidelity: 0.65, restore_detection: 'retinaface_resnet50' },
 };
-const IMAGE_UPSCALE_DEFAULTS = { enabled: true, profile: 'preserve_2x', upscale_engine: 'basic', scale: 2.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'off', restore_model: '', restore_fidelity: 0.65, restore_detection: 'retinaface_resnet50', source_mode: 'selected_result_or_upload', seedvr2_dit_model: 'seedvr2_ema_3b-Q4_K_M.gguf', seedvr2_vae_model: 'ema_vae_fp16.safetensors', seedvr2_sizing_mode: 'scale_factor', seedvr2_resolution: 1080, seedvr2_max_resolution: 0, seedvr2_source_width: 0, seedvr2_source_height: 0, seedvr2_output_width: 0, seedvr2_output_height: 0, seedvr2_batch_size: 1, seedvr2_seed: 42, seedvr2_device: 'cuda:0', seedvr2_offload_device: 'cpu', seedvr2_blocks_to_swap: 32, seedvr2_swap_io_components: true, seedvr2_cache_models: false, seedvr2_encode_tiled: true, seedvr2_decode_tiled: true, seedvr2_tile_size: 1024, seedvr2_tile_overlap: 128, seedvr2_attention_mode: 'sdpa', seedvr2_color_correction: 'lab', seedvr2_input_noise_scale: 0, seedvr2_latent_noise_scale: 0, seedvr2_enable_debug: false, _ui_status: '' };
+const IMAGE_UPSCALE_DEFAULTS = { enabled: true, profile: 'preserve_2x', upscale_engine: 'basic', scale: 2.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'off', restore_model: '', restore_fidelity: 0.65, restore_detection: 'retinaface_resnet50', source_mode: 'selected_result_or_upload', seedvr2_dit_model: 'seedvr2_ema_3b-Q4_K_M.gguf', seedvr2_vae_model: 'ema_vae_fp16.safetensors', seedvr2_sizing_mode: 'scale_factor', seedvr2_resolution: 1080, seedvr2_max_resolution: 0, seedvr2_source_width: 0, seedvr2_source_height: 0, seedvr2_output_width: 0, seedvr2_output_height: 0, seedvr2_batch_size: 1, seedvr2_seed: 42, seedvr2_device: 'cuda:0', seedvr2_offload_device: 'cpu', seedvr2_blocks_to_swap: 32, seedvr2_swap_io_components: true, seedvr2_cache_models: false, seedvr2_encode_tiled: true, seedvr2_decode_tiled: true, seedvr2_tile_size: 1024, seedvr2_tile_overlap: 128, seedvr2_attention_mode: 'sdpa', seedvr2_color_correction: 'lab', seedvr2_input_noise_scale: 0, seedvr2_latent_noise_scale: 0, seedvr2_enable_debug: false, seedvr2_alpha_mode: 'auto', seedvr2_source_alpha_status: 'unverified', seedvr2_source_has_alpha: false, seedvr2_source_has_transparency: false, seedvr2_source_image_mode: '', seedvr2_source_format: '', seedvr2_alpha_min: 255, seedvr2_alpha_max: 255, _ui_status: '' };
 let imageUpscaleStagedFiles = [];
 let imageUpscaleStagedPreviewSource = null;
 const IMAGE_UPSCALE_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
@@ -10530,6 +10703,24 @@ function imageUpscaleNormalizeSeedVR2SizingMode(value) {
   if (mode === 'scale' || mode === 'target_scale') return 'scale_factor';
   return 'scale_factor';
 }
+function imageUpscaleNormalizeSeedVR2AlphaMode(value) {
+  const mode = String(value || 'auto').trim().toLowerCase().replace(/[ -]+/g, '_');
+  if (['auto', 'preserve', 'discard'].includes(mode)) return mode;
+  if (['automatic', 'auto_preserve'].includes(mode)) return 'auto';
+  if (['force', 'force_preserve', 'rgba'].includes(mode)) return 'preserve';
+  if (['flatten', 'opaque', 'remove_alpha'].includes(mode)) return 'discard';
+  return 'auto';
+}
+function imageUpscaleSeedVR2AlphaStatus(settings = imageUpscaleSettings()) {
+  const mode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
+  const status = String(settings.seedvr2_source_alpha_status || 'unverified');
+  if (mode === 'discard') return { label: 'Transparency will be discarded', tone: 'muted', detail: 'SeedVR2 receives RGB only.' };
+  if (mode === 'preserve') return { label: 'RGBA preservation forced', tone: 'success', detail: 'Neo will rejoin the source alpha mask before SeedVR2.' };
+  if (status === 'transparent' || settings.seedvr2_source_has_transparency) return { label: 'Transparency detected', tone: 'success', detail: 'Auto Preserve will use the RGBA graph for this source.' };
+  if (status === 'opaque') return { label: 'No real transparency detected', tone: 'muted', detail: 'Auto Preserve will keep the normal RGB graph.' };
+  if (status === 'mixed_batch') return { label: 'Mixed batch · per-image detection', tone: 'warning', detail: 'The backend inspects and routes every file independently.' };
+  return { label: 'Transparency unverified', tone: 'warning', detail: 'The backend will inspect the stored source before compiling.' };
+}
 function imageUpscaleRoundToStep(value, step = 1) {
   const num = Number(value);
   const size = Number(step) || 1;
@@ -10601,34 +10792,96 @@ function imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(width, height, { rend
   if (renderPanel) render();
   return calc;
 }
-function imageUpscaleProbeFileDimensions(file) {
+function imageUpscaleProbeFileProperties(file) {
   return new Promise((resolve) => {
     if (!file) return resolve(null);
     const url = URL.createObjectURL(file);
     const image = new Image();
     image.onload = () => {
-      const dims = { width: image.naturalWidth || image.width || 0, height: image.naturalHeight || image.height || 0 };
+      const width = image.naturalWidth || image.width || 0;
+      const height = image.naturalHeight || image.height || 0;
+      let hasTransparency = false;
+      let alphaMin = 255;
+      let alphaMax = 255;
+      try {
+        const maxProbe = 256;
+        const scale = Math.min(1, maxProbe / Math.max(width || 1, height || 1));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const pixels = context?.getImageData(0, 0, canvas.width, canvas.height)?.data || [];
+        for (let index = 3; index < pixels.length; index += 4) {
+          const alpha = pixels[index];
+          if (alpha < alphaMin) alphaMin = alpha;
+          if (alpha > alphaMax) alphaMax = alpha;
+          if (alpha < 255) hasTransparency = true;
+        }
+      } catch (_) {
+        alphaMin = 255;
+        alphaMax = 255;
+      }
       URL.revokeObjectURL(url);
-      resolve(dims.width && dims.height ? dims : null);
+      resolve(width && height ? {
+        width,
+        height,
+        hasTransparency,
+        hasAlphaChannel: hasTransparency,
+        alphaMin,
+        alphaMax,
+        format: String(file.type || '').split('/').pop().toUpperCase(),
+        imageMode: hasTransparency ? 'RGBA' : 'RGB',
+      } : null);
     };
     image.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
     image.src = url;
   });
 }
+function imageUpscaleProbeFileDimensions(file) {
+  return imageUpscaleProbeFileProperties(file).then((properties) => properties ? ({ width: properties.width, height: properties.height }) : null);
+}
+async function imageUpscaleProbeUrlProperties(url, label = 'selected-output.png') {
+  if (!url) return null;
+  try {
+    const response = await fetch(imageUpscaleResultUrlWithStamp(url, Date.now()), { cache: 'no-store' });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const file = new File([blob], label, { type: blob.type || 'image/png' });
+    return imageUpscaleProbeFileProperties(file);
+  } catch (_) {
+    return null;
+  }
+}
 function imageUpscaleProbeUrlDimensions(url) {
-  return new Promise((resolve) => {
-    if (!url) return resolve(null);
-    const image = new Image();
-    image.onload = () => resolve({ width: image.naturalWidth || image.width || 0, height: image.naturalHeight || image.height || 0 });
-    image.onerror = () => resolve(null);
-    image.src = imageUpscaleResultUrlWithStamp(url, Date.now());
+  return imageUpscaleProbeUrlProperties(url).then((properties) => properties ? ({ width: properties.width, height: properties.height }) : null);
+}
+function imageUpscaleApplySourcePropertyHint(properties, { renderPanel = false } = {}) {
+  if (!properties) {
+    updateImageUpscaleSettings({ seedvr2_source_alpha_status: 'unverified' });
+    if (renderPanel) render();
+    return;
+  }
+  updateImageUpscaleSettings({
+    seedvr2_source_width: Number(properties.width || 0),
+    seedvr2_source_height: Number(properties.height || 0),
+    seedvr2_source_alpha_status: properties.hasTransparency ? 'transparent' : 'opaque',
+    seedvr2_source_has_alpha: Boolean(properties.hasAlphaChannel || properties.hasTransparency),
+    seedvr2_source_has_transparency: Boolean(properties.hasTransparency),
+    seedvr2_source_image_mode: String(properties.imageMode || (properties.hasTransparency ? 'RGBA' : 'RGB')),
+    seedvr2_source_format: String(properties.format || ''),
+    seedvr2_alpha_min: Number.isFinite(Number(properties.alphaMin)) ? Number(properties.alphaMin) : 255,
+    seedvr2_alpha_max: Number.isFinite(Number(properties.alphaMax)) ? Number(properties.alphaMax) : 255,
   });
+  if (renderPanel) render();
 }
 
 function imageUpscaleCleanParams(settings = imageUpscaleSettings()) {
   const resizeMethods = new Set(['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact']);
-  const restoreAssist = settings.restore_assist === 'codeformer' ? 'codeformer' : 'off';
   const engine = settings.upscale_engine === 'seedvr2' ? 'seedvr2' : 'basic';
+  const alphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
+  const requestedRestoreAssist = settings.restore_assist === 'codeformer' ? 'codeformer' : 'off';
+  const restoreAssist = requestedRestoreAssist;
   const params = {
     profile: settings.profile || 'custom',
     upscale_engine: engine,
@@ -10638,6 +10891,7 @@ function imageUpscaleCleanParams(settings = imageUpscaleSettings()) {
     restore_assist: restoreAssist,
   };
   if (engine === 'seedvr2') {
+    params.seedvr2_alpha_mode = alphaMode;
     params.seedvr2_dit_model = String(settings.seedvr2_dit_model || IMAGE_UPSCALE_DEFAULTS.seedvr2_dit_model || '').trim();
     params.seedvr2_vae_model = String(settings.seedvr2_vae_model || 'ema_vae_fp16.safetensors').trim();
     const seedvr2Size = imageUpscaleComputedSeedVR2Sizing(settings);
@@ -10692,6 +10946,10 @@ function imageUpscaleValidationPreview(record) {
     items.push({ level: 'warning', field: 'upscale_engine', message: 'SeedVR2 is experimental: install ComfyUI-SeedVR2_VideoUpscaler and keep models in ComfyUI/models/SEEDVR2/.' });
     if (!settings.seedvr2_dit_model) items.push({ level: 'warning', field: 'seedvr2_dit_model', message: 'Choose a SeedVR2 DiT model.' });
     if (!settings.seedvr2_vae_model) items.push({ level: 'warning', field: 'seedvr2_vae_model', message: 'Choose a SeedVR2 VAE model.' });
+    const alphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
+    if (alphaMode !== 'discard') items.push({ level: 'info', field: 'seedvr2_alpha_mode', message: 'Transparency preservation is enabled. Neo will inspect each stored source and add JoinImageWithAlpha only when required.' });
+    if (alphaMode === 'preserve' && settings.restore_assist === 'codeformer') items.push({ level: 'warning', field: 'restore_assist', message: 'CodeFormer will be skipped because Force Preserve RGBA is active and the current restore route is not alpha-safe.' });
+    if (alphaMode === 'auto' && settings.restore_assist === 'codeformer') items.push({ level: 'info', field: 'restore_assist', message: 'CodeFormer will run only for opaque sources. Neo skips it per job when Auto Preserve detects real transparency.' });
   } else if (!settings.upscale_model) items.push({ level: 'info', field: 'upscale_model', message: 'No model selected: interpolation-only upscale will be used.' });
   return items;
 }
@@ -10803,6 +11061,11 @@ function imageUpscaleSeedVR2Options(kind, selected = '') {
   if (kind === 'sizing') return imageUpscaleStaticOptions([{ id: 'scale_factor', label: 'Scale factor' }, { id: 'short_edge', label: 'Short-edge target' }, { id: 'max_edge', label: 'Max-edge target' }, { id: 'manual', label: 'Manual' }], selected);
   if (kind === 'attention') return imageUpscaleStaticOptions(IMAGE_UPSCALE_SEEDVR2_ATTENTION_OPTIONS, selected);
   if (kind === 'color') return imageUpscaleStaticOptions(IMAGE_UPSCALE_SEEDVR2_COLOR_OPTIONS, selected);
+  if (kind === 'alpha') return [
+    { id: 'auto', label: 'Auto Preserve — recommended' },
+    { id: 'preserve', label: 'Force Preserve RGBA' },
+    { id: 'discard', label: 'Discard transparency' },
+  ];
   return imageUpscaleCatalogList('seedvr2_dit_models', [], selected, 'No real SeedVR2 DiT found');
 }
 function imageUpscaleFaceRestoreOptions(selected = '') {
@@ -10903,8 +11166,11 @@ function imageUpscaleStagePreviewSource(source = {}, { renderPanel = true } = {}
   saveUiState();
   setWorkspaceProgress(`Staged ${imageUpscaleStagedPreviewSourceLabel()} for Image Upscale.`, 100, { allowBackwards: true });
   const sourceUrl = cleanSource.url || cleanSource.path || '';
-  if (sourceUrl) imageUpscaleProbeUrlDimensions(sourceUrl).then((dims) => {
-    if (dims) imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(dims.width, dims.height, { renderPanel: true, status: true });
+  if (sourceUrl) imageUpscaleProbeUrlProperties(sourceUrl, imageUpscaleStagedPreviewSourceLabel() || 'selected-output.png').then((properties) => {
+    if (properties) {
+      imageUpscaleApplySourcePropertyHint(properties, { renderPanel: false });
+      imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(properties.width, properties.height, { renderPanel: true, status: true });
+    }
   }).catch(() => {});
   if (renderPanel) render();
   return cleanSource;
@@ -11399,8 +11665,12 @@ function imageUpscaleSetStagedFiles(files = [], source = 'picker') {
     } catch (_) {}
   }
   const sourceLabel = source === 'drop' ? 'dropped' : 'staged';
-  if (list.length) imageUpscaleProbeFileDimensions(list[0]).then((dims) => {
-    if (dims) imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(dims.width, dims.height, { renderPanel: true, status: true });
+  if (list.length > 1) updateImageUpscaleSettings({ seedvr2_source_alpha_status: 'mixed_batch', seedvr2_source_has_alpha: false, seedvr2_source_has_transparency: false });
+  if (list.length) imageUpscaleProbeFileProperties(list[0]).then((properties) => {
+    if (properties) {
+      if (list.length === 1) imageUpscaleApplySourcePropertyHint(properties, { renderPanel: false });
+      imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(properties.width, properties.height, { renderPanel: true, status: true });
+    }
   }).catch(() => {});
   imageUpscaleStatus(list.length ? `${list.length} source image(s) ${sourceLabel} for Image Upscale.` : 'No source images staged for Image Upscale.');
   imageUpscaleRefreshDropzone();
@@ -11409,7 +11679,7 @@ function imageUpscaleSetStagedFiles(files = [], source = 'picker') {
 function imageUpscaleClearStagedFiles() {
   imageUpscaleStagedFiles = [];
   imageUpscaleStagedPreviewSource = null;
-  updateImageUpscaleSettings({ staged_preview_source: null, source_mode: 'selected_result_or_upload' });
+  updateImageUpscaleSettings({ staged_preview_source: null, source_mode: 'selected_result_or_upload', seedvr2_source_alpha_status: 'unverified', seedvr2_source_has_alpha: false, seedvr2_source_has_transparency: false, seedvr2_source_image_mode: '', seedvr2_source_format: '' });
   const input = document.getElementById('imageUpscaleBatchFiles');
   if (input) input.value = '';
   imageUpscaleStatus('Source image staging cleared.');
@@ -11429,9 +11699,10 @@ async function imageUpscaleQueueFiles(files = [], sourceLabel = 'uploaded batch'
   const list = Array.from(files || []).filter(Boolean);
   if (!list.length) throw new Error('Pick at least one source image for Image Upscale.');
   if (settings.upscale_engine === 'seedvr2') {
-    const dims = await imageUpscaleProbeFileDimensions(list[0]);
-    if (dims) {
-      imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(dims.width, dims.height, { renderPanel: false, status: false });
+    const properties = await imageUpscaleProbeFileProperties(list[0]);
+    if (properties) {
+      if (list.length === 1) imageUpscaleApplySourcePropertyHint(properties, { renderPanel: false });
+      imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(properties.width, properties.height, { renderPanel: false, status: false });
       settings = imageUpscaleSettings();
     }
   }
@@ -11515,7 +11786,7 @@ async function imageUpscaleActivateQueuedJob(job, profile, payload = {}, batch =
   if (!jobId || !profileId) return null;
   const batchIndex = Math.max(1, Number(batch.index || 1));
   const batchTotal = Math.max(batchIndex, Number(batch.total || 1));
-  const runtimeCaps = providerFeatureCapabilities(profile || activeImageProfile());
+  const runtimeCaps = providerFeatureCapabilities(profile || activeImageProfile() || {});
   state.activeImageJob = {
     profile_id: profileId,
     job_id: jobId,
@@ -11581,8 +11852,13 @@ function imageUpscalePanel(record) {
   const resizeOptions = ['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact'].map((id) => ({ id, label: id }));
   const engineOptions = [{ id: 'basic', label: 'Basic / ESRGAN / interpolation' }, { id: 'seedvr2', label: 'SeedVR2 experimental' }];
   const restoreOptions = [{ id: 'off', label: 'Off' }, { id: 'codeformer', label: 'CodeFormer restore' }];
-  const restoreActive = settings.restore_assist === 'codeformer';
   const seedvr2Active = settings.upscale_engine === 'seedvr2';
+  const seedvr2AlphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
+  const seedvr2AlphaStatus = imageUpscaleSeedVR2AlphaStatus(settings);
+  const seedvr2AlphaRouteExpected = seedvr2Active && (seedvr2AlphaMode === 'preserve' || (seedvr2AlphaMode === 'auto' && Boolean(settings.seedvr2_source_has_transparency)));
+  const effectiveRestoreAssist = seedvr2AlphaRouteExpected ? 'off' : settings.restore_assist;
+  const restoreActive = effectiveRestoreAssist === 'codeformer';
+  const seedvr2AutoCodeFormerNotice = seedvr2Active && seedvr2AlphaMode === 'auto' && settings.restore_assist === 'codeformer' && !seedvr2AlphaRouteExpected;
   if (!imageUpscaleModelCatalogState.loaded && !imageUpscaleModelCatalogState.loading) setTimeout(() => imageUpscaleRefreshModelCatalog({ silent: true }), 0);
   const details = compact ? '' : `<p class="neo-muted">Standalone finish utility: upload or reuse an existing output, then queue a Comfy image upscale graph. No prompt context, no KSampler, no diffusion refine pass.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
   const compactControls = compact ? ' image-upscale-compact' : '';
@@ -11597,6 +11873,8 @@ function imageUpscalePanel(record) {
   const upscaleCatalogBackend = imageUpscaleComfyBackendLabel(upscaleCatalogProfile);
   const codeFormerHelp = restoreActive ? `<div class="neo-help-card neo-image-upscale-help"><strong>CodeFormer model folder</strong><span>Scanning via ${escapeHtml(upscaleCatalogBackend)}. Put CodeFormer models in <code>ComfyUI/models/facerestore_models/</code>. ${escapeHtml(imageUpscaleCatalogSummary())}</span><button class="btn btn-small secondary" id="imageUpscaleRefreshModels" type="button" ${locked ? 'disabled' : ''}>Refresh models</button></div>` : '';
   const seedvr2Controls = seedvr2Active ? `
+    <label>Transparency handling${imageUpscaleOptionSelect('imageUpscaleSeedVR2AlphaMode', imageUpscaleSeedVR2Options('alpha', seedvr2AlphaMode), seedvr2AlphaMode, locked)}</label>
+    <div class="neo-image-upscale-alpha-status ${escapeAttr(seedvr2AlphaStatus.tone || '')}"><span class="neo-image-upscale-alpha-checker" aria-hidden="true"></span><div><strong>${escapeHtml(seedvr2AlphaStatus.label)}</strong><small>${escapeHtml(seedvr2AlphaStatus.detail)}</small></div></div>
     <label>SeedVR2 DiT model${imageUpscaleOptionSelect('imageUpscaleSeedVR2DitModel', imageUpscaleSeedVR2Options('dit', settings.seedvr2_dit_model), settings.seedvr2_dit_model, locked)}</label>
     <label>SeedVR2 VAE model${imageUpscaleOptionSelect('imageUpscaleSeedVR2VaeModel', imageUpscaleSeedVR2Options('vae', settings.seedvr2_vae_model), settings.seedvr2_vae_model, locked)}</label>
     <label>Output sizing${imageUpscaleOptionSelect('imageUpscaleSeedVR2SizingMode', imageUpscaleSeedVR2Options('sizing', settings.seedvr2_sizing_mode), imageUpscaleNormalizeSeedVR2SizingMode(settings.seedvr2_sizing_mode), locked)}</label>
@@ -11628,7 +11906,9 @@ function imageUpscalePanel(record) {
     <label>Upscale engine${imageUpscaleOptionSelect('imageUpscaleEngine', engineOptions, settings.upscale_engine || 'basic', locked)}</label>
     ${basicControls}
     ${seedvr2Controls}
-    <label>Restore assist${imageUpscaleOptionSelect('imageUpscaleRestoreAssist', restoreOptions, settings.restore_assist, locked)}</label>
+    <label>Restore assist${imageUpscaleOptionSelect('imageUpscaleRestoreAssist', restoreOptions, effectiveRestoreAssist, locked || seedvr2AlphaRouteExpected)}</label>
+    ${seedvr2AlphaRouteExpected ? `<div class="neo-help-card neo-image-upscale-help neo-image-upscale-alpha-warning"><strong>Restore Assist paused for transparency</strong><span>CodeFormer is disabled for this RGBA job because the current restore route is RGB-only. Choose <em>Discard transparency</em> only when an opaque result is intentional.</span></div>` : ''}
+    ${seedvr2AutoCodeFormerNotice ? `<div class="neo-help-card neo-image-upscale-help"><strong>Per-image restore safety</strong><span>Auto Preserve keeps CodeFormer for opaque sources and skips it only for files where the backend detects real transparency.</span></div>` : ''}
     ${restoreActive ? `<label>CodeFormer model${imageUpscaleOptionSelect('imageUpscaleRestoreModel', imageUpscaleFaceRestoreOptions(settings.restore_model), settings.restore_model || '', locked)}</label><label>CodeFormer fidelity<input id="imageUpscaleRestoreFidelity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_fidelity)}" ${locked ? 'disabled' : ''}></label><label>Face detection${imageUpscaleOptionSelect('imageUpscaleRestoreDetection', imageUpscaleFaceDetectionOptions(settings.restore_detection || 'retinaface_resnet50'), settings.restore_detection || 'retinaface_resnet50', locked)}</label>${codeFormerHelp}` : ''}
   `;
   const body = `<section class="neo-image-upscale-panel" data-extension-id="${IMAGE_UPSCALE_EXTENSION_ID}" data-stage="J6" data-runtime-active="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
@@ -11654,6 +11934,1620 @@ function imageUpscalePanel(record) {
     ${expertBlock}
   </section>`;
   return panel('Image Upscale', body, false, status);
+}
+
+const BACKGROUND_REMOVAL_EXTENSION_ID = 'image.background_removal';
+const BACKGROUND_REMOVAL_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
+const BACKGROUND_REMOVAL_DEFAULTS = {
+  enabled: true,
+  workflow_mode: 'segment',
+  engine: 'smart',
+  fallback_policy: 'on_unavailable',
+  native_model: 'isnet-general-use',
+  native_provider: 'AUTO',
+  native_alpha_matting: false,
+  native_post_process_mask: false,
+  native_foreground_threshold: 240,
+  native_background_threshold: 10,
+  native_erode_size: 10,
+  sam_prompts: [],
+  sam_subjects: [],
+  sam_execution: 'auto',
+  sam_comfy_model: '',
+  sam_detector_model: '',
+  sam_detector_type: 'bbox',
+  sam_detection_confidence: 0.35,
+  sam_model_variant: 'sam_vit_b_01ec64',
+  sam_quantized: true,
+  sam_refine_mode: 'birefnet_gate',
+  sam_refine_model: 'birefnet-general',
+  sam_refine_fallback: true,
+  sam_gate_expand: 12,
+  sam_gate_feather: 6,
+  sam_tool: 'keep',
+  preset: 'smart_auto',
+  model: '',
+  device: 'AUTO',
+  dtype: 'float32',
+  use_weight: false,
+  width: 1024,
+  height: 1024,
+  upscale_method: 'bilinear',
+  mask_threshold: 0,
+  mask_expand: 0,
+  mask_feather: 0,
+  foreground_estimation: true,
+  blur_size: 91,
+  blur_size_two: 7,
+  save_mask: true,
+  preview_background: 'checkerboard',
+  manual_mask: false,
+  mask_source: 'birefnet',
+  review_brush_size: 28,
+  review_brush_mode: 'keep',
+  parent_result_id: '',
+  parent_file_id: '',
+  source_mode: 'selected_result_or_upload',
+  commercial_profile_id: '',
+  commercial_upload_consent: false,
+  commercial_output_size: 'auto',
+  commercial_subject_type: 'auto',
+  commercial_preserve_semitransparency: true,
+  commercial_transparency_handling: 'return_input_if_non_opaque',
+  _ui_status: 'Choose a source image and refresh the installed model scan.',
+};
+const BACKGROUND_REMOVAL_PRESET_OPTIONS = [
+  ['smart_auto', 'Smart Auto · General Dynamic'],
+  ['fine_edges', 'Fine Edges / Hair · HR Matting'],
+  ['portrait', 'Portrait · Human cutout'],
+  ['product', 'Product / Object · clean silhouette'],
+  ['anime', 'Anime / Illustration · ISNet Anime'],
+  ['low_vram', 'Low VRAM · Lite model'],
+  ['interactive_select', 'Interactive Select · SAM points / box'],
+];
+const BACKGROUND_REMOVAL_PRESET_CANDIDATES = {
+  smart_auto: ['General-dynamic.safetensors', 'General.safetensors', 'General-HR.safetensors'],
+  fine_edges: ['Matting-HR.safetensors', 'Matting.safetensors', 'General-HR.safetensors', 'General-dynamic.safetensors'],
+  portrait: ['Portrait.safetensors', 'General-dynamic.safetensors', 'General.safetensors'],
+  product: ['General-dynamic.safetensors', 'General-HR.safetensors', 'General.safetensors'],
+  anime: ['General-dynamic.safetensors', 'General.safetensors'],
+  low_vram: ['General-Lite.safetensors', 'Matting-Lite.safetensors', 'General-Lite-2K.safetensors'],
+  interactive_select: ['General-dynamic.safetensors', 'Matting-HR.safetensors', 'Portrait.safetensors'],
+};
+
+const BACKGROUND_REMOVAL_ENGINE_OPTIONS = [
+  ['smart', 'Smart Routing · recommended'],
+  ['comfy_birefnet', 'Comfy BiRefNet'],
+  ['native_rembg', 'Neo Native rembg · ONNX fallback'],
+  ['commercial_api', 'Commercial API · opt-in paid provider'],
+];
+const BACKGROUND_REMOVAL_NATIVE_MODELS = [
+  ['isnet-general-use', 'ISNet General · balanced fallback'],
+  ['isnet-anime', 'ISNet Anime · illustration'],
+  ['u2net_human_seg', 'U²-Net Human · portrait fallback'],
+  ['u2netp', 'U²-Net P · lightweight'],
+  ['birefnet-general', 'BiRefNet General ONNX'],
+  ['birefnet-general-lite', 'BiRefNet General Lite ONNX'],
+  ['birefnet-portrait', 'BiRefNet Portrait ONNX'],
+];
+const BACKGROUND_REMOVAL_NATIVE_PRESET_MODELS = {
+  smart_auto: 'isnet-general-use', fine_edges: 'birefnet-general', portrait: 'birefnet-portrait',
+  product: 'isnet-general-use', anime: 'isnet-anime', low_vram: 'u2netp', interactive_select: 'birefnet-general',
+};
+const BACKGROUND_REMOVAL_SAM_VARIANTS = [
+  ['sam_vit_b_01ec64', 'SAM ViT-B · recommended / lower memory'],
+  ['sam_vit_l_0b3195', 'SAM ViT-L · balanced quality / memory'],
+  ['sam_vit_h_4b8939', 'SAM ViT-H · high quality / large model'],
+];
+const BACKGROUND_REMOVAL_SAM_EXECUTION_OPTIONS = [
+  ['auto', 'Auto · recommended'],
+  ['comfy_impact', 'Comfy SAM · models/sams'],
+  ['native_onnx', 'Native ONNX SAM · points and boxes'],
+];
+const BACKGROUND_REMOVAL_SAM_REFINE_MODELS = [
+  ['birefnet-general', 'BiRefNet General · balanced edges'],
+  ['birefnet-general-lite', 'BiRefNet General Lite · lower memory'],
+  ['birefnet-portrait', 'BiRefNet Portrait · people'],
+];
+let backgroundRemovalStagedFiles = [];
+let backgroundRemovalPreviewUrl = '';
+let backgroundRemovalLastSourceFile = null;
+let backgroundRemovalLastOutputs = [];
+let backgroundRemovalReviewedMaskFile = null;
+let backgroundRemovalReviewedMaskUrl = '';
+let backgroundRemovalReviewRuntime = {
+  open: false,
+  initialized: false,
+  sourceUrl: '',
+  sourceLabel: '',
+  sourceFile: null,
+  maskUrl: '',
+  maskLabel: '',
+  foregroundUrl: '',
+  sourceImage: null,
+  maskImage: null,
+  originalMaskImageData: null,
+  drawing: false,
+  lastPoint: null,
+  status: '',
+};
+function backgroundRemovalEmptyModelCatalogState(profileId = '') {
+  return {
+    loading: false,
+    loaded: false,
+    error: '',
+    request_id: 0,
+    last_loaded_at: '',
+    models: [],
+    sources: [],
+    missing_nodes: [],
+    missing_refinement_nodes: [],
+    nodes_ready: null,
+    refinement_nodes_ready: null,
+    native: { available: false, version: '', models: [], providers: [], reason: 'Not checked.' },
+    shared_sam: { ready: false, models: [], bbox_models: [], segm_models: [], birefnet_models: [], default_bbox_model: '', default_segm_model: '', node_map: {}, missing_nodes: [], reuse_note: '' },
+    native_models: [],
+    native_preset_models: {},
+    profile_id: String(profileId || ''),
+  };
+}
+const backgroundRemovalModelCatalogByProfile = new Map();
+const backgroundRemovalModelCatalogInFlight = new Map();
+let backgroundRemovalModelCatalogRequestId = 0;
+let backgroundRemovalModelCatalogState = backgroundRemovalEmptyModelCatalogState();
+let backgroundRemovalSamRuntime = {
+  open: false,
+  initialized: false,
+  sourceUrl: '',
+  sourceLabel: '',
+  sourceFile: null,
+  sourceImage: null,
+  prompts: [],
+  subjects: [],
+  activeSubjectId: '',
+  lastAction: null,
+  detecting: false,
+  tool: 'keep',
+  drawingBox: false,
+  boxStart: null,
+  boxDraft: null,
+  status: '',
+};
+
+function backgroundRemovalSettings() {
+  const raw = state.imageDraft?.[BACKGROUND_REMOVAL_EXTENSION_ID] || {};
+  return { ...BACKGROUND_REMOVAL_DEFAULTS, ...raw };
+}
+function updateBackgroundRemovalSettings(patch = {}) {
+  state.imageDraft[BACKGROUND_REMOVAL_EXTENSION_ID] = { ...backgroundRemovalSettings(), ...(patch || {}) };
+  saveUiState();
+}
+function backgroundRemovalIsComfyProfile(profile) {
+  return ['comfyui', 'comfyui_portable'].includes(String(profile?.provider_id || '').toLowerCase());
+}
+function backgroundRemovalProfileRuntimeStatus(profile) {
+  return String(profile?.runtime?.status || profile?.status || '').toLowerCase();
+}
+function backgroundRemovalComfyBackendProfile() {
+  const profiles = backendProfilesForSurface('image').filter((profile) => backgroundRemovalIsComfyProfile(profile));
+  const active = activeImageProfile();
+  if (backgroundRemovalIsComfyProfile(active) && backgroundRemovalProfileRuntimeStatus(active) === 'connected') return active;
+  return profiles.find((profile) => backgroundRemovalProfileRuntimeStatus(profile) === 'connected')
+    || (backgroundRemovalIsComfyProfile(active) ? active : null)
+    || profiles[0]
+    || null;
+}
+function backgroundRemovalCatalogProfileId() {
+  return String(backgroundRemovalComfyBackendProfile()?.profile_id || '').trim();
+}
+function backgroundRemovalCatalogCacheKey(profileId = backgroundRemovalCatalogProfileId()) {
+  return String(profileId || '').trim() || '__native_background_removal__';
+}
+function backgroundRemovalModelCatalogForProfile(profileId = backgroundRemovalCatalogProfileId()) {
+  const key = backgroundRemovalCatalogCacheKey(profileId);
+  return backgroundRemovalModelCatalogByProfile.get(key) || backgroundRemovalEmptyModelCatalogState(profileId);
+}
+function backgroundRemovalSetModelCatalogState(profileId, patch = {}) {
+  const key = backgroundRemovalCatalogCacheKey(profileId);
+  const next = { ...backgroundRemovalModelCatalogForProfile(profileId), ...patch, profile_id: String(profileId || '') };
+  backgroundRemovalModelCatalogByProfile.set(key, next);
+  if (backgroundRemovalCatalogCacheKey(backgroundRemovalCatalogProfileId()) === key) backgroundRemovalModelCatalogState = next;
+  return next;
+}
+function backgroundRemovalUseActiveModelCatalog() {
+  backgroundRemovalModelCatalogState = backgroundRemovalModelCatalogForProfile(backgroundRemovalCatalogProfileId());
+  return backgroundRemovalModelCatalogState;
+}
+function backgroundRemovalBackendLabel(profile = backgroundRemovalComfyBackendProfile()) {
+  if (!profile) return 'No Comfy backend';
+  return `${profile.display_name || profile.profile_id || 'ComfyUI'} · ${backgroundRemovalProfileRuntimeStatus(profile) || 'not checked'}`;
+}
+function backgroundRemovalCommercialProfiles() {
+  return (state.backendProfiles?.profiles || []).filter((profile) => profile.enabled !== false && profile.surface === 'image' && profile.profile_role === 'image_background_removal_backend' && ['remove_bg', 'clipdrop_remove_bg'].includes(String(profile.provider_id || '')));
+}
+function backgroundRemovalCommercialProfile(settings = backgroundRemovalSettings()) {
+  const profiles = backgroundRemovalCommercialProfiles();
+  return profiles.find((profile) => profile.profile_id === settings.commercial_profile_id) || profiles[0] || null;
+}
+function backgroundRemovalCommercialProfileOptions(selected = '') {
+  const profiles = backgroundRemovalCommercialProfiles();
+  if (!profiles.length) return '<option value="">No commercial provider profile configured</option>';
+  return profiles.map((profile) => `<option value="${escapeAttr(profile.profile_id)}" ${String(selected || '') === String(profile.profile_id) ? 'selected' : ''}>${escapeHtml(profile.display_name || profile.profile_id)} · ${escapeHtml(backgroundRemovalProfileRuntimeStatus(profile) || 'not checked')}</option>`).join('');
+}
+function backgroundRemovalCommercialProviderLabel(profile = backgroundRemovalCommercialProfile()) {
+  if (!profile) return 'No commercial provider';
+  return `${profile.display_name || profile.profile_id} · ${backgroundRemovalProfileRuntimeStatus(profile) || 'not checked'}`;
+}
+function backgroundRemovalActiveRoute(record) {
+  const settings = backgroundRemovalSettings();
+  const commercial = settings.engine === 'commercial_api';
+  const profile = commercial ? backgroundRemovalCommercialProfile(settings) : backgroundRemovalComfyBackendProfile();
+  const providerId = String(profile?.provider_id || '').toLowerCase();
+  const nativeReady = Boolean(backgroundRemovalModelCatalogState.native?.available);
+  const backend = commercial ? (providerId || 'commercial_api') : (providerId === 'comfyui_portable' ? 'comfyui_portable' : (providerId || (nativeReady ? 'neo_native' : 'unknown')));
+  const workspaceApp = getSurfaceWorkspaceAppId('image') || 'finish';
+  const routeKey = `${backend}:*:*:*:${workspaceApp}`;
+  const manifest = record?.manifest || {};
+  let routeState = manifest.route_states?.[routeKey]
+    || manifest.route_states?.[`${backend}:*:*:*:finish`]
+    || manifest.route_states?.['*']
+    || 'available';
+  let reason = '';
+  if (commercial && !profile) {
+    routeState = 'available';
+    reason = 'Create or enable a commercial Background Removal profile in Admin → Backends before running.';
+  } else if (!commercial && !profile && backgroundRemovalModelCatalogState.loaded && !nativeReady) {
+    routeState = 'provider_gated';
+    reason = 'Connect ComfyUI or install the optional native rembg runtime.';
+  }
+  return { backend, provider_id: providerId || (nativeReady ? 'neo_native' : ''), profile_id: profile?.profile_id || '', workspace_app: workspaceApp, route_key: routeKey, route_state: routeState, reason };
+}
+function backgroundRemovalStatus(message = '') {
+  updateBackgroundRemovalSettings({ _ui_status: String(message || '') });
+  const node = document.getElementById('backgroundRemovalStatus');
+  if (node) node.textContent = String(message || '');
+}
+function backgroundRemovalPresetOptions(selected = '') {
+  return BACKGROUND_REMOVAL_PRESET_OPTIONS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+function backgroundRemovalEngineOptions(selected = '') {
+  return BACKGROUND_REMOVAL_ENGINE_OPTIONS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+function backgroundRemovalNativeModelOptions(selected = '') {
+  return BACKGROUND_REMOVAL_NATIVE_MODELS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+function backgroundRemovalEngineSummary(settings = backgroundRemovalSettings()) {
+  const native = backgroundRemovalModelCatalogState.native || {};
+  const shared = backgroundRemovalModelCatalogState.shared_sam || {};
+  const comfyReady = Boolean(backgroundRemovalModelCatalogState.nodes_ready && backgroundRemovalModelCatalogState.models?.length);
+  if (settings.engine === 'commercial_api') {
+    const profile = backgroundRemovalCommercialProfile(settings);
+    return profile ? `Commercial API · ${profile.display_name || profile.profile_id} · explicit upload consent required` : 'Commercial API · configure a provider in Admin → Backends';
+  }
+  if (settings.preset === 'interactive_select' || settings.workflow_mode === 'interactive_sam') {
+    const subjects = backgroundRemovalNormalizeSamSubjects(settings.sam_subjects, settings.sam_prompts);
+    const counts = backgroundRemovalSamPromptCounts(subjects);
+    const readiness = backgroundRemovalSamRouteReadiness(settings, subjects);
+    const model = readiness.route === 'comfy_impact' ? (settings.sam_comfy_model || shared.models?.[0] || 'Comfy SAM') : (settings.sam_model_variant || 'sam_vit_b_01ec64');
+    return `Interactive SAM · ${counts.selected}/${counts.total} subjects selected · ${readiness.route.replaceAll('_', ' ')} · ${model}${readiness.ready ? '' : ` · ${readiness.reason}`}`;
+  }
+  if (settings.engine === 'native_rembg') return native.available ? `Neo Native rembg · ${settings.native_model}` : `Native rembg unavailable · ${native.reason || 'install optional runtime'}`;
+  if (settings.engine === 'comfy_birefnet') return comfyReady ? `Comfy BiRefNet · ${settings.model || 'preset model'}` : 'Comfy BiRefNet unavailable';
+  if (settings.preset === 'anime' && native.available) return `Smart route: ISNet Anime · ${settings.native_model || 'isnet-anime'}`;
+  if (comfyReady) return `Smart route: Comfy BiRefNet · ${settings.model || 'preset model'}`;
+  if (native.available) return `Smart fallback: Neo Native rembg · ${settings.native_model}`;
+  return 'No ready removal engine detected.';
+}
+function backgroundRemovalCatalogList(values = []) {
+  return [...new Set((Array.isArray(values) ? values : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || item?.path || '')).trim()).filter(Boolean))];
+}
+function backgroundRemovalCatalogPlaceholder(kind = 'model') {
+  const labels = { birefnet: 'BiRefNet', sam: 'SAM', bbox: 'BBox detector', segm: 'segmentation detector' };
+  const label = labels[kind] || 'model';
+  if (backgroundRemovalModelCatalogState.loading) return `Scanning ${label} models…`;
+  if (backgroundRemovalModelCatalogState.error) return `Refresh failed — retry ${label} models`;
+  if (backgroundRemovalModelCatalogState.loaded) return `No ${label} models found`;
+  return `Refresh to load ${label} models…`;
+}
+function backgroundRemovalCatalogSelectOptions(values = [], selected = '', kind = 'model') {
+  const models = backgroundRemovalCatalogList(values);
+  const current = String(selected || '').trim();
+  const folded = current.toLowerCase();
+  const labels = { birefnet: 'BiRefNet', sam: 'SAM', bbox: 'BBox', segm: 'segmentation' };
+  const scanLabel = labels[kind] || 'model';
+  const selectedExists = Boolean(current && models.some((item) => item.toLowerCase() === folded));
+  const rows = [];
+  if (current && !selectedExists) rows.push(`<option value="${escapeAttr(current)}" selected>${escapeHtml(current)} (saved · not in current ${scanLabel} scan)</option>`);
+  if (!models.length) rows.push(`<option value="" ${current ? 'disabled' : 'selected'}>${escapeHtml(backgroundRemovalCatalogPlaceholder(kind))}</option>`);
+  models.forEach((name) => rows.push(`<option value="${escapeAttr(name)}" ${name.toLowerCase() === folded ? 'selected' : ''}>${escapeHtml(name)}</option>`));
+  return rows.join('');
+}
+function backgroundRemovalModelOptions(selected = '') {
+  return backgroundRemovalCatalogSelectOptions(backgroundRemovalModelCatalogState.models, selected, 'birefnet');
+}
+function backgroundRemovalSamModelOptions(selected = '') {
+  return backgroundRemovalCatalogSelectOptions(backgroundRemovalModelCatalogState.shared_sam?.models || [], selected, 'sam');
+}
+function backgroundRemovalDetectorModelOptions(selected = '', detectorType = 'bbox') {
+  const type = String(detectorType || 'bbox').toLowerCase() === 'segm' ? 'segm' : 'bbox';
+  const shared = backgroundRemovalModelCatalogState.shared_sam || {};
+  return backgroundRemovalCatalogSelectOptions(type === 'segm' ? shared.segm_models : shared.bbox_models, selected, type);
+}
+function backgroundRemovalCatalogSummary() {
+  const modelCount = backgroundRemovalModelCatalogState.models?.length || 0;
+  const shared = backgroundRemovalModelCatalogState.shared_sam || {};
+  const lastGoodCount = modelCount + (shared.models?.length || 0) + (shared.bbox_models?.length || 0) + (shared.segm_models?.length || 0);
+  if (backgroundRemovalModelCatalogState.loading) return lastGoodCount ? 'Refreshing engine and detector models… Showing the last successful scan meanwhile.' : 'Scanning engine and detector models from the active Comfy profile…';
+  if (backgroundRemovalModelCatalogState.error) return lastGoodCount ? `Model refresh failed: ${backgroundRemovalModelCatalogState.error}. Showing the last successful scan; use Refresh engines to retry.` : `Model scan failed: ${backgroundRemovalModelCatalogState.error}. Check the selected Comfy profile, then use Refresh engines.`;
+  if (!backgroundRemovalModelCatalogState.loaded) return 'Installed models have not been scanned for this profile yet.';
+  const sourceText = backgroundRemovalModelCatalogState.sources?.length ? ` · ${backgroundRemovalModelCatalogState.sources.join(', ')}` : '';
+  const missing = backgroundRemovalModelCatalogState.missing_nodes?.length ? ` · missing segmentation nodes: ${backgroundRemovalModelCatalogState.missing_nodes.join(', ')}` : '';
+  const refineMissing = backgroundRemovalModelCatalogState.missing_refinement_nodes?.length ? ` · missing refinement nodes: ${backgroundRemovalModelCatalogState.missing_refinement_nodes.join(', ')}` : '';
+  const native = backgroundRemovalModelCatalogState.native || {};
+  const nativeText = native.available ? ` · native rembg ${native.version || 'installed'}` : ` · native rembg unavailable`;
+  const sharedText = shared.ready ? ` · Comfy SAM ${shared.models?.length || 0} model${(shared.models?.length || 0) === 1 ? '' : 's'}` : (shared.models?.length ? ` · Comfy SAM missing nodes` : ' · Comfy SAM unavailable');
+  return `${modelCount} BiRefNet model${modelCount === 1 ? '' : 's'} found${sourceText}${missing}${refineMissing}${nativeText}${sharedText}`;
+}
+function backgroundRemovalSuggestedModel(preset = backgroundRemovalSettings().preset) {
+  const models = Array.isArray(backgroundRemovalModelCatalogState.models) ? backgroundRemovalModelCatalogState.models : [];
+  const lookup = new Map(models.map((item) => [String(item).toLowerCase(), item]));
+  const basenameLookup = new Map();
+  models.forEach((item) => {
+    const key = String(item).replace(/\\/g, '/').split('/').pop().toLowerCase();
+    const rows = basenameLookup.get(key) || [];
+    rows.push(item);
+    basenameLookup.set(key, rows);
+  });
+  for (const candidate of BACKGROUND_REMOVAL_PRESET_CANDIDATES[preset] || BACKGROUND_REMOVAL_PRESET_CANDIDATES.smart_auto) {
+    const key = candidate.toLowerCase();
+    if (lookup.has(key)) return lookup.get(key);
+    const basenameMatches = basenameLookup.get(key) || [];
+    if (basenameMatches.length === 1) return basenameMatches[0];
+  }
+  return models.length === 1 ? models[0] : '';
+}
+function backgroundRemovalNormalizeModelCatalogPayload(payload = {}, profileId = '') {
+  return {
+    ...backgroundRemovalEmptyModelCatalogState(profileId),
+    loading: false,
+    loaded: true,
+    error: '',
+    models: backgroundRemovalCatalogList(payload.models),
+    sources: backgroundRemovalCatalogList(payload.sources),
+    missing_nodes: backgroundRemovalCatalogList(payload.missing_nodes),
+    missing_refinement_nodes: backgroundRemovalCatalogList(payload.missing_refinement_nodes),
+    nodes_ready: payload.nodes_ready,
+    refinement_nodes_ready: payload.refinement_nodes_ready,
+    native: payload.native && typeof payload.native === 'object' ? payload.native : { available: false, reason: 'Native runtime not reported.' },
+    shared_sam: payload.shared_sam && typeof payload.shared_sam === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).shared_sam,
+      ...payload.shared_sam,
+      models: backgroundRemovalCatalogList(payload.shared_sam.models),
+      bbox_models: backgroundRemovalCatalogList(payload.shared_sam.bbox_models),
+      segm_models: backgroundRemovalCatalogList(payload.shared_sam.segm_models),
+      birefnet_models: backgroundRemovalCatalogList(payload.shared_sam.birefnet_models),
+    } : backgroundRemovalEmptyModelCatalogState(profileId).shared_sam,
+    native_models: backgroundRemovalCatalogList(payload.native_models),
+    native_preset_models: payload.native_preset_models && typeof payload.native_preset_models === 'object' ? payload.native_preset_models : {},
+    profile_id: String(profileId || ''),
+    last_loaded_at: new Date().toISOString(),
+  };
+}
+async function backgroundRemovalRequestModelCatalog(profileId = '') {
+  const response = await fetch(`/api/extensions/background-removal/models?profile_id=${encodeURIComponent(profileId)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.detail || payload?.message || `Background Removal model scan failed with HTTP ${response.status}.`);
+  if (!payload || typeof payload !== 'object' || payload.ok !== true) throw new Error(payload?.detail || payload?.message || 'Background Removal model scan response was invalid.');
+  return backgroundRemovalNormalizeModelCatalogPayload(payload, profileId);
+}
+function backgroundRemovalReconcileModelCatalogSelections(catalog = backgroundRemovalModelCatalogState) {
+  const current = backgroundRemovalSettings();
+  const patch = {};
+  const suggested = backgroundRemovalSuggestedModel(current.preset);
+  const nativeSuggested = catalog.native_preset_models?.[current.preset] || BACKGROUND_REMOVAL_NATIVE_PRESET_MODELS[current.preset] || 'isnet-general-use';
+  if (!String(current.model || '').trim() && suggested) patch.model = suggested;
+  if (!current.native_model || !BACKGROUND_REMOVAL_NATIVE_MODELS.some(([id]) => id === current.native_model)) patch.native_model = nativeSuggested;
+  const shared = catalog.shared_sam || {};
+  const expectedSharedNames = { sam_vit_b_01ec64: 'sam_vit_b_01ec64.pth', sam_vit_l_0b3195: 'sam_vit_l_0b3195.pth', sam_vit_h_4b8939: 'sam_vit_h_4b8939.pth' };
+  const sharedModels = backgroundRemovalCatalogList(shared.models);
+  const expectedShared = expectedSharedNames[current.sam_model_variant] || '';
+  const suggestedShared = sharedModels.find((item) => item.toLowerCase() === expectedShared.toLowerCase()) || (sharedModels.length === 1 ? sharedModels[0] : '');
+  if (!String(current.sam_comfy_model || '').trim() && suggestedShared) patch.sam_comfy_model = suggestedShared;
+  const suggestedDetector = current.sam_detector_type === 'segm' ? shared.default_segm_model : shared.default_bbox_model;
+  if (!String(current.sam_detector_model || '').trim() && suggestedDetector) patch.sam_detector_model = suggestedDetector;
+  if (Object.keys(patch).length) updateBackgroundRemovalSettings(patch);
+  return patch;
+}
+async function backgroundRemovalRefreshModelCatalog({ silent = false } = {}) {
+  const profile = backgroundRemovalComfyBackendProfile();
+  const profileId = String(profile?.profile_id || '');
+  const key = backgroundRemovalCatalogCacheKey(profileId);
+  const existingFlight = backgroundRemovalModelCatalogInFlight.get(key);
+  if (existingFlight) return existingFlight;
+  const previous = backgroundRemovalModelCatalogForProfile(profileId);
+  const requestId = ++backgroundRemovalModelCatalogRequestId;
+  backgroundRemovalSetModelCatalogState(profileId, { loading: true, error: '', request_id: requestId });
+  if (!silent) backgroundRemovalStatus(profileId ? `Scanning removal engines via ${backgroundRemovalBackendLabel(profile)}…` : 'Checking Neo native background-removal runtime…');
+  const request = (async () => {
+    try {
+      const payload = await backgroundRemovalRequestModelCatalog(profileId);
+      const latest = backgroundRemovalModelCatalogForProfile(profileId);
+      if (latest.request_id !== requestId) return latest;
+      const next = backgroundRemovalSetModelCatalogState(profileId, { ...payload, request_id: requestId });
+      if (backgroundRemovalCatalogCacheKey(backgroundRemovalCatalogProfileId()) === key) {
+        backgroundRemovalModelCatalogState = next;
+        try { backgroundRemovalReconcileModelCatalogSelections(next); }
+        catch (error) { console.warn('Background Removal model scan selection reconciliation skipped', error); }
+        if (!silent) backgroundRemovalStatus(backgroundRemovalCatalogSummary());
+      }
+      return next;
+    } catch (error) {
+      const latest = backgroundRemovalModelCatalogForProfile(profileId);
+      if (latest.request_id === requestId) {
+        backgroundRemovalSetModelCatalogState(profileId, {
+          loading: false,
+          loaded: Boolean(latest.loaded || previous.loaded),
+          error: String(error?.message || error || 'Background Removal model scan failed.'),
+          request_id: requestId,
+        });
+      }
+      if (!silent && backgroundRemovalCatalogCacheKey(backgroundRemovalCatalogProfileId()) === key) backgroundRemovalStatus(`Background Removal engine scan failed: ${error?.message || error}`);
+      return backgroundRemovalModelCatalogForProfile(profileId);
+    }
+  })();
+  backgroundRemovalModelCatalogInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (backgroundRemovalModelCatalogInFlight.get(key) === request) backgroundRemovalModelCatalogInFlight.delete(key);
+    if (backgroundRemovalCatalogCacheKey(backgroundRemovalCatalogProfileId()) === key) {
+      backgroundRemovalUseActiveModelCatalog();
+      try { render(); } catch (_) {}
+    }
+  }
+}
+function backgroundRemovalEnsureModelCatalog() {
+  const profileId = backgroundRemovalCatalogProfileId();
+  const runtime = backgroundRemovalUseActiveModelCatalog();
+  if (!runtime.loaded && !runtime.loading && !runtime.error) void backgroundRemovalRefreshModelCatalog({ silent: true });
+  return backgroundRemovalModelCatalogForProfile(profileId);
+}
+
+function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
+  const number = (value, fallback, min, max) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : fallback));
+  const requestedWorkflowMode = String(settings.workflow_mode || 'segment');
+  const workflowMode = ['refine_mask', 'interactive_sam'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
+  const previewBackground = ['checkerboard', 'white', 'black'].includes(String(settings.preview_background || '')) ? String(settings.preview_background) : 'checkerboard';
+  return {
+    enabled: Boolean(settings.enabled),
+    workflow_mode: workflowMode,
+    engine: ['smart', 'comfy_birefnet', 'native_rembg', 'commercial_api'].includes(String(settings.engine || '')) ? String(settings.engine) : 'smart',
+    fallback_policy: ['never', 'on_unavailable', 'on_unavailable_or_queue_failure'].includes(String(settings.fallback_policy || '')) ? String(settings.fallback_policy) : 'on_unavailable',
+    native_model: String(settings.native_model || BACKGROUND_REMOVAL_NATIVE_PRESET_MODELS[settings.preset] || 'isnet-general-use'),
+    native_provider: ['AUTO', 'CPU', 'CUDA'].includes(String(settings.native_provider || '').toUpperCase()) ? String(settings.native_provider).toUpperCase() : 'AUTO',
+    native_alpha_matting: Boolean(settings.native_alpha_matting),
+    native_post_process_mask: Boolean(settings.native_post_process_mask),
+    native_foreground_threshold: Math.round(number(settings.native_foreground_threshold, 240, 0, 255)),
+    native_background_threshold: Math.round(number(settings.native_background_threshold, 10, 0, 255)),
+    native_erode_size: Math.round(number(settings.native_erode_size, 10, 0, 255)),
+    sam_prompts: Array.isArray(settings.sam_prompts) ? settings.sam_prompts.slice(0, 64).map((item) => ({ ...item })) : [],
+    sam_subjects: backgroundRemovalNormalizeSamSubjects(settings.sam_subjects),
+    sam_execution: ['auto', 'comfy_impact', 'native_onnx'].includes(String(settings.sam_execution || '')) ? String(settings.sam_execution) : 'auto',
+    sam_comfy_model: String(settings.sam_comfy_model || ''),
+    sam_detector_model: String(settings.sam_detector_model || ''),
+    sam_detector_type: ['bbox', 'segm'].includes(String(settings.sam_detector_type || '')) ? String(settings.sam_detector_type) : 'bbox',
+    sam_detection_confidence: number(settings.sam_detection_confidence, 0.35, 0.05, 0.95),
+    sam_model_variant: ['sam_vit_b_01ec64', 'sam_vit_l_0b3195', 'sam_vit_h_4b8939'].includes(String(settings.sam_model_variant || '')) ? String(settings.sam_model_variant) : 'sam_vit_b_01ec64',
+    sam_quantized: settings.sam_quantized !== false,
+    sam_refine_mode: ['birefnet_gate', 'sam_only'].includes(String(settings.sam_refine_mode || '')) ? String(settings.sam_refine_mode) : 'birefnet_gate',
+    sam_refine_model: ['birefnet-general', 'birefnet-general-lite', 'birefnet-portrait'].includes(String(settings.sam_refine_model || '')) ? String(settings.sam_refine_model) : 'birefnet-general',
+    sam_refine_fallback: settings.sam_refine_fallback !== false,
+    sam_gate_expand: Math.round(number(settings.sam_gate_expand, 12, 0, 128)),
+    sam_gate_feather: Math.round(number(settings.sam_gate_feather, 6, 0, 128)),
+    preset: String(settings.preset || 'smart_auto'),
+    model: String(settings.model || ''),
+    device: ['AUTO', 'CPU'].includes(String(settings.device || '').toUpperCase()) ? String(settings.device).toUpperCase() : 'AUTO',
+    dtype: ['float32', 'float16'].includes(String(settings.dtype || '')) ? String(settings.dtype) : 'float32',
+    use_weight: Boolean(settings.use_weight),
+    width: Math.round(number(settings.width, 1024, 256, 4096)),
+    height: Math.round(number(settings.height, 1024, 256, 4096)),
+    upscale_method: ['bilinear', 'nearest', 'nearest-exact', 'bicubic'].includes(String(settings.upscale_method || '')) ? String(settings.upscale_method) : 'bilinear',
+    mask_threshold: number(settings.mask_threshold, 0, 0, 1),
+    mask_expand: Math.round(number(settings.mask_expand, 0, -128, 128)),
+    mask_feather: Math.round(number(settings.mask_feather, 0, 0, 128)),
+    foreground_estimation: settings.foreground_estimation !== false,
+    blur_size: Math.round(number(settings.blur_size, 91, 1, 255)),
+    blur_size_two: Math.round(number(settings.blur_size_two, 7, 1, 255)),
+    save_mask: Boolean(settings.save_mask),
+    preview_background: previewBackground,
+    manual_mask: Boolean(settings.manual_mask || ['refine_mask', 'interactive_sam'].includes(workflowMode)),
+    mask_source: String(settings.mask_source || (workflowMode === 'interactive_sam' ? 'interactive_sam' : (workflowMode === 'refine_mask' ? 'manual_review' : 'birefnet'))),
+    parent_result_id: String(settings.parent_result_id || ''),
+    parent_file_id: String(settings.parent_file_id || ''),
+    commercial_profile_id: String(settings.commercial_profile_id || backgroundRemovalCommercialProfile(settings)?.profile_id || ''),
+    commercial_upload_consent: Boolean(settings.commercial_upload_consent),
+    commercial_output_size: ['auto','preview','small','regular','medium','hd','4k','50mp'].includes(String(settings.commercial_output_size || '')) ? String(settings.commercial_output_size) : 'auto',
+    commercial_subject_type: ['auto','person','product','car'].includes(String(settings.commercial_subject_type || '')) ? String(settings.commercial_subject_type) : 'auto',
+    commercial_preserve_semitransparency: settings.commercial_preserve_semitransparency !== false,
+    commercial_transparency_handling: ['return_input_if_non_opaque','discard_alpha_layer'].includes(String(settings.commercial_transparency_handling || '')) ? String(settings.commercial_transparency_handling) : 'return_input_if_non_opaque',
+  };
+}
+function backgroundRemovalStagedFileList() { return Array.from(backgroundRemovalStagedFiles || []).filter(Boolean); }
+function backgroundRemovalRevokePreviewUrl() {
+  if (backgroundRemovalPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(backgroundRemovalPreviewUrl);
+  backgroundRemovalPreviewUrl = '';
+}
+function backgroundRemovalSetStagedFiles(files = [], source = 'picker') {
+  const list = Array.from(files || []).filter((file) => file && String(file.type || '').startsWith('image/')).slice(0, 1);
+  backgroundRemovalRevokePreviewUrl();
+  backgroundRemovalStagedFiles = list;
+  backgroundRemovalLastSourceFile = list[0] || null;
+  backgroundRemovalReviewedMaskFile = null;
+  if (backgroundRemovalReviewedMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(backgroundRemovalReviewedMaskUrl);
+  backgroundRemovalReviewedMaskUrl = '';
+  if (list[0]) backgroundRemovalPreviewUrl = URL.createObjectURL(list[0]);
+  backgroundRemovalCloseSamSelector();
+  updateBackgroundRemovalSettings({ source_mode: list.length ? `uploaded_${source}` : 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : 'segment' });
+  const input = document.getElementById('backgroundRemovalFile');
+  if (input && source !== 'picker') {
+    try {
+      const transfer = new DataTransfer();
+      list.forEach((file) => transfer.items.add(file));
+      input.files = transfer.files;
+    } catch (_) {}
+  }
+  backgroundRemovalStatus(list.length ? `${list[0].name || 'Source image'} staged for background removal.` : 'Source staging cleared.');
+  render();
+}
+function backgroundRemovalClearStagedFile() {
+  backgroundRemovalRevokePreviewUrl();
+  backgroundRemovalStagedFiles = [];
+  backgroundRemovalLastSourceFile = null;
+  backgroundRemovalReviewedMaskFile = null;
+  if (backgroundRemovalReviewedMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(backgroundRemovalReviewedMaskUrl);
+  backgroundRemovalReviewedMaskUrl = '';
+  const input = document.getElementById('backgroundRemovalFile');
+  if (input) input.value = '';
+  backgroundRemovalCloseSamSelector();
+  updateBackgroundRemovalSettings({ source_mode: 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : 'segment' });
+  backgroundRemovalStatus('Source staging cleared.');
+  render();
+}
+async function backgroundRemovalFileFromUrl(url, label = 'selected-output.png') {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Could not read selected result (${response.status}).`);
+  const blob = await response.blob();
+  const safe = String(label || 'selected-output.png').split('/').pop().replace(/[^a-z0-9_.-]/gi, '_') || 'selected-output.png';
+  return new File([blob], safe.includes('.') ? safe : `${safe}.png`, { type: blob.type || 'image/png' });
+}
+
+function backgroundRemovalSelectedResultArtifacts() {
+  const metadata = state.activeSavedResultMetadata || {};
+  const outputs = Array.isArray(metadata?.outputs?.files) ? metadata.outputs.files : [];
+  const extensions = metadata?.extensions || {};
+  const payload = extensions?.payloads?.[BACKGROUND_REMOVAL_EXTENSION_ID] || {};
+  const event = extensions?.memory_events?.[BACKGROUND_REMOVAL_EXTENSION_ID] || {};
+  const eventAssets = event?.assets || {};
+  const payloadAssets = payload?.assets || payload?.metadata?.assets || {};
+  const sourceImages = Array.isArray(eventAssets.source_images) && eventAssets.source_images.length
+    ? eventAssets.source_images
+    : (Array.isArray(payloadAssets.source_images) ? payloadAssets.source_images : []);
+  const source = sourceImages[0] || {};
+  const sourceStored = source.stored_filename || basename(source.path || source.filename || '');
+  const sourceUrl = source.url || source.preview_url || (sourceStored ? `/api/extensions/background-removal/source-file/${encodeURIComponent(sourceStored)}` : '');
+  const roleOf = (file) => String(file?.role || file?.metadata?.background_removal_role || '').toLowerCase();
+  const mask = outputs.find((file) => roleOf(file) === 'alpha_mask' || String(file?.filename || '').includes('NeoStudioBackgroundMask')) || null;
+  const foreground = outputs.find((file) => roleOf(file) === 'foreground_rgba' || String(file?.filename || '').includes('NeoStudioBackgroundRemoved')) || null;
+  return {
+    resultId: metadata?.result_id || activeSavedResultSummary()?.result_id || '',
+    activeFileId: state.activeSavedOutputFileId || foreground?.file_id || '',
+    sourceUrl,
+    sourceLabel: source.filename || sourceStored || 'background-removal-source.png',
+    sourceRecord: source,
+    maskUrl: mask?.url || '',
+    maskLabel: mask?.filename || 'background-mask.png',
+    maskFileId: mask?.file_id || '',
+    foregroundUrl: foreground?.url || '',
+    foregroundLabel: foreground?.filename || 'background-removed.png',
+  };
+}
+function backgroundRemovalLastRuntimeArtifacts() {
+  const items = Array.isArray(backgroundRemovalLastOutputs) ? backgroundRemovalLastOutputs : [];
+  const filename = (item) => String(item?.filename || item?.name || item?.path || item?.url || '');
+  const mask = items.find((item) => filename(item).includes('NeoStudioBackgroundMask')) || null;
+  const foreground = items.find((item) => filename(item).includes('NeoStudioBackgroundRemoved')) || items[0] || null;
+  return {
+    maskUrl: mask?.url || mask?.view_url || mask?.preview_url || '',
+    maskLabel: mask?.filename || mask?.name || 'background-mask.png',
+    foregroundUrl: foreground?.url || foreground?.view_url || foreground?.preview_url || '',
+    foregroundLabel: foreground?.filename || foreground?.name || 'background-removed.png',
+  };
+}
+function backgroundRemovalReviewArtifacts() {
+  const saved = backgroundRemovalSelectedResultArtifacts();
+  const runtime = backgroundRemovalLastRuntimeArtifacts();
+  const staged = backgroundRemovalStagedFileList()[0] || backgroundRemovalLastSourceFile || null;
+  if (staged && !backgroundRemovalPreviewUrl) backgroundRemovalPreviewUrl = URL.createObjectURL(staged);
+  const stagedUrl = staged ? backgroundRemovalPreviewUrl : '';
+  return {
+    resultId: saved.resultId || '',
+    activeFileId: saved.activeFileId || '',
+    sourceUrl: stagedUrl || saved.sourceUrl || '',
+    sourceLabel: staged?.name || saved.sourceLabel || 'background-removal-source.png',
+    sourceFile: staged || null,
+    maskUrl: backgroundRemovalReviewedMaskUrl || saved.maskUrl || runtime.maskUrl || '',
+    maskLabel: backgroundRemovalReviewedMaskFile?.name || saved.maskLabel || runtime.maskLabel || 'background-mask.png',
+    foregroundUrl: saved.foregroundUrl || runtime.foregroundUrl || '',
+    foregroundLabel: saved.foregroundLabel || runtime.foregroundLabel || 'background-removed.png',
+  };
+}
+function backgroundRemovalCanReviewMask() {
+  const artifacts = backgroundRemovalReviewArtifacts();
+  return Boolean(artifacts.sourceUrl && artifacts.maskUrl);
+}
+function backgroundRemovalCloseMaskReview() {
+  backgroundRemovalReviewRuntime.open = false;
+  backgroundRemovalReviewRuntime.initialized = false;
+  const modal = document.getElementById('neoBackgroundRemovalMaskReviewModal');
+  if (modal) modal.remove();
+  document.body.classList.remove('neo-modal-open');
+}
+function backgroundRemovalLoadReviewImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Could not load mask-review image: ${url}`));
+    image.src = url;
+  });
+}
+
+function backgroundRemovalNormalizeSamPoint(point = {}) {
+  return {
+    x: Math.max(0, Math.min(1, Number(point.x ?? point[0] ?? 0))),
+    y: Math.max(0, Math.min(1, Number(point.y ?? point[1] ?? 0))),
+  };
+}
+function backgroundRemovalNormalizeSamSubjects(subjects = [], legacyPrompts = []) {
+  const normalized = [];
+  const rows = Array.isArray(subjects) ? subjects.slice(0, 24) : [];
+  rows.forEach((subject, index) => {
+    if (!subject || typeof subject !== 'object') return;
+    const rawBox = subject.bbox && typeof subject.bbox === 'object' ? subject.bbox : null;
+    const bbox = rawBox ? {
+      x1: Math.max(0, Math.min(1, Number(rawBox.x1 ?? 0))),
+      y1: Math.max(0, Math.min(1, Number(rawBox.y1 ?? 0))),
+      x2: Math.max(0, Math.min(1, Number(rawBox.x2 ?? 1))),
+      y2: Math.max(0, Math.min(1, Number(rawBox.y2 ?? 1))),
+    } : null;
+    if (bbox && (bbox.x2 <= bbox.x1 || bbox.y2 <= bbox.y1)) return;
+    normalized.push({
+      id: String(subject.id || `subject_${index + 1}`),
+      label: String(subject.label || `Subject ${index + 1}`),
+      selected: subject.selected !== false,
+      source: String(subject.source || 'manual'),
+      confidence: Number.isFinite(Number(subject.confidence)) ? Number(subject.confidence) : 0,
+      bbox,
+      keep_points: (Array.isArray(subject.keep_points) ? subject.keep_points : []).slice(0, 32).map(backgroundRemovalNormalizeSamPoint),
+      remove_points: (Array.isArray(subject.remove_points) ? subject.remove_points : []).slice(0, 32).map(backgroundRemovalNormalizeSamPoint),
+    });
+  });
+  if (normalized.length || !Array.isArray(legacyPrompts) || !legacyPrompts.length) return normalized;
+  const points = [];
+  legacyPrompts.slice(0, 64).forEach((mark, index) => {
+    if (mark?.type === 'rectangle') {
+      normalized.push({
+        id: `legacy_box_${index + 1}`, label: `Subject ${normalized.length + 1}`, selected: true, source: 'legacy_box', confidence: 0,
+        bbox: { x1: Number(mark.x1 || 0), y1: Number(mark.y1 || 0), x2: Number(mark.x2 || 1), y2: Number(mark.y2 || 1) },
+        keep_points: [], remove_points: [],
+      });
+    } else if (mark?.type === 'point') points.push(mark);
+  });
+  if (points.length) normalized.push({
+    id: 'legacy_points_1', label: `Subject ${normalized.length + 1}`, selected: true, source: 'legacy_points', confidence: 0, bbox: null,
+    keep_points: points.filter((mark) => Number(mark.label) === 1).map(backgroundRemovalNormalizeSamPoint),
+    remove_points: points.filter((mark) => Number(mark.label) === 0).map(backgroundRemovalNormalizeSamPoint),
+  });
+  return normalized;
+}
+function backgroundRemovalFlattenSamPrompts(subjects = []) {
+  const prompts = [];
+  backgroundRemovalNormalizeSamSubjects(subjects).filter((subject) => subject.selected !== false).forEach((subject) => {
+    if (subject.bbox) prompts.push({ type: 'rectangle', ...subject.bbox, subject_id: subject.id });
+    subject.keep_points.forEach((point) => prompts.push({ type: 'point', label: 1, ...point, subject_id: subject.id }));
+    subject.remove_points.forEach((point) => prompts.push({ type: 'point', label: 0, ...point, subject_id: subject.id }));
+  });
+  return prompts.slice(0, 64);
+}
+function backgroundRemovalSamSelectedSubjects(subjects = backgroundRemovalSamRuntime.subjects) {
+  return backgroundRemovalNormalizeSamSubjects(subjects).filter((subject) => subject.selected !== false);
+}
+function backgroundRemovalSamPromptCounts(subjects = backgroundRemovalSamRuntime.subjects) {
+  const rows = backgroundRemovalNormalizeSamSubjects(subjects, Array.isArray(subjects) && subjects[0]?.type ? subjects : []);
+  const selected = rows.filter((subject) => subject.selected !== false);
+  return {
+    total: rows.length,
+    selected: selected.length,
+    keep: selected.reduce((sum, subject) => sum + subject.keep_points.length, 0),
+    remove: selected.reduce((sum, subject) => sum + subject.remove_points.length, 0),
+    boxes: selected.filter((subject) => subject.bbox).length,
+  };
+}
+function backgroundRemovalSamSubjectColor(index = 0, alpha = 1) {
+  const hue = (Number(index || 0) * 67 + 196) % 360;
+  return alpha >= 1 ? `hsl(${hue} 82% 62%)` : `hsl(${hue} 82% 62% / ${alpha})`;
+}
+function backgroundRemovalSamSourceArtifacts() {
+  const staged = backgroundRemovalStagedFileList()[0] || backgroundRemovalLastSourceFile || null;
+  if (staged && !backgroundRemovalPreviewUrl) backgroundRemovalPreviewUrl = URL.createObjectURL(staged);
+  if (staged) return { file: staged, url: backgroundRemovalPreviewUrl, label: staged.name || 'sam-source.png', resultId: '', fileId: '' };
+  const candidate = imageUpscaleCurrentOutputCandidate();
+  const saved = backgroundRemovalSelectedResultArtifacts();
+  return {
+    file: null,
+    url: candidate?.url || saved.sourceUrl || '',
+    label: candidate?.label || saved.sourceLabel || 'selected-output.png',
+    resultId: saved.resultId || activeSavedResultSummary()?.result_id || '',
+    fileId: state.activeSavedOutputFileId || saved.activeFileId || '',
+  };
+}
+function backgroundRemovalCloseSamSelector() {
+  backgroundRemovalSamRuntime.open = false;
+  backgroundRemovalSamRuntime.initialized = false;
+  backgroundRemovalSamRuntime.drawingBox = false;
+  const modal = document.getElementById('neoBackgroundRemovalSamModal');
+  if (modal) modal.remove();
+  if (!document.querySelector('.neo-mask-editor-modal')) document.body.classList.remove('neo-modal-open');
+}
+function backgroundRemovalSamSetStatus(message = '') {
+  backgroundRemovalSamRuntime.status = String(message || '');
+  const node = document.getElementById('backgroundRemovalSamStatus');
+  if (node) node.textContent = backgroundRemovalSamRuntime.status;
+  const counts = backgroundRemovalSamPromptCounts();
+  const countNode = document.getElementById('backgroundRemovalSamPromptCount');
+  if (countNode) countNode.textContent = `${counts.selected}/${counts.total} selected · ${counts.keep} Keep · ${counts.remove} Remove`;
+}
+function backgroundRemovalSamRouteReadiness(settings = backgroundRemovalSettings(), subjects = backgroundRemovalSamRuntime.subjects) {
+  const shared = backgroundRemovalModelCatalogState.shared_sam || {};
+  const native = backgroundRemovalModelCatalogState.native || {};
+  const selected = backgroundRemovalSamSelectedSubjects(subjects);
+  const sharedAssetsReady = Boolean(shared.ready && shared.models?.length);
+  const nativeReady = Boolean(native.available && native.interactive_sam?.available !== false);
+  const missingBoxes = selected.filter((subject) => !subject.bbox);
+  const corrected = selected.filter((subject) => subject.keep_points.length || subject.remove_points.length);
+  const nativeAddressable = selected.length > 0 && selected.every((subject) => subject.bbox || subject.keep_points.length);
+  const boxOnly = selected.length > 0 && !missingBoxes.length && !corrected.length;
+  const sharedReady = Boolean(sharedAssetsReady && boxOnly);
+  const requested = String(settings.sam_execution || 'auto');
+  if (!selected.length) return { ready: false, route: 'none', reason: 'Select at least one detected or manually boxed subject.' };
+  const boxReason = missingBoxes.length ? `${missingBoxes.map((subject) => subject.label).join(', ')} ${missingBoxes.length === 1 ? 'needs' : 'need'} a subject box.` : '';
+  const correctionReason = corrected.length ? `${corrected.map((subject) => subject.label).join(', ')} ${corrected.length === 1 ? 'has' : 'have'} Keep/Remove corrections, which require Native ONNX SAM.` : '';
+  const sharedAssetReason = shared.missing_nodes?.length
+    ? `Missing Comfy SAM nodes: ${shared.missing_nodes.join(', ')}.`
+    : 'No Comfy SAM model is installed under ComfyUI/models/sams.';
+  const nativeReason = native.interactive_sam?.reason || native.reason || 'Native ONNX SAM is unavailable.';
+  if (requested === 'comfy_impact') {
+    if (!sharedAssetsReady) return { ready: false, route: 'comfy_impact', reason: sharedAssetReason };
+    if (correctionReason) return { ready: false, route: 'comfy_impact', reason: correctionReason };
+    if (boxReason) return { ready: false, route: 'comfy_impact', reason: `${boxReason} Draw a box or run Detect people.` };
+    return { ready: true, route: 'comfy_impact', reason: 'Comfy SAM is ready for the selected subject boxes.' };
+  }
+  if (requested === 'native_onnx') {
+    if (!nativeReady) return { ready: false, route: 'native_onnx', reason: nativeReason };
+    if (!nativeAddressable) return { ready: false, route: 'native_onnx', reason: `${boxReason || 'Each subject needs a box or Keep point.'}` };
+    return { ready: true, route: 'native_onnx', reason: 'Native ONNX SAM is ready for boxes and point corrections.' };
+  }
+  if (correctionReason) {
+    if (nativeReady && nativeAddressable) return { ready: true, route: 'native_onnx', reason: 'Auto selected Native ONNX SAM for Keep/Remove corrections.' };
+    return { ready: false, route: 'none', reason: `${correctionReason} ${nativeReason} Remove the correction points to use Comfy SAM, or install Native ONNX SAM.` };
+  }
+  if (boxReason) {
+    if (nativeReady && nativeAddressable) return { ready: true, route: 'native_onnx', reason: 'Auto selected Native ONNX SAM for point-addressed subjects.' };
+    return { ready: false, route: 'none', reason: `${boxReason} Draw a box or run Detect people before using Comfy SAM.` };
+  }
+  if (sharedReady) return { ready: true, route: 'comfy_impact', reason: 'Auto selected the installed Comfy SAM model.' };
+  if (nativeReady && nativeAddressable) return { ready: true, route: 'native_onnx', reason: 'Auto selected Native ONNX because Comfy SAM is unavailable.' };
+  return { ready: false, route: 'none', reason: `${sharedAssetReason} ${nativeReason}` };
+}
+function backgroundRemovalPushSamHistory() {
+  const snapshot = backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects).map((subject) => ({ ...subject, bbox: subject.bbox ? { ...subject.bbox } : null, keep_points: subject.keep_points.map((point) => ({ ...point })), remove_points: subject.remove_points.map((point) => ({ ...point })) }));
+  backgroundRemovalSamRuntime.history = [...(backgroundRemovalSamRuntime.history || []), snapshot].slice(-30);
+}
+function backgroundRemovalCommitSamSubjects(message = '') {
+  const subjects = backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects);
+  backgroundRemovalSamRuntime.subjects = subjects;
+  if (!subjects.some((subject) => subject.id === backgroundRemovalSamRuntime.activeSubjectId)) backgroundRemovalSamRuntime.activeSubjectId = subjects.find((subject) => subject.selected !== false)?.id || subjects[0]?.id || '';
+  const prompts = backgroundRemovalFlattenSamPrompts(subjects);
+  backgroundRemovalSamRuntime.prompts = prompts;
+  updateBackgroundRemovalSettings({ sam_subjects: subjects, sam_prompts: prompts, workflow_mode: 'interactive_sam', preset: 'interactive_select', manual_mask: true, mask_source: 'interactive_sam' });
+  backgroundRemovalRenderSamCanvas();
+  backgroundRemovalRenderSamSubjectList();
+  backgroundRemovalSamSetStatus(message || 'Subject selection updated.');
+  const counts = backgroundRemovalSamPromptCounts(subjects);
+  document.getElementById('backgroundRemovalSamUndo')?.toggleAttribute('disabled', !(backgroundRemovalSamRuntime.history || []).length);
+  document.getElementById('backgroundRemovalSamClear')?.toggleAttribute('disabled', !counts.total);
+  document.getElementById('backgroundRemovalSamRun')?.toggleAttribute('disabled', !counts.selected);
+}
+async function backgroundRemovalOpenSamSelector() {
+  const artifacts = backgroundRemovalSamSourceArtifacts();
+  if (!artifacts.url && !artifacts.file) throw new Error('Interactive SAM needs an uploaded image or selected result.');
+  const file = artifacts.file || await backgroundRemovalFileFromUrl(artifacts.url, artifacts.label);
+  const url = artifacts.url || URL.createObjectURL(file);
+  const settings = backgroundRemovalSettings();
+  const subjects = backgroundRemovalNormalizeSamSubjects(settings.sam_subjects, settings.sam_prompts);
+  backgroundRemovalSamRuntime = {
+    ...backgroundRemovalSamRuntime,
+    open: true, initialized: false, sourceUrl: url, sourceLabel: artifacts.label, sourceFile: file, sourceImage: null,
+    subjects, prompts: backgroundRemovalFlattenSamPrompts(subjects), activeSubjectId: subjects.find((subject) => subject.selected !== false)?.id || subjects[0]?.id || '', history: [],
+    tool: ['keep', 'remove', 'box'].includes(settings.sam_tool) ? settings.sam_tool : 'keep', drawingBox: false, boxStart: null, boxDraft: null, detecting: false,
+    status: 'Loading source for multi-subject SAM…',
+  };
+  backgroundRemovalLastSourceFile = file;
+  updateBackgroundRemovalSettings({
+    preset: 'interactive_select', workflow_mode: 'interactive_sam', manual_mask: true, mask_source: 'interactive_sam',
+    parent_result_id: artifacts.resultId || '', parent_file_id: artifacts.fileId || '',
+  });
+  renderBackgroundRemovalSamModal();
+}
+function backgroundRemovalSamSubjectListHtml() {
+  const subjects = backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects);
+  if (!subjects.length) return '<div class="neo-background-removal-sam-empty"><strong>No subjects yet</strong><span>Detect people or draw a manual box.</span></div>';
+  return subjects.map((subject, index) => {
+    const active = subject.id === backgroundRemovalSamRuntime.activeSubjectId;
+    const confidence = subject.confidence > 0 ? ` · ${Math.round(subject.confidence * 100)}%` : '';
+    return `<div class="neo-background-removal-sam-subject${active ? ' is-active' : ''}" data-sam-subject-id="${escapeAttr(subject.id)}">
+      <label><input type="checkbox" data-sam-subject-toggle="${escapeAttr(subject.id)}" ${subject.selected !== false ? 'checked' : ''}><span class="neo-background-removal-sam-swatch" style="--sam-subject-color:${escapeAttr(backgroundRemovalSamSubjectColor(index))}"></span><strong>${escapeHtml(subject.label)}</strong></label>
+      <button type="button" class="neo-btn secondary" data-sam-subject-activate="${escapeAttr(subject.id)}">Edit</button>
+      <button type="button" class="neo-btn secondary" data-sam-subject-remove="${escapeAttr(subject.id)}" aria-label="Remove ${escapeAttr(subject.label)}">×</button>
+      <small>${escapeHtml(subject.source || 'manual')}${escapeHtml(confidence)} · ${subject.keep_points.length} keep / ${subject.remove_points.length} remove</small>
+    </div>`;
+  }).join('');
+}
+function renderBackgroundRemovalSamModal() {
+  let modal = document.getElementById('neoBackgroundRemovalSamModal');
+  if (!backgroundRemovalSamRuntime.open) { if (modal) modal.remove(); return; }
+  if (!modal) { modal = document.createElement('div'); modal.id = 'neoBackgroundRemovalSamModal'; document.body.appendChild(modal); }
+  const settings = backgroundRemovalSettings();
+  const counts = backgroundRemovalSamPromptCounts();
+  const readiness = backgroundRemovalSamRouteReadiness(settings);
+  const nativePointReady = Boolean(backgroundRemovalModelCatalogState.native?.available && backgroundRemovalModelCatalogState.native?.interactive_sam?.available !== false);
+  document.body.classList.add('neo-modal-open');
+  modal.className = 'neo-mask-editor-modal neo-background-removal-sam-modal';
+  modal.innerHTML = `
+    <div class="neo-image-zoom-backdrop" data-background-sam-close></div>
+    <div class="neo-mask-editor-window neo-background-removal-sam-window" role="dialog" aria-modal="true" aria-label="Multi-Subject SAM Selection">
+      <header class="neo-image-zoom-toolbar neo-background-removal-sam-toolbar">
+        <div><strong>Interactive SAM Selection · Multiple Subjects</strong><span class="neo-muted">Detect people, choose exactly who to keep, then refine each selected subject independently.</span></div>
+        <div class="neo-actions">
+          <button class="neo-btn secondary" id="backgroundRemovalSamDetect" type="button" ${backgroundRemovalSamRuntime.detecting ? 'disabled' : ''}>${backgroundRemovalSamRuntime.detecting ? 'Detecting…' : '👥 Detect people'}</button>
+          <button class="neo-btn secondary ${backgroundRemovalSamRuntime.tool === 'keep' ? 'active' : ''}" id="backgroundRemovalSamKeep" type="button" ${nativePointReady ? '' : 'disabled title="Keep corrections require Native ONNX SAM"'}>＋ Keep</button>
+          <button class="neo-btn secondary ${backgroundRemovalSamRuntime.tool === 'remove' ? 'active' : ''}" id="backgroundRemovalSamRemove" type="button" ${nativePointReady ? '' : 'disabled title="Remove corrections require Native ONNX SAM"'}>− Remove</button>
+          <button class="neo-btn secondary ${backgroundRemovalSamRuntime.tool === 'box' ? 'active' : ''}" id="backgroundRemovalSamBox" type="button">▭ Add subject</button>
+          <button class="neo-btn secondary" id="backgroundRemovalSamUndo" type="button" ${(backgroundRemovalSamRuntime.history || []).length ? '' : 'disabled'}>Undo</button>
+          <button class="neo-btn" id="backgroundRemovalSamRun" type="button" ${counts.selected && readiness.ready ? '' : 'disabled'}>Run ${counts.selected || ''} Selected</button>
+          <button class="neo-btn secondary" id="backgroundRemovalSamClose" type="button">Close</button>
+        </div>
+      </header>
+      <div class="neo-background-removal-sam-layout">
+        <main class="neo-background-removal-sam-stage"><canvas id="backgroundRemovalSamCanvas" aria-label="Multi-subject SAM source canvas"></canvas></main>
+        <aside class="neo-background-removal-sam-sidebar">
+          <strong>${escapeHtml(backgroundRemovalSamRuntime.sourceLabel || 'Source image')}</strong>
+          <span id="backgroundRemovalSamPromptCount" class="neo-state-pill success">${counts.selected}/${counts.total} selected · ${counts.keep} Keep · ${counts.remove} Remove</span>
+          <div class="neo-actions neo-background-removal-sam-selection-actions"><button class="neo-btn secondary" id="backgroundRemovalSamSelectAll" type="button" ${counts.total ? '' : 'disabled'}>Select all</button><button class="neo-btn secondary" id="backgroundRemovalSamSelectNone" type="button" ${counts.total ? '' : 'disabled'}>Select none</button><button class="neo-btn secondary" id="backgroundRemovalSamClear" type="button" ${counts.total ? '' : 'disabled'}>Clear</button></div>
+          <div id="backgroundRemovalSamSubjectList" class="neo-background-removal-sam-subject-list">${backgroundRemovalSamSubjectListHtml()}</div>
+          <div class="neo-help-card"><strong>Resolved SAM route</strong><span>${escapeHtml(readiness.route.replaceAll('_', ' '))} · ${escapeHtml(readiness.reason)}</span></div>
+          <div class="neo-help-card"><strong>How to use</strong><span>Uncheck people you want removed. Click Edit beside a selected subject, then add Keep/Remove corrections. Keep/Remove corrections require Native ONNX SAM. Box-only selections use the installed Comfy SAM model.</span></div>
+          <p id="backgroundRemovalSamStatus" class="neo-muted">${escapeHtml(backgroundRemovalSamRuntime.status || 'Ready.')}</p>
+        </aside>
+      </div>
+    </div>`;
+  bindBackgroundRemovalSamControls();
+  if (!backgroundRemovalSamRuntime.initialized) backgroundRemovalInitializeSamCanvas();
+  else backgroundRemovalRenderSamCanvas();
+}
+async function backgroundRemovalInitializeSamCanvas() {
+  try {
+    const image = await backgroundRemovalLoadReviewImage(backgroundRemovalSamRuntime.sourceUrl);
+    if (!backgroundRemovalSamRuntime.open) return;
+    backgroundRemovalSamRuntime.sourceImage = image;
+    backgroundRemovalSamRuntime.initialized = true;
+    backgroundRemovalRenderSamCanvas();
+    backgroundRemovalSamSetStatus(backgroundRemovalSamRuntime.subjects.length ? 'Choose the people to keep or add correction points.' : 'Detect people or draw a box around each subject you want to keep.');
+  } catch (error) { backgroundRemovalSamSetStatus(`Could not load source: ${error.message || error}`); }
+}
+function backgroundRemovalRenderSamSubjectList() {
+  const node = document.getElementById('backgroundRemovalSamSubjectList');
+  if (node) node.innerHTML = backgroundRemovalSamSubjectListHtml();
+}
+function backgroundRemovalRenderSamCanvas() {
+  const canvas = document.getElementById('backgroundRemovalSamCanvas');
+  const image = backgroundRemovalSamRuntime.sourceImage;
+  if (!canvas || !image) return;
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const subjects = backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects);
+  const drawBox = (bbox, index, selected = true, active = false, draft = false) => {
+    const x = Number(bbox.x1 || 0) * canvas.width, y = Number(bbox.y1 || 0) * canvas.height;
+    const w = (Number(bbox.x2 || 0) - Number(bbox.x1 || 0)) * canvas.width, h = (Number(bbox.y2 || 0) - Number(bbox.y1 || 0)) * canvas.height;
+    const color = draft ? '#f8d66d' : backgroundRemovalSamSubjectColor(index);
+    ctx.save(); ctx.strokeStyle = selected ? color : 'rgba(180,190,210,.65)'; ctx.fillStyle = selected ? backgroundRemovalSamSubjectColor(index, active ? .24 : .14) : 'rgba(80,86,100,.16)';
+    ctx.lineWidth = Math.max(active ? 4 : 2, canvas.width / 500); ctx.setLineDash(draft || !selected ? [10, 7] : []); ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+    if (!draft) { ctx.fillStyle = selected ? color : '#aab2c5'; ctx.fillRect(x, Math.max(0, y - 28), Math.max(76, Math.min(w, 136)), 28); ctx.fillStyle = '#07101e'; ctx.font = `bold ${Math.max(12, canvas.width / 90)}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(`${index + 1} · ${selected ? 'KEEP' : 'REMOVE'}`, x + 7, Math.max(14, y - 14)); }
+    ctx.restore();
+  };
+  subjects.forEach((subject, index) => {
+    if (subject.bbox) drawBox(subject.bbox, index, subject.selected !== false, subject.id === backgroundRemovalSamRuntime.activeSubjectId);
+    [...subject.keep_points.map((point) => ({ ...point, keep: true })), ...subject.remove_points.map((point) => ({ ...point, keep: false }))].forEach((point) => {
+      const x = point.x * canvas.width, y = point.y * canvas.height, radius = Math.max(7, canvas.width / 110);
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fillStyle = point.keep ? 'rgba(39,220,142,.94)' : 'rgba(255,82,105,.94)'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(2, canvas.width / 700); ctx.stroke(); ctx.fillStyle = '#111'; ctx.font = `bold ${Math.max(12, radius * 1.25)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(point.keep ? '+' : '−', x, y + 1); ctx.restore();
+    });
+  });
+  if (backgroundRemovalSamRuntime.boxDraft) drawBox(backgroundRemovalSamRuntime.boxDraft, subjects.length, true, true, true);
+}
+function backgroundRemovalSamNormalizedPoint(event) {
+  const canvas = document.getElementById('backgroundRemovalSamCanvas');
+  const rect = canvas.getBoundingClientRect();
+  return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width))), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))) };
+}
+function backgroundRemovalSamSubjectAtPoint(point) {
+  return [...backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects)].reverse().find((subject) => subject.bbox && point.x >= subject.bbox.x1 && point.x <= subject.bbox.x2 && point.y >= subject.bbox.y1 && point.y <= subject.bbox.y2) || null;
+}
+function backgroundRemovalSamActiveSubject({ create = false } = {}) {
+  let subject = backgroundRemovalSamRuntime.subjects.find((item) => item.id === backgroundRemovalSamRuntime.activeSubjectId);
+  if (!subject && create) {
+    const id = `manual_subject_${Date.now().toString(36)}`;
+    subject = { id, label: `Subject ${backgroundRemovalSamRuntime.subjects.length + 1}`, selected: true, source: 'manual_points', confidence: 0, bbox: null, keep_points: [], remove_points: [] };
+    backgroundRemovalSamRuntime.subjects.push(subject); backgroundRemovalSamRuntime.activeSubjectId = id;
+  }
+  return subject;
+}
+async function backgroundRemovalDetectPeople() {
+  if (backgroundRemovalSamRuntime.detecting) return;
+  const file = backgroundRemovalSamRuntime.sourceFile || await backgroundRemovalFileFromUrl(backgroundRemovalSamRuntime.sourceUrl, backgroundRemovalSamRuntime.sourceLabel);
+  backgroundRemovalSamRuntime.sourceFile = file; backgroundRemovalSamRuntime.detecting = true; renderBackgroundRemovalSamModal();
+  try {
+    const settings = backgroundRemovalCleanParams();
+    const form = new FormData(); form.append('file', file, file.name || 'people-source.png');
+    const profile = backgroundRemovalComfyBackendProfile();
+    form.append('profile_id', String(profile?.profile_id || backgroundRemovalModelCatalogState.profile_id || ''));
+    form.append('settings_json', JSON.stringify({ sam_detector_model: settings.sam_detector_model, sam_detector_type: settings.sam_detector_type, sam_detection_confidence: settings.sam_detection_confidence, sam_gate_expand: settings.sam_gate_expand }));
+    const response = await fetch('/api/extensions/background-removal/detect-subjects', { method: 'POST', body: form });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Person detection failed.');
+    backgroundRemovalPushSamHistory();
+    const manual = backgroundRemovalNormalizeSamSubjects(backgroundRemovalSamRuntime.subjects).filter((subject) => !String(subject.source || '').includes('adetailer') && !String(subject.source || '').includes('ultralytics'));
+    const detected = backgroundRemovalNormalizeSamSubjects(payload.subjects || []);
+    if (payload.resolved_detector_model) updateBackgroundRemovalSettings({ sam_detector_model: String(payload.resolved_detector_model), sam_detector_type: String(payload.resolved_detector_type || settings.sam_detector_type || 'bbox') });
+    backgroundRemovalSamRuntime.subjects = [...detected, ...manual].slice(0, 24);
+    backgroundRemovalSamRuntime.activeSubjectId = detected[0]?.id || manual[0]?.id || '';
+    const detectorNote = payload.resolved_detector_model ? ` using ${payload.resolved_detector_model}` : '';
+    const warnings = Array.isArray(payload.warnings) && payload.warnings.length ? ` ${payload.warnings.join(' ')}` : '';
+    backgroundRemovalCommitSamSubjects((payload.message || `Detected ${detected.length} people${detectorNote}. Uncheck anyone you want removed.`) + warnings);
+  } finally { backgroundRemovalSamRuntime.detecting = false; renderBackgroundRemovalSamModal(); }
+}
+async function backgroundRemovalRunSamSelection() {
+  const subjects = backgroundRemovalSamSelectedSubjects();
+  if (!subjects.length) throw new Error('Select at least one person or subject to keep.');
+  if (!subjects.some((subject) => subject.bbox || subject.keep_points.length)) throw new Error('Each selection needs a box or Keep point.');
+  const readiness = backgroundRemovalSamRouteReadiness(backgroundRemovalSettings(), subjects);
+  if (!readiness.ready) throw new Error(readiness.reason);
+  const file = backgroundRemovalSamRuntime.sourceFile || await backgroundRemovalFileFromUrl(backgroundRemovalSamRuntime.sourceUrl, backgroundRemovalSamRuntime.sourceLabel);
+  backgroundRemovalSamRuntime.sourceFile = file; backgroundRemovalSamSetStatus(`Running ${subjects.length} independent SAM mask${subjects.length === 1 ? '' : 's'} via ${readiness.route.replaceAll('_', ' ')}…`);
+  const payload = await backgroundRemovalQueueFiles([file], 'interactive-sam', { workflowMode: 'interactive_sam', samSubjects: backgroundRemovalSamRuntime.subjects, samPrompts: backgroundRemovalFlattenSamPrompts(backgroundRemovalSamRuntime.subjects) });
+  backgroundRemovalSamSetStatus(`Multi-subject SAM completed. ${subjects.length} selected subject${subjects.length === 1 ? '' : 's'} were combined into the transparent child output.`);
+  return payload;
+}
+function bindBackgroundRemovalSamControls() {
+  const close = () => backgroundRemovalCloseSamSelector();
+  document.querySelectorAll('[data-background-sam-close]').forEach((node) => node.addEventListener('click', close));
+  document.getElementById('backgroundRemovalSamClose')?.addEventListener('click', close);
+  const setTool = (tool) => { const nativePointReady = Boolean(backgroundRemovalModelCatalogState.native?.available && backgroundRemovalModelCatalogState.native?.interactive_sam?.available !== false); if (['keep', 'remove'].includes(tool) && !nativePointReady) { backgroundRemovalSamSetStatus('Keep/Remove corrections require Native ONNX SAM. Use Add subject boxes for the available Comfy SAM route.'); return; } backgroundRemovalSamRuntime.tool = tool; updateBackgroundRemovalSettings({ sam_tool: tool }); ['Keep', 'Remove', 'Box'].forEach((name) => document.getElementById(`backgroundRemovalSam${name}`)?.classList.toggle('active', name.toLowerCase() === tool)); backgroundRemovalSamSetStatus(tool === 'box' ? 'Drag a box around a new subject.' : `${tool === 'keep' ? 'Keep' : 'Remove'} correction tool active for the selected subject.`); };
+  document.getElementById('backgroundRemovalSamKeep')?.addEventListener('click', () => setTool('keep'));
+  document.getElementById('backgroundRemovalSamRemove')?.addEventListener('click', () => setTool('remove'));
+  document.getElementById('backgroundRemovalSamBox')?.addEventListener('click', () => setTool('box'));
+  document.getElementById('backgroundRemovalSamDetect')?.addEventListener('click', async () => { try { await backgroundRemovalDetectPeople(); } catch (error) { backgroundRemovalSamRuntime.detecting = false; renderBackgroundRemovalSamModal(); backgroundRemovalSamSetStatus(`Person detection failed: ${error.message || error}`); } });
+  document.getElementById('backgroundRemovalSamUndo')?.addEventListener('click', () => { const history = backgroundRemovalSamRuntime.history || []; const previous = history.pop(); if (previous) { backgroundRemovalSamRuntime.subjects = previous; backgroundRemovalCommitSamSubjects('Last subject edit undone.'); } });
+  document.getElementById('backgroundRemovalSamClear')?.addEventListener('click', () => { backgroundRemovalPushSamHistory(); backgroundRemovalSamRuntime.subjects = []; backgroundRemovalSamRuntime.activeSubjectId = ''; backgroundRemovalCommitSamSubjects('All subjects cleared.'); });
+  document.getElementById('backgroundRemovalSamSelectAll')?.addEventListener('click', () => { backgroundRemovalPushSamHistory(); backgroundRemovalSamRuntime.subjects.forEach((subject) => { subject.selected = true; }); backgroundRemovalCommitSamSubjects('All subjects selected to keep.'); });
+  document.getElementById('backgroundRemovalSamSelectNone')?.addEventListener('click', () => { backgroundRemovalPushSamHistory(); backgroundRemovalSamRuntime.subjects.forEach((subject) => { subject.selected = false; }); backgroundRemovalCommitSamSubjects('No subjects selected. Choose who to keep.'); });
+  document.querySelectorAll('[data-sam-subject-toggle]').forEach((node) => node.addEventListener('change', (event) => { const id = event.currentTarget.getAttribute('data-sam-subject-toggle'); const subject = backgroundRemovalSamRuntime.subjects.find((item) => item.id === id); if (!subject) return; backgroundRemovalPushSamHistory(); subject.selected = Boolean(event.currentTarget.checked); if (subject.selected) backgroundRemovalSamRuntime.activeSubjectId = subject.id; backgroundRemovalCommitSamSubjects(`${subject.label} ${subject.selected ? 'selected to keep' : 'excluded from output'}.`); }));
+  document.querySelectorAll('[data-sam-subject-activate]').forEach((node) => node.addEventListener('click', (event) => { backgroundRemovalSamRuntime.activeSubjectId = event.currentTarget.getAttribute('data-sam-subject-activate') || ''; backgroundRemovalRenderSamCanvas(); backgroundRemovalRenderSamSubjectList(); backgroundRemovalSamSetStatus('Active subject changed. Keep/Remove points now apply to this subject.'); }));
+  document.querySelectorAll('[data-sam-subject-remove]').forEach((node) => node.addEventListener('click', (event) => { const id = event.currentTarget.getAttribute('data-sam-subject-remove'); backgroundRemovalPushSamHistory(); backgroundRemovalSamRuntime.subjects = backgroundRemovalSamRuntime.subjects.filter((item) => item.id !== id); backgroundRemovalCommitSamSubjects('Subject removed from the selection list.'); }));
+  document.getElementById('backgroundRemovalSamRun')?.addEventListener('click', async () => { try { await backgroundRemovalRunSamSelection(); } catch (error) { backgroundRemovalSamSetStatus(`Interactive SAM failed: ${error.message || error}`); } });
+  const canvas = document.getElementById('backgroundRemovalSamCanvas');
+  if (!canvas) return;
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!backgroundRemovalSamRuntime.initialized) return; event.preventDefault(); const point = backgroundRemovalSamNormalizedPoint(event);
+    if (backgroundRemovalSamRuntime.tool === 'box') { backgroundRemovalPushSamHistory(); backgroundRemovalSamRuntime.drawingBox = true; backgroundRemovalSamRuntime.boxStart = point; backgroundRemovalSamRuntime.boxDraft = { x1: point.x, y1: point.y, x2: point.x, y2: point.y }; canvas.setPointerCapture?.(event.pointerId); backgroundRemovalRenderSamCanvas(); return; }
+    const nativePointReady = Boolean(backgroundRemovalModelCatalogState.native?.available && backgroundRemovalModelCatalogState.native?.interactive_sam?.available !== false);
+    if (!nativePointReady) { backgroundRemovalSamSetStatus('Point corrections are unavailable. Use Add subject to draw a box for Comfy SAM.'); return; }
+    const hovered = backgroundRemovalSamSubjectAtPoint(point); if (hovered) backgroundRemovalSamRuntime.activeSubjectId = hovered.id;
+    const subject = backgroundRemovalSamActiveSubject({ create: true }); backgroundRemovalPushSamHistory(); subject.selected = true;
+    (backgroundRemovalSamRuntime.tool === 'remove' ? subject.remove_points : subject.keep_points).push(point);
+    backgroundRemovalCommitSamSubjects(`${backgroundRemovalSamRuntime.tool === 'remove' ? 'Remove' : 'Keep'} point added to ${subject.label}.`);
+  });
+  canvas.addEventListener('pointermove', (event) => { if (!backgroundRemovalSamRuntime.drawingBox || !backgroundRemovalSamRuntime.boxStart) return; const point = backgroundRemovalSamNormalizedPoint(event); const start = backgroundRemovalSamRuntime.boxStart; backgroundRemovalSamRuntime.boxDraft = { x1: Math.min(start.x, point.x), y1: Math.min(start.y, point.y), x2: Math.max(start.x, point.x), y2: Math.max(start.y, point.y) }; backgroundRemovalRenderSamCanvas(); });
+  const finishBox = (event) => { if (!backgroundRemovalSamRuntime.drawingBox) return; const draft = backgroundRemovalSamRuntime.boxDraft; backgroundRemovalSamRuntime.drawingBox = false; backgroundRemovalSamRuntime.boxStart = null; backgroundRemovalSamRuntime.boxDraft = null; if (draft && draft.x2 - draft.x1 >= .01 && draft.y2 - draft.y1 >= .01) { const id = `manual_subject_${Date.now().toString(36)}`; const subject = { id, label: `Subject ${backgroundRemovalSamRuntime.subjects.length + 1}`, selected: true, source: 'manual_box', confidence: 0, bbox: draft, keep_points: [], remove_points: [] }; backgroundRemovalSamRuntime.subjects.push(subject); backgroundRemovalSamRuntime.activeSubjectId = id; backgroundRemovalCommitSamSubjects('Manual subject box added.'); } else { const history = backgroundRemovalSamRuntime.history || []; history.pop(); backgroundRemovalCommitSamSubjects('Selection box was too small and was ignored.'); } if (event) canvas.releasePointerCapture?.(event.pointerId); };
+  canvas.addEventListener('pointerup', finishBox); canvas.addEventListener('pointercancel', finishBox);
+}
+
+async function backgroundRemovalOpenMaskReview() {
+  const artifacts = backgroundRemovalReviewArtifacts();
+  if (!artifacts.sourceUrl) throw new Error('Mask Review needs the original source image. Keep the upload staged or select a Background Removal result with its source asset.');
+  if (!artifacts.maskUrl) throw new Error('Mask Review needs a saved alpha-mask output. Run Background Removal with “Save alpha mask” enabled first.');
+  backgroundRemovalReviewRuntime = {
+    ...backgroundRemovalReviewRuntime,
+    open: true,
+    initialized: false,
+    sourceUrl: artifacts.sourceUrl,
+    sourceLabel: artifacts.sourceLabel,
+    sourceFile: artifacts.sourceFile,
+    maskUrl: artifacts.maskUrl,
+    maskLabel: artifacts.maskLabel,
+    foregroundUrl: artifacts.foregroundUrl,
+    status: 'Loading source and alpha mask…',
+  };
+  updateBackgroundRemovalSettings({
+    parent_result_id: artifacts.resultId || '',
+    parent_file_id: artifacts.activeFileId || '',
+  });
+  renderBackgroundRemovalMaskReviewModal();
+}
+function renderBackgroundRemovalMaskReviewModal() {
+  let modal = document.getElementById('neoBackgroundRemovalMaskReviewModal');
+  if (!backgroundRemovalReviewRuntime.open) {
+    if (modal) modal.remove();
+    document.body.classList.remove('neo-modal-open');
+    return;
+  }
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'neoBackgroundRemovalMaskReviewModal';
+    document.body.appendChild(modal);
+  }
+  const settings = backgroundRemovalSettings();
+  document.body.classList.add('neo-modal-open');
+  modal.className = 'neo-mask-editor-modal neo-background-removal-review-modal';
+  modal.innerHTML = `
+    <div class="neo-image-zoom-backdrop" data-background-review-close></div>
+    <div class="neo-mask-editor-window neo-background-removal-review-window" role="dialog" aria-modal="true" aria-label="Background Removal Mask Review">
+      <header class="neo-image-zoom-toolbar neo-background-removal-review-toolbar">
+        <div><strong>Mask Review</strong><span class="neo-muted">Paint Keep to restore foreground; Remove cuts it away. The reviewed mask can be refined without rerunning BiRefNet.</span></div>
+        <div class="neo-background-removal-review-tools">
+          <button class="neo-btn secondary ${settings.review_brush_mode !== 'remove' ? 'active' : ''}" id="backgroundRemovalReviewKeep" type="button">Keep</button>
+          <button class="neo-btn secondary ${settings.review_brush_mode === 'remove' ? 'active' : ''}" id="backgroundRemovalReviewRemove" type="button">Remove</button>
+          <label class="neo-mask-brush-label">Brush <input id="backgroundRemovalReviewBrushSize" type="range" min="4" max="180" value="${escapeAttr(settings.review_brush_size || 28)}"><span>${escapeHtml(settings.review_brush_size || 28)}px</span></label>
+          <label>Preview<select id="backgroundRemovalReviewBackground"><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label>
+          <button class="neo-btn secondary" id="backgroundRemovalReviewReset" type="button">Reset AI Mask</button>
+          <button class="neo-btn secondary" id="backgroundRemovalReviewSave" type="button">Stage Mask</button>
+          <button class="neo-btn primary" id="backgroundRemovalReviewApply" type="button">Apply Refinement</button>
+          <button class="neo-btn secondary" id="backgroundRemovalReviewClose" type="button">Close</button>
+        </div>
+      </header>
+      <div class="neo-background-removal-review-stage is-${escapeAttr(settings.preview_background || 'checkerboard')}">
+        <canvas id="backgroundRemovalReviewCanvas" aria-label="Reviewed transparent foreground preview"></canvas>
+        <canvas id="backgroundRemovalReviewSourceCanvas" hidden></canvas>
+        <canvas id="backgroundRemovalReviewMaskCanvas" hidden></canvas>
+        <div id="backgroundRemovalReviewCursor" class="neo-mask-brush-cursor" aria-hidden="true"></div>
+      </div>
+      <div class="neo-background-removal-review-footer">
+        <span id="backgroundRemovalReviewStatus">${escapeHtml(backgroundRemovalReviewRuntime.status || 'Ready.')}</span>
+        <span class="neo-muted">Source: ${escapeHtml(backgroundRemovalReviewRuntime.sourceLabel || 'image')} · Mask: ${escapeHtml(backgroundRemovalReviewRuntime.maskLabel || 'mask')}</span>
+      </div>
+    </div>`;
+  bindBackgroundRemovalMaskReviewControls();
+  requestAnimationFrame(() => backgroundRemovalInitializeMaskReview().catch((error) => backgroundRemovalReviewSetStatus(`Mask Review failed: ${error.message || error}`)));
+}
+function backgroundRemovalReviewSetStatus(message = '') {
+  backgroundRemovalReviewRuntime.status = String(message || '');
+  const node = document.getElementById('backgroundRemovalReviewStatus');
+  if (node) node.textContent = backgroundRemovalReviewRuntime.status;
+}
+async function backgroundRemovalInitializeMaskReview() {
+  if (!backgroundRemovalReviewRuntime.open || backgroundRemovalReviewRuntime.initialized) return;
+  const [sourceImage, maskImage] = await Promise.all([
+    backgroundRemovalLoadReviewImage(backgroundRemovalReviewRuntime.sourceUrl),
+    backgroundRemovalLoadReviewImage(backgroundRemovalReviewRuntime.maskUrl),
+  ]);
+  const width = sourceImage.naturalWidth || sourceImage.width;
+  const height = sourceImage.naturalHeight || sourceImage.height;
+  if (!width || !height) throw new Error('Source image has invalid dimensions.');
+  const sourceCanvas = document.getElementById('backgroundRemovalReviewSourceCanvas');
+  const maskCanvas = document.getElementById('backgroundRemovalReviewMaskCanvas');
+  const displayCanvas = document.getElementById('backgroundRemovalReviewCanvas');
+  [sourceCanvas, maskCanvas, displayCanvas].forEach((canvas) => { canvas.width = width; canvas.height = height; });
+  const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+  sourceCtx.clearRect(0, 0, width, height);
+  sourceCtx.drawImage(sourceImage, 0, 0, width, height);
+  maskCtx.clearRect(0, 0, width, height);
+  maskCtx.drawImage(maskImage, 0, 0, width, height);
+  const raw = maskCtx.getImageData(0, 0, width, height);
+  for (let i = 0; i < raw.data.length; i += 4) {
+    const value = Math.round((raw.data[i] + raw.data[i + 1] + raw.data[i + 2]) / 3);
+    raw.data[i] = value; raw.data[i + 1] = value; raw.data[i + 2] = value; raw.data[i + 3] = 255;
+  }
+  maskCtx.putImageData(raw, 0, 0);
+  backgroundRemovalReviewRuntime.sourceImage = sourceImage;
+  backgroundRemovalReviewRuntime.maskImage = maskImage;
+  backgroundRemovalReviewRuntime.originalMaskImageData = maskCtx.getImageData(0, 0, width, height);
+  backgroundRemovalReviewRuntime.initialized = true;
+  backgroundRemovalReviewRenderPreview();
+  backgroundRemovalReviewSetStatus('Mask ready. Paint Keep or Remove, then stage or apply refinement.');
+}
+function backgroundRemovalReviewRenderPreview() {
+  const sourceCanvas = document.getElementById('backgroundRemovalReviewSourceCanvas');
+  const maskCanvas = document.getElementById('backgroundRemovalReviewMaskCanvas');
+  const displayCanvas = document.getElementById('backgroundRemovalReviewCanvas');
+  if (!sourceCanvas || !maskCanvas || !displayCanvas || !displayCanvas.width) return;
+  const temp = document.createElement('canvas');
+  temp.width = displayCanvas.width; temp.height = displayCanvas.height;
+  const tempCtx = temp.getContext('2d');
+  tempCtx.drawImage(sourceCanvas, 0, 0);
+  tempCtx.globalCompositeOperation = 'destination-in';
+  tempCtx.drawImage(maskCanvas, 0, 0);
+  tempCtx.globalCompositeOperation = 'source-over';
+  const ctx = displayCanvas.getContext('2d');
+  ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+  ctx.drawImage(temp, 0, 0);
+  const stage = displayCanvas.closest('.neo-background-removal-review-stage');
+  if (stage) stage.className = `neo-background-removal-review-stage is-${backgroundRemovalSettings().preview_background || 'checkerboard'}`;
+}
+function backgroundRemovalReviewPoint(event) {
+  const canvas = document.getElementById('backgroundRemovalReviewCanvas');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * (canvas.width / Math.max(1, rect.width)),
+    y: (event.clientY - rect.top) * (canvas.height / Math.max(1, rect.height)),
+  };
+}
+function backgroundRemovalInvalidateReviewedMask(message = '') {
+  backgroundRemovalReviewedMaskFile = null;
+  if (backgroundRemovalReviewedMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(backgroundRemovalReviewedMaskUrl);
+  backgroundRemovalReviewedMaskUrl = '';
+  updateBackgroundRemovalSettings({ workflow_mode: 'segment', manual_mask: false, mask_source: 'birefnet' });
+  const applyButton = document.getElementById('backgroundRemovalApplyRefinement');
+  if (applyButton) applyButton.disabled = true;
+  if (message) backgroundRemovalReviewSetStatus(message);
+}
+function backgroundRemovalReviewPaint(from, to, eraseOverride = false) {
+  const canvas = document.getElementById('backgroundRemovalReviewMaskCanvas');
+  if (!canvas) return;
+  const settings = backgroundRemovalSettings();
+  backgroundRemovalInvalidateReviewedMask();
+  const ctx = canvas.getContext('2d');
+  const mode = eraseOverride || settings.review_brush_mode === 'remove' ? 'remove' : 'keep';
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = mode === 'keep' ? '#ffffff' : '#000000';
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = Math.max(1, Number(settings.review_brush_size || 28));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(to.x, to.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  backgroundRemovalReviewRenderPreview();
+}
+function backgroundRemovalReviewUpdateCursor(event, visible = true) {
+  const cursor = document.getElementById('backgroundRemovalReviewCursor');
+  const canvas = document.getElementById('backgroundRemovalReviewCanvas');
+  if (!cursor || !canvas) return;
+  if (!visible) { cursor.classList.remove('is-visible'); return; }
+  const rect = canvas.getBoundingClientRect();
+  const scale = rect.width / Math.max(1, canvas.width);
+  const size = Math.max(4, Number(backgroundRemovalSettings().review_brush_size || 28) * scale);
+  cursor.style.width = `${size}px`; cursor.style.height = `${size}px`;
+  cursor.style.left = `${event.clientX - rect.left - size / 2}px`; cursor.style.top = `${event.clientY - rect.top - size / 2}px`;
+  cursor.classList.toggle('is-erase', backgroundRemovalSettings().review_brush_mode === 'remove' || event.altKey);
+  cursor.classList.add('is-visible');
+}
+async function backgroundRemovalStageReviewedMask() {
+  const canvas = document.getElementById('backgroundRemovalReviewMaskCanvas');
+  if (!canvas || !backgroundRemovalReviewRuntime.initialized) throw new Error('Mask Review is not ready yet.');
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Reviewed mask could not be encoded as PNG.');
+  const file = new File([blob], `neo_background_review_mask_${Date.now()}.png`, { type: 'image/png' });
+  backgroundRemovalReviewedMaskFile = file;
+  if (backgroundRemovalReviewedMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(backgroundRemovalReviewedMaskUrl);
+  backgroundRemovalReviewedMaskUrl = URL.createObjectURL(file);
+  updateBackgroundRemovalSettings({ workflow_mode: 'refine_mask', manual_mask: true, mask_source: 'manual_review' });
+  backgroundRemovalReviewSetStatus('Reviewed mask staged. Apply Refinement to create a non-destructive child output.');
+  backgroundRemovalStatus('Reviewed mask staged. Click Apply mask refinement to rerun only the edge/refinement stage.');
+  const applyButton = document.getElementById('backgroundRemovalApplyRefinement');
+  if (applyButton) applyButton.disabled = false;
+  return file;
+}
+async function backgroundRemovalSourceFileForReview() {
+  if (backgroundRemovalReviewRuntime.sourceFile) return backgroundRemovalReviewRuntime.sourceFile;
+  const file = await backgroundRemovalFileFromUrl(backgroundRemovalReviewRuntime.sourceUrl, backgroundRemovalReviewRuntime.sourceLabel || 'background-removal-source.png');
+  backgroundRemovalReviewRuntime.sourceFile = file;
+  backgroundRemovalLastSourceFile = file;
+  return file;
+}
+async function backgroundRemovalApplyReviewedMask() {
+  const maskFile = await backgroundRemovalStageReviewedMask();
+  const sourceFile = await backgroundRemovalSourceFileForReview();
+  backgroundRemovalReviewSetStatus('Queueing mask refinement without BiRefNet segmentation…');
+  const payload = await backgroundRemovalQueueFiles([sourceFile], 'mask-review', { maskFile, workflowMode: 'refine_mask' });
+  backgroundRemovalReviewSetStatus('Mask refinement completed. Review the new transparent child output in Results.');
+  return payload;
+}
+function bindBackgroundRemovalMaskReviewControls() {
+  const close = () => backgroundRemovalCloseMaskReview();
+  document.querySelectorAll('[data-background-review-close]').forEach((node) => node.addEventListener('click', close));
+  document.getElementById('backgroundRemovalReviewClose')?.addEventListener('click', close);
+  const setBrushMode = (mode) => {
+    updateBackgroundRemovalSettings({ review_brush_mode: mode });
+    const keepButton = document.getElementById('backgroundRemovalReviewKeep');
+    const removeButton = document.getElementById('backgroundRemovalReviewRemove');
+    keepButton?.classList.toggle('active', mode !== 'remove');
+    removeButton?.classList.toggle('active', mode === 'remove');
+    const cursor = document.getElementById('backgroundRemovalReviewCursor');
+    cursor?.classList.toggle('is-erase', mode === 'remove');
+    backgroundRemovalReviewSetStatus(mode === 'remove' ? 'Remove brush active. Hold Alt temporarily removes while using Keep.' : 'Keep brush active. Hold Alt temporarily removes foreground.');
+  };
+  document.getElementById('backgroundRemovalReviewKeep')?.addEventListener('click', () => setBrushMode('keep'));
+  document.getElementById('backgroundRemovalReviewRemove')?.addEventListener('click', () => setBrushMode('remove'));
+  const brush = document.getElementById('backgroundRemovalReviewBrushSize');
+  if (brush) brush.addEventListener('input', (event) => {
+    updateBackgroundRemovalSettings({ review_brush_size: Number(event.target.value || 28) });
+    const label = brush.closest('.neo-mask-brush-label')?.querySelector('span');
+    if (label) label.textContent = `${event.target.value}px`;
+  });
+  const background = document.getElementById('backgroundRemovalReviewBackground');
+  if (background) background.addEventListener('change', (event) => { updateBackgroundRemovalSettings({ preview_background: event.target.value }); backgroundRemovalReviewRenderPreview(); });
+  document.getElementById('backgroundRemovalReviewReset')?.addEventListener('click', () => {
+    const canvas = document.getElementById('backgroundRemovalReviewMaskCanvas');
+    const data = backgroundRemovalReviewRuntime.originalMaskImageData;
+    if (canvas && data) { canvas.getContext('2d').putImageData(data, 0, 0); backgroundRemovalInvalidateReviewedMask('AI mask restored. Stage it again before applying refinement.'); backgroundRemovalReviewRenderPreview(); }
+  });
+  document.getElementById('backgroundRemovalReviewSave')?.addEventListener('click', async () => {
+    try { await backgroundRemovalStageReviewedMask(); } catch (error) { backgroundRemovalReviewSetStatus(`Could not stage mask: ${error.message || error}`); }
+  });
+  document.getElementById('backgroundRemovalReviewApply')?.addEventListener('click', async () => {
+    try { await backgroundRemovalApplyReviewedMask(); } catch (error) { backgroundRemovalReviewSetStatus(`Refinement failed: ${error.message || error}`); }
+  });
+  const canvas = document.getElementById('backgroundRemovalReviewCanvas');
+  if (canvas) {
+    canvas.addEventListener('pointerdown', (event) => {
+      if (!backgroundRemovalReviewRuntime.initialized) return;
+      event.preventDefault();
+      canvas.setPointerCapture?.(event.pointerId);
+      const point = backgroundRemovalReviewPoint(event);
+      backgroundRemovalReviewRuntime.drawing = true;
+      backgroundRemovalReviewRuntime.lastPoint = point;
+      backgroundRemovalReviewPaint(point, point, event.altKey);
+    });
+    canvas.addEventListener('pointermove', (event) => {
+      backgroundRemovalReviewUpdateCursor(event, true);
+      if (!backgroundRemovalReviewRuntime.drawing) return;
+      const point = backgroundRemovalReviewPoint(event);
+      backgroundRemovalReviewPaint(backgroundRemovalReviewRuntime.lastPoint || point, point, event.altKey);
+      backgroundRemovalReviewRuntime.lastPoint = point;
+    });
+    const finish = (event) => {
+      backgroundRemovalReviewRuntime.drawing = false;
+      backgroundRemovalReviewRuntime.lastPoint = null;
+      if (event) backgroundRemovalReviewUpdateCursor(event, false);
+    };
+    canvas.addEventListener('pointerup', finish);
+    canvas.addEventListener('pointercancel', finish);
+    canvas.addEventListener('pointerleave', (event) => { if (!backgroundRemovalReviewRuntime.drawing) backgroundRemovalReviewUpdateCursor(event, false); });
+    canvas.addEventListener('pointerenter', (event) => backgroundRemovalReviewUpdateCursor(event, true));
+  }
+}
+
+async function backgroundRemovalQueueFiles(files = [], sourceLabel = 'uploaded-source', options = {}) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (!list.length) throw new Error('Pick a source image for Background Removal.');
+  const route = backgroundRemovalActiveRoute(null);
+  if (!BACKGROUND_REMOVAL_ACTIVE_ROUTE_STATES.includes(route.route_state)) throw new Error(route.reason || 'Background Removal is gated for this provider.');
+  const requestedWorkflowMode = String(options.workflowMode || 'segment');
+  const workflowMode = ['refine_mask', 'interactive_sam'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
+  const requestedEngine = String(backgroundRemovalSettings().engine || 'smart');
+  const profile = requestedEngine === 'commercial_api' ? backgroundRemovalCommercialProfile() : backgroundRemovalComfyBackendProfile();
+  if (!profile && requestedEngine === 'commercial_api') throw new Error('Configure a commercial Background Removal profile in Admin → Backends.');
+  if (!profile && (workflowMode === 'refine_mask' || (workflowMode !== 'interactive_sam' && requestedEngine === 'comfy_birefnet'))) throw new Error('This route needs a connected ComfyUI backend profile.');
+  const clean = { ...backgroundRemovalCleanParams(), workflow_mode: workflowMode };
+  if (requestedEngine === 'commercial_api') {
+    if (workflowMode !== 'segment') throw new Error('Commercial providers support the standard Remove Background run only.');
+    if (!clean.commercial_upload_consent) throw new Error('Confirm the external upload and credit consent for this run.');
+    clean.commercial_profile_id = profile?.profile_id || '';
+    clean.fallback_policy = 'never';
+  }
+  if (workflowMode === 'refine_mask') {
+    clean.manual_mask = true;
+    clean.mask_source = 'manual_review';
+    if (!options.maskFile) throw new Error('Mask Review refinement needs a reviewed mask PNG.');
+  } else if (workflowMode === 'interactive_sam') {
+    clean.manual_mask = true;
+    clean.mask_source = 'interactive_sam';
+    clean.preset = 'interactive_select';
+    clean.sam_subjects = backgroundRemovalNormalizeSamSubjects(Array.isArray(options.samSubjects) ? options.samSubjects : clean.sam_subjects, Array.isArray(options.samPrompts) ? options.samPrompts : clean.sam_prompts);
+    clean.sam_prompts = backgroundRemovalFlattenSamPrompts(clean.sam_subjects);
+    const selectedSubjects = clean.sam_subjects.filter((subject) => subject.selected !== false);
+    if (!selectedSubjects.length || !selectedSubjects.some((subject) => subject.bbox || subject.keep_points?.length)) throw new Error('Interactive SAM needs at least one selected subject with a box or Keep point.');
+    if (clean.sam_execution === 'comfy_impact' && !profile) throw new Error('Comfy SAM requires a connected ComfyUI backend profile.');
+  }
+  if (!clean.enabled) throw new Error('Enable Background Removal before queueing.');
+  backgroundRemovalLastSourceFile = list[0] || backgroundRemovalLastSourceFile;
+  const form = new FormData();
+  form.append('profile_id', profile?.profile_id || '');
+  form.append('settings_json', JSON.stringify({ ...clean, source_mode: sourceLabel }));
+  list.forEach((file) => form.append('image_files', file, file.name || 'image.png'));
+  if (options.maskFile) form.append('mask_file', options.maskFile, options.maskFile.name || 'reviewed-mask.png');
+  const actionLabel = workflowMode === 'refine_mask'
+    ? 'Queueing reviewed-mask edge refinement…'
+    : (workflowMode === 'interactive_sam' ? 'Running Interactive SAM selection…' : (requestedEngine === 'commercial_api' ? `Uploading ${list.length} image${list.length === 1 ? '' : 's'} to ${profile?.display_name || 'commercial provider'}…` : `Queueing Background Removal for ${list.length} image${list.length === 1 ? '' : 's'}…`));
+  backgroundRemovalStatus(actionLabel);
+  const response = await fetch('/api/extensions/background-removal/queue', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || payload.error || 'Background Removal queue failed.');
+  recordMemoryEvent(workflowMode === 'refine_mask' ? 'image.background_removal.mask_refinement_queued' : (workflowMode === 'interactive_sam' ? 'image.background_removal.sam_selection_queued' : 'image.background_removal.queued'), 'image', {
+    extension_id: BACKGROUND_REMOVAL_EXTENSION_ID,
+    queued_count: payload.queued_count || payload.jobs?.length || 0,
+    source: sourceLabel,
+    workflow_mode: workflowMode,
+    requested_engine: clean.engine,
+    resolved_engine: payload.resolved_engine || '',
+    fallback_used: Boolean(payload.fallback_used),
+  });
+  await backgroundRemovalActivateQueuedJobs(payload.jobs || [], profile, payload);
+  if (requestedEngine === 'commercial_api') updateBackgroundRemovalSettings({ commercial_upload_consent: false });
+  return payload;
+}
+async function backgroundRemovalActivateQueuedJobs(jobs = [], profile, payload = {}) {
+  const runnable = Array.from(jobs || []).filter((job) => job?.job_id || job?.prompt_id);
+  const outputs = Array.from(payload.completed_outputs || []).filter(Boolean);
+  const seen = new Set(outputs.map((output) => String(output?.id || output?.url || output?.view_url || output?.path || JSON.stringify(output))));
+  const failures = [];
+  for (let index = 0; index < runnable.length; index += 1) {
+    const job = runnable[index];
+    try {
+      const result = await backgroundRemovalActivateQueuedJob(job, profile, payload, { index: index + 1, total: runnable.length });
+      for (const output of Array.isArray(result?.outputs) ? result.outputs : []) {
+        const key = String(output?.id || output?.url || output?.view_url || output?.path || JSON.stringify(output));
+        if (!seen.has(key)) { seen.add(key); outputs.push(output); }
+      }
+    } catch (error) {
+      failures.push(error.message || String(error));
+    }
+  }
+  if (!runnable.length && !outputs.length) throw new Error('Background Removal did not return a runnable job or completed native output.');
+  if (outputs.length) {
+    backgroundRemovalLastOutputs = outputs;
+    state.imageResults = outputs;
+    state.activeResultIndex = 0;
+    saveUiState();
+    render();
+  }
+  if (runnable.length && failures.length === runnable.length && !outputs.length) throw new Error(failures[0] || 'Background Removal polling failed.');
+  const refinement = payload.workflow_mode === 'refine_mask' || payload.route?.workflow_mode === 'refine_mask';
+  const interactiveSam = payload.workflow_mode === 'interactive_sam' || payload.route?.workflow_mode === 'interactive_sam';
+  const nativeOnly = payload.resolved_engine === 'native_rembg' && !runnable.length;
+  const commercialOnly = payload.resolved_engine === 'commercial_api' && !runnable.length;
+  const successMessage = refinement
+    ? 'Mask refinement completed without rerunning BiRefNet. A new transparent child output and refined mask were added to Results.'
+    : (interactiveSam
+      ? 'Interactive SAM selection completed. The selected subjects and combined soft alpha mask were added to Results.'
+      : (commercialOnly
+      ? 'Commercial Background Removal completed. The provider response was saved locally and upload consent was reset.'
+      : (nativeOnly
+      ? 'Background Removal completed with Neo Native rembg. Transparent foreground and mask were added to Results.'
+      : (payload.fallback_used
+        ? 'Background Removal completed with smart fallback. Review the resolved engine in Output Inspector.'
+        : 'Background Removal completed. Transparent foreground and mask were added to Results.'))));
+  const message = failures.length ? `${refinement ? 'Mask refinement' : (interactiveSam ? 'Interactive SAM' : 'Background Removal')} completed with ${failures.length} failed item(s).` : successMessage;
+  backgroundRemovalStatus(message);
+  setWorkspaceProgress(message, 100, { allowBackwards: true });
+}
+
+async function backgroundRemovalActivateQueuedJob(job, profile, payload = {}, batch = { index: 1, total: 1 }) {
+  const jobId = String(job.job_id || job.prompt_id || '').trim();
+  const profileId = String(job.profile_id || payload.profile_id || profile?.profile_id || '').trim();
+  if (!jobId || !profileId) return null;
+  const runtimeCaps = providerFeatureCapabilities(profile || activeImageProfile() || {});
+  state.activeImageJob = {
+    profile_id: profileId,
+    job_id: jobId,
+    provider_id: job.provider_id || payload.route?.provider_id || profile?.provider_id || '',
+    client_id: job.client_id || '',
+    runtime: { poll: { timeout_seconds: 0, interval_ms: 1500, unlimited: true }, capabilities: runtimeCaps },
+    capabilities: runtimeCaps,
+    route: {
+      mode: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_select' : 'background_removal'),
+      workflow_type: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine_finish' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_finish' : 'background_removal_finish'),
+      family: 'standalone',
+      loader: payload.workflow_mode === 'refine_mask' ? 'birefnet_refinement' : (payload.workflow_mode === 'interactive_sam' ? (payload.resolved_engine === 'comfy_sam' ? 'sam_impact_shared' : 'sam_onnx') : 'birefnet'),
+      batch_index: batch.index,
+      batch_total: batch.total,
+    },
+    poll_started_at: Date.now(),
+  };
+  state.imageGenerationProgress = { startedAt: Date.now(), batchTotal: batch.total, batchDone: batch.index - 1 };
+  updateImageGenerationControls();
+  saveUiState();
+  const refinement = payload.workflow_mode === 'refine_mask' || payload.route?.workflow_mode === 'refine_mask';
+  const interactiveSam = payload.workflow_mode === 'interactive_sam' || payload.route?.workflow_mode === 'interactive_sam';
+  setWorkspaceProgress(
+    refinement ? 'Refining reviewed alpha mask' : (interactiveSam ? 'Running Interactive SAM selection' : (batch.total > 1 ? `Removing backgrounds ${batch.index}/${batch.total}` : 'Removing background with Comfy BiRefNet')),
+    35,
+    { batchTotal: batch.total, batchDone: batch.index - 1, allowBackwards: true },
+  );
+  if (job.client_id && runtimeCaps.live_preview) startImageProgressSocket(profileId, job.client_id);
+  return pollImageGeneration(profileId, jobId, 0);
+}
+async function backgroundRemovalQueueSelectedResult() {
+  const uploaded = backgroundRemovalStagedFileList();
+  if (uploaded.length) return backgroundRemovalQueueFiles(uploaded, 'uploaded-source');
+  const candidate = imageUpscaleCurrentOutputCandidate();
+  if (!candidate?.url) throw new Error('No selected result found. Generate an image or upload one first.');
+  const file = await backgroundRemovalFileFromUrl(candidate.url, candidate.label || 'selected-output.png');
+  return backgroundRemovalQueueFiles([file], 'selected-result');
+}
+function backgroundRemovalPanel(record) {
+  backgroundRemovalUseActiveModelCatalog();
+  const route = backgroundRemovalActiveRoute(record);
+  if (!BACKGROUND_REMOVAL_ACTIVE_ROUTE_STATES.includes(route.route_state) && state.detailMode !== 'expert') return null;
+  const settings = backgroundRemovalSettings();
+  const locked = !BACKGROUND_REMOVAL_ACTIVE_ROUTE_STATES.includes(route.route_state);
+  const compact = state.detailMode === 'compact';
+  const expert = state.detailMode === 'expert';
+  const staged = backgroundRemovalStagedFileList()[0] || null;
+  const candidate = imageUpscaleCurrentOutputCandidate();
+  const reviewArtifacts = backgroundRemovalReviewArtifacts();
+  const canReview = backgroundRemovalCanReviewMask();
+  const reviewedReady = Boolean(backgroundRemovalReviewedMaskFile);
+  const previewUrl = backgroundRemovalPreviewUrl || reviewArtifacts.foregroundUrl || candidate?.url || '';
+  const commercialActive = settings.engine === 'commercial_api';
+  const commercialProfile = backgroundRemovalCommercialProfile(settings);
+  const commercialProviderId = String(commercialProfile?.provider_id || '');
+  const estimatedCommercialCalls = Math.max(1, backgroundRemovalStagedFileList().length || (candidate?.url ? 1 : 0));
+  if (!commercialActive) backgroundRemovalEnsureModelCatalog();
+  const catalogRuntime = backgroundRemovalModelCatalogState;
+  const catalogProfileId = backgroundRemovalCatalogProfileId();
+  const catalogScanState = catalogRuntime.loading ? 'loading' : (catalogRuntime.error ? 'error' : (catalogRuntime.loaded ? 'ready' : 'idle'));
+  const nativeRuntime = backgroundRemovalModelCatalogState.native || {};
+  const samActive = !commercialActive && (settings.preset === 'interactive_select' || settings.workflow_mode === 'interactive_sam');
+  const engineSummary = backgroundRemovalEngineSummary(settings);
+  const modelHelp = commercialActive
+    ? `<div class="neo-background-removal-model-card"><strong>Commercial provider readiness</strong><span class="neo-muted">${escapeHtml(engineSummary)}</span><small>${escapeHtml(commercialProfile ? 'API credentials and account billing are managed through Admin → Backends. A connection check never removes a background.' : 'No enabled commercial Background Removal profile is available.')}</small><div class="neo-badge-row">${badgeRow([backgroundRemovalCommercialProviderLabel(commercialProfile), 'External upload', 'No automatic fallback'])}</div><button class="btn btn-small secondary" type="button" onclick="setActiveSubtab('admin','backends')">Open Admin Backends</button></div>`
+    : `<div class="neo-background-removal-model-card" data-background-removal-model-scan-state="${escapeAttr(catalogScanState)}" data-background-removal-model-scan-profile="${escapeAttr(catalogProfileId)}" aria-busy="${catalogRuntime.loading ? 'true' : 'false'}"><strong>Engine readiness</strong><span class="neo-muted">${escapeHtml(engineSummary)}</span><small role="status" aria-live="polite">${escapeHtml(backgroundRemovalCatalogSummary())}</small><div class="neo-badge-row">${badgeRow([backgroundRemovalBackendLabel(), nativeRuntime.available ? `rembg ${nativeRuntime.version || 'installed'}` : 'rembg optional', settings.fallback_policy === 'never' ? 'No fallback' : 'Fallback enabled'])}</div><button class="btn btn-small secondary" id="backgroundRemovalRefreshModels" type="button" ${locked || catalogRuntime.loading ? 'disabled' : ''}>${catalogRuntime.loading ? 'Scanning…' : 'Refresh engines'}</button></div>`;
+  const advanced = compact ? '' : (commercialActive ? `<div class="neo-background-removal-grid"><label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label></div>` : (samActive ? `<div class="neo-background-removal-grid">
+    <label>Mask threshold<input id="backgroundRemovalMaskThreshold" type="number" min="0" max="1" step="0.001" value="${escapeAttr(settings.mask_threshold)}" ${locked ? 'disabled' : ''}></label>
+    <label>Edge expand / contract<input id="backgroundRemovalMaskExpand" type="number" min="-128" max="128" step="1" value="${escapeAttr(settings.mask_expand || 0)}" ${locked ? 'disabled' : ''}><small>Applied after SAM/BiRefNet selection.</small></label>
+    <label>Edge feather<input id="backgroundRemovalMaskFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.mask_feather || 0)}" ${locked ? 'disabled' : ''}></label>
+    <label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label>
+  </div>` : `<div class="neo-background-removal-grid">
+    <label>Processing width<input id="backgroundRemovalWidth" type="number" min="256" max="4096" step="64" value="${escapeAttr(settings.width)}" ${locked ? 'disabled' : ''}></label>
+    <label>Processing height<input id="backgroundRemovalHeight" type="number" min="256" max="4096" step="64" value="${escapeAttr(settings.height)}" ${locked ? 'disabled' : ''}></label>
+    <label>Resize method<select id="backgroundRemovalUpscaleMethod" ${locked ? 'disabled' : ''}>${['bilinear','bicubic','nearest','nearest-exact'].map((item) => `<option value="${item}" ${settings.upscale_method === item ? 'selected' : ''}>${item}</option>`).join('')}</select></label>
+    <label>Mask threshold<input id="backgroundRemovalMaskThreshold" type="number" min="0" max="1" step="0.001" value="${escapeAttr(settings.mask_threshold)}" ${locked ? 'disabled' : ''}></label>
+    <label>Edge expand / contract<input id="backgroundRemovalMaskExpand" type="number" min="-128" max="128" step="1" value="${escapeAttr(settings.mask_expand || 0)}" ${locked ? 'disabled' : ''}><small>Positive expands foreground; negative contracts it.</small></label>
+    <label>Edge feather<input id="backgroundRemovalMaskFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.mask_feather || 0)}" ${locked ? 'disabled' : ''}></label>
+    <label>Foreground blur<input id="backgroundRemovalBlurSize" type="number" min="1" max="255" step="1" value="${escapeAttr(settings.blur_size)}" ${locked ? 'disabled' : ''}></label>
+    <label>Secondary blur<input id="backgroundRemovalBlurSizeTwo" type="number" min="1" max="255" step="1" value="${escapeAttr(settings.blur_size_two)}" ${locked ? 'disabled' : ''}></label>
+    <label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label>
+    <label class="neo-toggle-row"><input id="backgroundRemovalNativeAlphaMatting" type="checkbox" ${settings.native_alpha_matting ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Native alpha matting</span></label>
+    <label class="neo-toggle-row"><input id="backgroundRemovalNativePostProcess" type="checkbox" ${settings.native_post_process_mask ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Native mask post-process</span></label>
+    ${settings.native_alpha_matting ? `<label>Foreground threshold<input id="backgroundRemovalNativeForegroundThreshold" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_foreground_threshold)}" ${locked ? 'disabled' : ''}></label><label>Background threshold<input id="backgroundRemovalNativeBackgroundThreshold" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_background_threshold)}" ${locked ? 'disabled' : ''}></label><label>Matting erode<input id="backgroundRemovalNativeErodeSize" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_erode_size)}" ${locked ? 'disabled' : ''}></label>` : ''}
+  </div>`));
+  const commercialCard = commercialActive ? `<div class="neo-background-removal-commercial-card">
+    <div><strong>External upload & credit confirmation</strong><span class="neo-muted">The selected image will leave this device and be sent to ${escapeHtml(commercialProfile?.display_name || 'the selected commercial provider')}. Provider billing, retention, privacy, and acceptable-use terms apply.</span></div>
+    <div class="neo-badge-row">${badgeRow([`${estimatedCommercialCalls} estimated API call${estimatedCommercialCalls === 1 ? '' : 's'}`, 'Paid credits may be consumed', 'Consent resets after every run', 'No cloud fallback'])}</div>
+    <label class="neo-toggle-row neo-commercial-consent"><input id="backgroundRemovalCommercialConsent" type="checkbox" ${settings.commercial_upload_consent ? 'checked' : ''} ${locked || !commercialProfile ? 'disabled' : ''}> <span>I confirm this upload and understand that provider credits may be charged for this run.</span></label>
+    ${!commercialProfile ? '<small class="neo-muted">Create the profile and save its API key in Admin → Backends. The API key is never sent to the browser.</small>' : '<small class="neo-muted">This confirmation is not saved for replay and must be given again for each run.</small>'}
+  </div>` : '';
+  const commercialProviderControls = commercialProviderId === 'remove_bg'
+    ? `<label>remove.bg output size<select id="backgroundRemovalCommercialOutputSize" ${locked ? 'disabled' : ''}>${['auto','preview','small','regular','medium','hd','4k','50mp'].map((item) => `<option value="${item}" ${settings.commercial_output_size === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label><label>Subject type<select id="backgroundRemovalCommercialSubjectType" ${locked ? 'disabled' : ''}>${['auto','person','product','car'].map((item) => `<option value="${item}" ${settings.commercial_subject_type === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label><label class="neo-toggle-row"><input id="backgroundRemovalCommercialSemitransparency" type="checkbox" ${settings.commercial_preserve_semitransparency !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Preserve semi-transparent edges</span></label>`
+    : (commercialProviderId === 'clipdrop_remove_bg' ? `<label>Existing transparency<select id="backgroundRemovalCommercialTransparencyHandling" ${locked ? 'disabled' : ''}><option value="return_input_if_non_opaque" ${settings.commercial_transparency_handling === 'return_input_if_non_opaque' ? 'selected' : ''}>Return input when already transparent</option><option value="discard_alpha_layer" ${settings.commercial_transparency_handling === 'discard_alpha_layer' ? 'selected' : ''}>Discard existing alpha and process</option></select></label>` : '');
+  const routeControls = commercialActive ? `<div class="neo-background-removal-grid">
+      <label>Execution engine<select id="backgroundRemovalEngine" ${locked ? 'disabled' : ''}>${backgroundRemovalEngineOptions(settings.engine)}</select></label>
+      <label>Commercial provider profile<select id="backgroundRemovalCommercialProfile" ${locked ? 'disabled' : ''}>${backgroundRemovalCommercialProfileOptions(settings.commercial_profile_id || commercialProfile?.profile_id || '')}</select></label>
+      ${commercialProviderControls}
+    </div>` : (samActive ? `<div class="neo-background-removal-grid">
+      <label>Removal preset<select id="backgroundRemovalPreset" ${locked ? 'disabled' : ''}>${backgroundRemovalPresetOptions(settings.preset)}</select></label>
+      <label>Native provider<select id="backgroundRemovalNativeProvider" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.native_provider === 'AUTO' ? 'selected' : ''}>AUTO</option><option value="CUDA" ${settings.native_provider === 'CUDA' ? 'selected' : ''}>CUDA → CPU fallback</option><option value="CPU" ${settings.native_provider === 'CPU' ? 'selected' : ''}>CPU only</option></select></label>
+    </div>` : `<div class="neo-background-removal-grid">
+      <label>Execution engine<select id="backgroundRemovalEngine" ${locked ? 'disabled' : ''}>${backgroundRemovalEngineOptions(settings.engine)}</select></label>
+      <label>Removal preset<select id="backgroundRemovalPreset" ${locked ? 'disabled' : ''}>${backgroundRemovalPresetOptions(settings.preset)}</select></label>
+      <label>Fallback policy<select id="backgroundRemovalFallbackPolicy" ${locked ? 'disabled' : ''}><option value="on_unavailable" ${settings.fallback_policy === 'on_unavailable' ? 'selected' : ''}>Fallback when unavailable</option><option value="on_unavailable_or_queue_failure" ${settings.fallback_policy === 'on_unavailable_or_queue_failure' ? 'selected' : ''}>Also fallback on Comfy queue failure</option><option value="never" ${settings.fallback_policy === 'never' ? 'selected' : ''}>Never fallback</option></select></label>
+      <label>Comfy BiRefNet model<select id="backgroundRemovalModel" ${locked ? 'disabled' : ''}>${backgroundRemovalModelOptions(settings.model)}</select></label>
+      <label>Comfy device<select id="backgroundRemovalDevice" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.device === 'AUTO' ? 'selected' : ''}>AUTO / GPU</option><option value="CPU" ${settings.device === 'CPU' ? 'selected' : ''}>CPU</option></select></label>
+      <label>Native model<select id="backgroundRemovalNativeModel" ${locked ? 'disabled' : ''}>${backgroundRemovalNativeModelOptions(settings.native_model)}</select></label>
+      <label>Native provider<select id="backgroundRemovalNativeProvider" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.native_provider === 'AUTO' ? 'selected' : ''}>AUTO</option><option value="CUDA" ${settings.native_provider === 'CUDA' ? 'selected' : ''}>CUDA → CPU fallback</option><option value="CPU" ${settings.native_provider === 'CPU' ? 'selected' : ''}>CPU only</option></select></label>
+    </div>`);
+  const reviewCard = `<div class="neo-background-removal-review-card" data-review-ready="${canReview ? 'true' : 'false'}">
+    <div><strong>Edge Refinement & Mask Review</strong><span class="neo-muted">Inspect on checkerboard, white, or black. Paint Keep/Remove on the saved soft mask, then rerun only foreground refinement—BiRefNet segmentation is not repeated.</span></div>
+    <div class="neo-badge-row">${badgeRow([
+      canReview ? 'Source + mask ready' : 'Run with alpha mask first',
+      reviewedReady ? 'Reviewed mask staged' : 'AI mask unchanged',
+      `Offset ${Number(settings.mask_expand || 0) >= 0 ? '+' : ''}${Number(settings.mask_expand || 0)}px`,
+      `Feather ${Number(settings.mask_feather || 0)}px`,
+      settings.foreground_estimation !== false ? 'Foreground estimation on' : 'Direct alpha join',
+    ])}</div>
+    <div class="neo-actions"><button class="btn secondary" id="backgroundRemovalReviewMask" type="button" ${locked || !canReview ? 'disabled' : ''}>🖌️ Review mask</button><button class="btn" id="backgroundRemovalApplyRefinement" type="button" ${locked || !reviewedReady ? 'disabled' : ''}>✨ Apply mask refinement</button></div>
+    ${!canReview ? '<small class="neo-muted">Keep the source upload staged or select a saved Background Removal result that includes its alpha-mask PNG.</small>' : ''}
+  </div>`;
+  const sharedSam = backgroundRemovalModelCatalogState.shared_sam || {};
+  const samSubjects = backgroundRemovalNormalizeSamSubjects(settings.sam_subjects, settings.sam_prompts);
+  const samCounts = backgroundRemovalSamPromptCounts(samSubjects);
+  const sharedPotential = Boolean(sharedSam.ready && sharedSam.models?.length);
+  const nativePotential = Boolean(nativeRuntime.available && nativeRuntime.interactive_sam?.available !== false);
+  const samAssetReady = settings.sam_execution === 'comfy_impact' ? sharedPotential : (settings.sam_execution === 'native_onnx' ? nativePotential : (sharedPotential || nativePotential));
+  const samReadiness = backgroundRemovalSamRouteReadiness(settings, samSubjects);
+  const samSelectionReady = Boolean(samReadiness.ready);
+  const samBadgeReady = samCounts.selected ? samSelectionReady : samAssetReady;
+  const samBadgeLabel = samCounts.selected ? (samSelectionReady ? 'SAM route ready' : 'Selection needs attention') : (samAssetReady ? 'SAM assets ready' : 'SAM unavailable');
+  const samExecutionOptions = BACKGROUND_REMOVAL_SAM_EXECUTION_OPTIONS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${settings.sam_execution === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const samVariantOptions = BACKGROUND_REMOVAL_SAM_VARIANTS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${settings.sam_model_variant === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const samRefineOptions = BACKGROUND_REMOVAL_SAM_REFINE_MODELS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${settings.sam_refine_model === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const sharedRefineModelOptions = backgroundRemovalModelOptions(settings.model);
+  const sharedModels = backgroundRemovalCatalogList(sharedSam.models);
+  const sharedModelOptions = backgroundRemovalSamModelOptions(settings.sam_comfy_model);
+  const detectorType = settings.sam_detector_type === 'segm' ? 'segm' : 'bbox';
+  const detectorModels = backgroundRemovalCatalogList(detectorType === 'segm' ? sharedSam.segm_models : sharedSam.bbox_models);
+  const detectorModelOptions = backgroundRemovalDetectorModelOptions(settings.sam_detector_model, detectorType);
+  const samModelScanStatus = sharedModels.length ? `${sharedModels.length} SAM model${sharedModels.length === 1 ? '' : 's'} in the active profile scan.` : backgroundRemovalCatalogPlaceholder('sam');
+  const detectorScanLabel = detectorType === 'segm' ? 'segmentation' : 'BBox';
+  const detectorModelScanStatus = detectorModels.length ? `${detectorModels.length} ${detectorScanLabel} detector model${detectorModels.length === 1 ? '' : 's'} in the active profile scan.` : backgroundRemovalCatalogPlaceholder(detectorType);
+  const samCard = samActive ? `<div class="neo-background-removal-sam-card" data-sam-ready="${samSelectionReady ? 'true' : 'false'}">
+    <div class="neo-background-removal-sam-card__header"><div><strong>Interactive SAM Selection · Multiple Subjects</strong><span class="neo-muted">Detect every person, choose exactly who remains, then generate one SAM mask per selected subject and combine them.</span></div><span class="neo-state-pill ${samBadgeReady ? 'success' : 'warning'}">${samBadgeLabel}</span></div>
+    <div class="neo-background-removal-grid">
+      <label>SAM execution<select id="backgroundRemovalSamExecution" ${locked ? 'disabled' : ''}>${samExecutionOptions}</select><small>Auto uses Comfy SAM for box selections and Native ONNX for point corrections.</small></label>
+      <label>Comfy SAM model<select id="backgroundRemovalSamComfyModel" aria-describedby="backgroundRemovalSamModelScanStatus" ${locked || !sharedPotential ? 'disabled' : ''}>${sharedModelOptions}</select><small id="backgroundRemovalSamModelScanStatus">${escapeHtml(samModelScanStatus)}</small><small>ComfyUI/models/sams</small></label>
+      <label>Native ONNX model<select id="backgroundRemovalSamModelVariant" ${locked || !nativePotential ? 'disabled' : ''}>${samVariantOptions}</select></label>
+      <label>Person detector type<select id="backgroundRemovalSamDetectorType" ${locked ? 'disabled' : ''}><option value="bbox" ${settings.sam_detector_type === 'bbox' ? 'selected' : ''}>Bounding-box detector</option><option value="segm" ${settings.sam_detector_type === 'segm' ? 'selected' : ''}>Segmentation detector</option></select></label>
+      <label>Person detector<select id="backgroundRemovalSamDetectorModel" aria-describedby="backgroundRemovalDetectorModelScanStatus" ${locked || !detectorModels.length ? 'disabled' : ''}>${detectorModelOptions}</select><small id="backgroundRemovalDetectorModelScanStatus">${escapeHtml(detectorModelScanStatus)}</small></label>
+      <label>Detection confidence<input id="backgroundRemovalSamDetectionConfidence" type="number" min="0.05" max="0.95" step="0.01" value="${escapeAttr(settings.sam_detection_confidence)}" ${locked ? 'disabled' : ''}></label>
+      <label>Edge handoff<select id="backgroundRemovalSamRefineMode" ${locked || !samAssetReady ? 'disabled' : ''}><option value="birefnet_gate" ${settings.sam_refine_mode === 'birefnet_gate' ? 'selected' : ''}>BiRefNet soft-edge refinement</option><option value="sam_only" ${settings.sam_refine_mode === 'sam_only' ? 'selected' : ''}>SAM mask only</option></select></label>
+      ${settings.sam_refine_mode === 'birefnet_gate' ? `<label>Comfy BiRefNet edge model<select id="backgroundRemovalSamComfyRefineModel" ${locked || !sharedPotential ? 'disabled' : ''}>${sharedRefineModelOptions}</select><small>Used by the Comfy SAM route.</small></label><label>Native ONNX BiRefNet edge model<select id="backgroundRemovalSamRefineModel" ${locked || !nativePotential ? 'disabled' : ''}>${samRefineOptions}</select><small>Used only by Neo Native ONNX.</small></label><label>Selection gate expand<input id="backgroundRemovalSamGateExpand" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.sam_gate_expand)}" ${locked || !samAssetReady ? 'disabled' : ''}></label><label>Selection gate feather<input id="backgroundRemovalSamGateFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.sam_gate_feather)}" ${locked || !samAssetReady ? 'disabled' : ''}></label>` : ''}
+      <label class="neo-toggle-row"><input id="backgroundRemovalSamQuantized" type="checkbox" ${settings.sam_quantized !== false ? 'checked' : ''} ${locked || !nativePotential ? 'disabled' : ''}> <span>Use quantized Native ONNX encoder</span></label>
+      ${settings.sam_refine_mode === 'birefnet_gate' ? `<label class="neo-toggle-row"><input id="backgroundRemovalSamRefineFallback" type="checkbox" ${settings.sam_refine_fallback !== false ? 'checked' : ''} ${locked || !samAssetReady ? 'disabled' : ''}> <span>Fall back to SAM-only if edge refinement fails</span></label>` : ''}
+    </div>
+    <div class="neo-badge-row">${badgeRow([`${samCounts.selected}/${samCounts.total} subjects selected`, `${samCounts.boxes} boxes`, `${samCounts.keep} Keep`, `${samCounts.remove} Remove`, sharedPotential ? `${sharedModels.length} Comfy SAM model${sharedModels.length === 1 ? '' : 's'}` : 'Comfy SAM unavailable', nativePotential ? 'Native ONNX ready' : 'Native ONNX optional'])}</div>
+    <div class="neo-help-card"><strong>Resolved route preview</strong><span>${escapeHtml(samReadiness.route.replaceAll('_', ' '))} · ${escapeHtml(samReadiness.reason)}</span></div>
+    <div class="neo-actions"><button class="btn" id="backgroundRemovalOpenSamSelector" type="button" ${locked ? 'disabled' : ''}>👥 Select people / subjects</button></div>
+    ${!samAssetReady ? `<small class="neo-muted">Install the Comfy SAM nodes with a model under ComfyUI/models/sams, or install the optional Native ONNX runtime. You can still prepare subject boxes before the runtime is ready.</small>` : `<small class="neo-muted">Box-only selections use the installed Comfy SAM model. Keep/Remove correction points require Native ONNX SAM.</small>`}
+  </div>` : '';
+  const backgroundRemovalPanelStatus = !settings.enabled ? 'Disabled' : (locked ? 'Unavailable' : 'Ready');
+  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `State: ${route.route_state}`, 'Mount: image.finish.background_removal', 'Endpoints: queue + source-file'])}</div><pre>${escapeHtml(JSON.stringify({ route, params: backgroundRemovalCleanParams(settings), catalog: backgroundRemovalModelCatalogState, review: reviewArtifacts }, null, 2))}</pre></div>` : '';
+  const body = `<section class="neo-background-removal-panel" data-extension-id="${BACKGROUND_REMOVAL_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
+    <header class="neo-cfg-fix-panel__header"><div><strong>Remove Background</strong><span class="neo-muted">Local BiRefNet/rembg, Interactive SAM, mask refinement, and optional opt-in commercial providers</span></div><div class="neo-extension-status-line"><span class="neo-state-pill ${backgroundRemovalPanelStatus === 'Ready' ? 'success' : 'warning'}">${backgroundRemovalPanelStatus}</span></div></header>
+    ${route.reason ? `<div class="neo-extension-route-gate"><strong>Route notice</strong><p>${escapeHtml(route.reason)}</p></div>` : ''}
+    <label class="neo-toggle-row"><input id="backgroundRemovalEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Enable Background Removal utility</span></label>
+    <div class="neo-background-removal-source-row">
+      <label id="backgroundRemovalDropzone" class="neo-background-removal-dropzone${staged ? ' has-files' : ''}" tabindex="0"><input id="backgroundRemovalFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><span>✂️</span><strong>${escapeHtml(staged?.name || 'Drop or choose one source image')}</strong><small>${escapeHtml(staged ? 'Uploaded source will be used.' : (candidate?.label ? `No upload staged · selected result: ${candidate.label}` : 'PNG, JPG, WEBP, or BMP'))}</small></label>
+      <div class="neo-background-removal-preview is-${escapeAttr(settings.preview_background || 'checkerboard')}">${previewUrl ? `<img src="${escapeAttr(previewUrl)}" alt="Background removal source preview">` : '<span class="neo-muted">Transparency preview</span>'}</div>
+    </div>
+    ${routeControls}
+    <div class="neo-help-card neo-background-removal-engine-summary"><strong>Resolved route preview</strong><span>${escapeHtml(engineSummary)}</span><small>${commercialActive ? 'Commercial providers run only after explicit per-run consent. Neo stores the returned PNG locally and never sends the API key to the browser.' : 'Backend resolution is revalidated server-side for every source. Smart Routing never invents a model that is not available.'}</small></div>
+    ${commercialCard}
+    ${samCard}
+    ${advanced}
+    <div class="neo-background-removal-grid">
+      ${samActive || commercialActive ? '' : `<label class="neo-toggle-row"><input id="backgroundRemovalForegroundEstimation" type="checkbox" ${settings.foreground_estimation !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Foreground colour estimation</span></label>`}
+      <label class="neo-toggle-row"><input id="backgroundRemovalSaveMask" type="checkbox" ${settings.save_mask ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Save alpha mask as a second PNG</span></label>
+      ${expert && !commercialActive ? `<label>Dtype<select id="backgroundRemovalDtype" ${locked ? 'disabled' : ''}><option value="float32" ${settings.dtype === 'float32' ? 'selected' : ''}>float32</option><option value="float16" ${settings.dtype === 'float16' ? 'selected' : ''}>float16</option></select></label><label class="neo-toggle-row"><input id="backgroundRemovalUseWeight" type="checkbox" ${settings.use_weight ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use backbone weight model</span></label>` : ''}
+    </div>
+    ${reviewCard}
+    ${modelHelp}
+    <div class="neo-actions"><button class="btn" id="backgroundRemovalSelectedResult" type="button" ${locked ? 'disabled' : ''}>${samActive ? '🎯 Open SAM selector' : (commercialActive ? '☁️ Upload & remove background' : '✂️ Remove background')}</button><button class="btn secondary" id="backgroundRemovalClearSource" type="button" ${staged ? '' : 'disabled'}>Clear upload</button></div>
+    <p class="neo-muted" id="backgroundRemovalStatus">${escapeHtml(settings._ui_status || 'Ready.')}</p>
+    ${expertBlock}
+  </section>`;
+  return panel('Remove Background', body, false, backgroundRemovalPanelStatus);
 }
 
 const IP_ADAPTER_SOURCE = 'image.reference.ip_adapter';
@@ -16662,6 +18556,11 @@ const ADETAILER_DEFAULTS = {
 const ADETAILER_DRAFT_STORAGE_KEY = 'neo.image.adetailer.draft.v1';
 const ADETAILER_SELECTED_PRESET_KEY = 'neo.image.adetailer.selectedPreset.v1';
 const ADETAILER_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
+const ADETAILER_RUNTIME_CATALOG_KEYS = ['model_catalog', 'catalog_bbox_models', 'catalog_segm_models', 'catalog_onnx_models', 'catalog_sam_models'];
+const ADETAILER_CATALOG_RETRY_DELAYS_MS = [0, 750];
+const adetailerModelCatalogByProfile = new Map();
+const adetailerModelCatalogInFlight = new Map();
+let adetailerModelCatalogRequestId = 0;
 const ADETAILER_UI_POLICY = {
   available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Available', tone: 'success' },
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
@@ -16737,12 +18636,12 @@ function adetailerNormalizeSettings(raw = {}) {
   const primary = adetailerNormalizePass(existing[0] || merged, 0);
   const extras = existing.slice(1).map((pass, index) => adetailerNormalizePass(pass, index + 1));
   const passes = [primary, ...extras];
-  return {
+  const normalized = {
     ...merged,
     ...primary,
     enabled: Boolean(merged.enabled),
-    custom_detector_root: String(merged.custom_detector_root || '').trim(),
-    custom_sam_root: String(merged.custom_sam_root || '').trim(),
+    custom_detector_root: '',
+    custom_sam_root: '',
     sam_preset: String(merged.sam_preset || '').trim(),
     provider: ['ultralytics', 'onnx'].includes(String(merged.provider || '').toLowerCase()) ? String(merged.provider).toLowerCase() : 'ultralytics',
     sam_model: String(merged.sam_model || '').trim(),
@@ -16759,6 +18658,8 @@ function adetailerNormalizeSettings(raw = {}) {
     target_split_mode: ['sep', 'none', 'sep_prompt_targets', 'single_prompt', 'repeat_prompt'].includes(String(merged.target_split_mode || '').toLowerCase()) ? String(merged.target_split_mode).toLowerCase() : 'sep',
     detailer_passes: passes,
   };
+  ADETAILER_RUNTIME_CATALOG_KEYS.forEach((key) => { delete normalized[key]; });
+  return normalized;
 }
 function adetailerSettings() {
   const raw = state.imageDraft?.[ADETAILER_EXTENSION_ID] || {};
@@ -16848,10 +18749,11 @@ function duplicateAdetailerPass(index) {
   updateAdetailerSettings({ detailer_passes: [...settings.detailer_passes, pass], enabled: true });
 }
 function adetailerWorkflowMode() {
+  const forcedPreviewMode = String(state.imageDraft?._preview_action_force_workflow_mode || '').trim();
   const fromSelect = imageCommandValue('workflowMode');
   const fromDraft = state.imageDraft.workflow_mode;
   const fromState = state.activeSubtabId;
-  return normalizeImageWorkflowMode(fromSelect || fromDraft || fromState || 'generate');
+  return normalizeImageWorkflowMode(forcedPreviewMode || fromSelect || fromDraft || fromState || 'generate');
 }
 function adetailerActiveRoute(record) {
   const manifest = record?.manifest || {};
@@ -16909,8 +18811,6 @@ function adetailerCleanParams(settings = {}) {
   const primary = { ...(activePasses[0] || passes[0] || adetailerNormalizePass({}, 0)), enabled: true };
   const params = {
     enabled: Boolean(cleanSettings.enabled),
-    custom_detector_root: cleanSettings.custom_detector_root,
-    custom_sam_root: cleanSettings.custom_sam_root,
     sam_preset: cleanSettings.sam_preset,
     provider: cleanSettings.provider,
     sam_model: cleanSettings.sam_model,
@@ -17044,31 +18944,165 @@ function adetailerOptionSelect(id, options, value, disabled = false, attrs = '')
   return `<select id="${id}" ${attrs} ${disabled ? 'disabled' : ''}>${options.map((opt) => `<option value="${escapeAttr(opt.id)}" ${String(opt.id) === String(value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}</select>`;
 }
 
-function adetailerDetectorModelsForPass(settings = adetailerSettings(), pass = {}) {
-  const catalog = settings.model_catalog || {};
-  const type = String(pass.detector_type || 'bbox').toLowerCase();
-  const pool = [];
-  const addAll = (items) => (items || []).forEach((item) => {
+function adetailerCatalogProfileId() {
+  const selected = selectedBackendProfileIdForSurface('image');
+  const fallback = state.backendProfiles?.defaults?.image || activeImageProfile()?.profile_id || '';
+  return String(selected || fallback || '').trim();
+}
+function adetailerCatalogCacheKey(profileId = adetailerCatalogProfileId()) {
+  return String(profileId || '').trim() || '__active_image_default__';
+}
+function adetailerModelCatalogState(profileId = adetailerCatalogProfileId()) {
+  const key = adetailerCatalogCacheKey(profileId);
+  return adetailerModelCatalogByProfile.get(key) || {
+    profile_id: String(profileId || ''),
+    loading: false,
+    loaded: false,
+    error: '',
+    attempt: 0,
+    request_id: 0,
+    payload: null,
+    last_loaded_at: '',
+  };
+}
+function adetailerSetModelCatalogState(profileId, patch = {}) {
+  const key = adetailerCatalogCacheKey(profileId);
+  const next = { ...adetailerModelCatalogState(profileId), ...patch, profile_id: String(profileId || '') };
+  adetailerModelCatalogByProfile.set(key, next);
+  return next;
+}
+function adetailerCatalogPayloadForProfile(profileId = adetailerCatalogProfileId()) {
+  const payload = adetailerModelCatalogState(profileId).payload;
+  return payload && typeof payload === 'object' ? payload : {};
+}
+function adetailerCatalogListForType(payload = {}, detectorType = 'bbox') {
+  const type = String(detectorType || 'bbox').toLowerCase();
+  const source = type.includes('onnx') ? payload.onnx_models : type.includes('segm') ? payload.segm_models : payload.bbox_models;
+  return [...new Set((Array.isArray(source) ? source : []).map((item) => {
     const value = typeof item === 'string' ? item : (item?.name || item?.filename || item?.path || '');
-    if (value) pool.push(String(value));
-  });
-  if (type.includes('onnx')) addAll(catalog.onnx_models || settings.catalog_onnx_models || []);
-  if (type.includes('segm')) addAll(catalog.segm_models || settings.catalog_segm_models || []);
-  if (!type.includes('segm') && !type.includes('onnx')) addAll(catalog.bbox_models || settings.catalog_bbox_models || []);
-  // Keep a fallback union so changing detector type never hides every scanned model.
-  addAll(catalog.bbox_models || settings.catalog_bbox_models || []);
-  addAll(catalog.segm_models || settings.catalog_segm_models || []);
-  addAll(catalog.onnx_models || settings.catalog_onnx_models || []);
-  if (pass.detector_model) pool.unshift(pass.detector_model);
-  return [...new Set(pool.map((name) => String(name).trim()).filter(Boolean))];
+    return String(value || '').trim();
+  }).filter(Boolean))];
+}
+function adetailerCatalogTotalModels(payload = adetailerCatalogPayloadForProfile()) {
+  return ['bbox_models', 'segm_models', 'onnx_models', 'sam_models'].reduce((total, key) => total + (Array.isArray(payload[key]) ? payload[key].length : 0), 0);
+}
+function adetailerModelScanSourceSummary(payload = adetailerCatalogPayloadForProfile()) {
+  const filesystem = payload.diagnostics?.standard_filesystem || {};
+  const registered = payload.diagnostics?.comfy_model_folders || {};
+  const directDetectors = [
+    filesystem.bbox_models,
+    filesystem.segm_models,
+    filesystem.onnx_models,
+    filesystem.legacy_adetailer_bbox_models,
+    filesystem.legacy_adetailer_segm_models,
+    filesystem.legacy_adetailer_onnx_models,
+  ].reduce((total, value) => total + Math.max(0, Number(value || 0)), 0);
+  const registeredChoices = ['bbox_choices', 'segm_choices', 'onnx_choices', 'sam_choices']
+    .reduce((total, key) => total + Math.max(0, Number(registered[key] || 0)), 0);
+  const labels = [];
+  if (filesystem.configured || directDetectors) labels.push(`folder files ${directDetectors}`);
+  if (registered.available || registeredChoices) labels.push(`Comfy registered ${registeredChoices}`);
+  return labels.join(' · ');
+}
+function adetailerModelScanWarningLabel(value = '') {
+  const code = String(value || '').trim();
+  if (!code) return '';
+  if (code === 'no_detector_models_discovered') return 'no detector files found';
+  if (code === 'detector_provider_nodes_not_found') return 'Comfy detector provider nodes not found';
+  if (code === 'extra_model_paths_has_no_supported_detector_keys') return 'extra_model_paths has no supported detector folders';
+  if (code.startsWith('comfy_object_info_unavailable:')) {
+    return `Comfy live choices unavailable (${code.split(':').slice(1).join(':') || 'connection error'})`;
+  }
+  return code.replaceAll('_', ' ');
+}
+function adetailerCatalogStatusSummary(profileId = adetailerCatalogProfileId()) {
+  const runtime = adetailerModelCatalogState(profileId);
+  const payload = runtime.payload || {};
+  const total = adetailerCatalogTotalModels(payload);
+  if (runtime.loading) {
+    const retry = runtime.attempt > 1 ? ` Retry ${runtime.attempt}/${ADETAILER_CATALOG_RETRY_DELAYS_MS.length}.` : '';
+    return total ? `Refreshing ADetailer models… Showing the last successful scan meanwhile.${retry}` : `Scanning ADetailer models from the active Comfy profile…${retry}`;
+  }
+  if (runtime.error) {
+    return total ? `Refresh failed: ${runtime.error}. Showing the last successful scan; use Refresh models to retry.` : `Model scan failed: ${runtime.error}. Start/check Comfy, then use Refresh models.`;
+  }
+  if (!runtime.loaded) return 'Models have not been scanned for this Image backend profile yet.';
+  const counts = payload.counts || {};
+  const sources = adetailerModelScanSourceSummary(payload);
+  const sourceSummary = sources ? ` · ${sources}` : '';
+  const warnings = Array.isArray(payload.diagnostics?.warnings) ? payload.diagnostics.warnings : [];
+  const warningLabel = warnings.length ? adetailerModelScanWarningLabel(warnings[0]) : '';
+  const warning = warningLabel ? ` · ${warningLabel}` : '';
+  return `Models loaded: ${counts.bbox ?? payload.bbox_models?.length ?? 0} bbox · ${counts.segm ?? payload.segm_models?.length ?? 0} segm · ${counts.onnx ?? payload.onnx_models?.length ?? 0} ONNX · ${counts.sam ?? payload.sam_models?.length ?? 0} SAM${sourceSummary}${warning}.`;
+}
+function adetailerCatalogPlaceholder(detectorType = 'bbox', profileId = adetailerCatalogProfileId()) {
+  const runtime = adetailerModelCatalogState(profileId);
+  const type = String(detectorType || 'bbox').toLowerCase();
+  const label = type.includes('onnx') ? 'ONNX' : type.includes('segm') ? 'segmentation' : 'BBox';
+  if (runtime.loading) return `Scanning ${label} models…`;
+  if (runtime.error) return `Refresh failed — retry ${label} models`;
+  if (runtime.loaded) return `No ${label} models found`;
+  return 'Refresh models to load…';
+}
+function adetailerEnsureModelCatalog() {
+  const profileId = adetailerCatalogProfileId();
+  const runtime = adetailerModelCatalogState(profileId);
+  if (!runtime.loaded && !runtime.loading && !runtime.error) void adetailerFetchModelCatalog({ silent: true });
+  return adetailerModelCatalogState(profileId);
+}
+
+function adetailerDetectorModelsForPass(settings = adetailerSettings(), pass = {}) {
+  const catalog = adetailerCatalogPayloadForProfile();
+  const type = String(pass.detector_type || 'bbox').toLowerCase();
+  return adetailerCatalogListForType(catalog, type);
+}
+function adetailerDefaultDetectorForType(payload = {}, detectorType = 'bbox') {
+  const type = String(detectorType || 'bbox').toLowerCase();
+  if (type.includes('onnx')) return String(payload.default_onnx_model || '');
+  if (type.includes('segm')) return String(payload.default_segm_model || '');
+  return String(payload.default_bbox_model || payload.default_detector_model || '');
+}
+function adetailerCatalogCanonicalModel(payload = {}, detectorType = 'bbox', modelName = '') {
+  const current = String(modelName || '').trim();
+  if (!current) return '';
+  const source = adetailerCatalogListForType(payload, detectorType);
+  const exact = source.find((name) => String(name) === current);
+  if (exact) return String(exact);
+  const currentBase = basename(current).toLowerCase();
+  const basenameMatch = source.find((name) => basename(String(name)).toLowerCase() === currentBase);
+  return basenameMatch ? String(basenameMatch) : '';
+}
+function adetailerCatalogContainsModel(payload = {}, detectorType = 'bbox', modelName = '') {
+  return Boolean(adetailerCatalogCanonicalModel(payload, detectorType, modelName));
 }
 function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, commonAttrs = '') {
+  const catalog = adetailerCatalogPayloadForProfile();
+  const catalogRuntime = adetailerModelCatalogState();
   const models = adetailerDetectorModelsForPass(adetailerSettings(), pass);
   const current = String(pass.detector_model || '');
-  const placeholder = models.length ? 'Pick detector model…' : 'Refresh models to load…';
+  const canonicalCurrent = adetailerCatalogCanonicalModel(catalog, pass.detector_type, current);
+  const placeholder = models.length ? 'Pick detector model…' : adetailerCatalogPlaceholder(pass.detector_type);
+  const basenameCounts = models.reduce((counts, name) => {
+    const key = basename(name).toLowerCase();
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const detectorTypeLabel = String(pass.detector_type || 'bbox').toLowerCase().includes('onnx')
+    ? 'ONNX'
+    : String(pass.detector_type || 'bbox').toLowerCase().includes('segm') ? 'Segmentation' : 'BBox';
+  const savedMissingLabel = catalogRuntime.loaded
+    ? `${basename(current)} (saved · not in current ${detectorTypeLabel} scan)`
+    : `${basename(current)} (saved selection)`;
+  const savedMissing = current && !canonicalCurrent ? [`<option value="${escapeAttr(current)}" selected>${escapeHtml(savedMissingLabel)}</option>`] : [];
   const options = [`<option value="" ${current ? '' : 'selected'}>${escapeHtml(placeholder)}</option>`]
-    .concat(models.map((name) => `<option value="${escapeAttr(name)}" ${name === current ? 'selected' : ''}>${escapeHtml(basename(name))}</option>`));
-  return `<select id="${prefix}DetectorModel" ${commonAttrs} data-adetailer-pass-field="detector_model" ${disabled ? 'disabled' : ''}>${options.join('')}</select>`;
+    .concat(savedMissing)
+    .concat(models.map((name) => {
+      const shortName = basename(name);
+      const label = basenameCounts[shortName.toLowerCase()] > 1 ? name : shortName;
+      const selected = name === canonicalCurrent;
+      return `<option value="${escapeAttr(name)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+    }));
+  return `<select id="${prefix}DetectorModel" ${commonAttrs} data-adetailer-pass-field="detector_model" data-adetailer-catalog-profile="${escapeAttr(adetailerCatalogProfileId())}" ${disabled ? 'disabled' : ''}>${options.join('')}</select>`;
 }
 function adetailerHasManualTargetMode(settings = adetailerSettings()) {
   const passes = Array.isArray(settings.detailer_passes) && settings.detailer_passes.length ? settings.detailer_passes : [{ target_mode: settings.target_mode }];
@@ -17156,12 +19190,8 @@ function adetailerLiveReport(settings, route) {
   return `<section class="neo-adetailer-subpanel neo-adetailer-report"><div class="neo-adetailer-subhead"><div><strong>ADetailer report</strong><p class="neo-muted">Live summary of the current repair setup.</p></div><button class="btn btn-small" id="adetailerCopyReport" type="button">Copy report</button></div><div class="neo-badge-row">${badgeRow([`${enabledPasses.length} pass${enabledPasses.length === 1 ? '' : 'es'}`, `${manualCount} manual box${manualCount === 1 ? '' : 'es'}`, `${sepCount} [SEP] chunks`, `route ${route.route_state}`, settings.provider || 'ultralytics'])}</div></section>`;
 }
 function adetailerPanel(record) {
-  const currentAdetailerSettings = adetailerSettings();
-  if (!state.adetailerCatalogBootstrapped && !currentAdetailerSettings.model_catalog) {
-    state.adetailerCatalogBootstrapped = true;
-    adetailerFetchModelCatalog({ silent: true }).then(() => { try { render(); } catch (_) {} });
-  }
   const route = adetailerActiveRoute(record);
+  const catalogRuntime = ['comfyui', 'comfyui_portable'].includes(route.backend) ? adetailerEnsureModelCatalog() : adetailerModelCatalogState();
   const settings = adetailerSettings();
   const policy = adetailerRouteUiPolicy(route);
   const controlsEnabled = adetailerRouteControlsEnabled(route);
@@ -17179,9 +19209,10 @@ function adetailerPanel(record) {
   const manualToolsActive = adetailerHasManualTargetMode(settings);
   const manualTargetTools = manualToolsActive ? adetailerManualTargetMaker(settings, disabled) : adetailerManualToolsNotice(settings);
   const promptMapperTools = '';
-  const shared = `<section class="neo-adetailer-subpanel"><div class="neo-adetailer-subhead"><div><strong>Shared defaults</strong><p class="neo-muted">These affect the whole detailer stack. Per-pass cards below inherit them.</p></div><button class="btn btn-small" id="adetailerRefreshModels" type="button" ${disabled ? 'disabled' : ''}>Refresh models</button><button class="btn btn-small" id="adetailerDownloadSam" type="button" ${disabled ? 'disabled' : ''}>Download SAM</button></div><div class="neo-cfg-fix-control-grid">
-    <label>Custom detector path<input id="adetailerCustomDetectorRoot" type="text" value="${escapeAttr(settings.custom_detector_root)}" placeholder="Optional custom detector model folder" ${disabled ? 'disabled' : ''}></label>
-    <label>Custom SAM path<input id="adetailerCustomSamRoot" type="text" value="${escapeAttr(settings.custom_sam_root)}" placeholder="ComfyUI\\models\\sams" ${disabled ? 'disabled' : ''}></label>
+  const refreshDisabled = disabled || catalogRuntime.loading;
+  const refreshLabel = catalogRuntime.loading ? 'Refreshing…' : 'Refresh models';
+  const catalogStatusClass = catalogRuntime.error ? 'neo-warn' : 'neo-muted';
+  const shared = `<section class="neo-adetailer-subpanel" data-adetailer-catalog-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-catalog-profile="${escapeAttr(adetailerCatalogProfileId())}" data-adetailer-model-scan-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-model-scan-profile="${escapeAttr(adetailerCatalogProfileId())}" aria-busy="${catalogRuntime.loading ? 'true' : 'false'}"><div class="neo-adetailer-subhead"><div><strong>Shared defaults</strong><p class="neo-muted">These affect the whole detailer stack. Per-pass cards below inherit them.</p></div><button class="btn btn-small" id="adetailerRefreshModels" type="button" ${refreshDisabled ? 'disabled' : ''}>${refreshLabel}</button><button class="btn btn-small" id="adetailerDownloadSam" type="button" ${disabled ? 'disabled' : ''}>Download SAM</button></div><div class="neo-cfg-fix-control-grid">
     <label>SAM preset${adetailerOptionSelect('adetailerSamPreset', [{id:'',label:'Pick SAM preset…'}, {id:'vit_b',label:'SAM ViT-B'}, {id:'vit_l',label:'SAM ViT-L'}, {id:'vit_h',label:'SAM ViT-H'}], settings.sam_preset, disabled)}</label>
     <label>Detector provider${adetailerOptionSelect('adetailerProvider', [{id:'ultralytics',label:'Ultralytics'}, {id:'onnx',label:'ONNX'}], settings.provider, disabled)}</label>
     <label>SAM refine model<input id="adetailerSamModel" type="text" value="${escapeAttr(settings.sam_model)}" placeholder="None" list="adetailerSamModelList" ${disabled ? 'disabled' : ''}></label>
@@ -17195,7 +19226,7 @@ function adetailerPanel(record) {
     <label>CFG cap<input id="adetailerCfg" type="number" min="0" max="15" step="0.1" value="${escapeAttr(settings.cfg)}" ${disabled ? 'disabled' : ''}></label>
     <label class="neo-toggle-row"><input id="adetailerUseMainPrompt" type="checkbox" ${settings.use_main_prompt ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use main prompts</span></label>
     <label class="neo-toggle-row"><input id="adetailerForceInpaint" type="checkbox" ${settings.force_inpaint ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Force inpaint pass</span></label>
-  </div><p class="neo-muted" id="adetailerCatalogStatus">Model catalog is ready to scan ComfyUI + custom folders.</p>${adetailerCatalogDatalist(settings)}</section>`;
+  </div><p class="${catalogStatusClass}" id="adetailerCatalogStatus" role="status" aria-live="polite">${escapeHtml(adetailerCatalogStatusSummary())}</p>${adetailerCatalogDatalist(settings)}</section>`;
   const details = compact ? '' : `<p class="neo-muted">Selective local repair using Impact Pack-style ADetailer nodes, with draft persistence, replay-safe restore, multi-pass execution, and drag-to-draw manual targets.</p>${route.reason && disabled ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
   const stagedSource = settings.staged_preview_source || null;
   const stagedSourceLabel = adetailerStagedPreviewSourceLabel();
@@ -17226,6 +19257,7 @@ function builtInExtensionPanel(record) {
     if (id === SCENE_DIRECTOR_EXTENSION_ID) return sceneDirectorPanel(record);
     if (id === HIGH_RES_LAB_EXTENSION_ID) return highResLabPanel(record);
     if (id === IMAGE_UPSCALE_EXTENSION_ID) return imageUpscalePanel(record);
+    if (id === BACKGROUND_REMOVAL_EXTENSION_ID) return backgroundRemovalPanel(record);
     if (id === ADETAILER_EXTENSION_ID) return adetailerPanel(record);
     if (id === LORA_STACK_EXTENSION_ID) return loraStackPanels(record);
     if (id === EMBEDDINGS_TI_EXTENSION_ID) return embeddingsTiPanel(record);
@@ -17652,13 +19684,13 @@ function imageNodeManagerBody() {
     <div class="neo-admin-extension-install">
       <div class="neo-admin-extension-install-row">
         <label>ComfyUI root path
-          <input id="image-node-comfy-root" type="text" placeholder="F:\\ComfyUI" value="${escapeAttr(settings.comfy_root_path || '')}" />
+          <input id="image-node-comfy-root" type="text" placeholder="Select the ComfyUI root folder" value="${escapeAttr(settings.comfy_root_path || '')}" />
         </label>
         <label>custom_nodes path
-          <input id="image-node-custom-path" type="text" placeholder="F:\\ComfyUI\\custom_nodes" value="${escapeAttr(settings.custom_nodes_path || '')}" />
+          <input id="image-node-custom-path" type="text" placeholder="Select the custom_nodes folder" value="${escapeAttr(settings.custom_nodes_path || '')}" />
         </label>
         <label>Comfy Python path
-          <input id="image-node-python-path" type="text" placeholder="F:\ComfyUI\python_embeded\python.exe" value="${escapeAttr(settings.python_path || '')}" />
+          <input id="image-node-python-path" type="text" placeholder="Select the Comfy Python executable" value="${escapeAttr(settings.python_path || '')}" />
         </label>
         <button class="neo-btn primary" type="button" onclick="saveImageNodeManagerSettings()">Save Paths</button>
       </div>
@@ -23231,18 +25263,18 @@ function adminModelsPathsBody() {
     badge: NeoUI.statusBadge(pathsPayload.status || 'ready'),
     body: `<div class="neo-ui-field-grid two compact admin-model-path-grid">
       <label class="neo-ui-check-card"><input id="admin-model-path-comfyui-enabled" type="checkbox" ${comfy.enabled !== false ? 'checked' : ''}> Enable ComfyUI</label>
-      ${adminModelPathField('admin-model-path-comfyui-root', 'ComfyUI root', comfy.root, 'F:/Backends/ComfyUI_windows_portable')}
-      ${adminModelPathField('admin-model-path-comfyui-models', 'ComfyUI models root', comfy.models_root, 'F:/Backends/ComfyUI_windows_portable/ComfyUI/models')}
+      ${adminModelPathField('admin-model-path-comfyui-root', 'ComfyUI root', comfy.root, 'Select your ComfyUI root folder')}
+      ${adminModelPathField('admin-model-path-comfyui-models', 'ComfyUI models root', comfy.models_root, 'Select your ComfyUI models folder')}
       <label class="neo-ui-check-card"><input id="admin-model-path-forge-enabled" type="checkbox" ${forge.enabled ? 'checked' : ''}> Enable Forge</label>
-      ${adminModelPathField('admin-model-path-forge-root', 'Forge root', forge.root, 'F:/Backends/stable-diffusion-webui')}
-      ${adminModelPathField('admin-model-path-forge-models', 'Forge models root', forge.models_root, 'F:/Backends/stable-diffusion-webui/models')}
+      ${adminModelPathField('admin-model-path-forge-root', 'Forge root', forge.root, 'Select your Forge root folder')}
+      ${adminModelPathField('admin-model-path-forge-models', 'Forge models root', forge.models_root, 'Select your Forge models folder')}
       <label class="neo-ui-check-card"><input id="admin-model-path-koboldcpp-enabled" type="checkbox" ${kobold.enabled !== false ? 'checked' : ''}> Enable KoboldCPP</label>
-      ${adminModelPathField('admin-model-path-koboldcpp-root', 'KoboldCPP root', kobold.root, 'F:/LLM/KoboldCPP')}
-      ${adminModelPathField('admin-model-path-koboldcpp-models', 'KoboldCPP models root', kobold.models_root, 'F:/LLM/Models')}
+      ${adminModelPathField('admin-model-path-koboldcpp-root', 'KoboldCPP root', kobold.root, 'Select your KoboldCPP root folder')}
+      ${adminModelPathField('admin-model-path-koboldcpp-models', 'KoboldCPP models root', kobold.models_root, 'Select your KoboldCPP models folder')}
       <label class="neo-ui-check-card"><input id="admin-model-path-local-llm-enabled" type="checkbox" ${local.enabled !== false ? 'checked' : ''}> Enable local LLM roots</label>
-      ${adminModelPathField('admin-model-path-local-llm-root', 'General LLM models root', local.user_llm_models_root, 'F:/LLM/Models')}
-      ${adminModelPathField('admin-model-path-embedding-root', 'Embedding models root', local.user_embedding_models_root, 'F:/LLM/Embeddings')}
-      ${adminModelPathField('admin-model-path-reranker-root', 'Reranker models root', local.user_reranker_models_root, 'F:/LLM/Rerankers')}
+      ${adminModelPathField('admin-model-path-local-llm-root', 'General LLM models root', local.user_llm_models_root, 'Select your local LLM models folder')}
+      ${adminModelPathField('admin-model-path-embedding-root', 'Embedding models root', local.user_embedding_models_root, 'Select your embedding models folder')}
+      ${adminModelPathField('admin-model-path-reranker-root', 'Reranker models root', local.user_reranker_models_root, 'Select your reranker models folder')}
       ${adminModelPathField('admin-model-download-temp-root', 'Download temp root', download.temp_root, 'neo_data/downloads/tmp')}
       ${adminModelPathField('admin-model-download-completed-root', 'Download completed root', download.completed_root, 'neo_data/downloads/completed')}
       ${adminModelPathField('admin-model-download-failed-root', 'Download failed root', download.failed_root, 'neo_data/downloads/failed')}
@@ -24097,6 +26129,71 @@ function imageUpscaleOutputInspectorDetails(payloads = {}, patches = [], validat
 }
 
 
+function backgroundRemovalOutputInspectorDetails(payloads = {}, patches = [], validation = [], memoryEvents = {}) {
+  const block = payloads[BACKGROUND_REMOVAL_EXTENSION_ID];
+  const event = memoryEvents?.[BACKGROUND_REMOVAL_EXTENSION_ID] || {};
+  if ((!block || typeof block !== 'object') && (!event || typeof event !== 'object' || !event.extension_id)) return '';
+  const params = (block?.params && typeof block.params === 'object') ? block.params : (event.params && typeof event.params === 'object' ? event.params : {});
+  const metadata = (block?.metadata && typeof block.metadata === 'object') ? block.metadata : {};
+  const eventAssets = event.assets && typeof event.assets === 'object' ? event.assets : {};
+  const assets = metadata.assets && typeof metadata.assets === 'object' ? metadata.assets : eventAssets;
+  const sourceImages = Array.isArray(assets.source_images) ? assets.source_images : [];
+  const route = (event.route && typeof event.route === 'object') ? event.route : (metadata.route && typeof metadata.route === 'object' ? metadata.route : {});
+  const nodeStatus = event.node_status || metadata.node_status || {};
+  const verification = event.output_verification && typeof event.output_verification === 'object' ? event.output_verification : {};
+  const commercial = event.commercial_provider && typeof event.commercial_provider === 'object'
+    ? event.commercial_provider
+    : (metadata.commercial_provider && typeof metadata.commercial_provider === 'object' ? metadata.commercial_provider : {});
+  const enabled = block ? Boolean(block.enabled) : true;
+  const workflowLabel = params.workflow_mode === 'refine_mask'
+    ? 'reviewed-mask refinement'
+    : (params.workflow_mode === 'interactive_sam'
+      ? 'interactive SAM selection'
+      : (params.resolved_engine === 'commercial_api' || params.engine === 'commercial_api' ? 'commercial removal' : 'BiRefNet segmentation'));
+  const chips = [
+    `Status · ${enabled ? 'Queued' : 'Disabled / gated'}`,
+    params.workflow_mode ? `Workflow · ${workflowLabel}` : '',
+    params.preset ? `Preset · ${String(params.preset).replaceAll('_', ' ')}` : '',
+    params.model && params.workflow_mode !== 'refine_mask' ? `Model · ${basename(params.model)}` : '',
+    params.width && params.height && params.workflow_mode !== 'refine_mask' ? `Processing · ${params.width}×${params.height}` : '',
+    params.mask_threshold !== undefined && params.workflow_mode !== 'refine_mask' ? `Mask threshold · ${formatMaybeNumber(params.mask_threshold)}` : '',
+    params.mask_expand !== undefined ? `Edge offset · ${Number(params.mask_expand) >= 0 ? '+' : ''}${formatMaybeNumber(params.mask_expand)}px` : '',
+    params.mask_feather !== undefined ? `Feather · ${formatMaybeNumber(params.mask_feather)}px` : '',
+    params.foreground_estimation !== undefined ? `Foreground estimation · ${params.foreground_estimation ? 'on' : 'off'}` : '',
+    params.manual_mask ? 'Manual mask review' : '',
+    params.save_mask !== undefined ? `Alpha mask · ${params.save_mask ? 'saved' : 'off'}` : '',
+    'Foreground · transparent PNG',
+    sourceImages.length ? `Sources · ${sourceImages.length}` : '',
+    route.backend || route.provider_id ? `Backend · ${route.backend || route.provider_id}` : '',
+    commercial.enabled ? `Commercial profile · ${commercial.profile_id || 'configured utility profile'}` : '',
+    commercial.external_upload ? 'External upload · confirmed for run' : '',
+    commercial.credits?.consumed ? `Credits consumed · ${commercial.credits.consumed}` : '',
+    commercial.credits?.remaining ? `Credits remaining · ${commercial.credits.remaining}` : '',
+    nodeStatus.ready !== undefined ? `Node readiness · ${nodeStatus.ready ? 'ready' : 'blocked'}` : '',
+    verification.status ? `RGBA verification · ${verification.status}` : '',
+  ].filter(Boolean);
+  const sourceChips = sourceImages.slice(0, 6).map((item, index) => {
+    if (typeof item === 'string') return `Source ${index + 1} · ${basename(item)}`;
+    return `Source ${index + 1} · ${basename(item?.filename || item?.stored_filename || item?.path || 'image')}`;
+  });
+  const verificationNotes = [
+    ...(Array.isArray(verification.errors) ? verification.errors : []),
+    ...(Array.isArray(verification.warnings) ? verification.warnings : []),
+  ].slice(0, 4);
+  const validationNotes = validation
+    .filter((item) => item && item.extension_id === BACKGROUND_REMOVAL_EXTENSION_ID && item.message)
+    .slice(0, 3)
+    .map((item) => item.message);
+  const summary = event.assistant_summary || metadata.assistant_summary || '';
+  const reason = event.gated_reason || metadata.gated_reason || metadata.reason || '';
+  const commercialNote = commercial.enabled
+    ? 'Processed by an external commercial provider after explicit per-run consent. Provider billing, retention, and account terms apply.'
+    : '';
+  const body = `${reason ? `<div class="neo-output-mini-note">${escapeHtml(reason)}</div>` : ''}${summary ? `<div class="neo-output-mini-note">${escapeHtml(summary)}</div>` : ''}${commercialNote ? `<div class="neo-output-mini-note warning">${escapeHtml(commercialNote)}</div>` : ''}${outputChipRow(sourceChips, 'items')}${outputValidationNoteList([...verificationNotes, ...validationNotes])}`;
+  return outputExtensionDetailBlock('Image · Remove Background', chips, body, `data-extension-id="${BACKGROUND_REMOVAL_EXTENSION_ID}"`);
+}
+
+
 function layerDiffuseOutputInspectorDetails(payloads = {}, patches = [], validation = [], memoryEvents = {}) {
   const block = payloads[LAYERDIFFUSE_EXTENSION_ID];
   const event = memoryEvents?.[LAYERDIFFUSE_EXTENSION_ID] || {};
@@ -24182,6 +26279,7 @@ function renderExtensionInspector(extensions = {}) {
       ${adetailerOutputInspectorDetails(payloads, patches, validation, memoryEvents)}
       ${highResLabOutputInspectorDetails(payloads, patches, validation)}
       ${imageUpscaleOutputInspectorDetails(payloads, patches, validation, memoryEvents)}
+      ${backgroundRemovalOutputInspectorDetails(payloads, patches, validation, memoryEvents)}
       ${payloadKeys.length ? `<div class="neo-output-mini-note">Payload keys: ${escapeHtml(payloadKeys.join(', '))}</div>` : ''}
     </div>`;
 }
@@ -24953,11 +27051,14 @@ function renderOutputPostFixPanel(activeSummary = {}, activeMetadata = {}, activ
   const actionButtons = actions.map((action) => {
     const labelMap = {
       'extension.high_res_lab': 'High-Res Lab',
-      'extension.adetailer': 'ADetailer',
+      'extension.adetailer': 'Apply ADetailer Pass',
       'extension.image_upscale': 'Image Upscale',
       'extension.identity_rescue': 'Identity Rescue',
     };
-    const disabledReason = action.disabledReason || (action.enabled ? `Stage selected output for ${labelMap[action.id] || action.label}.` : 'Post-fix action is unavailable for this output.');
+    const enabledActionHint = action.id === 'extension.adetailer'
+      ? 'Run the current ADetailer settings immediately on this selected output.'
+      : `Stage selected output for ${labelMap[action.id] || action.label}.`;
+    const disabledReason = action.disabledReason || (action.enabled ? enabledActionHint : 'Post-fix action is unavailable for this output.');
     const disabled = action.enabled ? '' : 'disabled';
     return `<button class="neo-btn secondary" type="button" data-output-postfix-action="${escapeAttr(action.id)}" title="${escapeAttr(disabledReason)}" ${disabled}>${escapeHtml(labelMap[action.id] || action.label)}</button>`;
   }).join('');
@@ -24967,7 +27068,7 @@ function renderOutputPostFixPanel(activeSummary = {}, activeMetadata = {}, activ
       <div class="neo-output-postfix-copy">
         <div class="neo-output-postfix-title">Post-Fix Selected Output</div>
         <div class="neo-output-postfix-status"><span class="neo-output-chip${hasSource ? ' is-active' : ''}">${escapeHtml(hasSource ? 'Source ready' : 'Select output')}</span><span class="neo-muted">${escapeHtml(sourceLabel)}</span></div>
-        <p class="neo-muted">Stages this saved image for a post-output Comfy bridge. Grok/cloud outputs stay as source images; ADetailer, High-Res Lab, Upscale, and FaceID run through a compatible local Image backend profile.</p>
+        <p class="neo-muted">Apply ADetailer Pass runs immediately on the selected output. Other post-fix actions stage the image for review. Grok/cloud outputs remain source images and local finish tools use a compatible Comfy Image backend profile.</p>
       </div>
       <div class="neo-output-postfix-actions">${actionButtons}</div>
     </div>`;
@@ -26094,7 +28195,10 @@ function bindImageResultsWorkspace() {
   document.querySelectorAll('[data-output-postfix-action]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.disabled) return;
-      handleOutputInspectorPostFixAction(button.getAttribute('data-output-postfix-action') || '');
+      Promise.resolve(handleOutputInspectorPostFixAction(button.getAttribute('data-output-postfix-action') || '')).catch((error) => {
+        setWorkspaceStatus(error.message || 'Could not run this post-fix action.', 'warning');
+        alert(`Post-fix action failed: ${error.message || error}`);
+      });
     });
   });
   const deleteBtn = document.getElementById('imageResultDeleteBtn');
@@ -28875,7 +30979,7 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
       <label>Include extensions${promptCaptioningInput('promptCaptioningBatchIncludeExtensions', batch.includeExtensions || 'png,jpg,jpeg,webp,bmp,gif', 'png,jpg,jpeg,webp')}</label>
     </div>
     <div class="neo-form-grid neo-pc-batch-input-post-row" data-testid="batch-input-post-row">
-      <label>Input folder<div class="neo-inline-field"><input id="promptCaptioningBatchInputFolder" data-pc-batch-input-folder="true" class="neo-input" value="${escapeAttr(batch.inputFolder || '')}" placeholder="E:/dataset/source"><button type="button" id="promptCaptioningBrowseBatchInputFolder" class="neo-btn secondary" data-pc-folder-browse="inputFolder">Browse</button></div></label>
+      <label>Input folder<div class="neo-inline-field"><input id="promptCaptioningBatchInputFolder" data-pc-batch-input-folder="true" class="neo-input" value="${escapeAttr(batch.inputFolder || '')}" placeholder="Select the source image folder"><button type="button" id="promptCaptioningBrowseBatchInputFolder" class="neo-btn secondary" data-pc-folder-browse="inputFolder">Browse</button></div></label>
       <label>Post action${promptCaptioningSelect('promptCaptioningBatchPostAction', batch.postAction || 'none', ['none', 'sleep', 'hibernate', 'shutdown'])}<span class="neo-pc-batch-recursive-under-post">${promptCaptioningToggle('promptCaptioningBatchRecursive', Boolean(batch.recursive), 'Recursive folders')}</span></label>
     </div>
     <label>Shared instruction${promptCaptioningTextarea('promptCaptioningBatchInstruction', cap.batchInstruction || cap.captionInstruction || '', 'Instruction applied to every folder image')}</label>
@@ -28883,7 +30987,7 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
       <div class="neo-section-header"><span class="neo-section-title">Dataset Preparation</span><span class="neo-state-pill success">Training data</span></div>
       <div class="neo-section-body">
         <div class="neo-form-grid">
-          <label>Output folder<div class="neo-inline-field"><input id="promptCaptioningBatchOutputFolder" data-pc-batch-output-folder="true" class="neo-input" value="${escapeAttr(batch.outputFolder || '')}" placeholder="E:/dataset/output"><button type="button" id="promptCaptioningBrowseBatchOutputFolder" class="neo-btn secondary" data-pc-folder-browse="outputFolder">Browse</button></div></label>
+          <label>Output folder<div class="neo-inline-field"><input id="promptCaptioningBatchOutputFolder" data-pc-batch-output-folder="true" class="neo-input" value="${escapeAttr(batch.outputFolder || '')}" placeholder="Select the dataset output folder"><button type="button" id="promptCaptioningBrowseBatchOutputFolder" class="neo-btn secondary" data-pc-folder-browse="outputFolder">Browse</button></div></label>
           ${transferControl}
           <label>Dataset log${promptCaptioningSelect('promptCaptioningBatchDatasetLogFormat', batch.datasetLogFormat || 'csv', ['csv', 'json', 'none'])}</label>
           <label>Prefix${promptCaptioningInput('promptCaptioningBatchDatasetPrefix', batch.datasetPrefix || 'character', 'character')}</label>
@@ -33923,7 +36027,7 @@ function roleplayLargeJsonIoHtml() {
     <div class="roleplay-v1-studio-card wide">
       <div class="roleplay-v1-scene-row-between"><div><strong>Large JSON import / export</strong><p>Import builder JSON packs, validate them, compile memory, rebuild search, index vectors, and optionally mirror to Chroma.</p></div><span class="neo-badge">Import</span></div>
       <div class="roleplay-v1-studio-grid two compact">
-        <div><label>Import path</label><input id="roleplay-large-json-import-path" placeholder="F:/LLM/Neo_Roleplay_Large_JSON_Test_Pack"></div>
+        <div><label>Import path</label><input id="roleplay-large-json-import-path" placeholder="Select a Roleplay JSON pack folder"></div>
         <div><label>Export kinds</label><input id="roleplay-large-json-export-kinds" value="world,region,city,character,relationship,scenario"></div>
       </div>
       <div class="roleplay-v1-studio-grid four compact"><div><label>Recursive</label><input id="roleplay-large-json-recursive" type="checkbox" checked></div><div><label>Overwrite</label><input id="roleplay-large-json-overwrite" type="checkbox" checked></div><div><label>Repair missing IDs</label><input id="roleplay-large-json-repair" type="checkbox" checked></div><div><label>Dry run</label><input id="roleplay-large-json-dry-run" type="checkbox"></div></div>
@@ -35103,7 +37207,7 @@ function roleplayCloudSyncHtml(sync = state.roleplayCloudSync || {}) {
     </div>
     <div class="roleplay-v1-studio-card">
       <div class="roleplay-v1-scene-row-between"><div><strong>Cloud sync setup</strong><p>Local-first sync snapshots with push/pull/compare against a manual remote folder or ZIP path. Pull always creates a backup first.</p></div><span class="neo-badge">local-first</span></div>
-      <label>Remote folder or snapshot ZIP path</label><input id="roleplay-cloud-remote-path" placeholder="D:/NeoCloud/roleplay or /mnt/sync/roleplay" value="${escapeAttr(settings.default_remote_path || '')}">
+      <label>Remote folder or snapshot ZIP path</label><input id="roleplay-cloud-remote-path" placeholder="Select a sync folder or snapshot ZIP" value="${escapeAttr(settings.default_remote_path || '')}">
       <label>Included directories</label><textarea id="roleplay-cloud-dirs" rows="3">${escapeHtml(defaultDirs)}</textarea>
       <div class="roleplay-v1-studio-grid two compact">
         <label class="roleplay-checkbox"><input id="roleplay-cloud-sqlite" type="checkbox" ${settings.include_sqlite !== false ? 'checked' : ''}> Include Roleplay SQLite</label>
@@ -37599,6 +39703,69 @@ function videoActiveBackendProfile() {
   return defaultBackendProfile('video');
 }
 
+function isCloudVideoProfile(profile = videoActiveBackendProfile()) {
+  const connection = profile?.connection || {};
+  return String(profile?.connection_type || connection?.connection_type || '').toLowerCase() === 'cloud_api';
+}
+
+function isGrokVideoProfile(profile = videoActiveBackendProfile()) {
+  return isCloudVideoProfile(profile) && String(profile?.provider_id || '').toLowerCase() === 'xai_grok';
+}
+
+function videoProfileCapabilities(profile = videoActiveBackendProfile()) {
+  return { ...(profile?.capability_flags || {}), ...(profile?.capabilities || {}) };
+}
+
+function videoProfileSupportsCapability(capability, profile = videoActiveBackendProfile()) {
+  const caps = videoProfileCapabilities(profile);
+  if (capability === 'txt2vid') return caps.txt2video === true || caps.text_to_video === true || caps.txt2vid === true;
+  if (capability === 'img2vid') return caps.img2video === true || caps.image_to_video === true || caps.img2vid === true;
+  return caps?.[capability] === true;
+}
+
+function ensureCloudVideoMode() {
+  if (!isCloudVideoProfile()) return state.videoDraft.mode || 'txt2vid';
+  const allowed = [];
+  if (videoProfileSupportsCapability('txt2vid')) allowed.push('txt2vid');
+  if (videoProfileSupportsCapability('img2vid')) allowed.push('img2vid');
+  if (!allowed.length) allowed.push('txt2vid');
+  if (!allowed.includes(state.videoDraft.mode)) state.videoDraft.mode = allowed[0];
+  return state.videoDraft.mode;
+}
+
+function videoCloudModeOptions() {
+  const options = [];
+  if (videoProfileSupportsCapability('txt2vid')) options.push({ id: 'txt2vid', label: 'Text to Video', status: 'api' });
+  if (videoProfileSupportsCapability('img2vid')) options.push({ id: 'img2vid', label: 'Image to Video', status: 'api' });
+  return options.length ? options : [{ id: 'txt2vid', label: 'Text to Video', status: 'api' }];
+}
+
+function videoCloudModelOptions(profile = videoActiveBackendProfile()) {
+  const models = Array.isArray(profile?.model?.available_models) ? profile.model.available_models : [];
+  const fallback = profile?.model?.default_model || 'grok-imagine-video';
+  return (models.length ? models : [fallback]).filter(Boolean).map((model) => ({ id: String(model), label: String(model), status: 'api' }));
+}
+
+function videoCloudDefault(field, fallback) {
+  const profile = videoActiveBackendProfile();
+  return profile?.defaults?.[field] ?? profile?.generation_defaults?.[field] ?? fallback;
+}
+
+function videoCloudModel() {
+  const profile = videoActiveBackendProfile();
+  const options = videoCloudModelOptions(profile);
+  const candidate = state.videoDraft.cloud_model || profile?.model?.default_model || options[0]?.id || 'grok-imagine-video';
+  return options.some((item) => item.id === candidate) ? candidate : (profile?.model?.default_model || options[0]?.id || 'grok-imagine-video');
+}
+
+function videoCloudCanGenerate() {
+  if (!isCloudVideoProfile() || !videoBackendConnected()) return false;
+  const mode = ensureCloudVideoMode();
+  const hasPrompt = Boolean(String(state.videoDraft.positive_prompt || '').trim());
+  const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
+  return hasPrompt && (mode !== 'img2vid' || hasSource);
+}
+
 function videoBackendProbeReachable() {
   const probe = state.videoBackendProbe || null;
   return Boolean(probe?.backend?.reachable || probe?.reachable || probe?.ok === true);
@@ -37695,7 +39862,35 @@ function videoParameterFieldHtml(field, profile) {
   return `<label class="neo-video-param-field" data-video-param-field="${escapeAttr(field.field_id)}"><span>${escapeHtml(field.label)} ${unit}</span>${videoParameterInputHtml(field, value, profile)}${field.description ? `<small>${escapeHtml(field.description)}</small>` : ''}</label>`;
 }
 
+function videoCloudParameterPanelHtml() {
+  const profile = videoActiveBackendProfile();
+  const mode = ensureCloudVideoMode();
+  const model = videoCloudModel();
+  const duration = Number(state.videoDraft.cloud_duration_seconds || videoCloudDefault('duration_seconds', 4));
+  const aspect = String(state.videoDraft.cloud_aspect_ratio || videoCloudDefault('aspect_ratio', '16:9'));
+  const resolution = String(state.videoDraft.cloud_resolution || videoCloudDefault('resolution', '720p'));
+  const aspectOptions = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'].map((id) => ({ id, label: id }));
+  const resolutionOptions = [
+    { id: '480p', label: '480p' },
+    { id: '720p', label: '720p' },
+    ...(mode === 'img2vid' && model === 'grok-imagine-video-1.5' ? [{ id: '1080p', label: '1080p · 1.5 Img2Vid only' }] : []),
+  ];
+  const safeResolution = resolutionOptions.some((item) => item.id === resolution) ? resolution : '720p';
+  if (safeResolution !== state.videoDraft.cloud_resolution) state.videoDraft.cloud_resolution = safeResolution;
+  return `<div class="neo-parameter-stack neo-video-parameter-stack neo-cloud-video-parameter-stack" data-testid="video-cloud-parameter-stack" data-schema="neo.video.cloud_parameter_profile.v25_9_20_p3">
+    <div class="neo-ui-card neo-video-profile-summary"><strong>Grok Video API Parameters</strong><p>The existing Video workspace is active. Local Comfy model, sampler, VAE, encoder, VRAM, frame, and compile controls are hidden and excluded from this request.</p>${NeoUI.badgeRow([`Backend: ${videoBackendConnected() ? 'connected' : 'disconnected'}`, `Mode: ${mode === 'img2vid' ? 'Image to Video' : 'Text to Video'}`, 'Provider polling', 'Neo-owned output copy'])}</div>
+    <section class="neo-video-param-line" data-video-param-line="Cloud Model"><h4>Model</h4><div class="neo-video-param-line-fields"><label>Grok Video Model${optionSelect('videoCloudModel', videoCloudModelOptions(profile), model)}</label></div></section>
+    <section class="neo-video-param-line" data-video-param-line="Cloud Output"><h4>Output</h4><div class="neo-video-param-line-fields">
+      <label>Duration <span class="neo-field-hint">1–15 seconds</span><input id="videoCloudDuration" type="number" min="1" max="15" step="1" value="${Math.max(1, Math.min(15, duration || 4))}"></label>
+      <label>Aspect Ratio${optionSelect('videoCloudAspectRatio', aspectOptions, aspect)}</label>
+      <label>Resolution${optionSelect('videoCloudResolution', resolutionOptions, safeResolution)}</label>
+    </div></section>
+    ${mode === 'img2vid' ? '<div class="neo-ui-card compact"><strong>Image-to-Video</strong><p>The selected source image becomes the starting frame. Upload it in the existing Source / Reference panel.</p></div>' : ''}
+  </div>`;
+}
+
 function videoParameterPanelHtml() {
+  if (isCloudVideoProfile()) return videoCloudParameterPanelHtml();
   const route = ensureVideoRouteSelectable();
   const profile = activeVideoParameterProfile(route);
   const fieldById = Object.fromEntries(profile.fields.map((field) => [field.field_id, field]));
@@ -37729,6 +39924,8 @@ function videoParameterPanelHtml() {
 
 function videoPromptPanelHtml() {
   const d = state.videoDraft || {};
+  if (isCloudVideoProfile()) return `<p>Describe the scene, motion, camera behavior, pacing, lighting, and ending. Grok Video uses one positive prompt; local negative-prompt controls stay hidden.</p>
+    <label>Prompt</label><textarea id="videoPositivePrompt" rows="9" placeholder="Describe the shot, motion, camera movement, lighting, pacing, and final reveal.">${escapeHtml(d.positive_prompt || '')}</textarea>`;
   return `<p>Write the shot, motion, camera behavior, timing, and negative constraints. Run actions stay in the Workspace header.</p>
     <label>Positive Prompt</label><textarea id="videoPositivePrompt" rows="7" placeholder="Describe the shot, motion, camera movement, lighting, timing, and final reveal.">${escapeHtml(d.positive_prompt || '')}</textarea>
     <label>Negative Prompt</label><textarea id="videoNegativePrompt" rows="5" placeholder="Video artifacts to avoid: flicker, jitter, morphing, broken anatomy...">${escapeHtml(d.negative_prompt || '')}</textarea>`;
@@ -37767,7 +39964,7 @@ function videoPreviewPanelHtml() {
   const finishActions = renderVideoPreviewFinishActionToolbar(record);
   return `<div class="neo-preview-action-wrap neo-video-preview-action-wrap">${media}${finishActions}</div>${importWarnings}
     <div class="neo-batch-preview-strip"><div class="neo-batch-preview-head"><strong>Batch Thumbnails</strong><span class="neo-muted">Click a thumbnail to make it the main preview.</span></div><div class="neo-batch-thumbs">${thumbs}</div></div>
-    <div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoRefreshResultsBtn">Refresh Results</button><button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn" ${record?.backend?.prompt_id ? '' : 'disabled'}>Import / Refresh Comfy Job</button></div>`;
+    <div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoRefreshResultsBtn">Refresh Results</button>${isCloudVideoProfile() ? '' : `<button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn" ${record?.backend?.prompt_id ? '' : 'disabled'}>Import / Refresh Comfy Job</button>`}</div>`;
 }
 
 function videoMultiscenePanelHtml() {
@@ -37782,6 +39979,13 @@ function videoMultiscenePanelHtml() {
 }
 
 function videoSourcePanelHtml() {
+  if (isCloudVideoProfile()) {
+    const mode = ensureCloudVideoMode();
+    const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
+    const preview = state.videoDraft.source_image_url ? `<img src="${escapeAttr(state.videoDraft.source_image_url)}" alt="Grok Video source image" class="neo-mini-preview">` : '<div class="neo-result-placeholder compact">No source image selected</div>';
+    if (mode !== 'img2vid') return '<div class="neo-ui-card compact"><strong>Text-to-Video</strong><p>No source image is used in this mode. Switch Workflow Mode to Image to Video to reveal the existing image upload lane.</p></div>';
+    return `<div class="neo-ui-card" data-testid="video-cloud-img2vid-source-panel"><strong>Image-to-Video Source</strong><p>Reuse the existing Video source-image uploader. The image is sent as the starting frame; no Comfy resize, strength, or VACE controls are submitted.</p>${NeoUI.badgeRow([hasSource ? `Source: ${state.videoDraft.source_image_name || 'selected'}` : 'Source: missing', 'Existing Video workspace', 'Single source image'])}<label>Upload source image<input id="videoSourceImageUpload" type="file" accept="image/*"></label>${preview}${state.videoDraft.source_image ? `<div class="neo-source-path">${escapeHtml(state.videoDraft.source_image)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoClearSourceImageBtn" ${hasSource ? '' : 'disabled'}>Clear source</button></div></div>`;
+  }
   const route = videoFindRoute();
   const isRapidAio = videoIsWanRapidAioGgufRoute(route);
   const isRapidAioImg = isRapidAio && state.videoDraft.mode === 'img2vid';
@@ -37943,7 +40147,8 @@ function videoResultsLedgerHtml() {
     file ? 'Playback ready' : (active.backend?.prompt_id ? 'Import needed' : 'No prompt id'),
     importStatus.history_seen ? 'History seen' : 'History pending',
   ]) : '';
-  return `<div class="neo-ui-card neo-video-results-ledger" data-testid="video-results-ledger" data-schema="neo.video.replay_metadata.v22" data-import-schema="neo.video.result_import.vg9" data-legacy-schema="neo.video.output.v7"><strong>Results + Replay Metadata</strong><span hidden data-schema="neo.video.output.v7"></span><p>Saved video records expose replay metadata, memory export, and V-G9 Comfy history import into Neo-owned playback files.</p>${exportBadge}<div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Result</th><th>Status</th><th>Route</th><th>Type</th><th>Files</th><th>Import</th></tr></thead><tbody>${rows}</tbody></table></div>${active && importRows.length ? NeoUI.metaList(importRows) : ''}${importErrors.length ? `<div class="neo-warning-panel">${NeoUI.metaList(importErrors)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoResultsLoadBtn">Load Results</button>${active ? `<button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn" ${active?.backend?.prompt_id ? '' : 'disabled'}>Import / Refresh Comfy Job</button><button type="button" class="neo-btn secondary" id="videoLoadReplayMetadataBtn">Build Replay</button><button type="button" class="neo-btn secondary" id="videoExportMemoryBtn">Export to Memory</button><button type="button" class="neo-btn secondary" id="videoCopyReplayBtn">Copy Replay JSON</button>` : ''}</div>${active ? `<details class="neo-output-replay"><summary>Replay Metadata</summary><pre>${escapeHtml(replay)}</pre></details>` : ''}</div>`;
+  const cloudRoute = isCloudVideoProfile() || active?.provider_id === 'xai_grok' || active?.backend?.provider_id === 'xai_grok';
+  return `<div class="neo-ui-card neo-video-results-ledger" data-testid="video-results-ledger" data-schema="neo.video.replay_metadata.v22" data-import-schema="neo.video.result_import.vg9" data-legacy-schema="neo.video.output.v7"><strong>Results + Replay Metadata</strong><span hidden data-schema="neo.video.output.v7"></span><p>${cloudRoute ? 'Saved provider videos use the same Neo-owned playback files, replay metadata, and memory export ledger as local Video routes.' : 'Saved video records expose replay metadata, memory export, and V-G9 Comfy history import into Neo-owned playback files.'}</p>${exportBadge}<div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Result</th><th>Status</th><th>Route</th><th>Type</th><th>Files</th><th>Import</th></tr></thead><tbody>${rows}</tbody></table></div>${active && importRows.length && !cloudRoute ? NeoUI.metaList(importRows) : ''}${importErrors.length && !cloudRoute ? `<div class="neo-warning-panel">${NeoUI.metaList(importErrors)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoResultsLoadBtn">Load Results</button>${active ? `${cloudRoute ? '' : `<button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn" ${active?.backend?.prompt_id ? '' : 'disabled'}>Import / Refresh Comfy Job</button>`}<button type="button" class="neo-btn secondary" id="videoLoadReplayMetadataBtn">Build Replay</button><button type="button" class="neo-btn secondary" id="videoExportMemoryBtn">Export to Memory</button><button type="button" class="neo-btn secondary" id="videoCopyReplayBtn">Copy Replay JSON</button>` : ''}</div>${active ? `<details class="neo-output-replay"><summary>Replay Metadata</summary><pre>${escapeHtml(replay)}</pre></details>` : ''}</div>`;
 }
 
 
@@ -37964,7 +40169,33 @@ function videoTopRunControlsHtml() {
   return `<div class="neo-ui-toolbar neo-video-top-actions" data-testid="video-top-actions"><button type="button" class="neo-btn secondary" id="videoCompileWanTxt2VidBtn" ${canRun ? '' : 'disabled'}>Compile</button><button type="button" class="neo-btn primary" id="videoGenerateWanTxt2VidBtn" ${canRun ? '' : 'disabled'}>Generate</button><button type="button" class="neo-btn secondary" id="videoRefreshBackendProbeBtn">Probe Backend</button><button type="button" class="neo-btn secondary" id="videoRefreshResultsBtn">Refresh Results</button></div>`;
 }
 
+function videoCloudWorkspaceSummaryHtml() {
+  const profile = videoActiveBackendProfile();
+  const mode = ensureCloudVideoMode();
+  const capabilities = videoProfileCapabilities(profile);
+  const connected = videoBackendConnected();
+  return `<div class="neo-ui-card neo-cloud-video-workspace-summary" data-testid="video-cloud-workspace-summary">
+    <strong>${escapeHtml(profile?.display_name || 'Grok Imagine Video')}</strong>
+    <p>This existing Video workspace is using the selected cloud API profile. Neo submits and polls the provider server-side, then stores completed MP4 files in the normal Video result system.</p>
+    ${badgeRow([
+      connected ? 'API profile connected' : 'API profile not connected',
+      mode === 'img2vid' ? 'Image to Video' : 'Text to Video',
+      capabilities.async_jobs || capabilities.provider_polling ? 'Provider polling' : 'Synchronous route',
+      'Neo-owned output storage',
+    ])}
+    ${NeoUI.metaList([
+      `Profile: ${profile?.profile_id || 'video.xai_grok_imagine'}`,
+      `Credential source: ${profile?.connection?.credential_profile_id || profile?.connection?.api_key_env || 'profile secret'}`,
+      'Comfy models, samplers, schedulers, encoders, VRAM controls, compile, and node probes are intentionally hidden for this route.',
+      'Switching back to a Comfy Video profile restores the existing local-model draft settings.',
+    ])}
+  </div>`;
+}
+
 function videoWorkspaceLeftPanelHtml(app) {
+  if (isCloudVideoProfile() && ['workspace', 'generation'].includes(app.id)) {
+    return `${videoCloudWorkspaceSummaryHtml()}<div class="neo-ui-card"><strong>Output Paths</strong><p>Completed provider videos are downloaded into Neo-owned Video output folders and registered in the existing results ledger.</p><ul class="neo-path-list">${videoOutputPathRows()}</ul><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoEnsureOutputPathsBtn">Ensure output folders</button></div></div>`;
+  }
   if (app.id === 'workspace') return `${videoContractSummaryHtml(activeSurface(), activeSubtab(activeSurface()))}${videoVramEngineSummaryHtml()}${videoBackendProbeSummaryHtml()}${videoCompilerStatusHtml()}${videoRouteMatrixHtml()}<div class="neo-ui-card"><strong>Output Paths</strong><p>Only Neo-owned folders are final video storage targets.</p><ul class="neo-path-list">${videoOutputPathRows()}</ul><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoEnsureOutputPathsBtn">Ensure output folders</button></div></div>`;
   if (app.id === 'generation') return `${videoExtensionStackHtml()}${videoCompilerStatusHtml()}${videoRouteMatrixHtml()}`;
   if (app.id === 'assets') return `${neoFeatureTitleCard('Video Assets', 'Assets Workspace', 'Source videos, image references, frame extracts, and reusable inputs for future routes.', ['source', 'frames', 'references'], { testId: 'video-assets-feature-title-card', extraClass: 'neo-video-feature-title-card' })}${NeoUI.metaList(['Source images/videos are listed here later.', 'Frame extraction stays disabled until video I/O routes exist.', 'Image-generation tasks remain owned by the Image surface.'])}`;
@@ -38509,7 +40740,7 @@ function renderVideoPanels(surface, subtab) {
   left.appendChild(fixedPanel(`${app.label} Workspace`, `
     <div class="neo-image-workspace-explainer neo-video-workspace-explainer" data-testid="video-workspace-explainer">
       <div><span class="neo-card-kicker">Workspace</span><strong>${escapeHtml(summary.workspace_label)}</strong><p>${escapeHtml(summary.workspace_description)}</p></div>
-      <div><span class="neo-card-kicker">Generation Type</span><strong>${escapeHtml(summary.generation_label)}</strong><p>Use the Workspace card above to compile, generate, probe readiness, or refresh results.</p></div>
+      <div><span class="neo-card-kicker">Generation Type</span><strong>${escapeHtml(summary.generation_label)}</strong><p>${isCloudVideoProfile() ? 'Use the existing workspace to generate, follow provider progress, or refresh saved results.' : 'Use the Workspace card above to compile, generate, probe readiness, or refresh results.'}</p></div>
     </div>
     ${badgeRow([`Workspace: ${app.label}`, `Generation Type: ${summary.generation_label}`, videoCanQueueActiveWanRoute() ? 'Ready' : 'Waiting for input'])}
   `, 'video-workspace-summary'));
@@ -38535,7 +40766,9 @@ function renderVideoPanels(surface, subtab) {
   if (state.videoDraft.mode === 'prompt_schedule') right.appendChild(panel('Schedule', videoSchedulePanelHtml(), false, 'schedule'));
   if (state.videoDraft.mode === 'audio_video') right.appendChild(panel('Audio-Video', videoAudioVideoPanelHtml(), false, 'audio-video')); 
   right.appendChild(panel('Parameters', videoParameterPanelHtml(), false, 'params'));
-  right.appendChild(panel('Route Status', `${videoCompilerStatusHtml()}${badgeRow(videoRouteBadges())}`, false, 'safe'));
+  right.appendChild(panel('Route Status', isCloudVideoProfile()
+    ? `<div class="neo-ui-card compact" data-testid="video-cloud-route-status"><strong>Cloud API route</strong><p>${videoBackendConnected() ? 'The selected Video API profile is connected and ready for provider-side generation.' : 'Connect or test the selected Video API profile in Admin → Backends before generating.'}</p>${badgeRow([`Provider: ${videoActiveBackendProfile()?.display_name || 'Grok Imagine Video'}`, `Mode: ${ensureCloudVideoMode()}`, 'No Comfy compile required', 'Neo output persistence'])}</div>`
+    : `${videoCompilerStatusHtml()}${badgeRow(videoRouteBadges())}`, false, 'safe'));
 
   el.surfacePanels.appendChild(left);
   el.surfacePanels.appendChild(right);
@@ -38563,7 +40796,15 @@ function renderVideoPanels(surface, subtab) {
   document.querySelectorAll('#videoCompileWanTxt2VidBtn').forEach((button) => button.addEventListener('click', async () => { if (!videoBackendConnected()) { window.alert('Probe the Video backend first so Neo can confirm Comfy is reachable.'); return; } await compileVideoWanTxt2Vid(); }));
   document.querySelectorAll('#videoRuntimePreflightBtn').forEach((button) => button.addEventListener('click', async () => { if (!videoBackendConnected()) { window.alert('Probe the Video backend first so Neo can confirm Comfy is reachable.'); return; } await preflightVideoRuntime(); }));
   document.querySelectorAll('#videoApplyWanGgufFirstTestBtn').forEach((button) => button.addEventListener('click', async () => { await applyVideoWanGgufFirstTestPreset(); }));
-  document.querySelectorAll('#videoGenerateWanTxt2VidBtn').forEach((button) => button.addEventListener('click', async () => { if (!videoBackendConnected()) { window.alert('Probe the Video backend first so Neo can confirm Comfy is reachable.'); return; } await generateVideoWanTxt2Vid(); }));
+  document.querySelectorAll('#videoGenerateWanTxt2VidBtn').forEach((button) => button.addEventListener('click', async () => {
+    if (!videoBackendConnected()) {
+      window.alert(isCloudVideoProfile()
+        ? 'Connect or test the selected Video API profile in Admin → Backends first.'
+        : 'Probe the Video backend first so Neo can confirm Comfy is reachable.');
+      return;
+    }
+    await generateVideoWanTxt2Vid();
+  }));
 
   document.querySelectorAll('[data-video-finish-source-browse]').forEach((button) => button.addEventListener('click', () => {
     const lane = button.getAttribute('data-video-finish-source-browse') || 'finish';
@@ -38653,6 +40894,31 @@ function renderVideoPanels(surface, subtab) {
   document.getElementById('videoRepairSharpenAmount')?.addEventListener('change', (event) => { state.videoDraft.repair_sharpen_amount = Number(event.target.value || 0.15); saveUiState(); render(); });
   document.getElementById('videoRepairPreserveAudio')?.addEventListener('change', (event) => { state.videoDraft.repair_preserve_audio = event.target.value !== 'false'; saveUiState(); render(); });
   document.getElementById('videoRepairCpuOffload')?.addEventListener('change', (event) => { state.videoDraft.repair_cpu_offload = event.target.value !== 'false'; saveUiState(); render(); });
+
+  document.getElementById('videoCloudModel')?.addEventListener('change', (event) => {
+    state.videoDraft.cloud_model = String(event.target.value || videoCloudDefault('model', 'grok-imagine-video'));
+    if (!(state.videoDraft.mode === 'img2vid' && state.videoDraft.cloud_model === 'grok-imagine-video-1.5') && state.videoDraft.cloud_resolution === '1080p') {
+      state.videoDraft.cloud_resolution = '720p';
+    }
+    saveUiState();
+    render();
+  });
+  document.getElementById('videoCloudDuration')?.addEventListener('change', (event) => {
+    state.videoDraft.cloud_duration_seconds = Math.max(1, Math.min(15, Number(event.target.value || videoCloudDefault('duration_seconds', 4))));
+    saveUiState();
+    render();
+  });
+  document.getElementById('videoCloudAspectRatio')?.addEventListener('change', (event) => {
+    state.videoDraft.cloud_aspect_ratio = String(event.target.value || videoCloudDefault('aspect_ratio', '16:9'));
+    saveUiState();
+    render();
+  });
+  document.getElementById('videoCloudResolution')?.addEventListener('change', (event) => {
+    const requested = String(event.target.value || videoCloudDefault('resolution', '720p'));
+    state.videoDraft.cloud_resolution = requested === '1080p' && !(state.videoDraft.mode === 'img2vid' && videoCloudModel() === 'grok-imagine-video-1.5') ? '720p' : requested;
+    saveUiState();
+    render();
+  });
 
   document.getElementById('videoRapidAioFrameMode')?.addEventListener('change', (event) => {
     const value = event.target.value || 'start_frame';
@@ -40636,7 +42902,7 @@ function outputPostFixActionLabel(actionId = '') {
   return 'Post-fix';
 }
 
-function handleOutputInspectorPostFixAction(actionId = '') {
+async function handleOutputInspectorPostFixAction(actionId = '') {
   const source = activeSavedPreviewActionSource();
   const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
   const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
@@ -40650,9 +42916,8 @@ function handleOutputInspectorPostFixAction(actionId = '') {
     return true;
   }
   if (actionId === 'extension.adetailer') {
-    adetailerStagePreviewSource(source);
-    setWorkspaceStatus('Selected output staged for ADetailer. Review detector/pass settings, then run the finish pass.', 'success');
-    return true;
+    setWorkspaceStatus(`Preparing ADetailer pass for ${previewActionSourceName(source)}…`, 'info');
+    return await previewActionRunFinishPass(actionId, source, adetailerStagePreviewSource, 'ADetailer');
   }
   if (actionId === 'extension.image_upscale') {
     imageUpscaleStagePreviewSource(source);
@@ -40755,7 +43020,7 @@ async function handlePreviewActionClick(actionId, placement = '') {
   }
   if (actionId === 'extension.adetailer') {
     if (placement === 'output_inspector') {
-      handleOutputInspectorPostFixAction(actionId);
+      await handleOutputInspectorPostFixAction(actionId);
       return;
     }
     const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
@@ -41260,39 +43525,125 @@ function bindImageOutpaintEditorModal() {
 
 
 
-async function adetailerFetchModelCatalog({ silent = false } = {}) {
-  const settings = adetailerSettings();
+function adetailerCatalogDelay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(milliseconds || 0))));
+}
+function adetailerNormalizeModelCatalogPayload(payload = {}, profileId = '') {
+  const bboxModels = adetailerCatalogListForType(payload, 'bbox');
+  const segmModels = adetailerCatalogListForType(payload, 'segm');
+  const onnxModels = adetailerCatalogListForType(payload, 'onnx_bbox');
+  const samModels = [...new Set((Array.isArray(payload.sam_models) ? payload.sam_models : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || '')).trim()).filter(Boolean))];
+  return {
+    ...payload,
+    ok: true,
+    profile_id: String(profileId || ''),
+    bbox_models: bboxModels,
+    segm_models: segmModels,
+    onnx_models: onnxModels,
+    sam_models: samModels,
+    sources: Array.isArray(payload.sources) ? payload.sources.map((item) => String(item || '').trim()).filter(Boolean) : [],
+    counts: {
+      bbox: Number(payload.counts?.bbox ?? bboxModels.length),
+      segm: Number(payload.counts?.segm ?? segmModels.length),
+      onnx: Number(payload.counts?.onnx ?? onnxModels.length),
+      sam: Number(payload.counts?.sam ?? samModels.length),
+    },
+  };
+}
+async function adetailerRequestModelCatalog(profileId = '') {
   const params = new URLSearchParams();
-  if (settings.custom_detector_root) params.set('detector_root', settings.custom_detector_root);
-  if (settings.custom_sam_root) params.set('sam_root', settings.custom_sam_root);
-  const status = document.getElementById('adetailerCatalogStatus') || document.getElementById('adetailerPresetStatus');
-  if (status && !silent) status.textContent = 'Scanning ADetailer model folders…';
-  try {
-    const payload = await loadJson(`/api/extensions/adetailer/models?${params.toString()}`, { ok: false });
-    updateAdetailerSettings({
-      model_catalog: payload,
-      catalog_bbox_models: payload.bbox_models || [],
-      catalog_segm_models: payload.segm_models || [],
-      catalog_onnx_models: payload.onnx_models || [],
-      catalog_sam_models: payload.sam_models || [],
-    });
-    if (!settings.detailer_passes?.[0]?.detector_model && payload.default_detector_model) {
-      updateAdetailerPass(0, { detector_model: payload.default_detector_model });
+  if (profileId) params.set('profile_id', profileId);
+  const query = params.toString();
+  const response = await fetch(`/api/extensions/adetailer/models${query ? `?${query}` : ''}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.detail || payload?.message || `Model scan request failed with HTTP ${response.status}`);
+  if (!payload || typeof payload !== 'object' || payload.ok !== true) throw new Error(payload?.detail || payload?.message || 'Model scan response was invalid.');
+  return adetailerNormalizeModelCatalogPayload(payload, profileId);
+}
+function adetailerReconcilePassesWithCatalog(payload = {}) {
+  const settings = adetailerSettings();
+  let changed = false;
+  const passes = settings.detailer_passes.map((pass, index) => {
+    const normalized = adetailerNormalizePass(pass, index);
+    const current = String(normalized.detector_model || '').trim();
+    const canonical = adetailerCatalogCanonicalModel(payload, normalized.detector_type, current);
+    let detectorModel = current;
+    if (canonical) detectorModel = canonical;
+    else if (!current || current === ADETAILER_DEFAULT_PASS.detector_model) detectorModel = adetailerDefaultDetectorForType(payload, normalized.detector_type) || current;
+    if (detectorModel === current) return normalized;
+    changed = true;
+    return adetailerNormalizePass({ ...normalized, detector_model: detectorModel }, index);
+  });
+  if (changed) updateAdetailerSettings({ detailer_passes: passes });
+  return changed;
+}
+async function adetailerFetchModelCatalog({ silent = false, retry = true } = {}) {
+  const profileId = adetailerCatalogProfileId();
+  const key = adetailerCatalogCacheKey(profileId);
+  const existingFlight = adetailerModelCatalogInFlight.get(key);
+  if (existingFlight) return existingFlight;
+  const previous = adetailerModelCatalogState(profileId);
+  const requestId = ++adetailerModelCatalogRequestId;
+  adetailerSetModelCatalogState(profileId, { loading: true, error: '', attempt: 0, request_id: requestId });
+  if (!silent && adetailerCatalogCacheKey(adetailerCatalogProfileId()) === key) {
+    try { render(); } catch (_) {}
+  }
+  const delays = retry ? ADETAILER_CATALOG_RETRY_DELAYS_MS : [0];
+  const request = (async () => {
+    let lastError = null;
+    for (let index = 0; index < delays.length; index += 1) {
+      adetailerSetModelCatalogState(profileId, { attempt: index + 1 });
+      if (delays[index]) await adetailerCatalogDelay(delays[index]);
+      try {
+        const payload = await adetailerRequestModelCatalog(profileId);
+        const latest = adetailerModelCatalogState(profileId);
+        if (latest.request_id !== requestId) return null;
+        adetailerSetModelCatalogState(profileId, {
+          loading: false,
+          loaded: true,
+          error: '',
+          payload,
+          last_loaded_at: new Date().toISOString(),
+        });
+        if (adetailerCatalogCacheKey(adetailerCatalogProfileId()) === key) {
+          try { adetailerReconcilePassesWithCatalog(payload); }
+          catch (error) { console.warn('ADetailer model scan selection reconciliation skipped', error); }
+        }
+        return payload;
+      } catch (error) {
+        lastError = error;
+      }
     }
-    if (status) status.textContent = `Models loaded: ${(payload.counts?.bbox || 0)} bbox · ${(payload.counts?.segm || 0)} segm · ${(payload.counts?.sam || 0)} SAM.`;
-    if (!silent) { try { render(); } catch (_) {} }
-    return payload;
-  } catch (error) {
-    if (status) status.textContent = `Model scan failed: ${error?.message || error}`;
-    if (!silent) console.warn('ADetailer model catalog failed', error);
+    const latest = adetailerModelCatalogState(profileId);
+    if (latest.request_id === requestId) {
+      adetailerSetModelCatalogState(profileId, {
+        loading: false,
+        loaded: Boolean(latest.payload || previous.payload),
+        error: String(lastError?.message || lastError || 'Model scan request failed.'),
+        payload: latest.payload || previous.payload || null,
+      });
+    }
+    if (!silent) console.warn('ADetailer model scan failed', lastError);
     return null;
+  })();
+  adetailerModelCatalogInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (adetailerModelCatalogInFlight.get(key) === request) adetailerModelCatalogInFlight.delete(key);
+    if (adetailerCatalogCacheKey(adetailerCatalogProfileId()) === key) {
+      try { render(); } catch (_) {}
+    }
   }
 }
 
 function adetailerCatalogDatalist(settings = adetailerSettings()) {
-  const catalog = settings.model_catalog || {};
-  const detectorModels = [...new Set([...(catalog.bbox_models || []), ...(catalog.segm_models || []), ...(catalog.onnx_models || []), ...(settings.catalog_bbox_models || []), ...(settings.catalog_segm_models || []), ...(settings.catalog_onnx_models || [])])];
-  const samModels = [...new Set([...(catalog.sam_models || []), ...(settings.catalog_sam_models || [])])];
+  const catalog = adetailerCatalogPayloadForProfile();
+  const detectorModels = [...new Set([...(catalog.bbox_models || []), ...(catalog.segm_models || []), ...(catalog.onnx_models || [])])];
+  const samModels = [...new Set(catalog.sam_models || [])];
   return `<datalist id="adetailerDetectorModelList">${detectorModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist><datalist id="adetailerSamModelList">${samModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist>`;
 }
 
@@ -41304,7 +43655,6 @@ function adetailerPreviewSettingsForPass(passIndex = 0) {
     mode: pass.mode,
     detector_type: pass.detector_type,
     detector_model: pass.detector_model,
-    custom_detector_root: settings.custom_detector_root,
     custom_classes: settings.custom_classes,
     confidence: settings.confidence,
     top_k: settings.top_k,
@@ -41818,14 +44168,14 @@ async function adetailerDownloadSamFromUi() {
   const response = await fetch('/api/extensions/adetailer/download-sam', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model_key: preset, target_root: settings.custom_sam_root || '' }),
+    body: JSON.stringify({ model_key: preset, target_root: '' }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
     if (status) status.textContent = `SAM download failed: ${payload.detail || payload.message || response.statusText}`;
     return;
   }
-  updateAdetailerSettings({ sam_model: payload.filename, custom_sam_root: payload.target_root || settings.custom_sam_root });
+  updateAdetailerSettings({ sam_model: payload.filename });
   if (status) status.textContent = `SAM ready: ${payload.filename}`;
   await adetailerFetchModelCatalog({ silent: true });
   render();
@@ -41872,8 +44222,6 @@ function bindAdetailerControls() {
   const enabled = document.getElementById('adetailerEnabled');
   if (enabled) enabled.addEventListener('change', (event) => { updateAdetailerSettings({ enabled: Boolean(event.target.checked) }); render(); });
   const sharedMap = [
-    ['adetailerCustomDetectorRoot', 'custom_detector_root', 'value'],
-    ['adetailerCustomSamRoot', 'custom_sam_root', 'value'],
     ['adetailerSamPreset', 'sam_preset', 'value'],
     ['adetailerProvider', 'provider', 'value'],
     ['adetailerConfidence', 'confidence', 'number'],
@@ -41904,7 +44252,18 @@ function bindAdetailerControls() {
     const handler = (event) => {
       const raw = event.target.type === 'checkbox' ? Boolean(event.target.checked) : event.target.value;
       const numeric = ['start_index','count','min_area','max_area'].includes(key);
-      updateAdetailerPass(index, { [key]: numeric ? Number(raw) : raw });
+      const patch = { [key]: numeric ? Number(raw) : raw };
+      if (key === 'detector_type') {
+        const catalog = adetailerCatalogPayloadForProfile();
+        const available = adetailerCatalogListForType(catalog, raw);
+        if (available.length) {
+          const currentPass = adetailerSettings().detailer_passes?.[index] || {};
+          patch.detector_model = adetailerCatalogCanonicalModel(catalog, raw, currentPass.detector_model)
+            || adetailerDefaultDetectorForType(catalog, raw)
+            || available[0];
+        }
+      }
+      updateAdetailerPass(index, patch);
       if (event.type === 'change' && ['mode','detector_type','target_mode','target_order','reference_lock','enabled'].includes(key)) render();
     };
     node.addEventListener('input', handler);
@@ -42097,6 +44456,161 @@ function bindAdetailerControls() {
 }
 
 
+function bindBackgroundRemovalControls() {
+  const enabled = document.getElementById('backgroundRemovalEnabled');
+  if (enabled) enabled.addEventListener('change', (event) => { updateBackgroundRemovalSettings({ enabled: Boolean(event.target.checked) }); render(); });
+  const refresh = document.getElementById('backgroundRemovalRefreshModels');
+  if (refresh) refresh.addEventListener('click', () => backgroundRemovalRefreshModelCatalog({ silent: false }));
+  const engine = document.getElementById('backgroundRemovalEngine');
+  if (engine) engine.addEventListener('change', (event) => {
+    const nextEngine = event.target.value;
+    const commercialProfile = backgroundRemovalCommercialProfile();
+    updateBackgroundRemovalSettings({
+      engine: nextEngine,
+      commercial_upload_consent: false,
+      fallback_policy: nextEngine === 'commercial_api' ? 'never' : backgroundRemovalSettings().fallback_policy,
+      commercial_profile_id: nextEngine === 'commercial_api' ? (backgroundRemovalSettings().commercial_profile_id || commercialProfile?.profile_id || '') : backgroundRemovalSettings().commercial_profile_id,
+      workflow_mode: nextEngine === 'commercial_api' ? 'segment' : backgroundRemovalSettings().workflow_mode,
+    });
+    backgroundRemovalStatus(`Execution engine set to ${nextEngine.replaceAll('_', ' ')}.`);
+    render();
+  });
+  const commercialProfile = document.getElementById('backgroundRemovalCommercialProfile');
+  if (commercialProfile) commercialProfile.addEventListener('change', (event) => {
+    updateBackgroundRemovalSettings({ commercial_profile_id: event.target.value, commercial_upload_consent: false, fallback_policy: 'never' });
+    backgroundRemovalStatus('Commercial provider changed. Confirm external upload consent again before running.');
+    render();
+  });
+  const preset = document.getElementById('backgroundRemovalPreset');
+  if (preset) preset.addEventListener('change', (event) => {
+    const nextPreset = event.target.value;
+    const suggested = backgroundRemovalSuggestedModel(nextPreset);
+    const nativeSuggested = backgroundRemovalModelCatalogState.native_preset_models?.[nextPreset] || BACKGROUND_REMOVAL_NATIVE_PRESET_MODELS[nextPreset] || 'isnet-general-use';
+    updateBackgroundRemovalSettings({
+      preset: nextPreset,
+      native_model: nativeSuggested,
+      workflow_mode: nextPreset === 'interactive_select' ? 'interactive_sam' : 'segment',
+      manual_mask: nextPreset === 'interactive_select',
+      mask_source: nextPreset === 'interactive_select' ? 'interactive_sam' : 'birefnet',
+      ...(nextPreset === 'interactive_select' ? {} : { sam_prompts: [], sam_subjects: [] }),
+      ...(suggested ? { model: suggested } : {}),
+    });
+    if (nextPreset !== 'interactive_select') backgroundRemovalCloseSamSelector();
+    backgroundRemovalStatus(nextPreset === 'interactive_select' ? 'Interactive Select ready. Open the SAM selector and add a Keep point or box.' : `Preset changed to ${nextPreset.replaceAll('_', ' ')} · smart routing will revalidate ${suggested || 'Comfy model'} / ${nativeSuggested}.`);
+    render();
+  });
+  const map = [
+    ['backgroundRemovalFallbackPolicy', 'fallback_policy', 'value'],
+    ['backgroundRemovalModel', 'model', 'value'],
+    ['backgroundRemovalDevice', 'device', 'value'],
+    ['backgroundRemovalNativeModel', 'native_model', 'value'],
+    ['backgroundRemovalNativeProvider', 'native_provider', 'value'],
+    ['backgroundRemovalDtype', 'dtype', 'value'],
+    ['backgroundRemovalWidth', 'width', 'number'],
+    ['backgroundRemovalHeight', 'height', 'number'],
+    ['backgroundRemovalUpscaleMethod', 'upscale_method', 'value'],
+    ['backgroundRemovalMaskThreshold', 'mask_threshold', 'number'],
+    ['backgroundRemovalMaskExpand', 'mask_expand', 'number'],
+    ['backgroundRemovalMaskFeather', 'mask_feather', 'number'],
+    ['backgroundRemovalPreviewBackground', 'preview_background', 'value'],
+    ['backgroundRemovalBlurSize', 'blur_size', 'number'],
+    ['backgroundRemovalBlurSizeTwo', 'blur_size_two', 'number'],
+    ['backgroundRemovalNativeForegroundThreshold', 'native_foreground_threshold', 'number'],
+    ['backgroundRemovalNativeBackgroundThreshold', 'native_background_threshold', 'number'],
+    ['backgroundRemovalNativeErodeSize', 'native_erode_size', 'number'],
+    ['backgroundRemovalSamExecution', 'sam_execution', 'value'],
+    ['backgroundRemovalSamComfyModel', 'sam_comfy_model', 'value'],
+    ['backgroundRemovalSamComfyRefineModel', 'model', 'value'],
+    ['backgroundRemovalSamDetectorType', 'sam_detector_type', 'value'],
+    ['backgroundRemovalSamDetectorModel', 'sam_detector_model', 'value'],
+    ['backgroundRemovalSamDetectionConfidence', 'sam_detection_confidence', 'number'],
+    ['backgroundRemovalSamModelVariant', 'sam_model_variant', 'value'],
+    ['backgroundRemovalSamRefineMode', 'sam_refine_mode', 'value'],
+    ['backgroundRemovalSamRefineModel', 'sam_refine_model', 'value'],
+    ['backgroundRemovalSamGateExpand', 'sam_gate_expand', 'number'],
+    ['backgroundRemovalSamGateFeather', 'sam_gate_feather', 'number'],
+    ['backgroundRemovalCommercialOutputSize', 'commercial_output_size', 'value'],
+    ['backgroundRemovalCommercialSubjectType', 'commercial_subject_type', 'value'],
+    ['backgroundRemovalCommercialTransparencyHandling', 'commercial_transparency_handling', 'value'],
+  ];
+  map.forEach(([id, key, kind]) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const handler = (event) => {
+      const value = kind === 'number' ? Number(event.target.value) : event.target.value;
+      if (key === 'sam_detector_type') {
+        const shared = backgroundRemovalModelCatalogState.shared_sam || {};
+        const suggested = String(value) === 'segm' ? shared.default_segm_model : shared.default_bbox_model;
+        updateBackgroundRemovalSettings({ [key]: value, sam_detector_model: suggested || '' });
+      } else updateBackgroundRemovalSettings({ [key]: value });
+      if (['fallback_policy', 'native_model', 'native_provider', 'sam_refine_mode', 'sam_execution', 'sam_detector_type'].includes(key)) render();
+    };
+    node.addEventListener('input', handler);
+    node.addEventListener('change', handler);
+  });
+  const foregroundEstimation = document.getElementById('backgroundRemovalForegroundEstimation');
+  if (foregroundEstimation) foregroundEstimation.addEventListener('change', (event) => { updateBackgroundRemovalSettings({ foreground_estimation: Boolean(event.target.checked) }); render(); });
+  const nativeAlpha = document.getElementById('backgroundRemovalNativeAlphaMatting');
+  if (nativeAlpha) nativeAlpha.addEventListener('change', (event) => { updateBackgroundRemovalSettings({ native_alpha_matting: Boolean(event.target.checked) }); render(); });
+  const nativePost = document.getElementById('backgroundRemovalNativePostProcess');
+  if (nativePost) nativePost.addEventListener('change', (event) => updateBackgroundRemovalSettings({ native_post_process_mask: Boolean(event.target.checked) }));
+  const samQuantized = document.getElementById('backgroundRemovalSamQuantized');
+  if (samQuantized) samQuantized.addEventListener('change', (event) => updateBackgroundRemovalSettings({ sam_quantized: Boolean(event.target.checked) }));
+  const samRefineFallback = document.getElementById('backgroundRemovalSamRefineFallback');
+  if (samRefineFallback) samRefineFallback.addEventListener('change', (event) => updateBackgroundRemovalSettings({ sam_refine_fallback: Boolean(event.target.checked) }));
+  const openSam = document.getElementById('backgroundRemovalOpenSamSelector');
+  if (openSam) openSam.addEventListener('click', async () => {
+    try { await backgroundRemovalOpenSamSelector(); }
+    catch (error) { backgroundRemovalStatus(`Interactive SAM unavailable: ${error.message || error}`); alert(`Interactive SAM unavailable: ${error.message || error}`); }
+  });
+  const commercialConsent = document.getElementById('backgroundRemovalCommercialConsent');
+  if (commercialConsent) commercialConsent.addEventListener('change', (event) => updateBackgroundRemovalSettings({ commercial_upload_consent: Boolean(event.target.checked) }));
+  const commercialSemitransparency = document.getElementById('backgroundRemovalCommercialSemitransparency');
+  if (commercialSemitransparency) commercialSemitransparency.addEventListener('change', (event) => updateBackgroundRemovalSettings({ commercial_preserve_semitransparency: Boolean(event.target.checked) }));
+  const saveMask = document.getElementById('backgroundRemovalSaveMask');
+  if (saveMask) saveMask.addEventListener('change', (event) => updateBackgroundRemovalSettings({ save_mask: Boolean(event.target.checked) }));
+  const useWeight = document.getElementById('backgroundRemovalUseWeight');
+  if (useWeight) useWeight.addEventListener('change', (event) => updateBackgroundRemovalSettings({ use_weight: Boolean(event.target.checked) }));
+  const file = document.getElementById('backgroundRemovalFile');
+  if (file) file.addEventListener('change', (event) => backgroundRemovalSetStagedFiles(event.target.files || [], 'picker'));
+  const dropzone = document.getElementById('backgroundRemovalDropzone');
+  if (dropzone) {
+    ['dragenter', 'dragover'].forEach((type) => dropzone.addEventListener(type, (event) => { event.preventDefault(); event.stopPropagation(); dropzone.classList.add('is-dragover'); }));
+    ['dragleave', 'drop'].forEach((type) => dropzone.addEventListener(type, (event) => { event.preventDefault(); event.stopPropagation(); dropzone.classList.remove('is-dragover'); }));
+    dropzone.addEventListener('drop', (event) => backgroundRemovalSetStagedFiles(event.dataTransfer?.files || [], 'drop'));
+    dropzone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); file?.click(); } });
+  }
+  const clear = document.getElementById('backgroundRemovalClearSource');
+  if (clear) clear.addEventListener('click', backgroundRemovalClearStagedFile);
+  const review = document.getElementById('backgroundRemovalReviewMask');
+  if (review) review.addEventListener('click', async () => {
+    try { await backgroundRemovalOpenMaskReview(); }
+    catch (error) { backgroundRemovalStatus(`Mask Review unavailable: ${error.message || error}`); alert(`Mask Review unavailable: ${error.message || error}`); }
+  });
+  const applyRefinement = document.getElementById('backgroundRemovalApplyRefinement');
+  if (applyRefinement) applyRefinement.addEventListener('click', async () => {
+    try {
+      if (!backgroundRemovalReviewedMaskFile) throw new Error('Review and stage a mask first.');
+      const source = backgroundRemovalLastSourceFile || backgroundRemovalStagedFileList()[0] || await backgroundRemovalFileFromUrl(backgroundRemovalReviewArtifacts().sourceUrl, backgroundRemovalReviewArtifacts().sourceLabel);
+      await backgroundRemovalQueueFiles([source], 'mask-review', { maskFile: backgroundRemovalReviewedMaskFile, workflowMode: 'refine_mask' });
+    } catch (error) { backgroundRemovalStatus(`Mask refinement failed: ${error.message || error}`); alert(`Mask refinement failed: ${error.message || error}`); }
+  });
+  const run = document.getElementById('backgroundRemovalSelectedResult');
+  if (run) run.addEventListener('click', async () => {
+    try {
+      const current = backgroundRemovalSettings();
+      if (current.preset === 'interactive_select' || current.workflow_mode === 'interactive_sam') {
+        await backgroundRemovalOpenSamSelector();
+        return;
+      }
+      updateBackgroundRemovalSettings({ workflow_mode: 'segment', manual_mask: false, mask_source: 'birefnet' });
+      await backgroundRemovalQueueSelectedResult();
+    }
+    catch (error) { backgroundRemovalStatus(`Failed: ${error.message || error}`); alert(`Background Removal failed: ${error.message || error}`); }
+  });
+}
+
+
 function bindImageUpscaleControls() {
   const enabled = document.getElementById('imageUpscaleEnabled');
   if (enabled) enabled.addEventListener('change', (event) => { updateImageUpscaleSettings({ enabled: Boolean(event.target.checked) }); render(); });
@@ -42115,6 +44629,7 @@ function bindImageUpscaleControls() {
     ['imageUpscaleRestoreDetection', 'restore_detection', 'value'],
     ['imageUpscaleSeedVR2DitModel', 'seedvr2_dit_model', 'value'],
     ['imageUpscaleSeedVR2VaeModel', 'seedvr2_vae_model', 'value'],
+    ['imageUpscaleSeedVR2AlphaMode', 'seedvr2_alpha_mode', 'value'],
     ['imageUpscaleSeedVR2SizingMode', 'seedvr2_sizing_mode', 'value'],
     ['imageUpscaleSeedVR2Resolution', 'seedvr2_resolution', 'number'],
     ['imageUpscaleSeedVR2MaxResolution', 'seedvr2_max_resolution', 'number'],
@@ -42137,7 +44652,7 @@ function bindImageUpscaleControls() {
       const patch = { [key]: kind === 'number' ? Number(event.target.value) : event.target.value, profile: key === 'restore_assist' ? imageUpscaleSettings().profile : 'custom' };
       if ((key === 'seedvr2_resolution' || key === 'seedvr2_max_resolution') && imageUpscaleSettings().seedvr2_sizing_mode === 'scale_factor') patch.seedvr2_sizing_mode = key === 'seedvr2_resolution' ? 'short_edge' : 'max_edge';
       updateImageUpscaleSettings(patch);
-      if (['restore_assist', 'upscale_engine', 'seedvr2_sizing_mode', 'scale', 'seedvr2_resolution', 'seedvr2_max_resolution'].includes(key)) {
+      if (['restore_assist', 'upscale_engine', 'seedvr2_alpha_mode', 'seedvr2_sizing_mode', 'scale', 'seedvr2_resolution', 'seedvr2_max_resolution'].includes(key)) {
         const current = imageUpscaleSettings();
         if (current.upscale_engine === 'seedvr2' && current.seedvr2_source_width && current.seedvr2_source_height) imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(current.seedvr2_source_width, current.seedvr2_source_height, { renderPanel: false, status: false });
         render();
@@ -43942,6 +46457,7 @@ function render() {
     bindCfgFixControls();
     bindHighResLabControls();
     bindImageUpscaleControls();
+    bindBackgroundRemovalControls();
     bindAdetailerControls();
     bindControlNetControls();
     bindIpAdapterControls();
@@ -44158,4 +46674,3 @@ function sceneDirectorV054OutputInspectorActions(region) {
   if (region && region.edit_intent) actions.push('Replace one region / preserve all other regions');
   return actions;
 }
-

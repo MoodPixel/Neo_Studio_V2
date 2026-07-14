@@ -75,6 +75,7 @@ DEFAULT_BUILT_IN_ENABLED_EXTENSIONS = [
     "cfg_fix_dynamic_thresholding",
     "image.gguf_loader",
     "image.image_upscale",
+    "image.background_removal",
     "image.high_res_lab",
     "lora_stack",
     "embeddings_ti",
@@ -240,6 +241,14 @@ def _ensure_state() -> dict[str, list[str]]:
         STATE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     data.setdefault("enabled_extensions", [])
     data.setdefault("removed_extensions", [])
+    data.setdefault("default_seed_migrations", [])
+    migration_id = "v25_9_20_p6_1_background_removal"
+    if migration_id not in data["default_seed_migrations"]:
+        extension_id = "image.background_removal"
+        if extension_id not in data["removed_extensions"] and extension_id not in data["enabled_extensions"]:
+            data["enabled_extensions"].append(extension_id)
+        data["default_seed_migrations"].append(migration_id)
+        _write_state(data)
     return data
 
 

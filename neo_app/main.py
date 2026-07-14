@@ -75,6 +75,7 @@ from neo_app.admin.semantic_engine import semantic_engine_state_payload, semanti
 from neo_app.admin.chroma_collections import chroma_collection_state_payload, export_chroma_collection_payload, export_archive_path, import_chroma_archive_payload
 from neo_app.admin.index_jobs import index_job_queue_state_payload, create_index_job_payload, cancel_index_job_payload, read_index_job_log_payload
 from neo_app.admin.models.model_catalog_service import admin_model_catalog_payload, admin_model_catalog_summary_payload, admin_model_category_map_payload, admin_model_folder_rules_payload, admin_model_schema_payload, admin_model_paths_state_payload, admin_model_paths_save_payload, admin_model_target_resolution_payload, admin_model_installed_state_payload, admin_model_scan_installed_payload, admin_model_huggingface_metadata_state_payload, admin_model_huggingface_discover_files_state_payload, admin_model_civitai_metadata_state_payload, admin_model_civitai_discover_files_state_payload, admin_model_filter_state_payload, admin_model_download_plan_state_payload, admin_model_download_start_state_payload, admin_model_download_cancel_state_payload, admin_model_download_jobs_state_payload, admin_model_download_job_state_payload, admin_model_packs_state_payload, admin_model_pack_status_state_payload, admin_model_pack_download_plan_state_payload, admin_model_workspace_requirements_state_payload, admin_model_workspace_status_state_payload, admin_model_workspace_download_plan_state_payload
+from neo_app.admin.models.model_paths import load_model_paths
 from neo_app.admin.image_node_manager import (
     get_node_manager_state,
     save_node_manager_settings,
@@ -530,6 +531,7 @@ from neo_extensions.built_in.controlnet.backend.map_routes import register_contr
 from neo_extensions.built_in.ip_adapter.backend.node_routes import register_ip_adapter_node_routes
 from neo_extensions.built_in.adetailer.backend.api_routes import register_adetailer_api_routes
 from neo_extensions.built_in.image_upscale.backend.api_routes import register_image_upscale_api_routes
+from neo_extensions.built_in.background_removal.backend.api_routes import register_background_removal_api_routes
 from neo_extensions.built_in.style_stack.backend.api_routes import register_style_stack_api_routes
 from neo_extensions.built_in.wildcards.backend.api_routes import register_wildcards_api_routes
 try:
@@ -4143,9 +4145,9 @@ def prompt_captioning_keyword_list(query: str = "", category: str = "", subcateg
 def prompt_captioning_keyword_list_post(payload: dict) -> dict:
     """List Keyword Browser records using a JSON body.
 
-    The GET route is kept for compatibility, but Windows paths such as
-    F:\\LLM\\Neo_Studio_V2 can be awkward in query strings during local
-    debugging. The UI uses this POST route so explicit library paths are passed
+    The GET route is kept for compatibility, but Windows drive-root paths can
+    be awkward in query strings during local debugging. The UI uses this POST
+    route so explicit library paths are passed
     unchanged and can be reported in diagnostics.
     """
     payload = payload or {}
@@ -4851,6 +4853,99 @@ def _embedding_catalog_names_for_profile(profile_id: str | None = None) -> list[
     return names
 
 
+def _comfy_catalog_timeout_seconds(value: object) -> float:
+    """Use the configured local-backend timeout without letting catalog reads hang forever."""
+    try:
+        timeout = float(value or 30)
+    except (TypeError, ValueError):
+        timeout = 30.0
+    return max(5.0, min(timeout, 30.0))
+
+
+_ADETAILER_COMFY_MODEL_FOLDER_KEYS = (
+    "ultralytics_bbox",
+    "ultralytics_segm",
+    "ultralytics",
+    "onnx",
+    "sams",
+    "adetailer",
+)
+
+
+def _adetailer_model_names_from_folder_payload(payload: object) -> list[str]:
+    """Normalize Comfy ``/models/<folder>`` responses without guessing names."""
+
+    candidates: list[object] = []
+    if isinstance(payload, list):
+        candidates.extend(payload)
+    elif isinstance(payload, dict):
+        for key in ("models", "files", "items", "names"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                candidates.extend(value)
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if isinstance(item, dict):
+            raw = item.get("name") or item.get("filename") or item.get("file") or item.get("path")
+        else:
+            raw = item
+        name = str(raw or "").strip().replace("\\", "/")
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            names.append(name)
+    return names
+
+
+def _adetailer_registered_folder_keys(payload: object) -> list[str]:
+    candidates: list[object] = []
+    if isinstance(payload, list):
+        candidates.extend(payload)
+    elif isinstance(payload, dict):
+        for key in ("folders", "folder_names", "models", "items"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                candidates.extend(value)
+    return [str(item).strip() for item in candidates if isinstance(item, str) and str(item).strip()]
+
+
+def _adetailer_comfy_model_folders(provider: ComfyProvider, timeout_seconds: float) -> tuple[dict[str, list[str]], dict[str, object]]:
+    """Read the detector folders registered by the selected live Comfy process."""
+
+    discovered_keys: list[str] = []
+    errors: dict[str, str] = {}
+    try:
+        discovered_keys = _adetailer_registered_folder_keys(provider._get_json("/models", timeout=timeout_seconds))
+    except Exception as exc:  # noqa: BLE001 - an older Comfy may not expose the index route.
+        errors["models_index"] = type(exc).__name__
+
+    discovered_by_fold = {key.casefold(): key for key in discovered_keys}
+    folder_names = [
+        discovered_by_fold[key.casefold()]
+        for key in _ADETAILER_COMFY_MODEL_FOLDER_KEYS
+        if key.casefold() in discovered_by_fold
+    ]
+    # Compatibility for Comfy builds that expose /models/<folder> but not /models.
+    if not discovered_keys:
+        folder_names = list(_ADETAILER_COMFY_MODEL_FOLDER_KEYS)
+
+    folders: dict[str, list[str]] = {}
+    for folder_name in folder_names:
+        normalized_key = folder_name.casefold()
+        try:
+            payload = provider._get_json(f"/models/{parse.quote(folder_name, safe='')}", timeout=timeout_seconds)
+            folders[normalized_key] = _adetailer_model_names_from_folder_payload(payload)
+        except Exception as exc:  # noqa: BLE001 - keep other registered folders usable.
+            errors[normalized_key] = type(exc).__name__
+    return folders, {
+        "index_available": bool(discovered_keys),
+        "registered_folder_count": len(discovered_keys),
+        "queried_folder_count": len(folder_names),
+        "error_codes": errors,
+    }
+
+
 def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
     """Return Comfy runtime details for ControlNet map generation.
 
@@ -4865,26 +4960,84 @@ def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
     connection = profile.get("connection", {}) or {}
     runtime = profile.get("runtime", {}) or {}
     base_url = str(connection.get("base_url") or runtime.get("base_url") or "http://127.0.0.1:8188").rstrip("/")
-    timeout = float(connection.get("timeout_seconds") or 30)
+    try:
+        timeout = float(connection.get("timeout_seconds") or 30)
+    except (TypeError, ValueError):
+        timeout = 30.0
     object_info = {}
+    object_info_error_code = ""
+    object_info_timeout_seconds = _comfy_catalog_timeout_seconds(timeout)
     try:
         provider, _profile = _profile_bound_provider(profile_id)
         if isinstance(provider, ComfyProvider):
-            object_info = provider._get_json("/object_info", timeout=2)
-    except Exception:  # noqa: BLE001 - ControlNet diagnostics should degrade safely while Comfy is offline.
+            object_info = provider._get_json("/object_info", timeout=object_info_timeout_seconds)
+    except Exception as exc:  # noqa: BLE001 - catalog diagnostics degrade safely while Comfy is offline.
         object_info = {}
+        object_info_error_code = type(exc).__name__
     return {
         "profile_id": profile_id,
         "provider_id": profile.get("provider_id"),
         "base_url": base_url,
         "timeout_seconds": timeout,
+        "object_info_timeout_seconds": object_info_timeout_seconds,
+        "object_info_error_code": object_info_error_code,
         "portable_path": connection.get("portable_path") or "",
+        "comfy_root": connection.get("comfy_root") or runtime.get("comfy_root") or "",
+        "extra_model_paths_yaml": connection.get("extra_model_paths_yaml") or runtime.get("extra_model_paths_yaml") or "",
         "object_info": object_info if isinstance(object_info, dict) else {},
     }
 
 
 def _controlnet_object_info_for_profile(profile_id: str | None = None) -> dict:
     return _controlnet_backend_for_profile(profile_id).get("object_info", {})
+
+
+def _adetailer_backend_for_profile(profile_id: str | None = None) -> dict:
+    """Bind ADetailer to Neo's configured models root and live Comfy folders.
+
+    A URL-only Comfy profile cannot reveal its local filesystem root. Neo's
+    local Admin Models path setting is therefore the authoritative filesystem
+    source when present. Absolute values remain server-side and are redacted by
+    the ADetailer API boundary.
+    """
+
+    backend = _controlnet_backend_for_profile(profile_id)
+    if backend.get("provider_id") not in {"comfyui", "comfyui_portable"}:
+        return backend
+
+    try:
+        model_paths = load_model_paths(create=False)
+    except Exception:  # noqa: BLE001 - model discovery still has live Comfy fallbacks.
+        model_paths = {}
+    configured_backends = model_paths.get("backends") if isinstance(model_paths.get("backends"), dict) else {}
+    configured_comfy = configured_backends.get("comfyui") if isinstance(configured_backends.get("comfyui"), dict) else {}
+    if configured_comfy.get("enabled", True) is not False:
+        configured_models_root = str(configured_comfy.get("models_root") or "").strip()
+        configured_comfy_root = str(configured_comfy.get("root") or "").strip()
+        if configured_models_root:
+            backend["configured_models_root"] = configured_models_root
+            backend["models_root_source"] = "admin_models_paths"
+        if configured_comfy_root:
+            backend["configured_comfy_root"] = configured_comfy_root
+            if not str(backend.get("comfy_root") or "").strip():
+                backend["comfy_root"] = configured_comfy_root
+
+    if backend.get("object_info"):
+        folder_timeout = min(float(backend.get("object_info_timeout_seconds") or 5.0), 5.0)
+        try:
+            provider, _profile = _profile_bound_provider(str(backend.get("profile_id") or ""))
+            if isinstance(provider, ComfyProvider):
+                folders, diagnostics = _adetailer_comfy_model_folders(provider, folder_timeout)
+                backend["comfy_model_folders"] = folders
+                backend["comfy_model_folder_diagnostics"] = diagnostics
+        except Exception as exc:  # noqa: BLE001 - filesystem discovery remains available.
+            backend["comfy_model_folder_diagnostics"] = {
+                "index_available": False,
+                "registered_folder_count": 0,
+                "queried_folder_count": 0,
+                "error_codes": {"resolver": type(exc).__name__},
+            }
+    return backend
 
 
 def _lora_metadata_for_profile(profile_id: str | None, lora_name: str) -> dict:
@@ -4903,7 +5056,7 @@ register_lora_stack_library_routes(app, ROOT_DIR, catalog_resolver=_lora_catalog
 register_embeddings_ti_library_routes(app, ROOT_DIR, catalog_resolver=_embedding_catalog_names_for_profile)
 register_controlnet_map_routes(app, ROOT_DIR, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_controlnet_backend_for_profile)
 register_ip_adapter_node_routes(app, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_controlnet_backend_for_profile)
-register_adetailer_api_routes(app)
+register_adetailer_api_routes(app, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_adetailer_backend_for_profile)
 register_style_stack_api_routes(app, ROOT_DIR)
 register_wildcards_api_routes(app, ROOT_DIR)
 
@@ -5055,7 +5208,7 @@ def _profile_bound_provider(profile_id: str):
     runtime_profile = get_backend_profile_for_runtime(profile_id) or ui_profile
     connection_type = str(ui_profile.get("connection_type") or (ui_profile.get("connection") or {}).get("connection_type") or "").strip().lower()
 
-    _require_backend_connected_for_task(profile_id, surface=str(ui_profile.get("surface") or "image"), operation="image task")
+    _require_backend_connected_for_task(profile_id, surface=str(ui_profile.get("surface") or "image"), operation=f"{str(ui_profile.get('surface') or 'image').title()} task")
     # Local task routes must use a live task-facing probe, not the passive
     # UI-facing profile list. The Admin listing deliberately shows local profiles
     # as disconnected when auto_connect is off, but generation now additionally
@@ -5119,6 +5272,12 @@ def _profile_model_catalog_provider(profile_id: str):
     if provider_id == "xai_grok":
         runtime_profile = get_backend_profile_for_runtime(profile_id) or profile
         return XaiGrokProvider(provider.manifest, profile=runtime_profile), profile
+    if provider_id in {"remove_bg", "clipdrop_remove_bg"}:
+        runtime_profile = get_backend_profile_for_runtime(profile_id) or profile
+        runtime_provider = get_provider(provider_id, profile=runtime_profile)
+        if runtime_provider is None:
+            raise HTTPException(status_code=404, detail=f"Unknown commercial background-removal provider: {provider_id}")
+        return runtime_provider, profile
     return provider, profile
 
 
@@ -5164,6 +5323,41 @@ register_image_upscale_api_routes(
     profile_provider_resolver=_profile_bound_provider,
     model_catalog_provider_resolver=_profile_model_catalog_provider,
     context_recorder=_record_image_upscale_job_context,
+)
+
+
+def _record_background_removal_job_context(job_id: str, context: dict) -> None:
+    _remember_image_job_context(job_id, context, status="active")
+
+
+def _persist_background_removal_native_outputs(provider_outputs: list[dict], context: dict) -> dict:
+    """Persist synchronous Neo-native remover outputs through the canonical Image ledger."""
+    persisted = persist_image_outputs(provider_outputs=provider_outputs, job_context=context)
+    record = persisted.record if isinstance(persisted.record, dict) else {}
+    outputs = ((record.get("outputs") or {}).get("files") or persisted.files) if isinstance(record, dict) else persisted.files
+    try:
+        _remember_image_job_context(str(context.get("job_id") or ""), context, status="completed")
+    except Exception:
+        pass
+    return {
+        "ok": bool(persisted.ok),
+        "result_id": persisted.result_id,
+        "record": record,
+        "record_path": str(persisted.record_path),
+        "outputs": outputs,
+        "files": persisted.files,
+        "errors": persisted.errors,
+    }
+
+
+register_background_removal_api_routes(
+    app,
+    ROOT_DIR,
+    profile_provider_resolver=_profile_bound_provider,
+    model_catalog_provider_resolver=_profile_model_catalog_provider,
+    detector_backend_resolver=_adetailer_backend_for_profile,
+    context_recorder=_record_background_removal_job_context,
+    native_result_persister=_persist_background_removal_native_outputs,
 )
 
 
@@ -5558,7 +5752,14 @@ def image_generate(payload: dict) -> dict:
             merged_negative_prompt,
             conditioning_mode,
         )
-        normalized_params = {**normalized_params, "prompt_extension_merge": prompt_extension_merge, "prompt_extension_execution": prompt_extension_execution}
+        normalized_params = {
+            **normalized_params,
+            "prompt_extension_merge": prompt_extension_merge,
+            "prompt_extension_execution": prompt_extension_execution,
+            # Runtime-only profile identity lets filesystem bridges distinguish
+            # local/shared Comfy profiles from remote URL-only connections.
+            "backend_profile_id": str(profile_id),
+        }
         normalized_params = _normalize_image_source_params(normalized_params, runtime_mode)
         job_payload = {
             **job_payload,
@@ -6580,10 +6781,80 @@ def video_finish_repair(payload: dict | None = None) -> dict:
     """Compile or queue a V14 video repair/cleanup Finish workflow."""
     return _run_video_runtime_call("repair", "video.finish", payload, video_repair_generate_payload)
 
+def _xai_grok_video_generate(data: dict) -> dict:
+    profile_id = str(data.get("profile_id") or data.get("backend_profile_id") or "").strip()
+    if not profile_id:
+        profile_id = _default_backend_profile_id_for_surface("video")
+    if not profile_id:
+        raise HTTPException(status_code=400, detail="A Video backend profile is required.")
+    provider, profile = _profile_bound_provider(profile_id)
+    if str(profile.get("surface") or "").strip().lower() != "video":
+        raise HTTPException(status_code=400, detail=f"Backend profile '{profile_id}' is not a Video profile.")
+    if str(profile.get("provider_id") or "").strip() != "xai_grok":
+        raise HTTPException(status_code=400, detail=f"Backend profile '{profile_id}' is not an xAI Grok Video profile.")
+
+    generation_type = str(data.get("generation_type") or data.get("mode") or "txt2vid").strip().lower().replace("-", "_")
+    mode = "img2vid" if generation_type in {"img2vid", "image_to_video", "i2v"} else "txt2vid"
+    source_image = str(data.get("source_image") or data.get("source_image_path") or "").strip()
+    params = {
+        "profile_id": profile_id,
+        "backend_profile_id": profile_id,
+        "model": str(data.get("model") or data.get("model_name") or "").strip(),
+        "duration_seconds": data.get("duration_seconds", data.get("duration", 4)),
+        "aspect_ratio": str(data.get("aspect_ratio") or "16:9").strip(),
+        "resolution": str(data.get("resolution") or "720p").strip(),
+        "source_image": source_image,
+        "source_image_path": source_image,
+        "source_image_name": str(data.get("source_image_name") or "").strip(),
+    }
+    job = NeoJob(
+        job_id=str(data.get("job_id") or "").strip() or None,
+        surface="video",
+        subtab=mode,
+        mode=mode,
+        provider_id="xai_grok",
+        family="grok_imagine",
+        loader="api_model",
+        model=params["model"] or None,
+        prompt=str(data.get("prompt") or data.get("positive_prompt") or "").strip(),
+        negative_prompt=None,
+        params=params,
+        extensions={},
+    )
+    result = provider.run_job(job)
+    output = model_to_dict(result)
+    runtime = output.get("runtime") if isinstance(output.get("runtime"), dict) else {}
+    persisted = runtime.get("neo_persisted") if isinstance(runtime.get("neo_persisted"), dict) else {}
+    output.update({
+        "ok": output.get("status") not in {"failed", "cancelled"},
+        "queued": output.get("status") in {"queued", "running"},
+        "profile_id": profile_id,
+        "provider_id": "xai_grok",
+        "route_id": f"xai_grok.api_model.{mode}",
+        "family": "grok_imagine",
+        "loader": "api_model",
+        "generation_type": mode,
+        "result_id": runtime.get("result_id") or persisted.get("result_id") or "",
+        "neo_persisted": persisted,
+        "parameters": runtime.get("actual_params") if isinstance(runtime.get("actual_params"), dict) else params,
+        "backend": {
+            "profile": {"profile_id": profile_id, "provider_id": "xai_grok"},
+            "profile_id": profile_id,
+            "provider_id": "xai_grok",
+            "base_url": str((profile.get("connection") or {}).get("base_url") or "https://api.x.ai/v1"),
+        },
+    })
+    return output
+
+
 @app.post("/api/video/generate")
 def video_generate(payload: dict | None = None) -> dict:
-    """Queue the active Video workflow. V10 runs VRAM profile guards before compiler queueing."""
+    """Queue the active Video workflow through its selected backend profile."""
     data = payload if isinstance(payload, dict) else {}
+    profile_id = str(data.get("profile_id") or data.get("backend_profile_id") or "").strip()
+    selected_profile = get_backend_profile(profile_id) if profile_id else None
+    if selected_profile and str(selected_profile.get("provider_id") or "").strip() == "xai_grok":
+        return _xai_grok_video_generate(data)
     family = str(data.get("family", "wan22") or "wan22").lower().replace("-", "_").replace(".", "")
     generation_type = str(data.get("generation_type", data.get("mode", "txt2vid")) or "txt2vid").lower().replace("-", "_")
     loader = str(data.get("loader", "unet") or "unet").lower().replace("-", "_")
@@ -6614,6 +6885,34 @@ def video_generate(payload: dict | None = None) -> dict:
             return _run_video_runtime_call("wan22-rapid-aio-gguf-production", "video.queue", data, video_wan22_rapid_aio_gguf_generate_payload)
         return _run_video_runtime_call("wan22-img2vid", "video.queue", data, video_wan22_img2vid_generate_payload)
     return _run_video_runtime_call("wan22-txt2vid", "video.queue", data, video_wan22_txt2vid_generate_payload)
+
+
+@app.get("/api/video/jobs/{profile_id}/{job_id}")
+def video_job_status(profile_id: str, job_id: str) -> dict:
+    """Poll a provider-owned Video job while preserving the existing Video workspace."""
+    provider, profile = _profile_bound_provider(profile_id)
+    if str(profile.get("surface") or "").strip().lower() != "video":
+        raise HTTPException(status_code=400, detail=f"Backend profile '{profile_id}' is not a Video profile.")
+    result = provider.poll_job(job_id)
+    output = model_to_dict(result)
+    runtime = output.get("runtime") if isinstance(output.get("runtime"), dict) else {}
+    persisted = runtime.get("neo_persisted") if isinstance(runtime.get("neo_persisted"), dict) else {}
+    output.update({
+        "ok": output.get("status") not in {"failed", "cancelled"},
+        "queued": output.get("status") in {"queued", "running"},
+        "profile_id": profile_id,
+        "provider_id": str(profile.get("provider_id") or output.get("provider_id") or ""),
+        "result_id": runtime.get("result_id") or persisted.get("result_id") or "",
+        "neo_persisted": persisted,
+        "capabilities": provider.feature_capability_payload(),
+    })
+    try:
+        registry_record = get_generation_job_registry(ROOT_DIR).get(job_id, surface="video") or get_generation_job_registry(ROOT_DIR).get(job_id)
+        if registry_record:
+            output["job_registry"] = get_generation_job_registry(ROOT_DIR).summary(job_id, surface=registry_record.get("surface"))
+    except Exception:
+        pass
+    return attach_progress_watchdog(output, surface="video", profile_id=profile_id, job_id=job_id)
 
 
 @app.get("/api/image/replay-storage")

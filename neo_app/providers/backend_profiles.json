@@ -3190,6 +3190,266 @@
           "vision_models": []
         }
       }
+    },
+    {
+      "provider_label": "Grok Imagine Video",
+      "surface": "video",
+      "provider_id": "xai_grok",
+      "profile_role": "video_generation_backend",
+      "connection_type": "cloud_api",
+      "connection": {
+        "base_url": "https://api.x.ai/v1",
+        "auth_mode": "env",
+        "api_key_mode": "env",
+        "api_key_env": "XAI_API_KEY",
+        "credential_profile_id": "image.xai_grok_imagine",
+        "api_key_is_configured": false,
+        "healthcheck_path": "/models",
+        "timeout_seconds": 900,
+        "kind": "cloud_api",
+        "connection_type": "cloud_api",
+        "api_key_status": "missing",
+        "api_key_source": "linked_manual",
+        "api_key_status_message": "Uses XAI_API_KEY or credentials shared from image.xai_grok_imagine."
+      },
+      "capabilities": {
+        "txt2video": true,
+        "img2video": true,
+        "text_to_video": true,
+        "image_to_video": true,
+        "video_extend": false,
+        "video_edit": false,
+        "reference_to_video": false,
+        "negative_prompt": false,
+        "async_jobs": true,
+        "provider_polling": true
+      },
+      "defaults": {
+        "mode": "text_to_video",
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "duration_seconds": 4,
+        "generation_path": "/videos/generations",
+        "poll_path": "/videos/{request_id}",
+        "poll_interval_seconds": 5
+      },
+      "model": {
+        "default_model": "grok-imagine-video",
+        "available_models": [
+          "grok-imagine-video",
+          "grok-imagine-video-1.5"
+        ]
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": false,
+        "show_api_auth_fields": true,
+        "show_model_fields": true,
+        "show_comfy_video_fields": false,
+        "show_cloud_video_generation_fields": true
+      },
+      "notes": "P3 linked Video surface profile. Reuses the existing Video workspace and shares xAI credentials with image.xai_grok_imagine when a manual key is stored there.",
+      "profile_id": "video.xai_grok_imagine",
+      "display_name": "Grok Imagine Video",
+      "enabled": true,
+      "is_default": false,
+      "seeded_profile": true,
+      "profile_source": "v25_9_20_p3_seeded_linked_video_profile",
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Surface binding only; no duplicate Grok workspace. Credentials link to image.xai_grok_imagine."
+      },
+      "capability_flags": {
+        "txt2video": true,
+        "img2video": true,
+        "text_to_video": true,
+        "image_to_video": true,
+        "video_extend": false,
+        "video_edit": false,
+        "reference_to_video": false,
+        "negative_prompt": false,
+        "async_jobs": true,
+        "provider_polling": true
+      },
+      "generation_defaults": {
+        "mode": "text_to_video",
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "duration_seconds": 4,
+        "generation_path": "/videos/generations",
+        "poll_path": "/videos/{request_id}",
+        "poll_interval_seconds": 5
+      }
+    },
+    {
+      "provider_label": "remove.bg",
+      "surface": "image",
+      "provider_id": "remove_bg",
+      "profile_role": "image_background_removal_backend",
+      "connection_type": "cloud_api",
+      "connection": {
+        "base_url": "https://api.remove.bg/v1.0",
+        "auth_mode": "env",
+        "api_key_mode": "env",
+        "api_key_env": "REMOVE_BG_API_KEY",
+        "api_key_is_configured": false,
+        "auth_header_name": "X-Api-Key",
+        "auth_header_prefix": "",
+        "healthcheck_path": "/account",
+        "healthcheck_mode": "http_get",
+        "timeout_seconds": 120,
+        "kind": "cloud_api",
+        "connection_type": "cloud_api",
+        "api_key_status": "missing",
+        "api_key_source": "env",
+        "api_key_status_message": "Environment key REMOVE_BG_API_KEY is missing."
+      },
+      "capabilities": {
+        "background_removal": true,
+        "external_upload": true,
+        "paid_credits": true,
+        "transparent_png": true,
+        "alpha_mask_derivation": true
+      },
+      "defaults": {
+        "remove_path": "/removebg",
+        "size": "auto",
+        "type": "auto",
+        "format": "png",
+        "semitransparency": true
+      },
+      "model": {
+        "default_model": "remove.bg",
+        "available_models": [
+          "remove.bg"
+        ]
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": false,
+        "show_api_auth_fields": true,
+        "show_model_fields": false,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false
+      },
+      "notes": "Optional paid utility profile used only by Image → Finish → Remove Background after explicit upload consent.",
+      "profile_id": "image.remove_bg_background_removal",
+      "display_name": "remove.bg Background Removal",
+      "enabled": true,
+      "is_default": false,
+      "seeded_profile": true,
+      "profile_source": "v25_9_20_p6_5_seeded_commercial_background_removal",
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Utility-only profile; excluded from the Image generation backend selector."
+      },
+      "capability_flags": {
+        "background_removal": true,
+        "external_upload": true,
+        "paid_credits": true,
+        "transparent_png": true,
+        "alpha_mask_derivation": true
+      },
+      "generation_defaults": {
+        "remove_path": "/removebg",
+        "size": "auto",
+        "type": "auto",
+        "format": "png",
+        "semitransparency": true
+      },
+      "runtime_status": "missing_key",
+      "runtime": {
+        "status": "missing_key",
+        "reachable": false,
+        "base_url": "https://api.remove.bg/v1.0",
+        "message": "API key is not configured. Set REMOVE_BG_API_KEY or add a local key in Admin > Backends."
+      }
+    },
+    {
+      "provider_label": "Clipdrop",
+      "surface": "image",
+      "provider_id": "clipdrop_remove_bg",
+      "profile_role": "image_background_removal_backend",
+      "connection_type": "cloud_api",
+      "connection": {
+        "base_url": "https://clipdrop-api.co",
+        "auth_mode": "env",
+        "api_key_mode": "env",
+        "api_key_env": "CLIPDROP_API_KEY",
+        "api_key_is_configured": false,
+        "auth_header_name": "x-api-key",
+        "auth_header_prefix": "",
+        "healthcheck_path": "",
+        "healthcheck_mode": "configured_only",
+        "timeout_seconds": 120,
+        "kind": "cloud_api",
+        "connection_type": "cloud_api",
+        "api_key_status": "missing",
+        "api_key_source": "env",
+        "api_key_status_message": "Environment key CLIPDROP_API_KEY is missing."
+      },
+      "capabilities": {
+        "background_removal": true,
+        "external_upload": true,
+        "paid_credits": true,
+        "transparent_png": true,
+        "alpha_mask_derivation": true
+      },
+      "defaults": {
+        "remove_path": "/remove-background/v1",
+        "transparency_handling": "return_input_if_non_opaque",
+        "format": "png"
+      },
+      "model": {
+        "default_model": "clipdrop-remove-background",
+        "available_models": [
+          "clipdrop-remove-background"
+        ]
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": false,
+        "show_api_auth_fields": true,
+        "show_model_fields": false,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false
+      },
+      "notes": "Optional paid utility profile used only by Image → Finish → Remove Background after explicit upload consent.",
+      "profile_id": "image.clipdrop_background_removal",
+      "display_name": "Clipdrop Background Removal",
+      "enabled": true,
+      "is_default": false,
+      "seeded_profile": true,
+      "profile_source": "v25_9_20_p6_5_seeded_commercial_background_removal",
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Utility-only profile; excluded from the Image generation backend selector."
+      },
+      "capability_flags": {
+        "background_removal": true,
+        "external_upload": true,
+        "paid_credits": true,
+        "transparent_png": true,
+        "alpha_mask_derivation": true
+      },
+      "generation_defaults": {
+        "remove_path": "/remove-background/v1",
+        "transparency_handling": "return_input_if_non_opaque",
+        "format": "png"
+      },
+      "runtime_status": "missing_key",
+      "runtime": {
+        "status": "missing_key",
+        "reachable": false,
+        "base_url": "https://clipdrop-api.co",
+        "message": "API key is not configured. Set CLIPDROP_API_KEY or add a local key in Admin > Backends."
+      }
     }
   ]
 }

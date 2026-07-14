@@ -471,8 +471,8 @@ Example dry-run start request:
     "target": {
       "backend": "comfyui",
       "target_type": "unet_gguf",
-      "folder_path": "F:/ComfyUI/ComfyUI/models/unet",
-      "final_path": "F:/ComfyUI/ComfyUI/models/unet/model.gguf"
+      "folder_path": "<ComfyUI-models-root>/unet",
+      "final_path": "<ComfyUI-models-root>/unet/model.gguf"
     }
   }
 }

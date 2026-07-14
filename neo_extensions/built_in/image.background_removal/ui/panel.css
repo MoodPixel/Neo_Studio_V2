@@ -1,0 +1,61 @@
+.neo-background-removal-panel { display: grid; gap: 12px; }
+.neo-background-removal-source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.neo-background-removal-dropzone { border: 1px dashed var(--line-strong, #40506a); border-radius: 12px; padding: 16px; display: grid; place-items: center; text-align: center; cursor: pointer; min-height: 112px; background: rgba(9, 15, 28, .45); }
+.neo-background-removal-dropzone:hover, .neo-background-removal-dropzone.is-dragover { border-color: var(--accent, #8b5cf6); background: rgba(139, 92, 246, .08); }
+.neo-background-removal-dropzone input { display: none; }
+.neo-background-removal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.neo-background-removal-preview { min-height: 140px; border-radius: 12px; border: 1px solid var(--line, #26334a); background-color: #fff; background-image: linear-gradient(45deg, #d7d7d7 25%, transparent 25%), linear-gradient(-45deg, #d7d7d7 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d7d7d7 75%), linear-gradient(-45deg, transparent 75%, #d7d7d7 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; display: grid; place-items: center; overflow: hidden; }
+.neo-background-removal-preview img { max-width: 100%; max-height: 220px; object-fit: contain; }
+.neo-background-removal-model-card { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line, #26334a); border-radius: 10px; background: rgba(12, 20, 35, .55); }
+@media (max-width: 900px) { .neo-background-removal-grid, .neo-background-removal-source-row { grid-template-columns: 1fr; } }
+.neo-background-removal-preview.is-white { background: #fff; }
+.neo-background-removal-preview.is-black { background: #000; }
+.neo-background-removal-review-card { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line, #26334a); border-radius: 12px; background: rgba(12, 20, 35, .62); }
+.neo-background-removal-review-stage { position: relative; display: grid; place-items: center; overflow: auto; touch-action: none; }
+.neo-background-removal-review-stage.is-white { background: #fff; }
+.neo-background-removal-review-stage.is-black { background: #000; }
+.neo-background-removal-engine-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line, #26334a);
+  border-radius: 10px;
+  background: rgba(12, 20, 35, .5);
+}
+.neo-background-removal-engine-summary strong { font-size: .92rem; }
+.neo-background-removal-engine-summary small { color: var(--muted, #94a3b8); line-height: 1.45; }
+.neo-background-removal-engine-summary[data-state="ready"] { border-color: rgba(34, 197, 94, .45); }
+.neo-background-removal-engine-summary[data-state="fallback"] { border-color: rgba(245, 158, 11, .55); }
+.neo-background-removal-engine-summary[data-state="blocked"] { border-color: rgba(239, 68, 68, .55); }
+.neo-background-removal-sam-card { display: grid; gap: 12px; padding: 14px; border: 1px solid rgba(255,184,77,.42); border-radius: 12px; background: linear-gradient(145deg, rgba(255,184,77,.08), rgba(12,20,35,.68)); }
+.neo-background-removal-sam-card__header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.neo-background-removal-sam-card__header > div { display: grid; gap: 4px; }
+.neo-background-removal-sam-window { width: min(1400px, calc(100vw - 34px)); height: min(900px, calc(100vh - 34px)); }
+.neo-background-removal-sam-toolbar { flex-wrap: wrap; gap: 12px; }
+.neo-background-removal-sam-toolbar > div:first-child { display: grid; gap: 3px; min-width: 260px; }
+.neo-background-removal-sam-tools { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.neo-background-removal-sam-tools .active { outline: 2px solid rgba(255,184,77,.72); background: rgba(255,184,77,.16); }
+.neo-background-removal-sam-body { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; padding: 14px; overflow: hidden; }
+.neo-background-removal-sam-stage { min-width: 0; min-height: 0; display: grid; place-items: center; overflow: auto; border: 1px solid var(--line, #26334a); border-radius: 12px; background-color: #fff; background-image: linear-gradient(45deg, #d7d7d7 25%, transparent 25%), linear-gradient(-45deg, #d7d7d7 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d7d7d7 75%), linear-gradient(-45deg, transparent 75%, #d7d7d7 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; }
+.neo-background-removal-sam-stage.is-white { background: #fff; }
+.neo-background-removal-sam-stage.is-black { background: #000; }
+.neo-background-removal-sam-stage canvas { display: block; max-width: 100%; max-height: 100%; object-fit: contain; cursor: crosshair; touch-action: none; box-shadow: 0 12px 40px rgba(0,0,0,.32); }
+.neo-background-removal-sam-sidebar { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 12px; border: 1px solid var(--line, #26334a); border-radius: 12px; background: rgba(12,20,35,.78); overflow: auto; }
+@media (max-width: 900px) { .neo-background-removal-sam-body { grid-template-columns: 1fr; overflow: auto; } .neo-background-removal-sam-stage { min-height: 55vh; } .neo-background-removal-sam-sidebar { max-height: none; } }
+/* V25.9.20 P6.5 — Optional Commercial Providers */
+.neo-background-removal-commercial-card { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(56,189,248,.45); border-radius: 12px; background: linear-gradient(145deg, rgba(14,165,233,.09), rgba(12,20,35,.72)); }
+.neo-background-removal-commercial-card > div:first-child { display: grid; gap: 5px; }
+.neo-background-removal-commercial-card .neo-commercial-consent { align-items: flex-start; padding: 10px; border-radius: 9px; border: 1px solid rgba(245,158,11,.38); background: rgba(245,158,11,.08); }
+.neo-background-removal-commercial-card .neo-commercial-consent input { margin-top: 3px; }
+/* V25.9.20 P6.6 — Multi-Subject Selection & Shared SAM Asset Routing */
+.neo-background-removal-sam-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; padding: 14px; overflow: hidden; }
+.neo-background-removal-sam-selection-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.neo-background-removal-sam-subject-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; padding-right: 2px; }
+.neo-background-removal-sam-subject { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: center; padding: 9px; border: 1px solid var(--line, #26334a); border-radius: 9px; background: rgba(7, 13, 24, .58); }
+.neo-background-removal-sam-subject.is-active { border-color: rgba(96, 165, 250, .72); box-shadow: 0 0 0 1px rgba(96, 165, 250, .18); }
+.neo-background-removal-sam-subject > label { display: flex; align-items: center; gap: 7px; min-width: 0; cursor: pointer; }
+.neo-background-removal-sam-subject > label strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.neo-background-removal-sam-subject small { grid-column: 1 / -1; color: var(--muted, #94a3b8); }
+.neo-background-removal-sam-swatch { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 999px; background: var(--sam-subject-color, #60a5fa); box-shadow: 0 0 0 2px rgba(255,255,255,.16); }
+.neo-background-removal-sam-empty { display: grid; gap: 4px; padding: 14px; border: 1px dashed var(--line-strong, #40506a); border-radius: 9px; text-align: center; color: var(--muted, #94a3b8); }
+@media (max-width: 980px) { .neo-background-removal-sam-layout { grid-template-columns: 1fr; overflow: auto; } .neo-background-removal-sam-stage { min-height: 52vh; } .neo-background-removal-sam-sidebar { max-height: none; } }

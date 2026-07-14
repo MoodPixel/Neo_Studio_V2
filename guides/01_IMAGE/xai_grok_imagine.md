@@ -20,93 +20,66 @@ tags:
   - api
   - cloud
 priority: 97
-version: 2
-updated: 2026-07-09
+version: 3
+updated: 2026-07-11
 ---
 
 # xAI Grok Imagine Image Backend
 
-Neo Studio V2 includes a seeded **Grok Imagine** profile for the Image workspace.
-
-Use this guide when the user asks how to configure Grok/xAI for image generation or image edit inside Neo.
+Neo Studio includes a seeded **Grok Imagine** profile for the existing Image workspace.
 
 ## Core rule
 
-The Grok Imagine backend profile is already created in Neo. Users normally should **not** create a new profile. They should select the existing **Grok Imagine** profile under **Admin → Backends → Image**, add their API key, save, and test.
+Do not create a separate Grok Image workspace. Select the existing **Grok Imagine** profile under **Admin → Backends → Image**:
 
-Only recommend creating a duplicate profile if the user wants a separate experimental setup.
+- Generate uses the existing text-to-image workspace.
+- Img2Img uses the existing image-edit workspace.
+- The same prompt, upload, preview, progress, history, and replay systems are reused.
 
-## Neo profile contract
+Users normally only need to add their xAI API key, save the seeded profile, and test the connection.
 
-Current seeded profile details:
+## Profile contract
 
 - profile ID: `image.xai_grok_imagine`
-- display name: `Grok Imagine`
 - provider ID: `xai_grok`
 - surface: `image`
 - connection type: `cloud_api`
 - base URL: `https://api.x.ai/v1`
-- API key environment variable: `XAI_API_KEY`
+- environment variable: `XAI_API_KEY`
 - health check path: `/models`
 - default model: `grok-imagine-image`
 - available models: `grok-imagine-image`, `grok-imagine-image-quality`
 
-## Supported inside Neo's Image integration
+## Supported workspace modes
 
-The current Neo profile supports:
+- Text-to-image through Generate
+- Single-image edit through Img2Img
+- Multi-image edit through the existing Image 1–3 lanes when the active profile advertises support
 
-- text-to-image;
-- image edit;
-- multi-image edit where supported by the selected model/profile.
+Image edit reuses the current source-image state. Neo does not create a separate `grokEditDraft` or duplicate uploader.
 
-The current Neo profile does not expose classic SD/Comfy controls such as:
+## Provider-aware visibility
 
-- negative prompt;
-- seed;
-- steps;
-- CFG;
-- sampler;
-- scheduler;
-- LoRA;
-- ControlNet;
-- IP Adapter;
-- mask inpaint / outpaint controls.
+When Grok is active, Neo shows provider-supported image fields such as model, prompt, aspect ratio, resolution, output count, and source images for edit.
 
-If the user asks for these controls with Grok Imagine, explain that they are Comfy/checkpoint-style controls and may not be available through the Grok Image API profile.
+Neo hides and excludes unsupported Comfy/checkpoint controls including negative prompt, seed, steps, CFG, sampler, scheduler, denoise, checkpoint/components, VAE, encoders, LoRA, ControlNet, IP Adapter, CFG Fix, mask inpaint, and outpaint controls.
 
-## Setup steps
+Hidden local values remain in the user's Comfy draft and return when the user switches profiles. They are not sent to xAI because the Grok request uses a strict allowlist.
+
+## Setup
 
 1. Open **Admin → Backends → Image**.
-2. Select the existing **Grok Imagine** profile.
-3. Confirm the base URL is already set to `https://api.x.ai/v1`.
-4. Set the API key source:
-   - environment variable: `XAI_API_KEY`, or
-   - manual local key stored under Neo runtime data.
-5. Confirm health check path is `/models`.
-6. Choose or confirm the default image model.
-7. Click **Save Profile**.
-8. Click **Test Connection**.
-9. Click **Set Default** only if the Image workspace should use Grok Imagine by default.
+2. Select **Grok Imagine**.
+3. Configure `XAI_API_KEY` through the environment or Neo's local manual-secret storage.
+4. Save the profile.
+5. Test the connection.
+6. Set it as the Image default only when desired.
+7. Open Generate or Img2Img in the existing Image workspace.
 
 ## Troubleshooting
 
-If Grok Imagine does not connect:
-
-- confirm the API key is valid;
-- confirm the profile is under **Image**, not Text or Video;
-- confirm the base URL is `https://api.x.ai/v1`;
-- confirm the health check path is `/models`;
-- confirm the selected model is available on the profile;
-- clear and re-add the manual local key if the saved key is stale.
-
-## Assistant behavior
-
-When answering user questions about this backend:
-
-- Say the profile is already seeded/pre-created in Neo.
-- Tell the user they usually only need to add the API key and test the connection.
-- Say it is a cloud API Image profile, not a local Comfy profile.
-- Mention that API keys should never be committed to the repo.
-- Mention that runtime/user secrets belong under `neo_data/` or the user environment.
-- Use live Image snapshot/profile status when available before claiming the profile is connected.
-- If `XAI_API_KEY` is missing or the health check fails, direct the user to **Admin → Backends → Image**.
+- Confirm the profile is under Image and uses `https://api.x.ai/v1`.
+- Confirm the API key is valid and the selected model is available.
+- For image edit, confirm Image 1 is supplied.
+- API keys must not be committed to the repository; runtime/user secrets belong under `neo_data` or the environment.
+- Use live profile status before claiming the backend is connected.

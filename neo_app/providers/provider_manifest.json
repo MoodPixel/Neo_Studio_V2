@@ -96,7 +96,7 @@
       },
       "notes": "Phase 12.31: active Comfy image adapter. Route support is resolved through backend-specific route contracts; provider adapters must not inherit routes from another backend.",
       "backend_route_policy": {
-        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "contract_phase": "Phase 12.31 — Backend Plug-in Contract",
         "route_source": "neo_app.models.route_matrix",
         "current_adapter": "implemented",
         "notes": "Comfy is the active V2 base image compiler backend; routes still require capability/asset discovery before queueing."
@@ -351,7 +351,7 @@
       },
       "notes": "Phase 12.31: active Comfy image adapter. Route support is resolved through backend-specific route contracts; provider adapters must not inherit routes from another backend.",
       "backend_route_policy": {
-        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "contract_phase": "Phase 12.31 — Backend Plug-in Contract",
         "route_source": "neo_app.models.route_matrix",
         "current_adapter": "implemented",
         "notes": "Comfy is the active V2 base image compiler backend; routes still require capability/asset discovery before queueing."
@@ -562,7 +562,7 @@
       },
       "notes": "Phase 12.31: future backend adapter. Forge/A1111 must keep independent route contracts and must not borrow Comfy compiler availability.",
       "backend_route_policy": {
-        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "contract_phase": "Phase 12.31 — Backend Plug-in Contract",
         "route_source": "neo_app.models.route_matrix",
         "current_adapter": "planned_gated",
         "notes": "Forge/A1111 routes are intentionally gated until their own adapters translate Neo jobs into backend API payloads."
@@ -683,7 +683,7 @@
       },
       "notes": "Phase 12.31: future backend adapter. Forge/A1111 must keep independent route contracts and must not borrow Comfy compiler availability.",
       "backend_route_policy": {
-        "contract_phase": "Phase 12.31 \u2014 Backend Plug-in Contract",
+        "contract_phase": "Phase 12.31 — Backend Plug-in Contract",
         "route_source": "neo_app.models.route_matrix",
         "current_adapter": "planned_gated",
         "notes": "Forge/A1111 routes are intentionally gated until their own adapters translate Neo jobs into backend API payloads."
@@ -1208,7 +1208,7 @@
       },
       "notes": "Future primary Voice adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1266,7 +1266,7 @@
       },
       "notes": "Future lightweight Voice fallback profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1324,7 +1324,7 @@
       },
       "notes": "Future HQ Voice adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1382,7 +1382,7 @@
       },
       "notes": "Optional/experimental Voice profile kept for compatibility.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1440,7 +1440,7 @@
       },
       "notes": "Custom Voice adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1500,7 +1500,7 @@
       },
       "notes": "Future primary Music/Audio adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1560,7 +1560,7 @@
       },
       "notes": "Future short-form SFX/ambience helper profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1618,7 +1618,7 @@
       },
       "notes": "Future advanced lyrics-to-song adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1680,7 +1680,7 @@
       },
       "notes": "Custom Music/Audio adapter profile.",
       "backend_route_policy": {
-        "contract_phase": "Admin Layout Repair Phase B1.5 \u2014 Backend Profiles Expansion",
+        "contract_phase": "Admin Layout Repair Phase B1.5 — Backend Profiles Expansion",
         "current_adapter": "profile_only_future_surface",
         "notes": "Admin profile support only. Runtime routes are intentionally not active in this phase."
       }
@@ -1728,7 +1728,7 @@
         "api_key_mode": "env",
         "timeout_seconds": 120
       },
-      "notes": "Cloud xAI provider template. Runtime adapters are added in later phases.",
+      "notes": "Cloud xAI provider with active Grok Imagine image generation/editing and P3 text-to-video/image-to-video runtime.",
       "profile_templates": {
         "image": {
           "display_name": "Grok Imagine",
@@ -1817,18 +1817,11 @@
           "display_name": "Grok Imagine Video",
           "connection_type": "cloud_api",
           "supported_modes": [
-            "txt2img",
-            "img2img",
-            "multi_image_edit",
             "text_to_video",
-            "image_to_video",
-            "chat",
-            "prompt_generate"
+            "image_to_video"
           ],
           "supported_families": [
-            "api_model",
-            "grok_imagine",
-            "grok_text"
+            "grok_imagine"
           ],
           "supported_loaders": [
             "api_model"
@@ -1845,19 +1838,29 @@
               "api_key_mode": "env",
               "api_key_env": "XAI_API_KEY",
               "healthcheck_path": "/models",
-              "timeout_seconds": 300
+              "timeout_seconds": 900,
+              "credential_profile_id": "image.xai_grok_imagine"
             },
             "capabilities": {
               "txt2video": true,
               "img2video": true,
-              "video_extend": true,
-              "async_jobs": true
+              "text_to_video": true,
+              "image_to_video": true,
+              "video_extend": false,
+              "video_edit": false,
+              "reference_to_video": false,
+              "negative_prompt": false,
+              "async_jobs": true,
+              "provider_polling": true
             },
             "defaults": {
               "mode": "text_to_video",
               "resolution": "720p",
               "aspect_ratio": "16:9",
-              "duration_seconds": 4
+              "duration_seconds": 4,
+              "generation_path": "/videos/generations",
+              "poll_path": "/videos/{request_id}",
+              "poll_interval_seconds": 5
             },
             "model": {
               "default_model": "grok-imagine-video",
@@ -1870,11 +1873,13 @@
               "show_local_launch_fields": false,
               "show_local_http_fields": false,
               "show_api_auth_fields": true,
-              "show_model_fields": true
+              "show_model_fields": true,
+              "show_comfy_video_fields": false,
+              "show_cloud_video_generation_fields": true
             },
-            "notes": "Future Grok Imagine video profile template; runtime adapter not active in Phase B."
+            "notes": "P3 Grok Imagine Video surface profile. Uses the existing Video workspace for text-to-video and image-to-video."
           },
-          "notes": "Future Grok Imagine video profile template; runtime adapter not active in Phase B."
+          "notes": "P3 Grok Imagine Video surface profile. Uses the existing Video workspace for text-to-video and image-to-video."
         },
         "text": {
           "display_name": "Grok Text",
@@ -1935,6 +1940,200 @@
             "notes": "Future xAI text profile template; specific model selection is configured by user/admin."
           },
           "notes": "Future xAI text profile template; specific model selection is configured by user/admin."
+        }
+      }
+    },
+    {
+      "provider_id": "remove_bg",
+      "display_name": "remove.bg Background Removal",
+      "provider_type": "commercial_image_utility",
+      "surfaces": [
+        "image"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://api.remove.bg/v1.0",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "REMOVE_BG_API_KEY"
+      },
+      "supported_modes": [
+        "background_removal"
+      ],
+      "supported_families": [
+        "utility"
+      ],
+      "supported_loaders": [
+        "commercial_api"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://api.remove.bg/v1.0",
+        "api_key_env": "REMOVE_BG_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120,
+        "auth_header_name": "X-Api-Key",
+        "auth_header_prefix": ""
+      },
+      "notes": "Optional paid background-removal utility. Sources are uploaded only after explicit per-run consent in Image → Finish.",
+      "profile_templates": {
+        "image": {
+          "display_name": "remove.bg Background Removal",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "background_removal"
+          ],
+          "supported_families": [
+            "utility"
+          ],
+          "supported_loaders": [
+            "commercial_api"
+          ],
+          "default_profile": {
+            "provider_label": "remove.bg",
+            "surface": "image",
+            "provider_id": "remove_bg",
+            "profile_role": "image_background_removal_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://api.remove.bg/v1.0",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "REMOVE_BG_API_KEY",
+              "auth_header_name": "X-Api-Key",
+              "auth_header_prefix": "",
+              "healthcheck_path": "/account",
+              "healthcheck_mode": "http_get",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "background_removal": true,
+              "external_upload": true,
+              "paid_credits": true,
+              "transparent_png": true,
+              "alpha_mask_derivation": true
+            },
+            "defaults": {
+              "remove_path": "/removebg",
+              "size": "auto",
+              "type": "auto",
+              "format": "png",
+              "semitransparency": true
+            },
+            "model": {
+              "default_model": "remove.bg",
+              "available_models": [
+                "remove.bg"
+              ]
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": false,
+              "show_sd_generation_fields": false,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "Utility-only profile. Not shown as an Image generation backend. A paid request is sent only after explicit consent in Remove Background."
+          },
+          "notes": "Optional commercial utility profile for Image → Finish → Remove Background."
+        }
+      }
+    },
+    {
+      "provider_id": "clipdrop_remove_bg",
+      "display_name": "Clipdrop Background Removal",
+      "provider_type": "commercial_image_utility",
+      "surfaces": [
+        "image"
+      ],
+      "status": "missing_config",
+      "connection_kind": "cloud_api",
+      "default_base_url": "https://clipdrop-api.co",
+      "auth": {
+        "required": true,
+        "default_auth_mode": "env",
+        "default_env_key": "CLIPDROP_API_KEY"
+      },
+      "supported_modes": [
+        "background_removal"
+      ],
+      "supported_families": [
+        "utility"
+      ],
+      "supported_loaders": [
+        "commercial_api"
+      ],
+      "capabilities": [],
+      "config_schema": {
+        "base_url": "https://clipdrop-api.co",
+        "api_key_env": "CLIPDROP_API_KEY",
+        "api_key_mode": "env",
+        "timeout_seconds": 120,
+        "auth_header_name": "x-api-key",
+        "auth_header_prefix": ""
+      },
+      "notes": "Optional paid Clipdrop/Jasper background-removal utility. Sources are uploaded only after explicit per-run consent.",
+      "profile_templates": {
+        "image": {
+          "display_name": "Clipdrop Background Removal",
+          "connection_type": "cloud_api",
+          "supported_modes": [
+            "background_removal"
+          ],
+          "supported_families": [
+            "utility"
+          ],
+          "supported_loaders": [
+            "commercial_api"
+          ],
+          "default_profile": {
+            "provider_label": "Clipdrop",
+            "surface": "image",
+            "provider_id": "clipdrop_remove_bg",
+            "profile_role": "image_background_removal_backend",
+            "connection_type": "cloud_api",
+            "connection": {
+              "base_url": "https://clipdrop-api.co",
+              "auth_mode": "env",
+              "api_key_mode": "env",
+              "api_key_env": "CLIPDROP_API_KEY",
+              "auth_header_name": "x-api-key",
+              "auth_header_prefix": "",
+              "healthcheck_path": "",
+              "healthcheck_mode": "configured_only",
+              "timeout_seconds": 120
+            },
+            "capabilities": {
+              "background_removal": true,
+              "external_upload": true,
+              "paid_credits": true,
+              "transparent_png": true,
+              "alpha_mask_derivation": true
+            },
+            "defaults": {
+              "remove_path": "/remove-background/v1",
+              "transparency_handling": "return_input_if_non_opaque",
+              "format": "png"
+            },
+            "model": {
+              "default_model": "clipdrop-remove-background",
+              "available_models": [
+                "clipdrop-remove-background"
+              ]
+            },
+            "ui": {
+              "show_local_launch_fields": false,
+              "show_local_http_fields": false,
+              "show_api_auth_fields": true,
+              "show_model_fields": false,
+              "show_sd_generation_fields": false,
+              "show_cloud_generation_fields": false
+            },
+            "notes": "Utility-only profile. Test Connection verifies credential configuration without spending a credit; the first live check occurs only on an explicitly consented run."
+          },
+          "notes": "Optional commercial utility profile for Image → Finish → Remove Background."
         }
       }
     },

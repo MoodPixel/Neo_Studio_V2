@@ -60,18 +60,26 @@ def resolve_detailer_model_path(detector_model: str, detector_type: str = 'bbox'
         return None
     roots = default_detailer_roots()
     candidates: list[Path] = []
+    normalized = model.replace('\\', '/')
+    model_path = Path(normalized)
+    basename = model_path.name
     if detector_root:
         root = Path(detector_root).expanduser()
-        candidates.append(root / model)
-        candidates.append(root / ('segm' if 'segm' in str(detector_type or '').lower() else 'bbox') / model)
-        candidates.append(root / 'bbox' / model)
-        candidates.append(root / 'segm' / model)
+        candidates.append(root / normalized)
+        candidates.append(root / basename)
+        candidates.append(root / ('segm' if 'segm' in str(detector_type or '').lower() else 'bbox') / basename)
+        candidates.append(root / 'bbox' / basename)
+        candidates.append(root / 'segm' / basename)
     key = 'segm_dir' if 'segm' in str(detector_type or '').lower() else 'bbox_dir'
     if roots.get(key):
-        candidates.append(Path(roots[key]) / model)
+        candidates.append(Path(roots[key]) / normalized)
+        candidates.append(Path(roots[key]) / basename)
+    if roots.get('ultralytics_dir'):
+        candidates.append(Path(roots['ultralytics_dir']) / normalized)
+        candidates.append(Path(roots['ultralytics_dir']) / basename)
     for extra_key in ('bbox_dir', 'segm_dir'):
         if roots.get(extra_key):
-            candidates.append(Path(roots[extra_key]) / model)
+            candidates.append(Path(roots[extra_key]) / basename)
     for item in candidates:
         try:
             if item.exists() and item.is_file():
@@ -126,9 +134,9 @@ def _run_ultralytics_preview(model_path: Path | None, image, confidence: float, 
         return [], 'No detector model path was resolved for Ultralytics preview.'
     try:
         if not model_path.exists():
-            return [], f'Detector model was not found: {model_path}'
+            return [], f'Detector model file was not found: {model_path.name}'
     except Exception:
-        return [], f'Detector model was not accessible: {model_path}'
+        return [], f'Detector model file was not accessible: {model_path.name}'
     try:
         from ultralytics import YOLO  # type: ignore
     except Exception:
@@ -137,7 +145,7 @@ def _run_ultralytics_preview(model_path: Path | None, image, confidence: float, 
         model = YOLO(str(model_path))
         results = model.predict(source=image, conf=confidence, verbose=False)
     except Exception as exc:
-        return [], f'Ultralytics preview failed: {exc}'
+        return [], f'Ultralytics could not execute detector {model_path.name}: {type(exc).__name__}.'
     rows: list[dict[str, Any]] = []
     for result in results or []:
         boxes = getattr(result, 'boxes', None)
@@ -273,7 +281,12 @@ def _apply_priority(rows: list[dict[str, Any]], *, priority_preset: str, order_m
     return ordered, effective, notes
 
 
-def preview_detailer_detections(raw_image: bytes, settings: dict[str, Any] | None = None) -> dict[str, Any]:
+def preview_detailer_detections(
+    raw_image: bytes,
+    settings: dict[str, Any] | None = None,
+    *,
+    resolved_model_path: Path | None = None,
+) -> dict[str, Any]:
     payload = dict(settings or {})
     image, width, height = _decode_image(raw_image)
     provider = str(payload.get('provider') or 'ultralytics').lower()
@@ -292,19 +305,22 @@ def preview_detailer_detections(raw_image: bytes, settings: dict[str, Any] | Non
     count = _clamp_int(payload.get('count'), 0, 0, 999)
     min_area = _clamp_int(payload.get('min_area'), 0, 0, 999999999)
     max_area = _clamp_int(payload.get('max_area'), 0, 0, 999999999)
-    resolved_model = resolve_detailer_model_path(detector_model, detector_type, detector_root)
+    resolved_model = resolved_model_path or resolve_detailer_model_path(detector_model, detector_type, detector_root)
+    strict_detector = _as_bool(payload.get('strict_detector'), False)
     warnings: list[str] = []
     strategy = 'opencv-face'
     detections: list[dict[str, Any]] = []
     # V1 parity path: prefer the real YOLO/Ultralytics detector model used by Impact Pack/ADetailer.
     if provider == 'ultralytics' and detector_model:
         detections, ultra_warning = _run_ultralytics_preview(resolved_model, image, confidence=confidence, bbox_grow=bbox_grow, width=width, height=height)
-        if detections:
+        if ultra_warning is None:
             strategy = 'ultralytics-yolo'
-        elif ultra_warning:
+        else:
             warnings.append(ultra_warning)
+            if strict_detector:
+                raise RuntimeError(f'Selected detector could not run. {ultra_warning}')
     # Safe fallback only when the real detector bridge is unavailable. Haar/HOG is weaker and can miss side/profile faces.
-    if not detections:
+    if not detections and not (strict_detector and provider == 'ultralytics' and detector_model):
         if mode == 'person':
             detections = _run_people_fallback(image, bbox_grow=bbox_grow, width=width, height=height)
             strategy = 'opencv-hog-person'

@@ -12,6 +12,8 @@ applies_to:
   - seedvr2
   - batch_upscale
   - selected_result
+  - transparency
+  - rgba
 tags:
   - image
   - finish
@@ -20,9 +22,11 @@ tags:
   - seedvr2
   - batch
   - results reuse
+  - transparent png
+  - alpha preservation
 priority: 110
 version: 1
-updated: 2026-07-09
+updated: 2026-07-11
 ---
 
 # Image Upscale
@@ -79,6 +83,7 @@ When **Upscale engine** is SeedVR2 experimental, extra controls appear:
 
 | Control | Meaning |
 |---|---|
+| **Transparency handling** | `Auto Preserve` detects real alpha per source, `Force Preserve RGBA` always preserves alpha, and `Discard transparency` uses RGB only. |
 | **SeedVR2 DiT model / VAE model** | Models loaded from SeedVR2 folders. |
 | **Output sizing** | Scale factor, short edge, max edge, or manual sizing. |
 | **Short-edge resolution / Max edge** | Controls target size from source dimensions. |
@@ -93,6 +98,24 @@ When **Upscale engine** is SeedVR2 experimental, extra controls appear:
 | **Swap I/O components / Encode tiled / Decode tiled / Cache models / Debug logs** | Runtime safety/performance toggles. |
 
 SeedVR2 is experimental and expects `ComfyUI-SeedVR2_VideoUpscaler` plus models in `ComfyUI/models/SEEDVR2/`.
+
+## Transparent PNG and RGBA upscaling
+
+For logos, cutouts, overlays, and other transparent assets, use:
+
+```text
+Upscale engine: SeedVR2 experimental
+Transparency handling: Auto Preserve — recommended
+Restore assist: Off
+```
+
+Neo inspects each stored source file. When real transparency is present, it rebuilds the RGBA tensor through Comfy's `JoinImageWithAlpha` node before SeedVR2. Opaque files retain the normal RGB graph. Mixed upload batches are checked one image at a time.
+
+The status card uses a checkerboard sample and reports whether transparency was detected, forced, discarded, or still unverified. Browser detection is only a preview; the backend inspection decides the graph.
+
+**CodeFormer is skipped only for jobs that actually use the RGBA route.** With Auto Preserve, opaque files may still use CodeFormer while transparent files skip it independently. Force Preserve disables it because every source uses RGBA. Choose **Discard transparency** only when an opaque result is intentional.
+
+If Neo reports that `JoinImageWithAlpha` is missing, update ComfyUI or choose **Discard transparency** to use the normal RGB route. Transparent outputs remain PNG.
 
 ## Recommended starter settings
 

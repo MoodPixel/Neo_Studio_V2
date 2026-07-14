@@ -372,6 +372,7 @@ def _image_extension_settings(draft: dict[str, Any]) -> dict[str, Any]:
         "image.adetailer",
         "image.high_res_lab",
         "image.image_upscale",
+        "image.background_removal",
     )
     result: dict[str, Any] = {}
     for extension_id in extension_ids:

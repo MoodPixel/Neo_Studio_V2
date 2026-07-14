@@ -177,6 +177,19 @@ def _delete_backend_api_key_secret(profile_id: str | None) -> dict[str, Any]:
     return {"api_key_ref": ref, "api_key_saved": False, "api_key_preview": "", "deleted": existed}
 
 
+def _linked_credential_profile_id(connection: dict[str, Any]) -> str:
+    connection = connection or {}
+    return str(connection.get("credential_profile_id") or connection.get("linked_credential_profile_id") or "").strip()
+
+
+def _linked_manual_secret(connection: dict[str, Any]) -> tuple[str, str, dict[str, Any] | None]:
+    linked_profile_id = _linked_credential_profile_id(connection)
+    if not linked_profile_id:
+        return "", "", None
+    linked_ref = _secret_ref_for_profile(linked_profile_id)
+    return linked_profile_id, _backend_api_key_secret_value(linked_ref), _backend_api_key_secret_record(linked_ref)
+
+
 def _connection_api_key_status(connection: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
     connection = connection or {}
     auth_mode = _normalize_auth_mode(connection.get("auth_mode") or connection.get("api_key_mode"), "none")
@@ -185,6 +198,9 @@ def _connection_api_key_status(connection: dict[str, Any], profile_id: str | Non
     legacy_manual_value = str(connection.get("api_key_value") or "").strip()
     secret_value = _backend_api_key_secret_value(profile_ref) if profile_ref else ""
     secret_record = _backend_api_key_secret_record(profile_ref) if profile_ref else None
+    linked_profile_id, linked_secret_value, linked_secret_record = _linked_manual_secret(connection)
+    env_value = str(os.getenv(env_name) or "").strip() if env_name else ""
+
     if auth_mode == "none":
         return {
             "auth_mode": auth_mode,
@@ -196,42 +212,86 @@ def _connection_api_key_status(connection: dict[str, Any], profile_id: str | Non
             "api_key_ref": "",
             "api_key_status_message": "No API key required for this profile.",
         }
-    if auth_mode == "env":
-        if not env_name:
-            return {
-                "auth_mode": auth_mode,
-                "api_key_is_configured": False,
-                "api_key_status": "missing_env_name",
-                "api_key_source": "env",
-                "api_key_preview": "",
-                "api_key_saved": False,
-                "api_key_ref": "",
-                "api_key_status_message": "Environment variable name is missing.",
-            }
-        env_value = str(os.getenv(env_name) or "").strip()
+
+    own_manual = secret_value or legacy_manual_value
+    if auth_mode == "env" and env_value:
         return {
             "auth_mode": auth_mode,
-            "api_key_is_configured": bool(env_value),
-            "api_key_status": "configured" if env_value else "missing",
+            "api_key_is_configured": True,
+            "api_key_status": "configured",
             "api_key_source": "env",
             "api_key_env": env_name,
-            "api_key_preview": _mask_secret(env_value) if env_value else "",
+            "api_key_preview": _mask_secret(env_value),
             "api_key_saved": False,
             "api_key_ref": "",
-            "api_key_status_message": f"Environment key {env_name} is configured." if env_value else f"Environment key {env_name} is missing.",
+            "credential_profile_id": linked_profile_id,
+            "api_key_status_message": f"Environment key {env_name} is configured.",
         }
-    configured = bool(secret_value or legacy_manual_value)
-    preview = _mask_secret(secret_value or legacy_manual_value) or str(connection.get("api_key_preview") or (secret_record or {}).get("preview") or "")
+    if own_manual:
+        preview = _mask_secret(own_manual) or str(connection.get("api_key_preview") or (secret_record or {}).get("preview") or "")
+        return {
+            "auth_mode": auth_mode,
+            "api_key_is_configured": True,
+            "api_key_status": "configured",
+            "api_key_source": "manual",
+            "api_key_saved": True,
+            "api_key_ref": profile_ref,
+            "api_key_preview": preview,
+            "api_key_storage": "local_secret_store",
+            "credential_profile_id": linked_profile_id,
+            "api_key_status_message": f"Manual API key saved locally · {preview}" if preview else "Manual API key is saved locally.",
+        }
+    if linked_secret_value:
+        linked_ref = _secret_ref_for_profile(linked_profile_id)
+        preview = _mask_secret(linked_secret_value) or str((linked_secret_record or {}).get("preview") or "")
+        return {
+            "auth_mode": auth_mode,
+            "api_key_is_configured": True,
+            "api_key_status": "configured",
+            "api_key_source": "linked_manual",
+            "api_key_saved": True,
+            "api_key_ref": linked_ref,
+            "api_key_preview": preview,
+            "api_key_storage": "local_secret_store",
+            "credential_profile_id": linked_profile_id,
+            "api_key_status_message": f"Credentials shared with {linked_profile_id} · {preview}" if preview else f"Credentials shared with {linked_profile_id}.",
+        }
+    if auth_mode == "manual" and env_value:
+        return {
+            "auth_mode": auth_mode,
+            "api_key_is_configured": True,
+            "api_key_status": "configured",
+            "api_key_source": "env_fallback",
+            "api_key_env": env_name,
+            "api_key_preview": _mask_secret(env_value),
+            "api_key_saved": False,
+            "api_key_ref": "",
+            "credential_profile_id": linked_profile_id,
+            "api_key_status_message": f"Environment key {env_name} is configured as a fallback.",
+        }
+    if auth_mode == "env" and not env_name:
+        message = "Environment variable name is missing."
+        status_name = "missing_env_name"
+    elif linked_profile_id:
+        message = f"No API key was found in {linked_profile_id} or {env_name or 'the environment'}."
+        status_name = "missing"
+    elif auth_mode == "env":
+        message = f"Environment key {env_name} is missing."
+        status_name = "missing"
+    else:
+        message = "Manual API key is missing."
+        status_name = "missing"
     return {
         "auth_mode": auth_mode,
-        "api_key_is_configured": configured,
-        "api_key_status": "configured" if configured else "missing",
-        "api_key_source": "manual",
-        "api_key_saved": configured,
-        "api_key_ref": profile_ref,
-        "api_key_preview": preview,
-        "api_key_storage": "local_secret_store",
-        "api_key_status_message": f"Manual API key saved locally · {preview}" if configured and preview else ("Manual API key is saved locally." if configured else "Manual API key is missing."),
+        "api_key_is_configured": False,
+        "api_key_status": status_name,
+        "api_key_source": "linked_manual" if linked_profile_id else auth_mode,
+        "api_key_env": env_name,
+        "api_key_preview": "",
+        "api_key_saved": False,
+        "api_key_ref": _secret_ref_for_profile(linked_profile_id) if linked_profile_id else profile_ref if auth_mode == "manual" else "",
+        "credential_profile_id": linked_profile_id,
+        "api_key_status_message": message,
     }
 
 
@@ -240,12 +300,15 @@ def resolve_backend_profile_api_key(profile: dict[str, Any]) -> dict[str, Any]:
     connection = profile.get("connection", {}) or {}
     profile_id = str(profile.get("profile_id") or connection.get("api_key_ref") or "")
     status = _connection_api_key_status(connection, profile_id)
-    auth_mode = status.get("auth_mode")
+    source = str(status.get("api_key_source") or "")
     key_value = ""
-    if auth_mode == "env" and status.get("api_key_is_configured"):
+    if source in {"env", "env_fallback"}:
         key_value = str(os.getenv(str(connection.get("api_key_env") or "").strip()) or "").strip()
-    elif auth_mode == "manual" and status.get("api_key_is_configured"):
+    elif source == "manual":
         key_value = str(connection.get("api_key_value") or "").strip() or _backend_api_key_secret_value(profile_id or status.get("api_key_ref"))
+    elif source == "linked_manual":
+        linked_profile_id = _linked_credential_profile_id(connection)
+        key_value = _backend_api_key_secret_value(linked_profile_id or status.get("api_key_ref"))
     return {**status, "api_key_value": key_value}
 
 
@@ -473,6 +536,10 @@ def _backend_selection_aliases(surface: str | None) -> set[str]:
 def _profile_available_for_surface(profile: dict[str, Any], surface: str) -> bool:
     if not isinstance(profile, dict) or profile.get("enabled") is False:
         return False
+    # Utility-only profiles are selected inside their owning extension. They must
+    # never replace the primary backend for a surface or become its default.
+    if str(profile.get("profile_role") or "").strip() == "image_background_removal_backend":
+        return False
     aliases = _backend_selection_aliases(surface)
     return bool(aliases and str(profile.get("surface") or "") in aliases)
 
@@ -544,8 +611,12 @@ def save_backend_profile_selection(payload: dict[str, Any] | None) -> dict[str, 
 
 
 def _set_default_profile_in_payload(payload: dict[str, Any], surface: str, profile_id: str) -> bool:
+    profiles = payload.get("profiles", []) if isinstance(payload.get("profiles"), list) else []
+    requested = next((profile for profile in profiles if isinstance(profile, dict) and str(profile.get("profile_id") or "") == profile_id), None)
+    if requested and str(requested.get("profile_role") or "").strip() == "image_background_removal_backend":
+        return False
     matched = False
-    for profile in payload.get("profiles", []) if isinstance(payload.get("profiles"), list) else []:
+    for profile in profiles:
         if not isinstance(profile, dict):
             continue
         if profile.get("surface") == surface:
@@ -625,6 +696,48 @@ def _apply_api_key_save_load_rules(
     return updates
 
 
+def _merge_missing_seeded_profiles_from_template(payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Add newly shipped seeded profiles without overwriting user runtime profiles.
+
+    Backend profile runtime data is intentionally copied out of the repository only
+    once. New Neo releases can still ship additional optional surface bindings (for
+    example the P3 linked Grok Video profile), so this narrow reconciliation adds
+    only template profiles explicitly marked ``seeded_profile`` when their profile
+    IDs do not already exist. User edits, defaults, and existing profiles are never
+    replaced.
+    """
+    payload = dict(payload or {})
+    profiles = payload.get("profiles") if isinstance(payload.get("profiles"), list) else []
+    existing_ids = {
+        str(profile.get("profile_id") or "").strip()
+        for profile in profiles
+        if isinstance(profile, dict) and str(profile.get("profile_id") or "").strip()
+    }
+    try:
+        template = json.loads(Path(PROFILE_TEMPLATE_PATH).read_text(encoding="utf-8"))
+    except Exception:
+        return payload, []
+    added: list[str] = []
+    for candidate in template.get("profiles", []) if isinstance(template.get("profiles"), list) else []:
+        if not isinstance(candidate, dict) or candidate.get("seeded_profile") is not True:
+            continue
+        profile_id = str(candidate.get("profile_id") or "").strip()
+        if not profile_id or profile_id in existing_ids:
+            continue
+        profiles.append(json.loads(json.dumps(candidate, ensure_ascii=False, default=str)))
+        existing_ids.add(profile_id)
+        added.append(profile_id)
+    payload["profiles"] = profiles
+    if added:
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        payload["metadata"] = {
+            **metadata,
+            "last_seed_profile_reconciliation": _now_iso(),
+            "last_seed_profiles_added": added,
+        }
+    return payload, added
+
+
 def _read_payload() -> dict[str, Any]:
     _ensure_profile_payload_exists()
     profile_path = Path(PROFILE_PATH)
@@ -632,7 +745,8 @@ def _read_payload() -> dict[str, Any]:
         return {"profile_registry_version": PROFILE_REGISTRY_VERSION, "defaults": {}, "profiles": []}
     raw_payload = json.loads(profile_path.read_text(encoding="utf-8"))
     raw_payload, migrated = _migrate_inline_api_keys_to_secret_store(raw_payload)
-    if migrated:
+    raw_payload, seeded_added = _merge_missing_seeded_profiles_from_template(raw_payload)
+    if migrated or seeded_added:
         profile_path.write_text(json.dumps(raw_payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return _normalize_profile_payload(raw_payload)
 
@@ -1600,10 +1714,24 @@ def _probe_cloud_api_profile(profile: dict[str, Any]) -> dict[str, Any]:
             "api_key_status": _strip_secret_fields(key_status),
             "models": _cloud_model_records_from_profile(profile),
         }
+    health_mode = str(connection.get("healthcheck_mode") or "http_get").strip().lower()
     health_path = str(connection.get("healthcheck_path") or "/models").strip() or "/models"
     headers = {"Accept": "application/json"}
     if key_status.get("api_key_value"):
-        headers["Authorization"] = f"Bearer {key_status.get('api_key_value')}"
+        header_name = str(connection.get("auth_header_name") or "Authorization").strip() or "Authorization"
+        header_prefix = str(connection.get("auth_header_prefix") if connection.get("auth_header_prefix") is not None else "Bearer ")
+        headers[header_name] = f"{header_prefix}{key_status.get('api_key_value')}"
+    if health_mode == "configured_only":
+        return {
+            "status": "configured",
+            "reachable": True,
+            "base_url": base_url,
+            "last_checked": checked_at,
+            "message": "API credentials are configured. This provider has no non-billable live health endpoint, so Neo did not submit an image.",
+            "api_key_status": _strip_secret_fields(key_status),
+            "models": _cloud_model_records_from_profile(profile),
+            "verification": "configured_only_no_billable_request",
+        }
     try:
         payload = _http_get_json_with_headers(base_url, health_path, headers=headers, timeout=timeout)
         models = _cloud_model_records_from_profile(profile)
@@ -1717,7 +1845,7 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = False) -> dict[str, Any]:
-    provider = get_provider(profile.get("provider_id", ""))
+    provider = get_provider(profile.get("provider_id", ""), profile=profile)
     connection = profile.get("connection", {}) or {}
     runtime = profile.get("runtime") or {}
     auto_connect = bool(connection.get("auto_connect", False))
@@ -1805,7 +1933,7 @@ def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = Fal
         "model": profile.get("model", {}) or {},
         "ui": profile.get("ui", {}) or {},
         "metadata": profile.get("metadata", {}) or {},
-        "feature_capabilities": get_provider_feature_capabilities(profile.get("provider_id", "")),
+        "feature_capabilities": get_provider_feature_capabilities(profile.get("provider_id", ""), profile=profile),
         "models": models if show_live_runtime else _empty_models(),
         "profile_status": "enabled" if profile.get("enabled") else "disabled",
     }
@@ -2079,6 +2207,12 @@ def set_default_backend_profile(surface: str, profile_id: str) -> dict[str, Any]
     surface = str(surface or "").strip()
     profile_id = str(profile_id or "").strip()
     payload = _read_payload()
+    requested = next((item for item in payload.get("profiles", []) if isinstance(item, dict) and str(item.get("profile_id") or "") == profile_id), None)
+    if requested and str(requested.get("profile_role") or "").strip() == "image_background_removal_backend":
+        return {
+            "ok": False,
+            "errors": ["Background-removal utility profiles cannot become the primary Image backend."],
+        }
     matched = _set_default_profile_in_payload(payload, surface, profile_id)
     if not matched:
         return {"ok": False, "errors": [f"Profile {profile_id} is not available for surface {surface}"]}

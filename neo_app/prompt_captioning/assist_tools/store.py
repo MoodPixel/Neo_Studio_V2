@@ -150,7 +150,7 @@ def _normalize_keyword_manual_path(raw: str = "") -> str:
     """Normalize user-pasted Keyword Browser paths across Windows/portable launches.
 
     Users commonly paste paths like ``Neo_Studio_V2/neo_data/...`` or
-    ``F:/LLM/Neo_Studio_V2/neo_data/...``.  On POSIX test runners a
+    ``<repo-root>/neo_data/...``. On POSIX test runners a
     backslash is not a separator, and on Windows a relative project-folder
     prefix may not match the actual extracted folder name.  Normalize
     separators before building candidate roots, then add suffix-based

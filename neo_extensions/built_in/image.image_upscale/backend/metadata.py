@@ -35,6 +35,17 @@ def _restore_label(params: dict[str, Any]) -> str:
     return "CodeFormer" if restore == "codeformer" else "off"
 
 
+def _alpha_label(params: dict[str, Any]) -> str:
+    if _clean(params.get("upscale_engine") or params.get("image_upscale_engine") or "basic").lower() != "seedvr2":
+        return ""
+    if params.get("seedvr2_alpha_route_applied") or params.get("_neo_seedvr2_alpha_route_applied"):
+        return "RGBA preserved"
+    mode = _clean(params.get("seedvr2_alpha_mode") or "auto").lower()
+    if mode == "discard":
+        return "transparency discarded"
+    return "RGB source"
+
+
 def build_assistant_summary(params: dict[str, Any] | None = None, assets: dict[str, Any] | None = None, *, queued_count: int | None = None) -> str:
     clean_params = params or {}
     clean_assets = assets or {}
@@ -53,6 +64,9 @@ def build_assistant_summary(params: dict[str, Any] | None = None, assets: dict[s
     restore = _restore_label(clean_params)
     if restore == "CodeFormer":
         summary += " with CodeFormer restore"
+    alpha = _alpha_label(clean_params)
+    if alpha:
+        summary += f" with {alpha}"
     summary += "."
     return summary
 
@@ -86,6 +100,8 @@ def build_image_upscale_extension_usage(
         "upscale_engine": clean_params.get("upscale_engine") or clean_params.get("image_upscale_engine") or "basic",
         "upscaler": clean_params.get("seedvr2_dit_model") if (clean_params.get("upscale_engine") == "seedvr2") else (clean_params.get("upscale_model") or clean_params.get("image_upscale_model") or "Interpolation only"),
         "restore_assist": clean_params.get("restore_assist") or clean_params.get("image_upscale_restore_assist") or "off",
+        "alpha_mode": clean_params.get("seedvr2_alpha_mode") or "",
+        "alpha_route_applied": bool(clean_params.get("seedvr2_alpha_route_applied") or clean_params.get("_neo_seedvr2_alpha_route_applied")),
         "route": clean_route,
         "route_state": clean_route.get("route_state"),
         "node_status": deepcopy(node_status or {}),
@@ -165,6 +181,14 @@ def build_output_inspector_chips(
             chips.append(f"SeedVR2 VAE · {vae}")
         if clean_params.get("seedvr2_resolution"):
             chips.append(f"SeedVR2 short edge · {clean_params.get('seedvr2_resolution')}px")
+        alpha = _alpha_label(clean_params)
+        if alpha:
+            chips.append(f"Alpha · {alpha}")
+        source_mode = _clean(clean_params.get("seedvr2_source_image_mode"))
+        if source_mode:
+            chips.append(f"Source mode · {source_mode}")
+        if clean_params.get("seedvr2_alpha_route_applied") or clean_params.get("_neo_seedvr2_alpha_route_applied"):
+            chips.append("Format · PNG")
     else:
         upscaler = _clean(clean_params.get("upscale_model") or clean_params.get("image_upscale_model"))
         chips.append(f"Upscaler · {upscaler or 'Interpolation only'}")

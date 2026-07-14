@@ -42,7 +42,7 @@ def default_model_paths_payload() -> dict[str, Any]:
                 "enabled": True,
                 "root": "",
                 "models_root": "",
-                "notes": "Set models_root to the ComfyUI models folder, for example F:/Backends/ComfyUI_windows_portable/ComfyUI/models.",
+                "notes": "Set models_root to your ComfyUI models folder, for example <ComfyUI-root>/models.",
             },
             "forge": {
                 "enabled": False,

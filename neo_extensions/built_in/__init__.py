@@ -23,6 +23,7 @@ _ALIASES = {
     "scene_director": "image.scene_director",
     "high_res_lab": "image.high_res_lab",
     "image_upscale": "image.image_upscale",
+    "background_removal": "image.background_removal",
     "adetailer": "image.adetailer",
     "style_stack": "image.style_stack",
     "wildcards": "image.wildcards",

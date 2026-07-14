@@ -9,7 +9,7 @@
     "provider_gated",
     "unsupported"
   ],
-  "support_basis": "provider + required image nodes; optional CodeFormer and SeedVR2 paths are independently gated",
+  "support_basis": "provider + required image nodes; optional CodeFormer, SeedVR2, and SeedVR2 RGBA paths are independently gated",
   "required_nodes": [
     "LoadImage",
     "ImageScaleBy",
@@ -26,6 +26,14 @@
     "codeformer_restore": [
       "FaceRestoreModelLoader",
       "FaceRestoreCFWithModel"
+    ],
+    "seedvr2_experimental": [
+      "SeedVR2LoadDiTModel",
+      "SeedVR2LoadVAEModel",
+      "SeedVR2VideoUpscaler"
+    ],
+    "seedvr2_rgba": [
+      "JoinImageWithAlpha"
     ]
   },
   "reasons": {
@@ -38,6 +46,7 @@
     "missing_optional_codeformer_nodes": "CodeFormer restore nodes are missing; normal upscale remains available, but CodeFormer controls/path must be disabled.",
     "unknown_route": "No explicit Image Upscale support row matched; defaulting to provider-gated for safety.",
     "missing_optional_seedvr2_nodes": "SeedVR2 experimental engine requires ComfyUI-SeedVR2_VideoUpscaler nodes: SeedVR2LoadDiTModel, SeedVR2LoadVAEModel, SeedVR2VideoUpscaler.",
+    "missing_optional_seedvr2_rgba_nodes": "SeedVR2 transparency preservation requires the Comfy core JoinImageWithAlpha node.",
     "seedvr2_model_folder": "SeedVR2 models are expected in ComfyUI/models/SEEDVR2/ or can auto-download on first node use when the custom node supports it."
   },
   "workspace_subtabs": {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -27,12 +27,69 @@ def _parse_settings(raw: str | None) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f'Invalid settings JSON: {exc}') from exc
 
 
-def create_adetailer_api_router() -> APIRouter:
+def _public_model_catalog(payload: dict[str, Any]) -> dict[str, Any]:
+    clean = dict(payload or {})
+    clean["comfy_root"] = "ComfyUI"
+    clean["models_root"] = "ComfyUI/models"
+    clean["ultralytics_dir"] = "ComfyUI/models/ultralytics"
+    clean["bbox_dir"] = "ComfyUI/models/ultralytics/bbox"
+    clean["segm_dir"] = "ComfyUI/models/ultralytics/segm"
+    clean["adetailer_dir"] = "ComfyUI/models/adetailer"
+    clean["onnx_dir"] = "ComfyUI/models/onnx"
+    clean["sam_dir"] = "ComfyUI/models/sams"
+    clean.pop("custom_detector_root", None)
+    clean.pop("custom_sam_root", None)
+    clean.pop("configured_models_root", None)
+    clean.pop("configured_comfy_root", None)
+    clean["path_policy"] = "absolute_paths_server_side_only"
+    return clean
+
+
+def _model_catalog_payload(
+    object_info_resolver: Callable[[str | None], dict[str, Any]] | None,
+    backend_resolver: Callable[[str | None], dict[str, Any]] | None,
+    profile_id: str = "",
+) -> dict[str, Any]:
+    backend: dict[str, Any] = {}
+    if backend_resolver is not None:
+        try:
+            resolved_backend = backend_resolver(profile_id or None)
+            backend = resolved_backend if isinstance(resolved_backend, dict) else {}
+        except Exception:
+            backend = {}
+    backend_supplied_object_info = "object_info" in backend
+    info = backend.get("object_info") if isinstance(backend.get("object_info"), dict) else {}
+    if not info and not backend_supplied_object_info and object_info_resolver is not None:
+        try:
+            resolved = object_info_resolver(profile_id or None)
+            if isinstance(resolved, dict) and resolved:
+                info = resolved
+        except Exception:
+            pass
+    try:
+        return list_detailer_models(object_info=info, backend_details=backend)
+    except TypeError:
+        # Compatibility for injected test doubles and older local overrides.
+        try:
+            return list_detailer_models(object_info=info)
+        except TypeError:
+            return list_detailer_models()
+
+
+def _public_sam_download(payload: dict[str, Any]) -> dict[str, Any]:
+    clean = dict(payload or {})
+    clean.pop("path", None)
+    clean.pop("target_root", None)
+    clean["target_role"] = "ComfyUI/models/sams"
+    return clean
+
+
+def create_adetailer_api_router(*, object_info_resolver: Callable[[str | None], dict[str, Any]] | None = None, backend_resolver: Callable[[str | None], dict[str, Any]] | None = None) -> APIRouter:
     router = APIRouter(prefix='/api/extensions/adetailer', tags=['adetailer'])
 
     @router.get('/models')
-    def models(detector_root: str = '', sam_root: str = '') -> dict:
-        return list_detailer_models(detector_root=detector_root, sam_root=sam_root)
+    def models(profile_id: str = '') -> dict:
+        return _public_model_catalog(_model_catalog_payload(object_info_resolver, backend_resolver, profile_id))
 
     @router.get('/presets')
     def presets() -> dict:
@@ -64,7 +121,7 @@ def create_adetailer_api_router() -> APIRouter:
     @router.post('/download-sam')
     def download_sam(payload: dict) -> dict:
         try:
-            return download_sam_model(str(payload.get('model_key') or payload.get('key') or ''), str(payload.get('target_root') or ''))
+            return _public_sam_download(download_sam_model(str(payload.get('model_key') or payload.get('key') or ''), ''))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -82,16 +139,21 @@ def create_adetailer_api_router() -> APIRouter:
     return router
 
 
-def register_adetailer_api_routes(app: Any) -> APIRouter:
-    router = create_adetailer_api_router()
+def register_adetailer_api_routes(
+    app: Any,
+    *,
+    object_info_resolver: Callable[[str | None], dict[str, Any]] | None = None,
+    backend_resolver: Callable[[str | None], dict[str, Any]] | None = None,
+) -> APIRouter:
+    router = create_adetailer_api_router(object_info_resolver=object_info_resolver, backend_resolver=backend_resolver)
     app.include_router(router)
 
     # V1-compatible aliases so migrated UI snippets and bookmarks continue to work.
     alias = APIRouter(prefix='/api/generation', tags=['adetailer_v1_alias'])
 
     @alias.get('/detailer-models')
-    def v1_models(detector_root: str = '', sam_root: str = '') -> dict:
-        return list_detailer_models(detector_root=detector_root, sam_root=sam_root)
+    def v1_models(profile_id: str = '') -> dict:
+        return _public_model_catalog(_model_catalog_payload(object_info_resolver, backend_resolver, profile_id))
 
     @alias.get('/detailer-presets')
     def v1_presets() -> dict:
@@ -119,7 +181,7 @@ def register_adetailer_api_routes(app: Any) -> APIRouter:
     @alias.post('/detailer-download-sam')
     def v1_download_sam(payload: dict) -> dict:
         try:
-            return download_sam_model(str(payload.get('model_key') or payload.get('key') or ''), str(payload.get('target_root') or ''))
+            return _public_sam_download(download_sam_model(str(payload.get('model_key') or payload.get('key') or ''), ''))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

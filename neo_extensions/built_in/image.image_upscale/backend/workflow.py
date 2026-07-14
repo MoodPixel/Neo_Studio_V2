@@ -59,7 +59,7 @@ def infer_upscale_model_native_scale(model_name: str) -> float:
     return max(0.1, min(value, 16.0))
 
 
-def _add_load_image_node(graph: dict[str, Any], next_id: int, image_name: str) -> tuple[int, list[Any]]:
+def _add_load_image_node(graph: dict[str, Any], next_id: int, image_name: str) -> tuple[int, list[Any], list[Any]]:
     image_name = str(image_name or "").strip()
     if not image_name:
         raise ValueError("Image Upscale needs a source image.")
@@ -71,7 +71,37 @@ def _add_load_image_node(graph: dict[str, Any], next_id: int, image_name: str) -
             "upload": "image",
         },
     }
+    return next_id + 1, [node_id, 0], [node_id, 1]
+
+
+def _add_join_image_with_alpha_node(
+    graph: dict[str, Any],
+    next_id: int,
+    image_ref: list[Any],
+    alpha_ref: list[Any],
+) -> tuple[int, list[Any]]:
+    image = _as_ref(image_ref)
+    alpha = _as_ref(alpha_ref)
+    if image is None or alpha is None:
+        raise ValueError("JoinImageWithAlpha needs valid image and alpha references.")
+    node_id = str(next_id)
+    graph[node_id] = {
+        "class_type": "JoinImageWithAlpha",
+        "inputs": {
+            "image": list(image),
+            "alpha": list(alpha),
+        },
+    }
     return next_id + 1, [node_id, 0]
+
+
+def _seedvr2_should_preserve_alpha(clean: dict[str, Any]) -> bool:
+    mode = str(clean.get("seedvr2_alpha_mode") or "auto").strip().lower()
+    if mode == "discard":
+        return False
+    if mode == "preserve":
+        return True
+    return bool(clean.get("seedvr2_source_has_transparency"))
 
 
 def _add_image_scale_by_node(
@@ -228,12 +258,30 @@ def build_image_upscale_workflow(
     graph: dict[str, Any] = {}
     compile_notes: list[str] = []
     next_id = 1
-    next_id, current_image_ref = _add_load_image_node(graph, next_id, clean["source_image_name"])
+    next_id, current_image_ref, source_alpha_ref = _add_load_image_node(graph, next_id, clean["source_image_name"])
 
     native_scale = 1.0
     applied_model_scale_correction = False
     seedvr2_applied = False
+    seedvr2_alpha_applied = False
     if upscale_engine == SEEDVR2_ENGINE_ID:
+        seedvr2_alpha_applied = _seedvr2_should_preserve_alpha(clean)
+        clean["seedvr2_alpha_route_applied"] = seedvr2_alpha_applied
+        clean["seedvr2_output_format"] = "png"
+        if seedvr2_alpha_applied:
+            next_id, current_image_ref = _add_join_image_with_alpha_node(
+                graph,
+                next_id,
+                current_image_ref,
+                source_alpha_ref,
+            )
+            compile_notes.append(
+                "SeedVR2 RGBA preservation is active: LoadImage RGB + alpha mask are rejoined through JoinImageWithAlpha before upscaling."
+            )
+        else:
+            compile_notes.append(
+                "SeedVR2 is using the RGB route because transparency preservation was disabled or no real transparency was detected."
+            )
         next_id, current_image_ref, seedvr2_notes = _add_seedvr2_nodes(graph, next_id, current_image_ref, clean)
         compile_notes.extend(seedvr2_notes)
         seedvr2_applied = True
@@ -276,6 +324,16 @@ def build_image_upscale_workflow(
         compile_notes.append(f"Image Upscale will use interpolation-only resize at {scale_by}x ({resize_method}).")
 
     restore_applied = False
+    if seedvr2_alpha_applied and restore_assist == "codeformer":
+        restore_assist = "off"
+        restore_model = ""
+        clean["restore_assist"] = "off"
+        clean.pop("restore_model", None)
+        clean.pop("restore_fidelity", None)
+        clean.pop("restore_detection", None)
+        compile_notes.append(
+            "CodeFormer restore was skipped because the current restore route is not alpha-safe for SeedVR2 RGBA outputs."
+        )
     if restore_assist == "codeformer" and restore_model:
         loader_id = str(next_id)
         graph[loader_id] = {
@@ -331,6 +389,8 @@ def build_image_upscale_workflow(
         "_neo_upscale_model_scale_correction": applied_model_scale_correction,
         "_neo_codeformer_applied": restore_applied,
         "_neo_seedvr2_applied": seedvr2_applied,
+        "_neo_seedvr2_alpha_route_applied": seedvr2_alpha_applied,
+        "_neo_seedvr2_output_format": "png" if seedvr2_applied else "",
         "_neo_save_prefix": SAVE_PREFIX,
     }
     return graph, normalized_payload, compile_notes

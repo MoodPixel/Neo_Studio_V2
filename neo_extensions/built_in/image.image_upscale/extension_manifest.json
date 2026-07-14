@@ -1,8 +1,8 @@
 {
   "id": "image.image_upscale",
   "name": "Image · Image Upscale",
-  "version": "0.11.1",
-  "description": "Built-in Image utility extension for standalone Image Upscale workflows, generated-result reuse, uploaded-source upscale, and output metadata capture.",
+  "version": "0.12.0",
+  "description": "Built-in Image utility extension for standalone Image Upscale workflows, generated-result reuse, uploaded-source upscale, SeedVR2 RGBA preservation, and output metadata capture.",
   "extension_type": "utility_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -145,13 +145,17 @@
         "SeedVR2LoadDiTModel",
         "SeedVR2LoadVAEModel",
         "SeedVR2VideoUpscaler"
+      ],
+      "seedvr2_rgba": [
+        "JoinImageWithAlpha"
       ]
     },
     "missing_required_policy": "Gate the whole extension with provider_gated until required base nodes are available.",
     "missing_optional_policy": "Gate only the optional control/path; do not gate the whole extension.",
     "codeformer_model_folder": "ComfyUI/models/facerestore_models/",
     "seedvr2_model_folder": "ComfyUI/models/SEEDVR2/",
-    "seedvr2_decision": "experimental_available only when custom nodes are installed; model files live in ComfyUI/models/SEEDVR2 and may auto-download on first use depending on node setup."
+    "seedvr2_decision": "experimental_available only when custom nodes are installed; model files live in ComfyUI/models/SEEDVR2 and may auto-download on first use depending on node setup.",
+    "seedvr2_rgba_decision": "RGBA preservation is enabled per source when JoinImageWithAlpha is available and the transparency policy resolves to preserve."
   },
   "capability_profiles": {
     "base_interpolation": {
@@ -310,7 +314,9 @@
         "SeedVR2LoadVAEModel",
         "SeedVR2VideoUpscaler"
       ],
-      "optional_roles": [],
+      "optional_roles": [
+        "JoinImageWithAlpha"
+      ],
       "readiness_gates": {
         "comfyui": [
           "SeedVR2LoadDiTModel",
@@ -330,11 +336,17 @@
         "seedvr2_resolution",
         "seedvr2_batch_size",
         "seedvr2_blocks_to_swap",
-        "seedvr2_color_correction"
+        "seedvr2_color_correction",
+        "seedvr2_alpha_mode",
+        "seedvr2_source_has_alpha",
+        "seedvr2_source_has_transparency",
+        "seedvr2_alpha_route_applied",
+        "seedvr2_output_format"
       ],
       "model_folder": "ComfyUI/models/SEEDVR2/",
       "notes": [
-        "SeedVR2 official ComfyUI node supports video and image upscaling. Keep it experimental because it is heavy and has a different graph contract than ESRGAN/interpolation."
+        "SeedVR2 official ComfyUI node supports video and image upscaling. Keep it experimental because it is heavy and has a different graph contract than ESRGAN/interpolation.",
+        "RGBA sources use LoadImage IMAGE + MASK through JoinImageWithAlpha before SeedVR2; Auto mode resolves independently for each stored source."
       ]
     }
   },
@@ -381,7 +393,10 @@
     "workspace_app": "finish",
     "codeformer_model_folder_hint": "ComfyUI/models/facerestore_models/",
     "face_detection_dropdown": "expert_or_codeformer_active_default_retinaface_resnet50",
-    "seedvr2_experimental_ui_ready": true
+    "seedvr2_experimental_ui_ready": true,
+    "seedvr2_rgba_transparency_controls_ready": true,
+    "seedvr2_rgba_checkerboard_status_ready": true,
+    "seedvr2_codeformer_alpha_guard_ready": true
   },
   "payload_contract": {
     "schema_version": "neo.extension.payload.v1",
@@ -421,7 +436,14 @@
       "basic",
       "seedvr2"
     ],
-    "seedvr2_stale_fields_stripped_when_basic": true
+    "seedvr2_stale_fields_stripped_when_basic": true,
+    "valid_seedvr2_alpha_modes": [
+      "auto",
+      "preserve",
+      "discard"
+    ],
+    "seedvr2_alpha_metadata_backend_authoritative": true,
+    "seedvr2_codeformer_suppressed_when_rgba": true
   },
   "memory_contract": {
     "event_type": "extension_workflow_used",
@@ -662,7 +684,8 @@
     "control_layout": "three_column_responsive_grid"
   },
   "metadata": {
-    "phase_j5_batch_poll_accumulator": true
+    "phase_j5_batch_poll_accumulator": true,
+    "p5_seedvr2_rgba_transparency": "implemented"
   },
   "audit_references": {
     "seedvr2_uploaded_workflow": "5 SeedVR2 Upscale.json"

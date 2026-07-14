@@ -26,6 +26,7 @@ IMAGE_EXTENSION_TIMING_IDS: Final[tuple[str, ...]] = (
     "image.adetailer",
     "image.high_res_lab",
     "image.scene_director",
+    "image.background_removal",
 )
 
 LATENT_CAPTURE_MODES: Final[tuple[str, ...]] = ("off", "final_latent", "milestone_checkpoints", "full_debug_checkpoints")
@@ -597,6 +598,76 @@ def _image_upscale_assistant_summary(extensions: dict[str, Any]) -> str:
     if restore == "codeformer":
         summary += " with CodeFormer restore"
     return summary + "."
+
+
+def _background_removal_assistant_summary(extensions: dict[str, Any]) -> str:
+    normalized = normalize_extension_metadata(extensions)
+    summaries = normalized.get("assistant_summaries") if isinstance(normalized.get("assistant_summaries"), dict) else {}
+    if summaries.get("image.background_removal"):
+        return f" {summaries.get('image.background_removal')}"
+    memory_events = normalized.get("memory_events") if isinstance(normalized.get("memory_events"), dict) else {}
+    event = memory_events.get("image.background_removal") if isinstance(memory_events.get("image.background_removal"), dict) else {}
+    if event.get("assistant_summary"):
+        summary = f" {event.get('assistant_summary')}"
+    else:
+        block = (normalized.get("payloads") or {}).get("image.background_removal") if isinstance(normalized.get("payloads"), dict) else None
+        if not isinstance(block, dict):
+            return ""
+        params = block.get("params") if isinstance(block.get("params"), dict) else {}
+        if not block.get("enabled"):
+            return " Background Removal was disabled or gated."
+        workflow_mode = str(params.get("workflow_mode") or "segment")
+        mask = " with alpha-mask output" if params.get("save_mask", True) else ""
+        if workflow_mode == "refine_mask":
+            summary = " Background Removal reviewed-mask refinement queued without rerunning BiRefNet segmentation"
+            if params.get("mask_expand"):
+                summary += f" at edge offset {int(params.get('mask_expand') or 0):+d}px"
+            if params.get("mask_feather"):
+                summary += f" with {int(params.get('mask_feather') or 0)}px feather"
+            summary += f"{mask}."
+        elif workflow_mode == "interactive_sam":
+            subjects = [item for item in (params.get("sam_subjects") or []) if isinstance(item, dict) and item.get("selected", True)]
+            prompts = list(params.get("sam_prompts") or [])
+            keep = sum(len(item.get("keep_points") or []) for item in subjects)
+            remove = sum(len(item.get("remove_points") or []) for item in subjects)
+            boxes = sum(1 for item in subjects if item.get("bbox"))
+            if not subjects:
+                keep = sum(1 for item in prompts if item.get("type") == "point" and int(item.get("label") or 0) == 1)
+                remove = sum(1 for item in prompts if item.get("type") == "point" and int(item.get("label") or 0) == 0)
+                boxes = sum(1 for item in prompts if item.get("type") == "rectangle")
+            model = str(params.get("sam_comfy_model") or params.get("sam_model_variant") or "SAM")
+            route = "shared ADetailer SAM" if params.get("resolved_engine") == "comfy_sam" else "Native ONNX SAM"
+            summary = f" Interactive SAM kept {len(subjects) or 1} selected subject(s) through {route} / {model}, {keep} Keep point(s), {remove} Remove point(s), and {boxes} box(es)"
+            if params.get("sam_refine_mode") == "birefnet_gate":
+                edge_model = params.get("model") if params.get("resolved_engine") == "comfy_sam" else params.get("sam_refine_model")
+                summary += f" with {edge_model or 'BiRefNet'} soft-edge refinement"
+                if params.get("sam_refine_fallback_used"):
+                    summary += " (SAM-only fallback used)"
+            summary += f"{mask}."
+        else:
+            requested_engine = str(params.get("engine") or "smart").replace("_", " ")
+            resolved_engine = str(params.get("resolved_engine") or "").strip()
+            resolved_model = str(params.get("resolved_model") or params.get("native_model") or params.get("model") or "").strip()
+            preset = str(params.get("preset") or "smart_auto").replace("_", " ")
+            if resolved_engine == "native_rembg":
+                engine_label = "Neo native rembg"
+            elif resolved_engine == "comfy_birefnet":
+                engine_label = "Comfy BiRefNet"
+            else:
+                engine_label = requested_engine.title()
+            model_label = resolved_model or ("BiRefNet" if resolved_engine != "native_rembg" else "rembg model")
+            summary = f" Background Removal queued with {engine_label} / {model_label} ({preset}){mask}."
+            if params.get("fallback_used"):
+                reason = str(params.get("fallback_reason") or "primary engine unavailable").strip()
+                summary += f" Smart fallback was used: {reason}."
+    verification = event.get("output_verification") if isinstance(event.get("output_verification"), dict) else {}
+    if verification.get("status") == "passed":
+        summary += " RGBA output verification passed."
+    elif verification.get("status") == "warning":
+        summary += " RGBA output verification completed with warnings."
+    elif verification.get("status") == "failed":
+        summary += " RGBA output verification failed; inspect the saved output."
+    return summary
 
 
 def _wildcards_assistant_summary(extensions: dict[str, Any]) -> str:
@@ -1174,6 +1245,7 @@ def build_assistant_output_summary(record: dict[str, Any]) -> str:
     summary += _adetailer_assistant_summary(extensions)
     summary += _high_res_lab_assistant_summary(extensions)
     summary += _image_upscale_assistant_summary(extensions)
+    summary += _background_removal_assistant_summary(extensions)
     summary += _wildcards_assistant_summary(extensions)
     summary += _style_stack_assistant_summary(extensions)
     positive = str(prompt.get("positive") or "").strip()
@@ -1222,6 +1294,15 @@ def build_output_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
         replay_extensions.setdefault("extension_restore_policies", {})["image.high_res_lab"] = "revalidate_route_nodes_high_res_lab_before_enable"
     if "image.image_upscale" in replay_extensions.get("payloads", {}) or "image.image_upscale" in replay_extensions.get("replay_payloads", {}):
         replay_extensions.setdefault("extension_restore_policies", {})["image.image_upscale"] = "revalidate_route_nodes_image_upscale_source_assets_and_optional_models_before_enable"
+    if "image.background_removal" in replay_extensions.get("payloads", {}) or "image.background_removal" in replay_extensions.get("replay_payloads", {}):
+        background_payload = replay_extensions.get("payloads", {}).get("image.background_removal") if isinstance(replay_extensions.get("payloads"), dict) else {}
+        background_params = background_payload.get("params") if isinstance(background_payload, dict) and isinstance(background_payload.get("params"), dict) else {}
+        background_policy = (
+            "revalidate_requested_engine_models_runtime_source_review_mask_and_sam_prompts_before_enable"
+            if str(background_params.get("workflow_mode") or "") == "interactive_sam"
+            else "revalidate_requested_engine_models_runtime_source_and_review_mask_before_enable"
+        )
+        replay_extensions.setdefault("extension_restore_policies", {})["image.background_removal"] = background_policy
     if "wildcards" in replay_extensions.get("payloads", {}) or "wildcards" in replay_extensions.get("replay_payloads", {}):
         replay_extensions.setdefault("extension_restore_policies", {})["wildcards"] = "restore_wildcard_library_payload_and_revalidate_tokens_before_enable"
     if "style_stack" in replay_extensions.get("payloads", {}) or "style_stack" in replay_extensions.get("replay_payloads", {}):

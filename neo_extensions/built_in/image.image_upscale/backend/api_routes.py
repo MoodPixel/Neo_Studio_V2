@@ -506,7 +506,8 @@ def _assert_selected_models_exist(root_dir: Path, provider: Any, profile: dict[s
             raise HTTPException(status_code=400, detail=f"Selected SeedVR2 DiT model was not discovered in Comfy: {settings.get('seedvr2_dit_model')}. Refresh Image Upscale models or check ComfyUI/models/SEEDVR2/.")
         if vae_models and vae not in vae_models:
             raise HTTPException(status_code=400, detail=f"Selected SeedVR2 VAE model was not discovered in Comfy: {settings.get('seedvr2_vae_model')}. Refresh Image Upscale models or check ComfyUI/models/SEEDVR2/.")
-    if settings.get("restore_assist") == "codeformer":
+    force_rgba = settings.get("upscale_engine") == "seedvr2" and str(settings.get("seedvr2_alpha_mode") or "auto").strip().lower() == "preserve"
+    if settings.get("restore_assist") == "codeformer" and not force_rgba:
         restore_models = {str(item).casefold() for item in catalog.get("codeformer_models") or []}
         restore = str(settings.get("restore_model") or "").casefold()
         if restore_models and restore not in restore_models:
@@ -552,24 +553,89 @@ async def _save_upload(upload: UploadFile, root_dir: Path, index: int) -> dict[s
 
 
 
-def _read_image_dimensions(path: Path) -> tuple[int, int]:
-    """Best-effort image dimension probe for per-file SeedVR2 scale math."""
+def _probe_image_properties(path: Path) -> dict[str, Any]:
+    """Inspect dimensions and real alpha content without rewriting the source.
+
+    Browser-side alpha checks are only a convenience. Queue-time routing trusts
+    this server-side probe of the exact file saved under ``neo_data``.
+    """
+    fallback = {
+        "width": 0,
+        "height": 0,
+        "format": "",
+        "mode": "",
+        "has_alpha_channel": False,
+        "has_transparency": False,
+        "alpha_min": 255,
+        "alpha_max": 255,
+        "probe_ok": False,
+    }
     try:
         from PIL import Image  # type: ignore
+
         with Image.open(path) as image:
             width, height = image.size
-            return int(width), int(height)
+            mode = str(image.mode or "")
+            bands = set(image.getbands() or ())
+            has_alpha = "A" in bands or "transparency" in image.info
+            alpha_min = 255
+            alpha_max = 255
+            if has_alpha:
+                alpha = image.convert("RGBA").getchannel("A")
+                extrema = alpha.getextrema()
+                if isinstance(extrema, tuple) and len(extrema) == 2:
+                    alpha_min = int(extrema[0])
+                    alpha_max = int(extrema[1])
+            return {
+                "width": int(width),
+                "height": int(height),
+                "format": str(image.format or path.suffix.lstrip(".")).upper(),
+                "mode": mode.upper(),
+                "has_alpha_channel": bool(has_alpha),
+                "has_transparency": bool(has_alpha and alpha_min < 255),
+                "alpha_min": alpha_min,
+                "alpha_max": alpha_max,
+                "probe_ok": True,
+            }
     except Exception:
-        return 0, 0
+        return fallback
+
+
+def _read_image_dimensions(path: Path) -> tuple[int, int]:
+    """Compatibility wrapper retained for existing dimension-only callers."""
+    properties = _probe_image_properties(path)
+    return int(properties.get("width") or 0), int(properties.get("height") or 0)
 
 
 def _settings_for_source_image(settings: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
     clean = dict(settings or {})
-    width, height = _read_image_dimensions(Path(str(asset.get("path") or "")))
+    properties = _probe_image_properties(Path(str(asset.get("path") or "")))
+    width = int(properties.get("width") or 0)
+    height = int(properties.get("height") or 0)
     if width and height:
         clean["seedvr2_source_width"] = width
         clean["seedvr2_source_height"] = height
     if str(clean.get("upscale_engine") or "").strip().lower() == SEEDVR2_ENGINE_ID:
+        alpha_mode = str(clean.get("seedvr2_alpha_mode") or "auto").strip().lower()
+        has_transparency = bool(properties.get("has_transparency"))
+        alpha_route = alpha_mode == "preserve" or (alpha_mode == "auto" and has_transparency)
+        clean.update({
+            "seedvr2_source_format": properties.get("format") or "",
+            "seedvr2_source_image_mode": properties.get("mode") or "",
+            "seedvr2_source_has_alpha": bool(properties.get("has_alpha_channel")),
+            "seedvr2_source_has_transparency": has_transparency,
+            "seedvr2_alpha_min": int(properties.get("alpha_min") or 0),
+            "seedvr2_alpha_max": int(properties.get("alpha_max") or 0),
+            "seedvr2_alpha_route_applied": alpha_route,
+            "seedvr2_output_format": "png",
+        })
+        # Current CodeFormer graph consumes/returns RGB only. Preserve the user's
+        # draft in the browser, but never let a stale payload flatten an RGBA job.
+        if alpha_route and str(clean.get("restore_assist") or "").strip().lower() == "codeformer":
+            clean["restore_assist"] = "off"
+            clean.pop("restore_model", None)
+            clean.pop("restore_fidelity", None)
+            clean.pop("restore_detection", None)
         clean = compute_seedvr2_resolution_contract(clean)
     return normalize_settings(clean)
 
@@ -628,7 +694,8 @@ def _assert_route_ready(provider: Any, profile: dict[str, Any], settings: dict[s
         if model_group and not model_group.get("ready", True):
             missing = ", ".join(model_group.get("missing_nodes") or [])
             raise HTTPException(status_code=400, detail=f"Selected upscaler model requires missing Comfy node(s): {missing}")
-    if settings.get("restore_assist") == "codeformer" and isinstance(optional, dict):
+    force_rgba = settings.get("upscale_engine") == "seedvr2" and str(settings.get("seedvr2_alpha_mode") or "auto").strip().lower() == "preserve"
+    if settings.get("restore_assist") == "codeformer" and not force_rgba and isinstance(optional, dict):
         restore_group = optional.get("codeformer_restore") or {}
         if restore_group and not restore_group.get("ready", True):
             missing = ", ".join(restore_group.get("missing_nodes") or [])
@@ -638,7 +705,29 @@ def _assert_route_ready(provider: Any, profile: dict[str, Any], settings: dict[s
         if seedvr2_group and not seedvr2_group.get("ready", True):
             missing = ", ".join(seedvr2_group.get("missing_nodes") or [])
             raise HTTPException(status_code=400, detail=f"SeedVR2 experimental engine requires missing Comfy node(s): {missing}. Install ComfyUI-SeedVR2_VideoUpscaler and use ComfyUI/models/SEEDVR2/.")
+        alpha_mode = str(settings.get("seedvr2_alpha_mode") or "auto").strip().lower()
+        if alpha_mode == "preserve":
+            rgba_group = optional.get("seedvr2_rgba") or {}
+            if rgba_group and not rgba_group.get("ready", True):
+                missing = ", ".join(rgba_group.get("missing_nodes") or [])
+                raise HTTPException(status_code=400, detail=f"SeedVR2 transparency preservation requires missing Comfy node(s): {missing}. Update ComfyUI core or choose Discard Transparency.")
     return support
+
+
+def _assert_seedvr2_alpha_ready(support: dict[str, Any], settings: dict[str, Any]) -> None:
+    if str(settings.get("upscale_engine") or "").strip().lower() != SEEDVR2_ENGINE_ID:
+        return
+    if not bool(settings.get("seedvr2_alpha_route_applied")):
+        return
+    node_status = support.get("node_status") if isinstance(support.get("node_status"), dict) else {}
+    optional = node_status.get("optional_groups") if isinstance(node_status, dict) else {}
+    rgba_group = optional.get("seedvr2_rgba") if isinstance(optional, dict) else None
+    if isinstance(rgba_group, dict) and not rgba_group.get("ready", True):
+        missing = ", ".join(rgba_group.get("missing_nodes") or ["JoinImageWithAlpha"])
+        raise HTTPException(
+            status_code=400,
+            detail=f"SeedVR2 transparency preservation requires missing Comfy node(s): {missing}. Update ComfyUI core or choose Discard Transparency.",
+        )
 
 
 def _upload_to_comfy(provider: Any, local_path: Path) -> str:
@@ -744,6 +833,14 @@ def _assert_standalone_image_upscale_workflow(workflow: dict[str, Any], settings
                 "SeedVR2 route failed: workflow mixed SeedVR2 with non-SeedVR2 upscale node(s): "
                 + ", ".join(disallowed_seedvr2)
             )
+        alpha_route = bool(
+            settings.get("seedvr2_alpha_route_applied")
+            or settings.get("_neo_seedvr2_alpha_route_applied")
+        )
+        if alpha_route and "JoinImageWithAlpha" not in classes:
+            raise RuntimeError(
+                "SeedVR2 transparency preservation failed: workflow is missing JoinImageWithAlpha."
+            )
 
 def _context_for_job(
     *,
@@ -846,7 +943,19 @@ def create_image_upscale_api_router(
             try:
                 asset = await _save_upload(upload, root_dir, index)
                 per_source_settings = _settings_for_source_image(settings, asset)
-                per_source_asset = {**asset, "width": per_source_settings.get("seedvr2_source_width", 0), "height": per_source_settings.get("seedvr2_source_height", 0)}
+                _assert_seedvr2_alpha_ready(support, per_source_settings)
+                per_source_asset = {
+                    **asset,
+                    "width": per_source_settings.get("seedvr2_source_width", 0),
+                    "height": per_source_settings.get("seedvr2_source_height", 0),
+                    "format": per_source_settings.get("seedvr2_source_format", ""),
+                    "image_mode": per_source_settings.get("seedvr2_source_image_mode", ""),
+                    "has_alpha_channel": per_source_settings.get("seedvr2_source_has_alpha", False),
+                    "has_transparency": per_source_settings.get("seedvr2_source_has_transparency", False),
+                    "alpha_min": per_source_settings.get("seedvr2_alpha_min", 255),
+                    "alpha_max": per_source_settings.get("seedvr2_alpha_max", 255),
+                    "alpha_route_applied": per_source_settings.get("seedvr2_alpha_route_applied", False),
+                }
                 per_source_payload_block = build_payload_block(
                     per_source_settings,
                     enabled=True,
@@ -864,7 +973,7 @@ def create_image_upscale_api_router(
                 metadata = build_image_upscale_metadata(
                     route=route,
                     params=normalized,
-                    assets={"source_images": [{**asset, "width": normalized.get("seedvr2_source_width", 0), "height": normalized.get("seedvr2_source_height", 0)}], "comfy_source_image_name": comfy_name},
+                    assets={"source_images": [per_source_asset], "comfy_source_image_name": comfy_name},
                     payload_block=per_source_payload_block,
                     workflow_summary="; ".join(notes),
                     node_status=support.get("node_status") if isinstance(support.get("node_status"), dict) else {},
@@ -880,7 +989,7 @@ def create_image_upscale_api_router(
                         metadata=metadata,
                         normalized=normalized,
                         notes=notes,
-                        asset=asset,
+                        asset=per_source_asset,
                     ))
                 queued.append({
                     "job_id": prompt_id,
@@ -894,6 +1003,16 @@ def create_image_upscale_api_router(
                     "compile_notes": notes,
                     "source_dimensions": {"width": normalized.get("seedvr2_source_width", 0), "height": normalized.get("seedvr2_source_height", 0)},
                     "computed_output_dimensions": {"width": normalized.get("seedvr2_output_width", 0), "height": normalized.get("seedvr2_output_height", 0)},
+                    "source_transparency": {
+                        "format": normalized.get("seedvr2_source_format", ""),
+                        "image_mode": normalized.get("seedvr2_source_image_mode", ""),
+                        "has_alpha_channel": normalized.get("seedvr2_source_has_alpha", False),
+                        "has_transparency": normalized.get("seedvr2_source_has_transparency", False),
+                        "alpha_min": normalized.get("seedvr2_alpha_min", 255),
+                        "alpha_max": normalized.get("seedvr2_alpha_max", 255),
+                        "alpha_mode": normalized.get("seedvr2_alpha_mode", "auto"),
+                        "alpha_route_applied": normalized.get("seedvr2_alpha_route_applied", False),
+                    },
                     "metadata": metadata,
                 })
             except HTTPException as exc:

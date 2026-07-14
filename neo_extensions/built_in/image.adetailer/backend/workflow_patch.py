@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from .constants import CFG_SAFETY_CAP, EXTENSION_ID, PHASE
+from .model_catalog import prepare_detailer_assets_for_execution
 from .payload_schema import parse_sep_targets
 from .validation import validate_and_normalize_payload
 
@@ -355,11 +356,13 @@ def _rewrite_output_consumers(workflow: dict[str, Any], consumers: list[tuple[st
 
 def _detector_provider(params: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
     detector_type = str(params.get("detector_type") or "bbox").strip().lower()
-    model_name = str(params.get("detector_model") or "").strip()
+    model_name = str(params.get("detector_model") or "").strip().replace("\\", "/")
     if detector_type.startswith("onnx"):
+        if model_name.lower().startswith("onnx/"):
+            model_name = model_name.split("/", 1)[1]
         return "ONNXDetectorProvider", {"model_name": model_name}, model_name
     # Impact Pack expects Ultralytics models under bbox/ or segm/ unless the user already supplied a scoped path.
-    if "/" not in model_name:
+    if not model_name.lower().startswith(("bbox/", "segm/")):
         model_name = f"{'segm' if detector_type == 'segm' else 'bbox'}/{model_name}"
     return "UltralyticsDetectorProvider", {"model_name": model_name}, model_name
 
@@ -605,6 +608,7 @@ def build_workflow_patch_summary(
     applied: bool = False,
     pass_summaries: list[dict[str, Any]] | None = None,
     skipped_passes: list[dict[str, Any]] | None = None,
+    asset_bridge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pass_summaries = list(pass_summaries or [])
     skipped_passes = list(skipped_passes or [])
@@ -637,6 +641,7 @@ def build_workflow_patch_summary(
         "runtime_unit_count": len(pass_summaries),
         "pass_summaries": deepcopy(pass_summaries),
         "skipped_passes": deepcopy(skipped_passes),
+        "asset_bridge": deepcopy(asset_bridge or {}),
     }
 
 
@@ -678,6 +683,38 @@ def apply_adetailer_patch(
     if not output_consumers:
         reason = "ADetailer could not find a SaveImage/PreviewImage consumer to replace; workflow mutation skipped safely."
         patch = build_workflow_patch_summary(route=route, validation=validation, previous_image_ref=current_image_ref, patched_image_ref=current_image_ref, output_consumers=[], reason=reason, applied=False)
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+
+    asset_bridge = prepare_detailer_assets_for_execution(params, route=route)
+    if asset_bridge.get("blocked_count"):
+        blocked_models = [
+            str(item.get("model") or "selected detector")
+            for item in asset_bridge.get("records", [])
+            if isinstance(item, dict) and item.get("status") == "blocked"
+        ]
+        validation.setdefault("validation", []).append({
+            "extension_id": EXTENSION_ID,
+            "level": "error",
+            "code": "adetailer_execution_bridge_failed",
+            "message": "ADetailer could not safely prepare the selected detector for Comfy execution.",
+            "ok": False,
+            "blocked": True,
+            "bridge_status": asset_bridge.get("status"),
+            "models": blocked_models[:4],
+        })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer execution bridge blocked the workflow before Comfy queue."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            previous_image_ref=current_image_ref,
+            patched_image_ref=current_image_ref,
+            output_consumers=output_consumers,
+            reason=reason,
+            applied=False,
+            asset_bridge=asset_bridge,
+        )
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
     vae_ref = _find_vae_ref(graph)
@@ -803,6 +840,7 @@ def apply_adetailer_patch(
             reason=reason,
             applied=False,
             skipped_passes=skipped_passes,
+            asset_bridge=asset_bridge,
         )
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
@@ -816,6 +854,8 @@ def apply_adetailer_patch(
         reason += " Manual boxes were routed through MaskToSEGS/SEGSDetailer."
     if notes:
         reason += " " + " ".join(notes[:4])
+    if asset_bridge.get("staged_count"):
+        reason += f" Staged {asset_bridge['staged_count']} selected detector model(s) into Comfy's native detector folders before queue."
     patch = build_workflow_patch_summary(
         route=route,
         validation=validation,
@@ -829,5 +869,6 @@ def apply_adetailer_patch(
         applied=True,
         pass_summaries=pass_summaries,
         skipped_passes=skipped_passes,
+        asset_bridge=asset_bridge,
     )
     return {"workflow": graph, "mutated": True, "workflow_patch": patch, "validation": validation, "image_ref": current_image_ref}
