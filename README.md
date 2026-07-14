@@ -427,6 +427,8 @@ ComfyUI/custom_nodes/
 | `ComfyUI_BiRefNet_ll` | Image BG Remove workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
 | `neo_scene_director` | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
 
+> **Note:** Some custom nodes require additional model files that are not included during installation. Check each node’s official GitHub page for its required models, download instructions, and correct ComfyUI model folders before using the related workflow.
+
 ### Installing nodes with Neo Node Manager
 
 1. Open **Neo Studio**.
