@@ -126,6 +126,16 @@ Still evolving:
 
 ## 🛠️ Updates
 
+**July/14/2026 - Image Background Removal**
+
+| System | Update | Details |
+|---|---|---|
+| Built-in Image Extension | ✅ Background Removal | Added a new built-in **Image → Finish → Remove Background** extension with BiRefNet removal, transparent PNG output, optional mask saving and refinement, person or object detection, and Interactive SAM selection. |
+| ComfyUI Requirements | ✅ Required Nodes Updated | Updated the required-node manifest and readiness checks for the ComfyUI BiRefNet, SAM selection, detector, mask-refinement, and output workflows. Neo now reports missing nodes or models before execution. |
+| Detector Models | ✅ Shared Model Discovery | Background Removal now discovers BBox and Segmentation models from the configured ComfyUI model folders, including supported ADetailer and Ultralytics locations. No separate custom model catalog is required. |
+| ADetailer / SAM Model Paths | ✅ Manual Paths Removed | Removed the manual custom detector and SAM model-path controls from ADetailer. Detector and SAM models are now discovered from the selected ComfyUI profile, configured Admin Models root, standard Comfy model folders, and registered model choices. This prevents personal machine paths from being stored or hardcoded in the public repository. |
+| Legacy / Native Fallback | ℹ️ Optional Installation | The standard ComfyUI workflow does not require `rembg`. Install it only if you need the optional native or legacy fallback: `pip install "rembg[cpu]"` for CPU or `pip install "rembg[gpu]"` for NVIDIA GPU support. |
+
 **July/10/2026 - Admin / Model Guide**
 
 | System | Update | Details |
@@ -414,6 +424,7 @@ ComfyUI/custom_nodes/
 | `ComfyUI-Frame-Interpolation` | Finish-lane interpolation / FPS smoothing | https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git |
 | `ComfyUI-VideoHelperSuite` | Video load/combine/save helpers used by many Comfy video workflows | https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git |
 | `ComfyUI-SeedVR2_VideoUpscaler` | Video/Image Upscale workflows | https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git |
+| `ComfyUI_BiRefNet_ll` | Image BG Remove workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
 | `neo_scene_director` | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
 
 ### Installing nodes with Neo Node Manager
