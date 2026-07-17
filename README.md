@@ -126,6 +126,16 @@ Still evolving:
 
 ## 🛠️ Updates
 
+**July/18/2026 - Image Reference and ADetailer Reliability**
+
+| System | Update | Details |
+|---|---|---|
+| ComfyUI Model Discovery | ✅ Shared Model-Root Resolution | Unified model discovery for **ADetailer, ControlNet, Standard IP Adapter, FaceID, CLIP Vision, and SAM** using the selected ComfyUI profile, configured Admin Models root, standard model folders, and registered extra model paths. No personal paths or separate custom catalogs are required. |
+| ControlNet / IP Adapter | ✅ Model Catalog Repair | Fixed ControlNet, Standard IP Adapter, FaceID, and CLIP Vision dropdowns so installed models are loaded from the active ComfyUI profile. Added profile-aware refresh protection so late responses from another profile cannot replace the current model list. |
+| ADetailer | ✅ Detector Execution Repair | ADetailer now validates the selected detector against the active ComfyUI provider choices before queueing. Supported custom Face, Hand, Person, BBox, and Segmentation detectors can run without hardcoded filename rules. |
+| ADetailer + FaceID | ✅ Reference Lock and Source Ownership | Fixed combined FaceID and ADetailer workflows so the FaceID portrait remains identity conditioning while ADetailer repairs the newly generated or explicitly selected image. **Face only** Reference Lock helps preserve identity without replacing the prompt-driven pose, clothing, or background. |
+| IP Adapter / FaceID | ✅ Execution and Reference Reliability | Added FaceID model, preset, and checkpoint-family validation; removed duplicate reference-image handoffs; preserved Standard and FaceID selections across mode changes; and blocked stale or incompatible selections before ComfyUI execution. |
+
 **July/14/2026 - Image Background Removal**
 
 | System | Update | Details |
