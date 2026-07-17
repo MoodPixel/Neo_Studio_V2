@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 from fastapi import FastAPI
 
-from .node_discovery import discover_extra_model_path_inputs, inspect_nodes, merge_model_inputs
+from .node_discovery import discover_model_path_catalog, inspect_nodes, merge_model_inputs
 from .support_matrix import route_reason, route_state
 
 EXTENSION_ID = "image.ip_adapter"
@@ -33,7 +33,8 @@ def build_ip_adapter_node_status(
     provider_id = _provider_id_from_backend(str(backend_details.get("provider_id") or backend))
     matrix_state = route_state(provider_id, family, loader, workflow_mode)
     node_status = inspect_nodes(object_info)
-    filesystem_inputs = discover_extra_model_path_inputs(backend_details)
+    path_catalog = discover_model_path_catalog(backend_details)
+    filesystem_inputs = path_catalog.get("model_inputs") if isinstance(path_catalog.get("model_inputs"), dict) else {}
     model_inputs = merge_model_inputs(node_status.get("model_inputs") or {}, filesystem_inputs)
     missing: dict[str, list[str]] = {
         "standard": list(node_status.get("standard_missing") or []),
@@ -77,8 +78,9 @@ def build_ip_adapter_node_status(
         "model_inputs": model_inputs,
         "model_input_sources": {
             "object_info": node_status.get("model_inputs") or {},
-            "extra_model_paths": filesystem_inputs,
+            **dict(path_catalog.get("sources") or {}),
         },
+        "model_catalog_diagnostics": dict(path_catalog.get("diagnostics") or {}),
         "unknown_object_info": bool(node_status.get("unknown_object_info")),
     }
 
@@ -98,7 +100,10 @@ def register_ip_adapter_node_routes(
         workflow_mode: str = "generate",
     ) -> dict[str, Any]:
         backend_details = backend_resolver(profile_id) if backend_resolver else {}
-        object_info = object_info_resolver(profile_id)
+        backend_supplied_object_info = "object_info" in backend_details
+        object_info = backend_details.get("object_info") if isinstance(backend_details.get("object_info"), dict) else {}
+        if not object_info and not backend_supplied_object_info:
+            object_info = object_info_resolver(profile_id)
         return build_ip_adapter_node_status(
             object_info=object_info,
             backend_details=backend_details,

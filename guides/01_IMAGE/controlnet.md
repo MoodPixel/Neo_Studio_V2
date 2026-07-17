@@ -38,8 +38,8 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 1
-updated: 2026-07-09
+version: 3
+updated: 2026-07-17
 ---
 
 # ControlNet
@@ -69,7 +69,7 @@ Good uses:
 | **Apply ControlNet** | Enables ControlNet for the current generation. | If unchecked, Neo stores the draft but does not patch ControlNet into the workflow. |
 | **+ Add Unit** | Adds another ControlNet unit. | Multiple units can combine pose + depth + edges, but too many can over-constrain output. |
 | **Clean Disabled** | Removes inactive/disabled units. | Use before saving presets or debugging. |
-| **Refresh Nodes** | Refreshes Comfy node/model discovery. | Use after installing nodes/models or restarting ComfyUI. |
+| **Refresh Nodes** | Refreshes Comfy node discovery and the ControlNet model list. | Neo checks the selected Comfy profile's live loader choices and configured model folders. Use it after installing models or restarting ComfyUI. |
 | **Batch Build Maps** | Builds generated maps for multiple units when possible. | Useful after setting source images and preprocessors. |
 | **Use unit** | Enables an individual ControlNet unit. | Disabled units remain in the draft but do not apply. |
 | **Type** | Semantic control type, such as Canny, Depth, OpenPose, Lineart, SoftEdge, Scribble, NormalBae, or Tile. | This tells Neo what kind of structural control the unit represents. |
@@ -160,6 +160,46 @@ The **Build Map** button turns a normal image into a control map. It can use:
 
 Generated maps are tracked as Neo-owned/reference assets and can be recorded in output metadata. If a map builds but the workflow does not use ControlNet, check the extension apply toggle and route state.
 
+## ControlNet model discovery and placement
+
+Neo does not maintain a separate saved ControlNet catalog. The model dropdown is
+built at runtime from the selected Comfy profile and these additive sources:
+
+1. live `ControlNetLoader` choices from Comfy `/object_info`;
+2. the registered Comfy `/models/controlnet` folder when available;
+3. files under the configured `<Comfy models root>/controlnet` directory;
+4. ControlNet folders declared by `extra_model_paths.yaml`.
+
+Nested directories are preserved in the dropdown because Comfy loaders use the
+relative filename. Put normal ControlNet loader files in:
+
+```text
+<ComfyUI>/models/controlnet/
+```
+
+If Neo Studio and ComfyUI are separate folders, set **Admin → Models → ComfyUI
+models root** to Comfy's `models` directory. Neo derives `controlnet` beneath
+that root; no extension-specific manual path is required.
+
+After adding a model, restart or refresh ComfyUI if its loader list is stale,
+then use **Refresh Nodes** in Neo. A model appearing in the dropdown confirms
+discovery, but it must still match the active family and loader route.
+
+## Backend profile refresh behavior
+
+The ControlNet dropdown is bound to the backend profile currently selected in
+the Image header. Changing that profile immediately removes the previous
+profile's transient catalog from the dropdown and starts a new **Refresh
+Nodes** request for the newly selected profile.
+
+Neo tags the response with the resolved profile id and ignores any older
+request that completes after a newer profile was selected. A saved model value
+is not deleted during refresh. If it is absent from the new profile, it remains
+visible as **selected · not in current profile catalog** so the user can switch
+back or choose a valid replacement. A same-profile refresh failure keeps the
+last successful list and shows a retry error instead of silently replacing it
+with another profile's models.
+
 ## Good starting values
 
 | Goal | Suggested start |
@@ -179,6 +219,8 @@ Generated maps are tracked as Neo-owned/reference assets and can be recorded in 
 - Using Canny for subtle pose when OpenPose/Depth would be better.
 - Expecting ControlNet to preserve identity. Use IP Adapter/FaceID for identity and ControlNet for structure.
 - Assuming visible fields mean execution. The status badge/route state decides execution.
+- Pointing Admin Models at the `controlnet` child instead of the parent Comfy `models` directory.
+- Placing ControlNet files under checkpoints or another unrelated model folder.
 
 ## Assistant behavior
 

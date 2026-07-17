@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Any
+from .faceid_contract import resolve_faceid_execution_contract
 from .node_discovery import inspect_nodes
 from .payload_schema import EXTENSION_ID, normalize_block
 from .support_matrix import ACTIVE_STATES, route_reason, route_state
@@ -32,6 +33,7 @@ def validate_and_normalize_payload(raw_payload: dict[str, Any] | None, *, backen
         errors.append(_note("error", "nodes.standard", "Standard IP Adapter nodes are missing.", missing=node_status.get("standard_missing") or []))
     if has_faceid and not node_status.get("faceid_available"):
         errors.append(_note("error", "nodes.faceid", "FaceID IP Adapter nodes are missing.", missing=node_status.get("faceid_missing") or []))
+    faceid_contracts: list[dict[str, Any]] = []
     for idx, unit in enumerate(units):
         prefix = f"inputs.units[{idx}]"
         if str(unit.get("mode") or "standard") != "faceid" and not unit.get("model"):
@@ -40,10 +42,22 @@ def validate_and_normalize_payload(raw_payload: dict[str, Any] | None, *, backen
             errors.append(_note("error", f"{prefix}.clip_vision", "IP Adapter unit requires a CLIP Vision model."))
         if require_assets and not unit.get("image_names") and not unit.get("image_name"):
             errors.append(_note("error", f"{prefix}.image", "IP Adapter unit requires at least one reference image."))
+        if str(unit.get("mode") or "standard") == "faceid":
+            contract = resolve_faceid_execution_contract(unit, family, object_info)
+            contract["uid"] = str(unit.get("uid") or f"unit_{idx + 1}")
+            faceid_contracts.append(contract)
+            for issue in contract.get("errors") or []:
+                errors.append(_note("error", f"{prefix}.{issue.get('field')}", issue.get("message") or "FaceID execution contract failed.", code=issue.get("code")))
+    faceid_signatures = {
+        (item.get("requested_model"), item.get("preset"), item.get("route_family"), item.get("provider"), item.get("lora_strength"))
+        for item in faceid_contracts if item.get("ok")
+    }
+    if len(faceid_signatures) > 1:
+        errors.append(_note("error", "inputs.units", "Enabled FaceID units must share one model, preset, checkpoint family, provider, and LoRA strength because the unified FaceID loader is shared.", code="faceid_shared_loader_contract_conflict"))
     provider_node_errors = [e for e in errors if str(e.get("field") or "").startswith("nodes.")]
     result_state = "provider_gated" if provider_node_errors else state
     reason = "validated" if not errors else (provider_node_errors[0].get("message") if provider_node_errors else "validation_failed")
     active = units if not errors else []
     if errors:
         block = {"enabled": False, "version": block.get("version", 1), "inputs": {}, "params": {}, "assets": {}, "metadata": {**(block.get("metadata") or {}), "reason": reason, "route": route, "route_state": result_state}}
-    return {"ok": not errors, "enabled": not errors, "state": result_state, "reason": reason, "route": route, "validation": notes + warnings + [e for e in errors if e not in notes], "node_status": node_status, "block": block, "active_units": active, "extension_id": EXTENSION_ID}
+    return {"ok": not errors, "enabled": not errors, "state": result_state, "reason": reason, "route": route, "validation": notes + warnings + [e for e in errors if e not in notes], "node_status": node_status, "block": block, "active_units": active, "faceid_execution_contracts": faceid_contracts, "extension_id": EXTENSION_ID}

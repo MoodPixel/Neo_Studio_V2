@@ -1,19 +1,13 @@
 from __future__ import annotations
-from pathlib import Path
 from typing import Any
-import os
 
-try:
-    import yaml  # type: ignore
-except Exception:  # pragma: no cover - PyYAML is optional at runtime.
-    yaml = None
+from neo_app.providers.comfy_model_paths import discover_comfy_model_files
 
 STANDARD_REQUIRED = ["CLIPVisionLoader", "IPAdapterModelLoader", "IPAdapterAdvanced"]
 FACEID_REQUIRED = ["CLIPVisionLoader", "IPAdapterUnifiedLoaderFaceID", "IPAdapterFaceID"]
 OPTIONAL = ["ImageBatch", "IPAdapterInsightFaceLoader"]
 
 
-MODEL_FILE_SUFFIXES = {".safetensors", ".bin", ".pt", ".pth", ".ckpt"}
 FACEID_MARKERS = ("faceid", "face_id", "face-id", "insightface")
 FACEID_PRESET_LABELS = {"model", "faceid", "faceid plus", "faceid plus v2", "faceid portrait", "faceid portrait unnorm"}
 
@@ -31,156 +25,87 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
-def _split_folder_values(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        values: list[str] = []
-        for item in value:
-            values.extend(_split_folder_values(item))
-        return values
-    text = str(value).strip()
-    if not text:
-        return []
-    return [line.strip() for line in text.replace(";", "\n").splitlines() if line.strip()]
+def split_ip_adapter_model_names(values: list[str]) -> dict[str, list[str]]:
+    """Split generic Comfy IP Adapter choices into executable model families."""
+
+    faceid = [name for name in values if looks_like_faceid_model(name)]
+    standard = [name for name in values if not looks_like_faceid_model(name)]
+    return {"ip_adapter": _dedupe(standard), "faceid": _dedupe(faceid)}
 
 
-def _candidate_extra_model_yaml_paths(backend_details: dict[str, Any] | None = None) -> list[Path]:
-    backend_details = backend_details or {}
-    paths: list[Path] = []
-    for raw in [
-        os.environ.get("COMFYUI_EXTRA_MODEL_PATHS"),
-        os.environ.get("COMFYUI_EXTRA_MODEL_PATHS_YAML"),
-        backend_details.get("extra_model_paths_yaml"),
-    ]:
-        if raw:
-            paths.append(Path(str(raw)).expanduser())
+def _split_ip_adapter_models(values: list[str]) -> dict[str, list[str]]:
+    """Compatibility wrapper for older extension imports/tests."""
 
-    portable_path = str(backend_details.get("portable_path") or "").strip()
-    if portable_path:
-        root = Path(portable_path).expanduser()
-        paths.extend([
-            root / "ComfyUI" / "extra_model_paths.yaml",
-            root / "ComfyUI" / "extra_model_paths.yml",
-            root / "extra_model_paths.yaml",
-            root / "extra_model_paths.yml",
-        ])
-
-    # Portable/dev fallback is intentionally relative to the running process only.
-    # Do not add user-specific absolute paths here; Neo Studio is a repo/shared tool.
-    # Real installs should provide either backend_details.extra_model_paths_yaml,
-    # backend_details.portable_path, or COMFYUI_EXTRA_MODEL_PATHS(_YAML).
-    cwd = Path.cwd()
-    paths.extend([
-        cwd / "extra_model_paths.yaml",
-        cwd / "extra_model_paths.yml",
-        cwd / "ComfyUI" / "extra_model_paths.yaml",
-        cwd / "ComfyUI" / "extra_model_paths.yml",
-    ])
-
-    seen: set[str] = set()
-    out: list[Path] = []
-    for path in paths:
-        key = str(path).casefold()
-        if key not in seen:
-            seen.add(key)
-            out.append(path)
-    return out
+    return split_ip_adapter_model_names(values)
 
 
-def _load_extra_model_paths_yaml(path: Path) -> dict[str, Any]:
-    if not path.exists() or not path.is_file():
-        return {}
-    if yaml is not None:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return payload if isinstance(payload, dict) else {}
-    # Tiny fallback for the simple Comfy extra_model_paths.yaml shape.
-    root: dict[str, Any] = {}
-    current: dict[str, Any] | None = None
-    current_block_key = ""
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        stripped = line.strip()
-        if indent == 0 and stripped.endswith(":"):
-            current = root.setdefault(stripped[:-1].strip(), {})
-            current_block_key = ""
-            continue
-        if current is None or ":" not in stripped:
-            if current is not None and current_block_key:
-                current[current_block_key] = f"{current.get(current_block_key, '')}\n{stripped}".strip()
-            continue
-        key, value = stripped.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if value == "|":
-            current[key] = ""
-            current_block_key = key
-        else:
-            current[key] = value.strip('"\'')
-            current_block_key = ""
-    return root
+def _registered_model_inputs(backend_details: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    details = backend_details or {}
+    folders = details.get("comfy_model_folders") if isinstance(details.get("comfy_model_folders"), dict) else {}
+    ip_files: list[str] = []
+    clip_files: list[str] = []
+    for key in ("ipadapter", "ip_adapter"):
+        values = folders.get(key) or []
+        if isinstance(values, (list, tuple)):
+            ip_files.extend(str(item) for item in values)
+    for key in ("clip_vision", "clipvision"):
+        values = folders.get(key) or []
+        if isinstance(values, (list, tuple)):
+            clip_files.extend(str(item) for item in values)
+    split = _split_ip_adapter_models(_dedupe(ip_files))
+    return {"clip_vision": _dedupe(clip_files), **split}
 
 
-def _resolve_extra_model_folders(yaml_path: Path, categories: set[str]) -> list[Path]:
-    payload = _load_extra_model_paths_yaml(yaml_path)
-    folders: list[Path] = []
-    for group in payload.values():
-        if not isinstance(group, dict):
-            continue
-        base = Path(str(group.get("base_path") or yaml_path.parent)).expanduser()
-        for key, raw_value in group.items():
-            norm_key = str(key or "").strip().casefold().replace("-", "_")
-            if norm_key not in categories:
-                continue
-            for folder_value in _split_folder_values(raw_value):
-                folder = Path(folder_value).expanduser()
-                if not folder.is_absolute():
-                    folder = base / folder
-                folders.append(folder)
-    return folders
+def discover_model_path_catalog(backend_details: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Discover real IP Adapter files from the selected Comfy model roots."""
 
+    details = backend_details or {}
+    clip_scan = discover_comfy_model_files(
+        details,
+        folder_names=("clip_vision",),
+        extra_model_categories={"clip_vision", "clip_visions", "clipvision"},
+    )
+    ip_scan = discover_comfy_model_files(
+        details,
+        folder_names=("ipadapter",),
+        extra_model_categories={"ipadapter", "ip_adapter", "ip_adapters"},
+    )
+    registered = _registered_model_inputs(details)
+    ip_sources = ip_scan.get("sources") if isinstance(ip_scan.get("sources"), dict) else {}
+    clip_sources = clip_scan.get("sources") if isinstance(clip_scan.get("sources"), dict) else {}
 
-def _scan_model_folder(folder: Path) -> list[str]:
-    if not folder.exists() or not folder.is_dir():
-        return []
-    values: list[str] = []
-    try:
-        files = [item for item in folder.rglob("*") if item.is_file() and item.suffix.casefold() in MODEL_FILE_SUFFIXES]
-    except Exception:
-        return []
-    for file_path in sorted(files, key=lambda item: str(item).casefold()):
-        try:
-            rel = file_path.relative_to(folder).as_posix()
-        except Exception:
-            rel = file_path.name
-        values.append(rel)
-    return _dedupe(values)
+    direct_ip = _split_ip_adapter_models(list(ip_sources.get("models_root") or []))
+    extra_ip = _split_ip_adapter_models(list(ip_sources.get("extra_model_paths") or []))
+    direct_inputs = {
+        "clip_vision": _dedupe([str(item) for item in (clip_sources.get("models_root") or [])]),
+        **direct_ip,
+    }
+    extra_inputs = {
+        "clip_vision": _dedupe([str(item) for item in (clip_sources.get("extra_model_paths") or [])]),
+        **extra_ip,
+    }
+    model_inputs = merge_model_inputs(registered, direct_inputs, extra_inputs)
+    return {
+        "model_inputs": model_inputs,
+        "sources": {
+            "comfy_model_folders": registered,
+            "models_root": direct_inputs,
+            "extra_model_paths": extra_inputs,
+        },
+        "diagnostics": {
+            "schema_version": "neo.image.ip_adapter.model_catalog.v1",
+            "path_policy": "absolute_paths_server_side_only",
+            "registered_folders": dict(details.get("comfy_model_folder_diagnostics") or {}),
+            "ip_adapter_filesystem": dict(ip_scan.get("diagnostics") or {}),
+            "clip_vision_filesystem": dict(clip_scan.get("diagnostics") or {}),
+        },
+    }
 
 
 def discover_extra_model_path_inputs(backend_details: dict[str, Any] | None = None) -> dict[str, list[str]]:
-    """Discover IP Adapter dropdown files from Comfy extra_model_paths.yaml.
+    """Compatibility API returning the complete direct + extra path catalog."""
 
-    Some IPAdapter Plus nodes expose FaceID presets through /object_info instead
-    of the actual files. This scanner uses Comfy's configured model folders as a
-    fallback source so Neo can populate real model dropdowns from shared paths.
-    """
-    results = {"clip_vision": [], "ip_adapter": [], "faceid": []}
-    for yaml_path in _candidate_extra_model_yaml_paths(backend_details):
-        for folder in _resolve_extra_model_folders(yaml_path, {"clip_vision", "clip_visions", "clipvision"}):
-            results["clip_vision"].extend(_scan_model_folder(folder))
-        ip_files: list[str] = []
-        for folder in _resolve_extra_model_folders(yaml_path, {"ipadapter", "ip_adapter", "ip_adapters"}):
-            ip_files.extend(_scan_model_folder(folder))
-        for name in ip_files:
-            lowered = name.casefold()
-            if any(marker in lowered for marker in FACEID_MARKERS):
-                results["faceid"].append(name)
-            else:
-                results["ip_adapter"].append(name)
-    return {key: _dedupe(value) for key, value in results.items()}
+    return dict(discover_model_path_catalog(backend_details).get("model_inputs") or {})
 
 
 def merge_model_inputs(*sources: dict[str, list[str]] | None) -> dict[str, list[str]]:
@@ -201,6 +126,27 @@ def _names(object_info: Any) -> set[str]:
     if isinstance(object_info, (set, list, tuple)):
         return {str(v) for v in object_info}
     return set()
+
+
+def _faceid_loader_contract(object_info: Any) -> dict[str, Any]:
+    names = _names(object_info)
+    if object_info is None:
+        names = {"IPAdapterUnifiedLoaderFaceID"}
+    node_name = "IPAdapterUnifiedLoaderFaceID"
+    inputs: set[str] = set()
+    if isinstance(object_info, dict):
+        schema = object_info.get(node_name) or {}
+        node_inputs = schema.get("input") or {}
+        for bucket in (node_inputs.get("required") or {}, node_inputs.get("optional") or {}):
+            inputs.update(str(name) for name in bucket.keys())
+    available = node_name in names
+    preset_owned = available and (not inputs or "preset" in inputs)
+    return {
+        "loader_node": node_name if available else "",
+        "loader_strategy": "unified_preset_resolution" if preset_owned else "unsupported",
+        "model_selection_mode": "validated_resolution_assertion" if preset_owned else "unsupported",
+        "input_names": sorted(inputs),
+    }
 
 
 def _extract_choices(value: Any) -> list[str]:
@@ -237,9 +183,15 @@ def _first_existing_node(object_info: Any, aliases: list[str]) -> str:
     return next((alias for alias in aliases if alias in names), "")
 
 
-def _looks_like_faceid_model(value: Any) -> bool:
+def looks_like_faceid_model(value: Any) -> bool:
     lowered = str(value or "").strip().casefold()
     return bool(lowered) and any(marker in lowered for marker in FACEID_MARKERS)
+
+
+def _looks_like_faceid_model(value: Any) -> bool:
+    """Compatibility wrapper for the former private classifier."""
+
+    return looks_like_faceid_model(value)
 
 
 def _looks_like_faceid_preset(value: Any) -> bool:
@@ -278,6 +230,7 @@ def inspect_nodes(object_info: Any) -> dict[str, Any]:
         "faceid_available": not faceid_missing,
         "standard_missing": standard_missing,
         "faceid_missing": faceid_missing,
+        "faceid_loader_contract": _faceid_loader_contract(object_info),
         "image_batch_available": "ImageBatch" in names,
         "model_inputs": extract_model_inputs(object_info),
         "unknown_object_info": object_info is None,

@@ -52,18 +52,32 @@ def create_controlnet_map_router(
         payload = _backend(profile_id)
         return payload.get("object_info") if isinstance(payload.get("object_info"), dict) else payload if isinstance(payload, dict) and "ControlNetLoader" in payload else {}
 
+    def _object_info_from_backend(payload: dict[str, Any]) -> dict[str, Any]:
+        return payload.get("object_info") if isinstance(payload.get("object_info"), dict) else payload if "ControlNetLoader" in payload else {}
+
     @router.get("/routes")
     def controlnet_map_routes() -> dict[str, Any]:
         return {"ok": True, "schema_version": "neo.image.controlnet.map_routes.v1", "routes": route_specs()}
 
     @router.get("/status")
     def controlnet_map_status(profile_id: str | None = None) -> dict[str, Any]:
-        options = list_preprocessor_options(_object_info(profile_id))
-        return {"ok": True, "schema_version": "neo.image.controlnet.map_status.v1", "route_specs": route_specs(), **options}
+        backend = _backend(profile_id)
+        options = list_preprocessor_options(_object_info_from_backend(backend), backend_details=backend)
+        return {
+            "ok": True,
+            "schema_version": "neo.image.controlnet.map_status.v1",
+            "profile_id": str(backend.get("profile_id") or profile_id or ""),
+            "route_specs": route_specs(),
+            **options,
+        }
 
     @router.get("/preprocessors")
     def controlnet_preprocessors(profile_id: str | None = None) -> dict[str, Any]:
-        return list_preprocessor_options(_object_info(profile_id))
+        backend = _backend(profile_id)
+        return {
+            "profile_id": str(backend.get("profile_id") or profile_id or ""),
+            **list_preprocessor_options(_object_info_from_backend(backend), backend_details=backend),
+        }
 
     @router.post("/validate-assets")
     def controlnet_validate_assets(payload: dict[str, Any] | None = None) -> dict[str, Any]:

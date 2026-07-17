@@ -241,8 +241,12 @@ def map_mode_status(mode: str, available_preprocessors: dict[str, list[str]] | N
     return {"mode": mode, "state": "provider_gated", "reason": "This ControlNet map mode requires an installed Comfy/custom preprocessor node."}
 
 
-def list_preprocessor_options(object_info: dict[str, Any] | None = None) -> dict[str, Any]:
-    node_status = inspect_nodes(object_info)
+def list_preprocessor_options(
+    object_info: dict[str, Any] | None = None,
+    *,
+    backend_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    node_status = inspect_nodes(object_info, backend_details=backend_details)
     options = []
     for mode in ["none", "canny", "depth", "openpose", "dwpose", "lineart", "lineart_anime", "softedge", "scribble", "normalbae", "tile"]:
         status = map_mode_status(mode, node_status.get("preprocessors") or {})

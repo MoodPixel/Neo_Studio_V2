@@ -22,8 +22,8 @@ tags:
   - detailer
   - impact pack
 priority: 111
-version: 1
-updated: 2026-07-14
+version: 3
+updated: 2026-07-18
 ---
 
 # Image ADetailer
@@ -72,6 +72,19 @@ Neo will:
 The workspace can remain visually on Results or Inpaint while the finish pass runs. The execution mode is forced to Img2Img internally so the old mask is not required or reused.
 
 Use the ADetailer panel before clicking the action when you need to change detector, confidence, denoise, prompts, manual boxes, or pass order.
+
+## Image-source ownership
+
+ADetailer has one pixel-source contract:
+
+- during a normal Generate run, it repairs the generated/current finish output;
+- during an explicit post-output pass, it repairs the selected output carried by the Img2Img source lane;
+- an IP Adapter reference image is identity/style conditioning only;
+- a ControlNet image is structural conditioning only.
+
+ADetailer never selects the first available `LoadImage` node. A post-output pass resolves only the declared source image connected to the base VAE encoding lane. If that owned lane is missing, Neo blocks the finish patch instead of borrowing an IP Adapter, ControlNet, mask, or other extension asset.
+
+When a user returns to clean Generate/txt2img after staging a completed output, Neo clears ADetailer's temporary `preview_action_source`, `staged_preview_source`, `detailer_output_pass`, and derived source-image state before submission. Detector/pass settings remain enabled and reusable; only the stale post-output ownership state is removed.
 
 ## Header and state chips
 
@@ -143,6 +156,20 @@ This bridge is execution-time only. Opening or refreshing the model scan never w
 
 Bridge metadata reports only safe states and relative model values: `staged`, `already_ready`, `not_local_source`, `remote_url_only`, or `blocked`. Absolute source and target paths remain server-side. A rejected path or failed copy creates a blocking extension validation item, so the provider stops before posting the workflow to Comfy.
 
+### Detector execution validation
+
+Filesystem discovery alone does not prove that an Impact Pack provider currently accepts a detector value. Before compiling an extension workflow, Neo now:
+
+1. stages only the enabled selected detectors into the active Comfy model root;
+2. requests fresh Comfy `/object_info` after staging;
+3. reads the live choices for `UltralyticsDetectorProvider` or `ONNXDetectorProvider`;
+4. uses the exact accepted choice, including its `bbox/`, `segm/`, or provider-specific nested scope;
+5. blocks before queue when the active provider still does not accept the selection.
+
+The resolver is filename-agnostic. Models such as `face_yolo11s.pt`, `face_yolov8s.pt`, person detectors, hand detectors, and custom detectors follow the same contract; none is whitelisted in Neo.
+
+If a newly installed model is visible in the filesystem catalog but Comfy does not yet expose it as a provider choice, use **Refresh Nodes** or restart Comfy, then use **Refresh models** in ADetailer. Neo reports `adetailer_detector_not_accepted_by_comfy_provider` instead of sending a workflow that Comfy will reject with `Value not in list`.
+
 ## Model scan refresh and recovery
 
 ADetailer scans models automatically the first time the panel opens for an Image backend profile. Each profile has its own temporary runtime scan result; model lists are not saved inside the generation recipe and do not carry across profiles as stale draft data.
@@ -175,6 +202,51 @@ ADetailer supports one primary pass plus optional additional passes.
 | **Target mode** | Auto detect or manual boxes. |
 | **Reference lock** | Optional identity/style/control reference policy. |
 | **Positive / Negative prompt** | Pass-specific repair prompts. |
+
+## Reference Lock
+
+Reference Lock is a **conditioning policy**, not an image-source selector. ADetailer always repairs the generated/current finish output (or the explicitly selected post-output source). IP Adapter and ControlNet images remain upstream conditioning assets and are never substituted as ADetailer's pixels.
+
+| Mode | Required active dependency | Behavior |
+|---|---|---|
+| **Off** | None | Runs the repair with the normal upstream graph. Active extensions still affect generation normally. |
+| **Soft identity** | FaceID IP Adapter | Keeps FaceID conditioning on the repair model and caps repair denoise at 0.30. |
+| **Strong identity** | FaceID IP Adapter | Keeps FaceID conditioning and caps repair denoise at 0.20. |
+| **Face only** | FaceID IP Adapter + a Face pass | Repairs the detected generated face with the FaceID-conditioned model and caps denoise at 0.25. It does not feed the FaceID reference image into ADetailer. |
+| **Style only** | Standard IP Adapter | Confirms standard IP Adapter conditioning is active for the repair pass. |
+| **Follow ControlNet** | ControlNet | Confirms ControlNet conditioning is active while the detail pass uses the sampler's patched prompt conditioning. |
+| **Legacy IP-Adapter / FaceID** | Any IP Adapter unit | Compatibility policy for older saved recipes. |
+| **Legacy both** | IP Adapter + ControlNet | Compatibility policy requiring both upstream extensions. |
+
+Reference Lock does not force the SEGS route. SEGS is selected only when targeting features such as multiple targets, manual boxes, ordering, or area filters require it. If a dependency is missing or **Face only** is used on a non-face pass, Neo shows a warning and safely runs that pass without claiming that the lock was applied.
+
+The IP Adapter unit's own weights and timing remain authoritative. Reference Lock does not hardcode a detector filename, reference path, IP Adapter model, or personal filesystem location.
+
+## FaceID generation followed by ADetailer
+
+Use this order when the goal is a new prompted image with the reference person's
+identity and a final face repair:
+
+1. In **Image → Reference → IP Adapter / FaceID**, enable one FaceID unit.
+2. Select the FaceID model, matching preset, CLIP Vision model, provider, and
+   reference portrait.
+3. Keep the reference weight moderate so the prompt still controls clothing,
+   pose, background, and scene.
+4. In **Image → Finish → ADetailer**, enable a Face pass and select a detector
+   accepted by the active Comfy detector-provider list.
+5. Set **Reference Lock** to **Face only** and use conservative face denoise.
+6. Generate normally. IP Adapter conditions the model first; ADetailer detects
+   and repairs the generated face afterward.
+
+The FaceID portrait is never ADetailer's pixel source. If the output resembles
+the reference image's original pose/background instead of following the prompt,
+check for an overly high IP Adapter weight and confirm only one durable reference
+is present. If Comfy reports `Value not in list` for the detector, refresh the
+ADetailer model list and select the exact live provider value; do not rename or
+hardcode a detector path in Neo.
+
+For **Apply ADetailer Pass** on a completed output, the selected output becomes
+the Img2Img-owned pixel source. The FaceID reference remains conditioning only.
 
 ## Manual boxes and visual target picker
 

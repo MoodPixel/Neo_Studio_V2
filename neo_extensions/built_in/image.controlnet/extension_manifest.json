@@ -3061,7 +3061,16 @@
     "task_selector": "neo_app/static/js/neo.js::controlNetTaskSelector",
     "task_selector_policy": "Only visible in Image inpaint/outpaint modes; selector changes params.controlnet_task without unlocking adapter-gated execution."
   },
-  "version": "1.0.5-p9-3-flux-klein-controlnet-enablement",
+  "frontend_model_catalog_contract": {
+    "active_profile_bound": true,
+    "automatic_profile_refresh": true,
+    "request_epoch_stale_guard": true,
+    "response_profile_validation": true,
+    "saved_selection_preserved_if_missing": true,
+    "absolute_paths_browser_exposed": false,
+    "phase_scope": "phase4_frontend_catalog_reliability"
+  },
+  "version": "1.0.7-profile-catalog-reliability",
   "workflow_modes": [
     "generate",
     "img2img",

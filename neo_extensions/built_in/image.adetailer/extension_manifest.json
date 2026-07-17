@@ -1,7 +1,7 @@
 {
   "id": "image.adetailer",
   "name": "Image · ADetailer",
-  "version": "0.1.9",
+  "version": "0.1.12",
   "description": "Built-in Image Finish extension for ADetailer-style detection, target selection, multi-pass detail cards, output metadata, and replay-safe finishing workflows.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
@@ -562,6 +562,9 @@
     "node_discovery_ready": true,
     "workflow_patch_ready": true,
     "execution_bridge_ready": true,
+    "explicit_image_source_ownership_ready": true,
+    "reference_lock_conditioning_policy_ready": true,
+    "provider_detector_execution_validation_ready": true,
     "phase": "G3",
     "ui_runtime_ready": true,
     "preset_storage_ready": true,
@@ -581,6 +584,9 @@
     ],
     "selected_detector_execution_bridge": "flat_adetailer_to_native_comfy_folder_before_queue",
     "execution_bridge_path_policy": "configured_models_root_relative_server_side_only",
+    "image_source_policy": "explicit_post_output_source_or_generated_finish_output_never_arbitrary_loadimage",
+    "reference_lock_policy": "upstream_conditioning_only_never_reference_pixel_source",
+    "detector_execution_policy": "stage_before_live_object_info_then_use_exact_provider_choice",
     "unsupported_routes_do_not_mutate": true
   },
   "metadata": {

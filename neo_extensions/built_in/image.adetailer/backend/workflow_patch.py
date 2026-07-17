@@ -258,32 +258,111 @@ def _find_first_node(workflow: dict[str, Any], class_types: set[str] | tuple[str
     return None, None
 
 
-def _find_source_load_image_ref(workflow: dict[str, Any]) -> list[Any] | None:
-    for node in workflow.values():
-        if not isinstance(node, dict) or node.get("class_type") != "VAEEncode":
-            continue
-        pixels = (node.get("inputs") or {}).get("pixels")
-        if isinstance(pixels, (list, tuple)) and len(pixels) >= 2:
-            src = workflow.get(str(pixels[0]))
-            if isinstance(src, dict) and src.get("class_type") == "LoadImage":
-                return [str(pixels[0]), 0]
-    for node_id, node in workflow.items():
-        if isinstance(node, dict) and node.get("class_type") == "LoadImage":
-            return [str(node_id), 0]
+def _source_image_name_from_route(route: dict[str, Any] | None) -> str:
+    route_data = route if isinstance(route, dict) else {}
+    actual_params = route_data.get("actual_params") if isinstance(route_data.get("actual_params"), dict) else {}
+    route_params = route_data.get("params") if isinstance(route_data.get("params"), dict) else {}
+    for container in (actual_params, route_params, route_data):
+        for key in ("comfy_source_image_name", "source_image_name"):
+            value = str(container.get(key) or "").strip()
+            if value:
+                return value.replace("\\", "/")
+    return ""
+
+
+def _upstream_load_image_ref(
+    workflow: dict[str, Any],
+    ref: Any,
+    *,
+    visited: set[str] | None = None,
+) -> list[Any] | None:
+    """Resolve a declared image lane back to LoadImage without scanning peers.
+
+    IP Adapter and ControlNet legitimately add their own LoadImage nodes.  Those
+    nodes are reference/conditioning assets, not ADetailer pixel sources.  Only
+    follow the image/pixels connection owned by the base VAE encoder.
+    """
+
+    if not isinstance(ref, (list, tuple)) or len(ref) < 2:
+        return None
+    node_id = str(ref[0])
+    seen = visited if isinstance(visited, set) else set()
+    if node_id in seen:
+        return None
+    seen.add(node_id)
+    node = workflow.get(node_id)
+    if not isinstance(node, dict):
+        return None
+    if node.get("class_type") == "LoadImage":
+        return [node_id, 0]
+    inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+    for input_name in ("image", "images", "pixels"):
+        upstream = inputs.get(input_name)
+        resolved = _upstream_load_image_ref(workflow, upstream, visited=seen)
+        if resolved is not None:
+            return resolved
     return None
 
 
-def _is_preview_detailer_output_pass(validation: dict[str, Any], params: dict[str, Any]) -> bool:
+def _find_source_load_image_ref(
+    workflow: dict[str, Any],
+    *,
+    expected_image_name: str = "",
+) -> list[Any] | None:
+    """Find only the base source-image lane used by VAE encoding.
+
+    An exact uploaded Comfy source name wins when the route exposes it.  The
+    structural fallback is restricted to LoadImage nodes upstream of the base
+    VAE encoder.  There is intentionally no "first LoadImage" fallback.
+    """
+
+    expected = str(expected_image_name or "").strip().replace("\\", "/")
+    if expected:
+        for node_id, node in workflow.items():
+            if not isinstance(node, dict) or node.get("class_type") != "LoadImage":
+                continue
+            image_name = str((node.get("inputs") or {}).get("image") or "").strip().replace("\\", "/")
+            if image_name == expected:
+                return [str(node_id), 0]
+    for node in workflow.values():
+        if not isinstance(node, dict) or node.get("class_type") not in {"VAEEncode", "VAEEncodeForInpaint"}:
+            continue
+        pixels = (node.get("inputs") or {}).get("pixels")
+        resolved = _upstream_load_image_ref(workflow, pixels)
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _is_preview_detailer_output_pass(
+    validation: dict[str, Any],
+    params: dict[str, Any],
+    route: dict[str, Any] | None = None,
+) -> bool:
     block = validation.get("block") if isinstance(validation.get("block"), dict) else {}
     metadata = block.get("metadata") if isinstance(block.get("metadata"), dict) else {}
     inputs = block.get("inputs") if isinstance(block.get("inputs"), dict) else {}
-    return bool(
+    route_data = route if isinstance(route, dict) else {}
+    actual_params = route_data.get("actual_params") if isinstance(route_data.get("actual_params"), dict) else {}
+    route_modes = {
+        str(value or "").strip().lower()
+        for value in (
+            route_data.get("workflow_mode"),
+            route_data.get("mode"),
+            actual_params.get("workflow_mode"),
+            actual_params.get("mode"),
+        )
+        if str(value or "").strip()
+    }
+    source_route_active = bool(route_modes & {"img2img", "inpaint", "outpaint"})
+    preview_marker = bool(
         params.get("detailer_output_pass")
         or metadata.get("detailer_output_pass")
         or metadata.get("source_mode") == "preview_action_selected_output"
         or inputs.get("preview_action_source")
         or metadata.get("preview_action_source")
     )
+    return source_route_active and preview_marker
 
 
 def _find_base_image_ref(workflow: dict[str, Any]) -> list[Any]:
@@ -367,6 +446,58 @@ def _detector_provider(params: dict[str, Any]) -> tuple[str, dict[str, Any], str
     return "UltralyticsDetectorProvider", {"model_name": model_name}, model_name
 
 
+def _provider_model_choices(available_nodes: Any, provider_class: str) -> list[str] | None:
+    """Read the live model choices from a Comfy /object_info node schema.
+
+    ``None`` means the caller supplied node names only or an incomplete test
+    schema, so execution-value validation is unavailable. An empty list means
+    Comfy supplied a real model choice field with no accepted values.
+    """
+    if not isinstance(available_nodes, dict):
+        return None
+    info = available_nodes.get("object_info") if isinstance(available_nodes.get("object_info"), dict) else available_nodes
+    schema = info.get(provider_class) if isinstance(info, dict) else None
+    if not isinstance(schema, dict):
+        return None
+    input_schema = schema.get("input") if isinstance(schema.get("input"), dict) else {}
+    for section_name in ("required", "optional"):
+        section = input_schema.get(section_name) if isinstance(input_schema.get(section_name), dict) else {}
+        for field_name in ("model_name", "model", "detector_model"):
+            raw = section.get(field_name)
+            if raw is None:
+                continue
+            first = raw[0] if isinstance(raw, (list, tuple)) and raw else raw
+            if isinstance(first, dict):
+                first = first.get("choices") or first.get("values") or first.get("options") or []
+            if isinstance(first, (list, tuple, set)):
+                return [str(item).strip().replace("\\", "/") for item in first if str(item).strip()]
+            return []
+    return None
+
+
+def _resolve_provider_detector_value(params: dict[str, Any], available_nodes: Any) -> dict[str, Any]:
+    provider_class, _inputs, expected = _detector_provider(params)
+    choices = _provider_model_choices(available_nodes, provider_class)
+    if choices is None:
+        return {"status": "unchecked", "provider": provider_class, "requested": expected, "resolved": expected, "choice_count": None}
+    by_folded = {choice.casefold(): choice for choice in choices}
+    exact = by_folded.get(expected.casefold())
+    if exact:
+        return {"status": "accepted", "provider": provider_class, "requested": expected, "resolved": exact, "choice_count": len(choices)}
+    basename = expected.rsplit("/", 1)[-1].casefold()
+    basename_matches = [choice for choice in choices if choice.rsplit("/", 1)[-1].casefold() == basename]
+    if len(basename_matches) == 1:
+        return {"status": "canonicalized", "provider": provider_class, "requested": expected, "resolved": basename_matches[0], "choice_count": len(choices)}
+    return {
+        "status": "rejected",
+        "provider": provider_class,
+        "requested": expected,
+        "resolved": "",
+        "choice_count": len(choices),
+        "error_code": "adetailer_detector_not_accepted_by_comfy_provider",
+    }
+
+
 def _add_prompt_nodes(
     graph: dict[str, Any],
     next_id: str,
@@ -420,9 +551,74 @@ def _should_use_segs(params: dict[str, Any], derived: dict[str, Any], node_statu
         or int(params.get("max_area") or 0) > 0
         or str(params.get("target_order") or "auto") not in {"auto", "area_desc"}
         or bool(params.get("custom_classes"))
-        or str(params.get("reference_lock") or "none") != "none"
     )
     return has_segs and advanced_targeting
+
+
+_REFERENCE_LOCK_DENOISE_CAPS = {
+    "soft_identity": 0.30,
+    "strong_identity": 0.20,
+    "face_only": 0.25,
+}
+
+
+def _resolve_reference_lock_policy(params: dict[str, Any], reference_context: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolve Reference Lock as upstream conditioning policy, never pixel ownership."""
+    requested = str(params.get("reference_lock") or "none").strip().lower()
+    context = reference_context if isinstance(reference_context, dict) else {}
+    ip_adapter = context.get("ip_adapter") if isinstance(context.get("ip_adapter"), dict) else {}
+    controlnet = context.get("controlnet") if isinstance(context.get("controlnet"), dict) else {}
+    faceid_active = bool(ip_adapter.get("applied") and ip_adapter.get("faceid_active"))
+    standard_active = bool(ip_adapter.get("applied") and ip_adapter.get("standard_active"))
+    ip_adapter_active = bool(ip_adapter.get("applied") and (faceid_active or standard_active))
+    controlnet_active = bool(controlnet.get("applied"))
+    effective = requested
+    warning_code = ""
+    warning = ""
+
+    if requested in {"soft_identity", "strong_identity", "face_only"} and not faceid_active:
+        effective = "none"
+        warning_code = "adetailer_reference_lock_faceid_missing"
+        warning = "Reference Lock requires an applied FaceID IP Adapter unit; the pass will run without the requested lock."
+    elif requested == "face_only" and str(params.get("mode") or "face").lower() != "face":
+        effective = "none"
+        warning_code = "adetailer_reference_lock_face_scope_mismatch"
+        warning = "Face only Reference Lock can be used only by a face detailer pass; the pass will run without the requested lock."
+    elif requested == "style_only" and not standard_active:
+        effective = "none"
+        warning_code = "adetailer_reference_lock_ipadapter_missing"
+        warning = "Style only Reference Lock requires an applied standard IP Adapter unit; the pass will run without the requested lock."
+    elif requested == "controlnet" and not controlnet_active:
+        effective = "none"
+        warning_code = "adetailer_reference_lock_controlnet_missing"
+        warning = "Follow ControlNet requires an applied ControlNet unit; the pass will run without the requested lock."
+    elif requested == "ipadapter" and not ip_adapter_active:
+        effective = "none"
+        warning_code = "adetailer_reference_lock_ipadapter_missing"
+        warning = "Legacy IP-Adapter / FaceID lock requires an applied IP Adapter unit; the pass will run without the requested lock."
+    elif requested == "both" and not (ip_adapter_active and controlnet_active):
+        effective = "none"
+        warning_code = "adetailer_reference_lock_dependencies_missing"
+        warning = "Legacy both requires applied IP Adapter and ControlNet units; the pass will run without the requested lock."
+
+    requested_denoise = _clamp_float(params.get("denoise"), 0.35, 0.0, 1.0)
+    denoise_cap = _REFERENCE_LOCK_DENOISE_CAPS.get(effective)
+    effective_denoise = min(requested_denoise, denoise_cap) if denoise_cap is not None else requested_denoise
+    return {
+        "requested": requested,
+        "effective": effective,
+        "applied": effective != "none",
+        "scope": "generated_face_region" if effective == "face_only" else "upstream_conditioning",
+        "pixel_source_policy": "generated_or_explicit_finish_output_never_reference_asset",
+        "faceid_active": faceid_active,
+        "standard_ip_adapter_active": standard_active,
+        "controlnet_active": controlnet_active,
+        "requested_denoise": requested_denoise,
+        "effective_denoise": effective_denoise,
+        "denoise_cap": denoise_cap,
+        "warning_code": warning_code,
+        "warning": warning,
+    }
 
 def _add_sam_loader(graph: dict[str, Any], next_id: str, params: dict[str, Any], node_status: dict[str, Any]) -> tuple[str, list[Any] | None, list[str]]:
     sam_model = str(params.get("sam_model") or "").strip()
@@ -640,6 +836,7 @@ def build_workflow_patch_summary(
         "enabled_detailer_pass_count": int((validation.get("derived") or {}).get("enabled_detailer_pass_count") or 0),
         "runtime_unit_count": len(pass_summaries),
         "pass_summaries": deepcopy(pass_summaries),
+        "reference_lock_policies": [deepcopy(item.get("reference_lock")) for item in pass_summaries if isinstance(item.get("reference_lock"), dict)],
         "skipped_passes": deepcopy(skipped_passes),
         "asset_bridge": deepcopy(asset_bridge or {}),
     }
@@ -657,6 +854,7 @@ def apply_adetailer_patch(
     seed: int | str | None = None,
     sampler_name: str | None = None,
     scheduler: str | None = None,
+    reference_context: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
     graph = deepcopy(workflow or {})
@@ -677,7 +875,37 @@ def apply_adetailer_patch(
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
     refs = _find_sampler_refs(graph, sampler_node_id=sampler_node_id)
-    source_only_ref = _find_source_load_image_ref(graph) if _is_preview_detailer_output_pass(validation, params) else None
+    preview_output_pass = _is_preview_detailer_output_pass(validation, params, route)
+    source_only_ref = _find_source_load_image_ref(
+        graph,
+        expected_image_name=_source_image_name_from_route(route),
+    ) if preview_output_pass else None
+    if preview_output_pass and source_only_ref is None:
+        validation.setdefault("validation", []).append({
+            "extension_id": EXTENSION_ID,
+            "level": "error",
+            "code": "adetailer_explicit_source_missing",
+            "message": "ADetailer post-output execution requires the declared Img2Img source lane; no owned source LoadImage was found.",
+            "ok": False,
+            "blocked": True,
+        })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer post-output execution was blocked because its explicit source-image lane is missing."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            previous_image_ref=_find_base_image_ref(graph),
+            patched_image_ref=_find_base_image_ref(graph),
+            output_consumers=[],
+            reason=reason,
+            applied=False,
+        )
+        patch["source_ownership"] = {
+            "kind": "missing_explicit_post_output_source",
+            "policy": "declared_source_encoder_only_no_arbitrary_loadimage_fallback",
+        }
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
     current_image_ref = source_only_ref or _find_base_image_ref(graph)
     output_consumers = _find_output_consumers(graph, current_image_ref)
     if not output_consumers:
@@ -717,6 +945,49 @@ def apply_adetailer_patch(
         )
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
+    detector_execution: list[dict[str, Any]] = []
+    rejected_detectors: list[dict[str, Any]] = []
+    for unit in runtime_units:
+        if unit.get("manual_box") is not None or not str(unit.get("detector_model") or "").strip():
+            continue
+        resolution = _resolve_provider_detector_value(unit, available_nodes)
+        detector_execution.append(resolution)
+        if resolution.get("status") == "rejected":
+            rejected_detectors.append(resolution)
+            continue
+        resolved_value = str(resolution.get("resolved") or "").strip()
+        if resolved_value:
+            unit["detector_model"] = resolved_value
+
+    if rejected_detectors:
+        safe_models = [str(item.get("requested") or "selected detector").rsplit("/", 1)[-1] for item in rejected_detectors]
+        validation.setdefault("validation", []).append({
+            "extension_id": EXTENSION_ID,
+            "level": "error",
+            "code": "adetailer_detector_not_accepted_by_comfy_provider",
+            "field": "detector_model",
+            "message": "The selected detector is not in the active Comfy detector provider's accepted model list. Refresh Comfy nodes after installing or staging the model, then refresh ADetailer models.",
+            "ok": False,
+            "blocked": True,
+            "models": safe_models[:4],
+            "provider_choice_counts": [int(item.get("choice_count") or 0) for item in rejected_detectors[:4]],
+        })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer blocked the workflow before queue because Comfy does not currently accept the selected detector value."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            previous_image_ref=current_image_ref,
+            patched_image_ref=current_image_ref,
+            output_consumers=output_consumers,
+            reason=reason,
+            applied=False,
+            asset_bridge=asset_bridge,
+        )
+        patch["detector_execution"] = deepcopy(detector_execution)
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+
     vae_ref = _find_vae_ref(graph)
     current_model_ref = _copy_ref(model_ref, refs["model"] or ["1", 0])
     current_clip_ref = _copy_ref(clip_ref, ["1", 1])
@@ -750,6 +1021,21 @@ def apply_adetailer_patch(
             skipped_passes.append({"label": runtime_label, "reason": "no detector model selected", "pass_id": unit.get("pass_id")})
             continue
 
+        lock_policy = _resolve_reference_lock_policy(unit, reference_context)
+        effective_unit = deepcopy(unit)
+        effective_unit["denoise"] = lock_policy["effective_denoise"]
+        if lock_policy.get("warning"):
+            validation.setdefault("validation", []).append({
+                "extension_id": EXTENSION_ID,
+                "level": "warning",
+                "code": lock_policy.get("warning_code"),
+                "field": "reference_lock",
+                "message": lock_policy.get("warning"),
+                "ok": True,
+                "blocked": False,
+                "pass_id": unit.get("pass_id"),
+            })
+
         pos_text = str(unit.get("positive_prompt") or "").strip()
         neg_text = str(unit.get("negative_prompt") or "").strip()
         next_id, pass_positive_ref, pass_negative_ref, prompt_nodes = _add_prompt_nodes(
@@ -763,7 +1049,7 @@ def apply_adetailer_patch(
         )
         node_ids.extend(prompt_nodes)
 
-        use_segs = _should_use_segs(unit, derived, validation.get("node_status") or {})
+        use_segs = _should_use_segs(effective_unit, derived, validation.get("node_status") or {})
         patch_path = "segs_detailer" if use_segs else "face_detailer"
         if unit.get("manual_box") is not None and not use_segs:
             skipped_passes.append({"label": runtime_label, "reason": "manual boxes require SEGSDetailer/MaskToSEGS routing", "pass_id": unit.get("pass_id")})
@@ -780,7 +1066,7 @@ def apply_adetailer_patch(
                 vae_ref=vae_ref,
                 positive_ref=pass_positive_ref,
                 negative_ref=pass_negative_ref,
-                params=unit,
+                params=effective_unit,
                 seed=effective_seed + unit_index - 1,
                 sampler_name=effective_sampler,
                 scheduler=effective_scheduler,
@@ -804,7 +1090,7 @@ def apply_adetailer_patch(
                 vae_ref=vae_ref,
                 positive_ref=pass_positive_ref,
                 negative_ref=pass_negative_ref,
-                params=unit,
+                params=effective_unit,
                 seed=effective_seed + unit_index - 1,
                 sampler_name=effective_sampler,
                 scheduler=effective_scheduler,
@@ -825,6 +1111,7 @@ def apply_adetailer_patch(
             "sep_target_total": unit.get("_sep_target_total"),
             "previous_image_ref": previous_ref,
             "patched_image_ref": _copy_ref(current_image_ref),
+            "reference_lock": deepcopy(lock_policy),
         })
 
     if not pass_summaries:
@@ -871,4 +1158,10 @@ def apply_adetailer_patch(
         skipped_passes=skipped_passes,
         asset_bridge=asset_bridge,
     )
+    patch["detector_execution"] = deepcopy(detector_execution)
+    patch["source_ownership"] = {
+        "kind": "explicit_post_output_source" if source_only_ref is not None else "generated_or_current_finish_output",
+        "source_ref": _copy_ref(current_image_ref if not pass_summaries else pass_summaries[0].get("previous_image_ref")),
+        "policy": "declared_source_encoder_only_no_arbitrary_loadimage_fallback",
+    }
     return {"workflow": graph, "mutated": True, "workflow_patch": patch, "validation": validation, "image_ref": current_image_ref}

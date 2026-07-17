@@ -18,7 +18,11 @@ from neo_app.runtime_data import (
     ensure_backend_api_key_secret_store,
     ensure_backend_profile_store,
 )
-from neo_extensions.built_in.ip_adapter.backend.node_discovery import discover_extra_model_path_inputs, merge_model_inputs
+from neo_extensions.built_in.ip_adapter.backend.node_discovery import (
+    discover_extra_model_path_inputs,
+    merge_model_inputs,
+    split_ip_adapter_model_names,
+)
 
 PROVIDER_DIR = Path(__file__).resolve().parent
 PROFILE_TEMPLATE_PATH = PROVIDER_DIR / "backend_profiles.json"
@@ -1447,11 +1451,12 @@ def _discover_comfy_models(base_url: str, timeout: float = 3.0, backend_details:
 
     ip_adapter_node = _first_existing_node(info, ["IPAdapterModelLoader", "IPAdapterUnifiedLoader", "IPAdapterLoader"])
     ip_adapter_names = _node_required_choices(info, ip_adapter_node, "ipadapter_file", "ipadapter_name", "model", "model_name", "name") if ip_adapter_node else []
-    _append_unique(buckets["ip_adapter_models"], "ip_adapter", ip_adapter_names)
+    ip_adapter_split = split_ip_adapter_model_names(ip_adapter_names)
+    _append_unique(buckets["ip_adapter_models"], "ip_adapter", ip_adapter_split["ip_adapter"])
 
     faceid_node = _first_existing_node(info, ["IPAdapterUnifiedLoaderFaceID", "IPAdapterFaceIDModelLoader"])
     faceid_names = _node_required_choices(info, faceid_node, "model", "model_name", "ipadapter_file", "faceid_model") if faceid_node else []
-    _append_unique(buckets["ip_adapter_faceid_models"], "ip_adapter_faceid", faceid_names)
+    _append_unique(buckets["ip_adapter_faceid_models"], "ip_adapter_faceid", faceid_names + ip_adapter_split["faceid"])
 
     # FIX4/FIX5: Some IPAdapter Plus FaceID nodes expose presets through /object_info
     # instead of real model file names. Merge configured Comfy extra_model_paths.yaml

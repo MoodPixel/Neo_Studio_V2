@@ -41,6 +41,8 @@ def _public_model_catalog(payload: dict[str, Any]) -> dict[str, Any]:
     clean.pop("custom_sam_root", None)
     clean.pop("configured_models_root", None)
     clean.pop("configured_comfy_root", None)
+    clean.pop("resolved_models_root", None)
+    clean.pop("resolved_comfy_root", None)
     clean["path_policy"] = "absolute_paths_server_side_only"
     return clean
 

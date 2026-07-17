@@ -362,6 +362,18 @@ def normalize_extension_ui_contract(manifest: dict[str, Any], detail_mode: str =
     mount_targets = manifest.get("mount_targets") or []
     mount_slots = manifest.get("mount_slots") or []
     validation = validate_extension_ui_contract(manifest)
+    entrypoints = manifest.get("entrypoints") if isinstance(manifest.get("entrypoints"), dict) else {}
+    bundle = manifest.get("asset_bundle") if isinstance(manifest.get("asset_bundle"), dict) else {}
+    html_entrypoint = _clean_text(entrypoints.get("ui")).replace("\\", "/").lstrip("/")
+    declared_html = [str(item).replace("\\", "/").lstrip("/") for item in (bundle.get("html") or [])]
+    custom_ui = {
+        "enabled": bool(html_entrypoint and html_entrypoint in declared_html),
+        "entrypoint": html_entrypoint or None,
+        "css": list(bundle.get("css") or []),
+        "js": list(bundle.get("js") or []),
+        "required_permission": "custom_ui",
+        "host_version": "neo.extension.ui_host.v1",
+    }
     return {
         "schema_version": EXTENSION_UI_CONTRACT_VERSION,
         "extension_id": manifest.get("id"),
@@ -378,6 +390,8 @@ def normalize_extension_ui_contract(manifest: dict[str, Any], detail_mode: str =
         "components": sorted(ALLOWED_EXTENSION_UI_COMPONENTS),
         "panels": panels,
         "actions": ui_schema.get("actions") if isinstance(ui_schema.get("actions"), list) else [],
+        "renderer": "custom_entrypoint" if custom_ui["enabled"] else "shared_contract",
+        "custom_ui": custom_ui,
         "visibility_policy": {
             "compact": "primary controls only",
             "guided": "creator-facing controls with help text",
@@ -401,7 +415,13 @@ def validate_extension_ui_contract(manifest: dict[str, Any]) -> dict[str, Any]:
     if panel_type not in ALLOWED_EXTENSION_PANEL_TYPES:
         errors.append(f"Unsupported extension panel type: {panel_type}.")
     fields = ui_schema.get("fields")
-    if fields is None and not ui_schema.get("panels"):
+    entrypoints = manifest.get("entrypoints") if isinstance(manifest.get("entrypoints"), dict) else {}
+    bundle = manifest.get("asset_bundle") if isinstance(manifest.get("asset_bundle"), dict) else {}
+    ui_entrypoint = _clean_text(entrypoints.get("ui")).replace("\\", "/").lstrip("/")
+    declared_html = [str(item).replace("\\", "/").lstrip("/") for item in (bundle.get("html") or [])]
+    if ui_entrypoint and ui_entrypoint not in declared_html:
+        errors.append("entrypoints.ui must also be declared in asset_bundle.html.")
+    if fields is None and not ui_schema.get("panels") and not ui_entrypoint:
         warnings.append("No shared UI fields or panels declared; renderer will show a standard empty state.")
     for field in _normalize_ui_fields(fields or [], "expert"):
         if not _clean_text(field.get("id")):

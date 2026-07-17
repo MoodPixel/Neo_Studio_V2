@@ -18,7 +18,6 @@ SCENE_DIRECTOR_EXTENSION_ID = "image.scene_director"
 HIGH_RES_LAB_EXTENSION_ID = "image.high_res_lab"
 ADETAILER_EXTENSION_ID = "image.adetailer"
 LAYERDIFFUSE_EXTENSION_ID = "image.layerdiffuse"
-FINAL_POLISH_LAB_EXTENSION_ID = "image.final_polish_lab"
 LAYERDIFFUSE_NODE_CLASSES = {
     "LayeredDiffusionApply",
     "LayeredDiffusionCondApply",
@@ -43,7 +42,6 @@ GRAPH_MUTATING_EXTENSION_IDS = {
     HIGH_RES_LAB_EXTENSION_ID,
     ADETAILER_EXTENSION_ID,
     LAYERDIFFUSE_EXTENSION_ID,
-    FINAL_POLISH_LAB_EXTENSION_ID,
 }
 
 
@@ -334,42 +332,6 @@ def _extension_payload_block(extensions: Any, extension_id: str) -> dict[str, An
 
 
 
-def _load_final_polish_lab_workflow_patch_module():
-    """Load the external Final Polish Lab workflow hook adapter.
-
-    The installed extension folder is named by its canonical id
-    `image.final_polish_lab`, which is not a normal import package path. Load by
-    file path and temporarily expose the backend folder so the extension can keep
-    relative/fallback imports self-contained.
-    """
-    candidates = [
-        ROOT_DIR / "neo_extensions" / "installed" / "image.final_polish_lab" / "backend" / "workflow_patch.py",
-        ROOT_DIR / "neo_data" / "extensions" / "image" / "image.final_polish_lab" / "backend" / "workflow_patch.py",
-    ]
-    for patch_path in candidates:
-        if not patch_path.exists():
-            continue
-        backend_dir = str(patch_path.parent)
-        remove_after = False
-        if backend_dir not in sys.path:
-            sys.path.insert(0, backend_dir)
-            remove_after = True
-        try:
-            spec = importlib_util.spec_from_file_location("neo_external_image_final_polish_lab_workflow_patch", patch_path)
-            if spec and spec.loader:
-                module = importlib_util.module_from_spec(spec)
-                sys.modules[spec.name] = module
-                spec.loader.exec_module(module)
-                module.__dict__.setdefault("__neo_extension_root__", patch_path.parents[1])
-                return module, patch_path.parents[1]
-        finally:
-            if remove_after and backend_dir in sys.path:
-                try:
-                    sys.path.remove(backend_dir)
-                except ValueError:
-                    pass
-    return None, None
-
 def _load_layerdiffuse_adapter_module():
     """Load the external LayerDiffuse adapter from installed/data extension folders.
 
@@ -643,6 +605,10 @@ def apply_comfy_workflow_extension_patches(
     model_output_ref = list(model_ref) if isinstance(model_ref, (list, tuple)) else ["1", 0]
     clip_output_ref = list(clip_ref) if isinstance(clip_ref, (list, tuple)) else ["1", 1]
     cfg_fix_applied_pre_scene_director_identity = False
+    reference_context: dict[str, Any] = {
+        "ip_adapter": {"applied": False, "faceid_active": False, "standard_active": False, "unit_count": 0},
+        "controlnet": {"applied": False, "unit_count": 0},
+    }
 
     if _layerdiffuse_execution_requested(extensions, route):
         adapter, extension_root = _load_layerdiffuse_adapter_module()
@@ -869,6 +835,14 @@ def apply_comfy_workflow_extension_patches(
         patch = result.get("workflow_patch") or {}
         patches.append(patch)
         validation_result = result.get("validation") or {}
+        active_ip_units = validation_result.get("active_units") if isinstance(validation_result.get("active_units"), list) else []
+        active_ip_modes = {str(unit.get("mode") or "standard").strip().lower() for unit in active_ip_units if isinstance(unit, dict)}
+        reference_context["ip_adapter"] = {
+            "applied": bool(patch.get("applied")),
+            "faceid_active": "faceid" in active_ip_modes,
+            "standard_active": any(mode != "faceid" for mode in active_ip_modes),
+            "unit_count": len(active_ip_units),
+        }
         validation.extend(validation_result.get("validation") or [])
         block = validation_result.get("block") or {}
         payloads[IP_ADAPTER_EXTENSION_ID] = block
@@ -894,6 +868,11 @@ def apply_comfy_workflow_extension_patches(
         patch = result.get("workflow_patch") or {}
         patches.append(patch)
         validation_result = result.get("validation") or {}
+        active_controlnet_units = validation_result.get("active_units") if isinstance(validation_result.get("active_units"), list) else []
+        reference_context["controlnet"] = {
+            "applied": bool(patch.get("applied")),
+            "unit_count": len(active_controlnet_units) or int(patch.get("controlnet_unit_count") or patch.get("units") or 0),
+        }
         validation.extend(validation_result.get("validation") or [])
         block = validation_result.get("block") or {}
         payloads[CONTROLNET_EXTENSION_ID] = block
@@ -966,6 +945,7 @@ def apply_comfy_workflow_extension_patches(
             model_ref=model_output_ref,
             clip_ref=clip_output_ref,
             sampler_node_id=sampler_node_id,
+            reference_context=deepcopy(reference_context),
         )
         graph = result["workflow"]
         patch = result.get("workflow_patch") or {}
@@ -985,39 +965,28 @@ def apply_comfy_workflow_extension_patches(
         memory_events.update(adetailer_metadata.get("memory_events") or {})
 
 
-    if _extension_payload_enabled(extensions, FINAL_POLISH_LAB_EXTENSION_ID):
-        adapter, extension_root = _load_final_polish_lab_workflow_patch_module()
-        block = _extension_payload_block(extensions, FINAL_POLISH_LAB_EXTENSION_ID)
-        if adapter is None or not hasattr(adapter, "apply_final_polish_lab_patch"):
-            validation.append({
-                "extension_id": FINAL_POLISH_LAB_EXTENSION_ID,
-                "ok": False,
-                "blocked": True,
-                "errors": ["final_polish_lab_workflow_patch_not_found"],
-                "warnings": [],
-            })
-        else:
-            result = adapter.apply_final_polish_lab_patch(
-                graph,
-                payload=block,
-                route=route,
-                available_nodes=available_nodes,
-                model_ref=model_output_ref,
-                clip_ref=clip_output_ref,
-            )
-            graph = result.get("workflow") or graph
-            model_output_ref = result.get("model_ref", model_output_ref)
-            clip_output_ref = result.get("clip_ref", clip_output_ref)
-            patch = result.get("workflow_patch") or {}
-            patches.append(patch)
-            validation_result = result.get("validation") or {}
-            validation.extend(validation_result.get("validation") or [])
-            payloads[FINAL_POLISH_LAB_EXTENSION_ID] = result.get("payload") or validation_result.get("block") or block
-            used.extend(result.get("used") or [])
-            replay_payloads[FINAL_POLISH_LAB_EXTENSION_ID] = result.get("replay_payload") or block
-            if result.get("assistant_summary"):
-                assistant_summaries[FINAL_POLISH_LAB_EXTENSION_ID] = str(result.get("assistant_summary"))
-            memory_events[FINAL_POLISH_LAB_EXTENSION_ID] = result.get("memory_event") or {}
+    # User-installed graph adapters share one permission-gated late-finish host.
+    # Neo Base does not import or branch on individual external extension ids.
+    from neo_app.extensions.external_runtime import apply_external_workflow_patches
+
+    external_result = apply_external_workflow_patches(
+        graph,
+        extensions=extensions,
+        route=route,
+        available_nodes=available_nodes,
+        model_ref=model_output_ref,
+        clip_ref=clip_output_ref,
+    )
+    graph = external_result.get("workflow") or graph
+    model_output_ref = external_result.get("model_ref", model_output_ref)
+    clip_output_ref = external_result.get("clip_ref", clip_output_ref)
+    patches.extend(external_result.get("workflow_patches") or [])
+    validation.extend(external_result.get("validation") or [])
+    payloads.update(external_result.get("payloads") or {})
+    used.extend(external_result.get("used") or [])
+    replay_payloads.update(external_result.get("replay_payloads") or {})
+    assistant_summaries.update(external_result.get("assistant_summaries") or {})
+    memory_events.update(external_result.get("memory_events") or {})
 
     layer_nodes = _workflow_layerdiffuse_nodes(graph)
     layer_template_refs = _workflow_layerdiffuse_template_refs(patches)
@@ -1072,6 +1041,8 @@ def has_comfy_workflow_extension_requests(extensions: Any) -> bool:
     Prompt-only extensions, including Style Stack and Wildcards, must remain False here. They
     are applied before provider execution by neo_app.image.prompt_extensions.
     """
+    from neo_app.extensions.external_runtime import has_external_workflow_patch_request
+
     return (
         _extension_payload_enabled(extensions, CFG_FIX_EXTENSION_ID)
         or _extension_payload_enabled(extensions, LORA_STACK_EXTENSION_ID)
@@ -1082,5 +1053,5 @@ def has_comfy_workflow_extension_requests(extensions: Any) -> bool:
         or _extension_payload_enabled(extensions, HIGH_RES_LAB_EXTENSION_ID)
         or _extension_payload_enabled(extensions, ADETAILER_EXTENSION_ID)
         or _extension_payload_enabled(extensions, LAYERDIFFUSE_EXTENSION_ID)
-        or _extension_payload_enabled(extensions, FINAL_POLISH_LAB_EXTENSION_ID)
+        or has_external_workflow_patch_request(extensions)
     )

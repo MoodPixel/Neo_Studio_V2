@@ -23,8 +23,8 @@ tags:
   - reuse
   - repair
 priority: 112
-version: 1
-updated: 2026-07-09
+version: 8
+updated: 2026-07-18
 ---
 
 # Image Finish Workspace
@@ -46,7 +46,7 @@ Finish tools are route-aware. A card can be visible but disabled when the select
 | **High-Res Lab** | High-resolution diffusion refine / highres-style finish pass. | Normal Image workflow patch / finish pass. | `guides/01_IMAGE/high_res_lab.md` |
 | **ADetailer** | Selective local repair for faces, hands, people, clothing, products, or manual regions. | Normal Image workflow patch / final repair pass. | `guides/01_IMAGE/adetailer.md` |
 | **Image Upscale** | Standalone upscale utility for selected outputs or uploaded images. | Standalone queue route, not normal generation compiler. | `guides/01_IMAGE/image_upscale.md` |
-| **Final Polish Lab** | External finish cockpit for relight, layer polish, camera/color look, and batch polish plans. | External installed extension; provider-neutral plan output in the current closeout. | `guides/01_IMAGE/final_polish_lab.md` |
+| **Final Polish Lab** | External finish cockpit for relight, layer polish, camera/color looks, fixed-order chaining, bounded batch polish, and source-explicit replay. | Reliable external standalone/chained ComfyUI prompts with recoverable monitoring and completion-aware saved-result metadata. | `guides/01_IMAGE/final_polish_lab.md` |
 
 ## Finish vs Results
 
@@ -69,8 +69,8 @@ Examples:
 
 | Family / backend route | High-Res Lab | ADetailer | Image Upscale | Final Polish Lab |
 |---|---|---|---|---|
-| **ComfyUI SDXL checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Available for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | External plan cockpit; current render queue is gated by extension lane. |
-| **ComfyUI SD 1.5 checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Experimental for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | External plan cockpit; current render queue is gated by extension lane. |
+| **ComfyUI SDXL checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Available for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | Camera Finish/Layer Polish can run image-only; IC-Light Relight stays unavailable because it requires SD 1.5. |
+| **ComfyUI SD 1.5 checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Experimental for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | Standalone lanes, fixed-order chains, and up-to-20-source batches are available when every enabled lane dependency is ready. |
 | **Flux / Flux 2 / Qwen / ZImage / HiDream local routes** | Gated or hidden unless the route matrix says otherwise. | Unsupported/gated for the current checkpoint-style detailer graph. | Available if a connected Comfy backend can accept uploaded/selected image sources. | Usually provider-gated/planned unless the external extension says available. |
 | **xAI Grok / cloud API** | Not a local Comfy finish graph. Use API result as a source and stage it into a compatible local Comfy finish route if needed. | Not a local Comfy detailer graph. | Can use a Grok output as a source only if a compatible local Comfy image backend is connected. | Not a direct API render path in the current extension contract. |
 
@@ -85,6 +85,12 @@ Finish tools can get a source from:
 
 When a saved output is staged from Results, Neo should preserve the selected image as the source. It should not silently re-run the original base generation unless the user chooses replay/regenerate.
 
+ADetailer source ownership is stricter than general Finish staging. During a
+normal Generate job it repairs the generated/current output. During **Apply
+ADetailer Pass** it repairs the explicitly selected Img2Img source. IP Adapter
+portraits and ControlNet maps remain conditioning assets and must never be
+borrowed as ADetailer pixels.
+
 ## Assistant rules
 
 When answering Finish questions, use this guide plus the tool-specific guide. Check the live Image snapshot for:
@@ -98,3 +104,25 @@ When answering Finish questions, use this guide plus the tool-specific guide. Ch
 - route state: Available, Experimental, Provider gated, Planned, or Unsupported.
 
 Do not promise a finish pass can execute just because the panel is visible. Visible can mean “installed but gated.”
+
+For Final Polish Lab, a temporary browser status error does not mean the
+ComfyUI job failed. Use its Resume monitoring action when available. Stop
+monitoring stops only the browser poll; it does not cancel the provider job or
+authorize submitting a replacement job.
+
+Final Polish Lab is distributed separately from Neo Base. Install or update the
+complete standalone ZIP/repository through Admin, approve its version-bound
+permissions, and restart Neo. Do not copy it into `neo_app`. Custom nodes and
+extra models remain ComfyUI-owned; follow each node project's model page and
+place files where that selected ComfyUI installation exposes them.
+
+If Final Polish reports a bundled frontend startup warning, do not treat that
+as a missing ComfyUI node. Replace it with the complete extension package,
+confirm permission approval for the exact version, restart Neo, and
+hard-refresh. The standalone frontend now uses one self-contained JavaScript
+entrypoint and still prevents duplicate initialization.
+
+Final Polish replay restoration also does not submit automatically. **Reuse same
+polish** waits for a new source; **Polish this output again** binds to the owning
+saved Neo result. Original-source and batch restore must revalidate recorded
+assets, and batch restore requires confirmation.

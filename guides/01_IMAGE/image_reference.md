@@ -28,8 +28,8 @@ tags:
   - route aware
   - loader aware
 priority: 119
-version: 1
-updated: 2026-07-09
+version: 2
+updated: 2026-07-18
 ---
 
 # Image Reference Workspace
@@ -117,6 +117,12 @@ Use **IP Adapter / FaceID** when the important thing is reference identity or vi
 - same general composition from a reference image.
 
 For strict character/person preservation, FaceID/IP Adapter often needs ControlNet or Scene Director too. FaceID helps identity; ControlNet helps body/pose/layout.
+
+When ADetailer is also enabled, IP Adapter/FaceID remains upstream reference
+conditioning. ADetailer repairs the generated/current image after sampling; it
+does not use the FaceID portrait as its pixel source. Use ADetailer's **Face
+only** Reference Lock when the local repair should retain the already-applied
+FaceID identity conditioning.
 
 ## Assistant behavior
 

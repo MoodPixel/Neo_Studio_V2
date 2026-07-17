@@ -77,7 +77,9 @@ from neo_app.admin.index_jobs import index_job_queue_state_payload, create_index
 from neo_app.admin.models.model_catalog_service import admin_model_catalog_payload, admin_model_catalog_summary_payload, admin_model_category_map_payload, admin_model_folder_rules_payload, admin_model_schema_payload, admin_model_paths_state_payload, admin_model_paths_save_payload, admin_model_target_resolution_payload, admin_model_installed_state_payload, admin_model_scan_installed_payload, admin_model_huggingface_metadata_state_payload, admin_model_huggingface_discover_files_state_payload, admin_model_civitai_metadata_state_payload, admin_model_civitai_discover_files_state_payload, admin_model_filter_state_payload, admin_model_download_plan_state_payload, admin_model_download_start_state_payload, admin_model_download_cancel_state_payload, admin_model_download_jobs_state_payload, admin_model_download_job_state_payload, admin_model_packs_state_payload, admin_model_pack_status_state_payload, admin_model_pack_download_plan_state_payload, admin_model_workspace_requirements_state_payload, admin_model_workspace_status_state_payload, admin_model_workspace_download_plan_state_payload
 from neo_app.admin.models.model_paths import load_model_paths
 from neo_app.admin.image_node_manager import (
+    SETTINGS_PATH as NODE_MANAGER_SETTINGS_PATH,
     get_node_manager_state,
+    load_node_manager_settings,
     save_node_manager_settings,
     scan_node_manager_disk,
     install_node_from_github,
@@ -87,6 +89,8 @@ from neo_app.admin.image_node_manager import (
     install_node_requirements,
     open_custom_nodes_folder,
 )
+from neo_app.providers.comfy_model_paths import query_comfy_model_folders
+from neo_app.providers.comfy_model_paths import resolve_comfy_model_paths
 from neo_app.providers.comfy_provider import ComfyProvider
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
 from neo_app.image.upload_validation import ImageUploadValidationError, validate_and_store_image_upload
@@ -467,6 +471,7 @@ from neo_app.image.output_service import (
     image_replay_storage_summary,
     image_results_integrity_guard,
     list_image_results,
+    load_output_record,
     persist_image_outputs,
     resolve_output_file,
     delete_image_result,
@@ -512,7 +517,9 @@ from neo_app.models.registry import (
 from neo_app.models.readiness import validate_readiness
 
 from neo_app.extensions.registry import (
+    approve_extension_runtime_permissions,
     check_extension_compatibility,
+    extension_runtime_permission_granted,
     get_extension,
     get_extension_payload,
     get_extension_ui_contract_payload,
@@ -520,8 +527,17 @@ from neo_app.extensions.registry import (
     install_extension_from_github,
     install_extension_from_zip,
     remove_extension,
+    revoke_extension_runtime_permissions,
     update_extension,
     set_extension_enabled,
+)
+from neo_app.extensions.external_runtime import (
+    external_extension_runtime_status,
+    register_external_extension_routes,
+)
+from neo_app.extensions.source_assets import (
+    resolve_external_extension_image_asset,
+    stage_external_extension_image_upload,
 )
 
 from neo_extensions.built_in.lora_stack.backend.library_routes import register_lora_stack_library_routes
@@ -534,10 +550,6 @@ from neo_extensions.built_in.image_upscale.backend.api_routes import register_im
 from neo_extensions.built_in.background_removal.backend.api_routes import register_background_removal_api_routes
 from neo_extensions.built_in.style_stack.backend.api_routes import register_style_stack_api_routes
 from neo_extensions.built_in.wildcards.backend.api_routes import register_wildcards_api_routes
-try:
-    from neo_extensions.installed.final_polish_lab.backend.queue_routes import register_final_polish_lab_api_routes
-except Exception:  # pragma: no cover - external extension may be absent during partial installs.
-    register_final_polish_lab_api_routes = None
 from neo_extensions.built_in.style_stack.backend.metadata import build_output_extension_metadata as build_style_stack_output_extension_metadata
 from neo_extensions.built_in.wildcards.backend.metadata import build_output_extension_metadata as build_wildcards_output_extension_metadata
 
@@ -4546,7 +4558,7 @@ def admin_image_extensions() -> dict:
             if record.get("registry_enabled") is not True
         ],
         "state_fields": registry.get("state_fields", {}),
-        "actions": ["enable", "disable", "install_github", "install_zip", "update", "remove", "view_manifest", "check_compatibility"],
+        "actions": ["enable", "disable", "install_github", "install_zip", "update", "remove", "view_manifest", "check_compatibility", "approve_runtime", "revoke_runtime"],
     })
     return payload
 
@@ -4707,7 +4719,7 @@ def _surface_extension_manager_payload(surface_id: str) -> dict:
             if record.get("registry_enabled") is not True
         ],
         "state_fields": registry.get("state_fields", {}),
-        "actions": ["enable", "disable", "install_github", "install_zip", "update", "remove", "view_manifest", "check_compatibility"],
+        "actions": ["enable", "disable", "install_github", "install_zip", "update", "remove", "view_manifest", "check_compatibility", "approve_runtime", "revoke_runtime"],
     })
     return payload
 
@@ -4871,6 +4883,9 @@ _ADETAILER_COMFY_MODEL_FOLDER_KEYS = (
     "adetailer",
 )
 
+_CONTROLNET_COMFY_MODEL_FOLDER_KEYS = ("controlnet", "controlnets")
+_IP_ADAPTER_COMFY_MODEL_FOLDER_KEYS = ("ipadapter", "ip_adapter", "clip_vision", "clipvision")
+
 
 def _adetailer_model_names_from_folder_payload(payload: object) -> list[str]:
     """Normalize Comfy ``/models/<folder>`` responses without guessing names."""
@@ -4946,12 +4961,12 @@ def _adetailer_comfy_model_folders(provider: ComfyProvider, timeout_seconds: flo
     }
 
 
-def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
-    """Return Comfy runtime details for ControlNet map generation.
+def _comfy_backend_for_profile(profile_id: str | None = None) -> dict:
+    """Return one server-only Comfy runtime and model-root snapshot.
 
-    The extension owns map generation, but it needs the active Comfy base URL and
-    object_info to run the same V1-style Aux preprocessor workflow instead of
-    merely echoing the source image back into the generated-map slot.
+    ControlNet, IP Adapter, ADetailer, and later Comfy-backed extensions must
+    share this profile-aware path authority. Absolute filesystem values are
+    internal inputs and must be redacted by every public API boundary.
     """
     profile_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
     profile = get_backend_profile(profile_id) if profile_id else None
@@ -4974,7 +4989,7 @@ def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
     except Exception as exc:  # noqa: BLE001 - catalog diagnostics degrade safely while Comfy is offline.
         object_info = {}
         object_info_error_code = type(exc).__name__
-    return {
+    backend = {
         "profile_id": profile_id,
         "provider_id": profile.get("provider_id"),
         "base_url": base_url,
@@ -4983,13 +4998,69 @@ def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
         "object_info_error_code": object_info_error_code,
         "portable_path": connection.get("portable_path") or "",
         "comfy_root": connection.get("comfy_root") or runtime.get("comfy_root") or "",
+        "models_root": connection.get("models_root") or runtime.get("models_root") or "",
         "extra_model_paths_yaml": connection.get("extra_model_paths_yaml") or runtime.get("extra_model_paths_yaml") or "",
         "object_info": object_info if isinstance(object_info, dict) else {},
     }
+    try:
+        model_paths = load_model_paths(create=False)
+    except Exception:  # noqa: BLE001 - profile and Node Manager roots remain usable.
+        model_paths = {}
+    try:
+        node_manager_settings = load_node_manager_settings() if NODE_MANAGER_SETTINGS_PATH.exists() else {}
+    except Exception:  # noqa: BLE001 - Admin/profile roots remain usable.
+        node_manager_settings = {}
+    return resolve_comfy_model_paths(
+        backend,
+        model_paths=model_paths,
+        node_manager_settings=node_manager_settings,
+    )
+
+
+def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
+    """Attach registered ControlNet folders to the shared Comfy snapshot."""
+
+    backend = _comfy_backend_for_profile(profile_id)
+    return _comfy_backend_with_registered_folders(backend, _CONTROLNET_COMFY_MODEL_FOLDER_KEYS)
+
+
+def _ip_adapter_backend_for_profile(profile_id: str | None = None) -> dict:
+    """Attach registered IP Adapter folders to the shared Comfy snapshot."""
+
+    backend = _comfy_backend_for_profile(profile_id)
+    return _comfy_backend_with_registered_folders(backend, _IP_ADAPTER_COMFY_MODEL_FOLDER_KEYS)
+
+
+def _comfy_backend_with_registered_folders(backend: dict, folder_names: tuple[str, ...]) -> dict:
+    """Merge path-free live folder results into an extension backend snapshot."""
+
+    if backend.get("provider_id") not in {"comfyui", "comfyui_portable"} or not backend.get("object_info"):
+        return backend
+    folder_timeout = min(float(backend.get("object_info_timeout_seconds") or 5.0), 5.0)
+    try:
+        provider, _profile = _profile_bound_provider(str(backend.get("profile_id") or ""))
+        if isinstance(provider, ComfyProvider):
+            folders, diagnostics = query_comfy_model_folders(
+                provider,
+                folder_names,
+                timeout_seconds=folder_timeout,
+            )
+            backend["comfy_model_folders"] = folders
+            backend["comfy_model_folder_diagnostics"] = diagnostics
+    except Exception as exc:  # noqa: BLE001 - direct filesystem discovery remains usable.
+        backend["comfy_model_folder_diagnostics"] = {
+            "schema_version": "neo.providers.comfy_registered_model_folders.v1",
+            "path_policy": "absolute_paths_server_side_only",
+            "index_available": False,
+            "registered_folder_count": 0,
+            "queried_folder_count": 0,
+            "error_codes": {"resolver": type(exc).__name__},
+        }
+    return backend
 
 
 def _controlnet_object_info_for_profile(profile_id: str | None = None) -> dict:
-    return _controlnet_backend_for_profile(profile_id).get("object_info", {})
+    return _comfy_backend_for_profile(profile_id).get("object_info", {})
 
 
 def _adetailer_backend_for_profile(profile_id: str | None = None) -> dict:
@@ -5001,26 +5072,9 @@ def _adetailer_backend_for_profile(profile_id: str | None = None) -> dict:
     the ADetailer API boundary.
     """
 
-    backend = _controlnet_backend_for_profile(profile_id)
+    backend = _comfy_backend_for_profile(profile_id)
     if backend.get("provider_id") not in {"comfyui", "comfyui_portable"}:
         return backend
-
-    try:
-        model_paths = load_model_paths(create=False)
-    except Exception:  # noqa: BLE001 - model discovery still has live Comfy fallbacks.
-        model_paths = {}
-    configured_backends = model_paths.get("backends") if isinstance(model_paths.get("backends"), dict) else {}
-    configured_comfy = configured_backends.get("comfyui") if isinstance(configured_backends.get("comfyui"), dict) else {}
-    if configured_comfy.get("enabled", True) is not False:
-        configured_models_root = str(configured_comfy.get("models_root") or "").strip()
-        configured_comfy_root = str(configured_comfy.get("root") or "").strip()
-        if configured_models_root:
-            backend["configured_models_root"] = configured_models_root
-            backend["models_root_source"] = "admin_models_paths"
-        if configured_comfy_root:
-            backend["configured_comfy_root"] = configured_comfy_root
-            if not str(backend.get("comfy_root") or "").strip():
-                backend["comfy_root"] = configured_comfy_root
 
     if backend.get("object_info"):
         folder_timeout = min(float(backend.get("object_info_timeout_seconds") or 5.0), 5.0)
@@ -5055,7 +5109,7 @@ def _lora_metadata_for_profile(profile_id: str | None, lora_name: str) -> dict:
 register_lora_stack_library_routes(app, ROOT_DIR, catalog_resolver=_lora_catalog_names_for_profile, metadata_resolver=_lora_metadata_for_profile)
 register_embeddings_ti_library_routes(app, ROOT_DIR, catalog_resolver=_embedding_catalog_names_for_profile)
 register_controlnet_map_routes(app, ROOT_DIR, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_controlnet_backend_for_profile)
-register_ip_adapter_node_routes(app, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_controlnet_backend_for_profile)
+register_ip_adapter_node_routes(app, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_ip_adapter_backend_for_profile)
 register_adetailer_api_routes(app, object_info_resolver=_controlnet_object_info_for_profile, backend_resolver=_adetailer_backend_for_profile)
 register_style_stack_api_routes(app, ROOT_DIR)
 register_wildcards_api_routes(app, ROOT_DIR)
@@ -5087,6 +5141,9 @@ def extension_asset(extension_id: str, asset_path: str) -> FileResponse:
     requested = str(asset_path or "").replace("\\", "/").lstrip("/")
     if not requested or requested not in allowed or ".." in Path(requested).parts:
         raise HTTPException(status_code=404, detail="Extension asset is not declared in the manifest asset bundle.")
+    if record.origin == "external" and Path(requested).suffix.lower() in {".js", ".css", ".html", ".htm"}:
+        if not extension_runtime_permission_granted(extension_id, "custom_ui"):
+            raise HTTPException(status_code=403, detail="External custom UI requires version-bound Admin approval.")
     base = Path(record.install_path).resolve()
     path = (base / requested).resolve()
     if base not in path.parents and path != base:
@@ -5109,6 +5166,32 @@ def extension(extension_id: str) -> dict:
     if match is None:
         raise HTTPException(status_code=404, detail=f"Unknown extension: {extension_id}")
     return model_to_dict(match)
+
+
+@app.get("/api/extensions/runtime/status")
+def extension_runtime_status() -> dict:
+    return external_extension_runtime_status()
+
+
+@app.post("/api/extensions/{extension_id}/runtime-permissions/approve")
+def extension_runtime_permissions_approve(extension_id: str, payload: dict | None = None) -> dict:
+    data = payload or {}
+    result = approve_extension_runtime_permissions(
+        extension_id,
+        data.get("permissions") if isinstance(data.get("permissions"), list) else None,
+        version=str(data.get("version") or "") or None,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("errors", []))
+    return result
+
+
+@app.post("/api/extensions/{extension_id}/runtime-permissions/revoke")
+def extension_runtime_permissions_revoke(extension_id: str) -> dict:
+    result = revoke_extension_runtime_permissions(extension_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("errors", []))
+    return result
 
 
 
@@ -5361,16 +5444,64 @@ register_background_removal_api_routes(
 )
 
 
-def _record_final_polish_lab_job_context(job_id: str, context: dict) -> None:
-    _remember_image_job_context(job_id, context, status="staged")
+def _record_external_extension_job_context(job_id: str, context: dict) -> None:
+    status = str((context or {}).get("status") or "active")
+    _remember_image_job_context(job_id, context or {}, status=status)
 
 
-if register_final_polish_lab_api_routes is not None:
-    register_final_polish_lab_api_routes(
-        app,
-        ROOT_DIR,
-        context_recorder=_record_final_polish_lab_job_context,
+def _load_external_extension_job_context(job_id: str) -> dict:
+    """Load one durable Image job context for an approved external runtime."""
+    context = _load_or_default_image_job_context(str(job_id or ""), {})
+    return dict(context) if isinstance(context, dict) else {}
+
+
+def _persist_external_extension_outputs(provider_outputs: list[dict], context: dict) -> dict:
+    persisted = persist_image_outputs(provider_outputs=provider_outputs, job_context=context)
+    record = persisted.record if isinstance(persisted.record, dict) else {}
+    outputs = ((record.get("outputs") or {}).get("files") or persisted.files) if isinstance(record, dict) else persisted.files
+    return {
+        "ok": bool(persisted.ok),
+        "result_id": persisted.result_id,
+        "record": record,
+        "record_path": str(persisted.record_path),
+        "outputs": outputs,
+        "files": persisted.files,
+        "errors": persisted.errors,
+    }
+
+
+def _resolve_external_extension_source_asset(descriptor: dict) -> dict:
+    return resolve_external_extension_image_asset(
+        descriptor,
+        source_dir=IMAGE_SOURCE_INPUT_DIR,
+        mask_dir=IMAGE_MASK_INPUT_DIR,
+        output_record_loader=load_output_record,
+        output_file_resolver=resolve_output_file,
     )
+
+
+async def _stage_external_extension_source_upload(file: UploadFile, *, role: str) -> dict:
+    return await stage_external_extension_image_upload(
+        file,
+        role=role,
+        source_dir=IMAGE_SOURCE_INPUT_DIR,
+        mask_dir=IMAGE_MASK_INPUT_DIR,
+    )
+
+
+register_external_extension_routes(
+    app,
+    services={
+        "root_dir": ROOT_DIR,
+        "profile_provider_resolver": _profile_bound_provider,
+        "model_catalog_provider_resolver": _profile_model_catalog_provider,
+        "source_asset_resolver": _resolve_external_extension_source_asset,
+        "source_upload_stager": _stage_external_extension_source_upload,
+        "job_context_recorder": _record_external_extension_job_context,
+        "job_context_loader": _load_external_extension_job_context,
+        "result_persister": _persist_external_extension_outputs,
+    },
+)
 
 
 

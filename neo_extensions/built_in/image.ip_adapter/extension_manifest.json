@@ -1,8 +1,40 @@
 {
   "id": "image.ip_adapter",
   "name": "IP Adapter / FaceID",
-  "version": "1.0.0-v1-parity",
+  "version": "1.0.6-frontend-state-reliability",
   "description": "Built-in Image Reference extension migrated from V1 IPAdapter/FaceID behavior with sequential units, multi-reference batching, route-aware payload validation, Comfy node gating, workflow graph patching, output metadata, and replay readiness.",
+  "frontend_model_catalog_contract": {
+    "active_profile_bound": true,
+    "automatic_profile_refresh": true,
+    "request_epoch_stale_guard": true,
+    "response_profile_validation": true,
+    "generic_profile_bucket_faceid_split": true,
+    "saved_selection_preserved_if_missing": true,
+    "durable_asset_identity_deduplication": true,
+    "faceid_model_selection_contract_visible": true,
+    "absolute_paths_browser_exposed": false,
+    "phase_scope": "phase4_frontend_catalog_reliability"
+  },
+  "faceid_execution_contract": {
+    "schema_version": "neo.image.ip_adapter.faceid_execution.v1",
+    "phase_scope": "phase5_faceid_execution_contract",
+    "loader_strategy": "unified_preset_resolution",
+    "selected_file_role": "validated_resolution_assertion",
+    "validates_checkpoint_family": true,
+    "validates_preset_variant": true,
+    "blocks_before_graph_mutation": true,
+    "absolute_paths_recorded": false
+  },
+  "frontend_state_contract": {
+    "phase_scope": "phase6_frontend_state_reliability",
+    "mode_specific_draft_selections_preserved": true,
+    "active_mode_payload_isolation": true,
+    "unit_uid_event_ownership": true,
+    "faceid_contract_rerender_on_selection_change": true,
+    "active_profile_missing_selection_blocked": true,
+    "shared_unified_loader_conflict_visible": true,
+    "selection_focus_restored_after_contract_rerender": true
+  },
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -845,6 +877,7 @@
         "embeds_scaling",
         "start_at",
         "end_at",
+        "faceid_model",
         "faceid_preset",
         "faceid_provider",
         "faceid_lora_strength",
@@ -906,6 +939,7 @@
         "embeds_scaling",
         "start_at",
         "end_at",
+        "faceid_model",
         "faceid_preset",
         "faceid_provider",
         "faceid_lora_strength",
@@ -991,6 +1025,23 @@
         "visible_when": {
           "mode": [
             "standard"
+          ],
+          "route_states": [
+            "available",
+            "experimental_available"
+          ]
+        }
+      },
+      {
+        "id": "faceid_model",
+        "label": "FaceID model",
+        "type": "model_select",
+        "default": "",
+        "help_text": "With the unified FaceID loader, this file is validated against the selected preset and checkpoint family before Comfy resolves the canonical model.",
+        "payload_path": "extensions.image.ip_adapter.inputs.units[].faceid_model",
+        "visible_when": {
+          "mode": [
+            "faceid"
           ],
           "route_states": [
             "available",
@@ -1238,6 +1289,7 @@
     "python": [
       "backend/support_matrix.py",
       "backend/payload_schema.py",
+      "backend/faceid_contract.py",
       "backend/node_discovery.py",
       "backend/validation.py",
       "backend/workflow_patch.py",
@@ -1250,6 +1302,7 @@
   "entrypoints": {
     "support_matrix": "backend/support_matrix.py",
     "payload_schema": "backend/payload_schema.py",
+    "faceid_execution_contract": "backend/faceid_contract.py",
     "node_discovery": "backend/node_discovery.py",
     "validation": "backend/validation.py",
     "workflow_patch": "backend/workflow_patch.py",
@@ -1340,6 +1393,10 @@
       "IPAdapterUnifiedLoaderFaceID",
       "IPAdapterFaceID"
     ],
+    "faceid_model_selection": "validated_against_unified_preset_and_checkpoint_family_before_graph_mutation",
+    "faceid_selected_file_is_direct_loader_input": false,
+    "reference_image_policy": "durable_assets_before_runtime_comfy_handoff_aliases",
+    "intentional_multi_reference_batches_preserved": true,
     "never_mutates_when": [
       "disabled",
       "planned_gated",

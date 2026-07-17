@@ -17,6 +17,12 @@ ExtensionOrigin = Literal["built_in", "external"]
 ExtensionDetailMode = Literal["compact", "guided", "expert", "Compact", "Guided", "Expert"]
 VALID_IMAGE_WORKSPACE_APPS = {"generations", "assets", "reference", "finish", "results"}
 VALID_ROUTE_STATES = {"available", "experimental_available", "implementation_target", "planned_gated", "provider_gated", "unsupported"}
+VALID_EXTENSION_RUNTIME_PERMISSIONS = {
+    "custom_ui",
+    "backend_routes",
+    "workflow_patch",
+    "result_write",
+}
 
 
 class RequiredNodes(BaseModel):
@@ -99,6 +105,21 @@ class ExtensionOutputContract(BaseModel):
     record_replay_payload: bool = True
 
 
+class ExtensionRuntimeContract(BaseModel):
+    """Executable external-extension contract.
+
+    External code is never trusted from its manifest alone. The registry exposes
+    these requested capabilities to Admin and stores a version-bound approval in
+    runtime user state before Neo loads custom browser or Python code.
+    """
+
+    contract_version: str = "neo.extension.runtime.v1"
+    requested_permissions: list[str] = Field(default_factory=list)
+    activation: Literal["dynamic", "restart_required"] = "restart_required"
+    workflow_stage: str = "late_finish"
+    workflow_priority: int = 100
+
+
 class ExtensionManifest(BaseModel):
     id: str
     name: str
@@ -128,6 +149,7 @@ class ExtensionManifest(BaseModel):
     output_policy: dict[str, Any] = Field(default_factory=dict)
     asset_bundle: ExtensionAssetBundle = Field(default_factory=ExtensionAssetBundle)
     entrypoints: dict[str, str] = Field(default_factory=dict)
+    runtime: ExtensionRuntimeContract = Field(default_factory=ExtensionRuntimeContract)
 
 
 class ExtensionRecord(BaseModel):

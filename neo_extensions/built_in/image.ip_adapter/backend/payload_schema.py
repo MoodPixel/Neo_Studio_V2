@@ -17,7 +17,7 @@ VISIBLE_UNIT_KEYS = {
 }
 VALID_INPUT_KEYS = {"units", "mode", "suppress_global_when_scene_director_active"}
 VALID_ASSET_KEYS = {"reference_images"}
-VALID_METADATA_KEYS = {"schema", "route", "route_state", "reason", "legacy_migrated", "scene_director_bound_slots", "scene_director_suppressed", "scene_director_identity_units_consumed", "scene_director_identity_units_blocked", "scene_director_regional_ipadapter_hard_gated", "scene_director_regional_ipadapter_units_suppressed", "scene_director_regional_ipadapter_profiles_metadata_only", "scene_director_ipadapter_hard_gate_phase"}
+VALID_METADATA_KEYS = {"schema", "route", "route_state", "reason", "legacy_migrated", "scene_director_bound_slots", "scene_director_suppressed", "scene_director_identity_units_consumed", "scene_director_identity_units_blocked", "scene_director_regional_ipadapter_hard_gated", "scene_director_regional_ipadapter_units_suppressed", "scene_director_regional_ipadapter_profiles_metadata_only", "scene_director_ipadapter_hard_gate_phase", "reference_deduplication"}
 
 
 
@@ -193,10 +193,27 @@ def _scene_director_identity_units(payload: dict[str, Any] | None) -> list[dict[
 
 
 def normalize_image_names(unit: dict[str, Any], assets: dict[str, Any] | None = None) -> list[str]:
+    def unique(values: list[Any]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            key = text.replace("\\", "/").casefold()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            result.append(text)
+        return result
+
+    runtime_names = unit.get("_runtime_comfy_image_names") if isinstance(unit.get("_runtime_comfy_image_names"), list) else []
+    runtime_clean = unique(runtime_names)
+    if runtime_clean:
+        return runtime_clean
+
     names = unit.get("image_names") if isinstance(unit.get("image_names"), list) else []
-    clean = [str(item or "").strip() for item in names if str(item or "").strip()]
+    clean = unique(names)
     single = str(unit.get("image_name") or unit.get("ipadapter_image_name") or "").strip()
-    if single and single not in clean:
+    if single and single.replace("\\", "/").casefold() not in {item.replace("\\", "/").casefold() for item in clean}:
         clean.insert(0, single)
     assets = assets or {}
     refs = assets.get("reference_images") if isinstance(assets.get("reference_images"), dict) else {}
@@ -204,13 +221,16 @@ def normalize_image_names(unit: dict[str, Any], assets: dict[str, Any] | None = 
     fallback_candidates = [refs.get(uid), refs.get("default")]
     if uid == "primary":
         fallback_candidates.append(refs.get("primary"))
+    asset_clean: list[str] = []
     for candidate in fallback_candidates:
         candidates = candidate if isinstance(candidate, list) else [candidate]
         for item in candidates:
             text = str((item or {}).get("ref") if isinstance(item, dict) else item or "").strip()
-            if text and text not in clean:
-                clean.append(text)
-    return clean
+            if text:
+                asset_clean.append(text)
+    # Durable asset records are authoritative. They prevent a prior runtime
+    # Comfy handoff alias from returning as a second reference on replay.
+    return unique(asset_clean) if asset_clean else clean
 
 
 
@@ -398,7 +418,9 @@ def normalize_block(payload: dict[str, Any] | None, *, route: dict[str, Any] | N
             if key_text not in active_uids and not (key_text in {"default", "primary"} and value_refs.intersection(active_image_refs)):
                 continue
             normalized_ref = _asset_ref(value)
-            if isinstance(normalized_ref, list):
+            if key_text in active_uids:
+                cleaned_refs[key_text] = normalized_ref
+            elif isinstance(normalized_ref, list):
                 normalized_ref = [item for item in normalized_ref if str(item.get("ref") or "").strip() in active_image_refs]
                 if normalized_ref:
                     cleaned_refs[key_text] = normalized_ref

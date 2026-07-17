@@ -24,6 +24,7 @@ from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_tx
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
 from neo_app.providers.comfy_workflows.z_image import compile_z_image_txt2img
 from neo_app.providers.comfy_workflows.hidream import compile_hidream_txt2img
+from neo_extensions.built_in.ip_adapter.backend.node_discovery import split_ip_adapter_model_names
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.state_boundary import sanitize_image_params_for_state_boundary
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
@@ -576,11 +577,12 @@ class ComfyProvider(BaseProvider):
 
         ip_adapter_node = self._first_existing_node(info, ["IPAdapterModelLoader", "IPAdapterUnifiedLoader", "IPAdapterLoader"])
         ip_adapter_names = self._node_required_choices(info, ip_adapter_node, "ipadapter_file", "ipadapter_name", "model", "model_name", "name")
-        self._append_model_records(models, "ip_adapter", ip_adapter_names)
+        ip_adapter_split = split_ip_adapter_model_names(ip_adapter_names)
+        self._append_model_records(models, "ip_adapter", ip_adapter_split["ip_adapter"])
 
         faceid_node = self._first_existing_node(info, ["IPAdapterUnifiedLoaderFaceID", "IPAdapterFaceIDModelLoader"])
         faceid_names = self._node_required_choices(info, faceid_node, "model", "model_name", "ipadapter_file", "faceid_model")
-        self._append_model_records(models, "ip_adapter_faceid", faceid_names)
+        self._append_model_records(models, "ip_adapter_faceid", faceid_names + ip_adapter_split["faceid"])
 
         # V1-compatible upscaler catalog extraction. V1 exposed
         # `catalog.upscale_models || catalog.upscalers` in the Upscale Lab
@@ -751,19 +753,34 @@ class ComfyProvider(BaseProvider):
             merged[key] = current
         return merged
 
-    def _object_info_node_names_for_extensions(self, extensions: object) -> set[str]:
-        """Return Comfy node names only when a workflow extension needs node gates.
+    def _object_info_for_extensions(self, extensions: object, *, route: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Return live Comfy node schemas after staging selected ADetailer assets.
 
         The call is intentionally lazy so normal generation routes do not pay an
         object_info request just because the provider compiled a base workflow.
+        ADetailer staging runs first so Impact Pack's dynamic model choices see
+        newly bridged files before Neo validates the final provider input.
         """
         if not has_comfy_workflow_extension_requests(extensions):
-            return set()
+            return {}
+        try:
+            block = None
+            if isinstance(extensions, dict):
+                payloads = extensions.get("payloads") if isinstance(extensions.get("payloads"), dict) else {}
+                nested = extensions.get("extensions") if isinstance(extensions.get("extensions"), dict) else {}
+                block = extensions.get("image.adetailer") or payloads.get("image.adetailer") or nested.get("image.adetailer")
+            if isinstance(block, dict) and block.get("enabled"):
+                from neo_extensions.built_in.adetailer.backend.model_catalog import prepare_detailer_assets_for_execution
+
+                params = block.get("params") if isinstance(block.get("params"), dict) else block.get("inputs")
+                prepare_detailer_assets_for_execution(params or {}, route=route)
+        except Exception:  # noqa: BLE001 - workflow validation reports bridge failures with safe diagnostics.
+            pass
         try:
             info = self._get_json("/object_info")
         except Exception:  # noqa: BLE001 - extension validation converts this to provider_gated.
-            return set()
-        return {str(key) for key in info.keys()} if isinstance(info, dict) else set()
+            return {}
+        return info if isinstance(info, dict) else {}
 
 
     def _comfy_node_names_for_latent_capture(self) -> set[str]:
@@ -2101,6 +2118,21 @@ class ComfyProvider(BaseProvider):
         handoffs: list[dict[str, Any]] = []
         disabled_units: list[dict[str, Any]] = []
         warnings: list[str] = []
+        deduplication_units: list[dict[str, Any]] = []
+        reference_assets = ((block.get("assets") or {}).get("reference_images") or {}) if isinstance(block.get("assets"), dict) else {}
+
+        def unique_refs(values: list[Any]) -> list[str]:
+            seen: set[str] = set()
+            clean: list[str] = []
+            for value in values:
+                text = str(value or "").strip()
+                key = text.replace("\\", "/").casefold()
+                if not text or key in seen:
+                    continue
+                seen.add(key)
+                clean.append(text)
+            return clean
+
         for unit in units:
             if not isinstance(unit, dict):
                 new_units.append(unit)
@@ -2109,16 +2141,38 @@ class ComfyProvider(BaseProvider):
             raw_names = unit.get("image_names") if isinstance(unit.get("image_names"), list) else []
             if unit.get("image_name") and unit.get("image_name") not in raw_names:
                 raw_names = [unit.get("image_name"), *raw_names]
+            raw_names = unique_refs(raw_names)
+            uid = str(unit.get("uid") or "unit_1")
+            asset_bucket = (reference_assets.get(uid) or reference_assets.get("default")) if isinstance(reference_assets, dict) else None
+            asset_items = asset_bucket if isinstance(asset_bucket, list) else [asset_bucket] if asset_bucket else []
+            asset_refs: list[str] = []
+            seen_asset_identities: set[str] = set()
+            for item in asset_items:
+                if isinstance(item, dict):
+                    source_ref = str(item.get("ref") or item.get("path") or item.get("url") or item.get("id") or "").strip()
+                    strong_identity = str(item.get("asset_id") or item.get("stored_filename") or "").strip().casefold()
+                    normalized_source_ref = source_ref.replace("\\", "/").casefold()
+                    identity_key = f"asset:{strong_identity}" if strong_identity else f"ref:{normalized_source_ref}"
+                else:
+                    source_ref = str(item or "").strip()
+                    normalized_source_ref = source_ref.replace("\\", "/").casefold()
+                    identity_key = f"ref:{normalized_source_ref}"
+                if not source_ref or identity_key in seen_asset_identities:
+                    continue
+                seen_asset_identities.add(identity_key)
+                asset_refs.append(source_ref)
+            source_names = asset_refs or raw_names
             comfy_names: list[str] = []
             failed_refs: list[str] = []
-            for image_ref in raw_names:
+            for image_ref in source_names:
                 source = str(image_ref or "").strip()
                 if not source:
                     continue
                 try:
                     comfy_name = self._upload_image_to_comfy_input(source, require_verified=True)
                     if comfy_name:
-                        comfy_names.append(comfy_name)
+                        if comfy_name.replace("\\", "/").casefold() not in {name.replace("\\", "/").casefold() for name in comfy_names}:
+                            comfy_names.append(comfy_name)
                         if comfy_name != source:
                             handoffs.append({"source": source, "comfy_name": comfy_name, "unit": str(unit.get("uid") or "")})
                     else:
@@ -2135,11 +2189,22 @@ class ComfyProvider(BaseProvider):
                 new_unit["enabled"] = False
                 new_unit["image_names"] = []
                 new_unit["image_name"] = ""
-                disabled_units.append({"uid": str(unit.get("uid") or ""), "missing_refs": failed_refs or raw_names})
+                new_unit.pop("_runtime_comfy_image_names", None)
+                disabled_units.append({"uid": str(unit.get("uid") or ""), "missing_refs": failed_refs or source_names})
                 warnings.append("ipadapter_reference_image_missing_unit_disabled")
             else:
                 new_unit["image_names"] = comfy_names
                 new_unit["image_name"] = comfy_names[0]
+                new_unit["_runtime_comfy_image_names"] = list(comfy_names)
+            deduplication_units.append({
+                "uid": uid,
+                "submitted_count": len(raw_names),
+                "durable_asset_count": len(asset_refs),
+                "source_count": len(source_names),
+                "runtime_count": len(comfy_names),
+                "removed_count": max(0, len(raw_names) - len(source_names)),
+                "source_policy": "durable_assets" if asset_refs else "unit_references",
+            })
             new_units.append(new_unit)
         active_units = [u for u in new_units if not isinstance(u, dict) or u.get("enabled", True)]
         if not any(isinstance(u, dict) and u.get("enabled", True) and (u.get("image_names") or u.get("image_name")) for u in new_units):
@@ -2155,6 +2220,12 @@ class ComfyProvider(BaseProvider):
             "asset_resolution": "neo_data_or_local_path_uploaded_to_comfy_input",
             "disabled_units": disabled_units,
             "warnings": sorted(set([*list(metadata.get("warnings") or []), *warnings])) if isinstance(metadata.get("warnings"), list) else sorted(set(warnings)),
+            "reference_deduplication": {
+                "policy": "durable_asset_identity_before_runtime_comfy_handoff",
+                "unit_count": len(deduplication_units),
+                "removed_count": sum(int(item.get("removed_count") or 0) for item in deduplication_units),
+                "units": deduplication_units,
+            },
             "phase_26_9_16_standalone_route_validation": True,
         }
         if handoffs or disabled_units:
@@ -2210,7 +2281,7 @@ class ComfyProvider(BaseProvider):
             workflow,
             extensions=patch_extensions,
             route=route_payload,
-            available_nodes=self._object_info_node_names_for_extensions(patch_extensions),
+            available_nodes=self._object_info_for_extensions(patch_extensions, route=route_payload),
             cfg=actual_params.get("cfg", actual_params.get("sampler_cfg", 1.0)),
             model_ref=(lora_patch_profile or {}).get("model_ref") if isinstance(lora_patch_profile, dict) else None,
             clip_ref=(lora_patch_profile or {}).get("clip_ref") if isinstance(lora_patch_profile, dict) else None,
@@ -2666,7 +2737,7 @@ class ComfyProvider(BaseProvider):
             workflow,
             extensions=runtime_extensions,
             route=route_payload,
-            available_nodes=self._object_info_node_names_for_extensions(runtime_extensions),
+            available_nodes=self._object_info_for_extensions(runtime_extensions, route=route_payload),
             cfg=actual_params.get("cfg", sd_defaults.cfg),
             model_ref=["1", 0],
             clip_ref=["1", 1],
@@ -2688,7 +2759,7 @@ class ComfyProvider(BaseProvider):
                 workflow,
                 extensions=legacy_controlnet_extensions,
                 route=route_payload,
-                available_nodes=self._object_info_node_names_for_extensions(legacy_controlnet_extensions),
+                available_nodes=self._object_info_for_extensions(legacy_controlnet_extensions, route=route_payload),
                 cfg=actual_params.get("cfg", sd_defaults.cfg),
                 model_ref=["1", 0],
                 clip_ref=["1", 1],

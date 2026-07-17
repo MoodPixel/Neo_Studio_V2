@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from neo_app.providers.comfy_model_paths import discover_comfy_model_files
+
 AVAILABLE = "available"
 EXPERIMENTAL_AVAILABLE = "experimental_available"
 PROVIDER_GATED = "provider_gated"
@@ -134,6 +136,8 @@ PREPROCESSOR_ALIASES = {
 }
 
 CONTROLNET_MODEL_INPUT_NAMES = ("control_net_name", "controlnet_name", "model", "model_name")
+CONTROLNET_MODEL_FOLDER_KEYS = ("controlnet", "controlnets")
+CONTROLNET_EXTRA_MODEL_CATEGORIES = {"controlnet", "controlnets", "control_net", "control_net_models"}
 COMMON_NODE_INPUT_NAMES = ("image", "control_net", "positive", "negative", "vae", "strength", "start_percent", "end_percent", "mask", "control_mask", "model", "model_patch", "patch", "model_patch_name")
 
 
@@ -203,6 +207,75 @@ def _model_options(object_info: Mapping[str, Any] | None, loader_node: str | Non
     return models
 
 
+def _dedupe_model_names(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        name = str(value or "").strip().replace("\\", "/")
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        result.append(name)
+    return result
+
+
+def _registered_controlnet_models(backend_details: Mapping[str, Any] | None) -> list[str]:
+    details = backend_details if isinstance(backend_details, Mapping) else {}
+    folders = details.get("comfy_model_folders") if isinstance(details.get("comfy_model_folders"), Mapping) else {}
+    values: list[str] = []
+    for key in CONTROLNET_MODEL_FOLDER_KEYS:
+        rows = folders.get(key) or []
+        if isinstance(rows, (list, tuple)):
+            values.extend(str(item) for item in rows)
+    return _dedupe_model_names(values)
+
+
+def discover_controlnet_model_catalog(backend_details: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Build a transient ControlNet catalog from Comfy's real model sources."""
+
+    details = backend_details if isinstance(backend_details, Mapping) else {}
+    registered = _registered_controlnet_models(details)
+    filesystem = discover_comfy_model_files(
+        details,
+        folder_names=("controlnet",),
+        extra_model_categories=CONTROLNET_EXTRA_MODEL_CATEGORIES,
+    )
+    filesystem_sources = filesystem.get("sources") if isinstance(filesystem.get("sources"), Mapping) else {}
+    diagnostics = filesystem.get("diagnostics") if isinstance(filesystem.get("diagnostics"), Mapping) else {}
+    registered_diagnostics = details.get("comfy_model_folder_diagnostics") if isinstance(details.get("comfy_model_folder_diagnostics"), Mapping) else {}
+    return {
+        "models": _dedupe_model_names(registered + list(filesystem.get("models") or [])),
+        "sources": {
+            "comfy_model_folders": registered,
+            "models_root": list(filesystem_sources.get("models_root") or []),
+            "extra_model_paths": list(filesystem_sources.get("extra_model_paths") or []),
+        },
+        "diagnostics": {
+            "schema_version": "neo.image.controlnet.model_catalog.v1",
+            "path_policy": "absolute_paths_server_side_only",
+            "registered_file_count": len(registered),
+            "registered_folders": dict(registered_diagnostics),
+            "filesystem": dict(diagnostics),
+        },
+    }
+
+
+def _merge_controlnet_model_inputs(
+    live_inputs: dict[str, list[str]],
+    catalog_models: list[str],
+) -> dict[str, list[str]]:
+    merged = {
+        str(key): _dedupe_model_names([str(item) for item in values])
+        for key, values in live_inputs.items()
+        if isinstance(values, list)
+    }
+    target_key = next((key for key in CONTROLNET_MODEL_INPUT_NAMES if key in merged), "control_net_name")
+    live_values = merged.get(target_key) or []
+    merged[target_key] = _dedupe_model_names(live_values + catalog_models)
+    return merged
+
+
 def _schema_for_node(object_info: Mapping[str, Any] | None, node_name: str | None) -> dict[str, Any]:
     if not node_name:
         return {}
@@ -262,7 +335,11 @@ def preprocessor_status(preprocessor: str | None, node_status: Mapping[str, Any]
     }
 
 
-def inspect_nodes(object_info: Mapping[str, Any] | set[str] | list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+def inspect_nodes(
+    object_info: Mapping[str, Any] | set[str] | list[str] | tuple[str, ...] | None = None,
+    *,
+    backend_details: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     names = _node_names(object_info)
     loader = _first_present(names, LOADER_CANDIDATES)
     standard_apply = _first_present(names, STANDARD_APPLY_CANDIDATES)
@@ -293,6 +370,9 @@ def inspect_nodes(object_info: Mapping[str, Any] | set[str] | list[str] | tuple[
         for group in PREPROCESSOR_CANDIDATES
     }
     gated_preprocessors = [group for group, status in preprocessor_states.items() if status["state"] == PROVIDER_GATED]
+    live_model_inputs = _model_options(object_info, loader)
+    model_catalog = discover_controlnet_model_catalog(backend_details)
+    model_inputs = _merge_controlnet_model_inputs(live_model_inputs, list(model_catalog.get("models") or []))
 
     return {
         "base_available": not missing_base,
@@ -307,7 +387,12 @@ def inspect_nodes(object_info: Mapping[str, Any] | set[str] | list[str] | tuple[
         "preprocessors": preprocessors,
         "preprocessor_states": preprocessor_states,
         "gated_preprocessors": gated_preprocessors,
-        "model_inputs": _model_options(object_info, loader),
+        "model_inputs": model_inputs,
+        "model_input_sources": {
+            "object_info": live_model_inputs,
+            **dict(model_catalog.get("sources") or {}),
+        },
+        "model_catalog_diagnostics": dict(model_catalog.get("diagnostics") or {}),
         "input_schemas": {
             "loader": _schema_for_node(object_info, loader),
             "apply": _schema_for_node(object_info, apply_node),

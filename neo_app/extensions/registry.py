@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from neo_app.extensions.schema import ExtensionCompatibilityRequest, ExtensionManifest, ExtensionMountTarget, ExtensionRecord
+from neo_app.extensions.schema import (
+    VALID_EXTENSION_RUNTIME_PERMISSIONS,
+    ExtensionCompatibilityRequest,
+    ExtensionManifest,
+    ExtensionMountTarget,
+    ExtensionRecord,
+)
 from neo_app.extensions.runtime import (
     infer_workspace_apps,
     normalize_workflow_mode,
@@ -96,6 +102,7 @@ DEFAULT_BUILT_IN_ENABLED_EXTENSIONS = [
 DEFAULT_STATE = {
     "enabled_extensions": DEFAULT_BUILT_IN_ENABLED_EXTENSIONS.copy(),
     "removed_extensions": [],
+    "extension_runtime_approvals": {},
 }
 
 
@@ -230,7 +237,7 @@ def _normalize_installed_extension_tree(source_root: Path, source_label: str, su
     return target, manifest
 
 
-def _ensure_state() -> dict[str, list[str]]:
+def _ensure_state() -> dict[str, Any]:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not STATE_PATH.exists():
         STATE_PATH.write_text(json.dumps(DEFAULT_STATE, indent=2), encoding="utf-8")
@@ -242,6 +249,7 @@ def _ensure_state() -> dict[str, list[str]]:
     data.setdefault("enabled_extensions", [])
     data.setdefault("removed_extensions", [])
     data.setdefault("default_seed_migrations", [])
+    data.setdefault("extension_runtime_approvals", {})
     migration_id = "v25_9_20_p6_1_background_removal"
     if migration_id not in data["default_seed_migrations"]:
         extension_id = "image.background_removal"
@@ -252,9 +260,141 @@ def _ensure_state() -> dict[str, list[str]]:
     return data
 
 
-def _write_state(state: dict[str, list[str]]) -> None:
+def _write_state(state: dict[str, Any]) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def requested_extension_runtime_permissions(manifest: ExtensionManifest) -> list[str]:
+    """Return explicit plus safely inferred executable capabilities.
+
+    Inference keeps older external manifests reviewable without granting them
+    trust. New manifests should declare the complete list under
+    ``runtime.requested_permissions``.
+    """
+    requested = {str(item).strip() for item in (manifest.runtime.requested_permissions or []) if str(item).strip()}
+    entrypoints = manifest.entrypoints or {}
+    bundle = manifest.asset_bundle
+    if entrypoints.get("ui") or bundle.js or bundle.html:
+        requested.add("custom_ui")
+    if entrypoints.get("runtime") or entrypoints.get("backend.runtime"):
+        requested.add("backend_routes")
+    if entrypoints.get("workflow_patch") or entrypoints.get("backend.workflow_patch"):
+        requested.add("workflow_patch")
+    return sorted(requested)
+
+
+def extension_runtime_permission_status(
+    manifest: ExtensionManifest,
+    *,
+    origin: str | None = None,
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    requested = requested_extension_runtime_permissions(manifest)
+    invalid = sorted(set(requested).difference(VALID_EXTENSION_RUNTIME_PERMISSIONS))
+    effective_origin = origin or manifest.extension_origin or "external"
+    if effective_origin == "built_in":
+        approved = [item for item in requested if item in VALID_EXTENSION_RUNTIME_PERMISSIONS]
+        return {
+            "contract_version": manifest.runtime.contract_version,
+            "requested": requested,
+            "approved": approved,
+            "missing": [],
+            "invalid": invalid,
+            "version": manifest.version,
+            "approved_version": manifest.version,
+            "version_matches": True,
+            "ready": not invalid,
+            "restart_required": False,
+            "origin_policy": "repo_trusted_builtin",
+        }
+
+    current_state = state or _ensure_state()
+    approvals = current_state.get("extension_runtime_approvals") or {}
+    approval = approvals.get(manifest.id) if isinstance(approvals, dict) else None
+    approval = approval if isinstance(approval, dict) else {}
+    approved_version = str(approval.get("version") or "")
+    version_matches = bool(approved_version and approved_version == str(manifest.version))
+    approved_values = approval.get("permissions") if version_matches else []
+    approved = sorted({str(item) for item in (approved_values or []) if str(item) in requested})
+    missing = sorted(set(requested).difference(approved))
+    restart_permissions = {"backend_routes", "workflow_patch", "result_write"}
+    return {
+        "contract_version": manifest.runtime.contract_version,
+        "requested": requested,
+        "approved": approved,
+        "missing": missing,
+        "invalid": invalid,
+        "version": manifest.version,
+        "approved_version": approved_version or None,
+        "version_matches": version_matches,
+        "ready": not missing and not invalid,
+        "restart_required": bool(set(approved).intersection(restart_permissions)),
+        "origin_policy": "external_version_bound_approval",
+    }
+
+
+def extension_runtime_permission_granted(extension_id: str, permission: str) -> bool:
+    record = get_extension(extension_id)
+    if record is None or not record.enabled:
+        return False
+    status = extension_runtime_permission_status(record.manifest, origin=record.origin)
+    return permission in status.get("approved", []) and permission not in status.get("invalid", [])
+
+
+def approve_extension_runtime_permissions(
+    extension_id: str,
+    permissions: list[str] | None = None,
+    *,
+    version: str | None = None,
+) -> dict[str, Any]:
+    record = get_extension(extension_id)
+    if record is None:
+        return {"ok": False, "errors": [f"Unknown extension: {extension_id}"]}
+    if record.origin == "built_in":
+        return {"ok": False, "errors": ["Built-in extensions use repository trust and do not need runtime approval."]}
+    if version and str(version) != str(record.manifest.version):
+        return {"ok": False, "errors": ["Extension version changed. Refresh Admin and review the current permissions before approval."]}
+    requested = requested_extension_runtime_permissions(record.manifest)
+    selected = requested if permissions is None else sorted({str(item) for item in permissions})
+    invalid = sorted(set(selected).difference(requested).union(set(selected).difference(VALID_EXTENSION_RUNTIME_PERMISSIONS)))
+    if invalid:
+        return {"ok": False, "errors": [f"Permissions were not requested by this extension: {', '.join(invalid)}"]}
+    state = _ensure_state()
+    approvals = state.setdefault("extension_runtime_approvals", {})
+    approvals[extension_id] = {
+        "version": record.manifest.version,
+        "permissions": selected,
+        "approved_at": _now_iso(),
+    }
+    _write_state(state)
+    status = extension_runtime_permission_status(record.manifest, origin=record.origin, state=state)
+    return {
+        "ok": True,
+        "extension_id": extension_id,
+        "runtime_permissions": status,
+        "restart_required": status.get("restart_required", False),
+        "payload": get_extension_payload(),
+    }
+
+
+def revoke_extension_runtime_permissions(extension_id: str) -> dict[str, Any]:
+    record = get_extension(extension_id)
+    if record is None:
+        return {"ok": False, "errors": [f"Unknown extension: {extension_id}"]}
+    if record.origin == "built_in":
+        return {"ok": False, "errors": ["Built-in repository trust cannot be revoked through external-extension approvals."]}
+    state = _ensure_state()
+    approvals = state.setdefault("extension_runtime_approvals", {})
+    approvals.pop(extension_id, None)
+    _write_state(state)
+    return {
+        "ok": True,
+        "extension_id": extension_id,
+        "runtime_permissions": extension_runtime_permission_status(record.manifest, origin=record.origin, state=state),
+        "restart_required": True,
+        "payload": get_extension_payload(),
+    }
 
 
 def _manifest_paths() -> list[Path]:
@@ -312,13 +452,16 @@ def _manifest_path_for_id(extension_id: str) -> Path | None:
     return None
 
 
-def _record_for(manifest: ExtensionManifest, manifests: dict[str, ExtensionManifest], state: dict[str, list[str]]) -> ExtensionRecord:
+def _record_for(manifest: ExtensionManifest, manifests: dict[str, ExtensionManifest], state: dict[str, Any]) -> ExtensionRecord:
     errors: list[str] = []
     warnings: list[str] = []
     origin = manifest.extension_origin or "external"
     errors.extend(validate_workspace_apps(manifest.workspace_apps, surface=manifest.surface))
     errors.extend(validate_mount_targets([item if hasattr(item, "dict") else item for item in manifest.mount_targets], surface=manifest.surface))
     errors.extend(validate_extension_asset_paths(model_to_dict(manifest)))
+    invalid_runtime_permissions = sorted(set(requested_extension_runtime_permissions(manifest)).difference(VALID_EXTENSION_RUNTIME_PERMISSIONS))
+    if invalid_runtime_permissions:
+        errors.append(f"Unknown external runtime permission(s): {', '.join(invalid_runtime_permissions)}")
     removed = manifest.id in state.get("removed_extensions", [])
     enabled = manifest.id in state.get("enabled_extensions", []) and not removed
     missing_parents = [dep for dep in manifest.depends_on if dep not in manifests]
@@ -369,11 +512,13 @@ def _admin_extension_contract_fields(record: ExtensionRecord) -> dict[str, Any]:
     mount_slots = list(manifest.mount_slots or [])
     mount_targets = [model_to_dict(target) for target in (manifest.mount_targets or [])]
     provider_graph_mutation = bool(manifest.ui_schema.get("provider_graph_mutation", False))
-    if manifest.entrypoints.get("workflow_patch") or manifest.required_nodes:
+    workflow_entrypoint = manifest.entrypoints.get("workflow_patch") or manifest.entrypoints.get("backend.workflow_patch")
+    if workflow_entrypoint or manifest.required_nodes:
         provider_graph_mutation = True
     if manifest.id in {"style_stack", "wildcards"}:
         provider_graph_mutation = False
-    prompt_only = not provider_graph_mutation and not manifest.entrypoints.get("workflow_patch")
+    prompt_only = not provider_graph_mutation and not workflow_entrypoint
+    runtime_permissions = extension_runtime_permission_status(manifest, origin=record.origin)
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -390,6 +535,7 @@ def _admin_extension_contract_fields(record: ExtensionRecord) -> dict[str, Any]:
         "supported_backends": list(manifest.supported_backends or []),
         "workspace_apps": list(manifest.workspace_apps or []),
         "workflow_modes": list(manifest.workflow_modes or []),
+        "runtime_permissions": runtime_permissions,
         "warnings": list(record.warnings or []),
         "errors": list(record.errors or []),
     }
@@ -549,6 +695,9 @@ def remove_extension(extension_id: str) -> dict[str, Any]:
     state["enabled_extensions"] = [item for item in state["enabled_extensions"] if item != extension_id]
     if extension_id not in state["removed_extensions"]:
         state["removed_extensions"].append(extension_id)
+    approvals = state.setdefault("extension_runtime_approvals", {})
+    if isinstance(approvals, dict):
+        approvals.pop(extension_id, None)
     _write_state(state)
     return {"ok": True, "extension_id": extension_id, "status": "removed", "payload": get_extension_payload()}
 

@@ -1,4 +1,7 @@
 let promptCaptioningBatchPollTimer = null;
+const backendProfileSelectionRequestEpochBySurface = {};
+let ipAdapterNodeStatusRequestEpoch = 0;
+let controlNetMapStatusRequestEpoch = 0;
 
 const state = {
   surfaces: [],
@@ -1241,6 +1244,47 @@ function imagePreviewActionPayloadAllowed(mode = 'generate', runtimeMode = 'txt2
   if (draft._preview_action_finish_pass) return true;
   return false;
 }
+function imageClearStaleAdetailerSourceOwnership(draft = state.imageDraft || {}) {
+  if (!draft || typeof draft !== 'object') return [];
+  const extensionKey = 'image.adetailer';
+  const settings = draft[extensionKey] && typeof draft[extensionKey] === 'object' ? draft[extensionKey] : null;
+  const previewAction = draft._preview_action && typeof draft._preview_action === 'object' ? draft._preview_action : null;
+  const adetailerAction = String(previewAction?.action_id || '') === 'extension.adetailer'
+    || String(draft._preview_action_finish_pass || '') === 'extension.adetailer';
+  const stagedByAdetailer = Boolean(
+    settings?.detailer_output_pass
+    || settings?.preview_action_source
+    || settings?.staged_preview_source
+    || settings?.source_mode === 'preview_action_selected_output'
+  );
+  if (!adetailerAction && !stagedByAdetailer) return [];
+
+  const cleared = [];
+  const clearDraftField = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(draft, key)) return;
+    delete draft[key];
+    cleared.push(key);
+  };
+  if (settings) {
+    draft[extensionKey] = {
+      ...settings,
+      staged_preview_source: null,
+      preview_action_source: null,
+      source_mode: 'standard',
+      detailer_output_pass: false,
+      preserve_prompt_context: false,
+      preserve_reference_context: false,
+    };
+    cleared.push(`${extensionKey}.staged_source_ownership`);
+  }
+  [
+    '_preview_action', '_preview_action_finish_pass', '_preview_action_force_workflow_mode', '_preview_action_source',
+    'source_image', 'source_image_path', 'source_image_url', 'source_image_name',
+    'source_image_width', 'source_image_height', 'comfy_source_image_name', 'source_image_uploaded_to_comfy'
+  ].forEach(clearDraftField);
+  saveUiState();
+  return cleared;
+}
 function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runtimeMode = 'txt2img', draft = state.imageDraft || {}) {
   const cleanParams = params && typeof params === 'object' ? params : {};
   const uiMode = normalizeImageWorkflowMode(routeModeToUiMode(mode || runtimeMode || 'generate'));
@@ -1256,6 +1300,10 @@ function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runti
     }
   };
   if (!sourceWorkflowActive) {
+    const staleAdetailerFields = imageClearStaleAdetailerSourceOwnership(draft);
+    staleAdetailerFields.forEach((key) => {
+      if (!clearedFields.includes(key)) clearedFields.push(key);
+    });
     [
       '_neo_preview_action', '_neo_derived_action_type', '_neo_source_output_id', '_neo_source_job_id', '_neo_parent_output_id',
       '_neo_preview_action_source', 'source_image', 'source_image_path', 'source_image_url', 'source_image_name',
@@ -1264,6 +1312,7 @@ function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runti
     ].forEach(clearField);
     if (previewActionPresent || clearedFields.length) {
       warnings.push('clean_txt2img_preview_img2img_state_cleared');
+      if (staleAdetailerFields.length) warnings.push('clean_txt2img_adetailer_source_ownership_cleared');
       if (Object.prototype.hasOwnProperty.call(cleanParams, 'save_mode_override') && cleanParams.save_mode_override === 'append_derived') clearField('save_mode_override');
     }
   } else if (String(cleanParams._neo_derived_action_type || '').toLowerCase() === 'img2img' && !imageDraftHasSourceImage(draft) && !cleanParams.source_image && !cleanParams.comfy_source_image_name) {
@@ -1658,6 +1707,8 @@ function applyBackendProfileSelectionPayload(payload = {}) {
 }
 async function persistBackendProfileSelection(surfaceId, profileId) {
   if (!surfaceId || !profileId) return null;
+  const requestEpoch = (backendProfileSelectionRequestEpochBySurface[surfaceId] || 0) + 1;
+  backendProfileSelectionRequestEpochBySurface[surfaceId] = requestEpoch;
   setSelectedBackendProfileForSurface(surfaceId, profileId);
   try {
     const response = await fetch('/api/backend-profiles/selection', {
@@ -1671,7 +1722,9 @@ async function persistBackendProfileSelection(surfaceId, profileId) {
       }),
     });
     const result = await response.json().catch(() => ({}));
-    if (result?.ok !== false) applyBackendProfileSelectionPayload(result);
+    const requestIsCurrent = backendProfileSelectionRequestEpochBySurface[surfaceId] === requestEpoch
+      && state.activeBackendProfileIdsBySurface?.[surfaceId] === profileId;
+    if (requestIsCurrent && result?.ok !== false) applyBackendProfileSelectionPayload(result);
     return result;
   } catch (error) {
     console.warn('Backend profile selection persistence skipped', error);
@@ -1718,7 +1771,6 @@ function imageProfileSupportsCapability(capability, profile = activeImageProfile
     adetailer: 'adetailer_inline',
     high_res_lab: 'highres_inline',
     layerdiffuse: 'layerdiffuse_inline',
-    final_polish_lab: 'final_polish_inline',
   };
   const key = aliases[capability] || capability;
   const legacyKey = `supports_${key}`;
@@ -1833,7 +1885,6 @@ function imageExtensionProviderCapability(extensionIdValue, profile = activeImag
     [ADETAILER_EXTENSION_ID]: 'adetailer_inline',
     [HIGH_RES_LAB_EXTENSION_ID]: 'highres_inline',
     [LAYERDIFFUSE_EXTENSION_ID]: 'layerdiffuse_inline',
-    [FINAL_POLISH_LAB_EXTENSION_ID]: 'final_polish_inline',
   };
   return map[extensionIdValue] || '';
 }
@@ -5507,8 +5558,17 @@ function renderWorkspaceHeader(surface, subtab) {
   const providerSelect = document.getElementById('workspaceProvider');
   if (providerSelect) {
     providerSelect.addEventListener('change', async (event) => {
-      await persistBackendProfileSelection(surface.surface_id, event.target.value);
-      if (surface.surface_id === 'image') void backgroundRemovalRefreshModelCatalog({ silent: true });
+      const profileId = String(event.target.value || '').trim();
+      const selectionRequest = persistBackendProfileSelection(surface.surface_id, profileId);
+      if (surface.surface_id === 'image') {
+        invalidateImageReferenceModelCatalogs(profileId);
+        render();
+      }
+      await selectionRequest;
+      if (surface.surface_id === 'image' && imageReferenceCatalogProfileId() === profileId) {
+        void backgroundRemovalRefreshModelCatalog({ silent: true });
+        void refreshImageReferenceModelCatalogsForSelectedProfile({ profileId, reset: false });
+      }
       render();
       recordMemoryEvent(`${surface.surface_id}.backend_profile.changed`, surface.surface_id, { profile_id: state.activeBackendProfileId, surface: surface.surface_id, persisted: true });
     });
@@ -5537,6 +5597,7 @@ function renderWorkspaceHeader(surface, subtab) {
         if (surface.surface_id === 'image' && ['comfyui', 'comfyui_portable'].includes(String(activeProfile.provider_id || '').toLowerCase()) && response.ok && result?.ok !== false) {
           void adetailerFetchModelCatalog({ silent: true });
           void backgroundRemovalRefreshModelCatalog({ silent: true });
+          void refreshImageReferenceModelCatalogsForSelectedProfile();
         }
       } catch (error) {
         console.warn('Backend connect/test failed', error);
@@ -6694,7 +6755,7 @@ function extensionCardInner(record, options = {}) {
   const expert = state.detailMode === 'expert' ? `<pre>${escapeHtml(JSON.stringify(manifest, null, 2))}</pre>` : '';
   let customPanel = '';
   if (extensionId(record) === LAYERDIFFUSE_EXTENSION_ID) customPanel = layerDiffusePanel(record);
-  if (extensionId(record) === FINAL_POLISH_LAB_EXTENSION_ID) customPanel = finalPolishLabPanel(record);
+  else if (origin === 'external') customPanel = externalExtensionCustomPanel(record);
   const deps = manifest.depends_on?.length && state.detailMode === 'expert' ? `<p>Depends on: ${manifest.depends_on.map((item) => `<code>${escapeHtml(item)}</code>`).join(', ')}</p>` : '';
   const mountSummary = state.detailMode === 'expert' ? `<p>Mounts: ${(manifest.mount_slots || []).map((slot) => `<code>${escapeHtml(slot)}</code>`).join(', ')}</p>` : '';
   const originBadge = origin === 'built_in' ? 'Built-in' : 'External';
@@ -6741,61 +6802,138 @@ function extensionOrigin(record) {
 }
 
 
-const FINAL_POLISH_LAB_EXTENSION_ID = 'image.final_polish_lab';
+const EXTERNAL_EXTENSION_UI_HOST_VERSION = 'neo.extension.ui_host.v1';
+const externalExtensionAssetPromises = new Map();
+const externalExtensionHtmlCache = new Map();
 
-function finalPolishLabAssetUrl(path = '') {
-  const clean = String(path || '').replace(/^\/+/, '');
-  return `/api/extensions/${encodeURIComponent(FINAL_POLISH_LAB_EXTENSION_ID)}/asset/${clean.split('/').map(encodeURIComponent).join('/')}`;
+function externalExtensionRuntimePermissions(record = {}) {
+  return record?.runtime_permissions && typeof record.runtime_permissions === 'object'
+    ? record.runtime_permissions
+    : {};
 }
 
-function ensureFinalPolishLabAssets() {
-  if (!document.getElementById('neo-final-polish-lab-css')) {
-    const link = document.createElement('link');
-    link.id = 'neo-final-polish-lab-css';
-    link.rel = 'stylesheet';
-    link.href = finalPolishLabAssetUrl('ui/panel.css');
-    document.head.appendChild(link);
-  }
-  if (!document.getElementById('neo-final-polish-lab-js')) {
-    const script = document.createElement('script');
-    script.id = 'neo-final-polish-lab-js';
-    script.src = finalPolishLabAssetUrl('ui/panel.js');
-    script.defer = true;
-    script.addEventListener('error', () => {
-      const root = document.querySelector('#final-polish-lab-extension-panel [data-fpl-render-root]');
-      if (root) {
-        root.innerHTML = '<div class="fpl-section"><strong>Final Polish Lab UI asset failed to load.</strong><p class="fpl-muted">Check /api/extensions/image.final_polish_lab/asset/ui/panel.js and extension install path.</p></div>';
-      }
-    });
-    document.body.appendChild(script);
-  } else if (window.NeoFinalPolishLab?.render) {
-    window.setTimeout(() => window.NeoFinalPolishLab.render(), 0);
-  }
-}
-
-function finalPolishLabPanel(record = {}) {
-  window.setTimeout(ensureFinalPolishLabAssets, 0);
+function externalExtensionUiContract(record = {}) {
   const manifest = record.manifest || {};
-  const status = extensionWorkflowApplied(record) ? 'Enabled' : 'Disabled';
-  const shell = `
-    <section id="final-polish-lab-extension-panel" class="neo-final-polish-lab" data-extension-id="${escapeAttr(FINAL_POLISH_LAB_EXTENSION_ID)}" data-mount-slot="image.finish.external.final_polish_lab">
-      <header class="fpl-header">
-        <div>
-          <p class="fpl-eyebrow">External Finish Extension</p>
-          <h3>${escapeHtml(manifest.name || 'Image · Final Polish Lab')}</h3>
-          <p class="fpl-muted">Loading relight, layer polish, camera finish, Look Library, and Batch Polish controls…</p>
-        </div>
-        <div class="fpl-status-stack">
-          <span class="fpl-badge">External</span>
-          <span class="fpl-badge" data-fpl-master-status>${escapeHtml(status)}</span>
-        </div>
-      </header>
-      <div class="fpl-panel-body" data-fpl-render-root>
-        <div class="fpl-section"><strong>Loading Final Polish Lab UI…</strong><p class="fpl-muted">If this stays here, refresh once or check the extension asset route.</p></div>
-      </div>
-    </section>`;
-  return `<div class="neo-extension-custom-panel neo-final-polish-lab-host" data-extension-custom-panel="${escapeAttr(FINAL_POLISH_LAB_EXTENSION_ID)}">${shell}</div>`;
+  const entrypoints = manifest.entrypoints || {};
+  const bundle = manifest.asset_bundle || {};
+  const html = String(entrypoints.ui || '').replace(/^\/+/, '');
+  const css = Array.isArray(bundle.css) ? bundle.css.map((item) => String(item || '').replace(/^\/+/, '')).filter(Boolean) : [];
+  const js = Array.isArray(bundle.js) ? bundle.js.map((item) => String(item || '').replace(/^\/+/, '')).filter(Boolean) : [];
+  const declaredHtml = Array.isArray(bundle.html) ? bundle.html.map((item) => String(item || '').replace(/^\/+/, '')) : [];
+  if (!html || !declaredHtml.includes(html)) return null;
+  return { html, css, js };
 }
+
+function externalExtensionAssetUrl(extensionIdValue, path = '') {
+  const clean = String(path || '').replace(/^\/+/, '');
+  return `/api/extensions/${encodeURIComponent(extensionIdValue)}/asset/${clean.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function externalExtensionPermissionGate(record = {}) {
+  const manifest = record.manifest || {};
+  const permissions = externalExtensionRuntimePermissions(record);
+  const missing = Array.isArray(permissions.missing) ? permissions.missing : [];
+  return `<div class="neo-extension-runtime-gate" data-extension-runtime-gate="${escapeAttr(extensionId(record))}">
+    <strong>External UI approval required</strong>
+    <p class="neo-muted">Review this package in Admin → Extensions → External / Installed before Neo loads its custom code.</p>
+    ${missing.length ? `<p class="neo-muted">Requested: ${escapeHtml(missing.join(', '))} · Version: ${escapeHtml(manifest.version || 'unknown')}</p>` : ''}
+  </div>`;
+}
+
+function externalExtensionCustomPanel(record = {}) {
+  const contract = externalExtensionUiContract(record);
+  if (!contract) return '';
+  const permissions = externalExtensionRuntimePermissions(record);
+  const approved = Array.isArray(permissions.approved) ? permissions.approved : [];
+  if (!approved.includes('custom_ui')) return externalExtensionPermissionGate(record);
+  const extId = extensionId(record);
+  window.setTimeout(() => mountExternalExtensionPanel(extId), 0);
+  return `<div class="neo-extension-custom-panel neo-external-extension-host" data-extension-custom-panel="${escapeAttr(extId)}" data-extension-ui-host-version="${EXTERNAL_EXTENSION_UI_HOST_VERSION}">
+    <div class="neo-extension-runtime-loading"><strong>Loading external extension UI…</strong><p class="neo-muted">${escapeHtml(record.manifest?.name || extId)}</p></div>
+  </div>`;
+}
+
+function loadExternalExtensionStyle(extensionIdValue, path) {
+  const key = `css:${extensionIdValue}:${path}`;
+  if (externalExtensionAssetPromises.has(key)) return externalExtensionAssetPromises.get(key);
+  const promise = new Promise((resolve, reject) => {
+    const existing = Array.from(document.querySelectorAll('link[data-neo-extension-asset]')).find((item) => item.dataset.neoExtensionAsset === key);
+    if (existing) { resolve(existing); return; }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = externalExtensionAssetUrl(extensionIdValue, path);
+    link.dataset.neoExtensionAsset = key;
+    link.addEventListener('load', () => resolve(link), { once: true });
+    link.addEventListener('error', () => reject(new Error(`Could not load declared CSS asset: ${path}`)), { once: true });
+    document.head.appendChild(link);
+  });
+  externalExtensionAssetPromises.set(key, promise);
+  return promise;
+}
+
+function loadExternalExtensionScript(extensionIdValue, path) {
+  const key = `js:${extensionIdValue}:${path}`;
+  if (externalExtensionAssetPromises.has(key)) return externalExtensionAssetPromises.get(key);
+  const promise = new Promise((resolve, reject) => {
+    const existing = Array.from(document.querySelectorAll('script[data-neo-extension-asset]')).find((item) => item.dataset.neoExtensionAsset === key);
+    if (existing) { resolve(existing); return; }
+    const script = document.createElement('script');
+    script.src = externalExtensionAssetUrl(extensionIdValue, path);
+    script.dataset.neoExtensionAsset = key;
+    script.addEventListener('load', () => resolve(script), { once: true });
+    script.addEventListener('error', () => reject(new Error(`Could not load declared JavaScript asset: ${path}`)), { once: true });
+    document.body.appendChild(script);
+  });
+  externalExtensionAssetPromises.set(key, promise);
+  return promise;
+}
+
+async function externalExtensionPanelHtml(extensionIdValue, path) {
+  const key = `${extensionIdValue}:${path}`;
+  if (externalExtensionHtmlCache.has(key)) return externalExtensionHtmlCache.get(key);
+  const response = await fetch(externalExtensionAssetUrl(extensionIdValue, path));
+  if (!response.ok) throw new Error(`Could not load declared HTML entrypoint (${response.status}): ${path}`);
+  const html = await response.text();
+  externalExtensionHtmlCache.set(key, html);
+  return html;
+}
+
+function extensionRecordById(extensionIdValue) {
+  return (state.extensions?.extensions || []).find((record) => extensionId(record) === extensionIdValue) || null;
+}
+
+function externalExtensionHostElement(extensionIdValue) {
+  return Array.from(document.querySelectorAll('[data-extension-custom-panel]')).find((item) => item.dataset.extensionCustomPanel === extensionIdValue) || null;
+}
+
+async function mountExternalExtensionPanel(extensionIdValue) {
+  const record = extensionRecordById(extensionIdValue);
+  const contract = externalExtensionUiContract(record || {});
+  const permissions = externalExtensionRuntimePermissions(record || {});
+  if (!record || !contract || !(permissions.approved || []).includes('custom_ui')) return;
+  let host = externalExtensionHostElement(extensionIdValue);
+  if (!host) return;
+  try {
+    const html = await externalExtensionPanelHtml(extensionIdValue, contract.html);
+    host = externalExtensionHostElement(extensionIdValue);
+    if (!host) return;
+    host.innerHTML = html;
+    await Promise.all(contract.css.map((path) => loadExternalExtensionStyle(extensionIdValue, path)));
+    for (const path of contract.js) await loadExternalExtensionScript(extensionIdValue, path);
+    const detail = { extensionId: extensionIdValue, record, root: host, hostVersion: EXTERNAL_EXTENSION_UI_HOST_VERSION };
+    window.dispatchEvent(new CustomEvent('neo:external-extension:mounted', { detail }));
+    window.dispatchEvent(new CustomEvent('neo:external-extensions:state-changed', { detail }));
+  } catch (error) {
+    host = externalExtensionHostElement(extensionIdValue);
+    if (host) host.innerHTML = `<div class="neo-extension-runtime-error"><strong>External extension UI failed to load.</strong><p class="neo-error">${escapeHtml(error?.message || String(error))}</p></div>`;
+  }
+}
+
+window.NeoExternalExtensionHost = Object.freeze({
+  version: EXTERNAL_EXTENSION_UI_HOST_VERSION,
+  assetUrl: externalExtensionAssetUrl,
+  mount: mountExternalExtensionPanel,
+});
 
 const CFG_FIX_EXTENSION_ID = 'cfg_fix_dynamic_thresholding';
 const CFG_FIX_DEFAULT_PARAMS = {
@@ -11994,7 +12132,7 @@ const BACKGROUND_REMOVAL_DEFAULTS = {
   commercial_subject_type: 'auto',
   commercial_preserve_semitransparency: true,
   commercial_transparency_handling: 'return_input_if_non_opaque',
-  _ui_status: 'Choose a source image and refresh the installed model scan.',
+  _ui_status: 'Choose a source image and refresh the BiRefNet model catalog.',
 };
 const BACKGROUND_REMOVAL_PRESET_OPTIONS = [
   ['smart_auto', 'Smart Auto · General Dynamic'],
@@ -12279,7 +12417,7 @@ function backgroundRemovalCatalogSummary() {
   const lastGoodCount = modelCount + (shared.models?.length || 0) + (shared.bbox_models?.length || 0) + (shared.segm_models?.length || 0);
   if (backgroundRemovalModelCatalogState.loading) return lastGoodCount ? 'Refreshing engine and detector models… Showing the last successful scan meanwhile.' : 'Scanning engine and detector models from the active Comfy profile…';
   if (backgroundRemovalModelCatalogState.error) return lastGoodCount ? `Model refresh failed: ${backgroundRemovalModelCatalogState.error}. Showing the last successful scan; use Refresh engines to retry.` : `Model scan failed: ${backgroundRemovalModelCatalogState.error}. Check the selected Comfy profile, then use Refresh engines.`;
-  if (!backgroundRemovalModelCatalogState.loaded) return 'Installed models have not been scanned for this profile yet.';
+  if (!backgroundRemovalModelCatalogState.loaded) return 'Model catalog not scanned yet.';
   const sourceText = backgroundRemovalModelCatalogState.sources?.length ? ` · ${backgroundRemovalModelCatalogState.sources.join(', ')}` : '';
   const missing = backgroundRemovalModelCatalogState.missing_nodes?.length ? ` · missing segmentation nodes: ${backgroundRemovalModelCatalogState.missing_nodes.join(', ')}` : '';
   const refineMissing = backgroundRemovalModelCatalogState.missing_refinement_nodes?.length ? ` · missing refinement nodes: ${backgroundRemovalModelCatalogState.missing_refinement_nodes.join(', ')}` : '';
@@ -13896,6 +14034,39 @@ function ipAdapterNodeStatusProfileId() {
   const profile = activeImageProfile();
   return profile?.profile_id || selectedBackendProfileIdForSurface('image') || state.backendProfiles?.defaults?.image || '';
 }
+function imageReferenceCatalogProfileId() {
+  return ipAdapterNodeStatusProfileId();
+}
+function imageReferenceCatalogProfileIsCurrent(profileId = '') {
+  return String(profileId || '') === imageReferenceCatalogProfileId();
+}
+function invalidateImageReferenceModelCatalogs(profileId = imageReferenceCatalogProfileId()) {
+  ipAdapterNodeStatusRequestEpoch += 1;
+  controlNetMapStatusRequestEpoch += 1;
+  updateIpAdapterSettings({
+    node_status: {
+      ...IP_ADAPTER_DEFAULT_SETTINGS.node_status,
+      profile_id: profileId,
+      summary: 'Backend profile changed. Refreshing IP Adapter model choices…',
+    },
+    node_status_loading: false,
+  });
+  updateControlNetSettings({
+    map_status: null,
+    map_status_loading: false,
+    map_error: 'Backend profile changed. Refreshing ControlNet model choices…',
+  });
+}
+async function refreshImageReferenceModelCatalogsForSelectedProfile(options = {}) {
+  const profileId = String(options.profileId || imageReferenceCatalogProfileId()).trim();
+  if (!profileId || !imageReferenceCatalogProfileIsCurrent(profileId)) return [];
+  if (options.reset !== false) invalidateImageReferenceModelCatalogs(profileId);
+  render();
+  return Promise.allSettled([
+    refreshIpAdapterNodeStatus({ profileId, renderBefore: false }),
+    controlNetRefreshMapStatus({ profileId, renderBefore: false }),
+  ]);
+}
 function ipAdapterNodeReadiness(settings = ipAdapterSettings(), route = ipAdapterActiveRoute()) {
   const status = ipAdapterNodeStatus(settings);
   const modes = ipAdapterSelectedModes(settings.units);
@@ -13924,6 +14095,7 @@ function ipAdapterNodeReadiness(settings = ipAdapterSettings(), route = ipAdapte
     blocks_active_mode: stateId === 'provider_gated',
     needs_standard: needsStandard,
     needs_faceid: needsFaceId,
+    node_status_loading: Boolean(settings.node_status_loading),
   };
 }
 function ipAdapterNodeStatusLabel(readiness = {}) {
@@ -13964,27 +14136,49 @@ function ipAdapterNodeReadinessPanel(readiness = {}, locked = false) {
     ${diagnostics}
   </div>`;
 }
-async function refreshIpAdapterNodeStatus() {
-  const settings = ipAdapterSettings();
+async function refreshIpAdapterNodeStatus(options = {}) {
+  const profileId = String(options.profileId || imageReferenceCatalogProfileId()).trim();
+  if (!profileId || !imageReferenceCatalogProfileIsCurrent(profileId)) return { stale: true, profile_id: profileId };
+  const requestEpoch = ++ipAdapterNodeStatusRequestEpoch;
   updateIpAdapterSettings({ node_status_loading: true });
-  render();
+  if (options.renderBefore !== false) render();
   const route = ipAdapterActiveRoute();
   const params = new URLSearchParams({
-    profile_id: ipAdapterNodeStatusProfileId(),
+    profile_id: profileId,
     backend: route.backend || 'comfy',
     family: route.family || 'sdxl',
     loader: route.loader || 'checkpoint',
     workflow_mode: route.workflow_mode || 'generate',
   });
   try {
-    const response = await fetch(`/api/image/ip-adapter/node-status?${params.toString()}`);
+    const response = await fetch(`/api/image/ip-adapter/node-status?${params.toString()}`, { cache: 'no-store' });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.detail || result.message || 'Node check failed');
-    updateIpAdapterSettings({ node_status: { ...result, checked_at: new Date().toISOString() }, node_status_loading: false });
+    const responseProfileId = String(result.profile_id || '').trim();
+    const requestIsCurrent = requestEpoch === ipAdapterNodeStatusRequestEpoch && imageReferenceCatalogProfileIsCurrent(profileId);
+    if (!requestIsCurrent) return { stale: true, profile_id: profileId };
+    if (responseProfileId && responseProfileId !== profileId) throw new Error('IP Adapter model response did not match the selected backend profile.');
+    updateIpAdapterSettings({ node_status: { ...result, profile_id: profileId, checked_at: new Date().toISOString() }, node_status_loading: false });
+    render();
+    return result;
   } catch (error) {
-    updateIpAdapterSettings({ node_status: { readiness_state: 'provider_gated', summary: `Node check failed: ${error.message}`, missing: {}, checked_at: new Date().toISOString(), profile_id: ipAdapterNodeStatusProfileId() }, node_status_loading: false });
+    const requestIsCurrent = requestEpoch === ipAdapterNodeStatusRequestEpoch && imageReferenceCatalogProfileIsCurrent(profileId);
+    if (!requestIsCurrent) return { stale: true, profile_id: profileId };
+    const previousStatus = ipAdapterNodeStatus();
+    const hasLastGoodCatalog = previousStatus.profile_id === profileId && Object.values(previousStatus.model_inputs || {}).some((values) => Array.isArray(values) && values.length);
+    updateIpAdapterSettings({
+      node_status: {
+        ...(hasLastGoodCatalog ? previousStatus : { readiness_state: 'provider_gated', missing: {} }),
+        summary: hasLastGoodCatalog ? `Node refresh failed: ${error.message}. Showing the last successful model list.` : `Node check failed: ${error.message}`,
+        last_refresh_error: error.message,
+        checked_at: new Date().toISOString(),
+        profile_id: profileId,
+      },
+      node_status_loading: false,
+    });
+    render();
+    return { ok: false, profile_id: profileId, error: error.message };
   }
-  render();
 }
 function ipAdapterDisplayModeProfile() {
   const mode = state.detailMode === 'expert' ? 'expert' : (state.detailMode === 'compact' ? 'compact' : 'guided');
@@ -14072,10 +14266,51 @@ function ipAdapterLooksLikeFaceIdModelFile(value = '') {
   const text = String(value || '').trim().toLowerCase();
   return Boolean(text) && /(^|[-_\/])face[-_]?id($|[-_\/.])/.test(text);
 }
+function ipAdapterClassifyFaceIdModel(value = '') {
+  const name = basename(String(value || '').replace(/\\/g, '/'));
+  const compact = name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const family = compact.includes('sdxl') ? 'sdxl' : (compact.includes('sd15') ? 'sd15' : '');
+  let variant = '';
+  if (compact.includes('portrait') && compact.includes('unnorm')) variant = 'faceid_portrait_unnorm';
+  else if (compact.includes('portrait')) variant = 'faceid_portrait';
+  else if (compact.includes('plusv2') || compact.includes('plus2')) variant = 'faceid_plus_v2';
+  else if (compact.includes('plus')) variant = 'faceid_plus';
+  else if (compact.includes('faceid')) variant = 'faceid';
+  return { name, family, variant };
+}
+function ipAdapterFaceIdPresetVariant(value = '') {
+  const preset = String(value || 'FACEID PLUS V2').trim().toUpperCase().replace(/\s+/g, ' ');
+  return ({
+    FACEID: 'faceid',
+    'FACEID PLUS': 'faceid_plus',
+    'FACEID PLUS V2': 'faceid_plus_v2',
+    'FACEID PORTRAIT': 'faceid_portrait',
+    'FACEID PORTRAIT UNNORM': 'faceid_portrait_unnorm',
+  })[preset] || '';
+}
+function ipAdapterFaceIdExecutionContract(unit = {}, family = '') {
+  const model = ipAdapterClassifyFaceIdModel(unit.faceid_model);
+  const routeFamily = String(family || '').toLowerCase();
+  const preset = String(unit.faceid_preset || 'FACEID PLUS V2').trim().toUpperCase().replace(/\s+/g, ' ');
+  const presetVariant = ipAdapterFaceIdPresetVariant(preset);
+  const catalogState = ipAdapterSelectionCatalogState('faceid', model.name);
+  let message = 'Unified FaceID will resolve this selected model from the preset and checkpoint family.';
+  let ok = true;
+  if (!model.name) { ok = false; message = 'Select a FaceID model to establish the unified loader contract.'; }
+  else if (!model.family || !model.variant) { ok = false; message = 'This filename does not declare a supported FaceID variant and SD15/SDXL family.'; }
+  else if (['sd15', 'sdxl'].includes(routeFamily) && model.family !== routeFamily) { ok = false; message = `${model.family.toUpperCase()} FaceID model does not match the ${routeFamily.toUpperCase()} checkpoint route.`; }
+  else if (!presetVariant || model.variant !== presetVariant) { ok = false; message = `Selected model does not match the ${preset} preset.`; }
+  else if (presetVariant === 'faceid_plus' && routeFamily !== 'sd15') { ok = false; message = 'FACEID PLUS is available only for SD1.5.'; }
+  else if (presetVariant === 'faceid_portrait_unnorm' && routeFamily !== 'sdxl') { ok = false; message = 'FACEID PORTRAIT UNNORM is available only for SDXL.'; }
+  else if (catalogState.known && !catalogState.present) { ok = false; message = 'Selected FaceID model is not available in the active backend profile catalog. Refresh nodes or choose a model from this profile.'; }
+  return { ok, message, model, preset, catalog_state: catalogState, loader_strategy: 'unified_preset_resolution' };
+}
 function ipAdapterCatalogModelRecords(kind = 'model') {
   const config = ipAdapterDropdownKindConfig(kind);
   const settings = ipAdapterSettings();
-  const nodeInputs = settings.node_status?.model_inputs || {};
+  const activeProfileId = imageReferenceCatalogProfileId();
+  const catalogProfileId = String(settings.node_status?.profile_id || '').trim();
+  const nodeInputs = catalogProfileId && catalogProfileId === activeProfileId ? (settings.node_status?.model_inputs || {}) : {};
   const direct = Array.isArray(nodeInputs[config.inputKey]) ? nodeInputs[config.inputKey] : [];
   const records = direct.map((name) => ({ name, source: 'comfy_object_info_live' }));
   if (kind === 'faceid' && Array.isArray(nodeInputs.ip_adapter)) {
@@ -14083,15 +14318,18 @@ function ipAdapterCatalogModelRecords(kind = 'model') {
       .filter((name) => ipAdapterLooksLikeFaceIdModelFile(name))
       .forEach((name) => records.push({ name, source: 'comfy_ip_adapter_models_faceid_split' }));
   }
-  const profiles = profilesForModelKind('image', config.keys[0]);
-  profiles.forEach((profile) => {
+  const profile = activeImageProfile();
+  if (profile) {
     profileModelSources(profile).forEach((source) => {
-      config.keys.forEach((key) => {
+      const profileKeys = kind === 'faceid'
+        ? [...config.keys, ...ipAdapterDropdownKindConfig('model').keys]
+        : config.keys;
+      profileKeys.forEach((key) => {
         const values = Array.isArray(source?.[key]) ? source[key] : [];
         values.forEach((record) => records.push(record));
       });
     });
-  });
+  }
   return records.filter((record) => {
     const name = String((record?.name ?? record?.id ?? record?.value ?? record) || '').trim();
     if (!name) return false;
@@ -14099,6 +14337,17 @@ function ipAdapterCatalogModelRecords(kind = 'model') {
     if (kind === 'model') return !ipAdapterLooksLikeFaceIdModelFile(name);
     return true;
   });
+}
+function ipAdapterSelectionCatalogState(kind = 'model', selected = '') {
+  const value = String(selected || '').trim();
+  const settings = ipAdapterSettings();
+  const status = settings.node_status || {};
+  const activeProfileId = imageReferenceCatalogProfileId();
+  const profileIsCurrent = Boolean(activeProfileId) && String(status.profile_id || '') === String(activeProfileId);
+  const checked = profileIsCurrent && Boolean(status.checked_at || status.schema || status.readiness_state === 'ready' || status.readiness_state === 'partial');
+  if (!value || !checked) return { known: false, present: false, profile_id: activeProfileId || '' };
+  const present = ipAdapterCatalogModelRecords(kind).some((record) => ipAdapterOptionKey(record?.name ?? record?.id ?? record?.value ?? record) === ipAdapterOptionKey(value));
+  return { known: true, present, profile_id: activeProfileId };
 }
 function ipAdapterModelOptions(kind = 'model', selected = '') {
   const config = ipAdapterDropdownKindConfig(kind);
@@ -14115,7 +14364,7 @@ function ipAdapterModelOptions(kind = 'model', selected = '') {
     options.push({ id, label: source && state.detailMode === 'expert' ? `${id} · ${source}` : id });
   });
   const current = String(selected || '').trim();
-  if (current && !seen.has(ipAdapterOptionKey(current))) options.push({ id: current, label: `${current} (selected)` });
+  if (current && !seen.has(ipAdapterOptionKey(current))) options.push({ id: current, label: `${current} (selected · not in current profile catalog)` });
   if (options.length === 1) options.push({ id: kind === 'clip_vision' ? 'select_clip_vision_later' : (kind === 'faceid' ? 'select_faceid_model_later' : 'select_ip_adapter_model_later'), label: config.missing });
   return options;
 }
@@ -14159,20 +14408,30 @@ function ipAdapterNormalizeAssetRecord(asset = {}, index = 0) {
     storage: String(asset.storage || (ref.startsWith('/api/') ? 'neo_data' : 'asset_ref')).trim(),
   };
 }
+function ipAdapterAssetIdentityKey(asset = {}) {
+  const normalized = ipAdapterNormalizeAssetRecord(asset) || {};
+  const strong = normalized.asset_id || normalized.stored_filename;
+  if (strong) return `asset:${String(strong).trim().toLowerCase()}`;
+  return `ref:${String(normalized.ref || '').trim().replace(/\\/g, '/').toLowerCase()}`;
+}
 function ipAdapterUnitAssetRecords(unit = {}) {
-  const byRef = new Map();
+  const byIdentity = new Map();
   const assets = Array.isArray(unit.image_assets) ? unit.image_assets : [];
   assets.forEach((asset, index) => {
     const normalized = ipAdapterNormalizeAssetRecord(asset, index);
-    if (normalized) byRef.set(normalized.ref, normalized);
+    if (normalized) byIdentity.set(ipAdapterAssetIdentityKey(normalized), normalized);
   });
+  // Durable asset records own reference identity. Runtime Comfy handoff names
+  // must never be merged back into a saved unit as additional source images.
+  if (byIdentity.size) return [...byIdentity.values()].map((asset, index) => ({ ...asset, index }));
   const names = Array.isArray(unit.image_names) ? unit.image_names : (unit.image_name ? [unit.image_name] : []);
   names.forEach((name, index) => {
     const ref = String(name || '').trim();
-    if (!ref || byRef.has(ref)) return;
-    byRef.set(ref, ipAdapterNormalizeAssetRecord({ ref, filename: basename(ref), preview_url: ipAdapterPreviewUrl(ref), storage: ref.startsWith('/api/') ? 'neo_data' : 'manual_ref' }, index));
+    if (!ref) return;
+    const normalized = ipAdapterNormalizeAssetRecord({ ref, filename: basename(ref), preview_url: ipAdapterPreviewUrl(ref), storage: ref.startsWith('/api/') ? 'neo_data' : 'manual_ref' }, index);
+    if (normalized) byIdentity.set(ipAdapterAssetIdentityKey(normalized), normalized);
   });
-  return [...byRef.values()].map((asset, index) => ({ ...asset, index }));
+  return [...byIdentity.values()].map((asset, index) => ({ ...asset, index }));
 }
 function ipAdapterFileInputId(index) { return `ipAdapterReferenceFile${index}`; }
 async function uploadIpAdapterReferenceFile(index, file) {
@@ -14200,7 +14459,7 @@ function addIpAdapterImageAsset(index, asset) {
   const currentAssets = ipAdapterUnitAssetRecords(unit);
   const normalized = ipAdapterNormalizeAssetRecord(asset, currentAssets.length);
   if (!normalized) return;
-  const exists = currentAssets.some((item) => item.ref === normalized.ref || (normalized.asset_id && item.asset_id === normalized.asset_id));
+  const exists = currentAssets.some((item) => ipAdapterAssetIdentityKey(item) === ipAdapterAssetIdentityKey(normalized));
   const image_assets = exists ? currentAssets : [...currentAssets, normalized];
   const image_names = image_assets.map((item) => item.ref).filter(Boolean);
   updateIpAdapterUnit(index, {
@@ -14220,17 +14479,10 @@ function ipAdapterNumber(value, fallback = 0, min = -Infinity, max = Infinity) {
 }
 function ipAdapterSanitizeDraftForMode(unit = {}) {
   const mode = String(unit.mode || 'standard').toLowerCase() === 'faceid' ? 'faceid' : 'standard';
-  const next = { ...unit, mode };
-  if (mode === 'standard') {
-    delete next.faceid_model;
-    delete next.faceid_preset;
-    delete next.faceid_provider;
-    delete next.faceid_lora_strength;
-    delete next.weight_faceidv2;
-  } else {
-    delete next.model;
-  }
-  return next;
+  // Draft state retains both mode-specific selections so a temporary mode
+  // switch is reversible. ipAdapterNormalizeUnit remains the payload boundary
+  // and emits only fields owned by the active mode.
+  return { ...unit, mode };
 }
 function ipAdapterPayloadUnit(unit = {}) {
   const clean = { ...unit };
@@ -14248,10 +14500,11 @@ function ipAdapterNormalizeUnit(raw = {}, index = 0) {
   const uid = String(unit.uid || (index === 0 ? 'primary' : `unit_${index + 1}`)).trim() || `unit_${index + 1}`;
   const mode = String(unit.mode || 'standard').toLowerCase() === 'faceid' ? 'faceid' : 'standard';
   const imageAssets = ipAdapterUnitAssetRecords(unit);
-  const names = Array.isArray(unit.image_names) ? unit.image_names.map((item) => String(item || '').trim()).filter(Boolean) : [];
-  imageAssets.forEach((asset) => { if (asset.ref && !names.includes(asset.ref)) names.push(asset.ref); });
+  const names = imageAssets.length
+    ? imageAssets.map((asset) => String(asset.ref || '').trim()).filter(Boolean)
+    : [...new Set((Array.isArray(unit.image_names) ? unit.image_names : []).map((item) => String(item || '').trim()).filter(Boolean))];
   const single = String(unit.image_name || '').trim();
-  if (single && !names.includes(single)) names.unshift(single);
+  if (!imageAssets.length && single && !names.includes(single)) names.unshift(single);
   const clean = {
     uid,
     enabled: Boolean(unit.enabled),
@@ -14355,8 +14608,24 @@ function ipAdapterValidationPreview(record) {
     if (!unit.faceid_model && unit.mode === 'faceid') items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].faceid_model`, message: 'FaceID model is not selected yet.' });
     if (!unit.clip_vision) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].clip_vision`, message: 'CLIP Vision model is not selected yet.' });
     if (!unit.image_names?.length) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'info', field: `assets.reference_images.${unit.uid}`, message: 'Attach at least one reference image before queueing.' });
+    if (unit.mode === 'faceid') {
+      const contract = ipAdapterFaceIdExecutionContract(unit, route.family);
+      if (!contract.ok) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'error', field: `inputs.units[${index}].faceid_execution_contract`, message: contract.message });
+    }
   });
+  const sharedConflict = ipAdapterSharedFaceIdContractConflict(cleanUnits, route);
+  if (sharedConflict) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'error', field: 'inputs.units', message: sharedConflict });
   return items;
+}
+function ipAdapterSharedFaceIdContractConflict(units = [], route = {}) {
+  const signatures = new Set((Array.isArray(units) ? units : []).filter((unit) => unit.enabled !== false && unit.mode === 'faceid').map((unit) => JSON.stringify([
+    basename(unit.faceid_model || '').toLowerCase(),
+    String(unit.faceid_preset || 'FACEID PLUS V2').toUpperCase(),
+    String(route.family || '').toLowerCase(),
+    String(unit.faceid_provider || 'CUDA').toUpperCase(),
+    Number(unit.faceid_lora_strength ?? 0.75),
+  ])));
+  return signatures.size > 1 ? 'Enabled FaceID units must share one model, preset, checkpoint family, provider, and LoRA strength while using the unified FaceID loader.' : '';
 }
 function ipAdapterImageBox(unit, index, locked = false) {
   const assets = ipAdapterUnitAssetRecords(unit);
@@ -14370,7 +14639,7 @@ function ipAdapterImageBox(unit, index, locked = false) {
   </div>`;
 }
 function ipAdapterUnitSummary(unit) {
-  const count = Array.isArray(unit.image_names) ? unit.image_names.filter(Boolean).length : (unit.image_name ? 1 : 0);
+  const count = ipAdapterUnitAssetRecords(unit).length;
   if (!unit.enabled) return 'disabled';
   const modelHint = unit.mode === 'faceid' && unit.faceid_model ? ` · ${basename(unit.faceid_model)}` : '';
   return `${unit.mode === 'faceid' ? 'FaceID' : 'Standard'} · ${count} image${count === 1 ? '' : 's'} · weight ${unit.weight ?? 1}${modelHint}`;
@@ -14382,7 +14651,8 @@ function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}) {
   const expert = profile.show_expert;
   const title = index === 0 ? 'Primary unit' : `Extra unit ${index + 1}`;
   const totalUnits = ipAdapterSettings().units.length;
-  return `<div class="neo-ip-adapter-unit" data-ip-adapter-unit-index="${index}" data-ip-adapter-mode="${escapeAttr(mode)}" data-route-state="${escapeAttr(route.route_state || '')}">
+  const faceIdContract = mode === 'faceid' ? ipAdapterFaceIdExecutionContract(unit, route.family) : null;
+  return `<div class="neo-ip-adapter-unit" data-ip-adapter-unit-index="${index}" data-ip-adapter-unit-uid="${escapeAttr(unit.uid || '')}" data-ip-adapter-mode="${escapeAttr(mode)}" data-route-state="${escapeAttr(route.route_state || '')}">
     <div class="neo-ip-adapter-unit-header">
       <label class="neo-toggle-row"><input type="checkbox" data-ip-adapter-unit-field="enabled" data-ip-adapter-unit-index="${index}" ${unit.enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>${escapeHtml(title)}</span></label>
       <div class="neo-unit-header-meta">
@@ -14403,6 +14673,7 @@ function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}) {
       ${profile.show_faceid_preset_compact ? `<label data-ip-adapter-param="faceid_preset_compact">FaceID preset${ipAdapterOptionSelect(`ipAdapterFacePresetCompact${index}`, IP_ADAPTER_FACEID_PRESET_OPTIONS, unit.faceid_preset || 'FACEID PLUS V2', locked, `data-ip-adapter-unit-field="faceid_preset" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
       ${profile.show_clip_vision ? `<label>CLIP Vision${ipAdapterOptionSelect(`ipAdapterClip${index}`, ipAdapterModelOptions('clip_vision', unit.clip_vision), unit.clip_vision || '', locked, `data-ip-adapter-unit-field="clip_vision" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
     </div>
+    ${faceIdContract ? `<p class="neo-muted neo-ip-adapter-faceid-contract" data-contract-state="${faceIdContract.ok ? 'valid' : 'blocked'}"><strong>${faceIdContract.ok ? 'Unified loader contract' : 'FaceID contract blocked'}:</strong> ${escapeHtml(faceIdContract.message)}</p>` : ''}
     ${ipAdapterImageBox(unit, index, locked)}
     <div class="neo-ip-adapter-config-row compact-grid">
       <label>Weight<input type="number" min="-1" max="5" step="0.05" data-ip-adapter-unit-field="weight" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.weight ?? 1)}" ${locked ? 'disabled' : ''}></label>
@@ -14481,9 +14752,10 @@ function ipAdapterPanel(record) {
   const routeBadge = nodeLocked ? 'Provider gated' : ipAdapterRouteBadge(route);
   const routePolicy = nodeLocked ? { tone: 'danger' } : ipAdapterRouteUiPolicy(route);
   const identity = settings.identity || IP_ADAPTER_DEFAULT_SETTINGS.identity;
+  const sharedFaceIdConflict = ipAdapterSharedFaceIdContractConflict(ipAdapterCleanUnits(units), route);
   const body = `<section class="neo-ip-adapter-panel" data-extension-id="${IP_ADAPTER_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(display.mode)}">
     <header class="neo-ip-adapter-panel__header"><div><strong>IP Adapter / FaceID</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${routePolicy.tone || (status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${display.show_help ? `<p class="neo-muted">Guided layout: attach identity, face, character, or style references with sequential IP Adapter units. Hidden mode-specific fields are stripped before payload emission.</p>` : ''}${display.show_route_debug ? `<p class="neo-muted">Expert layout exposes route IDs, payload keys, node names, and compiler/debug data.</p>` : ''}${ipAdapterRouteNotice(route, !controlsEnabled)}${ipAdapterNodeReadinessPanel(nodeReadiness, !controlsEnabled)}
+    ${display.show_help ? `<p class="neo-muted">Guided layout: attach identity, face, character, or style references with sequential IP Adapter units. Hidden mode-specific fields are stripped before payload emission.</p>` : ''}${display.show_route_debug ? `<p class="neo-muted">Expert layout exposes route IDs, payload keys, node names, and compiler/debug data.</p>` : ''}${ipAdapterRouteNotice(route, !controlsEnabled)}${ipAdapterNodeReadinessPanel(nodeReadiness, !controlsEnabled)}${sharedFaceIdConflict ? `<div class="neo-extension-route-gate" data-faceid-shared-contract="blocked"><strong>FaceID shared-loader contract blocked</strong><p>${escapeHtml(sharedFaceIdConflict)}</p></div>` : ''}
     <div class="neo-ip-adapter-toolbar"><label class="neo-toggle-row"><input id="ipAdapterEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply IP Adapter</span></label><button class="neo-btn secondary" type="button" id="ipAdapterAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="ipAdapterPrepIdentity" ${locked ? 'disabled' : ''}>Prep Identity</button><span class="neo-badge">${ipAdapterCleanUnits(units).length} active</span></div>${ipAdapterIdentityProfileManagerHtml(settings, locked)}
     ${display.show_identity ? `<div class="neo-ip-adapter-identity" data-display-section="guided-identity">
       <strong>Identity presets</strong>
@@ -14515,6 +14787,21 @@ function updateIpAdapterUnit(index, patch = {}) {
   while (units.length <= index) units.push(ipAdapterCloneUnit({ uid: ipAdapterNextUid(units) }, units.length));
   units[index] = ipAdapterCloneUnit(ipAdapterSanitizeDraftForMode({ ...units[index], ...patch }), index);
   updateIpAdapterSettings({ units: ipAdapterNormalizeUiUnits(units) });
+}
+function updateIpAdapterUnitByIdentity(uid = '', fallbackIndex = 0, patch = {}) {
+  const units = ipAdapterNormalizeUiUnits(ipAdapterSettings().units);
+  const resolved = uid ? units.findIndex((unit) => String(unit.uid || '') === String(uid)) : -1;
+  if (uid && resolved < 0) return false;
+  updateIpAdapterUnit(resolved >= 0 ? resolved : fallbackIndex, patch);
+  return true;
+}
+function renderIpAdapterUnitField(uid = '', field = '') {
+  render();
+  const target = [...document.querySelectorAll('[data-ip-adapter-unit-field]')].find((node) => {
+    const owner = node.closest('[data-ip-adapter-unit-uid]');
+    return String(owner?.getAttribute('data-ip-adapter-unit-uid') || '') === String(uid || '') && node.getAttribute('data-ip-adapter-unit-field') === field;
+  });
+  if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
 }
 function removeIpAdapterUnit(index) {
   const settings = ipAdapterSettings();
@@ -14604,17 +14891,18 @@ function bindIpAdapterControls() {
     const eventName = node.tagName === 'INPUT' && node.type !== 'checkbox' ? 'input' : 'change';
     node.addEventListener(eventName, (event) => {
       const index = Number(node.getAttribute('data-ip-adapter-unit-index'));
+      const unitUid = String(node.closest('[data-ip-adapter-unit-uid]')?.getAttribute('data-ip-adapter-unit-uid') || '');
       const field = node.getAttribute('data-ip-adapter-unit-field');
       const numeric = new Set(['weight', 'weight_faceidv2', 'faceid_lora_strength', 'start_at', 'end_at']);
       const value = field === 'enabled' ? Boolean(event.target.checked) : (numeric.has(field) ? ipAdapterNumber(event.target.value, Number(node.getAttribute('value') || 0), Number(node.getAttribute('min') || -Infinity), Number(node.getAttribute('max') || Infinity)) : event.target.value);
-      updateIpAdapterUnit(index, { [field]: value });
+      if (!updateIpAdapterUnitByIdentity(unitUid, index, { [field]: value })) return;
       const settings = ipAdapterSettings();
       const hasActive = ipAdapterCleanUnits(settings.units).length > 0;
       if (hasActive) {
         updateIpAdapterSettings({ enabled: true });
         setWorkflowExtensionApplied(IP_ADAPTER_EXTENSION_ID, true);
       }
-      if (['enabled', 'mode'].includes(field)) render();
+      if (['enabled', 'mode', 'faceid_model', 'faceid_preset', 'faceid_provider'].includes(field)) renderIpAdapterUnitField(unitUid, field);
     });
   });
   document.querySelectorAll('[data-ip-adapter-unit-action]').forEach((button) => button.addEventListener('click', () => {
@@ -14836,6 +15124,7 @@ function controlNetSettings() {
     enabled: Boolean(raw.enabled),
     route_probe: {},
     map_status: null,
+    map_status_loading: false,
     map_preview: null,
     map_error: '',
     batch_manifest: null,
@@ -15050,7 +15339,9 @@ function controlNetOptionSelect(id, options, selected, disabled = false, attrs =
 }
 function controlNetModelOptions(selected = '') {
   const settings = controlNetSettings();
-  const modelInputs = settings.map_status?.node_status?.model_inputs || {};
+  const activeProfileId = imageReferenceCatalogProfileId();
+  const catalogProfileId = String(settings.map_status?.profile_id || '').trim();
+  const modelInputs = catalogProfileId && catalogProfileId === activeProfileId ? (settings.map_status?.node_status?.model_inputs || {}) : {};
   const seen = new Set();
   const options = [{ id: '', label: 'Select ControlNet model' }];
   Object.values(modelInputs).forEach((values) => {
@@ -15062,7 +15353,7 @@ function controlNetModelOptions(selected = '') {
     });
   });
   const current = String(selected || '').trim();
-  if (current && !seen.has(current)) options.push({ id: current, label: current });
+  if (current && !seen.has(current)) options.push({ id: current, label: `${current} (selected · not in current profile catalog)` });
   if (options.length === 1) options.push({ id: 'select_controlnet_model_later', label: 'Refresh nodes to load models' });
   return options;
 }
@@ -15291,7 +15582,7 @@ function controlNetPanel(record) {
   const fluxAdapterSelector = controlNetFluxAdapterSelector(route, settings, selectedTask);
   const explanation = controlsEnabled ? '' : controlNetRouteExplanation(route, applied);
   const controlsHtml = !controlsEnabled && !expert ? '' : `
-    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply ControlNet</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps">Refresh Nodes</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
+    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply ControlNet</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
     <div class="neo-controlnet-units">${units.map((unit, index) => controlNetUnitHtml(unit, index, locked, compact)).join('')}</div>`;
   const body = `<section class="neo-controlnet-panel" data-extension-id="${CONTROLNET_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-controls-enabled="${controlsEnabled ? 'true' : 'false'}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-controlnet-panel__header"><div><strong>ControlNet</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
@@ -15344,14 +15635,31 @@ function moveControlNetUnit(index, delta) {
   updateControlNetSettings({ units });
 }
 
-async function controlNetRefreshMapStatus() {
+async function controlNetRefreshMapStatus(options = {}) {
+  const profileId = String(options.profileId || imageReferenceCatalogProfileId()).trim();
+  if (!profileId || !imageReferenceCatalogProfileIsCurrent(profileId)) return { stale: true, profile_id: profileId };
+  const requestEpoch = ++controlNetMapStatusRequestEpoch;
+  updateControlNetSettings({ map_status_loading: true, map_error: '' });
+  if (options.renderBefore !== false) render();
+  const params = new URLSearchParams({ profile_id: profileId });
   try {
-    const payload = await loadJson('/api/extensions/controlnet/maps/status', { ok: false, options: [] });
-    updateControlNetSettings({ map_status: payload, map_error: payload.ok ? '' : 'Could not refresh ControlNet map/preprocessor status.' });
+    const response = await fetch(`/api/extensions/controlnet/maps/status?${params.toString()}`, { cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) throw new Error(payload.detail || payload.message || 'Could not refresh ControlNet map/preprocessor status.');
+    const responseProfileId = String(payload.profile_id || '').trim();
+    const requestIsCurrent = requestEpoch === controlNetMapStatusRequestEpoch && imageReferenceCatalogProfileIsCurrent(profileId);
+    if (!requestIsCurrent) return { stale: true, profile_id: profileId };
+    if (responseProfileId && responseProfileId !== profileId) throw new Error('ControlNet model response did not match the selected backend profile.');
+    updateControlNetSettings({ map_status: { ...payload, profile_id: profileId }, map_status_loading: false, map_error: '' });
+    render();
+    return payload;
   } catch (error) {
-    updateControlNetSettings({ map_error: `ControlNet map status failed: ${error?.message || error}` });
+    const requestIsCurrent = requestEpoch === controlNetMapStatusRequestEpoch && imageReferenceCatalogProfileIsCurrent(profileId);
+    if (!requestIsCurrent) return { stale: true, profile_id: profileId };
+    updateControlNetSettings({ map_status_loading: false, map_error: `ControlNet model refresh failed: ${error?.message || error}` });
+    render();
+    return { ok: false, profile_id: profileId, error: error?.message || String(error) };
   }
-  render();
 }
 async function controlNetBuildMap(index) {
   const settings = controlNetEffectiveSettings();
@@ -18917,6 +19225,23 @@ function adetailerPayloadPreview(record, appliedOverride = null) {
     },
   };
 }
+function adetailerReferenceLockDependency(pass = {}) {
+  const requested = String(pass.reference_lock || 'none').toLowerCase();
+  const ipSettings = ipAdapterSettings();
+  const ipUnits = ipSettings.enabled ? ipAdapterCleanUnits(ipSettings.units || []) : [];
+  const faceidActive = ipUnits.some((unit) => String(unit.mode || '').toLowerCase() === 'faceid');
+  const standardActive = ipUnits.some((unit) => String(unit.mode || 'standard').toLowerCase() !== 'faceid');
+  const controlSettings = controlNetSettings();
+  const controlnetActive = Boolean(controlSettings.enabled && controlNetCleanUnits(controlSettings.units || []).length);
+  let message = '';
+  if (['soft_identity','strong_identity','face_only'].includes(requested) && !faceidActive) message = 'This Reference Lock needs an enabled FaceID IP Adapter unit.';
+  else if (requested === 'face_only' && String(pass.mode || 'face').toLowerCase() !== 'face') message = 'Face only can be used only on a Face detailer pass.';
+  else if (requested === 'style_only' && !standardActive) message = 'Style only needs an enabled standard IP Adapter unit.';
+  else if (requested === 'controlnet' && !controlnetActive) message = 'Follow ControlNet needs an enabled ControlNet unit.';
+  else if (requested === 'ipadapter' && !(faceidActive || standardActive)) message = 'Legacy IP-Adapter / FaceID needs an enabled IP Adapter unit.';
+  else if (requested === 'both' && (!(faceidActive || standardActive) || !controlnetActive)) message = 'Legacy both needs enabled IP Adapter and ControlNet units.';
+  return { requested, ready: !message, message, faceidActive, standardActive, controlnetActive };
+}
 function adetailerValidationPreview(record, appliedOverride = null) {
   const settings = adetailerSettings();
   const route = adetailerActiveRoute(record);
@@ -18932,6 +19257,10 @@ function adetailerValidationPreview(record, appliedOverride = null) {
     return items;
   }
   if (!clean.detector_model) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.detector_model', message: 'Select a detector model before queueing.' });
+  (settings.detailer_passes || []).filter((pass, index) => index === 0 || pass.enabled !== false).forEach((pass, index) => {
+    const dependency = adetailerReferenceLockDependency(pass);
+    if (!dependency.ready) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: `params.detailer_passes[${index}].reference_lock`, message: `${pass.label || `Pass ${index + 1}`}: ${dependency.message} The pass will run without that lock.` });
+  });
   items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'info', field: 'payload', message: 'ADetailer payload and mount integration are active; workflow graph mutation runs through the extension hook when route and nodes are valid.' });
   if (clean.cfg !== Number(settings.cfg)) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'info', field: 'cfg', message: 'ADetailer CFG is capped to 15 for local repair stability.' });
   return items;
@@ -19166,6 +19495,7 @@ function adetailerPassCard(pass, index, disabled = false, compact = false) {
       <label>Reference lock${adetailerOptionSelect(`${prefix}ReferenceLock`, [{id:'none',label:'Off'}, {id:'soft_identity',label:'Soft identity'}, {id:'strong_identity',label:'Strong identity'}, {id:'face_only',label:'Face only'}, {id:'style_only',label:'Style only'}, {id:'controlnet',label:'Follow ControlNet'}, {id:'ipadapter',label:'Legacy IP-Adapter / FaceID'}, {id:'both',label:'Legacy both'}], p.reference_lock, disabled, `${commonAttrs} data-adetailer-pass-field="reference_lock"`)}</label>
       <label>Target mode${adetailerOptionSelect(`${prefix}TargetMode`, [{id:'auto_detect',label:'Auto detect'}, {id:'manual_boxes',label:'Manual boxes'}], p.target_mode, disabled, `${commonAttrs} data-adetailer-pass-field="target_mode"`)}</label>`}
     </div>
+    <p class="neo-muted neo-adetailer-pass-note">Reference Lock preserves active upstream FaceID/IP Adapter or ControlNet conditioning during repair. It never uses a reference image as the ADetailer pixel source.${adetailerReferenceLockDependency(p).ready ? '' : ` ${escapeHtml(adetailerReferenceLockDependency(p).message)}`}</p>
     ${`${p.target_mode === 'manual_boxes' ? `<label class="neo-field-wide neo-adetailer-manual-box-field">Manual boxes<textarea ${commonAttrs} data-adetailer-pass-field="manual_boxes" rows="3" ${disabled ? 'disabled' : ''} placeholder="xywh:120,80,300,300 or xyxy:120,80,420,380 or 12%,10%,28%,28%">${escapeHtml(p.manual_boxes)}</textarea></label>` : `<div class="neo-adetailer-manual-box-note neo-muted">Manual boxes are hidden for this pass while Target mode is Auto detect.</div>`}
     <div class="neo-cfg-fix-control-grid"><label class="neo-field-wide">Positive prompt<textarea ${commonAttrs} data-adetailer-pass-field="positive_prompt" rows="2" ${disabled ? 'disabled' : ''} placeholder="Prompt chunk for this target/pass. [SEP] is supported.">${escapeHtml(p.positive_prompt)}</textarea></label><label class="neo-field-wide">Negative prompt<textarea ${commonAttrs} data-adetailer-pass-field="negative_prompt" rows="2" ${disabled ? 'disabled' : ''}>${escapeHtml(p.negative_prompt)}</textarea></label></div>`}
   </article>`;
@@ -19187,7 +19517,8 @@ function adetailerLiveReport(settings, route) {
   const enabledPasses = passes.filter((pass, index) => index === 0 || pass.enabled !== false);
   const manualCount = enabledPasses.reduce((sum, pass) => sum + adetailerManualBoxCount(pass.manual_boxes), 0);
   const sepCount = enabledPasses.reduce((sum, pass) => sum + Math.max(adetailerSepParts(pass.positive_prompt).length, adetailerSepParts(pass.negative_prompt).length), 0);
-  return `<section class="neo-adetailer-subpanel neo-adetailer-report"><div class="neo-adetailer-subhead"><div><strong>ADetailer report</strong><p class="neo-muted">Live summary of the current repair setup.</p></div><button class="btn btn-small" id="adetailerCopyReport" type="button">Copy report</button></div><div class="neo-badge-row">${badgeRow([`${enabledPasses.length} pass${enabledPasses.length === 1 ? '' : 'es'}`, `${manualCount} manual box${manualCount === 1 ? '' : 'es'}`, `${sepCount} [SEP] chunks`, `route ${route.route_state}`, settings.provider || 'ultralytics'])}</div></section>`;
+  const lockReady = enabledPasses.filter((pass) => String(pass.reference_lock || 'none') !== 'none' && adetailerReferenceLockDependency(pass).ready).length;
+  return `<section class="neo-adetailer-subpanel neo-adetailer-report"><div class="neo-adetailer-subhead"><div><strong>ADetailer report</strong><p class="neo-muted">Live summary of the current repair setup.</p></div><button class="btn btn-small" id="adetailerCopyReport" type="button">Copy report</button></div><div class="neo-badge-row">${badgeRow([`${enabledPasses.length} pass${enabledPasses.length === 1 ? '' : 'es'}`, `${manualCount} manual box${manualCount === 1 ? '' : 'es'}`, `${sepCount} [SEP] chunks`, `${lockReady} reference lock${lockReady === 1 ? '' : 's'} ready`, `route ${route.route_state}`, settings.provider || 'ultralytics'])}</div></section>`;
 }
 function adetailerPanel(record) {
   const route = adetailerActiveRoute(record);
@@ -19226,7 +19557,7 @@ function adetailerPanel(record) {
     <label>CFG cap<input id="adetailerCfg" type="number" min="0" max="15" step="0.1" value="${escapeAttr(settings.cfg)}" ${disabled ? 'disabled' : ''}></label>
     <label class="neo-toggle-row"><input id="adetailerUseMainPrompt" type="checkbox" ${settings.use_main_prompt ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use main prompts</span></label>
     <label class="neo-toggle-row"><input id="adetailerForceInpaint" type="checkbox" ${settings.force_inpaint ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Force inpaint pass</span></label>
-  </div><p class="${catalogStatusClass}" id="adetailerCatalogStatus" role="status" aria-live="polite">${escapeHtml(adetailerCatalogStatusSummary())}</p>${adetailerCatalogDatalist(settings)}</section>`;
+  </div><p class="${catalogStatusClass}" id="adetailerCatalogStatus" role="status" aria-live="polite">${escapeHtml(adetailerCatalogStatusSummary())}</p><p class="neo-muted">At queue time Neo verifies the exact detector value against the active Comfy provider. After adding or moving detector files, refresh Comfy nodes and then Refresh models here.</p>${adetailerCatalogDatalist(settings)}</section>`;
   const details = compact ? '' : `<p class="neo-muted">Selective local repair using Impact Pack-style ADetailer nodes, with draft persistence, replay-safe restore, multi-pass execution, and drag-to-draw manual targets.</p>${route.reason && disabled ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
   const stagedSource = settings.staged_preview_source || null;
   const stagedSourceLabel = adetailerStagedPreviewSourceLabel();
@@ -23936,6 +24267,50 @@ function adminExtensionRegistryChip(record) {
 }
 
 
+function adminExtensionRuntimePermissionBlock(record = {}) {
+  if (extensionOrigin(record) === 'built_in') return '';
+  const status = externalExtensionRuntimePermissions(record);
+  const requested = Array.isArray(status.requested) ? status.requested : [];
+  if (!requested.length) return '<p class="neo-muted">This package does not request executable extension capabilities.</p>';
+  const approved = Array.isArray(status.approved) ? status.approved : [];
+  const missing = Array.isArray(status.missing) ? status.missing : [];
+  const stateLabel = missing.length ? 'Approval required' : 'Approved for this version';
+  return `<div class="neo-admin-extension-runtime-permissions">
+    <div class="neo-chipline">${badgeRow([`Runtime: ${stateLabel}`, `Requested: ${requested.join(', ')}`, `Approved: ${approved.join(', ') || 'none'}`])}</div>
+    <p class="neo-muted">Approval is bound to version ${escapeHtml(status.version || record.manifest?.version || 'unknown')}. Backend routes, workflow hooks, and result writes activate after restart.</p>
+  </div>`;
+}
+
+async function approveAdminExtensionRuntime(extensionIdValue) {
+  const record = (state.extensions?.extensions || []).find((item) => extensionId(item) === extensionIdValue);
+  const status = externalExtensionRuntimePermissions(record || {});
+  const requested = Array.isArray(status.requested) ? status.requested : [];
+  if (!record || !requested.length) return;
+  const accepted = window.confirm(`Approve ${requested.join(', ')} for ${record.manifest?.name || extensionIdValue} version ${status.version || record.manifest?.version || ''}? External code can access the capabilities shown here.`);
+  if (!accepted) return;
+  const response = await fetch(`/api/extensions/${encodeURIComponent(extensionIdValue)}/runtime-permissions/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version: status.version || record.manifest?.version || '', permissions: requested }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) { window.alert(`Runtime approval failed: ${JSON.stringify(result)}`); return; }
+  await reloadExtensionRegistry();
+  window.alert(result.restart_required ? 'Permissions approved. Restart Neo to activate external Python runtime capabilities.' : 'Permissions approved.');
+  render();
+}
+
+async function revokeAdminExtensionRuntime(extensionIdValue) {
+  if (!window.confirm(`Revoke executable permissions for ${extensionIdValue}? Restart Neo to unload any active Python runtime.`)) return;
+  const response = await fetch(`/api/extensions/${encodeURIComponent(extensionIdValue)}/runtime-permissions/revoke`, { method: 'POST' });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) { window.alert(`Runtime permission revoke failed: ${JSON.stringify(result)}`); return; }
+  await reloadExtensionRegistry();
+  window.alert('Permissions revoked. Restart Neo to unload previously activated Python runtime capabilities.');
+  render();
+}
+
+
 function adminExtensionRegistryCard(record, options = {}) {
   const manifest = record?.manifest || {};
   const extensionIdValue = manifest.id || record?.id || 'extension';
@@ -23950,6 +24325,9 @@ function adminExtensionRegistryCard(record, options = {}) {
   const description = state.detailMode === 'compact' ? '' : `<p>${escapeHtml(manifest.description || 'No description provided.')}</p>`;
   const manifestJson = state.detailMode === 'expert' ? `<details class="neo-admin-extension-manifest-details"><summary>Manifest JSON</summary><pre>${escapeHtml(JSON.stringify(manifest, null, 2))}</pre></details>` : '';
   const actionFn = surface === 'image' ? 'toggleImageAdminExtension' : 'toggleAdminRegistryExtension';
+  const runtimePermissions = externalExtensionRuntimePermissions(record);
+  const requestedRuntimePermissions = Array.isArray(runtimePermissions.requested) ? runtimePermissions.requested : [];
+  const missingRuntimePermissions = Array.isArray(runtimePermissions.missing) ? runtimePermissions.missing : [];
   return `<article class="neo-admin-extension-card neo-admin-registry-extension-card" data-extension-id="${escapeAttr(extensionIdValue)}" data-admin-extension-surface="${escapeAttr(surface)}">
     <div class="neo-admin-extension-head">
       <div>
@@ -23960,11 +24338,14 @@ function adminExtensionRegistryCard(record, options = {}) {
     </div>
     ${description}
     <div class="neo-chipline">${badgeRow([`Origin: ${origin === 'built_in' ? 'Built-in' : 'External'}`, `Kind: ${adminExtensionKindLabel(record)}`, `Backends: ${backendText}`, `Mounts: ${mountText}`])}</div>
+    ${adminExtensionRuntimePermissionBlock(record)}
     ${record?.errors?.length ? `<p class="neo-error">${record.errors.map(escapeHtml).join(' ')}</p>` : ''}
     ${record?.warnings?.length ? `<p class="neo-warn">${record.warnings.map(escapeHtml).join(' ')}</p>` : ''}
     <div class="neo-admin-extension-actions">
       <button class="neo-btn ${registryEnabled ? 'secondary' : 'primary'}" onclick="${actionFn}('${escapeAttr(extensionIdValue)}', '${action}')">${actionLabel}</button>
       <button class="neo-btn secondary" onclick="checkAdminRegistryExtension('${escapeAttr(extensionIdValue)}')">Check Compatibility</button>
+      ${origin !== 'built_in' && missingRuntimePermissions.length ? `<button class="neo-btn primary" onclick="approveAdminExtensionRuntime('${escapeAttr(extensionIdValue)}')">Review & Approve Runtime</button>` : ''}
+      ${origin !== 'built_in' && requestedRuntimePermissions.length && !missingRuntimePermissions.length ? `<button class="neo-btn secondary" onclick="revokeAdminExtensionRuntime('${escapeAttr(extensionIdValue)}')">Revoke Runtime</button>` : ''}
       ${options.externalInstalled && origin !== 'built_in' ? `<button class="neo-btn secondary" onclick="updateAdminSurfaceExtension('${escapeAttr(surface)}', '${escapeAttr(extensionIdValue)}')">Update</button><button class="neo-btn danger" onclick="removeAdminSurfaceExtension('${escapeAttr(surface)}', '${escapeAttr(extensionIdValue)}')">Remove</button>` : ''}
       ${surface === 'image' ? `<button class="neo-btn secondary" onclick="setActiveSubtab('image','generate')">Open in Image Workspace</button>` : surface === 'video' ? `<button class="neo-btn secondary" onclick="setActiveSubtab('video','generation')">Open in Video Workspace</button>` : ''}
     </div>
@@ -45637,7 +46018,7 @@ function buildImageJobPayload() {
     params.upscale_lab_source_only = true;
     params.refine_enabled = true;
   }
-  if (draft._preview_action_finish_pass === 'extension.adetailer') {
+  if (imageWorkflowUsesSourceMode(mode) && draft._preview_action_finish_pass === 'extension.adetailer') {
     params.detailer_output_pass = true;
     params.refine_enabled = false;
     params.supir_enabled = false;
