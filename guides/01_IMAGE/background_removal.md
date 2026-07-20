@@ -8,6 +8,8 @@ applies_to:
   - image_finish
   - background_removal
   - birefnet
+  - comfyui_rmbg
+  - rmbg_node
   - transparent_png
   - alpha_mask
   - mask_review
@@ -34,15 +36,52 @@ tags:
   - privacy
   - credits
 priority: 112
-version: 8
-updated: 2026-07-14
+version: 10
+updated: 2026-07-19
 ---
 
 # AI Background Removal
 
-**Remove Background** is a built-in utility inside **Image → Finish**. It uses smart routing between the established Comfy BiRefNet path and an optional Neo-native rembg/ONNX fallback, saves a transparent PNG and optional alpha-mask PNG, and can refine a reviewed mask without rerunning segmentation.
+**Remove Background** is a built-in utility inside **Image → Finish**. It uses one explicit engine-resolution contract across the established Comfy BiRefNet path, optional Neo-native rembg/ONNX fallback, Interactive SAM routes, reviewed-mask refinement, and optional commercial providers. It saves a transparent PNG and optional alpha-mask PNG, and can refine a reviewed mask without rerunning segmentation.
 
 It reuses the current Image workspace, selected result, uploaded-source handling, Comfy backend profile, polling, Neo-owned output storage, Results gallery, replay metadata, and Output Inspector. No separate tab or background-removal workspace is created.
+
+## Independent Comfy node routes
+
+Neo exposes two separate Comfy routes in the same UI:
+
+| UI route | Upstream node family | Model catalog | Workflow ownership |
+|---|---|---|---|
+| **Comfy BiRefNet** | `LoadRembgByBiRefNetModel` + `RembgByBiRefNetAdvanced` | BiRefNet-specific choices | Neo's existing BiRefNet graph |
+| **ComfyUI-RMBG · RMBG Node** | `RMBG` (`Remove Background (RMBG)`) | The live `RMBG` node model choices, such as RMBG-2.0, INSPYRENET, BEN, and BEN2 | The upstream generic `RMBG` graph |
+
+These names are intentionally not merged. The generic route is shown only after the selected Comfy profile exposes the exact `RMBG` class, required `image`/`model` inputs, and live model choices through `/object_info`. Neo then forwards the live input map and selected model into a graph that does not contain BiRefNet loader or advanced nodes. Both routes share the same source staging, output storage, alpha-mask output, review controls, and result metadata.
+
+The generic route currently covers the standard single-image Remove Background run. Phase RMBG-7 batch/video contracts remain separately owned by their verified batch-capable segmenter route and are not silently switched to the generic `RMBG` node.
+
+## RMBG capability inventory (Phase RMBG-0)
+
+Neo now exposes a portable, inventory-only view of the installed RMBG ecosystem through the existing Background Removal model-catalog response. The inventory reports exact nodes returned by the connected ComfyUI `/object_info` contract and normalizes discovered model identifiers for browser use. It does not add new controls, mutate workflows, or change the current BiRefNet, rembg, SAM, detector, or mask-refinement routes. See [RMBG capability inventory](rmbg_capabilities.md) for the phase contract and later adoption map.
+
+Live `/object_info` is authoritative. Candidate node names from ComfyUI-RMBG are not treated as installed or compatible until an exact live match is found, and absolute machine paths never cross the public catalog boundary. RMBG-1 adds the [unified engine contract](rmbg_engine_unification.md); it preserves the current route-specific execution adapters and fallback boundaries.
+
+## Segmentation Lab (Phase RMBG-2)
+
+The **Segmentation Lab** is available from the same Remove Background panel. Enter one natural-language object prompt per line, choose a verified RMBG/SAM2/SAM3 adapter, and combine the resulting masks with **Union**, **Intersection**, or **Subtract**. The current limit is eight prompt rows. See the [Segmentation Lab guide](rmbg_segmentation_lab.md) for the data model, live-node contract, and dependency/readiness behavior.
+
+Prompt segmentation is Comfy-only and intentionally has no silent native fallback. Neo blocks the run until the active profile exposes the exact node class, required input names, and model choices through live `/object_info`. This keeps GroundingDINO/SAM2/SAM3 dependency failures visible instead of turning them into an unexplained generation failure.
+
+## Face, clothes, and fashion segmentation (Phase RMBG-3)
+
+**Region Segmentation** is another mode inside the same Remove Background panel. It uses the installed ComfyUI-RMBG `FaceSegment`, `ClothesSegment`, and `FashionSegmentClothing` nodes to create masks for semantic face parts, clothing/body parts, and fashion garments/details. It also supports the composed Accessories route, where `FashionSegmentAccessories` feeds accessory selections into `FashionSegmentClothing`. A run can contain up to eight target rows, for example `face: Skin, Hair`, `clothes: Pants`, `fashion: dress, shoe`, or `accessories: hat, bag`.
+
+The `auto` adapter resolves each target row independently, so face, clothes, fashion, and accessories rows can be combined in one graph. Neo sends only class inputs visible in the active ComfyUI `/object_info` response. The route is one source image per run, Comfy-only, and has no silent fallback. Union, intersection, and subtract apply in target order. See the [RMBG-3 region guide](rmbg_region_segmentation.md).
+
+## Mask and object utilities (Phase RMBG-4)
+
+The **Mask & Object Utilities** mode reuses this same panel for mask cleanup and object preparation. It supports Mask Enhancer, Mask Combiner, Mask Extractor, Crop To Object, Image/Mask Converter, and Color To Mask. Combine accepts up to four mask uploads; enhancement, extraction, and object cropping accept one; color/channel conversion can operate from the source image alone. See the [RMBG-4 utility guide](rmbg_mask_utilities.md).
+
+Each operation is enabled only when its exact ComfyUI-RMBG node and live `/object_info` inputs are present. The route is Comfy-only and never silently falls back to another engine.
 
 ## Optional commercial providers
 
@@ -163,10 +202,10 @@ The engine resolver checks actual runtime readiness and exact catalog entries. S
 | Control | Meaning |
 |---|---|
 | **Source image** | Upload/drop an image or use the currently selected Image result. |
-| **Execution engine** | Smart, strict Comfy BiRefNet, or strict Neo native rembg. |
+| **Execution engine** | Smart, strict Comfy BiRefNet, strict ComfyUI-RMBG generic node, or strict Neo native rembg. |
 | **Fallback policy** | Controls whether Smart may switch engines when unavailable or after a Comfy queue failure. |
 | **Native model/provider** | Selects the rembg model and Auto/CPU/CUDA ONNX provider when native execution is used. |
-| **Preset / BiRefNet model** | Selects the extraction workload and exact installed checkpoint. |
+| **Preset / model** | Selects the extraction workload. The model selector changes to the independent BiRefNet or ComfyUI-RMBG catalog for the selected route. |
 | **Processing width / height** | BiRefNet preprocessing resolution; output keeps the source dimensions. |
 | **Mask threshold** | Keep at `0` for soft hair, fur, glow, fabric, shadows, and partial transparency. |
 | **Edge expand / contract** | Positive values expand the foreground mask; negative values contract it. |
@@ -425,25 +464,17 @@ P6.6.9 Phase 3 makes the browser scan state reliable without introducing a separ
 
 Saved BiRefNet, SAM, BBox, and Segmentation selections are not silently overwritten when a current scan cannot find them. The dropdown labels the saved value as missing from the current type-specific scan. Intentionally changing **Person detector type** is different: it clears the other type's value and chooses the discovered default for the newly selected BBox or Segmentation pool. Loading, error, empty, and ready states are announced in the Engine readiness card.
 
-#### P6.6.9 detector pipeline completion
+P6.6.9 Phase 4 closes the public-path boundary and verifies the complete four-phase flow. Live Comfy model choices are normalized to portable model identifiers before `/models` returns them. If a backend unexpectedly reports an absolute Windows, Linux, macOS, UNC, file-URI, or web-URI model value, Neo keeps only the role-relative model portion or filename. Server-only model roots and legacy custom-root fields are removed from the public scan payload. The Detect Subjects response likewise returns only the portable resolved detector value; local execution still resolves the actual file entirely on the server.
 
-The detector repair is complete across all three ownership layers:
+The Background Removal frontend sends no custom detector root, SAM root, Comfy root, or models root and never stores scan results in the saved draft. Phase 4 regression coverage scans public source/docs for personal path literals and reruns the Phase 1 source, Phase 2 execution, and Phase 3 frontend reliability contracts.
 
-| Layer | Final behavior | Status |
-|---|---|---|
-| Backend model scan | Reads the effective profile's Admin Models root, standard detector folders, flat `models/adetailer`, registered Comfy folders, and live node choices. | Complete |
-| Detect Subjects execution | Resolves and strictly executes the selected portable model through the same typed profile snapshot, without an OpenCV HOG substitution. | Complete |
-| Frontend scan state | Keeps per-profile last-good runtime scans, rejects stale-profile reconciliation, preserves saved missing choices, and exposes retryable states. | Complete |
+### Advanced matting and high-resolution edges (Phase RMBG-5)
 
-There is no separate custom detector catalog to maintain. The folders and model registrations visible to the selected Comfy profile are the source of truth. No additional P6.6.9 follow-up phase remains for the reported detector-list or Detect People issue.
+The existing Remove Background panel now includes a model-aware **Advanced Matting** route. It exposes live-verified BiRefNet HR, BiRefNet Matting, BiRefNet HR Matting, BiRefNet Lite 2K, SDMatte, and SDMatte Plus profiles when their exact ComfyUI nodes and model choices are available. SDMatte requires an uploaded trimap/mask or explicit source-alpha mode. See the [advanced matting guide](rmbg_advanced_matting.md).
 
-Local acceptance for the completed flow should confirm:
+### Context and latent-assisted routes (Phase RMBG-6)
 
-1. **Refresh engines** lists the installed BBox and Segmentation detector files for the effective Comfy profile.
-2. Switching **Person detector type** changes to the corresponding typed list.
-3. **Detect people** runs the selected model or returns an actionable selected-model error; it never reports unrelated HOG boxes as that model's result.
-4. Changing the Image backend cannot allow an older profile response to replace the current dropdown.
-5. Saved custom choices remain visible and labeled if a later scan cannot currently discover them.
+The RMBG node also provides a live-gated **Reference Latent Mask** adapter for Flux Kontext Inpaint. Neo reuses the existing Image 1 latent and inpaint mask, then patches the exact live `AILab_ReferenceLatentMask` contract into the KSampler conditioning path. It is experimental and limited to Flux + Safetensors/Components + Kontext + Inpaint. See the [context and latent guide](rmbg_context_latent.md).
 
 ### Shared BiRefNet edge handoff
 
@@ -490,3 +521,11 @@ ComfyUI_windows_portable/
 ```
 
 When Node Manager has a `custom_nodes` path, Neo treats that folder's parent as the authoritative ComfyUI root. Neo also merges the model choices reported by the live `SAMLoader` node through Comfy `/object_info`. This means a valid SAM checkpoint can be discovered from either the standard filesystem folder or Comfy's live loader catalog without exposing an absolute machine path in the UI.
+## Phase RMBG-7 — Batch and Video Segmentation
+
+The existing Remove Background panel now includes a collapsible Batch & Video
+Segmentation section. It supports up to 32 images in one live-gated Comfy
+batch graph and frame-wise video segmentation with a 1,200-frame cap. Video is
+not temporal tracking: each frame is processed independently, and Neo blocks
+when the live VideoHelper loader/combiner or batch-capable RMBG contract is not
+available. See [RMBG Batch and Video Segmentation](rmbg_batch_video.md).

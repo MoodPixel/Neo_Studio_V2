@@ -23,8 +23,8 @@ tags:
   - reuse
   - repair
 priority: 112
-version: 8
-updated: 2026-07-18
+version: 5
+updated: 2026-07-15
 ---
 
 # Image Finish Workspace
@@ -38,6 +38,17 @@ The **Image → Finish** workspace owns finishing, repair, upscale, and post-out
 - **Results** reviews saved outputs, metadata, replay, cleanup, and deletion.
 
 Finish tools are route-aware. A card can be visible but disabled when the selected backend, model family, loader, workflow mode, custom node set, or source image does not support the tool.
+
+## Shared image and mask preparation
+
+**Remove Background → Mask & Object Utilities** also exposes the installed ComfyUI-RMBG pixel tools as independent operations:
+
+- **Mask Overlay**: inspect a mask over the source image without changing the source.
+- **Object Remover · Lama**: remove a masked object and save a derived image.
+- **Image + Mask Resize**: resize, pad, or crop an image and its mask under one aligned contract.
+- **Image Crop**: prepare a source/Stitch image; a supplied mask receives the same crop.
+
+These are preparation/finish operations, not generation engines. Inpaint and Outpaint consume the resulting prepared image/mask; Scene Director consumes a region mask; Stitch consumes a prepared source image. Neo validates each RMBG node and its inputs against the active ComfyUI `/object_info` response and blocks unavailable operations without silent fallback.
 
 ## Finish tools
 
@@ -85,12 +96,6 @@ Finish tools can get a source from:
 
 When a saved output is staged from Results, Neo should preserve the selected image as the source. It should not silently re-run the original base generation unless the user chooses replay/regenerate.
 
-ADetailer source ownership is stricter than general Finish staging. During a
-normal Generate job it repairs the generated/current output. During **Apply
-ADetailer Pass** it repairs the explicitly selected Img2Img source. IP Adapter
-portraits and ControlNet maps remain conditioning assets and must never be
-borrowed as ADetailer pixels.
-
 ## Assistant rules
 
 When answering Finish questions, use this guide plus the tool-specific guide. Check the live Image snapshot for:
@@ -115,12 +120,6 @@ complete standalone ZIP/repository through Admin, approve its version-bound
 permissions, and restart Neo. Do not copy it into `neo_app`. Custom nodes and
 extra models remain ComfyUI-owned; follow each node project's model page and
 place files where that selected ComfyUI installation exposes them.
-
-If Final Polish reports a bundled frontend startup warning, do not treat that
-as a missing ComfyUI node. Replace it with the complete extension package,
-confirm permission approval for the exact version, restart Neo, and
-hard-refresh. The standalone frontend now uses one self-contained JavaScript
-entrypoint and still prevents duplicate initialization.
 
 Final Polish replay restoration also does not submit automatically. **Reuse same
 polish** waits for a new source; **Polish this output again** binds to the owning

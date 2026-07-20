@@ -26,6 +26,7 @@ _SERVER_ONLY_KEYS = {
 }
 _ROLE_MARKERS = {
     "birefnet": ("/models/birefnet/",),
+    "rmbg": ("/models/rmbg/",),
     "sam": ("/models/sams/",),
     "bbox": ("/models/ultralytics/bbox/", "/models/adetailer/"),
     "segm": ("/models/ultralytics/segm/", "/models/adetailer/"),
@@ -100,6 +101,11 @@ def public_model_catalog(payload: dict[str, Any]) -> dict[str, Any]:
 
     clean = _drop_server_only_fields(deepcopy(payload or {}))
     clean["models"] = portable_model_identifiers(clean.get("models"), "birefnet")
+    clean["rmbg_models"] = portable_model_identifiers(clean.get("rmbg_models"), "rmbg")
+    rmbg_node = clean.get("rmbg_node") if isinstance(clean.get("rmbg_node"), dict) else {}
+    rmbg_node["model_choices"] = portable_model_identifiers(rmbg_node.get("model_choices"), "rmbg")
+    rmbg_node["path_policy"] = "portable_identifiers_only"
+    clean["rmbg_node"] = rmbg_node
     shared = clean.get("shared_sam") if isinstance(clean.get("shared_sam"), dict) else {}
     shared["models"] = portable_model_identifiers(shared.get("models"), "sam")
     shared["bbox_models"] = portable_model_identifiers(shared.get("bbox_models"), "bbox")
@@ -107,5 +113,51 @@ def public_model_catalog(payload: dict[str, Any]) -> dict[str, Any]:
     shared["birefnet_models"] = portable_model_identifiers(shared.get("birefnet_models"), "birefnet")
     shared["path_policy"] = "absolute_paths_server_side_only"
     clean["shared_sam"] = shared
+    inventory = clean.get("rmbg_inventory") if isinstance(clean.get("rmbg_inventory"), dict) else {}
+    model_catalogs = inventory.get("model_catalogs") if isinstance(inventory.get("model_catalogs"), dict) else {}
+    inventory["model_catalogs"] = {
+        str(role): portable_model_identifiers(values, str(role))
+        for role, values in model_catalogs.items()
+        if isinstance(values, list)
+    }
+    inventory["safety"] = dict(inventory.get("safety") or {})
+    inventory["safety"]["path_policy"] = "portable_identifiers_only"
+    inventory["path_policy"] = "absolute_paths_server_side_only"
+    clean["rmbg_inventory"] = inventory
+    engine_catalog = clean.get("engine_catalog") if isinstance(clean.get("engine_catalog"), dict) else {}
+    engine_rows = engine_catalog.get("engines") if isinstance(engine_catalog.get("engines"), list) else []
+    for row in engine_rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = str(row.get("id") or "").casefold()
+        role = "sam" if row_id == "comfy_sam" else ("rmbg" if row_id == "comfy_rmbg" else "birefnet")
+        row["models"] = portable_model_identifiers(row.get("models"), role)
+        row["path_policy"] = "portable_identifiers_only"
+    by_workflow = engine_catalog.get("by_workflow") if isinstance(engine_catalog.get("by_workflow"), dict) else {}
+    for rows in by_workflow.values():
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("id") or "").casefold()
+            role = "sam" if row_id == "comfy_sam" else ("rmbg" if row_id == "comfy_rmbg" else "birefnet")
+            row["models"] = portable_model_identifiers(row.get("models"), role)
+            row["path_policy"] = "portable_identifiers_only"
+    engine_catalog["path_policy"] = "portable_identifiers_only"
+    clean["engine_catalog"] = engine_catalog
+    segmentation_lab = clean.get("segmentation_lab") if isinstance(clean.get("segmentation_lab"), dict) else {}
+    for row in segmentation_lab.get("adapters", []) if isinstance(segmentation_lab.get("adapters"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        choices = row.get("model_choices") if isinstance(row.get("model_choices"), dict) else {}
+        row["model_choices"] = {
+            str(input_name): portable_model_identifiers(values, "groundingdino" if "dino" in str(input_name).casefold() else ("sam2" if "sam2" in str(input_name).casefold() else "sam"))
+            for input_name, values in choices.items()
+            if isinstance(values, list)
+        }
+        row["path_policy"] = "portable_identifiers_only"
+    segmentation_lab["path_policy"] = "portable_identifiers_only"
+    clean["segmentation_lab"] = segmentation_lab
     clean["path_policy"] = "absolute_paths_server_side_only"
     return clean

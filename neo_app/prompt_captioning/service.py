@@ -12,7 +12,7 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from neo_app.providers.profiles import get_backend_profile_payload
+from neo_app.providers.profiles import get_backend_profile_for_live_task, get_backend_profile_payload
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 
 from .providers_koboldcpp import run_chat
@@ -115,6 +115,45 @@ def _select_profile(payload: dict[str, Any], backend_payload: dict[str, Any]) ->
         if match:
             return match
     return next((profile for profile in profiles if profile.get("surface") in {"prompt_captioning", "text"}), None)
+
+
+def _payload_backend_profile_id(payload: dict[str, Any] | None) -> str:
+    payload = payload if isinstance(payload, dict) else {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    return str(metadata.get("backend_profile_id") or payload.get("profile_id") or payload.get("backend_profile_id") or "").strip()
+
+
+def _task_backend_payload(payload: dict[str, Any] | None, task_profile: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Return a backend catalog with the selected task profile live-injected.
+
+    Backend profile listings intentionally remain passive when local auto-connect
+    is disabled. Prompt/Captioning execution must use the profile that was
+    explicitly task-gated by the route, otherwise the service can re-read the
+    passive ``disconnected`` listing and reject an already connected backend.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    backend_payload = get_backend_profile_payload()
+    live_profile = task_profile if isinstance(task_profile, dict) else None
+    profile_id = _payload_backend_profile_id(payload)
+    if live_profile is None:
+        defaults = backend_payload.get("defaults") if isinstance(backend_payload.get("defaults"), dict) else {}
+        profile_id = profile_id or str(defaults.get("prompt_captioning") or defaults.get("text") or "").strip()
+        if profile_id:
+            live_profile = get_backend_profile_for_live_task(profile_id)
+    if not isinstance(live_profile, dict) or not live_profile.get("profile_id"):
+        return backend_payload, None
+
+    live_id = str(live_profile.get("profile_id") or "").strip()
+    profiles = list(backend_payload.get("profiles") or [])
+    replaced = False
+    for index, profile in enumerate(profiles):
+        if isinstance(profile, dict) and str(profile.get("profile_id") or "").strip() == live_id:
+            profiles[index] = live_profile
+            replaced = True
+            break
+    if not replaced:
+        profiles.append(live_profile)
+    return {**backend_payload, "profiles": profiles}, live_profile
 
 
 def _source_text(payload: dict[str, Any]) -> str:
@@ -361,10 +400,10 @@ def _resolved_provider_key(result: dict[str, Any]) -> str:
     return ""
 
 
-def run_prompt_tool(payload: dict[str, Any]) -> dict[str, Any]:
+def run_prompt_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     run_id = f"prompt_{uuid4().hex[:12]}"
     _pc_log_event("prompt.generate.started", run_id=run_id, payload=_pc_runtime_summary("prompt", payload))
-    backend_payload = get_backend_profile_payload()
+    backend_payload, _live_profile = _task_backend_payload(payload, task_profile)
     validation = validate_route_payload(payload, backend_payload)
     if not validation.get("ok"):
         summary = _pc_runtime_summary("prompt", payload, result={"ok": False, "error": validation.get("state") or "validation_failed"})
@@ -648,10 +687,10 @@ def _caption_instruction(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run_caption_tool(payload: dict[str, Any]) -> dict[str, Any]:
+def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     run_id = f"caption_{uuid4().hex[:12]}"
     _pc_log_event("caption.generate.started", run_id=run_id, payload=_pc_runtime_summary("caption", payload))
-    backend_payload = get_backend_profile_payload()
+    backend_payload, _live_profile = _task_backend_payload(payload, task_profile)
     validation = validate_route_payload(payload, backend_payload)
     if not validation.get("ok"):
         summary = _pc_runtime_summary("caption", payload, result={"ok": False, "error": validation.get("state") or "validation_failed"})
@@ -900,7 +939,7 @@ def _dataset_name(pattern: str, prefix: str, number: int, padding: int, original
     return safe
 
 
-def _caption_for_batch_image(image_path: Path, payload: dict[str, Any], caption_images: bool) -> tuple[str, dict[str, Any]]:
+def _caption_for_batch_image(image_path: Path, payload: dict[str, Any], caption_images: bool, *, task_profile: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     if not caption_images:
         return '', {'ok': True, 'skipped_caption': True}
     shared = dict(payload)
@@ -920,7 +959,7 @@ def _caption_for_batch_image(image_path: Path, payload: dict[str, Any], caption_
         'assets': {'image': str(image_path), 'source_image': str(image_path), 'images': [{'asset_ref': str(image_path), 'filename': image_path.name}]},
         'metadata': shared.get('metadata') or {},
     }
-    result = run_caption_tool(single)
+    result = run_caption_tool(single, task_profile=task_profile)
     return str(result.get('caption') or result.get('text') or result.get('output_caption') or ''), result
 
 
@@ -939,7 +978,7 @@ def _write_batch_log(out_dir: Path, rows: list[dict[str, Any]], fmt: str) -> str
     return str(path)
 
 
-def _caption_batch_worker(job_id: str, payload: dict[str, Any]) -> None:
+def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> None:
     inputs, params, dataset, library = _batch_inputs(payload)
     workflow = _normalize_batch_workflow_mode(inputs.get('workflow_mode') or 'dataset')
     caption_mode = (params.get('caption_settings') or {}).get('caption_mode') or params.get('caption_mode') or ''
@@ -968,7 +1007,7 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any]) -> None:
             start_no = int(library.get('number_start') or 1)
             for idx, image_path in enumerate(images, start=1):
                 _batch_job_update(job_id, current_index=idx, current_file=str(image_path), message=f'Processing {idx} / {total}', log=log_lines[-100:])
-                caption, result = _caption_for_batch_image(image_path, payload, True)
+                caption, result = _caption_for_batch_image(image_path, payload, True, task_profile=task_profile)
                 if not caption:
                     err = '; '.join(result.get('errors') or [result.get('error') or 'Caption failed'])
                     errors.append(f'{image_path.name}: {err}')
@@ -1016,7 +1055,7 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any]) -> None:
                     errors.append(err)
                     log_lines.append(f'Error {err}')
                 else:
-                    caption, result = _caption_for_batch_image(image_path, payload, caption_images)
+                    caption, result = _caption_for_batch_image(image_path, payload, caption_images, task_profile=task_profile)
                     if caption_images and not caption:
                         err = '; '.join(result.get('errors') or [result.get('error') or 'Caption failed'])
                         errors.append(f'{image_path.name}: {err}')
@@ -1048,7 +1087,7 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any]) -> None:
         _pc_log_error("Batch captioning failed.", run_id=job_id, payload=_pc_runtime_summary("batch_caption", payload, result=failed_job, extra={"error_count": len(errors)}), exc=exc)
 
 
-def run_caption_batch(payload: dict[str, Any]) -> dict[str, Any]:
+def run_caption_batch(payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     batch_log_run_id = f"caption_batch_{uuid4().hex[:12]}"
     _pc_log_event("batch_caption.started", run_id=batch_log_run_id, payload=_pc_runtime_summary("batch_caption", payload))
     inputs, params, dataset, library = _batch_inputs(payload)
@@ -1068,6 +1107,20 @@ def run_caption_batch(payload: dict[str, Any]) -> dict[str, Any]:
         safety = batch_dataset_safety(dataset)
         if not safety.get('ok'):
             return {'ok': False, 'errors': list(safety.get('errors') or []), 'warnings': list(safety.get('warnings') or []), 'status': 'failed', 'message': '; '.join(safety.get('errors') or ['Batch safety confirmation is required.']), 'batch_safety': safety, 'results': []}
+    # Resolve the selected profile once before queueing. The worker receives this
+    # live profile explicitly so a batch cannot fall back to the passive profile
+    # catalog for each image.
+    backend_payload, live_profile = _task_backend_payload(payload, task_profile)
+    validation = validate_route_payload({**payload, "metadata": {**(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}), **({"backend_profile_id": live_profile.get("profile_id")} if live_profile else {})}}, backend_payload)
+    if not validation.get("ok"):
+        return {"ok": False, "errors": list(validation.get("errors") or [validation.get("state") or "Captioning backend validation failed."]), "status": "failed", "message": "; ".join(validation.get("errors") or [validation.get("state") or "Captioning backend validation failed."]), "results": []}
+    clean_batch_payload = validation.get("payload") if isinstance(validation.get("payload"), dict) else payload
+    profile = resolve_backend_profile(clean_batch_payload, backend_payload, require="caption")
+    allowed, gate_reason = profile_gate(profile, require="caption")
+    if not allowed:
+        return {"ok": False, "errors": [gate_reason], "status": "failed", "message": gate_reason, "results": []}
+    payload = clean_batch_payload
+    task_profile = profile
     if workflow == 'library':
         category = str(library.get('new_category') or library.get('category') or 'Uncategorized').strip() or 'Uncategorized'
         storage_save_category({'label': category, 'used_by': ['caption', 'batch']})
@@ -1093,11 +1146,11 @@ def run_caption_batch(payload: dict[str, Any]) -> dict[str, Any]:
         payload=payload,
     )
     if workflow == 'dataset' and not bool(dataset.get('caption_images', True)):
-        _caption_batch_worker(job_id, payload)
+        _caption_batch_worker(job_id, payload, task_profile=task_profile)
         result = _batch_job_get(job_id)
         _pc_log_event("batch_caption.completed", run_id=job_id, payload=_pc_runtime_summary("batch_caption", payload, result=result or {}, extra={"total_items": total}), snapshot_name="neo_last_caption_payload")
         return result
-    worker = threading.Thread(target=_caption_batch_worker, args=(job_id, payload), daemon=True)
+    worker = threading.Thread(target=_caption_batch_worker, args=(job_id, payload), kwargs={"task_profile": task_profile}, daemon=True)
     worker.start()
     _pc_log_event("batch_caption.queued", run_id=job_id, payload=_pc_runtime_summary("batch_caption", payload, result=job, extra={"total_items": total}), snapshot_name="neo_last_caption_payload")
     return job

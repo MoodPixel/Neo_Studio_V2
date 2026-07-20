@@ -679,6 +679,21 @@ def _apply_qwen_instantx_patch(
     apply_node = str(qwen_status.get("instantx_apply_node") or status.get("apply_node") or "ControlNetApplyAdvanced")
     loader_schema = _node_schema(status, "qwen_instantx_loader") or _node_schema(status, "loader")
     apply_schema = _node_schema(status, "qwen_instantx_apply") or _node_schema(status, "apply")
+    qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
+        graph,
+        (previous_positive_ref, previous_negative_ref),
+    )
+    if _input_supports(apply_schema, "vae") and not qwen_vae_ref:
+        return {
+            "ok": False,
+            "reason": "validation_failed: Qwen ControlNet apply node requires a VAE but the active Qwen workflow has none",
+            "notes": notes + [{
+                "level": "error",
+                "field": "workflow.qwen_controlnet_vae",
+                "message": "This Qwen ControlNet requires the active Qwen VAE. Connect or configure a route-owned VAE before applying ControlNet.",
+                "source": qwen_vae_source,
+            }],
+        }
     model_input = _loader_model_input({**status, "model_inputs": status.get("model_inputs") or {}})
     applied_units: list[dict[str, Any]] = []
     created_node_ids: list[str] = []
@@ -701,7 +716,16 @@ def _apply_qwen_instantx_patch(
         apply_id = _next_graph_id(graph, next_id)
         try: next_id = int(apply_id) + 1
         except (TypeError, ValueError): next_id = None
-        apply_inputs = _apply_node_inputs(apply_node, unit, current_positive_ref, current_negative_ref, [loader_id, 0], list(control_image_ref), status)
+        apply_inputs = _apply_node_inputs(
+            apply_node,
+            unit,
+            current_positive_ref,
+            current_negative_ref,
+            [loader_id, 0],
+            list(control_image_ref),
+            {**status, "input_schemas": {**(status.get("input_schemas") or {}), "apply": apply_schema}},
+            vae_ref=qwen_vae_ref,
+        )
         if _input_supports(apply_schema, "mask"):
             apply_inputs["mask"] = list(mask_ref)
         elif _input_supports(apply_schema, "control_mask"):
@@ -717,10 +741,11 @@ def _apply_qwen_instantx_patch(
         applied["adapter"] = "qwen_instantx_controlnet"
         applied["adapter_control_image"] = image_source
         applied["adapter_mask"] = mask_source
+        applied["vae_source"] = qwen_vae_source
         applied_units.append(applied)
     graph[sampler_key]["inputs"]["positive"] = deepcopy(current_positive_ref)
     graph[sampler_key]["inputs"]["negative"] = deepcopy(current_negative_ref)
-    return {"ok": True, "reason": "patched", "notes": notes + [{"level": "info", "field": "params.qwen_controlnet_adapter", "message": "Qwen InstantX ControlNet adapter patched sampler conditioning.", "controlnet_task": route_data.get("controlnet_task"), "control_image_source": image_source, "mask_source": mask_source}], "applied_units": applied_units, "created_node_ids": created_node_ids, "patched_positive_ref": current_positive_ref, "patched_negative_ref": current_negative_ref, "control_image_source": image_source, "mask_source": mask_source, "adapter": "qwen_instantx_controlnet"}
+    return {"ok": True, "reason": "patched", "notes": notes + [{"level": "info", "field": "params.qwen_controlnet_adapter", "message": "Qwen InstantX ControlNet adapter patched sampler conditioning with the active Qwen VAE.", "controlnet_task": route_data.get("controlnet_task"), "control_image_source": image_source, "mask_source": mask_source, "vae_source": qwen_vae_source}], "applied_units": applied_units, "created_node_ids": created_node_ids, "patched_positive_ref": current_positive_ref, "patched_negative_ref": current_negative_ref, "control_image_source": image_source, "mask_source": mask_source, "vae_source": qwen_vae_source, "adapter": "qwen_instantx_controlnet"}
 
 
 def _apply_qwen_controlnet_patch(
@@ -836,6 +861,83 @@ def _apply_sd_mask_canvas_control_patch(
     }
 
 
+def _resolve_qwen_vae_ref(
+    graph: dict[str, Any],
+    conditioning_refs: tuple[list[Any], ...] = (),
+) -> tuple[list[Any] | None, str]:
+    """Resolve the active Qwen VAE from graph connections, never from a path.
+
+    Qwen ControlNet apply nodes can require the same VAE used by the Qwen
+    conditioning branch.  The node id is route/workflow-specific, so resolve
+    it by following the sampler's positive/negative conditioning references
+    first, then use decoder/loader fallbacks already present in the graph.
+    """
+
+    visited: set[str] = set()
+
+    def inspect_node(node_id: str, *, source: str) -> tuple[list[Any] | None, str]:
+        if node_id in visited:
+            return None, source
+        visited.add(node_id)
+        node = graph.get(node_id)
+        if not isinstance(node, dict):
+            return None, source
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        vae_ref = _copy_ref(inputs.get("vae"), [])
+        if vae_ref:
+            return vae_ref, f"{source}:{node_id}"
+        for value in inputs.values():
+            nested_ref = _copy_ref(value, [])
+            if nested_ref:
+                resolved, resolved_source = inspect_node(str(nested_ref[0]), source="conditioning_chain")
+                if resolved:
+                    return resolved, resolved_source
+        return None, source
+
+    for ref in conditioning_refs:
+        normalized_ref = _copy_ref(ref, [])
+        if normalized_ref:
+            resolved, source = inspect_node(str(normalized_ref[0]), source="conditioning_node")
+            if resolved:
+                return resolved, source
+
+    # Some Qwen graphs do not expose the conditioning node as the sampler
+    # input, but still expose the active VAE on a Qwen encoder node.
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = str(node.get("class_type") or "").lower()
+        if "qwen" not in class_type or not any(token in class_type for token in ("encode", "text")):
+            continue
+        vae_ref = _copy_ref((node.get("inputs") or {}).get("vae"), [])
+        if vae_ref:
+            return vae_ref, f"qwen_encoder:{node_id}"
+
+    # Decoder VAE references are route-owned and are a safe fallback when the
+    # positive/negative conditioning branch is custom or hidden.
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("class_type") or "") not in {"VAEDecode", "VAEEncode"}:
+            continue
+        vae_ref = _copy_ref((node.get("inputs") or {}).get("vae"), [])
+        if vae_ref:
+            return vae_ref, f"vae_codec:{node_id}"
+
+    # Final fallback for standard route-owned loaders. These are graph output
+    # references, not filesystem paths, and therefore remain portable.
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = str(node.get("class_type") or "")
+        if class_type in {"CheckpointLoaderSimple", "CheckpointLoader"}:
+            return [str(node_id), 2], f"checkpoint_loader:{node_id}"
+        if class_type in {"VAELoader", "VaeGGUF", "VAELoaderGGUF"}:
+            return [str(node_id), 0], f"vae_loader:{node_id}"
+
+    return None, "missing_qwen_vae"
+
+
 def _input_supports(node_schema: dict[str, Any] | None, name: str) -> bool:
     if not isinstance(node_schema, dict):
         return True
@@ -860,7 +962,17 @@ def _loader_model_input(node_status: dict[str, Any]) -> str:
     return "control_net_name"
 
 
-def _apply_node_inputs(node_class: str, unit: dict[str, Any], positive_ref: list[Any], negative_ref: list[Any], control_ref: list[Any], image_ref: list[Any], node_status: dict[str, Any]) -> dict[str, Any]:
+def _apply_node_inputs(
+    node_class: str,
+    unit: dict[str, Any],
+    positive_ref: list[Any],
+    negative_ref: list[Any],
+    control_ref: list[Any],
+    image_ref: list[Any],
+    node_status: dict[str, Any],
+    *,
+    vae_ref: list[Any] | None = None,
+) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "positive": deepcopy(positive_ref),
         "negative": deepcopy(negative_ref),
@@ -869,6 +981,8 @@ def _apply_node_inputs(node_class: str, unit: dict[str, Any], positive_ref: list
         "strength": float(unit.get("strength", 0.45)),
     }
     apply_schema = ((node_status.get("input_schemas") or {}).get("apply") or {}) if isinstance(node_status.get("input_schemas"), dict) else {}
+    if vae_ref and _input_supports(apply_schema, "vae"):
+        inputs["vae"] = deepcopy(vae_ref)
     if "Advanced" in node_class or node_class.startswith("ACN_"):
         if _input_supports(apply_schema, "start_percent"):
             inputs["start_percent"] = float(unit.get("start_percent", 0.0))
@@ -1003,6 +1117,26 @@ def apply_controlnet_patch(
 
     status = _route_profiled_node_status(node_status or inspect_nodes(available_nodes), route_data, controlnet_task)
 
+    qwen_vae_ref: list[Any] | None = None
+    qwen_vae_source = ""
+    if _is_qwen_controlnet_route(route_data):
+        qwen_apply_schema = _node_schema(status, "apply")
+        qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
+            graph,
+            (previous_positive_ref, previous_negative_ref),
+        )
+        if _input_supports(qwen_apply_schema, "vae") and not qwen_vae_ref:
+            return no_patch(
+                "validation_failed: Qwen ControlNet apply node requires a VAE but the active Qwen workflow has none",
+                status=status,
+                extra_notes=[{
+                    "level": "error",
+                    "field": "workflow.qwen_controlnet_vae",
+                    "message": "This Qwen ControlNet requires the active Qwen VAE. Connect or configure a route-owned VAE before applying ControlNet.",
+                    "source": qwen_vae_source,
+                }],
+            )
+
     if controlnet_task in {TASK_INPAINT_CONTROL, TASK_OUTPAINT_CONTROL} and _flux_route_active(route_data, controlnet_task):
         adapter_result = _apply_flux_controlnet_patch(
             graph,
@@ -1082,6 +1216,8 @@ def apply_controlnet_patch(
         patch["qwen_adapter"] = adapter_result.get("qwen_adapter")
         patch["control_image_source"] = adapter_result.get("control_image_source")
         patch["mask_source"] = adapter_result.get("mask_source")
+        if adapter_result.get("vae_source"):
+            patch["qwen_controlnet_vae_source"] = adapter_result.get("vae_source")
         if adapter_result.get("patched_model_ref"):
             patch["patched_model_ref"] = adapter_result.get("patched_model_ref")
         return {
@@ -1200,12 +1336,24 @@ def apply_controlnet_patch(
             next_id = None
         graph[apply_id] = {
             "class_type": apply_node,
-            "inputs": _apply_node_inputs(apply_node, unit, current_positive_ref, current_negative_ref, [loader_id, 0], [load_image_id, 0], status),
+            "inputs": _apply_node_inputs(
+                apply_node,
+                unit,
+                current_positive_ref,
+                current_negative_ref,
+                [loader_id, 0],
+                [load_image_id, 0],
+                status,
+                vae_ref=qwen_vae_ref,
+            ),
         }
         current_positive_ref = [apply_id, 0]
         current_negative_ref = [apply_id, 1]
         created_node_ids.extend([load_image_id, loader_id, apply_id])
-        applied_units.append(deepcopy(unit))
+        applied = deepcopy(unit)
+        if qwen_vae_source:
+            applied["vae_source"] = qwen_vae_source
+        applied_units.append(applied)
 
     graph[sampler_key]["inputs"]["positive"] = deepcopy(current_positive_ref)
     graph[sampler_key]["inputs"]["negative"] = deepcopy(current_negative_ref)
@@ -1224,6 +1372,8 @@ def apply_controlnet_patch(
         applied=True,
         controlnet_task=controlnet_task,
     )
+    if qwen_vae_source:
+        patch["qwen_controlnet_vae_source"] = qwen_vae_source
     return {
         "workflow": graph,
         "validation": {"ok": True, "enabled": True, "block": block, "validation": validation_notes, "route": route_data, "node_status": status, "workflow_patch_allowed": True, "reason": "patched", "asset_resolution": asset_resolution if controlnet_task != TASK_MAP_CONTROL else {}},

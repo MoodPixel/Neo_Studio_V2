@@ -12,6 +12,8 @@ from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_p
 from neo_app.models.asset_selection import first_explicit_asset_selection, require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
+from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
+from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
 
@@ -399,7 +401,8 @@ def compile_qwen_rapid_aio_checkpoint(
 
     source_name = _source_image_name(params)
     mask_name = _mask_image_name(params)
-    if mode in {"img2img", "inpaint", "outpaint"} and not source_name:
+    stitch_only_ready = mode in {"img2img", "edit"} and qwen_stitch_has_ready_group(extract_qwen_stitch_payload(params))
+    if mode in {"img2img", "inpaint", "outpaint"} and not source_name and not stitch_only_ready:
         validation.errors.append(f"Qwen Rapid AIO {mode} requires a source image.")
         validation.ok = False
     if mode == "inpaint" and not mask_name:
@@ -459,6 +462,24 @@ def compile_qwen_rapid_aio_checkpoint(
         height = max(64, int(working_height) + int(padding.get("top", 0) or 0) + int(padding.get("bottom", 0) or 0))
         scale_note = " with source working-copy scale" if source_scale_meta else ""
         route_notes.append(f"Qwen Rapid AIO outpaint branch uses{scale_note} ImagePadForOutpaint and padded latent {width}x{height}.")
+
+    next_id, qwen_inputs, stitch_meta, stitch_notes, stitch_errors = apply_qwen_stitch_route(
+        workflow,
+        params,
+        qwen_inputs,
+        next_id,
+        family="qwen_rapid_aio",
+        loader="checkpoint_aio",
+        mode=mode,
+        backend_capabilities=backend_capabilities,
+    )
+    if stitch_meta.get("enabled") or stitch_meta.get("groups"):
+        route_meta["qwen_stitch"] = stitch_meta
+    route_notes.extend(stitch_notes)
+    for error in stitch_errors:
+        validation.errors.append(error)
+    if stitch_errors:
+        validation.ok = False
 
     next_id, positive_ref, negative_ref, edit_meta = _build_qwen_edit_conditioning_nodes(
         workflow=workflow,

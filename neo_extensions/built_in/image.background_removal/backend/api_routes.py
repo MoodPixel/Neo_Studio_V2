@@ -34,13 +34,31 @@ from .constants import (
     SUPPORTED_COMFY_BACKENDS,
     SAM_MODEL_VARIANTS,
     SAM_REFINEMENT_MODEL_IDS,
+    BATCH_VIDEO_CATALOG_ENDPOINT,
+    BATCH_VIDEO_QUEUE_ENDPOINT,
 )
-from .engine_resolver import EngineResolution, resolve_engine
+from .engine_resolver import EngineResolution, build_engine_catalog, resolve_engine, resolve_interactive_engine
 from .metadata import build_background_removal_extension_usage, build_background_removal_metadata
 from .native_rembg import native_rembg_status, run_native_rembg
 from .native_sam import run_native_sam_selection
 from .payload_schema import PayloadContractError, build_payload_block, normalize_settings, validate_payload_settings
 from .public_hygiene import portable_model_identifiers, portable_model_identifier, public_model_catalog
+from .rmbg_capabilities import build_rmbg_capability_inventory
+from .rmbg_node import build_rmbg_node_catalog
+from .segmentation_lab import build_segmentation_lab_catalog, resolve_segmentation_adapter
+from .region_segmentation import build_region_segmentation_catalog, resolve_region_adapter
+from .mask_utilities import build_mask_utilities_catalog, resolve_mask_utility, MAX_MASK_FILES
+from .matting import build_matting_catalog, resolve_matting_profile
+from .batch_video import (
+    MAX_BATCH_IMAGES,
+    MAX_VIDEO_FRAMES,
+    build_batch_image_workflow,
+    build_batch_video_catalog,
+    build_video_framewise_workflow,
+    is_supported_video_filename,
+    normalize_batch_video_settings,
+    resolve_batch_video_route,
+)
 from .shared_sam import (
     build_shared_sam_catalog,
     resolve_person_detector_choice,
@@ -124,11 +142,33 @@ async def _save_upload(upload: UploadFile, root_dir: Path, index: int) -> dict[s
     }
 
 
-async def _save_mask_upload(upload: UploadFile, root_dir: Path) -> dict[str, Any]:
+async def _save_video_upload(upload: UploadFile, root_dir: Path) -> dict[str, Any]:
+    original = Path(upload.filename or "source_video.mp4").name
+    if not is_supported_video_filename(original):
+        raise HTTPException(status_code=400, detail="Unsupported video type. Use MP4, MOV, WEBM, MKV, AVI, or GIF.")
+    suffix = Path(original).suffix.lower()
+    target_dir = root_dir / "neo_data" / "inputs" / "background_removal" / "video"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stored = f"background_segment_{uuid4().hex[:12]}{suffix}"
+    target = target_dir / stored
+    with target.open("wb") as handle:
+        upload.file.seek(0)
+        shutil.copyfileobj(upload.file, handle)
+    return {
+        "filename": original,
+        "stored_filename": stored,
+        "path": str(target),
+        "storage": "neo_data/inputs/background_removal/video",
+        "format": suffix.lstrip(".").upper(),
+        "kind": "background_removal_video_source",
+    }
+
+
+async def _save_mask_upload(upload: UploadFile, root_dir: Path, index: int = 1) -> dict[str, Any]:
     original, suffix = _safe_upload_name(upload, 1)
     target_dir = root_dir / "neo_data" / "inputs" / "background_removal" / "masks"
     target_dir.mkdir(parents=True, exist_ok=True)
-    stored = f"background_mask_review_{uuid4().hex[:12]}{suffix}"
+    stored = f"background_mask_{max(1, int(index))}_{uuid4().hex[:12]}{suffix}"
     target = target_dir / stored
     with target.open("wb") as handle:
         upload.file.seek(0)
@@ -177,9 +217,21 @@ def _route_for_profile(provider: Any | None, profile: dict[str, Any], settings: 
     elif workflow_mode == "interactive_sam":
         mode = "background_removal_sam_select"
         loader = "sam_impact_shared" if resolved_engine == "comfy_sam" else "sam_onnx"
+    elif workflow_mode == "segmentation_lab":
+        mode = "background_removal_segmentation_lab"
+        loader = "rmbg_prompt_segmentation"
+    elif workflow_mode == "region_segmentation":
+        mode = "background_removal_region_segmentation"
+        loader = "rmbg_region_segmentation"
+    elif workflow_mode == "mask_utility":
+        mode = "background_removal_mask_utility"
+        loader = "rmbg_mask_utilities"
+    elif workflow_mode == "matting":
+        mode = "background_removal_matting"
+        loader = "rmbg_advanced_matting"
     else:
         mode = "background_removal_commercial" if commercial_route else "background_removal"
-        loader = "commercial_api" if commercial_route else ("rembg_onnx" if resolved_engine == "native_rembg" else "birefnet")
+        loader = "commercial_api" if commercial_route else ("rembg_onnx" if resolved_engine == "native_rembg" else ("rmbg" if resolved_engine == "comfy_rmbg" else "birefnet"))
     return {
         "backend": "neo_native" if native_route else ("commercial_api" if commercial_route else ("comfyui_portable" if provider_id == "comfyui_portable" else provider_id or "unknown")),
         "provider_id": provider_id,
@@ -387,6 +439,8 @@ def _build_model_catalog(
     if not info and not backend_supplied_object_info:
         info = _object_info(provider)
     object_models = portable_model_identifiers(_node_choices(info, "LoadRembgByBiRefNetModel", "model"), "birefnet")
+    rmbg_node = build_rmbg_node_catalog(info)
+    rmbg_models = list(rmbg_node.get("model_choices") or [])
     endpoint_models = portable_model_identifiers(_query_model_folders(provider), "birefnet")
     filesystem_models = _scan_model_folders(root_dir, profile)
     models: list[str] = []
@@ -427,8 +481,40 @@ def _build_model_catalog(
         live_segm_models=live_segm_models,
         backend_details=detailer_backend,
     )
+    native_status = native_rembg_status()
+    region_segmentation = build_region_segmentation_catalog(info)
+    mask_utilities = build_mask_utilities_catalog(info)
+    matting = build_matting_catalog(info)
+    engine_catalog = build_engine_catalog(
+        comfy_catalog={
+            "object_info_available": bool(info),
+            "nodes_ready": not missing_nodes if info else False,
+            "refinement_nodes_ready": not missing_refinement_nodes if info else False,
+            "missing_nodes": missing_nodes,
+            "models": models,
+            "rmbg_node": rmbg_node,
+            "rmbg_models": rmbg_models,
+            "shared_sam": shared_sam,
+            "region_segmentation": region_segmentation,
+            "mask_utilities": mask_utilities,
+            "matting": matting,
+        },
+        native_status=native_status,
+    )
+    rmbg_inventory = build_rmbg_capability_inventory(
+        info,
+        {
+            "birefnet": models,
+            "sam": live_sam_models,
+            "bbox": live_bbox_models,
+            "segm": live_segm_models,
+        },
+    )
+    segmentation_lab = build_segmentation_lab_catalog(info)
     return {
         "models": models,
+        "rmbg_models": rmbg_models,
+        "rmbg_node": rmbg_node,
         "sources": sources,
         "object_info_available": bool(info),
         "available_nodes": available_nodes,
@@ -441,11 +527,17 @@ def _build_model_catalog(
         "refinement_nodes_ready": not missing_refinement_nodes if info else None,
         "model_folder": "ComfyUI/models/BiRefNet/",
         "presets": {key: list(value) for key, value in PRESET_MODEL_CANDIDATES.items()},
-        "native": native_rembg_status(),
+        "native": native_status,
         "native_models": list(NATIVE_MODEL_IDS),
         "native_preset_models": dict(NATIVE_PRESET_MODELS),
-        "engines": ["smart", "comfy_birefnet", "native_rembg", "native_sam", "comfy_sam", "commercial_api"],
+        "engines": ["smart", "comfy_birefnet", "comfy_rmbg", "comfy_matting", "native_rembg", "native_sam", "comfy_sam", "commercial_api"],
         "shared_sam": shared_sam,
+        "rmbg_inventory": rmbg_inventory,
+        "segmentation_lab": segmentation_lab,
+        "region_segmentation": region_segmentation,
+        "mask_utilities": mask_utilities,
+        "matting": matting,
+        "engine_catalog": engine_catalog,
     }
 
 
@@ -473,6 +565,29 @@ def _resolve_model_for_preset(settings: dict[str, Any], catalog: dict[str, Any])
     raise HTTPException(status_code=400, detail=f"Choose an installed BiRefNet model for the {preset.replace('_', ' ')} preset.")
 
 
+def _resolve_rmbg_model(settings: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+    clean = dict(settings)
+    node_catalog = catalog.get("rmbg_node") if isinstance(catalog.get("rmbg_node"), dict) else {}
+    models = [str(item) for item in (catalog.get("rmbg_models") or node_catalog.get("model_choices") or []) if str(item or "").strip()]
+    selected = str(clean.get("rmbg_model") or "").strip()
+    by_casefold = {item.casefold(): item for item in models}
+    if selected:
+        if models and selected.casefold() not in by_casefold:
+            raise HTTPException(status_code=400, detail=f"Selected ComfyUI-RMBG model was not exposed by the live RMBG node: {selected}. Refresh models.")
+        clean["rmbg_model"] = by_casefold.get(selected.casefold(), selected)
+    elif len(models) == 1:
+        clean["rmbg_model"] = models[0]
+    elif not models:
+        raise HTTPException(status_code=400, detail="No ComfyUI-RMBG models were exposed by the live RMBG node. Check the installed node and restart ComfyUI.")
+    else:
+        raise HTTPException(status_code=400, detail="Choose a ComfyUI-RMBG model before removing the background.")
+    clean["rmbg_node_class"] = str(node_catalog.get("node_class") or "")
+    clean["rmbg_input_map"] = dict(node_catalog.get("input_map") or {})
+    if not clean["rmbg_node_class"] or not clean["rmbg_input_map"].get("image") or not clean["rmbg_input_map"].get("model"):
+        raise HTTPException(status_code=400, detail="The live ComfyUI-RMBG RMBG input contract is incomplete. Refresh the Comfy node catalog.")
+    return clean
+
+
 def _assert_route_ready(provider: Any, profile: dict[str, Any], settings: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
     provider_id = _provider_id(provider, profile)
     if provider_id not in SUPPORTED_COMFY_BACKENDS:
@@ -482,6 +597,36 @@ def _assert_route_ready(provider: Any, profile: dict[str, Any], settings: dict[s
 
     workflow_mode = str(settings.get("workflow_mode") or "segment")
     available_nodes = set(catalog.get("available_nodes") or [])
+    if settings.get("resolved_engine") == "comfy_rmbg":
+        node_catalog = catalog.get("rmbg_node") if isinstance(catalog.get("rmbg_node"), dict) else {}
+        if not node_catalog.get("available"):
+            raise HTTPException(status_code=400, detail="ComfyUI-RMBG generic RMBG is not ready: " + "; ".join(node_catalog.get("blockers") or ["refresh the live Comfy node catalog"]))
+        if str(settings.get("rmbg_node_class") or "") not in available_nodes:
+            raise HTTPException(status_code=400, detail="The selected ComfyUI-RMBG node is no longer present in live /object_info. Refresh models and restart ComfyUI if needed.")
+        required = {"LoadImage", str(settings.get("rmbg_node_class") or "RMBG")}
+        if settings.get("save_mask"):
+            required.add("MaskToImage")
+        if int(settings.get("mask_expand") or 0):
+            required.add("GrowMask")
+        if int(settings.get("mask_feather") or 0):
+            required.add("FeatherMask")
+        if int(settings.get("mask_expand") or 0) or int(settings.get("mask_feather") or 0):
+            required.add("JoinImageWithAlpha")
+        missing = sorted(required.difference(available_nodes))
+        if missing:
+            raise HTTPException(status_code=400, detail="ComfyUI-RMBG Background Removal requires missing Comfy node(s): " + ", ".join(missing) + ".")
+        return {
+            "state": "available",
+            "route": _route_for_profile(provider, profile, settings),
+            "node_status": {
+                "ready": True,
+                "workflow_mode": workflow_mode,
+                "available_nodes": sorted(available_nodes),
+                "missing_nodes": [],
+                "required_nodes": sorted(required),
+                "rmbg_node": node_catalog,
+            },
+        }
     required = set(REFINEMENT_REQUIRED_NODES if workflow_mode == "refine_mask" else SEGMENT_REQUIRED_NODES)
     expand = int(settings.get("mask_expand") or 0)
     feather = int(settings.get("mask_feather") or 0)
@@ -554,6 +699,48 @@ def _assert_standalone_workflow(workflow: dict[str, Any], settings: dict[str, An
     node_map = settings.get("sam_node_map") if isinstance(settings.get("sam_node_map"), dict) else {}
     if workflow_mode == "refine_mask":
         graph_required = {"LoadImage", "ImageToMask", "SaveImage"}
+    elif workflow_mode == "segmentation_lab":
+        graph_required = {"LoadImage", "SaveImage"}
+        adapter_node = str(settings.get("segmentation_node_class") or "")
+        if adapter_node:
+            graph_required.add(adapter_node)
+        prompt_count = len([item for item in (settings.get("segmentation_lab_prompts") or []) if item.get("enabled", True)])
+        if prompt_count > 1:
+            graph_required.add(str(node_map.get("MaskComposite") or "MaskComposite"))
+    elif workflow_mode == "region_segmentation":
+        graph_required = {"LoadImage", "SaveImage"}
+        adapter_node = str(settings.get("region_segmentation_node_class") or "")
+        if adapter_node:
+            graph_required.add(adapter_node)
+        for item in (settings.get("region_segmentation_targets") or []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("node_class"):
+                graph_required.add(str(item.get("node_class")))
+            if str(item.get("adapter") or item.get("region") or "").strip().lower() == "accessories" and item.get("options_node_class"):
+                graph_required.add(str(item.get("options_node_class")))
+        target_count = len([item for item in (settings.get("region_segmentation_targets") or []) if item.get("enabled", True)])
+        if target_count > 1:
+            graph_required.add(str(node_map.get("MaskComposite") or "MaskComposite"))
+    elif workflow_mode == "mask_utility":
+        graph_required = {"LoadImage", "SaveImage"}
+        utility_node = str(settings.get("mask_utility_node_class") or "")
+        if utility_node:
+            graph_required.add(utility_node)
+        operation = str(settings.get("mask_utility_operation") or "")
+        if operation in {"enhance", "combine", "extract", "crop_object", "mask_overlay", "object_remove_lama", "image_mask_resize"}:
+            graph_required.update({"LoadImage", "ImageToMask"})
+        if operation == "image_crop" and settings.get("mask_utility_mask_names"):
+            graph_required.update({"LoadImage", "ImageToMask", "MaskToImage"})
+        if operation in {"enhance", "combine", "convert", "color_to_mask"}:
+            graph_required.add(str(node_map.get("JoinImageWithAlpha") or "JoinImageWithAlpha"))
+    elif workflow_mode == "matting":
+        graph_required = {"LoadImage", "SaveImage"}
+        matting_node = str(settings.get("matting_node_class") or "")
+        if matting_node:
+            graph_required.add(matting_node)
+        if settings.get("matting_node_class") == "AILab_SDMatte" and settings.get("matting_mask_names"):
+            graph_required.add("ImageToMask")
     elif workflow_mode == "interactive_sam" and settings.get("resolved_engine") == "comfy_sam":
         graph_required = {
             "LoadImage",
@@ -565,7 +752,10 @@ def _assert_standalone_workflow(workflow: dict[str, Any], settings: dict[str, An
             "SaveImage",
         }
     else:
-        graph_required = {"LoadImage", "LoadRembgByBiRefNetModel", "RembgByBiRefNetAdvanced", "SaveImage"}
+        if settings.get("resolved_engine") == "comfy_rmbg":
+            graph_required = {"LoadImage", str(settings.get("rmbg_node_class") or "RMBG"), "SaveImage"}
+        else:
+            graph_required = {"LoadImage", "LoadRembgByBiRefNetModel", "RembgByBiRefNetAdvanced", "SaveImage"}
     if settings.get("save_mask"):
         graph_required.add(str(node_map.get("MaskToImage") or "MaskToImage"))
     if int(settings.get("mask_expand") or 0):
@@ -586,7 +776,7 @@ def _assert_standalone_workflow(workflow: dict[str, Any], settings: dict[str, An
             graph_required.add(str(node_map.get("BlurFusionForegroundEstimation")))
         else:
             graph_required.add(str(node_map.get("JoinImageWithAlpha") or "JoinImageWithAlpha"))
-    else:
+    elif workflow_mode not in {"refine_mask", "segmentation_lab", "region_segmentation", "mask_utility", "matting"} and settings.get("resolved_engine") != "comfy_rmbg":
         graph_required.add("BlurFusionForegroundEstimation" if settings.get("foreground_estimation") else "JoinImageWithAlpha")
         if workflow_mode != "refine_mask" and not int(settings.get("mask_expand") or 0) and not int(settings.get("mask_feather") or 0) and settings.get("foreground_estimation"):
             graph_required.discard("BlurFusionForegroundEstimation")
@@ -631,6 +821,41 @@ def _context_for_job(
             "file_id": normalized.get("parent_file_id") or "",
             "source_is_output_image": True,
         }
+    context_mode = "background_removal_finish"
+    if workflow_mode == "refine_mask":
+        context_mode = "background_removal_refine_finish"
+    elif workflow_mode == "interactive_sam":
+        context_mode = "background_removal_sam_finish"
+    elif workflow_mode == "mask_utility":
+        context_mode = "background_removal_mask_utility_finish"
+    elif workflow_mode == "matting":
+        context_mode = "background_removal_matting_finish"
+    elif workflow_mode == "region_segmentation":
+        context_mode = "background_removal_region_segmentation_finish"
+    elif workflow_mode == "segmentation_lab":
+        context_mode = "background_removal_segmentation_lab_finish"
+    elif normalized.get("resolved_engine") == "commercial_api":
+        context_mode = "background_removal_commercial_finish"
+
+    context_loader = "birefnet"
+    if workflow_mode == "refine_mask":
+        context_loader = "birefnet_refinement"
+    elif workflow_mode == "interactive_sam":
+        context_loader = "sam_impact_shared" if normalized.get("resolved_engine") == "comfy_sam" else "sam_onnx"
+    elif workflow_mode == "mask_utility":
+        context_loader = "rmbg_mask_utilities"
+    elif workflow_mode == "matting":
+        context_loader = "rmbg_advanced_matting"
+    elif workflow_mode == "region_segmentation":
+        context_loader = "rmbg_region_segmentation"
+    elif workflow_mode == "segmentation_lab":
+        context_loader = "rmbg_prompt_segmentation"
+    elif normalized.get("resolved_engine") == "commercial_api":
+        context_loader = "commercial_api"
+    elif normalized.get("resolved_engine") == "native_rembg":
+        context_loader = "rembg_onnx"
+    elif normalized.get("resolved_engine") == "comfy_rmbg":
+        context_loader = "rmbg"
     return {
         "job_id": prompt_id,
         "profile_id": profile_id,
@@ -638,14 +863,14 @@ def _context_for_job(
         "provider_id": route.get("provider_id") or profile.get("provider_id") or "",
         "backend_output_root": str(normalized.get("native_output_root") or ""),
         "subtab": "finish",
-        "mode": "background_removal_refine_finish" if workflow_mode == "refine_mask" else ("background_removal_sam_finish" if workflow_mode == "interactive_sam" else ("background_removal_commercial_finish" if normalized.get("resolved_engine") == "commercial_api" else "background_removal_finish")),
+        "mode": context_mode,
         "prompt": "",
         "positive_prompt": "",
         "negative_prompt": "",
         "params": params,
         "model": {
             "family": "standalone",
-            "loader": "birefnet_refinement" if workflow_mode == "refine_mask" else (("sam_impact_shared" if normalized.get("resolved_engine") == "comfy_sam" else "sam_onnx") if workflow_mode == "interactive_sam" else ("commercial_api" if normalized.get("resolved_engine") == "commercial_api" else ("rembg_onnx" if normalized.get("resolved_engine") == "native_rembg" else "birefnet"))),
+            "loader": context_loader,
             "model": normalized.get("resolved_model") or normalized.get("model") or normalized.get("native_model") or normalized.get("commercial_profile_id") or "",
             "vae": "",
         },
@@ -662,7 +887,7 @@ def _context_for_job(
                     else (
                         "Interactive SAM selection completed with stored multi-subject groups and shared/native SAM routing."
                         if workflow_mode == "interactive_sam"
-                        else ("Commercial background-removal API completed after explicit per-run consent." if normalized.get("resolved_engine") == "commercial_api" else ("Native rembg fallback completed." if normalized.get("resolved_engine") == "native_rembg" else "Standalone BiRefNet background-removal graph queued."))
+                        else ("Commercial background-removal API completed after explicit per-run consent." if normalized.get("resolved_engine") == "commercial_api" else ("Native rembg fallback completed." if normalized.get("resolved_engine") == "native_rembg" else ("Standalone ComfyUI-RMBG generic node graph queued." if normalized.get("resolved_engine") == "comfy_rmbg" else "Standalone BiRefNet background-removal graph queued.")))
                     )
                 ),
             }],
@@ -678,7 +903,12 @@ def _call_workflow_builder(
     source_name: str,
     settings: dict[str, Any],
     mask_name: str = "",
+    mask_names: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    if str(settings.get("workflow_mode") or "segment") == "mask_utility":
+        return workflow_builder(source_name, settings, mask_names or [])
+    if str(settings.get("workflow_mode") or "segment") == "matting":
+        return workflow_builder(source_name, settings, mask_name)
     if str(settings.get("workflow_mode") or "segment") == "refine_mask":
         return workflow_builder(source_name, settings, mask_name)
     return workflow_builder(source_name, settings)
@@ -710,17 +940,20 @@ def create_background_removal_api_router(
                 detector_backend = detector_backend_resolver(profile_id) if detector_backend_resolver is not None else None
                 payload = _build_model_catalog(root_dir, provider, profile, detector_backend)
             else:
+                native_status = native_rembg_status()
                 payload = {
-                    "models": [], "sources": [], "object_info_available": False, "available_nodes": [],
+                    "models": [], "rmbg_models": [], "rmbg_node": build_rmbg_node_catalog({}), "sources": [], "object_info_available": False, "available_nodes": [],
                     "required_nodes": sorted(SEGMENT_REQUIRED_NODES), "refinement_required_nodes": sorted(REFINEMENT_REQUIRED_NODES),
                     "optional_nodes": sorted(OPTIONAL_NODES), "missing_nodes": sorted(SEGMENT_REQUIRED_NODES),
                     "missing_refinement_nodes": sorted(REFINEMENT_REQUIRED_NODES), "nodes_ready": False,
                     "refinement_nodes_ready": False, "model_folder": "ComfyUI/models/BiRefNet/",
                     "presets": {key: list(value) for key, value in PRESET_MODEL_CANDIDATES.items()},
-                    "native": native_rembg_status(), "native_models": list(NATIVE_MODEL_IDS),
-                    "native_preset_models": dict(NATIVE_PRESET_MODELS), "engines": ["smart", "comfy_birefnet", "native_rembg", "native_sam", "commercial_api"],
+                    "native": native_status, "native_models": list(NATIVE_MODEL_IDS),
+                    "native_preset_models": dict(NATIVE_PRESET_MODELS), "engines": ["smart", "comfy_birefnet", "comfy_rmbg", "native_rembg", "native_sam", "commercial_api"],
                     "sam_variants": list(SAM_MODEL_VARIANTS), "sam_refinement_models": list(SAM_REFINEMENT_MODEL_IDS),
                     "shared_sam": build_shared_sam_catalog(available_nodes=[]),
+                    "rmbg_inventory": build_rmbg_capability_inventory({}),
+                    "engine_catalog": build_engine_catalog(native_status=native_status),
                 }
             payload.update({"ok": True, "extension_id": EXTENSION_ID, "profile_id": profile_id, "endpoint": MODELS_ENDPOINT})
             return public_model_catalog(payload)
@@ -728,6 +961,146 @@ def create_background_removal_api_router(
             raise
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Background Removal model scan failed: {exc}") from exc
+
+    @router.get("/batch-video/catalog")
+    async def background_removal_batch_video_catalog(profile_id: str = "") -> dict[str, Any]:
+        """Expose the live Phase RMBG-7 batch/video contracts without queuing."""
+
+        if not profile_id:
+            catalog = build_batch_video_catalog({})
+            return {"ok": True, "endpoint": BATCH_VIDEO_CATALOG_ENDPOINT, "profile_id": "", "catalog": catalog}
+        try:
+            provider, profile = catalog_resolver(profile_id)
+            provider_id = _provider_id(provider, profile)
+            if provider_id not in SUPPORTED_COMFY_BACKENDS:
+                raise HTTPException(status_code=400, detail="RMBG batch/video segmentation requires a ComfyUI profile.")
+            catalog = build_batch_video_catalog(_object_info(provider))
+            return {
+                "ok": True,
+                "endpoint": BATCH_VIDEO_CATALOG_ENDPOINT,
+                "profile_id": profile_id,
+                "provider_id": provider_id,
+                "catalog": public_model_catalog(catalog),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"RMBG batch/video contract scan failed: {exc}") from exc
+
+    @router.post("/batch-video/queue")
+    async def queue_background_removal_batch_video(
+        profile_id: str = Form(""),
+        settings_json: str = Form("{}"),
+        image_files: list[UploadFile] = File(default=[]),
+        video_file: UploadFile | None = File(default=None),
+    ) -> dict[str, Any]:
+        """Queue one live-gated batch-image or frame-wise video graph."""
+
+        raw_settings = _parse_settings(settings_json)
+        if raw_settings.get("enabled") is False:
+            raise HTTPException(status_code=400, detail="Background Removal is disabled.")
+        requested_temporal = str(raw_settings.get("rmbg_temporal_mode") or raw_settings.get("temporal_mode") or "framewise").strip().lower()
+        if requested_temporal not in {"", "framewise"}:
+            raise HTTPException(status_code=400, detail="Phase RMBG-7 supports frame-wise segmentation only; temporal propagation/tracking is not installed as a verified contract.")
+        settings = normalize_batch_video_settings(raw_settings)
+        if settings["route"] == "batch_images":
+            if video_file is not None:
+                raise HTTPException(status_code=400, detail="Batch image segmentation accepts image_files, not video_file.")
+            if not image_files:
+                raise HTTPException(status_code=400, detail="Pick at least one source image for batch segmentation.")
+            if len(image_files) > MAX_BATCH_IMAGES:
+                raise HTTPException(status_code=400, detail=f"Batch segmentation accepts at most {MAX_BATCH_IMAGES} images per run.")
+        else:
+            if video_file is None:
+                raise HTTPException(status_code=400, detail="Pick one source video for frame-wise segmentation.")
+            if image_files:
+                raise HTTPException(status_code=400, detail="Frame-wise video segmentation accepts video_file, not image_files.")
+
+        try:
+            provider, profile = profile_provider_resolver(profile_id)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"ComfyUI profile is unavailable: {exc}") from exc
+        provider_id = _provider_id(provider, profile)
+        if provider_id not in SUPPORTED_COMFY_BACKENDS:
+            raise HTTPException(status_code=400, detail="RMBG batch/video segmentation requires a connected ComfyUI profile.")
+        object_info = _object_info(provider)
+        catalog = build_batch_video_catalog(object_info)
+        route_resolution = resolve_batch_video_route(catalog, settings["route"])
+        if not route_resolution.get("ready"):
+            raise HTTPException(status_code=409, detail="; ".join(route_resolution.get("blockers") or ["The selected RMBG batch/video route is unavailable."]))
+
+        saved_sources: list[dict[str, Any]] = []
+        comfy_names: list[str] = []
+        if settings["route"] == "batch_images":
+            for index, upload in enumerate(image_files, start=1):
+                asset = await _save_upload(upload, root_dir, index)
+                asset["batch_index"] = index
+                saved_sources.append(asset)
+                comfy_names.append(_upload_to_comfy(provider, Path(asset["path"])))
+            try:
+                workflow, clean, notes = build_batch_image_workflow(comfy_names, settings, object_info)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            route = _route_for_profile(provider, profile, {"workflow_mode": "batch_images", "resolved_engine": "comfy_birefnet"})
+        else:
+            asset = await _save_video_upload(video_file, root_dir)
+            saved_sources.append(asset)
+            comfy_name = _upload_to_comfy(provider, Path(asset["path"]))
+            try:
+                workflow, clean, notes = build_video_framewise_workflow(comfy_name, settings, object_info)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            route = _route_for_profile(provider, profile, {"workflow_mode": "video_framewise", "resolved_engine": "comfy_birefnet"})
+
+        client_id = f"neo-rmbg-{uuid4().hex}"
+        try:
+            response = _post_prompt(provider, workflow, client_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"ComfyUI rejected the RMBG batch/video graph: {exc}") from exc
+        prompt_id = str(response.get("prompt_id") or f"rmbg-batch-video-{uuid4().hex[:12]}")
+        metadata = {
+            "schema_id": settings["schema_id"],
+            "schema_version": settings["schema_version"],
+            "route": settings["route"],
+            "execution": settings["execution"],
+            "temporal_mode": "framewise",
+            "temporal_tracking": False,
+            "source_count": len(saved_sources),
+            "source_order": [item.get("filename") or item.get("stored_filename") for item in saved_sources],
+            "max_frames": settings["max_frames"],
+            "fps": settings["fps"],
+            "notes": notes,
+            "output_contract": "foreground_and_mask_video" if settings["route"] == "video_framewise" else "foreground_and_mask_image_batch",
+        }
+        if context_recorder:
+            context_recorder(prompt_id, {
+                "job_id": prompt_id,
+                "profile_id": profile_id,
+                "backend_profile_id": profile_id,
+                "provider_id": provider_id,
+                "subtab": "finish",
+                "mode": "background_removal_batch_video_finish",
+                "prompt": "",
+                "positive_prompt": "",
+                "negative_prompt": "",
+                "params": {**clean, "compile_notes": notes},
+                "model": {"family": "standalone", "loader": "rmbg_batch_video", "model": clean.get("adapter") or "SegmentV2", "vae": ""},
+                "extensions": {"used": [{"extension_id": EXTENSION_ID, "version": 11, "enabled": True, "route": route, "params": clean, "node_status": {"ready": True, "catalog": catalog}}], "memory_events": {EXTENSION_ID: metadata}},
+            })
+        return {
+            "ok": True,
+            "endpoint": BATCH_VIDEO_QUEUE_ENDPOINT,
+            "profile_id": profile_id,
+            "provider_id": provider_id,
+            "route": route,
+            "workflow_mode": settings["route"],
+            "schema_id": settings["schema_id"],
+            "temporal_mode": "framewise",
+            "jobs": [{"job_id": prompt_id, "prompt_id": prompt_id, "profile_id": profile_id, "provider_id": provider_id, "client_id": client_id, "workflow_mode": settings["route"]}],
+            "queued_count": 1,
+            "source_count": len(saved_sources),
+            "metadata": {**metadata, "source_order": [item.get("filename") or item.get("stored_filename") for item in saved_sources]},
+        }
 
     @router.post("/detect-subjects")
     async def detect_background_removal_subjects(
@@ -873,9 +1246,13 @@ def create_background_removal_api_router(
         image_files: list[UploadFile] = File(default=[]),
         image_file: UploadFile | None = File(default=None),
         mask_file: UploadFile | None = File(default=None),
+        mask_files: list[UploadFile] = File(default=[]),
     ) -> dict[str, Any]:
         if image_file is not None:
             image_files = [*image_files, image_file]
+        mask_uploads = [item for item in mask_files if item is not None]
+        if mask_file is not None:
+            mask_uploads = [mask_file, *mask_uploads]
         try:
             raw_settings = _parse_settings(settings_json)
             settings = normalize_settings(raw_settings)
@@ -883,7 +1260,7 @@ def create_background_removal_api_router(
                 settings,
                 require_source=True,
                 source_images=[f.filename for f in image_files],
-                mask_images=[mask_file.filename] if mask_file else [],
+                mask_images=[item.filename for item in mask_uploads],
             )
         except PayloadContractError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -893,6 +1270,10 @@ def create_background_removal_api_router(
             raise HTTPException(status_code=400, detail="Mask Review refinement accepts one source image and one reviewed mask per run.")
         if settings.get("workflow_mode") == "interactive_sam" and len(image_files) != 1:
             raise HTTPException(status_code=400, detail="Interactive SAM selection accepts one source image per run.")
+        if settings.get("workflow_mode") in {"segmentation_lab", "region_segmentation"} and len(image_files) != 1:
+            raise HTTPException(status_code=400, detail="Segmentation Lab accepts one source image per run.")
+        if settings.get("workflow_mode") in {"mask_utility", "matting"} and len(image_files) != 1:
+            raise HTTPException(status_code=400, detail="Mask utilities accept one source image per run.")
         if not validation.get("ok"):
             raise HTTPException(status_code=400, detail="; ".join(validation.get("errors") or ["Background Removal validation failed."]))
 
@@ -912,7 +1293,7 @@ def create_background_removal_api_router(
                 profile_error = str(exc)
         elif settings.get("engine") == "commercial_api":
             raise HTTPException(status_code=400, detail="Choose a commercial background-removal provider profile.")
-        elif settings.get("workflow_mode") == "refine_mask" or (settings.get("workflow_mode") != "interactive_sam" and settings.get("engine") == "comfy_birefnet"):
+        elif settings.get("workflow_mode") == "refine_mask" or (settings.get("workflow_mode") != "interactive_sam" and settings.get("engine") in {"comfy_birefnet", "comfy_rmbg"}):
             raise HTTPException(status_code=400, detail="Choose a ComfyUI profile for this Background Removal route.")
 
         profile_provider_id = _provider_id(provider, profile) if provider is not None else ""
@@ -923,16 +1304,29 @@ def create_background_removal_api_router(
                 raise HTTPException(status_code=400, detail="The selected profile is not a supported commercial background-removal provider.")
             if str(profile.get("profile_role") or "") != "image_background_removal_backend":
                 raise HTTPException(status_code=400, detail="The selected provider profile is not scoped to Image Background Removal.")
+            catalog["engine_catalog"] = build_engine_catalog(
+                comfy_catalog=catalog,
+                native_status=catalog.get("native") or {},
+                commercial_status={
+                    "available": True,
+                    "status": "available",
+                    "provider_id": profile_provider_id,
+                    "blockers": [],
+                },
+            )
 
         if provider is not None and profile_provider_id in SUPPORTED_COMFY_BACKENDS:
             catalog = _build_model_catalog(root_dir, provider, profile)
         else:
+            native_status = native_rembg_status()
             catalog = {
-                "models": [], "sources": [], "object_info_available": False, "available_nodes": [],
+                "models": [], "rmbg_models": [], "rmbg_node": build_rmbg_node_catalog({}), "sources": [], "object_info_available": False, "available_nodes": [],
                 "missing_nodes": sorted(SEGMENT_REQUIRED_NODES), "missing_refinement_nodes": sorted(REFINEMENT_REQUIRED_NODES),
                 "nodes_ready": False, "refinement_nodes_ready": False,
-                "native": native_rembg_status(), "native_models": list(NATIVE_MODEL_IDS),
+                "native": native_status, "native_models": list(NATIVE_MODEL_IDS),
                 "native_preset_models": dict(NATIVE_PRESET_MODELS),
+                "shared_sam": build_shared_sam_catalog(available_nodes=[]),
+                "engine_catalog": build_engine_catalog(native_status=native_status),
             }
 
         workflow_mode = str(settings.get("workflow_mode") or "segment")
@@ -954,34 +1348,149 @@ def create_background_removal_api_router(
                 raise HTTPException(status_code=400, detail=profile_error or "Mask Review refinement requires a connected ComfyUI profile.")
             settings = normalize_settings({**settings, "engine": "comfy_birefnet", "resolved_engine": "comfy_birefnet"})
             resolution = EngineResolution("comfy_birefnet", "comfy_birefnet", settings.get("preset") or "smart_auto", settings.get("model") or "", False, "", True, ())
+        elif workflow_mode == "segmentation_lab":
+            if provider is None or profile_provider_id not in SUPPORTED_COMFY_BACKENDS:
+                raise HTTPException(status_code=400, detail=profile_error or "Segmentation Lab requires a connected ComfyUI profile.")
+            adapter_resolution = resolve_segmentation_adapter(catalog.get("segmentation_lab"), str(settings.get("segmentation_adapter") or "auto"))
+            if not adapter_resolution.get("ready"):
+                raise HTTPException(status_code=400, detail="; ".join(adapter_resolution.get("blockers") or ["No verified prompt-segmentation adapter is ready."]))
+            adapter_row = adapter_resolution.get("row") or {}
+            model_choices = adapter_row.get("model_choices") if isinstance(adapter_row.get("model_choices"), dict) else {}
+            def _catalog_model(field: str, requested: str, role: str) -> str:
+                choices = [str(item).strip() for item in (model_choices.get(field) or []) if str(item).strip()]
+                selected = str(requested or "").strip()
+                if selected and choices and selected.casefold() not in {item.casefold() for item in choices}:
+                    raise HTTPException(status_code=400, detail=f"Selected Segmentation Lab model is not in the active live choice list for {field}: {selected}.")
+                if selected and (not choices or selected.casefold() in {item.casefold() for item in choices}):
+                    return selected
+                if choices:
+                    return choices[0]
+                return selected
+            settings = normalize_settings({
+                **settings,
+                "engine": "comfy_segmentation",
+                "resolved_engine": "comfy_segmentation",
+                "segmentation_adapter": adapter_resolution.get("adapter") or "",
+                "segmentation_node_class": adapter_row.get("node_class") or "",
+                "segmentation_sam_model": _catalog_model("sam_model", settings.get("segmentation_sam_model"), "sam"),
+                "segmentation_sam2_model": _catalog_model("sam2_model", settings.get("segmentation_sam2_model"), "sam2"),
+                "segmentation_dino_model": _catalog_model("dino_model", settings.get("segmentation_dino_model"), "groundingdino"),
+                "manual_mask": True,
+                "mask_source": "segmentation_lab",
+                "fallback_policy": "never",
+            })
+            resolution = EngineResolution("comfy_segmentation", "comfy_segmentation", "segmentation_lab", adapter_row.get("node_class") or "", False, "", True, ())
+        elif workflow_mode == "region_segmentation":
+            if provider is None or profile_provider_id not in SUPPORTED_COMFY_BACKENDS:
+                raise HTTPException(status_code=400, detail=profile_error or "Face, clothes, and fashion segmentation requires a connected ComfyUI profile.")
+            region_catalog = catalog.get("region_segmentation") or {}
+            region_rows = {str(row.get("id")): row for row in region_catalog.get("adapters", []) if isinstance(row, dict)}
+            requested_adapter = str(settings.get("region_segmentation_adapter") or "auto")
+            targets = []
+            for target in settings.get("region_segmentation_targets") or []:
+                if not target.get("enabled", True):
+                    continue
+                target_region = str(target.get("region") or "").strip().lower()
+                target_adapter = requested_adapter if requested_adapter != "auto" else target_region
+                adapter_row = region_rows.get(target_adapter) or {}
+                if not adapter_row.get("available"):
+                    raise HTTPException(status_code=400, detail="; ".join(adapter_row.get("blockers") or [f"Region adapter is unavailable: {target_adapter}."]))
+                allowed_classes = set(adapter_row.get("classes") or [])
+                classes = [item for item in target.get("classes") or [] if item in allowed_classes]
+                if not classes:
+                    classes = list(adapter_row.get("default_classes") or [])
+                targets.append({
+                    **target,
+                    "region": target_adapter,
+                    "adapter": target_adapter,
+                    "node_class": adapter_row.get("node_class") or "",
+                    "options_node_class": adapter_row.get("options_node_class") or "",
+                    "options_input_names": adapter_row.get("options_input_names") or [],
+                    "classes": classes,
+                })
+            if not targets:
+                raise HTTPException(status_code=400, detail="The selected live region adapter has no valid class selections.")
+            resolved_adapters = {str(item.get("adapter") or "") for item in targets}
+            primary = next(iter(resolved_adapters)) if len(resolved_adapters) == 1 else "auto"
+            primary_node = next((item.get("node_class") for item in targets if item.get("node_class")), "")
+            settings = normalize_settings({
+                **settings,
+                "engine": "comfy_region_segmentation",
+                "resolved_engine": "comfy_region_segmentation",
+                "region_segmentation_adapter": primary,
+                "region_segmentation_node_class": primary_node,
+                "region_segmentation_targets": targets,
+                "manual_mask": True,
+                "mask_source": "region_segmentation",
+                "fallback_policy": "never",
+            })
+            resolution = EngineResolution("comfy_region_segmentation", "comfy_region_segmentation", "region_segmentation", primary_node, False, "", True, ())
+        elif workflow_mode == "mask_utility":
+            if provider is None or profile_provider_id not in SUPPORTED_COMFY_BACKENDS:
+                raise HTTPException(status_code=400, detail=profile_error or "Mask utilities require a connected ComfyUI profile.")
+            utility_catalog = catalog.get("mask_utilities") or {}
+            operation_resolution = resolve_mask_utility(utility_catalog, str(settings.get("mask_utility_operation") or "enhance"))
+            if not operation_resolution.get("ready"):
+                raise HTTPException(status_code=400, detail="; ".join(operation_resolution.get("blockers") or ["No verified mask utility is ready."]))
+            utility_row = operation_resolution.get("row") or {}
+            settings = normalize_settings({
+                **settings,
+                "engine": "comfy_mask_utility",
+                "resolved_engine": "comfy_mask_utility",
+                "mask_utility_operation": operation_resolution.get("operation") or "enhance",
+                "mask_utility_node_class": utility_row.get("node_class") or "",
+                "mask_utility_input_names": utility_row.get("input_names") or [],
+                "manual_mask": True,
+                "mask_source": "mask_utility",
+                "fallback_policy": "never",
+            })
+            resolution = EngineResolution("comfy_mask_utility", "comfy_mask_utility", "mask_utility", utility_row.get("node_class") or "", False, "", True, ())
+        elif workflow_mode == "matting":
+            if provider is None or profile_provider_id not in SUPPORTED_COMFY_BACKENDS:
+                raise HTTPException(status_code=400, detail=profile_error or "Advanced matting requires a connected ComfyUI profile.")
+            matting_catalog = catalog.get("matting") or {}
+            matting_resolution = resolve_matting_profile(
+                matting_catalog,
+                str(settings.get("matting_profile") or "birefnet_hr"),
+                str(settings.get("matting_model") or ""),
+            )
+            if not matting_resolution.get("ready"):
+                raise HTTPException(status_code=400, detail="; ".join(matting_resolution.get("blockers") or ["No verified advanced matting profile is ready."]))
+            matting_row = matting_resolution.get("row") or {}
+            settings = normalize_settings({
+                **settings,
+                "engine": "comfy_matting",
+                "resolved_engine": "comfy_matting",
+                "matting_profile": matting_resolution.get("profile") or "birefnet_hr",
+                "matting_model": matting_resolution.get("model") or "",
+                "matting_node_class": matting_row.get("node_class") or "",
+                "matting_input_names": matting_row.get("input_names") or [],
+                "matting_model_choices": matting_row.get("model_choices") or [],
+                "manual_mask": bool(settings.get("matting_use_source_alpha")),
+                "mask_source": "matting",
+                "fallback_policy": "never",
+            })
+            resolution = EngineResolution("comfy_matting", "comfy_matting", "matting", matting_resolution.get("model") or "", False, "", True, ())
         elif workflow_mode == "interactive_sam":
             native_status = catalog.get("native") or {}
             sam_status = native_status.get("interactive_sam") if isinstance(native_status.get("interactive_sam"), dict) else {}
             shared_catalog = catalog.get("shared_sam") if isinstance(catalog.get("shared_sam"), dict) else build_shared_sam_catalog(available_nodes=catalog.get("available_nodes") or [])
             shared_resolution = resolve_shared_sam(settings, shared_catalog)
             comfy_compatible, comfy_reason = subjects_support_comfy(list(settings.get("sam_subjects") or []))
-            requested_execution = str(settings.get("sam_execution") or "auto")
             comfy_profile_ready = provider is not None and profile_provider_id in SUPPORTED_COMFY_BACKENDS
-            native_ready = bool(native_status.get("available")) and sam_status.get("available") is not False
-            if requested_execution == "comfy_impact":
-                if not comfy_profile_ready:
-                    raise HTTPException(status_code=400, detail=profile_error or "Shared Impact Pack SAM requires a connected ComfyUI profile.")
-                if not shared_resolution.ready:
-                    raise HTTPException(status_code=400, detail=shared_resolution.reason)
-                if not comfy_compatible:
-                    raise HTTPException(status_code=400, detail=comfy_reason)
-                resolved_engine = "comfy_sam"
-            elif requested_execution == "native_onnx":
-                if not native_ready:
-                    raise HTTPException(status_code=400, detail=str(native_status.get("reason") or sam_status.get("reason") or "Neo Native ONNX SAM is unavailable."))
-                resolved_engine = "native_sam"
-            elif comfy_profile_ready and shared_resolution.ready and comfy_compatible:
-                resolved_engine = "comfy_sam"
-            elif native_ready:
-                resolved_engine = "native_sam"
-            else:
-                detail = shared_resolution.reason if comfy_profile_ready else (profile_error or "No connected ComfyUI profile for Comfy SAM.")
-                raise HTTPException(status_code=400, detail=f"No Interactive SAM route is ready. Comfy SAM: {detail}; Native SAM: {native_status.get('reason') or sam_status.get('reason') or 'unavailable'}")
+            resolution = resolve_interactive_engine(
+                settings,
+                shared_resolution=shared_resolution,
+                native_status=native_status,
+                comfy_profile_ready=comfy_profile_ready,
+                comfy_compatible=comfy_compatible,
+                comfy_reason=comfy_reason,
+                profile_error=profile_error,
+            )
+            if not resolution.ready:
+                raise HTTPException(status_code=400, detail="; ".join(resolution.errors) or "No Interactive SAM route is ready.")
+            requested_execution = str(settings.get("sam_execution") or "auto")
+            resolved_engine = resolution.resolved_engine
             settings = normalize_settings({
                 **settings,
                 "preset": "interactive_select",
@@ -1011,6 +1520,9 @@ def create_background_removal_api_router(
                 "fallback_used": resolution.fallback_used,
                 "fallback_reason": resolution.fallback_reason,
                 "model": resolution.model if resolution.resolved_engine == "comfy_birefnet" else settings.get("model"),
+                "rmbg_model": resolution.model if resolution.resolved_engine == "comfy_rmbg" else settings.get("rmbg_model"),
+                "rmbg_node_class": (catalog.get("rmbg_node") or {}).get("node_class") if resolution.resolved_engine == "comfy_rmbg" else settings.get("rmbg_node_class"),
+                "rmbg_input_map": (catalog.get("rmbg_node") or {}).get("input_map") if resolution.resolved_engine == "comfy_rmbg" else settings.get("rmbg_input_map"),
                 "native_model": resolution.model if resolution.resolved_engine == "native_rembg" else settings.get("native_model"),
             })
 
@@ -1055,13 +1567,81 @@ def create_background_removal_api_router(
                     "shared_sam": shared_catalog,
                 },
             }
+        elif settings.get("resolved_engine") == "comfy_segmentation":
+            lab_catalog = catalog.get("segmentation_lab") or {}
+            adapter_row = next((row for row in lab_catalog.get("adapters", []) if row.get("id") == settings.get("segmentation_adapter")), {})
+            support = {
+                "state": "available",
+                "route": _route_for_profile(provider, profile, settings),
+                "node_status": {
+                    "ready": True,
+                    "workflow_mode": workflow_mode,
+                    "required_nodes": [adapter_row.get("node_class") or "LoadImage", "SaveImage"],
+                    "missing_nodes": [],
+                    "available_nodes": catalog.get("available_nodes") or [],
+                    "segmentation_lab": lab_catalog,
+                },
+            }
+        elif settings.get("resolved_engine") == "comfy_region_segmentation":
+            region_catalog = catalog.get("region_segmentation") or {}
+            required_region_nodes = {"LoadImage", "SaveImage"}
+            resolved_targets = [item for item in (settings.get("region_segmentation_targets") or []) if isinstance(item, dict) and item.get("enabled", True)]
+            for target in resolved_targets:
+                if target.get("node_class"):
+                    required_region_nodes.add(str(target.get("node_class")))
+                if str(target.get("adapter") or target.get("region") or "").strip().lower() == "accessories" and target.get("options_node_class"):
+                    required_region_nodes.add(str(target.get("options_node_class")))
+            if len(resolved_targets) > 1:
+                required_region_nodes.add("MaskComposite")
+            support = {
+                "state": "available",
+                "route": _route_for_profile(provider, profile, settings),
+                "node_status": {
+                    "ready": True,
+                    "workflow_mode": workflow_mode,
+                    "required_nodes": sorted(required_region_nodes),
+                    "missing_nodes": [],
+                    "available_nodes": catalog.get("available_nodes") or [],
+                    "region_segmentation": region_catalog,
+                },
+            }
+        elif settings.get("resolved_engine") == "comfy_mask_utility":
+            utility_catalog = catalog.get("mask_utilities") or {}
+            utility_row = next((row for row in utility_catalog.get("operations", []) if row.get("id") == settings.get("mask_utility_operation")), {})
+            support = {
+                "state": "available",
+                "route": _route_for_profile(provider, profile, settings),
+                "node_status": {
+                    "ready": True,
+                    "workflow_mode": workflow_mode,
+                    "required_nodes": [utility_row.get("node_class") or "LoadImage", "SaveImage"],
+                    "missing_nodes": [],
+                    "available_nodes": catalog.get("available_nodes") or [],
+                    "mask_utilities": utility_catalog,
+                },
+            }
+        elif settings.get("resolved_engine") == "comfy_matting":
+            matting_catalog = catalog.get("matting") or {}
+            matting_row = next((row for row in matting_catalog.get("profiles", []) if row.get("id") == settings.get("matting_profile")), {})
+            support = {
+                "state": "available",
+                "route": _route_for_profile(provider, profile, settings),
+                "node_status": {
+                    "ready": True,
+                    "workflow_mode": workflow_mode,
+                    "required_nodes": [matting_row.get("node_class") or "LoadImage", "SaveImage"],
+                    "missing_nodes": [],
+                    "available_nodes": catalog.get("available_nodes") or [],
+                    "matting": matting_catalog,
+                },
+            }
         else:
             if provider is None:
-                raise HTTPException(status_code=400, detail=profile_error or "Comfy BiRefNet requires a connected ComfyUI profile.")
+                raise HTTPException(status_code=400, detail=profile_error or ("ComfyUI-RMBG requires a connected ComfyUI profile." if settings.get("resolved_engine") == "comfy_rmbg" else "Comfy BiRefNet requires a connected ComfyUI profile."))
             try:
                 if workflow_mode != "refine_mask":
-                    settings = normalize_settings(_resolve_model_for_preset(settings, catalog))
-                    settings = normalize_settings({**settings, "resolved_model": settings.get("model") or resolution.model})
+                    settings = normalize_settings(_resolve_rmbg_model(settings, catalog) if settings.get("resolved_engine") == "comfy_rmbg" else _resolve_model_for_preset(settings, catalog))
+                    settings = normalize_settings({**settings, "resolved_model": (settings.get("rmbg_model") if settings.get("resolved_engine") == "comfy_rmbg" else settings.get("model")) or resolution.model})
                 support = _assert_route_ready(provider, profile, settings, catalog)
             except HTTPException as exc:
                 allow_queue_fallback = (
@@ -1094,6 +1674,20 @@ def create_background_removal_api_router(
         if workflow_mode == "refine_mask" and mask_file is not None:
             review_mask_asset = await _save_mask_upload(mask_file, root_dir)
             review_mask_comfy_name = _upload_to_comfy(provider, Path(review_mask_asset["path"]))
+        utility_mask_assets: list[dict[str, Any]] = []
+        utility_mask_comfy_names: list[str] = []
+        matting_mask_asset: dict[str, Any] | None = None
+        matting_mask_comfy_name = ""
+        if workflow_mode == "matting" and mask_file is not None:
+            matting_mask_asset = await _save_mask_upload(mask_file, root_dir, 1)
+            matting_mask_asset["kind"] = "background_removal_matting_mask"
+            matting_mask_comfy_name = _upload_to_comfy(provider, Path(matting_mask_asset["path"]))
+        if workflow_mode == "mask_utility":
+            for mask_index, upload in enumerate(mask_uploads[:MAX_MASK_FILES], start=1):
+                asset = await _save_mask_upload(upload, root_dir, mask_index)
+                utility_mask_assets.append(asset)
+                utility_mask_comfy_names.append(_upload_to_comfy(provider, Path(asset["path"])))
+            settings = normalize_settings({**settings, "mask_utility_mask_names": utility_mask_comfy_names})
 
         queued: list[dict[str, Any]] = []
         completed_outputs: list[dict[str, Any]] = []
@@ -1108,8 +1702,10 @@ def create_background_removal_api_router(
                     **settings,
                     "source_width": asset.get("width") or 0,
                     "source_height": asset.get("height") or 0,
-                    "manual_mask": bool(review_mask_asset) or settings.get("manual_mask"),
-                    "mask_source": "manual_review" if review_mask_asset else settings.get("mask_source"),
+                    "manual_mask": bool(review_mask_asset or utility_mask_assets) or settings.get("manual_mask"),
+                    "mask_source": "manual_review" if review_mask_asset else ("matting" if matting_mask_asset else ("mask_utility" if utility_mask_assets else settings.get("mask_source"))),
+                    "mask_utility_mask_names": utility_mask_comfy_names,
+                    "matting_mask_names": [matting_mask_comfy_name] if matting_mask_comfy_name else [],
                 })
                 per_source.update({
                     "source_width": asset.get("width") or 0,
@@ -1120,7 +1716,7 @@ def create_background_removal_api_router(
                     enabled=True,
                     route=route,
                     source_images=[asset],
-                    mask_images=[review_mask_asset] if review_mask_asset else [],
+                    mask_images=([review_mask_asset] if review_mask_asset else []) + utility_mask_assets,
                 )
 
                 if per_source.get("resolved_engine") == "commercial_api":
@@ -1221,7 +1817,7 @@ def create_background_removal_api_router(
                     continue
 
                 comfy_name = _upload_to_comfy(provider, Path(asset["path"]))
-                workflow, normalized, notes = _call_workflow_builder(workflow_builder, comfy_name, per_source, review_mask_comfy_name)
+                workflow, normalized, notes = _call_workflow_builder(workflow_builder, comfy_name, per_source, review_mask_comfy_name or matting_mask_comfy_name, utility_mask_comfy_names)
                 normalized.update({
                     "resolved_engine": per_source.get("resolved_engine") or "comfy_birefnet",
                     "resolved_model": per_source.get("resolved_model") or normalized.get("sam_comfy_model") or normalized.get("model") or "",
@@ -1234,7 +1830,7 @@ def create_background_removal_api_router(
                 prompt_id = str(response.get("prompt_id") or f"background-removal-{uuid4().hex[:10]}")
                 assets = {
                     "source_images": [asset],
-                    "mask_images": [review_mask_asset] if review_mask_asset else [],
+                    "mask_images": ([review_mask_asset] if review_mask_asset else []) + ([matting_mask_asset] if matting_mask_asset else []) + utility_mask_assets,
                     "comfy_source_image_name": comfy_name,
                     "comfy_review_mask_name": review_mask_comfy_name,
                 }
@@ -1257,7 +1853,7 @@ def create_background_removal_api_router(
                         normalized=normalized,
                         notes=notes,
                         asset=asset,
-                        mask_asset=review_mask_asset,
+                        mask_asset=review_mask_asset or matting_mask_asset or (utility_mask_assets[0] if utility_mask_assets else None),
                     ))
                 queued.append({
                     "job_id": prompt_id,
@@ -1267,7 +1863,8 @@ def create_background_removal_api_router(
                     "client_id": client_id,
                     "source": asset.get("filename"),
                     "stored_source": asset.get("stored_filename"),
-                    "stored_mask": review_mask_asset.get("stored_filename") if review_mask_asset else "",
+                    "stored_mask": review_mask_asset.get("stored_filename") if review_mask_asset else (matting_mask_asset.get("stored_filename") if matting_mask_asset else ""),
+                    "stored_masks": [item.get("stored_filename") for item in utility_mask_assets],
                     "comfy_source_image_name": comfy_name,
                     "comfy_review_mask_name": review_mask_comfy_name,
                     "model": normalized.get("resolved_model") or normalized.get("model"),
@@ -1325,6 +1922,9 @@ def create_background_removal_api_router(
             raise HTTPException(status_code=502, detail=detail)
         refinement = settings.get("workflow_mode") == "refine_mask"
         interactive_sam = settings.get("workflow_mode") == "interactive_sam"
+        segmentation_lab = settings.get("workflow_mode") == "segmentation_lab"
+        region_segmentation = settings.get("workflow_mode") == "region_segmentation"
+        mask_utility = settings.get("workflow_mode") == "mask_utility"
         completed_engines = {str(item.get("engine") or "") for item in completed_results if str(item.get("engine") or "")}
         queued_engines = {str(item.get("engine") or "") for item in queued if str(item.get("engine") or "")}
         all_engines = completed_engines | queued_engines
@@ -1341,6 +1941,7 @@ def create_background_removal_api_router(
             "source_file_endpoint": SOURCE_FILE_ENDPOINT,
             "profile_id": profile_id,
             "route": route,
+            "engine_catalog": catalog.get("engine_catalog") or build_engine_catalog(),
             "jobs": queued,
             "completed_outputs": completed_outputs,
             "completed_results": completed_results,
@@ -1357,13 +1958,14 @@ def create_background_removal_api_router(
                 else (
                     "Completed Interactive SAM selection and saved a transparent child output."
                     if interactive_sam
-                    else (
+                    else (("Queued mask utility output and saved the derived result." if mask_utility else (("Queued face, clothes, fashion, or accessories region masks and saved the selected region result." if region_segmentation else ("Queued Segmentation Lab prompt masks and saved the selected object result." if segmentation_lab else (
                     f"Completed {'commercial' if resolved_engine == 'commercial_api' else 'native'} Background Removal for {len(completed_results)} image{'s' if len(completed_results) != 1 else ''}."
                     if completed_results and not queued
                     else f"Started Background Removal for {len(queued) + len(completed_results)} image{'s' if len(queued) + len(completed_results) != 1 else ''}."
-                    )
+                    )))))
+                    ))
                 )
-            ),
+            ,
         }
 
     return router

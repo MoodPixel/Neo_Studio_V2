@@ -11,6 +11,8 @@ from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
+from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
+from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
 
@@ -345,13 +347,17 @@ def _build_qwen_image_conditioning_and_latent(
         workflow["6"] = {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": batch_count}}
         return "7", ["6", 0], {}, notes
 
-    if not source_name:
+    stitch_only_ready = mode == "img2img" and qwen_stitch_has_ready_group(extract_qwen_stitch_payload(params))
+    if not source_name and not stitch_only_ready:
         raise ValueError(f"Qwen GGUF {mode} requires a source image.")
 
-    workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_name, "upload": "image"}}
-    source_ref: list[Any] = [str(next_id), 0]
-    next_id += 1
-    qwen_image_ref = list(source_ref)
+    source_ref: list[Any] | None = None
+    qwen_image_ref: list[Any] | None = None
+    if source_name:
+        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_name, "upload": "image"}}
+        source_ref = [str(next_id), 0]
+        next_id += 1
+        qwen_image_ref = list(source_ref)
 
     source_size_ref: list[Any] | None = None
     if mode == "inpaint":
@@ -363,6 +369,23 @@ def _build_qwen_image_conditioning_and_latent(
         "source_image_name": source_name,
         "qwen_mmproj_required": True,
     }
+
+    def attach_stitch_route(current_next_id: int, current_qwen_inputs: dict[str, list[Any]]) -> tuple[int, dict[str, list[Any]]]:
+        stitched_next_id, stitched_inputs, stitch_meta, stitch_notes, stitch_errors = apply_qwen_stitch_route(
+            workflow,
+            params,
+            current_qwen_inputs,
+            current_next_id,
+            family=str(family or "qwen_image"),
+            loader="gguf",
+            mode=mode,
+            backend_capabilities=backend_capabilities,
+        )
+        if stitch_meta.get("enabled") or stitch_meta.get("groups"):
+            metadata["qwen_stitch"] = stitch_meta
+        notes.extend(stitch_notes)
+        notes.extend(f"Stitch Images: {error}" for error in stitch_errors)
+        return stitched_next_id, stitched_inputs
 
     if mode == "outpaint":
         outpaint_payload = normalize_outpaint_payload(params, default_width=width, default_height=height)
@@ -401,7 +424,9 @@ def _build_qwen_image_conditioning_and_latent(
         })
         scale_note = " + source working-copy scale" if source_scale_meta else ""
         notes.append(f"Qwen GGUF outpaint branch engaged: {scale_note} ImagePadForOutpaint + effective latent canvas {effective_width}x{effective_height}.")
-        return str(next_id + 1), [str(next_id), 0], {"image1": qwen_image_ref}, metadata | {"notes": notes}
+        latent_ref = [str(next_id), 0]
+        next_id, stitched_inputs = attach_stitch_route(next_id + 1, {"image1": qwen_image_ref})
+        return str(next_id), latent_ref, stitched_inputs, metadata | {"notes": notes}
 
     if mode == "inpaint":
         if not mask_name:
@@ -499,11 +524,12 @@ def _build_qwen_image_conditioning_and_latent(
             "inpaint_target": inpaint_target,
         })
         notes.append("Qwen GGUF inpaint branch engaged: source VAEEncode + normalized SetLatentNoiseMask + DifferentialDiffusion + normal KSampler + feathered final masked composite guard; LanPaint is not used.")
-        return str(next_id), sampler_ref, {"image1": qwen_image_ref}, metadata | {"notes": notes}
+        next_id, stitched_inputs = attach_stitch_route(next_id, {"image1": qwen_image_ref} if qwen_image_ref else {})
+        return str(next_id), sampler_ref, stitched_inputs, metadata | {"notes": notes}
 
     # Pass F: normal qwen_image is single-source. Multi-source Qwen editing is
     # intentionally reserved for a separate qwen_image_edit_2509 family pass.
-    qwen_inputs: dict[str, list[Any]] = {"image1": qwen_image_ref}
+    qwen_inputs: dict[str, list[Any]] = {"image1": qwen_image_ref} if qwen_image_ref else {}
     multi_source_allowed = str(family or "qwen_image") in {"qwen_rapid_aio", "qwen_image_edit_2509"}
     if mode == "img2img" and multi_source_allowed:
         _base_name, ref2_name, image3_name, ref_meta = _qwen_img2img_reference_image_names(params, source_name)
@@ -533,6 +559,7 @@ def _build_qwen_image_conditioning_and_latent(
             "qwen_source_images": {"base_image_name": source_name, "reference_image_2_name": "", "composition_image_name": "", "image3_effective_name": ""},
         })
         notes.append("Qwen Image Edit GGUF single-source branch engaged: source_image_2/source_image_3 ignored until Qwen Image Edit 2509 family is selected.")
+    next_id, qwen_inputs = attach_stitch_route(next_id, qwen_inputs)
     workflow[str(next_id)] = {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": batch_count}}
     notes.append("Qwen GGUF img2img branch engaged: source image conditioning + EmptyLatentImage sampler input.")
     return str(next_id + 1), [str(next_id), 0], qwen_inputs, metadata | {"notes": notes}
@@ -751,6 +778,16 @@ def compile_qwen_gguf_txt2img(
         sampler_latent_ref = ["6", 0]
         qwen_image_inputs = {}
         qwen_route_meta = {"notes": [str(exc)]}
+
+    qwen_stitch_meta = qwen_route_meta.get("qwen_stitch") if isinstance(qwen_route_meta, dict) else {}
+    if isinstance(qwen_stitch_meta, dict):
+        stitch_errors = ((qwen_stitch_meta.get("validation") or {}).get("errors") or []) if isinstance(qwen_stitch_meta.get("validation"), dict) else []
+        for item in stitch_errors:
+            message = str(item.get("message") if isinstance(item, dict) else item).strip()
+            if message and message not in validation.errors:
+                validation.errors.append(message)
+        if stitch_errors:
+            validation.ok = False
 
     encode_node = _select_qwen_edit_node(params, backend_capabilities) if mode in {"img2img", "inpaint", "outpaint"} else "CLIPTextEncode"
     if encode_node in QWEN_EDIT_NODE_CANDIDATES:

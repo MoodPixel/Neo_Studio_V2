@@ -27,7 +27,7 @@ def build_background_removal_metadata(
 ) -> dict[str, Any]:
     workflow_mode = str(params.get("workflow_mode") or "segment")
     engine = str(params.get("resolved_engine") or params.get("engine") or "comfy_birefnet")
-    model = str(params.get("resolved_model") or params.get("model") or params.get("native_model") or "BiRefNet")
+    model = str(params.get("resolved_model") or params.get("rmbg_model") or params.get("model") or params.get("native_model") or "BiRefNet")
     preset = str(params.get("preset") or "smart_auto").replace("_", " ")
     if workflow_mode == "refine_mask":
         assistant_summary = "Background Removal mask refinement reused the reviewed mask without rerunning BiRefNet segmentation"
@@ -56,12 +56,30 @@ def build_background_removal_metadata(
             edge_model = params.get("model") if params.get("resolved_engine") == "comfy_sam" else params.get("sam_refine_model")
             assistant_summary += f"; BiRefNet edge refinement requested with {edge_model or 'BiRefNet'}"
         assistant_summary += "; transparent PNG"
+    elif workflow_mode == "segmentation_lab":
+        prompt_rows = [item for item in (params.get("segmentation_lab_prompts") or []) if item.get("enabled", True)]
+        adapter = str(params.get("segmentation_adapter") or "auto")
+        operation = str(params.get("segmentation_mask_operation") or "union")
+        assistant_summary = f"Segmentation Lab selected {len(prompt_rows)} prompted object mask(s) with {adapter} and {operation} operation; transparent PNG"
+    elif workflow_mode == "region_segmentation":
+        targets = [item for item in (params.get("region_segmentation_targets") or []) if item.get("enabled", True)]
+        adapter = str(params.get("region_segmentation_adapter") or "auto")
+        operation = str(params.get("region_segmentation_mask_operation") or "union")
+        assistant_summary = f"Face, clothes, and fashion segmentation selected {len(targets)} region target(s) with {adapter} and {operation} operation; transparent PNG"
+    elif workflow_mode == "mask_utility":
+        operation = str(params.get("mask_utility_operation") or "enhance")
+        mask_count = len(params.get("mask_utility_mask_names") or [])
+        assistant_summary = f"RMBG mask utility {operation} processed {mask_count} uploaded mask image(s); derived PNG"
+    elif workflow_mode == "matting":
+        profile = str(params.get("matting_profile") or "birefnet_hr").replace("_", " ")
+        edge_mode = str(params.get("matting_edge_mode") or "high_resolution_edges").replace("_", " ")
+        assistant_summary = f"Advanced RMBG matting used {profile} with {edge_mode} at {int(params.get('matting_process_res') or 0)}px; transparent PNG"
     else:
         if engine == "commercial_api":
             provider_label = str(route.get("provider_id") or params.get("resolved_model") or "commercial provider")
             assistant_summary = f"Background Removal applied with optional commercial provider {provider_label} after explicit upload consent; transparent PNG"
         else:
-            engine_label = "Neo native rembg" if engine == "native_rembg" else "Comfy BiRefNet"
+            engine_label = "Neo native rembg" if engine == "native_rembg" else ("ComfyUI-RMBG generic RMBG" if engine == "comfy_rmbg" else "Comfy BiRefNet")
             assistant_summary = f"Background Removal applied with {engine_label} · {model} ({preset}); transparent PNG"
             if params.get("fallback_used"):
                 assistant_summary += f"; smart fallback used ({params.get('fallback_reason') or 'preferred engine unavailable'})"
@@ -115,6 +133,7 @@ def build_background_removal_metadata(
             "comfy_birefnet_model": params.get("model") if engine == "comfy_sam" else "",
             "refinement_fallback_used": bool(params.get("sam_refine_fallback_used")),
             "refinement_fallback_reason": params.get("sam_refine_fallback_reason") or "",
+            "mask_operation": params.get("sam_mask_operation") or "union",
         },
         "commercial_provider": {
             "enabled": engine == "commercial_api",
@@ -148,5 +167,46 @@ def build_background_removal_metadata(
             "refine_fallback": bool(params.get("sam_refine_fallback")),
             "gate_expand": int(params.get("sam_gate_expand") or 0),
             "gate_feather": int(params.get("sam_gate_feather") or 0),
+        },
+        "segmentation_lab": {
+            "enabled": workflow_mode == "segmentation_lab",
+            "schema_id": "neo.image.background_removal.segmentation_lab.v1",
+            "adapter": params.get("segmentation_adapter") or "",
+            "node_class": params.get("segmentation_node_class") or "",
+            "prompts": list(params.get("segmentation_lab_prompts") or []),
+            "prompt_count": len(params.get("segmentation_lab_prompts") or []),
+            "mask_operation": params.get("segmentation_mask_operation") or "union",
+            "threshold": params.get("segmentation_threshold", 0.35),
+        },
+        "region_segmentation": {
+            "enabled": workflow_mode == "region_segmentation",
+            "schema_id": "neo.image.background_removal.region_segmentation.v1",
+            "adapter": params.get("region_segmentation_adapter") or "",
+            "node_class": params.get("region_segmentation_node_class") or "",
+            "targets": list(params.get("region_segmentation_targets") or []),
+            "target_count": len(params.get("region_segmentation_targets") or []),
+            "mask_operation": params.get("region_segmentation_mask_operation") or "union",
+        },
+        "mask_utilities": {
+            "enabled": workflow_mode == "mask_utility",
+            "schema_id": "neo.image.background_removal.mask_utilities.v2",
+            "operation": params.get("mask_utility_operation") or "",
+            "node_class": params.get("mask_utility_node_class") or "",
+            "mask_operation": params.get("mask_utility_mask_operation") or "union",
+            "mask_count": len(params.get("mask_utility_mask_names") or []),
+            "derived_image_operation": params.get("mask_utility_operation") in {"mask_overlay", "object_remove_lama", "image_mask_resize", "image_crop"},
+            "handoff_contract": "neo.image.image_mask_preparation.v1" if params.get("mask_utility_operation") in {"image_mask_resize", "image_crop"} else "neo.image.preview_action.v1",
+            "non_destructive": True,
+        },
+        "matting": {
+            "enabled": workflow_mode == "matting",
+            "schema_id": "neo.image.background_removal.matting.v1",
+            "profile": params.get("matting_profile") or "",
+            "node_class": params.get("matting_node_class") or "",
+            "model": params.get("matting_model") or "",
+            "edge_mode": params.get("matting_edge_mode") or "high_resolution_edges",
+            "process_res": int(params.get("matting_process_res") or 0),
+            "mask_refine": bool(params.get("matting_mask_refine")),
+            "mask_supplied": bool(params.get("matting_mask_names")),
         },
     }

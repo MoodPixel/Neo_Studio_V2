@@ -12391,3 +12391,27 @@ textarea {
 .neo-background-removal-commercial-card .neo-commercial-consent { align-items: flex-start; padding: 10px; border-radius: 9px; border: 1px solid rgba(245,158,11,.38); background: rgba(245,158,11,.08); }
 /* V25.9.20 P6.6 — Background Removal multi-subject SAM */
 .neo-background-removal-sam-layout{min-height:0;flex:1;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;padding:14px;overflow:hidden}.neo-background-removal-sam-selection-actions{display:flex;flex-wrap:wrap;gap:6px}.neo-background-removal-sam-subject-list{display:grid;gap:8px;max-height:360px;overflow:auto;padding-right:2px}.neo-background-removal-sam-subject{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:9px;border:1px solid var(--line,#26334a);border-radius:9px;background:rgba(7,13,24,.58)}.neo-background-removal-sam-subject.is-active{border-color:rgba(96,165,250,.72);box-shadow:0 0 0 1px rgba(96,165,250,.18)}.neo-background-removal-sam-subject>label{display:flex;align-items:center;gap:7px;min-width:0;cursor:pointer}.neo-background-removal-sam-subject>label strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.neo-background-removal-sam-subject small{grid-column:1/-1;color:var(--muted,#94a3b8)}.neo-background-removal-sam-swatch{width:12px;height:12px;flex:0 0 12px;border-radius:999px;background:var(--sam-subject-color,#60a5fa);box-shadow:0 0 0 2px rgba(255,255,255,.16)}.neo-background-removal-sam-empty{display:grid;gap:4px;padding:14px;border:1px dashed var(--line-strong,#40506a);border-radius:9px;text-align:center;color:var(--muted,#94a3b8)}@media(max-width:980px){.neo-background-removal-sam-layout{grid-template-columns:1fr;overflow:auto}.neo-background-removal-sam-stage{min-height:52vh}.neo-background-removal-sam-sidebar{max-height:none}}
+
+
+/* Phase 4 — Qwen Rapid AIO Stitch Images UI */
+.neo-source-qwen-stitch { display:grid; gap:0; margin-top:12px; border:1px solid var(--line,#26334a); border-radius:12px; background:rgba(12,20,35,.55); overflow:hidden; }
+.neo-source-qwen-stitch > summary { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; cursor:pointer; list-style:none; }
+.neo-source-qwen-stitch > summary::-webkit-details-marker { display:none; }
+.neo-source-qwen-stitch > summary > span:first-child { display:grid; gap:3px; }
+.neo-source-qwen-stitch > summary small { color:var(--muted,#94a3b8); font-size:12px; font-weight:500; }
+.neo-source-qwen-stitch-body { display:grid; gap:12px; padding:0 14px 14px; border-top:1px solid var(--line,#26334a); }
+.neo-qwen-stitch-group { display:grid; gap:10px; padding:12px; border:1px solid var(--line,#26334a); border-radius:10px; background:rgba(7,13,24,.55); }
+.neo-qwen-stitch-group-head,.neo-qwen-stitch-input-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.neo-qwen-stitch-group-head > div { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.neo-qwen-stitch-input-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.neo-qwen-stitch-input { display:grid; gap:7px; min-width:0; }
+.neo-qwen-stitch-input-head span { color:var(--muted,#94a3b8); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.neo-qwen-stitch-input-preview { display:grid; place-items:center; min-height:104px; overflow:hidden; border:1px dashed var(--line-strong,#40506a); border-radius:9px; background:rgba(2,6,23,.45); cursor:pointer; }
+.neo-qwen-stitch-input-preview:hover,.neo-qwen-stitch-input-preview.is-dragover { border-color:var(--accent,#8b5cf6); background:rgba(139,92,246,.08); }
+.neo-qwen-stitch-input-preview img { width:100%; height:104px; object-fit:cover; }
+.neo-qwen-stitch-input-empty { color:var(--muted,#94a3b8); font-size:12px; padding:12px; text-align:center; }
+.neo-qwen-stitch-input input[type=file] { display:none; }
+.neo-qwen-stitch-settings { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; align-items:end; }
+.neo-qwen-stitch-settings label { min-width:0; }
+.neo-qwen-stitch-settings .neo-checkbox-label { display:flex; align-items:center; gap:7px; min-height:34px; }
+@media (max-width:900px) { .neo-qwen-stitch-input-grid,.neo-qwen-stitch-settings { grid-template-columns:1fr; } }

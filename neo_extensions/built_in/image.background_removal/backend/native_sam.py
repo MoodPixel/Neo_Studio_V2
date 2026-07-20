@@ -85,10 +85,19 @@ def _subject_prompts(settings: dict[str, Any]) -> list[tuple[dict[str, Any], lis
     return [({"id": "legacy_subject_1", "label": "Subject 1", "source": "legacy_prompt", "selected": True}, legacy)] if legacy else []
 
 
-def _union_masks(masks: list[Image.Image], size: tuple[int, int]) -> Image.Image:
+def _union_masks(masks: list[Image.Image], size: tuple[int, int], operation: str = "union") -> Image.Image:
     merged = Image.new("L", size, 0)
-    for mask in masks:
-        merged = ImageChops.lighter(merged, mask.convert("L").resize(size, Image.Resampling.BILINEAR))
+    operation = operation if operation in {"union", "intersection", "subtract"} else "union"
+    for index, mask in enumerate(masks):
+        current = mask.convert("L").resize(size, Image.Resampling.BILINEAR)
+        if index == 0:
+            merged = current
+        elif operation == "intersection":
+            merged = ImageChops.multiply(merged, current)
+        elif operation == "subtract":
+            merged = ImageChops.subtract(merged, current)
+        else:
+            merged = ImageChops.lighter(merged, current)
     return merged
 
 def run_native_sam_selection(
@@ -150,11 +159,12 @@ def run_native_sam_selection(
         })
     if not subject_masks:
         raise RuntimeError("Interactive SAM produced no usable subject masks. Select a tighter box or add a Keep point inside each subject.")
-    sam_mask = _union_masks(subject_masks, source.size)
+    sam_operation = str(settings.get("sam_mask_operation") or "union")
+    sam_mask = _union_masks(subject_masks, source.size, sam_operation)
 
     notes = [
         f"Interactive SAM segmented {len(subject_masks)} selected subject(s) independently with {total_prompt_count} prompt mark(s) using {sam_variant}{' quantized' if sam_quantized else ''}.",
-        "Independent subject masks were unioned before edge refinement, so unselected people remain transparent.",
+        f"Independent subject masks were combined with {sam_operation} before edge refinement, so unselected people remain transparent.",
     ]
     refine_mode = str(settings.get("sam_refine_mode") or "birefnet_gate")
     refinement_model = str(settings.get("sam_refine_model") or "birefnet-general")

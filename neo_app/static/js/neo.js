@@ -397,6 +397,7 @@ const state = {
     source_image_3_role: 'composition_guide',
     qwen_source_slot_count: 1,
     qwen_composition_source_mode: 'source_image',
+    qwen_stitch: { schema: 'neo.image.qwen_stitch.v1', version: 1, enabled: false, ui_open: false, groups: [] },
     mask_image: '',
     mask_image_url: '',
     mask_image_name: '',
@@ -405,6 +406,11 @@ const state = {
     mask_mode: 'paint',
     inpaint_selection_target: 'masked_area',
     inpaint_context_mode: 'masked_region_focus',
+    context_latent_enabled: false,
+    context_latent_source: 'source_image',
+    context_latent_expand: 5,
+    context_latent_blur: 3.0,
+    context_latent_mask_only: true,
     mask_grow: 6,
     mask_blur: 0,
     outpaint_left: 0,
@@ -1524,6 +1530,245 @@ function qwenVisibleSourceSlotCount() {
   if (state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url) count = Math.max(count, 2);
   if (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url) count = Math.max(count, 3);
   return count;
+}
+function qwenStitchRouteActive(mode = activeImageMode()) {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const runtimeMode = String(mode || '').trim().toLowerCase();
+  if (!['img2img', 'edit', 'inpaint', 'outpaint'].includes(runtimeMode)) return false;
+  if (['sdxl', 'sd15'].includes(family)) return loader === 'checkpoint';
+  if (family === 'flux1_fill') return loader === 'diffusion_model' && ['inpaint', 'outpaint'].includes(runtimeMode);
+  if (['flux', 'flux2_klein'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
+  if (['qwen_image', 'qwen_image_edit_2509'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
+  if (family === 'qwen_rapid_aio') return ['checkpoint_aio', 'gguf'].includes(loader);
+  if (['z_image', 'z_image_turbo'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
+  return false;
+}
+function qwenStitchUsesImageLanes() {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const mode = String(activeImageMode() || '').trim().toLowerCase();
+  return family === 'qwen_rapid_aio' && ['checkpoint_aio', 'gguf'].includes(loader) && ['img2img', 'edit'].includes(mode);
+}
+function qwenStitchDraft() {
+  const current = state.imageDraft.qwen_stitch && typeof state.imageDraft.qwen_stitch === 'object' ? state.imageDraft.qwen_stitch : {};
+  const groups = Array.isArray(current.groups) ? current.groups : [];
+  state.imageDraft.qwen_stitch = {
+    schema: 'neo.image.qwen_stitch.v1',
+    version: 1,
+    enabled: current.enabled === true,
+    ui_open: current.ui_open === true,
+    groups,
+  };
+  return state.imageDraft.qwen_stitch;
+}
+function qwenStitchBackendCapabilities(profile = activeImageProfile()) {
+  return profile?.backend_capabilities || profile?.runtime?.backend_capabilities || profile?.runtime?.capabilities?.backend_capabilities || {};
+}
+function qwenStitchImageLaneLimit(profile = activeImageProfile()) {
+  if (!qwenStitchUsesImageLanes()) return 2;
+  const nodeMap = qwenStitchBackendCapabilities(profile)?.object_info_node_inputs;
+  const names = nodeMap?.TextEncodeQwenImageEditPlus?.all;
+  const lanes = (Array.isArray(names) ? names : []).map((name) => String(name).match(/^image(\d+)$/i)?.[1]).filter(Boolean).map(Number);
+  if (!lanes.length) return 3;
+  return Math.max(1, Math.min(4, Math.max(...lanes)));
+}
+function qwenStitchNodeAvailable(profile = activeImageProfile()) {
+  const nodeMap = qwenStitchBackendCapabilities(profile)?.object_info_node_inputs;
+  if (!nodeMap || !Object.keys(nodeMap).length) return true;
+  return Boolean(nodeMap.ImageStitch || nodeMap.AILab_ImageStitch);
+}
+function qwenStitchGroupInput(group, side) {
+  const value = group?.inputs?.[side];
+  if (value && typeof value === 'object') return value;
+  return { path: '', url: '', name: value || '' };
+}
+function qwenStitchGroupId(group, index = 0) {
+  return String(group?.id || `stitch_${index + 1}`).trim() || `stitch_${index + 1}`;
+}
+function qwenStitchDomId(value) {
+  return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+function qwenStitchNewGroup(index = 0, outputLane = 2) {
+  return {
+    id: `stitch_${Date.now()}_${index + 1}`,
+    enabled: true,
+    output_lane: outputLane,
+    inputs: {
+      image_a: { path: '', url: '', name: '' },
+      image_b: { path: '', url: '', name: '' },
+    },
+    settings: { direction: 'right', match_image_size: true, spacing_width: 0, spacing_color: 'black' },
+  };
+}
+function qwenStitchDirectOccupiedLanes() {
+  if (!qwenStitchUsesImageLanes()) return new Set([1]);
+  const occupied = new Set([1]);
+  [2, 3].forEach((lane) => {
+    if (sourceImageLanePath(lane) || sourceImageLaneUrl(lane)) occupied.add(lane);
+  });
+  return occupied;
+}
+function qwenStitchUsedOutputLanes(exceptId = '') {
+  const used = new Set();
+  qwenStitchDraft().groups.forEach((group, index) => {
+    if (qwenStitchGroupId(group, index) === exceptId || group?.enabled === false) return;
+    const lane = Number(group?.output_lane);
+    if (Number.isFinite(lane)) used.add(lane);
+  });
+  return used;
+}
+function qwenStitchAvailableOutputLanes(exceptId = '') {
+  const limit = qwenStitchImageLaneLimit();
+  const occupied = qwenStitchDirectOccupiedLanes();
+  const used = qwenStitchUsedOutputLanes(exceptId);
+  return Array.from({ length: Math.max(0, limit - 1) }, (_, index) => index + 2).filter((lane) => !occupied.has(lane) && !used.has(lane));
+}
+function qwenStitchGroupReady(group) {
+  const imageA = qwenStitchGroupInput(group, 'image_a');
+  const imageB = qwenStitchGroupInput(group, 'image_b');
+  return Boolean((imageA.path || imageA.url || imageA.ref || imageA.name) && (imageB.path || imageB.url || imageB.ref || imageB.name));
+}
+function qwenStitchHasReadyGroup() {
+  const draft = qwenStitchDraft();
+  return draft.enabled === true && draft.groups.some((group) => group?.enabled !== false && qwenStitchGroupReady(group));
+}
+function qwenStitchSubmitPayload() {
+  const draft = qwenStitchDraft();
+  return {
+    schema: 'neo.image.qwen_stitch.v1',
+    version: 1,
+    enabled: draft.enabled === true,
+    groups: draft.groups.map((group, index) => ({
+      id: qwenStitchGroupId(group, index),
+      enabled: group?.enabled !== false,
+      output_lane: Number(group?.output_lane || 2),
+      inputs: {
+        image_a: { ...qwenStitchGroupInput(group, 'image_a') },
+        image_b: { ...qwenStitchGroupInput(group, 'image_b') },
+      },
+      settings: {
+        direction: group?.settings?.direction || 'right',
+        match_image_size: group?.settings?.match_image_size !== false,
+        spacing_width: Number(group?.settings?.spacing_width || 0),
+        spacing_color: group?.settings?.spacing_color || 'black',
+      },
+    })),
+  };
+}
+function qwenStitchUpdateGroup(groupId, updater) {
+  const draft = qwenStitchDraft();
+  const group = draft.groups.find((item, index) => qwenStitchGroupId(item, index) === String(groupId));
+  if (!group) return;
+  updater(group);
+  saveUiState();
+}
+function qwenStitchSetEnabled(enabled) {
+  qwenStitchDraft().enabled = Boolean(enabled);
+  saveUiState();
+  render();
+}
+function qwenStitchSetDetailsOpen(open) {
+  qwenStitchDraft().ui_open = Boolean(open);
+  saveUiState();
+}
+function qwenStitchAddGroup() {
+  const draft = qwenStitchDraft();
+  const maxGroups = qwenStitchUsesImageLanes() ? Math.max(0, qwenStitchImageLaneLimit() - 1) : 1;
+  if (draft.groups.length >= maxGroups) return;
+  const available = qwenStitchAvailableOutputLanes();
+  const group = qwenStitchNewGroup(draft.groups.length, available[0] || 2);
+  draft.groups.push(group);
+  draft.enabled = true;
+  draft.ui_open = true;
+  saveUiState();
+  render();
+}
+function qwenStitchRemoveGroup(groupId) {
+  const draft = qwenStitchDraft();
+  draft.groups = draft.groups.filter((item, index) => qwenStitchGroupId(item, index) !== String(groupId));
+  if (!draft.groups.length) draft.enabled = false;
+  saveUiState();
+  render();
+}
+function qwenStitchClearInput(groupId, side) {
+  qwenStitchUpdateGroup(groupId, (group) => {
+    group.inputs = group.inputs || {};
+    group.inputs[side] = { path: '', url: '', name: '' };
+  });
+  render();
+}
+function qwenStitchUpdateField(groupId, field, value) {
+  qwenStitchUpdateGroup(groupId, (group) => {
+    if (field === 'output_lane') group.output_lane = Number(value || 2);
+    else {
+      group.settings = group.settings || {};
+      group.settings[field] = field === 'match_image_size' ? Boolean(value) : (field === 'spacing_width' ? Number(value || 0) : value);
+    }
+  });
+  saveUiState();
+  render();
+}
+function renderQwenStitchInput(group, side, label) {
+  const value = qwenStitchGroupInput(group, side);
+  const name = value.name || basename(value.path || value.url || '') || 'No image selected';
+  const domId = qwenStitchDomId(qwenStitchGroupId(group));
+  const hasImage = Boolean(value.path || value.url || value.ref || value.name);
+  const preview = value.url
+    ? `<img class="neo-qwen-stitch-input-preview" src="${escapeAttr(value.url)}" alt="${escapeAttr(label)}">`
+    : `<span class="neo-qwen-stitch-input-empty">${hasImage ? escapeHtml(name) : 'Drop or choose an image'}</span>`;
+  return `<div class="neo-qwen-stitch-input" data-testid="qwen-stitch-input-${domId}-${side}">
+    <div class="neo-qwen-stitch-input-head"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(name)}</span></div>
+    <div class="neo-qwen-stitch-input-preview" data-neo-image-dropzone="true" data-neo-image-kind="qwen-stitch" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" data-qwen-stitch-input="imageQwenStitch${domId}${side}File">${preview}</div>
+    <div class="neo-source-actions">
+      <label class="neo-source-file-label neo-file-action">Replace<input id="imageQwenStitch${domId}${side}File" data-qwen-stitch-file="true" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"></label>
+      <button class="neo-btn secondary" type="button" data-qwen-stitch-clear="true" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" ${hasImage ? '' : 'disabled'}>Clear</button>
+    </div>
+  </div>`;
+}
+function renderQwenStitchSection() {
+  if (!qwenStitchRouteActive()) return '';
+  const draft = qwenStitchDraft();
+  const limit = qwenStitchImageLaneLimit();
+  const usesLanes = qwenStitchUsesImageLanes();
+  const maxGroups = usesLanes ? Math.max(0, limit - 1) : 1;
+  const nodeAvailable = qwenStitchNodeAvailable();
+  const groupCount = draft.groups.length;
+  const readyCount = draft.groups.filter((group) => group?.enabled !== false && qwenStitchGroupReady(group)).length;
+  const groupCards = draft.groups.map((group, index) => {
+    const groupId = qwenStitchGroupId(group, index);
+    const domId = qwenStitchDomId(groupId);
+    const settings = group.settings || {};
+    const currentLane = Number(group.output_lane || 2);
+    const laneOptions = Array.from({ length: Math.max(0, limit - 1) }, (_, offset) => offset + 2).map((lane) => {
+      const occupied = qwenStitchDirectOccupiedLanes().has(lane) || qwenStitchUsedOutputLanes(groupId).has(lane);
+      return `<option value="${lane}" ${currentLane === lane ? 'selected' : ''}>Image ${lane}${occupied && currentLane !== lane ? ' · occupied' : ''}</option>`;
+    }).join('');
+    const ready = qwenStitchGroupReady(group);
+    return `<article class="neo-qwen-stitch-group" data-testid="qwen-stitch-group-${domId}">
+      <div class="neo-qwen-stitch-group-head"><div><strong>Stitch Group ${index + 1}</strong><span class="neo-badge ${ready ? 'success' : 'warning'}">${ready ? 'Ready' : 'Needs 2 images'}</span></div><button class="neo-btn ghost" type="button" data-qwen-stitch-remove="true" data-qwen-stitch-group="${escapeAttr(groupId)}">Remove</button></div>
+      <div class="neo-qwen-stitch-input-grid">${renderQwenStitchInput(group, 'image_a', 'Image A')}${renderQwenStitchInput(group, 'image_b', 'Image B')}</div>
+      <div class="neo-qwen-stitch-settings">
+        ${usesLanes ? `<label>Output lane<select data-qwen-stitch-field="output_lane" data-qwen-stitch-group="${escapeAttr(groupId)}">${laneOptions}</select></label>` : ''}
+        <label>Direction<select data-qwen-stitch-field="direction" data-qwen-stitch-group="${escapeAttr(groupId)}"><option value="right" ${settings.direction === 'right' || !settings.direction ? 'selected' : ''}>Left → right</option><option value="left" ${settings.direction === 'left' ? 'selected' : ''}>Right → left</option><option value="down" ${settings.direction === 'down' ? 'selected' : ''}>Top → bottom</option><option value="up" ${settings.direction === 'up' ? 'selected' : ''}>Bottom → top</option></select></label>
+        <label>Spacing<input type="number" min="0" max="4096" step="1" value="${Number(settings.spacing_width || 0)}" data-qwen-stitch-field="spacing_width" data-qwen-stitch-group="${escapeAttr(groupId)}"></label>
+        <label>Spacing color<input type="text" value="${escapeAttr(settings.spacing_color || 'black')}" data-qwen-stitch-field="spacing_color" data-qwen-stitch-group="${escapeAttr(groupId)}"></label>
+        <label class="neo-checkbox-label"><input type="checkbox" ${settings.match_image_size === false ? '' : 'checked'} data-qwen-stitch-field="match_image_size" data-qwen-stitch-group="${escapeAttr(groupId)}"> Match image size</label>
+      </div>
+    </article>`;
+  }).join('');
+  const canAdd = groupCount < maxGroups && qwenStitchAvailableOutputLanes().length > 0;
+  return `<details class="neo-source-qwen-stitch" data-testid="qwen-stitch-section" data-qwen-stitch-details="true" ${draft.ui_open ? 'open' : ''}>
+    <summary><span><strong>Stitch Images</strong><small>${usesLanes ? 'Pair source images into optional Qwen image lanes' : 'Create one composite source image for this route'}</small></span><span class="neo-badge">${groupCount}/${maxGroups} groups</span></summary>
+    <div class="neo-source-qwen-stitch-body">
+      <div class="neo-source-stack-header"><div><strong>ComfyUI ImageStitch</strong><p class="neo-muted">${usesLanes ? 'Image 1 remains the base source. Each group consumes two raw images and writes one free optional Qwen lane.' : 'The completed group becomes the route source image and is passed into the family-specific latent/source branch.'}</p></div><span class="neo-badge ${nodeAvailable ? 'success' : 'warning'}">${nodeAvailable ? 'Node available' : 'Node not detected'}</span></div>
+      <label class="neo-checkbox-label"><input id="imageQwenStitchEnabled" type="checkbox" ${draft.enabled ? 'checked' : ''}> Enable Stitch Images</label>
+      <div class="neo-source-meta"><span class="neo-badge">${usesLanes ? `Qwen lanes: ${limit}` : 'Composite source: 1'}</span><span class="neo-badge">Ready groups: ${readyCount}</span><span class="neo-badge">Raw inputs: ${readyCount * 2}</span></div>
+      ${groupCards || '<p class="neo-muted">Add a Stitch Group to combine two uploaded source images.</p>'}
+      <button class="neo-btn secondary" id="imageQwenAddStitchGroupBtn" type="button" ${canAdd ? '' : 'disabled'}>+ Add Stitch Group</button>
+      <p class="neo-muted">${usesLanes ? 'Direct Image 2/Image 3 sources occupy their own lanes. Choose a free output lane; Neo will report any collision before queueing.' : 'For this family, the stitched result replaces the direct Image 1 source. Inpaint still requires a compatible mask, and Outpaint still requires padding.'}</p>
+    </div>
+  </details>`;
 }
 function maskImageLabel() { return state.imageDraft.mask_image_name || basename(state.imageDraft.mask_image || '') || 'No mask selected'; }
 function resetImageMaskDraft() {
@@ -5045,6 +5290,8 @@ function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = 
   const workflowOption = IMAGE_WORKFLOW_MODES.find((item) => item.id === mode) || IMAGE_WORKFLOW_MODES[0];
   const runtimeStatus = backendProfileStatus(profile);
   const sourceReady = Boolean(state.imageDraft.source_image || state.imageDraft.source_image_url);
+  const stitchOnlyReady = qwenStitchRouteActive(mode) && qwenStitchHasReadyGroup();
+  const sourceConditioningReady = sourceReady || stitchOnlyReady;
   const maskReady = Boolean(state.imageDraft.mask_image || state.imageDraft.mask_image_url || state.imageDraft.mask_image_preview_url);
   const promptText = String(state.imageDraft.positive_prompt || valueOf('imagePositivePrompt') || '').trim();
   const requiresSource = imageSourceModes().has(mode);
@@ -5065,7 +5312,7 @@ function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = 
   push('provider_status', 'Provider status', connected ? 'ready' : 'blocked', providerMessage, !connected);
   push('prompt', 'Prompt', promptText ? 'ready' : 'warning', promptText ? 'Positive prompt is present.' : 'Prompt is empty. You can still run, but output quality may be unpredictable.', false);
   if (requiresSource) {
-    push('source_image', 'Source image', sourceReady ? 'ready' : 'blocked', sourceReady ? sourceImageLabel() : `${workflowOption?.label || mode} requires a source image.`, !sourceReady);
+    push('source_image', 'Source image', sourceConditioningReady ? 'ready' : 'blocked', sourceReady ? sourceImageLabel() : (stitchOnlyReady ? 'Stitch Group will provide the base image lane.' : `${workflowOption?.label || mode} requires a source image.`), !sourceConditioningReady);
   } else {
     push('source_image', 'Source image', 'optional', 'Source image is optional for text-to-image generation.', false);
   }
@@ -12102,9 +12349,91 @@ const BACKGROUND_REMOVAL_DEFAULTS = {
   sam_refine_fallback: true,
   sam_gate_expand: 12,
   sam_gate_feather: 6,
+  sam_mask_operation: 'union',
+  segmentation_lab_enabled: false,
+  segmentation_adapter: 'auto',
+  segmentation_mask_operation: 'union',
+  segmentation_lab_prompts: [],
+  region_segmentation_enabled: false,
+  region_segmentation_adapter: 'auto',
+  region_segmentation_node_class: '',
+  region_segmentation_mask_operation: 'union',
+  region_segmentation_targets: [],
+  mask_utility_enabled: false,
+  mask_utility_operation: 'enhance',
+  mask_utility_node_class: '',
+  mask_utility_mask_operation: 'union',
+  mask_utility_mask_channel: 'red',
+  mask_utility_extract_mode: 'extract_masked_area',
+  mask_utility_background: 'Alpha',
+  mask_utility_background_color: '#FFFFFF',
+  mask_utility_color: '#FFFFFF',
+  mask_utility_threshold: 10,
+  mask_utility_sensitivity: 1,
+  mask_utility_mask_blur: 0,
+  mask_utility_mask_offset: 0,
+  mask_utility_smooth: 0,
+  mask_utility_fill_holes: false,
+  mask_utility_invert: false,
+  mask_utility_padding: 0,
+  mask_utility_overlay_opacity: 0.5,
+  mask_utility_overlay_color: '#0000FF',
+  mask_utility_lama_removal_strength: 230,
+  mask_utility_lama_edge_smoothness: 8,
+  mask_utility_resize_width: 0,
+  mask_utility_resize_height: 0,
+  mask_utility_resize_megapixels: 0,
+  mask_utility_resize_scale_by: 1,
+  mask_utility_resize_mode: 'longest_side',
+  mask_utility_resize_value: 0,
+  mask_utility_resize_method: 'lanczos',
+  mask_utility_resize_device: 'cpu',
+  mask_utility_resize_divisible_by: 2,
+  mask_utility_resize_output_mode: 'stretch',
+  mask_utility_resize_crop_position: 'center',
+  mask_utility_resize_pad_color: '#FFFFFF',
+  mask_utility_crop_width: 1024,
+  mask_utility_crop_height: 1024,
+  mask_utility_crop_x_offset: 0,
+  mask_utility_crop_y_offset: 0,
+  mask_utility_crop_position: 'center',
+  mask_utility_crop_split: false,
+  matting_enabled: false,
+  matting_profile: 'birefnet_hr',
+  matting_model: '',
+  matting_node_class: '',
+  matting_process_res: 2048,
+  matting_device: 'Auto',
+  matting_mask_refine: true,
+  matting_sensitivity: 0.9,
+  matting_transparent_object: true,
+  matting_use_source_alpha: false,
+  matting_edge_mode: 'high_resolution_edges',
+  matting_mask_blur: 0,
+  matting_mask_offset: 0,
+  matting_invert: false,
+  matting_background: 'Alpha',
+  matting_background_color: '#222222',
+  matting_refine_foreground: false,
+  segmentation_threshold: 0.35,
+  segmentation_confidence_threshold: 0.5,
+  segmentation_max_segments: 0,
+  segmentation_sam_model: '',
+  segmentation_sam2_model: '',
+  segmentation_dino_model: '',
+  segmentation_device: 'Auto',
+  segmentation_segment_pick: 0,
   sam_tool: 'keep',
   preset: 'smart_auto',
   model: '',
+  rmbg_model: '',
+  rmbg_sensitivity: 1,
+  rmbg_mask_blur: 0,
+  rmbg_mask_offset: 0,
+  rmbg_invert_output: false,
+  rmbg_refine_foreground: false,
+  rmbg_background: 'Alpha',
+  rmbg_background_color: '#222222',
   device: 'AUTO',
   dtype: 'float32',
   use_weight: false,
@@ -12126,6 +12455,12 @@ const BACKGROUND_REMOVAL_DEFAULTS = {
   parent_result_id: '',
   parent_file_id: '',
   source_mode: 'selected_result_or_upload',
+  rmbg_batch_route: 'batch_images',
+  rmbg_batch_execution: 'comfy_batch',
+  rmbg_segmentation_prompt: 'foreground subject',
+  rmbg_video_fps: 24,
+  rmbg_video_max_frames: 1200,
+  rmbg_batch_save_mask: true,
   commercial_profile_id: '',
   commercial_upload_consent: false,
   commercial_output_size: 'auto',
@@ -12142,6 +12477,10 @@ const BACKGROUND_REMOVAL_PRESET_OPTIONS = [
   ['anime', 'Anime / Illustration · ISNet Anime'],
   ['low_vram', 'Low VRAM · Lite model'],
   ['interactive_select', 'Interactive Select · SAM points / box'],
+  ['segmentation_lab', 'Segmentation Lab · prompt objects / mask algebra'],
+  ['region_segmentation', 'Region Segmentation · face / clothes / fashion / accessories'],
+  ['mask_utility', 'Mask & Object Utilities · enhance / extract / crop'],
+  ['matting', 'Advanced Matting · HR edges / SDMatte'],
 ];
 const BACKGROUND_REMOVAL_PRESET_CANDIDATES = {
   smart_auto: ['General-dynamic.safetensors', 'General.safetensors', 'General-HR.safetensors'],
@@ -12156,6 +12495,8 @@ const BACKGROUND_REMOVAL_PRESET_CANDIDATES = {
 const BACKGROUND_REMOVAL_ENGINE_OPTIONS = [
   ['smart', 'Smart Routing · recommended'],
   ['comfy_birefnet', 'Comfy BiRefNet'],
+  ['comfy_rmbg', 'ComfyUI-RMBG · RMBG Node'],
+  ['comfy_matting', 'Comfy Advanced Matting / HR Edges'],
   ['native_rembg', 'Neo Native rembg · ONNX fallback'],
   ['commercial_api', 'Commercial API · opt-in paid provider'],
 ];
@@ -12188,6 +12529,10 @@ const BACKGROUND_REMOVAL_SAM_REFINE_MODELS = [
   ['birefnet-portrait', 'BiRefNet Portrait · people'],
 ];
 let backgroundRemovalStagedFiles = [];
+let backgroundRemovalBatchImageFiles = [];
+let backgroundRemovalBatchVideoFile = null;
+let backgroundRemovalUtilityMaskFiles = [];
+let backgroundRemovalMattingMaskFile = null;
 let backgroundRemovalPreviewUrl = '';
 let backgroundRemovalLastSourceFile = null;
 let backgroundRemovalLastOutputs = [];
@@ -12217,6 +12562,8 @@ function backgroundRemovalEmptyModelCatalogState(profileId = '') {
     request_id: 0,
     last_loaded_at: '',
     models: [],
+    rmbg_models: [],
+    rmbg_node: { available: false, node_class: '', model_choices: [], input_map: {}, blockers: [], path_policy: 'portable_identifiers_only' },
     sources: [],
     missing_nodes: [],
     missing_refinement_nodes: [],
@@ -12224,6 +12571,11 @@ function backgroundRemovalEmptyModelCatalogState(profileId = '') {
     refinement_nodes_ready: null,
     native: { available: false, version: '', models: [], providers: [], reason: 'Not checked.' },
     shared_sam: { ready: false, models: [], bbox_models: [], segm_models: [], birefnet_models: [], default_bbox_model: '', default_segm_model: '', node_map: {}, missing_nodes: [], reuse_note: '' },
+    segmentation_lab: { schema_id: 'neo.image.background_removal.segmentation_lab.v1', adapters: [], available: false, default_adapter: '', mask_operations: ['union', 'intersection', 'subtract'], limits: { max_prompts: 8, max_prompt_length: 512 }, safety: {} },
+    region_segmentation: { schema_id: 'neo.image.background_removal.region_segmentation.v1', adapters: [], available: false, default_adapter: '', mask_operations: ['union', 'intersection', 'subtract'], limits: { max_targets: 8, max_classes_per_target: 32 }, safety: {} },
+  mask_utilities: { schema_id: 'neo.image.background_removal.mask_utilities.v1', operations: [], available: false, mask_operations: ['union', 'intersection', 'difference'], limits: { max_mask_files: 4 }, safety: {} },
+    matting: { schema_id: 'neo.image.background_removal.matting.v1', profiles: [], available: false, limits: { max_process_resolution: 2560 }, safety: {} },
+    engine_catalog: { schema_id: 'neo.image.background_removal.engine_catalog.v1', schema_version: 1, engines: [], by_workflow: {}, fallback_policies: {}, execution_revalidation: true, path_policy: 'portable_identifiers_only' },
     native_models: [],
     native_preset_models: {},
     profile_id: String(profileId || ''),
@@ -12337,6 +12689,9 @@ function backgroundRemovalActiveRoute(record) {
   } else if (!commercial && !profile && backgroundRemovalModelCatalogState.loaded && !nativeReady) {
     routeState = 'provider_gated';
     reason = 'Connect ComfyUI or install the optional native rembg runtime.';
+  } else if (!commercial && (settings.preset === 'segmentation_lab' || settings.workflow_mode === 'segmentation_lab' || settings.preset === 'region_segmentation' || settings.workflow_mode === 'region_segmentation' || settings.preset === 'mask_utility' || settings.workflow_mode === 'mask_utility' || settings.preset === 'matting' || settings.workflow_mode === 'matting') && !profile) {
+    routeState = 'provider_gated';
+    reason = settings.workflow_mode === 'region_segmentation' || settings.preset === 'region_segmentation' ? 'Region Segmentation requires a connected ComfyUI profile with a verified face, clothes, fashion, or accessories node contract.' : (settings.workflow_mode === 'mask_utility' || settings.preset === 'mask_utility' ? 'Mask utilities require a connected ComfyUI profile with a verified RMBG utility node.' : (settings.workflow_mode === 'matting' || settings.preset === 'matting' ? 'Advanced matting requires a connected ComfyUI profile with a verified BiRefNetRMBG or AILab_SDMatte node.' : 'Segmentation Lab requires a connected ComfyUI profile with a verified prompt-segmentation node.'));
   }
   return { backend, provider_id: providerId || (nativeReady ? 'neo_native' : ''), profile_id: profile?.profile_id || '', workspace_app: workspaceApp, route_key: routeKey, route_state: routeState, reason };
 }
@@ -12348,16 +12703,67 @@ function backgroundRemovalStatus(message = '') {
 function backgroundRemovalPresetOptions(selected = '') {
   return BACKGROUND_REMOVAL_PRESET_OPTIONS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
 }
+function backgroundRemovalSegmentationLabCatalog() {
+  const row = backgroundRemovalModelCatalogState.segmentation_lab;
+  return row && typeof row === 'object' ? row : { adapters: [], available: false, default_adapter: '', mask_operations: ['union', 'intersection', 'subtract'], limits: { max_prompts: 8, max_prompt_length: 512 } };
+}
+function backgroundRemovalSegmentationAdapterOptions(selected = '') {
+  const catalog = backgroundRemovalSegmentationLabCatalog();
+  const rows = Array.isArray(catalog.adapters) ? catalog.adapters : [];
+  const options = [`<option value="auto" ${String(selected || 'auto') === 'auto' ? 'selected' : ''}>Auto · best verified adapter</option>`, ...rows.filter((row) => row?.available).map((row) => `<option value="${escapeAttr(row.id)}" ${String(selected || '') === String(row.id) ? 'selected' : ''}>${escapeHtml(row.label || row.id)}</option>`)]
+  if (!options.length) options.push('<option value="" selected disabled>No verified prompt adapter in active Comfy profile</option>');
+  return options.join('');
+}
+function backgroundRemovalRegionCatalog() {
+  const row = backgroundRemovalModelCatalogState.region_segmentation;
+  return row && typeof row === 'object' ? row : { adapters: [], available: false, default_adapter: '', mask_operations: ['union', 'intersection', 'subtract'], limits: { max_targets: 8, max_classes_per_target: 32 } };
+}
+function backgroundRemovalRegionAdapterOptions(selected = '') {
+  const rows = Array.isArray(backgroundRemovalRegionCatalog().adapters) ? backgroundRemovalRegionCatalog().adapters : [];
+  return [`<option value="auto" ${String(selected || 'auto') === 'auto' ? 'selected' : ''}>Auto · best verified region adapter</option>`, ...rows.filter((row) => row?.available).map((row) => `<option value="${escapeAttr(row.id)}" ${String(selected || '') === String(row.id) ? 'selected' : ''}>${escapeHtml(row.label || row.id)}</option>`)].join('');
+}
+function backgroundRemovalMaskUtilitiesCatalog() {
+  const row = backgroundRemovalModelCatalogState.mask_utilities;
+  return row && typeof row === 'object' ? row : { operations: [], available: false, mask_operations: ['union', 'intersection', 'difference'], limits: { max_mask_files: 4 } };
+}
+function backgroundRemovalMaskUtilityOperationOptions(selected = '') {
+  const rows = Array.isArray(backgroundRemovalMaskUtilitiesCatalog().operations) ? backgroundRemovalMaskUtilitiesCatalog().operations : [];
+  return rows.filter((row) => row?.available).map((row) => `<option value="${escapeAttr(row.id)}" ${String(selected) === String(row.id) ? 'selected' : ''}>${escapeHtml(row.label || row.id)}</option>`).join('') || '<option value="enhance" selected disabled>No verified utility in active Comfy profile</option>';
+}
+function backgroundRemovalMattingCatalog() {
+  const row = backgroundRemovalModelCatalogState.matting;
+  return row && typeof row === 'object' ? row : { profiles: [], available: false, limits: { max_process_resolution: 2560 }, safety: {} };
+}
+function backgroundRemovalMattingProfileOptions(selected = '') {
+  const rows = Array.isArray(backgroundRemovalMattingCatalog().profiles) ? backgroundRemovalMattingCatalog().profiles : [];
+  return rows.filter((row) => row?.available).map((row) => `<option value="${escapeAttr(row.id)}" ${String(selected) === String(row.id) ? 'selected' : ''}>${escapeHtml(row.label || row.id)} · ${escapeHtml(row.default_model || 'live model required')}</option>`).join('') || '<option value="birefnet_hr" selected disabled>No verified matting profile in active Comfy profile</option>';
+}
 function backgroundRemovalEngineOptions(selected = '') {
-  return BACKGROUND_REMOVAL_ENGINE_OPTIONS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const rows = BACKGROUND_REMOVAL_ENGINE_OPTIONS;
+  const visible = rows.some(([id]) => id === String(selected)) ? rows : [...rows, [String(selected), `Saved route · ${String(selected).replaceAll('_', ' ')}`]];
+  return visible.map(([id, label]) => {
+    const rmbgReady = Boolean(backgroundRemovalEngineCatalogRow('comfy_rmbg')?.available || backgroundRemovalModelCatalogState.rmbg_node?.available);
+    const suffix = id === 'comfy_rmbg' && !rmbgReady ? ' · unavailable until live node scan' : '';
+    return `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label + suffix)}</option>`;
+  }).join('');
 }
 function backgroundRemovalNativeModelOptions(selected = '') {
   return BACKGROUND_REMOVAL_NATIVE_MODELS.map(([id, label]) => `<option value="${escapeAttr(id)}" ${String(selected) === id ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
 }
+function backgroundRemovalEngineCatalogRow(engineId = '') {
+  const catalog = backgroundRemovalModelCatalogState.engine_catalog || {};
+  const rows = Array.isArray(catalog.engines) ? catalog.engines : [];
+  return rows.find((row) => String(row?.id || '') === String(engineId || '')) || null;
+}
 function backgroundRemovalEngineSummary(settings = backgroundRemovalSettings()) {
   const native = backgroundRemovalModelCatalogState.native || {};
   const shared = backgroundRemovalModelCatalogState.shared_sam || {};
-  const comfyReady = Boolean(backgroundRemovalModelCatalogState.nodes_ready && backgroundRemovalModelCatalogState.models?.length);
+  const comfyEngine = backgroundRemovalEngineCatalogRow('comfy_birefnet');
+  const rmbgEngine = backgroundRemovalEngineCatalogRow('comfy_rmbg');
+  const nativeEngine = backgroundRemovalEngineCatalogRow('native_rembg');
+  const comfyReady = comfyEngine ? Boolean(comfyEngine.available) : Boolean(backgroundRemovalModelCatalogState.nodes_ready && backgroundRemovalModelCatalogState.models?.length);
+  const rmbgReady = rmbgEngine ? Boolean(rmbgEngine.available) : Boolean(backgroundRemovalModelCatalogState.rmbg_node?.available);
+  const nativeReady = nativeEngine ? Boolean(nativeEngine.available) : Boolean(native.available);
   if (settings.engine === 'commercial_api') {
     const profile = backgroundRemovalCommercialProfile(settings);
     return profile ? `Commercial API · ${profile.display_name || profile.profile_id} · explicit upload consent required` : 'Commercial API · configure a provider in Admin → Backends';
@@ -12369,18 +12775,42 @@ function backgroundRemovalEngineSummary(settings = backgroundRemovalSettings()) 
     const model = readiness.route === 'comfy_impact' ? (settings.sam_comfy_model || shared.models?.[0] || 'Comfy SAM') : (settings.sam_model_variant || 'sam_vit_b_01ec64');
     return `Interactive SAM · ${counts.selected}/${counts.total} subjects selected · ${readiness.route.replaceAll('_', ' ')} · ${model}${readiness.ready ? '' : ` · ${readiness.reason}`}`;
   }
-  if (settings.engine === 'native_rembg') return native.available ? `Neo Native rembg · ${settings.native_model}` : `Native rembg unavailable · ${native.reason || 'install optional runtime'}`;
+  if (settings.preset === 'region_segmentation' || settings.workflow_mode === 'region_segmentation') {
+    const catalog = backgroundRemovalRegionCatalog();
+    const targets = Array.isArray(settings.region_segmentation_targets) ? settings.region_segmentation_targets.filter((item) => item?.enabled !== false) : [];
+    const ready = (catalog.adapters || []).some((row) => row?.available);
+    return `Region Segmentation · ${targets.length} target${targets.length === 1 ? '' : 's'} · ${ready ? 'verified Comfy adapter ready' : 'no verified adapter'}`;
+  }
+  if (settings.preset === 'mask_utility' || settings.workflow_mode === 'mask_utility') {
+    const catalog = backgroundRemovalMaskUtilitiesCatalog();
+    const ready = (catalog.operations || []).some((row) => row?.available);
+    return `Mask & Object Utilities · ${humanize(settings.mask_utility_operation || 'enhance')} · ${ready ? 'verified Comfy utility ready' : 'no verified utility'}`;
+  }
+  if (settings.preset === 'matting' || settings.workflow_mode === 'matting') {
+    const catalog = backgroundRemovalMattingCatalog();
+    const profile = (catalog.profiles || []).find((row) => String(row?.id || '') === String(settings.matting_profile || ''));
+    const ready = Boolean(profile?.available);
+    return `Advanced Matting · ${humanize(settings.matting_profile || 'birefnet_hr')} · ${settings.matting_process_res || 2048}px · ${ready ? 'verified Comfy matting ready' : 'no verified matting profile'}`;
+  }
+  if (settings.preset === 'segmentation_lab' || settings.workflow_mode === 'segmentation_lab') {
+    const lab = backgroundRemovalSegmentationLabCatalog();
+    const prompts = Array.isArray(settings.segmentation_lab_prompts) ? settings.segmentation_lab_prompts.filter((item) => item?.enabled !== false && item?.prompt) : [];
+    const ready = (lab.adapters || []).some((row) => row?.available);
+    return `Segmentation Lab · ${prompts.length} prompt${prompts.length === 1 ? '' : 's'} · ${ready ? 'verified Comfy adapter ready' : 'no verified adapter'}`;
+  }
+  if (settings.engine === 'native_rembg') return nativeReady ? `Neo Native rembg · ${settings.native_model}` : `Native rembg unavailable · ${nativeEngine?.blockers?.[0] || native.reason || 'install optional runtime'}`;
   if (settings.engine === 'comfy_birefnet') return comfyReady ? `Comfy BiRefNet · ${settings.model || 'preset model'}` : 'Comfy BiRefNet unavailable';
-  if (settings.preset === 'anime' && native.available) return `Smart route: ISNet Anime · ${settings.native_model || 'isnet-anime'}`;
+  if (settings.engine === 'comfy_rmbg') return rmbgReady ? `ComfyUI-RMBG · RMBG Node · ${settings.rmbg_model || 'live model'}` : 'ComfyUI-RMBG RMBG node unavailable';
+  if (settings.preset === 'anime' && nativeReady) return `Smart route: ISNet Anime · ${settings.native_model || 'isnet-anime'}`;
   if (comfyReady) return `Smart route: Comfy BiRefNet · ${settings.model || 'preset model'}`;
-  if (native.available) return `Smart fallback: Neo Native rembg · ${settings.native_model}`;
+  if (nativeReady) return `Smart fallback: Neo Native rembg · ${settings.native_model}`;
   return 'No ready removal engine detected.';
 }
 function backgroundRemovalCatalogList(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || item?.path || '')).trim()).filter(Boolean))];
 }
 function backgroundRemovalCatalogPlaceholder(kind = 'model') {
-  const labels = { birefnet: 'BiRefNet', sam: 'SAM', bbox: 'BBox detector', segm: 'segmentation detector' };
+  const labels = { birefnet: 'BiRefNet', rmbg: 'RMBG', sam: 'SAM', bbox: 'BBox detector', segm: 'segmentation detector' };
   const label = labels[kind] || 'model';
   if (backgroundRemovalModelCatalogState.loading) return `Scanning ${label} models…`;
   if (backgroundRemovalModelCatalogState.error) return `Refresh failed — retry ${label} models`;
@@ -12391,7 +12821,7 @@ function backgroundRemovalCatalogSelectOptions(values = [], selected = '', kind 
   const models = backgroundRemovalCatalogList(values);
   const current = String(selected || '').trim();
   const folded = current.toLowerCase();
-  const labels = { birefnet: 'BiRefNet', sam: 'SAM', bbox: 'BBox', segm: 'segmentation' };
+  const labels = { birefnet: 'BiRefNet', rmbg: 'RMBG', sam: 'SAM', bbox: 'BBox', segm: 'segmentation' };
   const scanLabel = labels[kind] || 'model';
   const selectedExists = Boolean(current && models.some((item) => item.toLowerCase() === folded));
   const rows = [];
@@ -12403,6 +12833,9 @@ function backgroundRemovalCatalogSelectOptions(values = [], selected = '', kind 
 function backgroundRemovalModelOptions(selected = '') {
   return backgroundRemovalCatalogSelectOptions(backgroundRemovalModelCatalogState.models, selected, 'birefnet');
 }
+function backgroundRemovalRmbgModelOptions(selected = '') {
+  return backgroundRemovalCatalogSelectOptions(backgroundRemovalModelCatalogState.rmbg_models || backgroundRemovalModelCatalogState.rmbg_node?.model_choices || [], selected, 'rmbg');
+}
 function backgroundRemovalSamModelOptions(selected = '') {
   return backgroundRemovalCatalogSelectOptions(backgroundRemovalModelCatalogState.shared_sam?.models || [], selected, 'sam');
 }
@@ -12413,8 +12846,9 @@ function backgroundRemovalDetectorModelOptions(selected = '', detectorType = 'bb
 }
 function backgroundRemovalCatalogSummary() {
   const modelCount = backgroundRemovalModelCatalogState.models?.length || 0;
+  const rmbgModelCount = backgroundRemovalModelCatalogState.rmbg_models?.length || backgroundRemovalModelCatalogState.rmbg_node?.model_choices?.length || 0;
   const shared = backgroundRemovalModelCatalogState.shared_sam || {};
-  const lastGoodCount = modelCount + (shared.models?.length || 0) + (shared.bbox_models?.length || 0) + (shared.segm_models?.length || 0);
+  const lastGoodCount = modelCount + rmbgModelCount + (shared.models?.length || 0) + (shared.bbox_models?.length || 0) + (shared.segm_models?.length || 0);
   if (backgroundRemovalModelCatalogState.loading) return lastGoodCount ? 'Refreshing engine and detector models… Showing the last successful scan meanwhile.' : 'Scanning engine and detector models from the active Comfy profile…';
   if (backgroundRemovalModelCatalogState.error) return lastGoodCount ? `Model refresh failed: ${backgroundRemovalModelCatalogState.error}. Showing the last successful scan; use Refresh engines to retry.` : `Model scan failed: ${backgroundRemovalModelCatalogState.error}. Check the selected Comfy profile, then use Refresh engines.`;
   if (!backgroundRemovalModelCatalogState.loaded) return 'Model catalog not scanned yet.';
@@ -12424,7 +12858,9 @@ function backgroundRemovalCatalogSummary() {
   const native = backgroundRemovalModelCatalogState.native || {};
   const nativeText = native.available ? ` · native rembg ${native.version || 'installed'}` : ` · native rembg unavailable`;
   const sharedText = shared.ready ? ` · Comfy SAM ${shared.models?.length || 0} model${(shared.models?.length || 0) === 1 ? '' : 's'}` : (shared.models?.length ? ` · Comfy SAM missing nodes` : ' · Comfy SAM unavailable');
-  return `${modelCount} BiRefNet model${modelCount === 1 ? '' : 's'} found${sourceText}${missing}${refineMissing}${nativeText}${sharedText}`;
+  const engineRows = Array.isArray(backgroundRemovalModelCatalogState.engine_catalog?.engines) ? backgroundRemovalModelCatalogState.engine_catalog.engines : [];
+  const engineText = engineRows.length ? ` · ${engineRows.filter((row) => row?.available).length}/${engineRows.length} engine routes ready` : '';
+  return `${modelCount} BiRefNet model${modelCount === 1 ? '' : 's'} found · ${rmbgModelCount} RMBG node model${rmbgModelCount === 1 ? '' : 's'} found${sourceText}${missing}${refineMissing}${nativeText}${sharedText}${engineText}`;
 }
 function backgroundRemovalSuggestedModel(preset = backgroundRemovalSettings().preset) {
   const models = Array.isArray(backgroundRemovalModelCatalogState.models) ? backgroundRemovalModelCatalogState.models : [];
@@ -12451,6 +12887,13 @@ function backgroundRemovalNormalizeModelCatalogPayload(payload = {}, profileId =
     loaded: true,
     error: '',
     models: backgroundRemovalCatalogList(payload.models),
+    rmbg_models: backgroundRemovalCatalogList(payload.rmbg_models || payload.rmbg_node?.model_choices),
+    rmbg_node: payload.rmbg_node && typeof payload.rmbg_node === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).rmbg_node,
+      ...payload.rmbg_node,
+      model_choices: backgroundRemovalCatalogList(payload.rmbg_node.model_choices),
+      input_map: payload.rmbg_node.input_map && typeof payload.rmbg_node.input_map === 'object' ? payload.rmbg_node.input_map : {},
+    } : backgroundRemovalEmptyModelCatalogState(profileId).rmbg_node,
     sources: backgroundRemovalCatalogList(payload.sources),
     missing_nodes: backgroundRemovalCatalogList(payload.missing_nodes),
     missing_refinement_nodes: backgroundRemovalCatalogList(payload.missing_refinement_nodes),
@@ -12464,7 +12907,35 @@ function backgroundRemovalNormalizeModelCatalogPayload(payload = {}, profileId =
       bbox_models: backgroundRemovalCatalogList(payload.shared_sam.bbox_models),
       segm_models: backgroundRemovalCatalogList(payload.shared_sam.segm_models),
       birefnet_models: backgroundRemovalCatalogList(payload.shared_sam.birefnet_models),
-    } : backgroundRemovalEmptyModelCatalogState(profileId).shared_sam,
+      } : backgroundRemovalEmptyModelCatalogState(profileId).shared_sam,
+    segmentation_lab: payload.segmentation_lab && typeof payload.segmentation_lab === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).segmentation_lab,
+      ...payload.segmentation_lab,
+      adapters: Array.isArray(payload.segmentation_lab.adapters) ? payload.segmentation_lab.adapters.map((row) => ({ ...(row || {}), model_choices: row?.model_choices && typeof row.model_choices === 'object' ? Object.fromEntries(Object.entries(row.model_choices).map(([key, values]) => [key, backgroundRemovalCatalogList(values)])) : {} })) : [],
+    } : backgroundRemovalEmptyModelCatalogState(profileId).segmentation_lab,
+    region_segmentation: payload.region_segmentation && typeof payload.region_segmentation === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).region_segmentation,
+      ...payload.region_segmentation,
+      adapters: Array.isArray(payload.region_segmentation.adapters) ? payload.region_segmentation.adapters : [],
+    } : backgroundRemovalEmptyModelCatalogState(profileId).region_segmentation,
+    mask_utilities: payload.mask_utilities && typeof payload.mask_utilities === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).mask_utilities,
+      ...payload.mask_utilities,
+      operations: Array.isArray(payload.mask_utilities.operations) ? payload.mask_utilities.operations : [],
+    } : backgroundRemovalEmptyModelCatalogState(profileId).mask_utilities,
+    matting: payload.matting && typeof payload.matting === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).matting,
+      ...payload.matting,
+      profiles: Array.isArray(payload.matting.profiles) ? payload.matting.profiles.map((row) => ({ ...(row || {}), model_choices: backgroundRemovalCatalogList(row?.model_choices), default_model: String(row?.default_model || '') })) : [],
+    } : backgroundRemovalEmptyModelCatalogState(profileId).matting,
+    engine_catalog: payload.engine_catalog && typeof payload.engine_catalog === 'object' ? {
+      ...backgroundRemovalEmptyModelCatalogState(profileId).engine_catalog,
+      ...payload.engine_catalog,
+      engines: Array.isArray(payload.engine_catalog.engines) ? payload.engine_catalog.engines.map((row) => ({ ...(row || {}), models: backgroundRemovalCatalogList(row?.models) })) : [],
+      by_workflow: payload.engine_catalog.by_workflow && typeof payload.engine_catalog.by_workflow === 'object'
+        ? Object.fromEntries(Object.entries(payload.engine_catalog.by_workflow).map(([key, rows]) => [key, Array.isArray(rows) ? rows.map((row) => ({ ...(row || {}), models: backgroundRemovalCatalogList(row?.models) })) : []]))
+        : {},
+    } : backgroundRemovalEmptyModelCatalogState(profileId).engine_catalog,
     native_models: backgroundRemovalCatalogList(payload.native_models),
     native_preset_models: payload.native_preset_models && typeof payload.native_preset_models === 'object' ? payload.native_preset_models : {},
     profile_id: String(profileId || ''),
@@ -12496,6 +12967,13 @@ function backgroundRemovalReconcileModelCatalogSelections(catalog = backgroundRe
   if (!String(current.sam_comfy_model || '').trim() && suggestedShared) patch.sam_comfy_model = suggestedShared;
   const suggestedDetector = current.sam_detector_type === 'segm' ? shared.default_segm_model : shared.default_bbox_model;
   if (!String(current.sam_detector_model || '').trim() && suggestedDetector) patch.sam_detector_model = suggestedDetector;
+  const mattingProfiles = Array.isArray(catalog.matting?.profiles) ? catalog.matting.profiles : [];
+  const mattingProfile = mattingProfiles.find((row) => row?.available && String(row.id || '') === String(current.matting_profile || '')) || mattingProfiles.find((row) => row?.available);
+  if (mattingProfile) {
+    if (!String(current.matting_profile || '').trim() || current.matting_profile !== mattingProfile.id) patch.matting_profile = mattingProfile.id;
+    if (!String(current.matting_model || '').trim()) patch.matting_model = mattingProfile.default_model || '';
+    if (!String(current.matting_node_class || '').trim()) patch.matting_node_class = mattingProfile.node_class || '';
+  }
   if (Object.keys(patch).length) updateBackgroundRemovalSettings(patch);
   return patch;
 }
@@ -12557,12 +13035,12 @@ function backgroundRemovalEnsureModelCatalog() {
 function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
   const number = (value, fallback, min, max) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : fallback));
   const requestedWorkflowMode = String(settings.workflow_mode || 'segment');
-  const workflowMode = ['refine_mask', 'interactive_sam'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
+  const workflowMode = ['refine_mask', 'interactive_sam', 'segmentation_lab', 'region_segmentation', 'mask_utility', 'matting'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
   const previewBackground = ['checkerboard', 'white', 'black'].includes(String(settings.preview_background || '')) ? String(settings.preview_background) : 'checkerboard';
   return {
     enabled: Boolean(settings.enabled),
     workflow_mode: workflowMode,
-    engine: ['smart', 'comfy_birefnet', 'native_rembg', 'commercial_api'].includes(String(settings.engine || '')) ? String(settings.engine) : 'smart',
+    engine: ['smart', 'comfy_birefnet', 'comfy_rmbg', 'comfy_segmentation', 'native_rembg', 'commercial_api'].includes(String(settings.engine || '')) ? String(settings.engine) : 'smart',
     fallback_policy: ['never', 'on_unavailable', 'on_unavailable_or_queue_failure'].includes(String(settings.fallback_policy || '')) ? String(settings.fallback_policy) : 'on_unavailable',
     native_model: String(settings.native_model || BACKGROUND_REMOVAL_NATIVE_PRESET_MODELS[settings.preset] || 'isnet-general-use'),
     native_provider: ['AUTO', 'CPU', 'CUDA'].includes(String(settings.native_provider || '').toUpperCase()) ? String(settings.native_provider).toUpperCase() : 'AUTO',
@@ -12571,6 +13049,15 @@ function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
     native_foreground_threshold: Math.round(number(settings.native_foreground_threshold, 240, 0, 255)),
     native_background_threshold: Math.round(number(settings.native_background_threshold, 10, 0, 255)),
     native_erode_size: Math.round(number(settings.native_erode_size, 10, 0, 255)),
+    model: String(settings.model || ''),
+    rmbg_model: String(settings.rmbg_model || ''),
+    rmbg_sensitivity: number(settings.rmbg_sensitivity, 1, 0, 1),
+    rmbg_mask_blur: Math.round(number(settings.rmbg_mask_blur, 0, 0, 64)),
+    rmbg_mask_offset: Math.round(number(settings.rmbg_mask_offset, 0, -64, 64)),
+    rmbg_invert_output: Boolean(settings.rmbg_invert_output),
+    rmbg_refine_foreground: Boolean(settings.rmbg_refine_foreground),
+    rmbg_background: ['Alpha', 'Color'].includes(String(settings.rmbg_background || '')) ? String(settings.rmbg_background) : 'Alpha',
+    rmbg_background_color: String(settings.rmbg_background_color || '#222222'),
     sam_prompts: Array.isArray(settings.sam_prompts) ? settings.sam_prompts.slice(0, 64).map((item) => ({ ...item })) : [],
     sam_subjects: backgroundRemovalNormalizeSamSubjects(settings.sam_subjects),
     sam_execution: ['auto', 'comfy_impact', 'native_onnx'].includes(String(settings.sam_execution || '')) ? String(settings.sam_execution) : 'auto',
@@ -12585,6 +13072,80 @@ function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
     sam_refine_fallback: settings.sam_refine_fallback !== false,
     sam_gate_expand: Math.round(number(settings.sam_gate_expand, 12, 0, 128)),
     sam_gate_feather: Math.round(number(settings.sam_gate_feather, 6, 0, 128)),
+    sam_mask_operation: ['union', 'intersection', 'subtract'].includes(String(settings.sam_mask_operation || '')) ? String(settings.sam_mask_operation) : 'union',
+    segmentation_lab_enabled: Boolean(settings.segmentation_lab_enabled || workflowMode === 'segmentation_lab'),
+    segmentation_adapter: ['auto', 'rmbg_v1', 'rmbg_v2', 'sam2', 'sam3'].includes(String(settings.segmentation_adapter || '')) ? String(settings.segmentation_adapter) : 'auto',
+    segmentation_mask_operation: ['union', 'intersection', 'subtract'].includes(String(settings.segmentation_mask_operation || '')) ? String(settings.segmentation_mask_operation) : 'union',
+    segmentation_lab_prompts: (Array.isArray(settings.segmentation_lab_prompts) ? settings.segmentation_lab_prompts : []).slice(0, 8).map((item, index) => ({ id: String(item?.id || `prompt_${index + 1}`), label: String(item?.label || item?.prompt || `Prompt ${index + 1}`).slice(0, 120), prompt: String(item?.prompt || '').trim().slice(0, 512), enabled: item?.enabled !== false })).filter((item) => item.prompt),
+    segmentation_threshold: number(settings.segmentation_threshold, 0.35, 0.05, 0.95),
+    segmentation_confidence_threshold: number(settings.segmentation_confidence_threshold, 0.5, 0.05, 0.95),
+    segmentation_max_segments: Math.round(number(settings.segmentation_max_segments, 0, 0, 128)),
+    segmentation_sam_model: String(settings.segmentation_sam_model || ''),
+    segmentation_sam2_model: String(settings.segmentation_sam2_model || ''),
+    segmentation_dino_model: String(settings.segmentation_dino_model || ''),
+    segmentation_device: ['Auto', 'CPU', 'GPU'].includes(String(settings.segmentation_device || '')) ? String(settings.segmentation_device) : 'Auto',
+    segmentation_segment_pick: Math.round(number(settings.segmentation_segment_pick, 0, 0, 128)),
+    region_segmentation_enabled: Boolean(settings.region_segmentation_enabled || workflowMode === 'region_segmentation'),
+    region_segmentation_adapter: ['auto', 'face', 'clothes', 'fashion', 'accessories'].includes(String(settings.region_segmentation_adapter || '')) ? String(settings.region_segmentation_adapter) : 'auto',
+    region_segmentation_node_class: String(settings.region_segmentation_node_class || ''),
+    region_segmentation_mask_operation: ['union', 'intersection', 'subtract'].includes(String(settings.region_segmentation_mask_operation || '')) ? String(settings.region_segmentation_mask_operation) : 'union',
+    region_segmentation_targets: (Array.isArray(settings.region_segmentation_targets) ? settings.region_segmentation_targets : []).slice(0, 8).map((item, index) => ({ id: String(item?.id || `target_${index + 1}`), label: String(item?.label || item?.region || `Target ${index + 1}`).slice(0, 120), region: String(item?.region || '').toLowerCase(), adapter: String(item?.adapter || item?.region || '').toLowerCase(), node_class: String(item?.node_class || ''), options_node_class: String(item?.options_node_class || ''), classes: Array.isArray(item?.classes) ? item.classes.slice(0, 32).map((value) => String(value)) : [], enabled: item?.enabled !== false })).filter((item) => ['face', 'clothes', 'fashion', 'accessories'].includes(item.region)),
+    mask_utility_enabled: Boolean(settings.mask_utility_enabled || workflowMode === 'mask_utility'),
+    mask_utility_operation: ['enhance', 'combine', 'extract', 'crop_object', 'convert', 'color_to_mask', 'mask_overlay', 'object_remove_lama', 'image_mask_resize', 'image_crop'].includes(String(settings.mask_utility_operation || '')) ? String(settings.mask_utility_operation) : 'enhance',
+    mask_utility_node_class: String(settings.mask_utility_node_class || ''),
+    mask_utility_mask_operation: ['union', 'intersection', 'difference'].includes(String(settings.mask_utility_mask_operation || '')) ? String(settings.mask_utility_mask_operation) : 'union',
+    mask_utility_mask_channel: ['alpha', 'red', 'green', 'blue'].includes(String(settings.mask_utility_mask_channel || '')) ? String(settings.mask_utility_mask_channel) : 'red',
+    mask_utility_extract_mode: ['extract_masked_area', 'apply_mask', 'invert_mask'].includes(String(settings.mask_utility_extract_mode || '')) ? String(settings.mask_utility_extract_mode) : 'extract_masked_area',
+    mask_utility_background: ['Alpha', 'original', 'Color'].includes(String(settings.mask_utility_background || '')) ? String(settings.mask_utility_background) : 'Alpha',
+    mask_utility_background_color: String(settings.mask_utility_background_color || '#FFFFFF'),
+    mask_utility_color: String(settings.mask_utility_color || '#FFFFFF'),
+    mask_utility_threshold: Math.round(number(settings.mask_utility_threshold, 10, 0, 255)),
+    mask_utility_sensitivity: number(settings.mask_utility_sensitivity, 1, 0, 1),
+    mask_utility_mask_blur: Math.round(number(settings.mask_utility_mask_blur, 0, 0, 64)),
+    mask_utility_mask_offset: Math.round(number(settings.mask_utility_mask_offset, 0, -64, 64)),
+    mask_utility_smooth: number(settings.mask_utility_smooth, 0, 0, 128),
+    mask_utility_fill_holes: Boolean(settings.mask_utility_fill_holes),
+    mask_utility_invert: Boolean(settings.mask_utility_invert),
+    mask_utility_padding: Math.round(number(settings.mask_utility_padding, 0, 0, 256)),
+    mask_utility_overlay_opacity: number(settings.mask_utility_overlay_opacity, 0.5, 0, 1),
+    mask_utility_overlay_color: String(settings.mask_utility_overlay_color || '#0000FF'),
+    mask_utility_lama_removal_strength: Math.round(number(settings.mask_utility_lama_removal_strength, 230, 0, 255)),
+    mask_utility_lama_edge_smoothness: Math.round(number(settings.mask_utility_lama_edge_smoothness, 8, 0, 20)),
+    mask_utility_resize_width: Math.round(number(settings.mask_utility_resize_width, 0, 0, 8192)),
+    mask_utility_resize_height: Math.round(number(settings.mask_utility_resize_height, 0, 0, 8192)),
+    mask_utility_resize_megapixels: number(settings.mask_utility_resize_megapixels, 0, 0, 16),
+    mask_utility_resize_scale_by: number(settings.mask_utility_resize_scale_by, 1, 0.01, 8),
+    mask_utility_resize_mode: ['longest_side', 'shortest_side'].includes(String(settings.mask_utility_resize_mode || '')) ? String(settings.mask_utility_resize_mode) : 'longest_side',
+    mask_utility_resize_value: Math.round(number(settings.mask_utility_resize_value, 0, 0, 8192)),
+    mask_utility_resize_method: ['nearest-exact', 'bilinear', 'area', 'bicubic', 'lanczos'].includes(String(settings.mask_utility_resize_method || '')) ? String(settings.mask_utility_resize_method) : 'lanczos',
+    mask_utility_resize_device: ['cpu', 'gpu'].includes(String(settings.mask_utility_resize_device || '')) ? String(settings.mask_utility_resize_device) : 'cpu',
+    mask_utility_resize_divisible_by: Math.round(number(settings.mask_utility_resize_divisible_by, 2, 1, 512)),
+    mask_utility_resize_output_mode: ['stretch', 'pad', 'pad_edge', 'pad_edge_pixel', 'crop', 'pillarbox_blur'].includes(String(settings.mask_utility_resize_output_mode || '')) ? String(settings.mask_utility_resize_output_mode) : 'stretch',
+    mask_utility_resize_crop_position: ['center', 'top', 'bottom', 'left', 'right'].includes(String(settings.mask_utility_resize_crop_position || '')) ? String(settings.mask_utility_resize_crop_position) : 'center',
+    mask_utility_resize_pad_color: String(settings.mask_utility_resize_pad_color || '#FFFFFF'),
+    mask_utility_crop_width: Math.round(number(settings.mask_utility_crop_width, 1024, 0, 8192)),
+    mask_utility_crop_height: Math.round(number(settings.mask_utility_crop_height, 1024, 0, 8192)),
+    mask_utility_crop_x_offset: Math.round(number(settings.mask_utility_crop_x_offset, 0, -8192, 8192)),
+    mask_utility_crop_y_offset: Math.round(number(settings.mask_utility_crop_y_offset, 0, -8192, 8192)),
+    mask_utility_crop_position: ['top-left', 'top-center', 'top-right', 'right-center', 'bottom-right', 'bottom-center', 'bottom-left', 'left-center', 'center'].includes(String(settings.mask_utility_crop_position || '')) ? String(settings.mask_utility_crop_position) : 'center',
+    mask_utility_crop_split: Boolean(settings.mask_utility_crop_split),
+    matting_enabled: Boolean(settings.matting_enabled || workflowMode === 'matting'),
+    matting_profile: String(settings.matting_profile || 'birefnet_hr'),
+    matting_model: String(settings.matting_model || ''),
+    matting_node_class: String(settings.matting_node_class || ''),
+    matting_process_res: Math.round(number(settings.matting_process_res, 2048, 256, 2560)),
+    matting_device: ['Auto', 'CPU', 'GPU'].includes(String(settings.matting_device || '')) ? String(settings.matting_device) : 'Auto',
+    matting_mask_refine: settings.matting_mask_refine !== false,
+    matting_sensitivity: number(settings.matting_sensitivity, 0.9, 0.1, 1),
+    matting_transparent_object: settings.matting_transparent_object !== false,
+    matting_use_source_alpha: Boolean(settings.matting_use_source_alpha),
+    matting_edge_mode: ['soft_alpha', 'high_resolution_edges', 'trimap_guided_alpha', 'foreground_estimation'].includes(String(settings.matting_edge_mode || '')) ? String(settings.matting_edge_mode) : 'high_resolution_edges',
+    matting_mask_blur: Math.round(number(settings.matting_mask_blur, 0, 0, 64)),
+    matting_mask_offset: Math.round(number(settings.matting_mask_offset, 0, -64, 64)),
+    matting_invert: Boolean(settings.matting_invert),
+    matting_background: ['Alpha', 'Color'].includes(String(settings.matting_background || '')) ? String(settings.matting_background) : 'Alpha',
+    matting_background_color: String(settings.matting_background_color || '#222222'),
+    matting_refine_foreground: Boolean(settings.matting_refine_foreground),
     preset: String(settings.preset || 'smart_auto'),
     model: String(settings.model || ''),
     device: ['AUTO', 'CPU'].includes(String(settings.device || '').toUpperCase()) ? String(settings.device).toUpperCase() : 'AUTO',
@@ -12601,8 +13162,8 @@ function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
     blur_size_two: Math.round(number(settings.blur_size_two, 7, 1, 255)),
     save_mask: Boolean(settings.save_mask),
     preview_background: previewBackground,
-    manual_mask: Boolean(settings.manual_mask || ['refine_mask', 'interactive_sam'].includes(workflowMode)),
-    mask_source: String(settings.mask_source || (workflowMode === 'interactive_sam' ? 'interactive_sam' : (workflowMode === 'refine_mask' ? 'manual_review' : 'birefnet'))),
+    manual_mask: Boolean(settings.manual_mask || ['refine_mask', 'interactive_sam', 'matting'].includes(workflowMode)),
+    mask_source: String(settings.mask_source || (workflowMode === 'interactive_sam' ? 'interactive_sam' : (workflowMode === 'refine_mask' ? 'manual_review' : (workflowMode === 'matting' ? 'matting' : 'birefnet')))),
     parent_result_id: String(settings.parent_result_id || ''),
     parent_file_id: String(settings.parent_file_id || ''),
     commercial_profile_id: String(settings.commercial_profile_id || backgroundRemovalCommercialProfile(settings)?.profile_id || ''),
@@ -12611,6 +13172,12 @@ function backgroundRemovalCleanParams(settings = backgroundRemovalSettings()) {
     commercial_subject_type: ['auto','person','product','car'].includes(String(settings.commercial_subject_type || '')) ? String(settings.commercial_subject_type) : 'auto',
     commercial_preserve_semitransparency: settings.commercial_preserve_semitransparency !== false,
     commercial_transparency_handling: ['return_input_if_non_opaque','discard_alpha_layer'].includes(String(settings.commercial_transparency_handling || '')) ? String(settings.commercial_transparency_handling) : 'return_input_if_non_opaque',
+    rmbg_batch_route: ['batch_images', 'video_framewise'].includes(String(settings.rmbg_batch_route || '')) ? String(settings.rmbg_batch_route) : 'batch_images',
+    rmbg_batch_execution: 'comfy_batch',
+    rmbg_segmentation_prompt: String(settings.rmbg_segmentation_prompt || 'foreground subject').trim().slice(0, 512) || 'foreground subject',
+    rmbg_video_fps: Math.round(number(settings.rmbg_video_fps, 24, 1, 60)),
+    rmbg_video_max_frames: Math.round(number(settings.rmbg_video_max_frames, 1200, 1, 1200)),
+    rmbg_batch_save_mask: settings.rmbg_batch_save_mask !== false,
   };
 }
 function backgroundRemovalStagedFileList() { return Array.from(backgroundRemovalStagedFiles || []).filter(Boolean); }
@@ -12628,7 +13195,7 @@ function backgroundRemovalSetStagedFiles(files = [], source = 'picker') {
   backgroundRemovalReviewedMaskUrl = '';
   if (list[0]) backgroundRemovalPreviewUrl = URL.createObjectURL(list[0]);
   backgroundRemovalCloseSamSelector();
-  updateBackgroundRemovalSettings({ source_mode: list.length ? `uploaded_${source}` : 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : 'segment' });
+  updateBackgroundRemovalSettings({ source_mode: list.length ? `uploaded_${source}` : 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : (backgroundRemovalSettings().preset === 'segmentation_lab' ? 'segmentation_lab' : 'segment') });
   const input = document.getElementById('backgroundRemovalFile');
   if (input && source !== 'picker') {
     try {
@@ -12650,8 +13217,18 @@ function backgroundRemovalClearStagedFile() {
   const input = document.getElementById('backgroundRemovalFile');
   if (input) input.value = '';
   backgroundRemovalCloseSamSelector();
-  updateBackgroundRemovalSettings({ source_mode: 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : 'segment' });
+  updateBackgroundRemovalSettings({ source_mode: 'selected_result_or_upload', sam_prompts: [], sam_subjects: [], commercial_upload_consent: false, workflow_mode: backgroundRemovalSettings().preset === 'interactive_select' ? 'interactive_sam' : (backgroundRemovalSettings().preset === 'segmentation_lab' ? 'segmentation_lab' : 'segment') });
   backgroundRemovalStatus('Source staging cleared.');
+  render();
+}
+function backgroundRemovalSetBatchImageFiles(files = []) {
+  backgroundRemovalBatchImageFiles = Array.from(files || []).filter((file) => file && String(file.type || '').startsWith('image/')).slice(0, 32);
+  backgroundRemovalStatus(backgroundRemovalBatchImageFiles.length ? `${backgroundRemovalBatchImageFiles.length} batch image${backgroundRemovalBatchImageFiles.length === 1 ? '' : 's'} staged.` : 'Batch image staging cleared.');
+  render();
+}
+function backgroundRemovalSetBatchVideoFile(file) {
+  backgroundRemovalBatchVideoFile = file && /.(mp4|mov|webm|mkv|avi|gif)$/i.test(String(file.name || '')) ? file : null;
+  backgroundRemovalStatus(backgroundRemovalBatchVideoFile ? `${backgroundRemovalBatchVideoFile.name || 'Video'} staged for frame-wise segmentation.` : 'Video staging cleared.');
   render();
 }
 async function backgroundRemovalFileFromUrl(url, label = 'selected-output.png') {
@@ -12852,8 +13429,10 @@ function backgroundRemovalSamRouteReadiness(settings = backgroundRemovalSettings
   const shared = backgroundRemovalModelCatalogState.shared_sam || {};
   const native = backgroundRemovalModelCatalogState.native || {};
   const selected = backgroundRemovalSamSelectedSubjects(subjects);
-  const sharedAssetsReady = Boolean(shared.ready && shared.models?.length);
-  const nativeReady = Boolean(native.available && native.interactive_sam?.available !== false);
+  const comfySamEngine = backgroundRemovalEngineCatalogRow('comfy_sam');
+  const nativeSamEngine = backgroundRemovalEngineCatalogRow('native_sam');
+  const sharedAssetsReady = comfySamEngine ? Boolean(comfySamEngine.available) : Boolean(shared.ready && shared.models?.length);
+  const nativeReady = nativeSamEngine ? Boolean(nativeSamEngine.available) : Boolean(native.available && native.interactive_sam?.available !== false);
   const missingBoxes = selected.filter((subject) => !subject.bbox);
   const corrected = selected.filter((subject) => subject.keep_points.length || subject.remove_points.length);
   const nativeAddressable = selected.length > 0 && selected.every((subject) => subject.bbox || subject.keep_points.length);
@@ -12863,7 +13442,9 @@ function backgroundRemovalSamRouteReadiness(settings = backgroundRemovalSettings
   if (!selected.length) return { ready: false, route: 'none', reason: 'Select at least one detected or manually boxed subject.' };
   const boxReason = missingBoxes.length ? `${missingBoxes.map((subject) => subject.label).join(', ')} ${missingBoxes.length === 1 ? 'needs' : 'need'} a subject box.` : '';
   const correctionReason = corrected.length ? `${corrected.map((subject) => subject.label).join(', ')} ${corrected.length === 1 ? 'has' : 'have'} Keep/Remove corrections, which require Native ONNX SAM.` : '';
-  const sharedAssetReason = shared.missing_nodes?.length
+  const sharedAssetReason = comfySamEngine?.blockers?.length
+    ? comfySamEngine.blockers.join(' ')
+    : shared.missing_nodes?.length
     ? `Missing Comfy SAM nodes: ${shared.missing_nodes.join(', ')}.`
     : 'No Comfy SAM model is installed under ComfyUI/models/sams.';
   const nativeReason = native.interactive_sam?.reason || native.reason || 'Native ONNX SAM is unavailable.';
@@ -13392,11 +13973,11 @@ async function backgroundRemovalQueueFiles(files = [], sourceLabel = 'uploaded-s
   const route = backgroundRemovalActiveRoute(null);
   if (!BACKGROUND_REMOVAL_ACTIVE_ROUTE_STATES.includes(route.route_state)) throw new Error(route.reason || 'Background Removal is gated for this provider.');
   const requestedWorkflowMode = String(options.workflowMode || 'segment');
-  const workflowMode = ['refine_mask', 'interactive_sam'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
+  const workflowMode = ['refine_mask', 'interactive_sam', 'segmentation_lab', 'region_segmentation', 'mask_utility', 'matting'].includes(requestedWorkflowMode) ? requestedWorkflowMode : 'segment';
   const requestedEngine = String(backgroundRemovalSettings().engine || 'smart');
   const profile = requestedEngine === 'commercial_api' ? backgroundRemovalCommercialProfile() : backgroundRemovalComfyBackendProfile();
   if (!profile && requestedEngine === 'commercial_api') throw new Error('Configure a commercial Background Removal profile in Admin → Backends.');
-  if (!profile && (workflowMode === 'refine_mask' || (workflowMode !== 'interactive_sam' && requestedEngine === 'comfy_birefnet'))) throw new Error('This route needs a connected ComfyUI backend profile.');
+  if (!profile && (workflowMode === 'refine_mask' || (workflowMode !== 'interactive_sam' && ['comfy_birefnet', 'comfy_rmbg'].includes(requestedEngine)))) throw new Error('This route needs a connected ComfyUI backend profile.');
   const clean = { ...backgroundRemovalCleanParams(), workflow_mode: workflowMode };
   if (requestedEngine === 'commercial_api') {
     if (workflowMode !== 'segment') throw new Error('Commercial providers support the standard Remove Background run only.');
@@ -13417,6 +13998,40 @@ async function backgroundRemovalQueueFiles(files = [], sourceLabel = 'uploaded-s
     const selectedSubjects = clean.sam_subjects.filter((subject) => subject.selected !== false);
     if (!selectedSubjects.length || !selectedSubjects.some((subject) => subject.bbox || subject.keep_points?.length)) throw new Error('Interactive SAM needs at least one selected subject with a box or Keep point.');
     if (clean.sam_execution === 'comfy_impact' && !profile) throw new Error('Comfy SAM requires a connected ComfyUI backend profile.');
+  } else if (workflowMode === 'segmentation_lab') {
+    clean.segmentation_lab_enabled = true;
+    clean.engine = 'comfy_segmentation';
+    clean.fallback_policy = 'never';
+    clean.segmentation_lab_prompts = Array.isArray(options.segmentationPrompts) ? options.segmentationPrompts : clean.segmentation_lab_prompts;
+    clean.segmentation_lab_prompts = clean.segmentation_lab_prompts.filter((item) => item?.enabled !== false && String(item?.prompt || '').trim()).slice(0, 8);
+    if (!profile) throw new Error('Segmentation Lab requires a connected ComfyUI backend profile.');
+    if (!clean.segmentation_lab_prompts.length) throw new Error('Add at least one natural-language object prompt.');
+  } else if (workflowMode === 'region_segmentation') {
+    clean.region_segmentation_enabled = true;
+    clean.engine = 'comfy_region_segmentation';
+    clean.fallback_policy = 'never';
+    clean.region_segmentation_targets = Array.isArray(options.regionTargets) ? options.regionTargets : clean.region_segmentation_targets;
+    clean.region_segmentation_targets = clean.region_segmentation_targets.filter((item) => item?.enabled !== false && ['face', 'clothes', 'fashion', 'accessories'].includes(String(item?.region || '').toLowerCase())).slice(0, 8);
+    if (!profile) throw new Error('Region Segmentation requires a connected ComfyUI backend profile.');
+    if (!clean.region_segmentation_targets.length) throw new Error('Select at least one face, clothes, fashion, or accessories region.');
+  } else if (workflowMode === 'mask_utility') {
+    clean.mask_utility_enabled = true;
+    clean.engine = 'comfy_mask_utility';
+    clean.fallback_policy = 'never';
+    clean.mask_utility_mask_names = [];
+    if (!profile) throw new Error('Mask utilities require a connected ComfyUI backend profile.');
+    if (['enhance', 'combine', 'extract', 'crop_object', 'mask_overlay', 'object_remove_lama'].includes(clean.mask_utility_operation) && !backgroundRemovalUtilityMaskFiles.length) throw new Error('Upload at least one mask image for this utility.');
+    if (clean.mask_utility_operation === 'combine' && backgroundRemovalUtilityMaskFiles.length > 4) throw new Error('Mask Combiner accepts at most four mask images.');
+  } else if (workflowMode === 'matting') {
+    clean.matting_enabled = true;
+    clean.engine = 'comfy_matting';
+    clean.fallback_policy = 'never';
+    clean.manual_mask = Boolean(backgroundRemovalMattingMaskFile || clean.matting_use_source_alpha);
+    clean.mask_source = 'matting';
+    if (!profile) throw new Error('Advanced matting requires a connected ComfyUI backend profile.');
+    const mattingProfile = (backgroundRemovalMattingCatalog().profiles || []).find((row) => String(row?.id || '') === String(clean.matting_profile || 'birefnet_hr'));
+    if (!mattingProfile?.available) throw new Error('The selected advanced matting profile is not ready in the live ComfyUI catalog. Refresh engines.');
+    if (['sdmatte', 'sdmatte_plus'].includes(clean.matting_profile) && !backgroundRemovalMattingMaskFile && !clean.matting_use_source_alpha) throw new Error('SDMatte needs a trimap/mask upload, or enable source alpha as the mask.');
   }
   if (!clean.enabled) throw new Error('Enable Background Removal before queueing.');
   backgroundRemovalLastSourceFile = list[0] || backgroundRemovalLastSourceFile;
@@ -13425,14 +14040,16 @@ async function backgroundRemovalQueueFiles(files = [], sourceLabel = 'uploaded-s
   form.append('settings_json', JSON.stringify({ ...clean, source_mode: sourceLabel }));
   list.forEach((file) => form.append('image_files', file, file.name || 'image.png'));
   if (options.maskFile) form.append('mask_file', options.maskFile, options.maskFile.name || 'reviewed-mask.png');
+  if (workflowMode === 'mask_utility') backgroundRemovalUtilityMaskFiles.slice(0, 4).forEach((file) => form.append('mask_files', file, file.name || 'mask.png'));
+  if (workflowMode === 'matting' && backgroundRemovalMattingMaskFile) form.append('mask_file', backgroundRemovalMattingMaskFile, backgroundRemovalMattingMaskFile.name || 'matting-mask.png');
   const actionLabel = workflowMode === 'refine_mask'
     ? 'Queueing reviewed-mask edge refinement…'
-    : (workflowMode === 'interactive_sam' ? 'Running Interactive SAM selection…' : (requestedEngine === 'commercial_api' ? `Uploading ${list.length} image${list.length === 1 ? '' : 's'} to ${profile?.display_name || 'commercial provider'}…` : `Queueing Background Removal for ${list.length} image${list.length === 1 ? '' : 's'}…`));
+    : (workflowMode === 'interactive_sam' ? 'Running Interactive SAM selection…' : (workflowMode === 'segmentation_lab' ? 'Running Segmentation Lab prompt masks…' : (workflowMode === 'region_segmentation' ? 'Running face, clothes, and fashion segmentation…' : (workflowMode === 'mask_utility' ? 'Running RMBG mask/object utility…' : (workflowMode === 'matting' ? 'Running advanced matting / high-resolution edges…' : (requestedEngine === 'commercial_api' ? `Uploading ${list.length} image${list.length === 1 ? '' : 's'} to ${profile?.display_name || 'commercial provider'}…` : `Queueing Background Removal for ${list.length} image${list.length === 1 ? '' : 's'}…`))))));
   backgroundRemovalStatus(actionLabel);
   const response = await fetch('/api/extensions/background-removal/queue', { method: 'POST', body: form });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || payload.error || 'Background Removal queue failed.');
-  recordMemoryEvent(workflowMode === 'refine_mask' ? 'image.background_removal.mask_refinement_queued' : (workflowMode === 'interactive_sam' ? 'image.background_removal.sam_selection_queued' : 'image.background_removal.queued'), 'image', {
+  recordMemoryEvent(workflowMode === 'refine_mask' ? 'image.background_removal.mask_refinement_queued' : (workflowMode === 'interactive_sam' ? 'image.background_removal.sam_selection_queued' : (workflowMode === 'segmentation_lab' ? 'image.background_removal.segmentation_lab_queued' : (workflowMode === 'mask_utility' ? 'image.background_removal.mask_utility_queued' : 'image.background_removal.queued'))), 'image', {
     extension_id: BACKGROUND_REMOVAL_EXTENSION_ID,
     queued_count: payload.queued_count || payload.jobs?.length || 0,
     source: sourceLabel,
@@ -13473,20 +14090,23 @@ async function backgroundRemovalActivateQueuedJobs(jobs = [], profile, payload =
   if (runnable.length && failures.length === runnable.length && !outputs.length) throw new Error(failures[0] || 'Background Removal polling failed.');
   const refinement = payload.workflow_mode === 'refine_mask' || payload.route?.workflow_mode === 'refine_mask';
   const interactiveSam = payload.workflow_mode === 'interactive_sam' || payload.route?.workflow_mode === 'interactive_sam';
+  const matting = payload.workflow_mode === 'matting' || payload.route?.workflow_mode === 'matting';
   const nativeOnly = payload.resolved_engine === 'native_rembg' && !runnable.length;
   const commercialOnly = payload.resolved_engine === 'commercial_api' && !runnable.length;
   const successMessage = refinement
     ? 'Mask refinement completed without rerunning BiRefNet. A new transparent child output and refined mask were added to Results.'
     : (interactiveSam
       ? 'Interactive SAM selection completed. The selected subjects and combined soft alpha mask were added to Results.'
+      : (matting
+      ? 'Advanced matting completed. High-resolution transparent foreground and refined mask were added to Results.'
       : (commercialOnly
       ? 'Commercial Background Removal completed. The provider response was saved locally and upload consent was reset.'
       : (nativeOnly
       ? 'Background Removal completed with Neo Native rembg. Transparent foreground and mask were added to Results.'
       : (payload.fallback_used
         ? 'Background Removal completed with smart fallback. Review the resolved engine in Output Inspector.'
-        : 'Background Removal completed. Transparent foreground and mask were added to Results.'))));
-  const message = failures.length ? `${refinement ? 'Mask refinement' : (interactiveSam ? 'Interactive SAM' : 'Background Removal')} completed with ${failures.length} failed item(s).` : successMessage;
+        : 'Background Removal completed. Transparent foreground and mask were added to Results.')))));
+  const message = failures.length ? `${refinement ? 'Mask refinement' : (interactiveSam ? 'Interactive SAM' : (matting ? 'Advanced matting' : 'Background Removal'))} completed with ${failures.length} failed item(s).` : successMessage;
   backgroundRemovalStatus(message);
   setWorkspaceProgress(message, 100, { allowBackwards: true });
 }
@@ -13504,10 +14124,10 @@ async function backgroundRemovalActivateQueuedJob(job, profile, payload = {}, ba
     runtime: { poll: { timeout_seconds: 0, interval_ms: 1500, unlimited: true }, capabilities: runtimeCaps },
     capabilities: runtimeCaps,
     route: {
-      mode: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_select' : 'background_removal'),
-      workflow_type: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine_finish' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_finish' : 'background_removal_finish'),
+      mode: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_select' : (payload.workflow_mode === 'matting' ? 'background_removal_matting' : 'background_removal')),
+      workflow_type: payload.workflow_mode === 'refine_mask' ? 'background_removal_refine_finish' : (payload.workflow_mode === 'interactive_sam' ? 'background_removal_sam_finish' : (payload.workflow_mode === 'matting' ? 'background_removal_matting_finish' : 'background_removal_finish')),
       family: 'standalone',
-      loader: payload.workflow_mode === 'refine_mask' ? 'birefnet_refinement' : (payload.workflow_mode === 'interactive_sam' ? (payload.resolved_engine === 'comfy_sam' ? 'sam_impact_shared' : 'sam_onnx') : 'birefnet'),
+      loader: payload.workflow_mode === 'refine_mask' ? 'birefnet_refinement' : (payload.workflow_mode === 'interactive_sam' ? (payload.resolved_engine === 'comfy_sam' ? 'sam_impact_shared' : 'sam_onnx') : (payload.workflow_mode === 'matting' ? 'rmbg_advanced_matting' : (payload.resolved_engine === 'comfy_rmbg' ? 'rmbg' : 'birefnet'))),
       batch_index: batch.index,
       batch_total: batch.total,
     },
@@ -13518,21 +14138,67 @@ async function backgroundRemovalActivateQueuedJob(job, profile, payload = {}, ba
   saveUiState();
   const refinement = payload.workflow_mode === 'refine_mask' || payload.route?.workflow_mode === 'refine_mask';
   const interactiveSam = payload.workflow_mode === 'interactive_sam' || payload.route?.workflow_mode === 'interactive_sam';
+  const matting = payload.workflow_mode === 'matting' || payload.route?.workflow_mode === 'matting';
   setWorkspaceProgress(
-    refinement ? 'Refining reviewed alpha mask' : (interactiveSam ? 'Running Interactive SAM selection' : (batch.total > 1 ? `Removing backgrounds ${batch.index}/${batch.total}` : 'Removing background with Comfy BiRefNet')),
+    refinement ? 'Refining reviewed alpha mask' : (interactiveSam ? 'Running Interactive SAM selection' : (matting ? 'Running advanced matting / high-resolution edges…' : (batch.total > 1 ? `Removing backgrounds ${batch.index}/${batch.total}` : (payload.resolved_engine === 'comfy_rmbg' ? 'Removing background with ComfyUI-RMBG' : 'Removing background with Comfy BiRefNet')))),
     35,
     { batchTotal: batch.total, batchDone: batch.index - 1, allowBackwards: true },
   );
   if (job.client_id && runtimeCaps.live_preview) startImageProgressSocket(profileId, job.client_id);
   return pollImageGeneration(profileId, jobId, 0);
 }
-async function backgroundRemovalQueueSelectedResult() {
+async function backgroundRemovalQueueBatchVideo() {
+  const settings = backgroundRemovalCleanParams();
+  const route = settings.rmbg_batch_route === 'video_framewise' ? 'video_framewise' : 'batch_images';
+  const profile = backgroundRemovalComfyBackendProfile();
+  if (!profile) throw new Error('Batch/video segmentation requires a connected ComfyUI profile.');
+  const form = new FormData();
+  form.append('profile_id', String(profile.profile_id || ''));
+  form.append('settings_json', JSON.stringify({
+    ...settings,
+    enabled: true,
+    rmbg_batch_route: route,
+    rmbg_batch_execution: 'comfy_batch',
+    rmbg_segmentation_prompt: settings.rmbg_segmentation_prompt,
+    rmbg_video_fps: settings.rmbg_video_fps,
+    rmbg_video_max_frames: settings.rmbg_video_max_frames,
+    save_mask: settings.rmbg_batch_save_mask,
+    temporal_mode: 'framewise',
+  }));
+  if (route === 'batch_images') {
+    if (!backgroundRemovalBatchImageFiles.length) throw new Error('Stage one to 32 images in the Batch Images picker.');
+    backgroundRemovalBatchImageFiles.forEach((file) => form.append('image_files', file, file.name || 'batch-image.png'));
+  } else {
+    if (!backgroundRemovalBatchVideoFile) throw new Error('Stage one MP4, MOV, WEBM, MKV, AVI, or GIF in the Video picker.');
+    form.append('video_file', backgroundRemovalBatchVideoFile, backgroundRemovalBatchVideoFile.name || 'source-video.mp4');
+  }
+  backgroundRemovalStatus(route === 'batch_images' ? `Queueing ${backgroundRemovalBatchImageFiles.length} image batch…` : 'Queueing frame-wise video segmentation…');
+  const response = await fetch('/api/extensions/background-removal/batch-video/queue', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Batch/video segmentation queue failed.');
+  recordMemoryEvent('image.background_removal.batch_video_queued', 'image', {
+    extension_id: BACKGROUND_REMOVAL_EXTENSION_ID,
+    route,
+    source_count: payload.source_count || 0,
+    temporal_mode: 'framewise',
+    profile_id: profile.profile_id || '',
+  });
+  if (route === 'batch_images') {
+    await backgroundRemovalActivateQueuedJobs(payload.jobs || [], profile, { ...payload, workflow_mode: 'batch_images' });
+  } else {
+    backgroundRemovalStatus('Frame-wise video segmentation was queued in ComfyUI. Results remain a video output and temporal tracking was not applied.');
+    setWorkspaceProgress('Frame-wise video segmentation queued', 35, { allowBackwards: true });
+  }
+  return payload;
+}
+async function backgroundRemovalQueueSelectedResult(workflowMode = 'segment') {
   const uploaded = backgroundRemovalStagedFileList();
-  if (uploaded.length) return backgroundRemovalQueueFiles(uploaded, 'uploaded-source');
+  const options = workflowMode === 'region_segmentation' ? { workflowMode, regionTargets: backgroundRemovalSettings().region_segmentation_targets } : { workflowMode };
+  if (uploaded.length) return backgroundRemovalQueueFiles(uploaded, 'uploaded-source', options);
   const candidate = imageUpscaleCurrentOutputCandidate();
   if (!candidate?.url) throw new Error('No selected result found. Generate an image or upload one first.');
   const file = await backgroundRemovalFileFromUrl(candidate.url, candidate.label || 'selected-output.png');
-  return backgroundRemovalQueueFiles([file], 'selected-result');
+  return backgroundRemovalQueueFiles([file], 'selected-result', options);
 }
 function backgroundRemovalPanel(record) {
   backgroundRemovalUseActiveModelCatalog();
@@ -13558,11 +14224,21 @@ function backgroundRemovalPanel(record) {
   const catalogScanState = catalogRuntime.loading ? 'loading' : (catalogRuntime.error ? 'error' : (catalogRuntime.loaded ? 'ready' : 'idle'));
   const nativeRuntime = backgroundRemovalModelCatalogState.native || {};
   const samActive = !commercialActive && (settings.preset === 'interactive_select' || settings.workflow_mode === 'interactive_sam');
+  const segmentationActive = !commercialActive && (settings.preset === 'segmentation_lab' || settings.workflow_mode === 'segmentation_lab');
+  const regionActive = !commercialActive && (settings.preset === 'region_segmentation' || settings.workflow_mode === 'region_segmentation');
+  const utilityActive = !commercialActive && (settings.preset === 'mask_utility' || settings.workflow_mode === 'mask_utility');
+  const rmbgActive = !commercialActive && settings.engine === 'comfy_rmbg' && !samActive && !segmentationActive && !regionActive && !utilityActive;
+  const mattingActive = !commercialActive && (settings.preset === 'matting' || settings.workflow_mode === 'matting');
   const engineSummary = backgroundRemovalEngineSummary(settings);
   const modelHelp = commercialActive
     ? `<div class="neo-background-removal-model-card"><strong>Commercial provider readiness</strong><span class="neo-muted">${escapeHtml(engineSummary)}</span><small>${escapeHtml(commercialProfile ? 'API credentials and account billing are managed through Admin → Backends. A connection check never removes a background.' : 'No enabled commercial Background Removal profile is available.')}</small><div class="neo-badge-row">${badgeRow([backgroundRemovalCommercialProviderLabel(commercialProfile), 'External upload', 'No automatic fallback'])}</div><button class="btn btn-small secondary" type="button" onclick="setActiveSubtab('admin','backends')">Open Admin Backends</button></div>`
     : `<div class="neo-background-removal-model-card" data-background-removal-model-scan-state="${escapeAttr(catalogScanState)}" data-background-removal-model-scan-profile="${escapeAttr(catalogProfileId)}" aria-busy="${catalogRuntime.loading ? 'true' : 'false'}"><strong>Engine readiness</strong><span class="neo-muted">${escapeHtml(engineSummary)}</span><small role="status" aria-live="polite">${escapeHtml(backgroundRemovalCatalogSummary())}</small><div class="neo-badge-row">${badgeRow([backgroundRemovalBackendLabel(), nativeRuntime.available ? `rembg ${nativeRuntime.version || 'installed'}` : 'rembg optional', settings.fallback_policy === 'never' ? 'No fallback' : 'Fallback enabled'])}</div><button class="btn btn-small secondary" id="backgroundRemovalRefreshModels" type="button" ${locked || catalogRuntime.loading ? 'disabled' : ''}>${catalogRuntime.loading ? 'Scanning…' : 'Refresh engines'}</button></div>`;
-  const advanced = compact ? '' : (commercialActive ? `<div class="neo-background-removal-grid"><label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label></div>` : (samActive ? `<div class="neo-background-removal-grid">
+  const advanced = compact ? '' : (commercialActive ? `<div class="neo-background-removal-grid"><label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label></div>` : ((segmentationActive || regionActive || utilityActive || mattingActive) ? `<div class="neo-background-removal-grid">
+    <label>Mask threshold<input id="backgroundRemovalMaskThreshold" type="number" min="0" max="1" step="0.001" value="${escapeAttr(settings.mask_threshold)}" ${locked ? 'disabled' : ''}></label>
+    <label>Edge expand / contract<input id="backgroundRemovalMaskExpand" type="number" min="-128" max="128" step="1" value="${escapeAttr(settings.mask_expand || 0)}" ${locked ? 'disabled' : ''}></label>
+    <label>Edge feather<input id="backgroundRemovalMaskFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.mask_feather || 0)}" ${locked ? 'disabled' : ''}></label>
+    <label>Review background<select id="backgroundRemovalPreviewBackground" ${locked ? 'disabled' : ''}><option value="checkerboard" ${settings.preview_background === 'checkerboard' ? 'selected' : ''}>Checkerboard</option><option value="white" ${settings.preview_background === 'white' ? 'selected' : ''}>White</option><option value="black" ${settings.preview_background === 'black' ? 'selected' : ''}>Black</option></select></label>
+  </div>` : (samActive ? `<div class="neo-background-removal-grid">
     <label>Mask threshold<input id="backgroundRemovalMaskThreshold" type="number" min="0" max="1" step="0.001" value="${escapeAttr(settings.mask_threshold)}" ${locked ? 'disabled' : ''}></label>
     <label>Edge expand / contract<input id="backgroundRemovalMaskExpand" type="number" min="-128" max="128" step="1" value="${escapeAttr(settings.mask_expand || 0)}" ${locked ? 'disabled' : ''}><small>Applied after SAM/BiRefNet selection.</small></label>
     <label>Edge feather<input id="backgroundRemovalMaskFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.mask_feather || 0)}" ${locked ? 'disabled' : ''}></label>
@@ -13580,7 +14256,7 @@ function backgroundRemovalPanel(record) {
     <label class="neo-toggle-row"><input id="backgroundRemovalNativeAlphaMatting" type="checkbox" ${settings.native_alpha_matting ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Native alpha matting</span></label>
     <label class="neo-toggle-row"><input id="backgroundRemovalNativePostProcess" type="checkbox" ${settings.native_post_process_mask ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Native mask post-process</span></label>
     ${settings.native_alpha_matting ? `<label>Foreground threshold<input id="backgroundRemovalNativeForegroundThreshold" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_foreground_threshold)}" ${locked ? 'disabled' : ''}></label><label>Background threshold<input id="backgroundRemovalNativeBackgroundThreshold" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_background_threshold)}" ${locked ? 'disabled' : ''}></label><label>Matting erode<input id="backgroundRemovalNativeErodeSize" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.native_erode_size)}" ${locked ? 'disabled' : ''}></label>` : ''}
-  </div>`));
+  </div>`)));
   const commercialCard = commercialActive ? `<div class="neo-background-removal-commercial-card">
     <div><strong>External upload & credit confirmation</strong><span class="neo-muted">The selected image will leave this device and be sent to ${escapeHtml(commercialProfile?.display_name || 'the selected commercial provider')}. Provider billing, retention, privacy, and acceptable-use terms apply.</span></div>
     <div class="neo-badge-row">${badgeRow([`${estimatedCommercialCalls} estimated API call${estimatedCommercialCalls === 1 ? '' : 's'}`, 'Paid credits may be consumed', 'Consent resets after every run', 'No cloud fallback'])}</div>
@@ -13594,18 +14270,19 @@ function backgroundRemovalPanel(record) {
       <label>Execution engine<select id="backgroundRemovalEngine" ${locked ? 'disabled' : ''}>${backgroundRemovalEngineOptions(settings.engine)}</select></label>
       <label>Commercial provider profile<select id="backgroundRemovalCommercialProfile" ${locked ? 'disabled' : ''}>${backgroundRemovalCommercialProfileOptions(settings.commercial_profile_id || commercialProfile?.profile_id || '')}</select></label>
       ${commercialProviderControls}
-    </div>` : (samActive ? `<div class="neo-background-removal-grid">
+    </div>` : (segmentationActive ? `<div class="neo-background-removal-grid"><label>Execution engine<input value="Verified Comfy prompt segmentation" disabled></label><label>Route policy<input value="Live adapter only · no fallback" disabled></label></div>` : (samActive ? `<div class="neo-background-removal-grid">
       <label>Removal preset<select id="backgroundRemovalPreset" ${locked ? 'disabled' : ''}>${backgroundRemovalPresetOptions(settings.preset)}</select></label>
       <label>Native provider<select id="backgroundRemovalNativeProvider" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.native_provider === 'AUTO' ? 'selected' : ''}>AUTO</option><option value="CUDA" ${settings.native_provider === 'CUDA' ? 'selected' : ''}>CUDA → CPU fallback</option><option value="CPU" ${settings.native_provider === 'CPU' ? 'selected' : ''}>CPU only</option></select></label>
     </div>` : `<div class="neo-background-removal-grid">
       <label>Execution engine<select id="backgroundRemovalEngine" ${locked ? 'disabled' : ''}>${backgroundRemovalEngineOptions(settings.engine)}</select></label>
       <label>Removal preset<select id="backgroundRemovalPreset" ${locked ? 'disabled' : ''}>${backgroundRemovalPresetOptions(settings.preset)}</select></label>
       <label>Fallback policy<select id="backgroundRemovalFallbackPolicy" ${locked ? 'disabled' : ''}><option value="on_unavailable" ${settings.fallback_policy === 'on_unavailable' ? 'selected' : ''}>Fallback when unavailable</option><option value="on_unavailable_or_queue_failure" ${settings.fallback_policy === 'on_unavailable_or_queue_failure' ? 'selected' : ''}>Also fallback on Comfy queue failure</option><option value="never" ${settings.fallback_policy === 'never' ? 'selected' : ''}>Never fallback</option></select></label>
-      <label>Comfy BiRefNet model<select id="backgroundRemovalModel" ${locked ? 'disabled' : ''}>${backgroundRemovalModelOptions(settings.model)}</select></label>
+      ${rmbgActive ? `<label>ComfyUI-RMBG model<select id="backgroundRemovalRmbgModel" ${locked ? 'disabled' : ''}>${backgroundRemovalRmbgModelOptions(settings.rmbg_model)}</select></label>` : `<label>Comfy BiRefNet model<select id="backgroundRemovalModel" ${locked ? 'disabled' : ''}>${backgroundRemovalModelOptions(settings.model)}</select></label>`}
       <label>Comfy device<select id="backgroundRemovalDevice" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.device === 'AUTO' ? 'selected' : ''}>AUTO / GPU</option><option value="CPU" ${settings.device === 'CPU' ? 'selected' : ''}>CPU</option></select></label>
+      ${rmbgActive ? `<label>RMBG sensitivity<input id="backgroundRemovalRmbgSensitivity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.rmbg_sensitivity ?? 1)}" ${locked ? 'disabled' : ''}></label><label>RMBG background<select id="backgroundRemovalRmbgBackground" ${locked ? 'disabled' : ''}><option value="Alpha" ${settings.rmbg_background === 'Alpha' ? 'selected' : ''}>Alpha / transparent</option><option value="Color" ${settings.rmbg_background === 'Color' ? 'selected' : ''}>Color</option></select></label><label class="neo-toggle-row"><input id="backgroundRemovalRmbgRefineForeground" type="checkbox" ${settings.rmbg_refine_foreground ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>RMBG foreground refinement</span></label>` : ''}
       <label>Native model<select id="backgroundRemovalNativeModel" ${locked ? 'disabled' : ''}>${backgroundRemovalNativeModelOptions(settings.native_model)}</select></label>
       <label>Native provider<select id="backgroundRemovalNativeProvider" ${locked ? 'disabled' : ''}><option value="AUTO" ${settings.native_provider === 'AUTO' ? 'selected' : ''}>AUTO</option><option value="CUDA" ${settings.native_provider === 'CUDA' ? 'selected' : ''}>CUDA → CPU fallback</option><option value="CPU" ${settings.native_provider === 'CPU' ? 'selected' : ''}>CPU only</option></select></label>
-    </div>`);
+    </div>`));
   const reviewCard = `<div class="neo-background-removal-review-card" data-review-ready="${canReview ? 'true' : 'false'}">
     <div><strong>Edge Refinement & Mask Review</strong><span class="neo-muted">Inspect on checkerboard, white, or black. Paint Keep/Remove on the saved soft mask, then rerun only foreground refinement—BiRefNet segmentation is not repeated.</span></div>
     <div class="neo-badge-row">${badgeRow([
@@ -13659,10 +14336,94 @@ function backgroundRemovalPanel(record) {
     <div class="neo-actions"><button class="btn" id="backgroundRemovalOpenSamSelector" type="button" ${locked ? 'disabled' : ''}>👥 Select people / subjects</button></div>
     ${!samAssetReady ? `<small class="neo-muted">Install the Comfy SAM nodes with a model under ComfyUI/models/sams, or install the optional Native ONNX runtime. You can still prepare subject boxes before the runtime is ready.</small>` : `<small class="neo-muted">Box-only selections use the installed Comfy SAM model. Keep/Remove correction points require Native ONNX SAM.</small>`}
   </div>` : '';
+  const segmentationCatalog = backgroundRemovalSegmentationLabCatalog();
+  const segmentationAdaptersReady = (segmentationCatalog.adapters || []).filter((row) => row?.available);
+  const segmentationPrompts = Array.isArray(settings.segmentation_lab_prompts) ? settings.segmentation_lab_prompts : [];
+  const segmentationPromptText = segmentationPrompts.filter((item) => item?.enabled !== false).map((item) => item.prompt).join('\n');
+  const segmentationOperationOptions = ['union', 'intersection', 'subtract'].map((item) => `<option value="${item}" ${settings.segmentation_mask_operation === item ? 'selected' : ''}>${humanize(item)}</option>`).join('');
+  const regionCatalog = backgroundRemovalRegionCatalog();
+  const regionAdaptersReady = (regionCatalog.adapters || []).filter((row) => row?.available);
+  const regionTargets = Array.isArray(settings.region_segmentation_targets) ? settings.region_segmentation_targets : [];
+  const regionOperationOptions = ['union', 'intersection', 'subtract'].map((item) => `<option value="${item}" ${settings.region_segmentation_mask_operation === item ? 'selected' : ''}>${humanize(item)}</option>`).join('');
+  const regionCard = regionActive ? `<div class="neo-background-removal-sam-card neo-background-removal-region-segmentation-card" data-region-ready="${regionAdaptersReady.length ? 'true' : 'false'}">
+    <div class="neo-background-removal-sam-card__header"><div><strong>Face, Clothes, Fashion, and Accessories Segmentation</strong><span class="neo-muted">Choose one or more target regions. Accessories uses the live FashionSegmentAccessories selector connected to FashionSegmentClothing.</span></div><span class="neo-state-pill ${regionAdaptersReady.length ? 'success' : 'warning'}">${regionAdaptersReady.length ? `${regionAdaptersReady.length} adapter${regionAdaptersReady.length === 1 ? '' : 's'} ready` : 'Comfy adapter unavailable'}</span></div>
+    <div class="neo-background-removal-grid">
+      <label>Region adapter<select id="backgroundRemovalRegionAdapter" ${locked || !regionAdaptersReady.length ? 'disabled' : ''}>${backgroundRemovalRegionAdapterOptions(settings.region_segmentation_adapter)}</select><small>Resolved from live ComfyUI /object_info; Neo will not silently switch engines.</small></label>
+      <label>Mask operation<select id="backgroundRemovalRegionOperation" ${locked ? 'disabled' : ''}>${regionOperationOptions}</select><small>Union combines targets; intersection keeps overlap; subtract removes later targets from the first.</small></label>
+    </div>
+    <label>Target regions · one per line<textarea id="backgroundRemovalRegionTargets" rows="4" maxlength="4096" placeholder="accessories: hat, glasses, bag, belt" ${locked ? 'disabled' : ''}>${escapeHtml(regionTargets.filter((item) => item?.enabled !== false).map((item) => `${item.region}${item.classes?.length ? `: ${item.classes.join(', ')}` : ''}`).join('\n'))}</textarea><small>${regionTargets.length || 0}/${regionCatalog.limits?.max_targets || 8} target rows · use <code>face</code>, <code>clothes</code>, <code>fashion</code>, or <code>accessories</code>; optional classes follow a colon.</small></label>
+    ${!regionAdaptersReady.length ? '<small class="neo-muted">Refresh engines after installing ComfyUI-RMBG. Neo blocks this route until the exact node and its class inputs are visible in the live catalog.</small>' : '<small class="neo-muted">Face, clothes, and fashion use direct semantic nodes. Accessories uses FashionSegmentAccessories options and passes them into FashionSegmentClothing before mask combination.</small>'}
+  </div>` : '';
+  const utilityCatalog = backgroundRemovalMaskUtilitiesCatalog();
+  const utilityOperationsReady = (utilityCatalog.operations || []).filter((row) => row?.available);
+  const utilityActiveOperation = String(settings.mask_utility_operation || 'enhance');
+  const utilityCard = utilityActive ? `<div class="neo-background-removal-sam-card neo-background-removal-mask-utility-card" data-utility-ready="${utilityOperationsReady.length ? 'true' : 'false'}">
+    <div class="neo-background-removal-sam-card__header"><div><strong>Mask & Object Utilities</strong><span class="neo-muted">Reusable RMBG pixel operations. Crop/resize prepare an aligned asset; overlay previews a mask; Lama removes a selected object; existing mask tools remain available.</span></div><span class="neo-state-pill ${utilityOperationsReady.length ? 'success' : 'warning'}">${utilityOperationsReady.length ? `${utilityOperationsReady.length} utility${utilityOperationsReady.length === 1 ? '' : 'ies'} ready` : 'Comfy utilities unavailable'}</span></div>
+    <div class="neo-background-removal-grid">
+      <label>Utility operation<select id="backgroundRemovalMaskUtilityOperation" ${locked || !utilityOperationsReady.length ? 'disabled' : ''}>${backgroundRemovalMaskUtilityOperationOptions(utilityActiveOperation)}</select></label>
+      ${utilityActiveOperation === 'combine' ? `<label>Combine mode<select id="backgroundRemovalMaskUtilityMode" ${locked ? 'disabled' : ''}><option value="union" ${settings.mask_utility_mask_operation === 'union' ? 'selected' : ''}>Union</option><option value="intersection" ${settings.mask_utility_mask_operation === 'intersection' ? 'selected' : ''}>Intersection</option><option value="difference" ${settings.mask_utility_mask_operation === 'difference' ? 'selected' : ''}>Difference</option></select></label>` : ''}
+      ${['convert', 'color_to_mask'].includes(utilityActiveOperation) ? `<label>Mask channel<select id="backgroundRemovalMaskUtilityChannel" ${locked ? 'disabled' : ''}>${['alpha','red','green','blue'].map((item) => `<option value="${item}" ${settings.mask_utility_mask_channel === item ? 'selected' : ''}>${item}</option>`).join('')}</select></label>` : ''}
+      ${utilityActiveOperation === 'color_to_mask' ? `<label>Target color<input id="backgroundRemovalMaskUtilityColor" type="text" value="${escapeAttr(settings.mask_utility_color)}" ${locked ? 'disabled' : ''}></label><label>Color threshold<input id="backgroundRemovalMaskUtilityThreshold" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.mask_utility_threshold)}" ${locked ? 'disabled' : ''}></label>` : ''}
+      ${utilityActiveOperation === 'crop_object' ? `<label>Object padding<input id="backgroundRemovalMaskUtilityPadding" type="number" min="0" max="256" step="1" value="${escapeAttr(settings.mask_utility_padding)}" ${locked ? 'disabled' : ''}></label>` : ''}
+      ${utilityActiveOperation === 'extract' ? `<label>Extract mode<select id="backgroundRemovalMaskUtilityExtractMode" ${locked ? 'disabled' : ''}>${['extract_masked_area','apply_mask','invert_mask'].map((item) => `<option value="${item}" ${settings.mask_utility_extract_mode === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label>` : ''}
+      ${utilityActiveOperation === 'mask_overlay' ? `<label>Overlay opacity<input id="backgroundRemovalMaskUtilityOverlayOpacity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.mask_utility_overlay_opacity)}" ${locked ? 'disabled' : ''}></label><label>Overlay color<input id="backgroundRemovalMaskUtilityOverlayColor" type="text" value="${escapeAttr(settings.mask_utility_overlay_color)}" ${locked ? 'disabled' : ''}></label>` : ''}
+      ${utilityActiveOperation === 'object_remove_lama' ? `<label>Removal strength<input id="backgroundRemovalMaskUtilityLamaStrength" type="number" min="0" max="255" step="1" value="${escapeAttr(settings.mask_utility_lama_removal_strength)}" ${locked ? 'disabled' : ''}></label><label>Edge smoothness<input id="backgroundRemovalMaskUtilityLamaSmoothness" type="number" min="0" max="20" step="1" value="${escapeAttr(settings.mask_utility_lama_edge_smoothness)}" ${locked ? 'disabled' : ''}></label>` : ''}
+      ${utilityActiveOperation === 'image_mask_resize' ? `<label>Target width (0 = auto)<input id="backgroundRemovalMaskUtilityResizeWidth" type="number" min="0" max="8192" step="8" value="${escapeAttr(settings.mask_utility_resize_width)}" ${locked ? 'disabled' : ''}></label><label>Target height (0 = auto)<input id="backgroundRemovalMaskUtilityResizeHeight" type="number" min="0" max="8192" step="8" value="${escapeAttr(settings.mask_utility_resize_height)}" ${locked ? 'disabled' : ''}></label><label>Output mode<select id="backgroundRemovalMaskUtilityResizeOutputMode" ${locked ? 'disabled' : ''}>${['stretch','pad','pad_edge','pad_edge_pixel','crop','pillarbox_blur'].map((item) => `<option value="${item}" ${settings.mask_utility_resize_output_mode === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label><label>Resize method<select id="backgroundRemovalMaskUtilityResizeMethod" ${locked ? 'disabled' : ''}>${['nearest-exact','bilinear','area','bicubic','lanczos'].map((item) => `<option value="${item}" ${settings.mask_utility_resize_method === item ? 'selected' : ''}>${item}</option>`).join('')}</select></label>` : ''}
+      ${utilityActiveOperation === 'image_crop' ? `<label>Crop width<input id="backgroundRemovalMaskUtilityCropWidth" type="number" min="0" max="8192" step="8" value="${escapeAttr(settings.mask_utility_crop_width)}" ${locked ? 'disabled' : ''}></label><label>Crop height<input id="backgroundRemovalMaskUtilityCropHeight" type="number" min="0" max="8192" step="8" value="${escapeAttr(settings.mask_utility_crop_height)}" ${locked ? 'disabled' : ''}></label><label>Crop position<select id="backgroundRemovalMaskUtilityCropPosition" ${locked ? 'disabled' : ''}>${['top-left','top-center','top-right','right-center','bottom-right','bottom-center','bottom-left','left-center','center'].map((item) => `<option value="${item}" ${settings.mask_utility_crop_position === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label><label class="neo-toggle-row"><input id="backgroundRemovalMaskUtilityCropSplit" type="checkbox" ${settings.mask_utility_crop_split ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Keep crop remainder output</span></label>` : ''}
+    </div>
+    ${utilityActiveOperation === 'enhance' ? `<div class="neo-background-removal-grid"><label>Mask blur<input id="backgroundRemovalMaskUtilityBlur" type="number" min="0" max="64" value="${escapeAttr(settings.mask_utility_mask_blur)}" ${locked ? 'disabled' : ''}></label><label>Mask offset<input id="backgroundRemovalMaskUtilityOffset" type="number" min="-64" max="64" value="${escapeAttr(settings.mask_utility_mask_offset)}" ${locked ? 'disabled' : ''}></label><label>Smoothing<input id="backgroundRemovalMaskUtilitySmooth" type="number" min="0" max="128" step="0.5" value="${escapeAttr(settings.mask_utility_smooth)}" ${locked ? 'disabled' : ''}></label><label class="neo-toggle-row"><input id="backgroundRemovalMaskUtilityFillHoles" type="checkbox" ${settings.mask_utility_fill_holes ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Fill holes</span></label><label class="neo-toggle-row"><input id="backgroundRemovalMaskUtilityInvert" type="checkbox" ${settings.mask_utility_invert ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Invert mask</span></label></div>` : ''}
+    <label>Mask inputs (optional for Crop/Resize) <input id="backgroundRemovalMaskUtilityFiles" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple ${locked ? 'disabled' : ''}><small id="backgroundRemovalMaskUtilityFilesHelp">${backgroundRemovalUtilityMaskFiles.length ? `${backgroundRemovalUtilityMaskFiles.length} mask file${backgroundRemovalUtilityMaskFiles.length === 1 ? '' : 's'} staged` : (['enhance','combine','extract','crop_object','mask_overlay','object_remove_lama'].includes(utilityActiveOperation) ? 'Upload one to four mask PNGs/JPGs for this operation.' : 'Optional. Add a mask to keep image/mask preparation aligned.')}</small></label>
+    <small class="neo-muted">Image Crop and Image + Mask Resize are shared preparation operations. Their derived result can be selected as the source for Inpaint, Outpaint, or Stitch; they do not alter the original upload.</small>
+    ${!utilityOperationsReady.length ? '<small class="neo-muted">Refresh engines after installing ComfyUI-RMBG. Neo blocks execution until the exact utility node is visible in live /object_info.</small>' : '<small class="neo-muted">Utility inputs are uploaded through Neo’s mask asset channel; local machine paths are never sent in the public payload.</small>'}
+  </div>` : '';
+  const mattingCatalog = backgroundRemovalMattingCatalog();
+  const mattingProfilesReady = (mattingCatalog.profiles || []).filter((row) => row?.available);
+  const mattingProfileRow = mattingProfilesReady.find((row) => String(row?.id || '') === String(settings.matting_profile || '')) || mattingProfilesReady[0] || null;
+  const mattingModelChoices = Array.isArray(mattingProfileRow?.model_choices) ? mattingProfileRow.model_choices : [];
+  const mattingModelOptions = backgroundRemovalCatalogSelectOptions(mattingModelChoices, settings.matting_model || mattingProfileRow?.default_model || '', 'matting');
+  const mattingCard = mattingActive ? `<div class="neo-background-removal-sam-card neo-background-removal-matting-card" data-matting-ready="${mattingProfilesReady.length ? 'true' : 'false'}">
+    <div class="neo-background-removal-sam-card__header"><div><strong>Advanced Matting & High-Resolution Edges</strong><span class="neo-muted">Use verified BiRefNet HR/matting/2K profiles or SDMatte trimap refinement for hair, fur, fabric, glow, and soft transparency.</span></div><span class="neo-state-pill ${mattingProfilesReady.length ? 'success' : 'warning'}">${mattingProfilesReady.length ? `${mattingProfilesReady.length} profile${mattingProfilesReady.length === 1 ? '' : 's'} ready` : 'Comfy matting unavailable'}</span></div>
+    <div class="neo-background-removal-grid">
+      <label>Matting profile<select id="backgroundRemovalMattingProfile" ${locked || !mattingProfilesReady.length ? 'disabled' : ''}>${backgroundRemovalMattingProfileOptions(settings.matting_profile)}</select><small>Resolved only from live ComfyUI node and model choices.</small></label>
+      <label>Live matting model<select id="backgroundRemovalMattingModel" ${locked || !mattingModelChoices.length ? 'disabled' : ''}>${mattingModelOptions}</select></label>
+      <label>Process resolution<input id="backgroundRemovalMattingProcessRes" type="number" min="256" max="2560" step="8" value="${escapeAttr(settings.matting_process_res)}" ${locked ? 'disabled' : ''}><small>Higher values preserve more edge detail but use more VRAM.</small></label>
+      <label>Matting device<select id="backgroundRemovalMattingDevice" ${locked ? 'disabled' : ''}><option value="Auto" ${settings.matting_device === 'Auto' ? 'selected' : ''}>Auto</option><option value="GPU" ${settings.matting_device === 'GPU' ? 'selected' : ''}>GPU</option><option value="CPU" ${settings.matting_device === 'CPU' ? 'selected' : ''}>CPU</option></select></label>
+      <label>Edge mode<select id="backgroundRemovalMattingEdgeMode" ${locked ? 'disabled' : ''}>${['high_resolution_edges','soft_alpha','trimap_guided_alpha','foreground_estimation'].map((item) => `<option value="${item}" ${settings.matting_edge_mode === item ? 'selected' : ''}>${humanize(item)}</option>`).join('')}</select></label>
+      <label>Sensitivity<input id="backgroundRemovalMattingSensitivity" type="number" min="0.1" max="1" step="0.05" value="${escapeAttr(settings.matting_sensitivity)}" ${locked ? 'disabled' : ''}></label>
+    </div>
+    <label>Trimap / mask input <input id="backgroundRemovalMattingMaskFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" ${locked ? 'disabled' : ''}><small id="backgroundRemovalMattingMaskFileHelp">${backgroundRemovalMattingMaskFile ? `Staged: ${escapeHtml(backgroundRemovalMattingMaskFile.name || 'matting mask')}` : (mattingProfileRow?.requires_mask ? 'Required for SDMatte unless source alpha is enabled.' : 'Optional for BiRefNet profiles.')}</small></label>
+    <div class="neo-background-removal-grid"><label class="neo-toggle-row"><input id="backgroundRemovalMattingUseSourceAlpha" type="checkbox" ${settings.matting_use_source_alpha ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use source alpha as trimap/mask</span></label><label class="neo-toggle-row"><input id="backgroundRemovalMattingMaskRefine" type="checkbox" ${settings.matting_mask_refine !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Refine soft mask edges</span></label><label class="neo-toggle-row"><input id="backgroundRemovalMattingRefineForeground" type="checkbox" ${settings.matting_refine_foreground ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Estimate foreground colour</span></label></div>
+    ${!mattingProfilesReady.length ? '<small class="neo-muted">Refresh engines after installing ComfyUI-RMBG. Neo blocks this route until BiRefNetRMBG or AILab_SDMatte and its live model choices are visible.</small>' : '<small class="neo-muted">SDMatte is trimap-guided and requires an uploaded mask or explicit source alpha. BiRefNet HR profiles can run directly from the source image.</small>'}
+  </div>` : '';
+  const segmentationCard = segmentationActive ? `<div class="neo-background-removal-sam-card neo-background-removal-segmentation-lab-card" data-segmentation-ready="${segmentationAdaptersReady.length ? 'true' : 'false'}">
+    <div class="neo-background-removal-sam-card__header"><div><strong>Segmentation Lab · Prompt Objects</strong><span class="neo-muted">Write one natural-language object prompt per line. Each prompt becomes a mask; the selected operation combines them.</span></div><span class="neo-state-pill ${segmentationAdaptersReady.length ? 'success' : 'warning'}">${segmentationAdaptersReady.length ? `${segmentationAdaptersReady.length} adapter${segmentationAdaptersReady.length === 1 ? '' : 's'} ready` : 'Comfy adapter unavailable'}</span></div>
+    <div class="neo-background-removal-grid">
+      <label>Prompt segmentation adapter<select id="backgroundRemovalSegmentationAdapter" ${locked || !segmentationAdaptersReady.length ? 'disabled' : ''}>${backgroundRemovalSegmentationAdapterOptions(settings.segmentation_adapter)}</select><small>Resolved from the active ComfyUI /object_info catalog; no silent fallback.</small></label>
+      <label>Mask operation<select id="backgroundRemovalSegmentationOperation" ${locked ? 'disabled' : ''}>${segmentationOperationOptions}</select><small>Union keeps all prompted regions; intersection keeps overlap; subtract removes later prompt masks from the first.</small></label>
+      <label>Detection threshold<input id="backgroundRemovalSegmentationThreshold" type="number" min="0.05" max="0.95" step="0.01" value="${escapeAttr(settings.segmentation_threshold)}" ${locked ? 'disabled' : ''}></label>
+      <label>Device<select id="backgroundRemovalSegmentationDevice" ${locked ? 'disabled' : ''}><option value="Auto" ${settings.segmentation_device === 'Auto' ? 'selected' : ''}>Auto</option><option value="GPU" ${settings.segmentation_device === 'GPU' ? 'selected' : ''}>GPU</option><option value="CPU" ${settings.segmentation_device === 'CPU' ? 'selected' : ''}>CPU</option></select></label>
+    </div>
+    <label>Object prompts · one per line<textarea id="backgroundRemovalSegmentationPrompts" rows="4" maxlength="4096" ${locked ? 'disabled' : ''}>${escapeHtml(segmentationPromptText)}</textarea><small>${segmentationPrompts.length || 0}/${segmentationCatalog.limits?.max_prompts || 8} prompt rows · use plain language such as “red shoes” or “the dog on the right”.</small></label>
+    ${!segmentationAdaptersReady.length ? `<small class="neo-muted">Refresh engines after installing the RMBG prompt-segmentation dependencies and local models. Neo will block this route until the exact live node contract is verified.</small>` : '<small class="neo-muted">RMBG V1/V2 and SAM2 use GroundingDINO-backed text-to-box detection. SAM3 uses its own text-prompted segmentation node and may require its own local runtime/model assets.</small>'}
+  </div>` : '';
+  const batchRoute = settings.rmbg_batch_route === 'video_framewise' ? 'video_framewise' : 'batch_images';
+  const batchImagesActive = batchRoute === 'batch_images';
+  const batchVideoCard = `<details class="neo-background-removal-sam-card neo-background-removal-batch-video-card" data-batch-route="${batchRoute}" open>
+    <summary><strong>Batch & Video Segmentation</strong><span class="neo-muted">Use live RMBG batch nodes for up to 32 images, or segment a video frame-by-frame.</span></summary>
+    <div class="neo-background-removal-grid">
+      <label>Segmentation route<select id="backgroundRemovalBatchRoute" ${locked ? 'disabled' : ''}><option value="batch_images" ${batchImagesActive ? 'selected' : ''}>Batch images · one Comfy graph</option><option value="video_framewise" ${!batchImagesActive ? 'selected' : ''}>Video · frame-wise</option></select><small>Only the upload control for the selected route is shown below.</small></label>
+      <label>Object prompt<input id="backgroundRemovalBatchPrompt" type="text" maxlength="512" value="${escapeAttr(settings.rmbg_segmentation_prompt)}" ${locked ? 'disabled' : ''}><small>Applied to every image/frame.</small></label>
+      ${!batchImagesActive ? `<label>Video FPS<input id="backgroundRemovalBatchFps" type="number" min="1" max="60" step="1" value="${escapeAttr(settings.rmbg_video_fps)}" ${locked ? 'disabled' : ''}></label><label>Maximum video frames<input id="backgroundRemovalBatchMaxFrames" type="number" min="1" max="1200" step="1" value="${escapeAttr(settings.rmbg_video_max_frames)}" ${locked ? 'disabled' : ''}><small>Hard cap: 1,200 frames.</small></label>` : ''}
+    </div>
+    ${batchImagesActive ? `<label class="neo-background-removal-batch-upload"><strong>Batch image sources</strong><input id="backgroundRemovalBatchImages" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple ${locked ? 'disabled' : ''}><small id="backgroundRemovalBatchImagesHelp">${backgroundRemovalBatchImageFiles.length ? `${backgroundRemovalBatchImageFiles.length}/32 image files staged.` : 'Stage one to 32 images. Source order is preserved.'}</small></label>` : `<label class="neo-background-removal-batch-upload"><strong>Video source</strong><input id="backgroundRemovalBatchVideo" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,image/gif" ${locked ? 'disabled' : ''}><small id="backgroundRemovalBatchVideoHelp">${backgroundRemovalBatchVideoFile ? `Staged: ${escapeHtml(backgroundRemovalBatchVideoFile.name || 'video')}` : 'Stage one MP4, MOV, WEBM, MKV, AVI, or GIF.'}</small></label>`}
+    <label class="neo-toggle-row"><input id="backgroundRemovalBatchSaveMask" type="checkbox" ${settings.rmbg_batch_save_mask ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Save alpha-mask output alongside foreground output</span></label>
+    <small class="neo-muted">${batchImagesActive ? 'Image batches preserve source order and run through one live Comfy graph.' : 'The video route is explicitly frame-wise. Neo blocks before queueing when the live VideoHelper loader, combiner, mask converter, or batch-capable segmentation node is missing; it does not silently switch to temporal tracking.'}</small>
+    <div class="neo-actions"><button class="btn" id="backgroundRemovalRunBatchVideo" type="button" ${locked ? 'disabled' : ''}>▶ Run batch / video segmentation</button></div>
+  </details>`;
   const backgroundRemovalPanelStatus = !settings.enabled ? 'Disabled' : (locked ? 'Unavailable' : 'Ready');
   const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `State: ${route.route_state}`, 'Mount: image.finish.background_removal', 'Endpoints: queue + source-file'])}</div><pre>${escapeHtml(JSON.stringify({ route, params: backgroundRemovalCleanParams(settings), catalog: backgroundRemovalModelCatalogState, review: reviewArtifacts }, null, 2))}</pre></div>` : '';
   const body = `<section class="neo-background-removal-panel" data-extension-id="${BACKGROUND_REMOVAL_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-cfg-fix-panel__header"><div><strong>Remove Background</strong><span class="neo-muted">Local BiRefNet/rembg, Interactive SAM, mask refinement, and optional opt-in commercial providers</span></div><div class="neo-extension-status-line"><span class="neo-state-pill ${backgroundRemovalPanelStatus === 'Ready' ? 'success' : 'warning'}">${backgroundRemovalPanelStatus}</span></div></header>
+    <header class="neo-cfg-fix-panel__header"><div><strong>Remove Background</strong><span class="neo-muted">ComfyUI-RMBG and BiRefNet routes, native fallback, Interactive SAM, mask refinement, and optional opt-in commercial providers</span></div><div class="neo-extension-status-line"><span class="neo-state-pill ${backgroundRemovalPanelStatus === 'Ready' ? 'success' : 'warning'}">${backgroundRemovalPanelStatus}</span></div></header>
     ${route.reason ? `<div class="neo-extension-route-gate"><strong>Route notice</strong><p>${escapeHtml(route.reason)}</p></div>` : ''}
     <label class="neo-toggle-row"><input id="backgroundRemovalEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Enable Background Removal utility</span></label>
     <div class="neo-background-removal-source-row">
@@ -13672,6 +14433,10 @@ function backgroundRemovalPanel(record) {
     ${routeControls}
     <div class="neo-help-card neo-background-removal-engine-summary"><strong>Resolved route preview</strong><span>${escapeHtml(engineSummary)}</span><small>${commercialActive ? 'Commercial providers run only after explicit per-run consent. Neo stores the returned PNG locally and never sends the API key to the browser.' : 'Backend resolution is revalidated server-side for every source. Smart Routing never invents a model that is not available.'}</small></div>
     ${commercialCard}
+    ${segmentationCard}
+    ${regionCard}
+    ${utilityCard}
+    ${mattingCard}
     ${samCard}
     ${advanced}
     <div class="neo-background-removal-grid">
@@ -13681,8 +14446,9 @@ function backgroundRemovalPanel(record) {
     </div>
     ${reviewCard}
     ${modelHelp}
-    <div class="neo-actions"><button class="btn" id="backgroundRemovalSelectedResult" type="button" ${locked ? 'disabled' : ''}>${samActive ? '🎯 Open SAM selector' : (commercialActive ? '☁️ Upload & remove background' : '✂️ Remove background')}</button><button class="btn secondary" id="backgroundRemovalClearSource" type="button" ${staged ? '' : 'disabled'}>Clear upload</button></div>
+    <div class="neo-actions"><button class="btn" id="backgroundRemovalSelectedResult" type="button" ${locked ? 'disabled' : ''}>${samActive ? '🎯 Open SAM selector' : (segmentationActive ? '🧪 Run Segmentation Lab' : (regionActive ? '🧩 Run Region Segmentation' : (utilityActive ? '🛠️ Run Mask Utility' : (mattingActive ? '✨ Run Advanced Matting' : (commercialActive ? '☁️ Upload & remove background' : '✂️ Remove background')))))}</button><button class="btn secondary" id="backgroundRemovalClearSource" type="button" ${staged ? '' : 'disabled'}>Clear upload</button></div>
     <p class="neo-muted" id="backgroundRemovalStatus">${escapeHtml(settings._ui_status || 'Ready.')}</p>
+    ${batchVideoCard}
     ${expertBlock}
   </section>`;
   return panel('Remove Background', body, false, backgroundRemovalPanelStatus);
@@ -26530,12 +27296,12 @@ function backgroundRemovalOutputInspectorDetails(payloads = {}, patches = [], va
     ? 'reviewed-mask refinement'
     : (params.workflow_mode === 'interactive_sam'
       ? 'interactive SAM selection'
-      : (params.resolved_engine === 'commercial_api' || params.engine === 'commercial_api' ? 'commercial removal' : 'BiRefNet segmentation'));
+      : (params.resolved_engine === 'commercial_api' || params.engine === 'commercial_api' ? 'commercial removal' : (params.resolved_engine === 'comfy_rmbg' || params.engine === 'comfy_rmbg' ? 'ComfyUI-RMBG segmentation' : 'BiRefNet segmentation')));
   const chips = [
     `Status · ${enabled ? 'Queued' : 'Disabled / gated'}`,
     params.workflow_mode ? `Workflow · ${workflowLabel}` : '',
     params.preset ? `Preset · ${String(params.preset).replaceAll('_', ' ')}` : '',
-    params.model && params.workflow_mode !== 'refine_mask' ? `Model · ${basename(params.model)}` : '',
+    (params.rmbg_model || params.model) && params.workflow_mode !== 'refine_mask' ? `Model · ${basename(params.rmbg_model || params.model)}` : '',
     params.width && params.height && params.workflow_mode !== 'refine_mask' ? `Processing · ${params.width}×${params.height}` : '',
     params.mask_threshold !== undefined && params.workflow_mode !== 'refine_mask' ? `Mask threshold · ${formatMaybeNumber(params.mask_threshold)}` : '',
     params.mask_expand !== undefined ? `Edge offset · ${Number(params.mask_expand) >= 0 ? '+' : ''}${formatMaybeNumber(params.mask_expand)}px` : '',
@@ -28736,6 +29502,12 @@ function renderImageSourcePanelBody() {
         <p class="neo-muted">${escapeHtml(imageMultiReferenceHelpText())}</p>
       </div>`
     : '';
+  const imagePreparation = `<details class="neo-source-image-preparation" data-testid="image-preparation-section">
+      <summary><strong>Image Preparation</strong><span class="neo-muted">Crop or align an image/mask before Inpaint, Outpaint, or Stitch</span></summary>
+      <p class="neo-muted">Open Image → Finish → Remove Background → Mask & Object Utilities and choose <strong>Image Crop</strong> or <strong>Image + Mask Resize</strong>. The original source stays unchanged; the derived PNG becomes a selectable Neo result for the next route.</p>
+      <div class="neo-badge-row"><span class="neo-badge">Image Crop</span><span class="neo-badge">Image + Mask Resize</span><span class="neo-badge">Mask alignment preserved</span></div>
+      <button class="neo-btn secondary" id="imageOpenPreparationUtilitiesBtn" type="button">Open Image Preparation Utilities</button>
+    </details>`;
   return `
     <div class="neo-source-panel ${hasSource ? 'has-source' : ''} ${isInpaint ? 'neo-unified-inpaint-source' : ''}">
       ${multiReferenceActive ? renderQwenSourcePreviewStack(preview) : `<div class="neo-source-preview-wrap" data-neo-image-dropzone="true" data-neo-image-kind="source" data-neo-image-lane="1" data-neo-image-input="imageSourceFile">${preview}</div>`}
@@ -28758,6 +29530,8 @@ function renderImageSourcePanelBody() {
         ${isInpaint ? '<p class="neo-muted">Use the same source image for masking. Mask controls stay attached to the source preview. Changing or clearing the source also clears the saved mask to avoid mismatched inpaint inputs.</p>' : ''}
         ${isOutpaint ? '<p class="neo-muted">Use the same source image as the center canvas. Click <strong>Outpaint Canvas</strong> to expand sides.</p>' : ''}
         ${qwenRefs}
+        ${imagePreparation}
+        ${renderQwenStitchSection()}
       </div>
     </div>`;
 }
@@ -28970,14 +29744,24 @@ function renderImageOutpaintSourceResolutionRow(p = {}) {
 function renderImageInpaintVisibilityRow(p = {}) {
   const targetVisible = shouldShowProfileField('inpaint_selection_target');
   const contextVisible = shouldShowProfileField('inpaint_context_mode');
-  if (!targetVisible && !contextVisible) return '';
+  const fluxKontextActive = state.imageDraft.family === 'flux'
+    && state.imageDraft.loader === 'diffusion_model'
+    && String(state.imageDraft.flux_variant || '').toLowerCase() === 'kontext'
+    && activeImageMode() === 'inpaint';
+  if (!targetVisible && !contextVisible && !fluxKontextActive) return '';
   const targetValue = p.inpaint_selection_target || state.imageDraft.inpaint_selection_target || 'masked_area';
   const contextValue = p.inpaint_context_mode || state.imageDraft.inpaint_context_mode || 'masked_region_focus';
+  const contextLatentCard = fluxKontextActive ? `<div class="neo-context-latent-card" data-testid="image-context-latent-controls">
+    <div class="neo-ui-section-head"><div><strong>RMBG Context + Latent Assist</strong><p class="neo-muted">Experimental Flux Kontext route. Reuses Image 1 latent context and the existing inpaint mask through the live Reference Latent Mask node.</p></div><span class="neo-badge">Live-gated</span></div>
+    <label class="neo-check-row"><input id="imageContextLatentEnabled" type="checkbox" ${state.imageDraft.context_latent_enabled ? 'checked' : ''}> Enable Reference Latent Mask</label>
+    <div class="neo-parameter-row"><label>Mask Expand<input id="imageContextLatentExpand" type="number" min="-64" max="64" step="1" value="${escapeAttr(state.imageDraft.context_latent_expand ?? 5)}"></label><label>Mask Blur<input id="imageContextLatentBlur" type="number" min="0" max="64" step="0.1" value="${escapeAttr(state.imageDraft.context_latent_blur ?? 3)}"></label><label class="neo-check-row"><input id="imageContextLatentMaskOnly" type="checkbox" ${state.imageDraft.context_latent_mask_only !== false ? 'checked' : ''}> Mask-only latent</label></div>
+    <p class="neo-muted">The run is blocked if the exact live AILab_ReferenceLatentMask contract or an inpaint mask is unavailable. No fallback route is used.</p>
+  </div>` : '';
   return `<div class="neo-parameter-row neo-inpaint-visibility-row" data-testid="image-inpaint-visibility-controls">
     ${targetVisible ? `<label>Inpaint Target${optionSelect('imageParam_inpaint_selection_target', imageOptionsForField('inpaint_selection_target'), targetValue)}</label>` : ''}
     ${contextVisible ? `<label>Inpaint Context${optionSelect('imageParam_inpaint_context_mode', imageOptionsForField('inpaint_context_mode'), contextValue)}</label>` : ''}
     <span class="neo-muted neo-param-note">Shown only when the active route profile exposes masked/not-masked area controls.</span>
-  </div>`;
+  </div>${contextLatentCard}`;
 }
 
 function checkpointModelValue(p = {}) {
@@ -41628,6 +42412,28 @@ async function uploadImageSourceLaneFile(lane, file) {
 async function uploadQwenReferenceSourceFile(lane, file) {
   return uploadImageSourceLaneFile(lane, file);
 }
+async function uploadQwenStitchImageFile(groupId, side, file) {
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch('/api/image/source-image', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Stitch image upload failed');
+  qwenStitchUpdateGroup(groupId, (group) => {
+    group.inputs = group.inputs || {};
+    group.inputs[side] = {
+      asset_id: payload.source_id || payload.stored_filename || '',
+      source_id: payload.source_id || payload.stored_filename || '',
+      stored_filename: payload.stored_filename || payload.source_id || '',
+      ref: payload.source_id || payload.stored_filename || payload.filename || file.name,
+      path: payload.path || '',
+      url: payload.url || '',
+      name: payload.filename || payload.stored_filename || file.name,
+    };
+  });
+  render();
+}
+
 
 function clearQwenReferenceSource(lane, options = {}) {
   const numericLane = Number(lane);
@@ -41684,6 +42490,10 @@ function bindNeoImageDropzones(root = document) {
     const input = inputId ? document.getElementById(inputId) : null;
     const upload = async (file) => {
       if (!file) return;
+      if (kind === 'qwen-stitch') {
+        await uploadQwenStitchImageFile(zone.getAttribute('data-qwen-stitch-group') || '', zone.getAttribute('data-qwen-stitch-side') || 'image_a', file);
+        return;
+      }
       if (kind === 'reference' || lane > 1) await uploadQwenReferenceSourceFile(lane, file);
       else await uploadImageSourceLaneFile(1, file);
     };
@@ -44851,7 +45661,8 @@ function bindBackgroundRemovalControls() {
       commercial_upload_consent: false,
       fallback_policy: nextEngine === 'commercial_api' ? 'never' : backgroundRemovalSettings().fallback_policy,
       commercial_profile_id: nextEngine === 'commercial_api' ? (backgroundRemovalSettings().commercial_profile_id || commercialProfile?.profile_id || '') : backgroundRemovalSettings().commercial_profile_id,
-      workflow_mode: nextEngine === 'commercial_api' ? 'segment' : backgroundRemovalSettings().workflow_mode,
+      workflow_mode: nextEngine === 'commercial_api' ? 'segment' : (nextEngine === 'comfy_matting' ? 'matting' : backgroundRemovalSettings().workflow_mode),
+      matting_enabled: nextEngine === 'comfy_matting' || backgroundRemovalSettings().matting_enabled,
     });
     backgroundRemovalStatus(`Execution engine set to ${nextEngine.replaceAll('_', ' ')}.`);
     render();
@@ -44870,19 +45681,39 @@ function bindBackgroundRemovalControls() {
     updateBackgroundRemovalSettings({
       preset: nextPreset,
       native_model: nativeSuggested,
-      workflow_mode: nextPreset === 'interactive_select' ? 'interactive_sam' : 'segment',
-      manual_mask: nextPreset === 'interactive_select',
-      mask_source: nextPreset === 'interactive_select' ? 'interactive_sam' : 'birefnet',
-      ...(nextPreset === 'interactive_select' ? {} : { sam_prompts: [], sam_subjects: [] }),
+      workflow_mode: nextPreset === 'interactive_select' ? 'interactive_sam' : (nextPreset === 'segmentation_lab' ? 'segmentation_lab' : (nextPreset === 'region_segmentation' ? 'region_segmentation' : (nextPreset === 'mask_utility' ? 'mask_utility' : (nextPreset === 'matting' ? 'matting' : 'segment')))),
+      engine: nextPreset === 'segmentation_lab' ? 'comfy_segmentation' : (nextPreset === 'region_segmentation' ? 'comfy_region_segmentation' : (nextPreset === 'mask_utility' ? 'comfy_mask_utility' : (nextPreset === 'matting' ? 'comfy_matting' : (nextPreset === 'interactive_select' ? backgroundRemovalSettings().engine : (['comfy_segmentation', 'comfy_region_segmentation', 'comfy_mask_utility', 'comfy_matting'].includes(backgroundRemovalSettings().engine) ? 'smart' : backgroundRemovalSettings().engine))))),
+      manual_mask: ['interactive_select', 'segmentation_lab', 'region_segmentation', 'mask_utility', 'matting'].includes(nextPreset),
+      mask_source: nextPreset === 'interactive_select' ? 'interactive_sam' : (nextPreset === 'segmentation_lab' ? 'segmentation_lab' : (nextPreset === 'region_segmentation' ? 'region_segmentation' : (nextPreset === 'mask_utility' ? 'mask_utility' : (nextPreset === 'matting' ? 'matting' : 'birefnet')))),
+      segmentation_lab_enabled: nextPreset === 'segmentation_lab',
+      region_segmentation_enabled: nextPreset === 'region_segmentation',
+      mask_utility_enabled: nextPreset === 'mask_utility',
+      matting_enabled: nextPreset === 'matting',
+      ...(nextPreset === 'interactive_select' || nextPreset === 'segmentation_lab' || nextPreset === 'region_segmentation' || nextPreset === 'mask_utility' || nextPreset === 'matting' ? {} : { sam_prompts: [], sam_subjects: [] }),
       ...(suggested ? { model: suggested } : {}),
     });
     if (nextPreset !== 'interactive_select') backgroundRemovalCloseSamSelector();
-    backgroundRemovalStatus(nextPreset === 'interactive_select' ? 'Interactive Select ready. Open the SAM selector and add a Keep point or box.' : `Preset changed to ${nextPreset.replaceAll('_', ' ')} · smart routing will revalidate ${suggested || 'Comfy model'} / ${nativeSuggested}.`);
+    const presetStatus = nextPreset === 'interactive_select'
+      ? 'Interactive Select ready. Open the SAM selector and add a Keep point or box.'
+      : (nextPreset === 'segmentation_lab'
+        ? 'Segmentation Lab ready. Add one object prompt per line, then run the lab.'
+        : (nextPreset === 'region_segmentation'
+          ? 'Region Segmentation ready. Add face, clothes, fashion, or accessories targets, then run the lab.'
+          : (nextPreset === 'mask_utility'
+            ? 'Mask Utility ready. Choose an operation and stage mask inputs, then run it.'
+            : (nextPreset === 'matting'
+              ? 'Advanced Matting ready. Choose a live HR/matting profile, then run it.'
+              : `Preset changed to ${nextPreset.replaceAll('_', ' ')} · smart routing will revalidate ${suggested || 'Comfy model'} / ${nativeSuggested}.`))));
+    backgroundRemovalStatus(presetStatus);
     render();
   });
   const map = [
     ['backgroundRemovalFallbackPolicy', 'fallback_policy', 'value'],
     ['backgroundRemovalModel', 'model', 'value'],
+    ['backgroundRemovalRmbgModel', 'rmbg_model', 'value'],
+    ['backgroundRemovalRmbgSensitivity', 'rmbg_sensitivity', 'number'],
+    ['backgroundRemovalRmbgBackground', 'rmbg_background', 'value'],
+    ['backgroundRemovalRmbgRefineForeground', 'rmbg_refine_foreground', 'checked'],
     ['backgroundRemovalDevice', 'device', 'value'],
     ['backgroundRemovalNativeModel', 'native_model', 'value'],
     ['backgroundRemovalNativeProvider', 'native_provider', 'value'],
@@ -44910,24 +45741,124 @@ function bindBackgroundRemovalControls() {
     ['backgroundRemovalSamRefineModel', 'sam_refine_model', 'value'],
     ['backgroundRemovalSamGateExpand', 'sam_gate_expand', 'number'],
     ['backgroundRemovalSamGateFeather', 'sam_gate_feather', 'number'],
+    ['backgroundRemovalSegmentationAdapter', 'segmentation_adapter', 'value'],
+    ['backgroundRemovalSegmentationOperation', 'segmentation_mask_operation', 'value'],
+    ['backgroundRemovalSegmentationThreshold', 'segmentation_threshold', 'number'],
+    ['backgroundRemovalSegmentationDevice', 'segmentation_device', 'value'],
+    ['backgroundRemovalRegionAdapter', 'region_segmentation_adapter', 'value'],
+    ['backgroundRemovalRegionOperation', 'region_segmentation_mask_operation', 'value'],
+    ['backgroundRemovalMaskUtilityOperation', 'mask_utility_operation', 'value'],
+    ['backgroundRemovalMaskUtilityMode', 'mask_utility_mask_operation', 'value'],
+    ['backgroundRemovalMaskUtilityChannel', 'mask_utility_mask_channel', 'value'],
+    ['backgroundRemovalMaskUtilityExtractMode', 'mask_utility_extract_mode', 'value'],
+    ['backgroundRemovalMaskUtilityColor', 'mask_utility_color', 'value'],
+    ['backgroundRemovalMaskUtilityThreshold', 'mask_utility_threshold', 'number'],
+    ['backgroundRemovalMaskUtilityPadding', 'mask_utility_padding', 'number'],
+    ['backgroundRemovalMaskUtilityBlur', 'mask_utility_mask_blur', 'number'],
+    ['backgroundRemovalMaskUtilityOffset', 'mask_utility_mask_offset', 'number'],
+    ['backgroundRemovalMaskUtilitySmooth', 'mask_utility_smooth', 'number'],
+    ['backgroundRemovalMaskUtilityOverlayOpacity', 'mask_utility_overlay_opacity', 'number'],
+    ['backgroundRemovalMaskUtilityOverlayColor', 'mask_utility_overlay_color', 'value'],
+    ['backgroundRemovalMaskUtilityLamaStrength', 'mask_utility_lama_removal_strength', 'number'],
+    ['backgroundRemovalMaskUtilityLamaSmoothness', 'mask_utility_lama_edge_smoothness', 'number'],
+    ['backgroundRemovalMaskUtilityResizeWidth', 'mask_utility_resize_width', 'number'],
+    ['backgroundRemovalMaskUtilityResizeHeight', 'mask_utility_resize_height', 'number'],
+    ['backgroundRemovalMaskUtilityResizeOutputMode', 'mask_utility_resize_output_mode', 'value'],
+    ['backgroundRemovalMaskUtilityResizeMethod', 'mask_utility_resize_method', 'value'],
+    ['backgroundRemovalMaskUtilityCropWidth', 'mask_utility_crop_width', 'number'],
+    ['backgroundRemovalMaskUtilityCropHeight', 'mask_utility_crop_height', 'number'],
+    ['backgroundRemovalMaskUtilityCropPosition', 'mask_utility_crop_position', 'value'],
+    ['backgroundRemovalMattingProfile', 'matting_profile', 'value'],
+    ['backgroundRemovalMattingModel', 'matting_model', 'value'],
+    ['backgroundRemovalMattingProcessRes', 'matting_process_res', 'number'],
+    ['backgroundRemovalMattingDevice', 'matting_device', 'value'],
+    ['backgroundRemovalMattingEdgeMode', 'matting_edge_mode', 'value'],
+    ['backgroundRemovalMattingSensitivity', 'matting_sensitivity', 'number'],
     ['backgroundRemovalCommercialOutputSize', 'commercial_output_size', 'value'],
     ['backgroundRemovalCommercialSubjectType', 'commercial_subject_type', 'value'],
     ['backgroundRemovalCommercialTransparencyHandling', 'commercial_transparency_handling', 'value'],
+    ['backgroundRemovalBatchRoute', 'rmbg_batch_route', 'value'],
+    ['backgroundRemovalBatchPrompt', 'rmbg_segmentation_prompt', 'value'],
+    ['backgroundRemovalBatchFps', 'rmbg_video_fps', 'number'],
+    ['backgroundRemovalBatchMaxFrames', 'rmbg_video_max_frames', 'number'],
   ];
   map.forEach(([id, key, kind]) => {
     const node = document.getElementById(id);
     if (!node) return;
     const handler = (event) => {
-      const value = kind === 'number' ? Number(event.target.value) : event.target.value;
+      const value = kind === 'number' ? Number(event.target.value) : (kind === 'checked' ? Boolean(event.target.checked) : event.target.value);
       if (key === 'sam_detector_type') {
         const shared = backgroundRemovalModelCatalogState.shared_sam || {};
         const suggested = String(value) === 'segm' ? shared.default_segm_model : shared.default_bbox_model;
         updateBackgroundRemovalSettings({ [key]: value, sam_detector_model: suggested || '' });
+      } else if (key === 'matting_profile') {
+        const row = (backgroundRemovalMattingCatalog().profiles || []).find((item) => String(item?.id || '') === String(value));
+        updateBackgroundRemovalSettings({ matting_profile: value, matting_model: row?.default_model || '', matting_node_class: row?.node_class || '', matting_input_names: row?.input_names || [], matting_model_choices: row?.model_choices || [] });
+      } else if (key === 'rmbg_batch_route') {
+        if (value === 'batch_images') backgroundRemovalBatchVideoFile = null;
+        else backgroundRemovalBatchImageFiles = [];
+        updateBackgroundRemovalSettings({ [key]: value });
       } else updateBackgroundRemovalSettings({ [key]: value });
-      if (['fallback_policy', 'native_model', 'native_provider', 'sam_refine_mode', 'sam_execution', 'sam_detector_type'].includes(key)) render();
+      if (['engine', 'fallback_policy', 'native_model', 'native_provider', 'sam_refine_mode', 'sam_execution', 'sam_detector_type', 'mask_utility_operation', 'mask_utility_resize_output_mode', 'mask_utility_resize_method', 'mask_utility_crop_position', 'matting_profile', 'matting_model', 'matting_edge_mode', 'rmbg_model', 'rmbg_background', 'rmbg_batch_route'].includes(key)) render();
     };
     node.addEventListener('input', handler);
     node.addEventListener('change', handler);
+  });
+  const segmentationPrompts = document.getElementById('backgroundRemovalSegmentationPrompts');
+  if (segmentationPrompts) segmentationPrompts.addEventListener('input', (event) => {
+    const rows = String(event.target.value || '').split(/\r?\n/).map((prompt, index) => ({ id: `prompt_${index + 1}`, label: prompt.trim().slice(0, 120), prompt: prompt.trim(), enabled: true })).filter((item) => item.prompt).slice(0, 8);
+    updateBackgroundRemovalSettings({ segmentation_lab_prompts: rows, segmentation_lab_enabled: true, workflow_mode: 'segmentation_lab', preset: 'segmentation_lab', engine: 'comfy_segmentation' });
+  });
+  const regionAdapter = document.getElementById('backgroundRemovalRegionAdapter');
+  if (regionAdapter) regionAdapter.addEventListener('change', (event) => {
+    const adapter = String(event.target.value || 'auto').toLowerCase();
+    const currentTargets = Array.isArray(backgroundRemovalSettings().region_segmentation_targets) ? backgroundRemovalSettings().region_segmentation_targets : [];
+    const targets = currentTargets.length || adapter === 'auto' ? currentTargets : [{ id: 'target_1', label: adapter, region: adapter, adapter, classes: [], enabled: true }];
+    updateBackgroundRemovalSettings({ region_segmentation_adapter: adapter, region_segmentation_targets: targets, region_segmentation_enabled: true, workflow_mode: 'region_segmentation', preset: 'region_segmentation', engine: 'comfy_region_segmentation' });
+  });
+  const regionOperation = document.getElementById('backgroundRemovalRegionOperation');
+  if (regionOperation) regionOperation.addEventListener('change', (event) => updateBackgroundRemovalSettings({ region_segmentation_mask_operation: event.target.value }));
+  const regionTargetsInput = document.getElementById('backgroundRemovalRegionTargets');
+  if (regionTargetsInput) regionTargetsInput.addEventListener('input', (event) => {
+    const rows = String(event.target.value || '').split(/\r?\n/).map((line, index) => {
+      const [regionRaw, classesRaw] = line.split(':');
+      const region = String(regionRaw || '').trim().toLowerCase();
+      return { id: `target_${index + 1}`, label: region, region, classes: String(classesRaw || '').split(',').map((value) => value.trim()).filter(Boolean).slice(0, 32), enabled: true };
+    }).filter((item) => ['face', 'clothes', 'fashion', 'accessories'].includes(item.region)).slice(0, 8);
+    updateBackgroundRemovalSettings({ region_segmentation_targets: rows, region_segmentation_enabled: true, workflow_mode: 'region_segmentation', preset: 'region_segmentation', engine: 'comfy_region_segmentation' });
+  });
+  ['backgroundRemovalMaskUtilityFillHoles', 'backgroundRemovalMaskUtilityInvert'].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.addEventListener('change', (event) => updateBackgroundRemovalSettings({ [id === 'backgroundRemovalMaskUtilityFillHoles' ? 'mask_utility_fill_holes' : 'mask_utility_invert']: Boolean(event.target.checked) }));
+  });
+  const utilityCropSplit = document.getElementById('backgroundRemovalMaskUtilityCropSplit');
+  if (utilityCropSplit) utilityCropSplit.addEventListener('change', (event) => updateBackgroundRemovalSettings({ mask_utility_crop_split: Boolean(event.target.checked) }));
+  const utilityMaskFiles = document.getElementById('backgroundRemovalMaskUtilityFiles');
+  if (utilityMaskFiles) utilityMaskFiles.addEventListener('change', (event) => {
+    backgroundRemovalUtilityMaskFiles = Array.from(event.target.files || []).filter((file) => file && String(file.type || '').startsWith('image/')).slice(0, 4);
+    const help = document.getElementById('backgroundRemovalMaskUtilityFilesHelp');
+    if (help) help.textContent = backgroundRemovalUtilityMaskFiles.length ? `${backgroundRemovalUtilityMaskFiles.length} mask file${backgroundRemovalUtilityMaskFiles.length === 1 ? '' : 's'} staged` : 'No mask files staged.';
+  });
+  const mattingMaskFile = document.getElementById('backgroundRemovalMattingMaskFile');
+  if (mattingMaskFile) mattingMaskFile.addEventListener('change', (event) => {
+    backgroundRemovalMattingMaskFile = Array.from(event.target.files || []).find((file) => file && String(file.type || '').startsWith('image/')) || null;
+    const help = document.getElementById('backgroundRemovalMattingMaskFileHelp');
+    if (help) help.textContent = backgroundRemovalMattingMaskFile ? `Staged: ${backgroundRemovalMattingMaskFile.name || 'matting mask'}` : 'No matting mask staged.';
+  });
+  const batchImages = document.getElementById('backgroundRemovalBatchImages');
+  if (batchImages) batchImages.addEventListener('change', (event) => { backgroundRemovalSetBatchImageFiles(event.target.files || []); });
+  const batchVideo = document.getElementById('backgroundRemovalBatchVideo');
+  if (batchVideo) batchVideo.addEventListener('change', (event) => { backgroundRemovalSetBatchVideoFile(Array.from(event.target.files || [])[0] || null); });
+  const batchSaveMask = document.getElementById('backgroundRemovalBatchSaveMask');
+  if (batchSaveMask) batchSaveMask.addEventListener('change', (event) => updateBackgroundRemovalSettings({ rmbg_batch_save_mask: Boolean(event.target.checked) }));
+  const runBatchVideo = document.getElementById('backgroundRemovalRunBatchVideo');
+  if (runBatchVideo) runBatchVideo.addEventListener('click', async () => {
+    try { await backgroundRemovalQueueBatchVideo(); }
+    catch (error) { backgroundRemovalStatus(`Batch/video segmentation failed: ${error.message || error}`); alert(`Batch/video segmentation failed: ${error.message || error}`); }
+  });
+  [['backgroundRemovalMattingUseSourceAlpha', 'matting_use_source_alpha'], ['backgroundRemovalMattingMaskRefine', 'matting_mask_refine'], ['backgroundRemovalMattingRefineForeground', 'matting_refine_foreground']].forEach(([id, key]) => {
+    const node = document.getElementById(id);
+    if (node) node.addEventListener('change', (event) => updateBackgroundRemovalSettings({ [key]: Boolean(event.target.checked) }));
   });
   const foregroundEstimation = document.getElementById('backgroundRemovalForegroundEstimation');
   if (foregroundEstimation) foregroundEstimation.addEventListener('change', (event) => { updateBackgroundRemovalSettings({ foreground_estimation: Boolean(event.target.checked) }); render(); });
@@ -44982,6 +45913,26 @@ function bindBackgroundRemovalControls() {
       const current = backgroundRemovalSettings();
       if (current.preset === 'interactive_select' || current.workflow_mode === 'interactive_sam') {
         await backgroundRemovalOpenSamSelector();
+        return;
+      }
+      if (current.preset === 'segmentation_lab' || current.workflow_mode === 'segmentation_lab') {
+        updateBackgroundRemovalSettings({ workflow_mode: 'segmentation_lab', segmentation_lab_enabled: true, engine: 'comfy_segmentation', manual_mask: true, mask_source: 'segmentation_lab' });
+        await backgroundRemovalQueueSelectedResult('segmentation_lab');
+        return;
+      }
+      if (current.preset === 'region_segmentation' || current.workflow_mode === 'region_segmentation') {
+        updateBackgroundRemovalSettings({ workflow_mode: 'region_segmentation', region_segmentation_enabled: true, engine: 'comfy_region_segmentation', manual_mask: true, mask_source: 'region_segmentation' });
+        await backgroundRemovalQueueSelectedResult('region_segmentation');
+        return;
+      }
+      if (current.preset === 'mask_utility' || current.workflow_mode === 'mask_utility') {
+        updateBackgroundRemovalSettings({ workflow_mode: 'mask_utility', mask_utility_enabled: true, engine: 'comfy_mask_utility', manual_mask: true, mask_source: 'mask_utility' });
+        await backgroundRemovalQueueSelectedResult('mask_utility');
+        return;
+      }
+      if (current.preset === 'matting' || current.workflow_mode === 'matting') {
+        updateBackgroundRemovalSettings({ workflow_mode: 'matting', matting_enabled: true, engine: 'comfy_matting', manual_mask: Boolean(backgroundRemovalMattingMaskFile || current.matting_use_source_alpha), mask_source: 'matting' });
+        await backgroundRemovalQueueSelectedResult('matting');
         return;
       }
       updateBackgroundRemovalSettings({ workflow_mode: 'segment', manual_mask: false, mask_source: 'birefnet' });
@@ -45275,6 +46226,18 @@ function bindImageDraftInputs() {
     });
   });
 
+  const contextLatentEnabled = document.getElementById('imageContextLatentEnabled');
+  if (contextLatentEnabled) contextLatentEnabled.addEventListener('change', (event) => updateDraftValue('context_latent_enabled', Boolean(event.target.checked)));
+  const contextLatentMaskOnly = document.getElementById('imageContextLatentMaskOnly');
+  if (contextLatentMaskOnly) contextLatentMaskOnly.addEventListener('change', (event) => updateDraftValue('context_latent_mask_only', Boolean(event.target.checked)));
+  [['imageContextLatentExpand', 'context_latent_expand'], ['imageContextLatentBlur', 'context_latent_blur']].forEach(([id, key]) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const sync = (event) => updateDraftValue(key, Number(event.target.value));
+    node.addEventListener('input', sync);
+    node.addEventListener('change', sync);
+  });
+
   bindImageSeedActionButtons();
   bindImageSizeHelperControls();
 
@@ -45371,6 +46334,34 @@ function bindImageDraftInputs() {
   if (qwenRole1) qwenRole1.addEventListener('change', (event) => updateQwenSourceRole(1, event.target.value));
   const addQwenSource = document.getElementById('imageQwenAddSourceBtn');
   if (addQwenSource) addQwenSource.addEventListener('click', addQwenSourceImageSlot);
+  const openPreparationUtilities = document.getElementById('imageOpenPreparationUtilitiesBtn');
+  if (openPreparationUtilities) openPreparationUtilities.addEventListener('click', () => {
+    setSurfaceWorkspaceAppId('image', 'finish');
+    render();
+    requestAnimationFrame(() => document.querySelector('.neo-background-removal-mask-utility-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  });
+  const qwenStitchEnabled = document.getElementById('imageQwenStitchEnabled');
+  if (qwenStitchEnabled) qwenStitchEnabled.addEventListener('change', (event) => qwenStitchSetEnabled(event.target.checked));
+  const qwenStitchDetails = document.querySelector('[data-qwen-stitch-details]');
+  if (qwenStitchDetails) qwenStitchDetails.addEventListener('toggle', () => qwenStitchSetDetailsOpen(qwenStitchDetails.open));
+  const addQwenStitchGroup = document.getElementById('imageQwenAddStitchGroupBtn');
+  if (addQwenStitchGroup) addQwenStitchGroup.addEventListener('click', qwenStitchAddGroup);
+  document.querySelectorAll('[data-qwen-stitch-file]').forEach((input) => {
+    input.addEventListener('change', (event) => uploadQwenStitchImageFile(input.dataset.qwenStitchGroup, input.dataset.qwenStitchSide, event.target.files?.[0]).catch((error) => alert(`Stitch image failed: ${error.message}`)));
+  });
+  document.querySelectorAll('[data-qwen-stitch-clear]').forEach((button) => {
+    button.addEventListener('click', () => qwenStitchClearInput(button.dataset.qwenStitchGroup, button.dataset.qwenStitchSide));
+  });
+  document.querySelectorAll('[data-qwen-stitch-remove]').forEach((button) => {
+    button.addEventListener('click', () => qwenStitchRemoveGroup(button.dataset.qwenStitchGroup));
+  });
+  document.querySelectorAll('[data-qwen-stitch-field]').forEach((field) => {
+    field.addEventListener('change', (event) => {
+      const value = field.type === 'checkbox' ? event.target.checked : event.target.value;
+      qwenStitchUpdateField(field.dataset.qwenStitchGroup, field.dataset.qwenStitchField, value);
+    });
+  });
+
   bindNeoImageDropzones();
   bindImageSourceDimensionProbe();
   const maskFile = document.getElementById('imageMaskFile');
@@ -45984,6 +46975,11 @@ function buildImageJobPayload() {
   }
   if (usesField('inpaint_selection_target')) params.inpaint_selection_target = draft.inpaint_selection_target || valueOf('imageParam_inpaint_selection_target') || 'masked_area';
   if (usesField('inpaint_context_mode')) params.inpaint_context_mode = draft.inpaint_context_mode || valueOf('imageParam_inpaint_context_mode') || 'masked_region_focus';
+  params.context_latent_enabled = Boolean(draft.context_latent_enabled);
+  params.context_latent_source = 'source_image';
+  params.context_latent_expand = Number(draft.context_latent_expand ?? 5);
+  params.context_latent_blur = Number(draft.context_latent_blur ?? 3.0);
+  params.context_latent_mask_only = draft.context_latent_mask_only !== false;
   if (usesField('mask_grow')) params.mask_grow = Number(draft.mask_grow ?? numberValue('imageMaskGrow', 6));
   if (usesField('mask_blur')) params.mask_blur = Number(draft.mask_blur ?? numberValue('imageMaskBlur', 0));
   if (draft._replay_context && typeof draft._replay_context === 'object') {
@@ -46099,6 +47095,10 @@ function buildImageJobPayload() {
     };
   }
   pruneImageParamsForActiveRoute(params, draft, runtimeMode);
+  if (qwenStitchRouteActive(runtimeMode)) {
+    const stitchPayload = qwenStitchSubmitPayload();
+    if (stitchPayload.enabled || stitchPayload.groups.length) params.qwen_stitch = stitchPayload;
+  }
   params._neo_ui_route_snapshot = imageRouteUiSnapshot(params);
   params._neo_extension_state = imageExtensionSubmitStateSnapshot();
   return {
@@ -46649,7 +47649,7 @@ async function runImageGeneration() {
       saveUiState();
     }
     const mode = payload.job?.subtab || payload.job?.mode || 'generate';
-    if (imageSourceModes().has(mode) && !payload.job?.params?.source_image) {
+    if (imageSourceModes().has(mode) && !payload.job?.params?.source_image && !(qwenStitchRouteActive(mode) && qwenStitchHasReadyGroup())) {
       throw new Error(`${mode} requires a source image. Add one in the Source Image panel or send an output to this workspace.`);
     }
     const wildcardQueuePlan = wildcardsQueueVariantSubmissionPlan(payload);

@@ -94,6 +94,7 @@ from neo_app.providers.comfy_model_paths import resolve_comfy_model_paths
 from neo_app.providers.comfy_provider import ComfyProvider
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
 from neo_app.image.upload_validation import ImageUploadValidationError, validate_and_store_image_upload
+from neo_app.providers.comfy_workflows.image_stitch_route import image_stitch_has_ready_group
 from neo_app.image.provider_errors import normalize_image_provider_error
 from neo_app.prompt_captioning.upload_validation import (
     CAPTION_UPLOAD_VALIDATION_SCHEMA,
@@ -193,6 +194,7 @@ from neo_app.providers.profiles import (
     save_backend_profile_selection,
     get_backend_profile_selection_payload,
     is_backend_profile_connected_for_task,
+    mark_backend_profile_connected_for_task,
     clear_backend_profile_api_key,
     set_default_backend_profile,
     test_backend_profile,
@@ -4013,8 +4015,8 @@ def prompt_captioning_normalize_payload(payload: dict) -> dict:
 @app.post("/api/prompt-captioning/prompt/run")
 def prompt_captioning_prompt_run(payload: dict) -> dict:
     metadata = (payload or {}).get("metadata") if isinstance((payload or {}).get("metadata"), dict) else {}
-    _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or (payload or {}).get("profile_id") or (payload or {}).get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning prompt generation")
-    return run_prompt_captioning_prompt_tool(payload)
+    live_profile = _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or (payload or {}).get("profile_id") or (payload or {}).get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning prompt generation")
+    return run_prompt_captioning_prompt_tool(payload, task_profile=live_profile)
 
 
 @app.get("/api/prompt-captioning/prompt-records")
@@ -4272,8 +4274,8 @@ def prompt_captioning_caption_asset(filename: str) -> FileResponse:
 @app.post("/api/prompt-captioning/caption/run")
 def prompt_captioning_caption_run(payload: dict) -> dict:
     metadata = (payload or {}).get("metadata") if isinstance((payload or {}).get("metadata"), dict) else {}
-    _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or (payload or {}).get("profile_id") or (payload or {}).get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning caption generation")
-    return run_prompt_captioning_caption_tool(payload)
+    live_profile = _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or (payload or {}).get("profile_id") or (payload or {}).get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning caption generation")
+    return run_prompt_captioning_caption_tool(payload, task_profile=live_profile)
 
 
 @app.get("/api/prompt-captioning/caption-records")
@@ -4363,7 +4365,10 @@ def prompt_captioning_caption_batch_result_list(limit: int = 25) -> dict:
 
 @app.post("/api/prompt-captioning/caption/batch-run")
 def prompt_captioning_caption_batch_run(payload: dict) -> dict:
-    return run_prompt_captioning_caption_batch(payload)
+    payload = payload or {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    live_profile = _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or payload.get("profile_id") or payload.get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning batch captioning")
+    return run_prompt_captioning_caption_batch(payload, task_profile=live_profile)
 
 
 
@@ -4406,7 +4411,10 @@ def prompt_captioning_caption_batch_preview_route(payload: dict) -> dict:
 
 @app.post("/api/prompt-captioning/caption-batch-start")
 def prompt_captioning_caption_batch_start_route(payload: dict) -> dict:
-    return run_prompt_captioning_caption_batch(payload)
+    payload = payload or {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    live_profile = _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or payload.get("profile_id") or payload.get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning batch captioning")
+    return run_prompt_captioning_caption_batch(payload, task_profile=live_profile)
 
 
 @app.post("/api/prompt-captioning/caption-batch-cancel")
@@ -5273,10 +5281,23 @@ def _require_backend_connected_for_task(profile_id: str, *, surface: str, operat
     # Cloud/API profiles still have provider-side auth validation, but public-preview
     # generation should require an explicit Test/API check instead of silently running
     # from a template profile.
+    live_profile = None
     if not is_backend_profile_connected_for_task(pid):
-        status = _runtime_status_from_profile(get_backend_profile(pid) or profile)
-        raise HTTPException(status_code=409, detail=f"Backend not connected. Click Connect/Test for '{pid}' before running {operation}. Current status: {status}.")
-    live_profile = get_backend_profile_for_live_task(pid) or profile
+        # The UI can hold a successful Connect/Test result while this process has
+        # lost its in-memory task gate (for example after a reload or a worker
+        # boundary). Re-probe the selected profile before rejecting the task so
+        # the task gate and the visible connection state converge on one live
+        # backend contract. A stale saved runtime is never trusted: only a
+        # successful current probe can restore the session gate.
+        live_profile = get_backend_profile_for_live_task(pid)
+        live_status = _runtime_status_from_profile(live_profile)
+        live_runtime = live_profile.get("runtime") if isinstance(live_profile, dict) and isinstance(live_profile.get("runtime"), dict) else {}
+        if live_status in {"connected", "online", "ready", "available"} and live_runtime.get("reachable") is not False:
+            mark_backend_profile_connected_for_task(pid, True)
+        else:
+            status = _runtime_status_from_profile(get_backend_profile(pid) or profile)
+            raise HTTPException(status_code=409, detail=f"Backend not connected. Click Connect/Test for '{pid}' before running {operation}. Current status: {status}.")
+    live_profile = live_profile or get_backend_profile_for_live_task(pid) or profile
     status = _runtime_status_from_profile(live_profile)
     runtime = live_profile.get("runtime") if isinstance(live_profile.get("runtime"), dict) else {}
     if status not in {"connected", "online", "ready", "available"} or runtime.get("reachable") is False:
@@ -5772,7 +5793,11 @@ def _normalize_image_source_params(params: dict, runtime_mode: str) -> dict:
     normalize_extra_source_lane(2, ("reference_image_2",))
     normalize_extra_source_lane(3, ("composition_image", "reference_image_3"))
 
-    if runtime_mode in {"img2img", "image_to_image", "inpaint", "outpaint"} and not normalized.get("source_image"):
+    stitch_only_ready = runtime_mode in {"img2img", "image_to_image", "inpaint", "outpaint", "edit"} and image_stitch_has_ready_group(normalized.get("image_stitch") if isinstance(normalized.get("image_stitch"), dict) else (normalized.get("qwen_stitch") if isinstance(normalized.get("qwen_stitch"), dict) else {
+        "enabled": normalized.get("qwen_stitch_enabled"),
+        "groups": normalized.get("qwen_stitch_groups"),
+    }))
+    if runtime_mode in {"img2img", "image_to_image", "inpaint", "outpaint"} and not normalized.get("source_image") and not stitch_only_ready:
         raise HTTPException(status_code=400, detail=f"{runtime_mode} requires a source image before generation.")
     if runtime_mode == "inpaint" and not normalized.get("mask_image"):
         raise HTTPException(status_code=400, detail="inpaint requires a mask image before generation.")

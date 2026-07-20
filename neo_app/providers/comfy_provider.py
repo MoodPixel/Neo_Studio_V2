@@ -22,6 +22,14 @@ from neo_app.providers.comfy_workflows.flux_gguf import compile_flux_gguf_txt2im
 from neo_app.providers.comfy_workflows.qwen_gguf import compile_qwen_gguf_txt2img
 from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_txt2img
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
+from neo_app.providers.comfy_workflows.qwen_stitch_handoff import record_qwen_stitch_comfy_handoff
+from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload
+from neo_app.providers.comfy_workflows.image_stitch_route import (
+    extract_image_stitch_payload,
+    image_stitch_has_ready_group,
+    image_stitch_is_qwen_lane_route,
+    patch_source_loadimage_with_stitch,
+)
 from neo_app.providers.comfy_workflows.z_image import compile_z_image_txt2img
 from neo_app.providers.comfy_workflows.hidream import compile_hidream_txt2img
 from neo_extensions.built_in.ip_adapter.backend.node_discovery import split_ip_adapter_model_names
@@ -30,6 +38,11 @@ from neo_app.image.state_boundary import sanitize_image_params_for_state_boundar
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.output_records import build_route_metadata, build_route_snapshot, normalize_latent_capture_request
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_extensions.built_in.background_removal.backend.context_latent import (
+    build_context_latent_catalog,
+    normalize_context_latent,
+    resolve_context_latent,
+)
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderFeatureCapabilities, ProviderRunResult, ProviderValidationResult
 from neo_app.runtime.job_registry import GenerationJobRegistry, get_generation_job_registry
 from neo_app.services.runtime_debug_logs import (
@@ -516,11 +529,23 @@ class ComfyProvider(BaseProvider):
             "TextEncodeQwenImageEditPlusAdvance_lrzjason",
             "TextEncodeQwenImageEditPlusPro_lrzjason",
         ]
+        # ImageStitch is not a single universal Comfy class name.  Core or
+        # other custom-node packs may expose ImageStitch, while the
+        # ComfyUI-RMBG pack exposes AILab_ImageStitch.  Preserve both names
+        # in the safe object_info slice so provider routes can select the
+        # class that is actually installed instead of guessing.
+        stitch_nodes = ["ImageStitch", "AILab_ImageStitch"]
+        context_latent_nodes = [
+            "AILab_ReferenceLatentMask",
+            "ReferenceLatentMask",
+            "KontextReferenceLatentMask",
+        ]
         payload["object_info_node_inputs"] = {
             node_name: self._node_input_names(info, node_name)
-            for node_name in qwen_edit_nodes
+            for node_name in [*qwen_edit_nodes, *stitch_nodes, *context_latent_nodes]
             if isinstance(info.get(node_name), dict)
         }
+        payload["context_latent"] = build_context_latent_catalog(info)
         payload["qwen_edit_node_diagnostics"] = {
             "available_nodes": list(payload["object_info_node_inputs"].keys()),
             "builtin_declares_target_size": "target_size" in payload["object_info_node_inputs"].get("TextEncodeQwenImageEditPlus", {}).get("all", []),
@@ -1215,6 +1240,7 @@ class ComfyProvider(BaseProvider):
         gated until later phases can identify stable restore points around
         High-Res Fix / ADetailer branches.
         """
+        compiled = self._apply_context_latent_hook(compiled, job, route)
         backend_payload = dict(compiled.backend_payload or {})
         workflow = backend_payload.get("prompt")
         actual_params = dict(backend_payload.get("actual_params") if isinstance(backend_payload.get("actual_params"), dict) else (job.params or {}))
@@ -1321,7 +1347,8 @@ class ComfyProvider(BaseProvider):
         if job.mode in {"img2img", "image_to_image", "inpaint", "outpaint", "edit"} and route.status != "provider_gated":
             params = job.params or {}
             source_image = self._source_image_value(params)
-            if not source_image:
+            stitch_only_ready = job.mode in {"img2img", "image_to_image", "inpaint", "outpaint", "edit"} and image_stitch_has_ready_group(params)
+            if not source_image and not stitch_only_ready:
                 result.errors.append(f"{job.mode} requires a source image path, filename, or reusable Neo_Data output reference.")
                 result.ok = False
             if job.mode == "inpaint" and not self._mask_image_value(params):
@@ -1413,6 +1440,114 @@ class ComfyProvider(BaseProvider):
     @staticmethod
     def _extra_qwen_source_image_value(params: dict[str, Any], lane: int) -> str:
         return ComfyProvider._extra_source_image_value(params, lane)
+
+    def _prepare_image_stitch_handoff(self, params: dict[str, Any], *, run_id: str, family: str, loader: str, mode: str) -> dict[str, Any]:
+        """Upload shared Stitch inputs and prepare a safe compile-time source placeholder."""
+
+        payload = extract_image_stitch_payload(params)
+        if not payload.get("enabled"):
+            return params
+        payload = deepcopy(payload)
+        cache: dict[str, str] = {}
+        ready_group = False
+        for group in payload.get("groups") or []:
+            if not isinstance(group, dict) or group.get("enabled", True) is False:
+                continue
+            inputs = group.get("inputs") if isinstance(group.get("inputs"), dict) else {}
+            for side in ("image_a", "image_b"):
+                raw = inputs.get(side)
+                if not isinstance(raw, dict):
+                    raw = {"ref": raw}
+                    inputs[side] = raw
+                source = str(
+                    raw.get("source_id")
+                    or raw.get("asset_id")
+                    or raw.get("path")
+                    or raw.get("ref")
+                    or raw.get("filename")
+                    or raw.get("file")
+                    or raw.get("url")
+                    or ""
+                ).strip()
+                if not source:
+                    continue
+                comfy_name = cache.get(source)
+                if not comfy_name:
+                    comfy_name = self._upload_image_to_comfy_input(source, require_verified=True)
+                    cache[source] = comfy_name
+                raw["comfy_ref"] = comfy_name
+                raw["ref"] = comfy_name
+                raw["stored_filename"] = comfy_name
+            if inputs.get("image_a", {}).get("comfy_ref") and inputs.get("image_b", {}).get("comfy_ref"):
+                ready_group = True
+            group["inputs"] = inputs
+
+        params["qwen_stitch"] = payload
+        params["image_stitch"] = payload
+        if ready_group and not image_stitch_is_qwen_lane_route(family=family, loader=loader, mode=mode):
+            first = next(
+                (
+                    group["inputs"]["image_a"].get("comfy_ref")
+                    for group in payload.get("groups") or []
+                    if isinstance(group, dict)
+                    and group.get("enabled", True) is not False
+                    and isinstance(group.get("inputs"), dict)
+                    and group["inputs"].get("image_a", {}).get("comfy_ref")
+                ),
+                "",
+            )
+            if first and not self._source_image_value(params):
+                params["source_image"] = first
+                params["source_image_path"] = first
+                params["comfy_source_image_name"] = first
+                params["_neo_stitch_source_placeholder"] = True
+        log_image_event(
+            "image_stitch_handoff",
+            run_id=run_id,
+            payload={"family": family, "loader": loader, "mode": mode, "uploaded_inputs": len(cache), "ready_group": ready_group},
+        )
+        return params
+
+    def _patch_compiled_image_stitch(self, compiled: CompiledJob, job: NeoJob) -> CompiledJob:
+        """Patch non-Qwen single-source graphs after their normal compiler runs."""
+
+        backend_payload = dict(compiled.backend_payload or {})
+        workflow = backend_payload.get("prompt")
+        if not isinstance(workflow, dict) or not workflow:
+            return compiled
+        params = backend_payload.get("actual_params") if isinstance(backend_payload.get("actual_params"), dict) else dict(job.params or {})
+        workflow, stitch_meta, warnings, errors = patch_source_loadimage_with_stitch(
+            workflow,
+            params,
+            family=job.family,
+            loader=job.loader,
+            mode=job.mode,
+            backend_capabilities=self.discover_backend_capabilities(),
+        )
+        if not params.get("qwen_stitch") and not params.get("image_stitch"):
+            return compiled
+        backend_payload["prompt"] = workflow
+        actual_params = dict(params)
+        if stitch_meta.get("patched") or stitch_meta.get("groups"):
+            actual_params["image_stitch"] = stitch_meta
+            actual_params["_neo_image_stitch_warnings"] = warnings
+            backend_payload["actual_params"] = actual_params
+        validation = dict(backend_payload.get("validation") or {})
+        validation_errors = list(validation.get("errors") or [])
+        validation_warnings = list(validation.get("warnings") or [])
+        validation_warnings.extend(warnings)
+        validation_errors.extend(errors)
+        if validation_errors:
+            validation["ok"] = False
+            validation["errors"] = validation_errors
+        validation["warnings"] = validation_warnings
+        backend_payload["validation"] = validation
+        notes = list(backend_payload.get("phase_notes") or [])
+        notes.extend(warnings)
+        if errors:
+            notes.extend(f"Stitch Images: {error}" for error in errors)
+        backend_payload["phase_notes"] = notes
+        return compiled.model_copy(update={"backend_payload": backend_payload})
 
     @staticmethod
     def _mask_image_value(params: dict[str, Any]) -> str:
@@ -2299,6 +2434,143 @@ class ComfyProvider(BaseProvider):
             backend_payload["actual_params"] = actual_params
         return compiled.model_copy(update={"backend_payload": backend_payload})
 
+    def _apply_context_latent_hook(self, compiled: CompiledJob, job: NeoJob, route: Any) -> CompiledJob:
+        """Patch the live Flux Kontext reference-latent adapter into inpaint.
+
+        This hook is intentionally narrow.  The RMBG node consumes an existing
+        conditioning object, latent, and mask; it cannot be treated as a
+        generic background-removal or Qwen conditioning node.
+        """
+        backend_payload = dict(compiled.backend_payload or {})
+        actual_params = dict(
+            backend_payload.get("actual_params")
+            if isinstance(backend_payload.get("actual_params"), dict)
+            else (job.params or {})
+        )
+        request = normalize_context_latent(actual_params)
+        if not request.get("enabled"):
+            return compiled
+        actual_params["_neo_context_latent"] = request
+
+        def gated(message: str, state: str) -> CompiledJob:
+            validation = dict(backend_payload.get("validation") or {})
+            errors = list(validation.get("errors") or [])
+            errors.append(message)
+            validation["errors"] = errors
+            validation["ok"] = False
+            actual_params["_neo_context_latent_provider_hook_state"] = state
+            actual_params["_neo_context_latent_provider_hook_reason"] = message
+            backend_payload["validation"] = validation
+            backend_payload["actual_params"] = actual_params
+            return compiled.model_copy(update={"compile_status": "mock_compiled", "backend_payload": backend_payload})
+
+        family = str(getattr(route, "family", "") or job.family or "").strip().lower()
+        loader = str(getattr(route, "loader", "") or job.loader or "").strip().lower()
+        mode = str(getattr(route, "mode", "") or job.mode or "").strip().lower()
+        variant = str(actual_params.get("flux_variant") or actual_params.get("variant") or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if family != "flux" or loader != "diffusion_model" or mode != "inpaint" or variant != "kontext":
+            return gated(
+                "Context latent assist is limited to Flux Kontext + Safetensors/Components + Inpaint; the selected route was not changed or silently downgraded.",
+                "route_gated",
+            )
+        if not isinstance(backend_payload.get("prompt"), dict) or compiled.compile_status != "compiled":
+            return gated("Context latent assist requires a compiled Comfy workflow before queueing.", "compile_gated_no_workflow")
+
+        capabilities = self.discover_backend_capabilities()
+        catalog = capabilities.get("context_latent") if isinstance(capabilities, dict) else {}
+        resolved = resolve_context_latent(catalog, request.get("node_class"))
+        if not resolved.get("ready"):
+            return gated(str(resolved.get("reason") or "No live Flux Kontext reference-latent node is available."), "live_node_gated")
+
+        workflow = dict(backend_payload.get("prompt") or {})
+        sampler_candidates: list[tuple[int, str]] = []
+        for raw_id, node in workflow.items():
+            if not isinstance(node, dict) or str(node.get("class_type") or "") != "KSampler":
+                continue
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            if isinstance(inputs.get("positive"), list) and isinstance(inputs.get("latent_image"), list):
+                try:
+                    score = int(str(raw_id))
+                except (TypeError, ValueError):
+                    score = len(sampler_candidates)
+                sampler_candidates.append((score, str(raw_id)))
+        if not sampler_candidates:
+            return gated("Context latent assist requires a KSampler with positive conditioning and a latent image input.", "workflow_gated_no_sampler")
+        sampler_candidates.sort(reverse=True)
+        sampler_id = sampler_candidates[0][1]
+        sampler = workflow[sampler_id]
+        sampler_inputs = sampler.get("inputs") if isinstance(sampler.get("inputs"), dict) else {}
+        conditioning_ref = list(sampler_inputs.get("positive") or [])
+        latent_ref = list(sampler_inputs.get("latent_image") or [])
+        mask_ref: list[Any] | None = None
+        mask_candidates: list[tuple[int, list[Any]]] = []
+        for raw_id, node in workflow.items():
+            if not isinstance(node, dict):
+                continue
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            class_type = str(node.get("class_type") or "")
+            if class_type in {"SetLatentNoiseMask", "VAEEncodeForInpaint"} and isinstance(inputs.get("mask"), list):
+                try:
+                    score = int(str(raw_id))
+                except (TypeError, ValueError):
+                    score = len(mask_candidates)
+                mask_candidates.append((score, list(inputs["mask"])))
+        if mask_candidates:
+            mask_candidates.sort(reverse=True)
+            mask_ref = mask_candidates[0][1]
+        if mask_ref is None:
+            for raw_id, node in workflow.items():
+                if isinstance(node, dict) and str(node.get("class_type") or "") == "LoadImageMask":
+                    mask_ref = [str(raw_id), 0]
+                    break
+        if not mask_ref:
+            return gated("Context latent assist requires the existing Inpaint mask; no live mask reference was found in the compiled graph.", "workflow_gated_no_mask")
+
+        input_names = set(str(item) for item in (resolved.get("input_names") or []))
+        node_inputs: dict[str, Any] = {
+            "conditioning": conditioning_ref,
+            "latent": latent_ref,
+            "mask": mask_ref,
+            "expand": int(request.get("expand") or 0),
+            "blur": float(request.get("blur") or 0.0),
+            "mask_only": bool(request.get("mask_only", True)),
+        }
+        missing = sorted(set(node_inputs).difference(input_names))
+        if missing:
+            return gated("The live context-latent node is missing required input(s): " + ", ".join(missing), "live_input_gated")
+        node_id = self._next_workflow_node_id(workflow)
+        workflow[node_id] = {
+            "class_type": str(resolved.get("node_class") or ""),
+            "inputs": node_inputs,
+            "_meta": {
+                "title": "Neo Flux Kontext Reference Latent Mask",
+                "schema_id": "neo.image.background_removal.context_latent.v1",
+                "source": "Image 1 latent + existing inpaint mask",
+            },
+        }
+        sampler_inputs["positive"] = [node_id, 0]
+        sampler_inputs["latent_image"] = [node_id, 1]
+        sampler["inputs"] = sampler_inputs
+        actual_params["_neo_context_latent_provider_hook_state"] = "workflow_patched"
+        actual_params["_neo_context_latent_provider"] = {
+            "schema_id": "neo.image.background_removal.context_latent.v1",
+            "node_class": resolved.get("node_class"),
+            "node_id": node_id,
+            "conditioning_input": conditioning_ref,
+            "latent_input": latent_ref,
+            "mask_input": mask_ref,
+            "patched_positive": [node_id, 0],
+            "patched_latent": [node_id, 1],
+            "route": {"family": family, "loader": loader, "mode": mode, "variant": variant},
+            "policy": "live_exact_node_no_family_or_loader_fallback",
+        }
+        backend_payload["prompt"] = workflow
+        backend_payload["actual_params"] = actual_params
+        notes = list(backend_payload.get("phase_notes") or [])
+        notes.append("RMBG-6 patched live Flux Kontext Reference Latent Mask using Image 1 latent context and the existing inpaint mask.")
+        backend_payload["phase_notes"] = notes
+        return compiled.model_copy(update={"backend_payload": backend_payload})
+
     def compile_job(self, job: NeoJob) -> CompiledJob:
         job = self._runtime_job(job)
         validation = self.validate_job(job)
@@ -2880,6 +3152,17 @@ class ComfyProvider(BaseProvider):
                     except Exception as exc:  # noqa: BLE001
                         record_generation_error(run_id=run_id, message="Failed to upload inpaint mask to Comfy input.", exc=exc, payload={"mask_image": mask_image})
                         raise
+            try:
+                params = self._prepare_image_stitch_handoff(
+                    params,
+                    run_id=run_id,
+                    family=runtime_job.family,
+                    loader=runtime_job.loader,
+                    mode=runtime_job.mode,
+                )
+            except Exception as exc:  # noqa: BLE001
+                record_generation_error(run_id=run_id, message="Failed to upload Stitch Images inputs to Comfy.", exc=exc, payload={"family": runtime_job.family, "loader": runtime_job.loader, "mode": runtime_job.mode})
+                raise
             runtime_job = runtime_job.copy(update={"job_id": run_id, "params": params})
         else:
             runtime_job = runtime_job.copy(update={"job_id": run_id})
@@ -2891,6 +3174,7 @@ class ComfyProvider(BaseProvider):
         queue_payload_for_error: dict[str, Any] | None = None
         try:
             compiled = self.compile_job(runtime_job)
+            compiled = self._patch_compiled_image_stitch(compiled, runtime_job)
             compiled_payload_for_error = compiled.backend_payload
             record_compiled_workflow(run_id=run_id, provider_id=self.manifest.provider_id, backend_payload=compiled.backend_payload)
             validation = compiled.backend_payload.get("validation") or {}
@@ -2962,6 +3246,13 @@ class ComfyProvider(BaseProvider):
                     log_image_event("layerdiffuse_cache_guard_free_failed", run_id=run_id, level="WARNING", payload={"error": str(exc), "reason": "non_layerdiffuse_4ch_compile"})
             queue_payload_for_error = payload
             invalid_load_images = self._validate_prompt_load_images(prompt_graph, run_id=run_id)
+            actual_params_for_handoff = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+            qwen_stitch_metadata = actual_params_for_handoff.get("qwen_stitch") if isinstance(actual_params_for_handoff.get("qwen_stitch"), dict) else None
+            if qwen_stitch_metadata is not None:
+                actual_params_for_handoff = dict(actual_params_for_handoff)
+                actual_params_for_handoff["qwen_stitch"] = record_qwen_stitch_comfy_handoff(prompt_graph, qwen_stitch_metadata)
+                compiled.backend_payload["actual_params"] = actual_params_for_handoff
+                queue_payload_for_error["qwen_stitch_handoff"] = actual_params_for_handoff["qwen_stitch"].get("provider_handoff", {})
             if invalid_load_images:
                 return ProviderRunResult(
                     job_id=run_id,

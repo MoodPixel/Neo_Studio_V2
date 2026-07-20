@@ -21,8 +21,8 @@ tags:
   - xai
   - connection
 priority: 85
-version: 5
-updated: 2026-07-12
+version: 6
+updated: 2026-07-19
 ---
 
 # Backend Profiles and Connection State
@@ -107,3 +107,22 @@ For Grok:
 A connected profile requires a current successful runtime status. Use live surface/profile snapshots rather than passive configuration alone. After restarting Neo or a local backend, users may need to test/connect again.
 
 Runtime/user secrets and connection state belong under `neo_data` or the environment, not repository source folders.
+
+## Task-facing live profile handoff
+
+Prompt Studio, single-image Caption Studio, and Batch Captioning use the same
+task-facing backend contract. Their routes perform a current live probe of the
+selected profile and pass that live profile into the execution service. The
+service must not resolve the passive `/api/backend-profiles` catalog again for
+the same task, because local profiles with `auto_connect: false` may appear
+disconnected in that passive catalog even after a successful Connect/Test.
+
+The batch route performs this preflight before queueing work and reuses the
+validated profile for every image. A lost in-memory session gate can be restored
+only by a successful current probe; a stale saved `connected` runtime is never
+accepted by itself.
+
+For Caption Studio, a reachable text profile still needs effective vision and
+captioning support. KoboldCpp should expose a multimodal model and the required
+projector/mmproj when the loaded model requires one. A connection failure and a
+vision-capability failure are separate diagnostics.

@@ -38,8 +38,8 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 3
-updated: 2026-07-17
+version: 4
+updated: 2026-07-18
 ---
 
 # ControlNet
@@ -141,6 +141,16 @@ When the selected Qwen route exposes inpaint/outpaint ControlNet adapter control
 | **Auto · prefer DiffSynth** | Neo chooses DiffSynth when Qwen model-patch nodes are available, otherwise InstantX/native ControlNet if available. |
 | **DiffSynth model patch** | Uses Qwen model-patch nodes. Model patches usually live in `ComfyUI/models/model_patches`. |
 | **InstantX Qwen ControlNet** | Uses native/standard Qwen ControlNet loader/apply paths where installed. |
+
+### Qwen ControlNet VAE contract
+
+Qwen ControlNet implementations that require a VAE must receive the matching active Qwen VAE at the ControlNet apply step. Loading the ControlNet model without connecting a VAE produces the ComfyUI error:
+
+```text
+This Controlnet needs a VAE but none was provided
+```
+
+Neo’s supported Qwen route carries the active VAE through the ControlNet apply contract. For a manually assembled ComfyUI workflow, connect the VAE output from the matching Qwen loader to the `vae` input of the VAE-aware ControlNet apply node. Do not substitute an unrelated SD or Flux VAE.
 
 ### Flux ControlNet adapter
 

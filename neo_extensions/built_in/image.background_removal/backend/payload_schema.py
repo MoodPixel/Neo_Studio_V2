@@ -16,14 +16,18 @@ from .constants import (
     SAM_MODEL_VARIANTS,
     SAM_REFINEMENT_MODEL_IDS,
 )
+from .segmentation_lab import normalize_segmentation_lab
+from .region_segmentation import normalize_region_segmentation
+from .mask_utilities import normalize_mask_utility
+from .matting import normalize_matting
 
 VALID_PRESETS = set(PRESET_MODEL_CANDIDATES)
 VALID_DEVICES = {"AUTO", "CPU"}
 VALID_DTYPES = {"float32", "float16"}
 VALID_UPSCALE_METHODS = {"bilinear", "nearest", "nearest-exact", "bicubic"}
-VALID_WORKFLOW_MODES = {"segment", "refine_mask", "interactive_sam"}
+VALID_WORKFLOW_MODES = {"segment", "refine_mask", "interactive_sam", "segmentation_lab", "region_segmentation", "mask_utility", "matting"}
 VALID_PREVIEW_BACKGROUNDS = {"checkerboard", "white", "black"}
-VALID_ENGINES = {"smart", "comfy_birefnet", "native_rembg", "native_sam", "commercial_api"}
+VALID_ENGINES = {"smart", "comfy_birefnet", "comfy_rmbg", "comfy_segmentation", "comfy_region_segmentation", "comfy_mask_utility", "comfy_matting", "native_rembg", "native_sam", "commercial_api"}
 VALID_FALLBACK_POLICIES = {"never", "on_unavailable", "on_unavailable_or_queue_failure"}
 VALID_NATIVE_PROVIDERS = {"AUTO", "CPU", "CUDA"}
 VALID_SAM_REFINE_MODES = {"birefnet_gate", "sam_only"}
@@ -250,6 +254,13 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
     sam_detector_type = str(source.get("sam_detector_type") or DEFAULTS["sam_detector_type"]).strip().lower()
     if sam_detector_type not in VALID_SAM_DETECTOR_TYPES:
         sam_detector_type = DEFAULTS["sam_detector_type"]
+    sam_mask_operation = str(source.get("sam_mask_operation") or DEFAULTS["sam_mask_operation"]).strip().lower()
+    if sam_mask_operation not in {"union", "intersection", "subtract"}:
+        sam_mask_operation = DEFAULTS["sam_mask_operation"]
+    segmentation_lab = normalize_segmentation_lab(source)
+    region_segmentation = normalize_region_segmentation(source)
+    mask_utility = normalize_mask_utility(source)
+    matting = normalize_matting(source)
     commercial_output_size = str(source.get("commercial_output_size") or DEFAULTS["commercial_output_size"]).strip().lower()
     if commercial_output_size not in VALID_COMMERCIAL_OUTPUT_SIZES:
         commercial_output_size = DEFAULTS["commercial_output_size"]
@@ -263,6 +274,31 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
     if engine == "commercial_api":
         fallback_policy = "never"
         workflow_mode = "segment"
+    segmentation_lab = normalize_segmentation_lab(source)
+    if workflow_mode == "segmentation_lab":
+        segmentation_lab["enabled"] = True
+        engine = "comfy_segmentation"
+    elif engine == "comfy_segmentation":
+        workflow_mode = "segmentation_lab"
+        segmentation_lab["enabled"] = True
+    if workflow_mode == "region_segmentation":
+        region_segmentation["enabled"] = True
+        engine = "comfy_region_segmentation"
+    elif engine == "comfy_region_segmentation":
+        workflow_mode = "region_segmentation"
+        region_segmentation["enabled"] = True
+    if workflow_mode == "mask_utility":
+        mask_utility["enabled"] = True
+        engine = "comfy_mask_utility"
+    elif engine == "comfy_mask_utility":
+        workflow_mode = "mask_utility"
+        mask_utility["enabled"] = True
+    if workflow_mode == "matting":
+        matting["enabled"] = True
+        engine = "comfy_matting"
+    elif engine == "comfy_matting":
+        workflow_mode = "matting"
+        matting["enabled"] = True
     return {
         "enabled": _bool(source.get("enabled"), True),
         "workflow_mode": workflow_mode,
@@ -284,6 +320,16 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
         "source_height": _int(source.get("source_height"), 0, 0, 65535),
         "preset": preset,
         "model": str(source.get("model") or source.get("birefnet_model") or "").strip().replace("\\", "/"),
+        "rmbg_model": str(source.get("rmbg_model") or "").strip().replace("\\", "/"),
+        "rmbg_node_class": str(source.get("rmbg_node_class") or "").strip(),
+        "rmbg_input_map": {str(key): str(value) for key, value in (source.get("rmbg_input_map") or {}).items() if str(key).strip() and str(value).strip()} if isinstance(source.get("rmbg_input_map"), dict) else {},
+        "rmbg_sensitivity": _float(source.get("rmbg_sensitivity"), DEFAULTS["rmbg_sensitivity"], 0.0, 1.0),
+        "rmbg_mask_blur": _int(source.get("rmbg_mask_blur"), DEFAULTS["rmbg_mask_blur"], 0, 64),
+        "rmbg_mask_offset": _int(source.get("rmbg_mask_offset"), DEFAULTS["rmbg_mask_offset"], -64, 64),
+        "rmbg_invert_output": _bool(source.get("rmbg_invert_output"), DEFAULTS["rmbg_invert_output"]),
+        "rmbg_refine_foreground": _bool(source.get("rmbg_refine_foreground"), DEFAULTS["rmbg_refine_foreground"]),
+        "rmbg_background": str(source.get("rmbg_background") or DEFAULTS["rmbg_background"]).strip() if str(source.get("rmbg_background") or DEFAULTS["rmbg_background"]).strip() in {"Alpha", "Color"} else DEFAULTS["rmbg_background"],
+        "rmbg_background_color": str(source.get("rmbg_background_color") or DEFAULTS["rmbg_background_color"]).strip()[:32],
         "device": device,
         "dtype": dtype,
         "use_weight": _bool(source.get("use_weight"), False),
@@ -299,8 +345,8 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
         "save_mask": _bool(source.get("save_mask"), True),
         "preview_image": _bool(source.get("preview_image"), False),
         "preview_background": preview_background,
-        "manual_mask": _bool(source.get("manual_mask"), workflow_mode in {"refine_mask", "interactive_sam"}),
-        "mask_source": str(source.get("mask_source") or ("interactive_sam" if workflow_mode == "interactive_sam" else ("manual_review" if workflow_mode == "refine_mask" else DEFAULTS["mask_source"]))).strip(),
+        "manual_mask": _bool(source.get("manual_mask"), workflow_mode in {"refine_mask", "interactive_sam", "segmentation_lab", "region_segmentation"}),
+        "mask_source": str(source.get("mask_source") or ("interactive_sam" if workflow_mode == "interactive_sam" else ("segmentation_lab" if workflow_mode == "segmentation_lab" else ("region_segmentation" if workflow_mode == "region_segmentation" else ("mask_utility" if workflow_mode == "mask_utility" else ("matting" if workflow_mode == "matting" else ("manual_review" if workflow_mode == "refine_mask" else DEFAULTS["mask_source"]))))))).strip(),
         "source_mode": str(source.get("source_mode") or DEFAULTS["source_mode"]).strip(),
         "commercial_profile_id": commercial_profile_id,
         "commercial_upload_consent": _bool(source.get("commercial_upload_consent"), False),
@@ -316,6 +362,7 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
         "sam_comfy_model": str(source.get("sam_comfy_model") or "").strip().replace("\\", "/"),
         "sam_detector_model": str(source.get("sam_detector_model") or "").strip().replace("\\", "/"),
         "sam_detector_type": sam_detector_type,
+        "sam_mask_operation": sam_mask_operation,
         "sam_detection_confidence": _float(source.get("sam_detection_confidence"), DEFAULTS["sam_detection_confidence"], 0.01, 0.99),
         "sam_node_map": dict(source.get("sam_node_map") or {}) if isinstance(source.get("sam_node_map"), dict) else {},
         "sam_shared_refine_enabled": _bool(source.get("sam_shared_refine_enabled"), False),
@@ -328,6 +375,85 @@ def normalize_settings(raw: dict[str, Any] | str | None) -> dict[str, Any]:
         "sam_refine_fallback": _bool(source.get("sam_refine_fallback"), DEFAULTS["sam_refine_fallback"]),
         "sam_gate_expand": _int(source.get("sam_gate_expand"), DEFAULTS["sam_gate_expand"], 0, 128),
         "sam_gate_feather": _int(source.get("sam_gate_feather"), DEFAULTS["sam_gate_feather"], 0, 128),
+        "segmentation_lab_enabled": bool(segmentation_lab.get("enabled")),
+        "segmentation_adapter": segmentation_lab.get("adapter") or "auto",
+        "segmentation_node_class": str(source.get("segmentation_node_class") or "").strip(),
+        "segmentation_mask_operation": segmentation_lab.get("mask_operation") or "union",
+        "segmentation_lab_prompts": segmentation_lab.get("prompts") or [],
+        "segmentation_threshold": segmentation_lab.get("threshold", 0.35),
+        "segmentation_confidence_threshold": segmentation_lab.get("confidence_threshold", 0.5),
+        "segmentation_max_segments": segmentation_lab.get("max_segments", 0),
+        "segmentation_sam_model": segmentation_lab.get("sam_model") or "",
+        "segmentation_sam2_model": segmentation_lab.get("sam2_model") or "",
+        "segmentation_dino_model": segmentation_lab.get("dino_model") or "",
+        "segmentation_device": segmentation_lab.get("device") or "Auto",
+        "segmentation_segment_pick": segmentation_lab.get("segment_pick", 0),
+        "region_segmentation_enabled": bool(region_segmentation.get("enabled")),
+        "region_segmentation_adapter": region_segmentation.get("adapter") or "auto",
+        "region_segmentation_node_class": region_segmentation.get("node_class") or "",
+        "region_segmentation_mask_operation": region_segmentation.get("mask_operation") or "union",
+        "region_segmentation_targets": region_segmentation.get("targets") or [],
+        "mask_utility_enabled": bool(mask_utility.get("enabled")),
+        "mask_utility_operation": mask_utility.get("operation") or "enhance",
+        "mask_utility_node_class": mask_utility.get("node_class") or "",
+        "mask_utility_input_names": mask_utility.get("input_names") or [],
+        "mask_utility_mask_names": mask_utility.get("mask_names") or [],
+        "mask_utility_mask_operation": mask_utility.get("mask_operation") or "union",
+        "mask_utility_mask_channel": mask_utility.get("mask_channel") or "red",
+        "mask_utility_extract_mode": mask_utility.get("extract_mode") or "extract_masked_area",
+        "mask_utility_background": mask_utility.get("background") or "Alpha",
+        "mask_utility_background_color": mask_utility.get("background_color") or "#FFFFFF",
+        "mask_utility_color": mask_utility.get("color") or "#FFFFFF",
+        "mask_utility_threshold": mask_utility.get("threshold", 10),
+        "mask_utility_sensitivity": mask_utility.get("sensitivity", 1.0),
+        "mask_utility_mask_blur": mask_utility.get("mask_blur", 0),
+        "mask_utility_mask_offset": mask_utility.get("mask_offset", 0),
+        "mask_utility_smooth": mask_utility.get("smooth", 0.0),
+        "mask_utility_fill_holes": bool(mask_utility.get("fill_holes")),
+        "mask_utility_invert": bool(mask_utility.get("invert")),
+        "mask_utility_padding": mask_utility.get("padding", 0),
+        "mask_utility_overlay_opacity": mask_utility.get("overlay_opacity", 0.5),
+        "mask_utility_overlay_color": mask_utility.get("overlay_color") or "#0000FF",
+        "mask_utility_lama_removal_strength": mask_utility.get("lama_removal_strength", 230),
+        "mask_utility_lama_edge_smoothness": mask_utility.get("lama_edge_smoothness", 8),
+        "mask_utility_resize_width": mask_utility.get("resize_width", 0),
+        "mask_utility_resize_height": mask_utility.get("resize_height", 0),
+        "mask_utility_resize_megapixels": mask_utility.get("resize_megapixels", 0),
+        "mask_utility_resize_scale_by": mask_utility.get("resize_scale_by", 1.0),
+        "mask_utility_resize_mode": mask_utility.get("resize_mode") or "longest_side",
+        "mask_utility_resize_value": mask_utility.get("resize_value", 0),
+        "mask_utility_resize_method": mask_utility.get("resize_method") or "lanczos",
+        "mask_utility_resize_device": mask_utility.get("resize_device") or "cpu",
+        "mask_utility_resize_divisible_by": mask_utility.get("resize_divisible_by", 2),
+        "mask_utility_resize_output_mode": mask_utility.get("resize_output_mode") or "stretch",
+        "mask_utility_resize_crop_position": mask_utility.get("resize_crop_position") or "center",
+        "mask_utility_resize_pad_color": mask_utility.get("resize_pad_color") or "#FFFFFF",
+        "mask_utility_crop_width": mask_utility.get("crop_width", 1024),
+        "mask_utility_crop_height": mask_utility.get("crop_height", 1024),
+        "mask_utility_crop_x_offset": mask_utility.get("crop_x_offset", 0),
+        "mask_utility_crop_y_offset": mask_utility.get("crop_y_offset", 0),
+        "mask_utility_crop_position": mask_utility.get("crop_position") or "center",
+        "mask_utility_crop_split": bool(mask_utility.get("crop_split")),
+        "matting_enabled": bool(matting.get("enabled")),
+        "matting_profile": matting.get("profile") or "birefnet_hr",
+        "matting_model": matting.get("model") or "",
+        "matting_node_class": matting.get("node_class") or "",
+        "matting_input_names": matting.get("input_names") or [],
+        "matting_model_choices": matting.get("model_choices") or [],
+        "matting_process_res": matting.get("process_res", 2048),
+        "matting_device": matting.get("device") or "Auto",
+        "matting_mask_refine": bool(matting.get("mask_refine")),
+        "matting_sensitivity": matting.get("sensitivity", 0.9),
+        "matting_transparent_object": bool(matting.get("transparent_object")),
+        "matting_use_source_alpha": bool(matting.get("use_source_alpha")),
+        "matting_edge_mode": matting.get("edge_mode") or "high_resolution_edges",
+        "matting_mask_blur": matting.get("mask_blur", 0),
+        "matting_mask_offset": matting.get("mask_offset", 0),
+        "matting_invert": bool(matting.get("invert")),
+        "matting_background": matting.get("background") or "Alpha",
+        "matting_background_color": matting.get("background_color") or "#222222",
+        "matting_refine_foreground": bool(matting.get("refine_foreground")),
+        "matting_mask_names": matting.get("mask_names") or [],
     }
 
 
@@ -360,6 +486,40 @@ def validate_payload_settings(
                 errors.append("Every Comfy Impact SAM subject needs a selection box.")
             elif any(item.get("keep_points") or item.get("remove_points") for item in subjects):
                 errors.append("Per-subject correction points require Neo Native ONNX SAM.")
+    if clean.get("workflow_mode") == "segmentation_lab":
+        prompts = [item for item in (clean.get("segmentation_lab_prompts") or []) if item.get("enabled", True)]
+        if not prompts:
+            errors.append("Segmentation Lab needs at least one natural-language object prompt.")
+        if clean.get("segmentation_mask_operation") not in {"union", "intersection", "subtract"}:
+            errors.append("Segmentation Lab mask operation must be union, intersection, or subtract.")
+        if clean.get("engine") != "comfy_segmentation":
+            errors.append("Segmentation Lab requires its verified Comfy prompt-segmentation route.")
+    if clean.get("workflow_mode") == "region_segmentation":
+        targets = [item for item in (clean.get("region_segmentation_targets") or []) if item.get("enabled", True)]
+        if not targets:
+            errors.append("Face, clothes, and fashion segmentation needs at least one enabled region target.")
+        if clean.get("region_segmentation_mask_operation") not in {"union", "intersection", "subtract"}:
+            errors.append("Region segmentation mask operation must be union, intersection, or subtract.")
+        if clean.get("engine") != "comfy_region_segmentation":
+            errors.append("Face, clothes, and fashion segmentation requires its verified Comfy region route.")
+    if clean.get("workflow_mode") == "mask_utility":
+        if clean.get("mask_utility_operation") not in {"enhance", "combine", "extract", "crop_object", "convert", "color_to_mask", "mask_overlay", "object_remove_lama", "image_mask_resize", "image_crop"}:
+            errors.append("Mask utility operation is not supported.")
+        if clean.get("mask_utility_mask_operation") not in {"union", "intersection", "difference"}:
+            errors.append("Mask utility combine mode must be union, intersection, or difference.")
+        if clean.get("engine") != "comfy_mask_utility":
+            errors.append("Mask utilities require their verified Comfy utility route.")
+        if clean.get("mask_utility_operation") in {"enhance", "combine", "extract", "crop_object", "mask_overlay", "object_remove_lama"} and not [item for item in (mask_images or []) if str(item or "").strip()]:
+            errors.append("This mask utility needs at least one uploaded mask image.")
+        if clean.get("mask_utility_operation") == "combine" and len([item for item in (mask_images or []) if str(item or "").strip()]) > 4:
+            errors.append("Mask Combiner accepts at most four mask images.")
+    if clean.get("workflow_mode") == "matting":
+        if clean.get("engine") != "comfy_matting":
+            errors.append("Advanced matting requires the strict Comfy matting engine.")
+        if clean.get("matting_profile") in {"sdmatte", "sdmatte_plus"} and not clean.get("matting_use_source_alpha") and not [item for item in (mask_images or []) if str(item or "").strip()]:
+            errors.append("SDMatte matting needs an uploaded trimap/mask, or enable source alpha as the mask.")
+        if clean.get("matting_process_res", 0) > 2560:
+            errors.append("Matting process resolution cannot exceed 2560.")
     if clean.get("engine") == "commercial_api":
         if not clean.get("commercial_profile_id"):
             errors.append("Choose a commercial background-removal provider profile.")
@@ -401,6 +561,10 @@ def build_payload_block(
             "mask_output": bool(clean.get("save_mask")),
             "refinement_only": clean.get("workflow_mode") == "refine_mask",
             "interactive_selection": clean.get("workflow_mode") == "interactive_sam",
+            "segmentation_lab": clean.get("workflow_mode") == "segmentation_lab",
+            "region_segmentation": clean.get("workflow_mode") == "region_segmentation",
+            "mask_utilities": clean.get("workflow_mode") == "mask_utility",
+            "matting": clean.get("workflow_mode") == "matting",
             "non_destructive": True,
         },
     }

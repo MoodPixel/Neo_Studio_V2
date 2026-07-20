@@ -18,8 +18,8 @@ tags:
   - parameters
   - model
 priority: 100
-version: 3
-updated: 2026-07-10
+version: 6
+updated: 2026-07-18
 ---
 
 # Qwen Rapid AIO Image Workflow
@@ -107,3 +107,46 @@ The **Safetensors / Bundled** route now exposes **CFG Scale** because its graph 
 This is the normal sampler CFG field. It is **not** the separate **CFG Fix / Dynamic Thresholding** extension. CFG Fix remains route-gated for Qwen Rapid AIO until that model-patch path is physically validated.
 
 When Comfy fails during execution, Neo now reports the backend node and exception reason. A successful completion with no output files remains recoverable, but a real Comfy execution error is shown as failed instead of being masked by a no-output recovery state.
+
+## Phase 3 — Stitch Images route
+
+The **Stitch Images** route is available for **Qwen Rapid AIO** `img2img` / `edit` workflows on the `checkpoint_aio` and `gguf` loaders. The shared capability also supports the source-conditioned routes listed in [Image Stitching](image_stitch.md). Qwen Rapid AIO keeps its multi-lane behavior; other families use one stitched composite as their Image 1/source anchor. Neo supports both the canonical `ImageStitch` class and the `AILab_ImageStitch` class exposed by ComfyUI-RMBG.
+
+When a direct source image is present, it remains **Image 1** and Stitch outputs use the remaining live Qwen image lanes. If no direct source is selected, a complete enabled Stitch Group may be promoted to the base **Image 1** lane for Stitch-only Img2Img:
+
+- the first complete Stitch Group becomes Image 1;
+- later Stitch Groups keep their selected optional lanes;
+- an incomplete or disabled group cannot satisfy the Img2Img source requirement.
+
+Stitch outputs normally use the remaining live Qwen image lanes:
+
+| Live Qwen encoder lanes | Maximum stitched outputs | Raw source images consumed |
+|---:|---:|---:|
+| 3 total (`image1`–`image3`) | 2 | 4 |
+| 4 total (`image1`–`image4`) | 3 | 6 |
+
+Neo reads the installed `TextEncodeQwenImageEditPlus` and stitch-node inputs at runtime. A stitch output lane must be free; direct source lanes and stitch outputs cannot silently overwrite each other. The route selects `ImageStitch` or `AILab_ImageStitch` from the live Comfy node catalog and adapts the direction field (`direction` or `concat_direction`) before queueing. If neither class is present, the route reports a validation error before queueing.
+
+Use the existing source-image state as the canonical upload/asset ownership layer. The implemented UI exposes Stitch Images as a separate collapsible subsection under Source Image, so each stitch pair is visually distinct while still sharing the same asset picker, upload validation, and replay metadata. Qwen Inpaint/Outpaint and other supported families use the stitched result as a single-source mask/canvas anchor.
+
+## Phase 4 — Stitch Images UI
+
+For a supported source-conditioned route, open the **Stitch Images** subsection inside **Source Image**. It reuses the existing image upload endpoint and asset ownership rules, but keeps each stitch pair separate from direct Image 1/Image 2/Image 3 source lanes.
+
+- **Image 1** remains the base source image.
+- Each **Stitch Group** accepts **Image A** and **Image B**.
+- Each group selects a free optional Qwen output lane and exposes direction, spacing, spacing color, and match-size controls.
+- The UI reads the live Qwen encoder lane count when available: two groups on a three-lane encoder, or three groups on a four-lane encoder.
+- Direct source lanes and stitch output lanes are not silently overwritten; a collision is shown before queueing.
+
+Stitch Images is hidden for text-only routes. On Qwen Rapid AIO it is submitted as the `neo.image.qwen_stitch.v1` envelope for backward compatibility; the provider applies the shared source-anchor contract on other supported routes.
+
+## Phase 5 — Upload and provider handoff
+
+Stitch uploads use the existing `/api/image/source-image` validator and Neo_Data ownership boundary. The browser keeps the returned `source_id`/stored filename as the portable canonical reference; the API URL is used for preview, not as a ComfyUI filename.
+
+Before queueing, the Comfy provider resolves every Stitch `LoadImage` node from the Neo-owned source image into ComfyUI's input folder. The compiled runtime metadata records the resolved Comfy filenames and handoff status. Missing or unreadable Stitch inputs remain a blocking preflight error and are never silently dropped.
+
+## Phase 6 — Documentation and support boundary
+
+Public documentation now describes Stitch Images as an implemented Rapid AIO feature, documents the shared Neo_Data-to-ComfyUI upload boundary, and records the supported capacity rules. The ControlNet guide separately documents the Qwen VAE requirement: a Qwen ControlNet apply path must receive the active Qwen VAE, not only the ControlNet model.
