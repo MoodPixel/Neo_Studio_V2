@@ -7,6 +7,7 @@ from .adapter import normalize_scene_director_state, scene_director_to_regional_
 from .node_decision import detect_node_status, workflow_readiness
 from .support_matrix import ACTIVE_STATES, EXTENSION_ID, get_scene_director_support, normalize_mode
 from .dependency_routing import dependency_warnings, interop_metadata, regional_lora_bindings_from_lora_stack
+from .prompt_authority import build_prompt_authority_contract, normalize_prompt_authority
 
 VERSION = 1
 SCHEMA_VERSION = "neo.extension.payload.v1"
@@ -14,6 +15,14 @@ SCENE_SCHEMA = "neo.image.scene_director.v2"
 
 
 CHARACTER_LOCK_MODES = {"off", "soft", "balanced", "strong", "strict"}
+CHARACTER_LOCK_EXECUTION_MODES = {
+    "prompt_guard_only",
+    "latent_attention",
+    "latent_repair",
+    "end_refinement",
+    "latent_and_refinement",
+    "off",
+}
 
 
 def _character_lock_mode(value: Any, default: str = "balanced") -> str:
@@ -36,6 +45,48 @@ def _guard_mode(value: Any, default: str = "off") -> str:
     aliases = {"none": "off", "false": "off", "disabled": "off", "normal": "balanced", "medium": "balanced"}
     mode = aliases.get(raw, raw)
     return mode if mode in CHARACTER_LOCK_MODES else default
+
+
+def _character_lock_execution_mode(value: Any, default: str = "latent_attention") -> str:
+    raw = str(value if value is not None else default).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "prompt": "prompt_guard_only",
+        "prompt_only": "prompt_guard_only",
+        "prompt_guard": "prompt_guard_only",
+        "guard_only": "prompt_guard_only",
+        "attention": "latent_attention",
+        "attention_only": "latent_attention",
+        "in_sampler": "latent_attention",
+        "in_sampler_attention": "latent_attention",
+        "legacy_attention": "latent_attention",
+        "legacy_in_sampler_attention": "latent_attention",
+        "hairlock_strong": "latent_attention",
+        "latent": "latent_attention",
+        "latent_pass": "latent_attention",
+        "latent_correction": "latent_attention",
+        "latent_correction_pass": "latent_attention",
+        "character_latent": "latent_repair",
+        "latent_trait_repair": "latent_repair",
+        "latent_repair_pass": "latent_repair",
+        "masked": "end_refinement",
+        "mask": "end_refinement",
+        "masked_pass": "end_refinement",
+        "masked_correction": "end_refinement",
+        "masked_correction_pass": "end_refinement",
+        "refinement": "end_refinement",
+        "end": "end_refinement",
+        "end_pass": "end_refinement",
+        "final": "end_refinement",
+        "both": "latent_and_refinement",
+        "latent_plus_refinement": "latent_and_refinement",
+        "latent_and_end_refinement": "latent_and_refinement",
+        "none": "off",
+        "false": "off",
+        "disabled": "off",
+        "0": "off",
+    }
+    mode = aliases.get(raw, raw)
+    return mode if mode in CHARACTER_LOCK_EXECUTION_MODES else default
 
 
 def _character_lock_params(raw: dict[str, Any]) -> dict[str, str]:
@@ -261,6 +312,11 @@ def normalize_region(region: dict[str, Any] | None, index: int = 0) -> dict[str,
         "strength": _clamp_float(region.get("strength") or region.get("positive_strength"), 1.0, 0.0, 2.0),
         "character_traits": deepcopy(region.get("character_traits")) if isinstance(region.get("character_traits"), dict) else {},
         "trait_lock": deepcopy(region.get("trait_lock")) if isinstance(region.get("trait_lock"), dict) else {},
+        "character_lock_correction": deepcopy(region.get("character_lock_correction")) if isinstance(region.get("character_lock_correction"), dict) else {},
+        "character_lock_correction_enabled": region.get("character_lock_correction_enabled", "auto"),
+        "character_lock_gender_family": _text(region.get("character_lock_gender_family") or "auto"),
+        "character_lock_positive_text": _text(region.get("character_lock_positive_text") or ""),
+        "character_lock_negative_text": _text(region.get("character_lock_negative_text") or ""),
         "mask": {
             "source": _text(mask.get("source") or region.get("mask_source") or "region_box"),
             "feather": _clamp_int(mask.get("feather") if mask.get("feather") is not None else region.get("feather", region.get("mask_feather")), _default_feather(region_type), 0, 128),
@@ -367,12 +423,22 @@ def _legacy_block(payload: dict[str, Any]) -> dict[str, Any]:
                 "positive_prompt": global_data.get("positive_prompt") or global_data.get("prompt") or payload.get("scene_director_effective_global_prompt") or payload.get("positive") or "",
                 "negative_prompt": global_data.get("negative_prompt") or payload.get("scene_director_effective_negative_prompt") or payload.get("negative") or "",
                 "style_prompt": payload.get("style_positive") or payload.get("scene_director_style_prompt_source") or "",
+                "prompt_authority": normalize_prompt_authority(
+                    global_data.get("prompt_authority")
+                    or scene.get("prompt_authority")
+                    or payload.get("scene_director_prompt_authority")
+                ),
             },
         },
         "params": {
             "backend_mode": payload.get("scene_director_backend_mode") or "v052_node",
             "base_weight": payload.get("scene_director_v052_base_weight", 0.35),
             "region_gain": payload.get("scene_director_v052_region_gain", 0.65),
+            "prompt_authority": normalize_prompt_authority(
+                payload.get("scene_director_prompt_authority")
+                or global_data.get("prompt_authority")
+                or scene.get("prompt_authority")
+            ),
             "normalize_masks": payload.get("scene_director_v052_normalize_masks", True),
             "max_subject_slots": payload.get("scene_director_v052_max_subject_slots", 4),
             "region_context": {
@@ -457,9 +523,19 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
     identity_strength = _clamp_float(raw.get("identity_strength") if raw.get("identity_strength") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("gain") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_gain")), 0.55, 0.0, 1.0)
     mask_feather = _clamp_int(raw.get("mask_feather") if raw.get("mask_feather") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("feather") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_feather")), 18, 0, 128)
     first_pass_lock = raw.get("first_pass_character_lock_authority") if isinstance(raw.get("first_pass_character_lock_authority"), dict) else {}
+    execution_mode = _character_lock_execution_mode(
+        raw.get("character_lock_execution_mode")
+        or raw.get("scene_director_character_lock_execution_mode")
+        or first_pass_lock.get("execution_mode")
+        or first_pass_lock.get("execution")
+        or "latent_attention"
+    )
     return {
         "backend_mode": _text(raw.get("backend_mode") or "v052_node"),
         "authority_mode": _text(raw.get("authority_mode") or raw.get("scene_director_authority_mode") or "balanced"),
+        "prompt_authority": normalize_prompt_authority(
+            raw.get("prompt_authority") or raw.get("scene_director_prompt_authority")
+        ),
         "base_weight": _clamp_float(raw.get("base_weight"), 0.35, 0.0, 2.0),
         "region_gain": _clamp_float(raw.get("region_gain"), 0.65, 0.0, 2.0),
         "normalize_masks": raw.get("normalize_masks", True) is not False,
@@ -498,11 +574,12 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
             "mask_feather": _clamp_int(first_pass_lock.get("mask_feather") if first_pass_lock.get("mask_feather") is not None else raw.get("character_lock_first_pass_mask_feather"), 24, 0, 256),
             "protect_outfit": first_pass_lock.get("protect_outfit", raw.get("character_lock_first_pass_protect_outfit", True)) is not False,
             "protect_pose_contact": first_pass_lock.get("protect_pose_contact", raw.get("character_lock_first_pass_protect_pose_contact", True)) is not False,
-            "execution_mode": _text(first_pass_lock.get("execution_mode") or first_pass_lock.get("execution") or raw.get("character_lock_execution_mode") or raw.get("scene_director_character_lock_execution_mode") or "masked_correction"),
-            "execution": _text(first_pass_lock.get("execution") or first_pass_lock.get("execution_mode") or raw.get("character_lock_execution_mode") or raw.get("scene_director_character_lock_execution_mode") or "masked_correction"),
+            "execution_mode": execution_mode,
+            "execution": execution_mode,
             "source": "fix_pass_controls_visible_fields",
         },
-        "character_lock_execution_mode": _text(raw.get("character_lock_execution_mode") or raw.get("scene_director_character_lock_execution_mode") or first_pass_lock.get("execution_mode") or first_pass_lock.get("execution") or "masked_correction"),
+        "character_lock_execution_mode": execution_mode,
+        "character_lock_pass_plan": execution_mode,
         "global_context_routing": {
             "positive": ((raw.get("global_context_routing") if isinstance(raw.get("global_context_routing"), dict) else {}).get("positive", raw.get("global_context_route_positive", True))) is not False,
             "negative": ((raw.get("global_context_routing") if isinstance(raw.get("global_context_routing"), dict) else {}).get("negative", raw.get("global_context_route_negative", True))) is not False,
@@ -525,6 +602,9 @@ def _global_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
         "positive_prompt": _text(global_data.get("positive_prompt") or global_data.get("prompt") or scene_global.get("positive_prompt") or scene_global.get("prompt")),
         "negative_prompt": _text(global_data.get("negative_prompt") or scene_global.get("negative_prompt")),
         "style_prompt": _text(global_data.get("style_prompt") or scene_global.get("style_prompt")),
+        "prompt_authority": normalize_prompt_authority(
+            global_data.get("prompt_authority") or scene_global.get("prompt_authority")
+        ),
     }
 
 
@@ -704,6 +784,16 @@ def normalize_scene_director_payload(payload: Any, route: dict[str, Any] | None 
     params = _params(raw_params)
     contracts = _contracts(raw_inputs.get("contracts") if isinstance(raw_inputs.get("contracts"), dict) else scene.get("contracts") if isinstance(scene.get("contracts"), dict) else {})
     global_inputs = _global_inputs(raw_inputs)
+    params["prompt_authority"] = normalize_prompt_authority(
+        params.get("prompt_authority") or global_inputs.get("prompt_authority")
+    )
+    prompt_authority_contract = build_prompt_authority_contract(
+        params,
+        global_positive=global_inputs.get("positive_prompt"),
+        global_negative=global_inputs.get("negative_prompt"),
+        style_positive=global_inputs.get("style_prompt"),
+        region_context_weight=(params.get("region_context") or {}).get("weight"),
+    )
     node_decision = workflow_readiness(route=route, available_nodes=object_info if object_info is not None else node_status, enabled=bool(active and route_compatible_state in ACTIVE_STATES))
     workflow_patch_requested = bool(raw.get("enabled") is not False and bool(active) and route_compatible_state in ACTIVE_STATES)
     workflow_patch_allowed = bool(workflow_patch_requested and support.get("workflow_patch_allowed") and node_decision.get("workflow_patch_allowed", support.get("workflow_patch_allowed")))
@@ -755,6 +845,8 @@ def normalize_scene_director_payload(payload: Any, route: dict[str, Any] | None 
         "character_lock": params.get("character_lock", {}),
         "appearance_lock_enabled": bool(params.get("appearance_lock", {}).get("enabled")),
         "global_context_source": "neo_core_prompts",
+        "prompt_authority": params.get("prompt_authority"),
+        "prompt_authority_contract": prompt_authority_contract,
         "warnings": warnings,
         "interop": interop,
         "dependencies": interop.get("dependencies", {}),
@@ -865,6 +957,9 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
         "global": {
             "prompt": global_data.get("positive_prompt", ""),
             "negative_prompt": global_data.get("negative_prompt", ""),
+            "prompt_authority": normalize_prompt_authority(
+                global_data.get("prompt_authority") or params.get("prompt_authority")
+            ),
             "style_stack_original_positive_prompt": style_stack_original_positive,
             "style_stack_original_negative_prompt": style_stack_original_negative,
             "style_stack_global_only": style_stack_global_only,
@@ -881,10 +976,20 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
     base["scene_director_v052_base_weight"] = params.get("base_weight", 0.35)
     base["scene_director_v052_region_gain"] = params.get("region_gain", 0.65)
     base["scene_director_authority_mode"] = params.get("authority_mode", "balanced")
+    base["scene_director_prompt_authority"] = normalize_prompt_authority(
+        params.get("prompt_authority") or global_data.get("prompt_authority")
+    )
     context = params.get("region_context") if isinstance(params.get("region_context"), dict) else {}
     base["scene_director_region_context_enabled"] = context.get("enabled", True)
     base["scene_director_region_context_mode"] = context.get("mode", "global_and_style")
     base["scene_director_region_context_weight"] = context.get("weight", 0.35)
+    base["scene_director_prompt_authority_contract"] = build_prompt_authority_contract(
+        params,
+        global_positive=global_data.get("positive_prompt"),
+        global_negative=global_data.get("negative_prompt"),
+        style_positive=global_data.get("style_prompt"),
+        region_context_weight=context.get("weight", 0.35),
+    )
     mask_refine = params.get("mask_refine") if isinstance(params.get("mask_refine"), dict) else {}
     base["scene_director_mask_refine_enabled"] = bool(mask_refine.get("enabled"))
     character_lock = params.get("character_lock") if isinstance(params.get("character_lock"), dict) else _character_lock_params(params)
@@ -935,16 +1040,21 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
         "mask_feather": first_pass_lock.get("mask_feather", params.get("character_lock_first_pass_mask_feather", 24)),
         "protect_outfit": first_pass_lock.get("protect_outfit", params.get("character_lock_first_pass_protect_outfit", True)),
         "protect_pose_contact": first_pass_lock.get("protect_pose_contact", params.get("character_lock_first_pass_protect_pose_contact", True)),
-        "execution_mode": first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "masked_correction")),
-        "execution": first_pass_lock.get("execution", first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "masked_correction"))),
+        "execution_mode": _character_lock_execution_mode(first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention"))),
+        "execution": _character_lock_execution_mode(first_pass_lock.get("execution", first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention")))),
         "source": "fix_pass_controls_visible_fields",
     }
-    base["scene_director_character_lock_execution_mode"] = base["scene_director_first_pass_character_lock_authority"].get("execution_mode", "masked_correction")
+    base["scene_director_character_lock_execution_mode"] = _character_lock_execution_mode(base["scene_director_first_pass_character_lock_authority"].get("execution_mode", "latent_attention"))
+    base["scene_director_character_lock_pass_plan"] = base["scene_director_character_lock_execution_mode"]
     base["scene_director_character_lock_execution"] = {
-        "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v1",
-        "phase": "SD-V054-26.10.8K4",
+        "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v2",
+        "phase": "SD-V054-27.1",
         "dedupe_phase": "V25.9.14",
         "mode": base["scene_director_character_lock_execution_mode"],
+        "pass_plan": base["scene_director_character_lock_execution_mode"],
+        "in_sampler_attention_enabled": base["scene_director_character_lock_execution_mode"] in {"latent_attention", "latent_repair", "latent_and_refinement"},
+        "latent_repair_enabled": base["scene_director_character_lock_execution_mode"] in {"latent_repair", "latent_and_refinement"},
+        "end_refinement_enabled": base["scene_director_character_lock_execution_mode"] in {"end_refinement", "latent_and_refinement"},
         "source": "fix_pass_controls_visible_fields",
     }
     base["scene_director_character_lock_first_pass_enabled"] = base["scene_director_first_pass_character_lock_authority"].get("enabled")

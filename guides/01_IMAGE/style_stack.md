@@ -24,7 +24,7 @@ tags:
   - provider neutral
 priority: 109
 version: 1
-updated: 2026-07-09
+updated: 2026-07-23
 ---
 
 # Style Stack
@@ -47,7 +47,7 @@ It does not patch Comfy graphs, does not need custom nodes, and does not make a 
 |---|---|---|
 | **Apply Style Stack** | Enables style prompt merging for the current generation. | Keep enabled only when you want selected/manual style text merged into prompts. |
 | **Target pass** | Chooses where the style applies: **Both base + finish**, **Base only**, or **Finish / redraw only**. | Use **Both base + finish** for normal generations. Use Base/Finish only for advanced finish workflows. |
-| **Refresh** | Reloads the style library. | Use after importing or editing style records. |
+| **Refresh** | Reaches the backend with caching disabled, synchronizes bundled defaults into the runtime library, then reloads it. | Use after adding styles to the bundled CSV or importing/editing runtime records. |
 | **Export CSV** | Exports the runtime style library. | Good for backup or moving styles between Neo installs. |
 | **Category** | Filters style records by category/header. | Useful when the style library is large. |
 | **Search styles** | Searches style name, positive prompt, or negative prompt. | Use keywords like cinematic, anime, watercolor, neon, etc. |
@@ -61,12 +61,12 @@ It does not patch Comfy graphs, does not need custom nodes, and does not make a 
 | **Save / Update** | Saves the edited style record. | Saves to runtime style CSV under `neo_data`. |
 | **Duplicate** | Copies a style record for variation. | Useful for variants like cinematic-light vs cinematic-dark. |
 | **Copy text to prompts** | Copies the selected/editor style text into the main prompt fields. | Use when you want to manually edit the merged text. |
-| **Delete** | Deletes the selected style record. | Does not delete generated outputs. |
+| **Delete** | Deletes the selected style record. Bundled defaults are tombstoned so Refresh does not restore them. | Does not delete generated outputs. Save the same name again to restore it intentionally. |
 | **Manual positive style** | Temporary positive style text. | Good for one-off style additions without saving a style record. |
 | **Manual negative style** | Temporary negative style text. | Good for temporary cleanup terms. |
 | **Import CSV** | Imports style records. | Use merge to update/add; replace overwrites the runtime library. |
 
-## Storage
+## Storage and synchronization
 
 Runtime style records live under:
 
@@ -74,7 +74,42 @@ Runtime style records live under:
 neo_data/extensions/image/style_stack/generation_styles.csv
 ```
 
-The repo can ship default style assets, but user/runtime style edits stay in `neo_data`.
+Bundled defaults live under:
+
+```text
+neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv
+```
+
+The two files have different authority:
+
+- **Bundled CSV:** read-only defaults shipped with Neo.
+- **Runtime CSV:** the user-owned library shown and edited by Style Stack.
+
+When Style Stack loads or Refresh is clicked, Neo synchronizes them non-destructively:
+
+- Newly bundled style names are added to the runtime library.
+- Runtime-only custom styles are kept.
+- User-edited matching styles are kept.
+- An untouched default can receive a later bundled prompt update.
+- Deleted bundled styles stay deleted through a tombstone.
+- A backup is created before a synchronization changes the runtime CSV.
+
+Synchronization state and backups live under:
+
+```text
+neo_data/extensions/image/style_stack/bundled_runtime_sync_state.json
+neo_data/extensions/image/style_stack/backups/
+```
+
+The UI reports derived counts such as:
+
+```text
+Runtime 475 · Bundled 510 · Added 35 · Preserved 4 override(s)
+```
+
+The counts come from the current CSV files; they are not tied to an old fixed seed count.
+
+> **First Phase 6B sync:** Neo cannot reconstruct bundled-style deletions made before tombstone tracking existed. A previously deleted bundled style may reappear once as a missing default. Delete it again through Style Stack and the new tombstone will keep it removed on later Refreshes. The pre-sync runtime backup remains available.
 
 ## Route support
 

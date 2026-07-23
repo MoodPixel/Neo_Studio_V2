@@ -744,16 +744,49 @@ def _scene_director_delete(root: Path, kind: str, name: str) -> dict:
     return {"ok": True}
 
 
-SCENE_DIRECTOR_TRAIT_CATEGORIES = [
+SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES = [
     "gender", "ethnicity", "species_race", "build", "skin_tone", "hair",
+    "facial_hair",
     "clothing_top", "clothing_bottom", "full_costume", "pose", "expression",
     "accessories", "shoes",
+]
+
+SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES = [
+    "body_details", "top_garment_state", "bottom_garment_state", "underlayer",
+]
+
+SCENE_DIRECTOR_TRAIT_CATEGORIES = [
+    *SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES,
+    *SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES,
+    "custom_detail",
+    "colors",
 ]
 
 
 def _scene_director_trait_category(value: str) -> str:
     category = re.sub(r"[^a-zA-Z0-9_ -]+", "", str(value or "").strip().lower()).replace(" ", "_")
-    aliases = {"race": "species_race", "species": "species_race", "skin": "skin_tone", "top": "clothing_top", "bottom": "clothing_bottom", "costume": "full_costume"}
+    aliases = {
+        "race": "species_race",
+        "species": "species_race",
+        "skin": "skin_tone",
+        "top": "clothing_top",
+        "bottom": "clothing_bottom",
+        "costume": "full_costume",
+        "facialhair": "facial_hair",
+        "beard": "facial_hair",
+        "body_detail": "body_details",
+        "bodydetails": "body_details",
+        "top_state": "top_garment_state",
+        "topstate": "top_garment_state",
+        "bottom_state": "bottom_garment_state",
+        "bottomstate": "bottom_garment_state",
+        "underwear": "underlayer",
+        "under_layer": "underlayer",
+        "custom_details": "custom_detail",
+        "colour": "colors",
+        "colours": "colors",
+        "color": "colors",
+    }
     category = aliases.get(category, category)
     if category not in SCENE_DIRECTOR_TRAIT_CATEGORIES:
         raise HTTPException(status_code=400, detail="Unsupported Scene Director trait category")
@@ -775,7 +808,7 @@ def _scene_director_read_trait_file(path: Path, category: str, source: str) -> d
         custom_terms = item.get("custom_terms") if isinstance(item.get("custom_terms"), list) else []
         label = str(item.get("label") or item.get("name") or item.get("id") or f"Trait {index + 1}").strip()
         item_id = _scene_director_slug(str(item.get("id") or label), f"trait_{index + 1}")
-        clean_items.append({
+        clean_item = {
             "id": item_id,
             "label": label,
             "prompt_terms": [str(term).strip() for term in prompt_terms if str(term).strip()],
@@ -784,8 +817,42 @@ def _scene_director_read_trait_file(path: Path, category: str, source: str) -> d
             "latent_priority": item.get("latent_priority", 0.75),
             "roles": item.get("roles") if isinstance(item.get("roles"), list) else ["character"],
             "source": source,
-        })
-    return {"schema": "neo.image.scene_director.trait_library.v1", "category": category, "source": source, "items": clean_items}
+        }
+        # Optional display/migration metadata is data-only. Prompt authority
+        # remains in prompt_terms/negative_terms and is never inferred from a
+        # swatch or a label.
+        if str(item.get("hex") or item.get("swatch") or "").strip():
+            clean_item["hex"] = str(item.get("hex") or item.get("swatch")).strip()
+        if str(item.get("family") or "").strip():
+            clean_item["family"] = str(item.get("family")).strip()
+        if str(item.get("target_area") or item.get("target") or "").strip():
+            clean_item["target_area"] = str(item.get("target_area") or item.get("target")).strip()
+        if str(item.get("replacement_id") or "").strip():
+            clean_item["replacement_id"] = str(item.get("replacement_id")).strip()
+        if str(item.get("legacy_color_id") or "").strip():
+            clean_item["legacy_color_id"] = str(item.get("legacy_color_id")).strip()
+        if item.get("deprecated") is not None:
+            clean_item["deprecated"] = bool(item.get("deprecated"))
+        clean_items.append(clean_item)
+    migrations = {}
+    for old_id, migration in (data.get("legacy_migrations") if isinstance(data.get("legacy_migrations"), dict) else {}).items():
+        if not isinstance(migration, dict):
+            continue
+        old_key = _scene_director_slug(str(old_id), "legacy_trait")
+        replacement_id = _scene_director_slug(str(migration.get("replacement_id") or ""), "")
+        primary_color_id = _scene_director_slug(str(migration.get("primary_color_id") or ""), "")
+        migrations[old_key] = {
+            "replacement_id": replacement_id,
+            "primary_color_id": primary_color_id,
+        }
+    return {
+        "schema": str(data.get("schema") or "neo.image.scene_director.trait_library.v1"),
+        "category": category,
+        "source": source,
+        "color_capable": bool(data.get("color_capable")),
+        "legacy_migrations": migrations,
+        "items": clean_items,
+    }
 
 
 def _scene_director_trait_libraries() -> dict:
@@ -793,11 +860,15 @@ def _scene_director_trait_libraries() -> dict:
     for category in SCENE_DIRECTOR_TRAIT_CATEGORIES:
         merged: list[dict] = []
         seen: set[str] = set()
+        legacy_migrations: dict[str, dict] = {}
+        color_capable = False
         for root, source in ((SCENE_DIRECTOR_BUILTIN_TRAIT_LIBRARY_DIR, "built_in"), (SCENE_DIRECTOR_TRAIT_LIBRARY_DIR, "user")):
             path = _scene_director_trait_file(root, category)
             if not path.exists():
                 continue
             data = _scene_director_read_trait_file(path, category, source)
+            color_capable = color_capable or bool(data.get("color_capable"))
+            legacy_migrations.update(data.get("legacy_migrations") or {})
             for item in data.get("items", []):
                 key = str(item.get("id") or item.get("label") or "").lower()
                 if not key or key in seen:
@@ -810,15 +881,21 @@ def _scene_director_trait_libraries() -> dict:
             "label": category.replace("_", " ").title(),
             "items": merged,
             "item_count": len(merged),
+            "color_capable": color_capable,
+            "legacy_migrations": legacy_migrations,
             "user_file": str(_scene_director_trait_file(SCENE_DIRECTOR_TRAIT_LIBRARY_DIR, category)),
         }
     return {
         "ok": True,
-        "schema": "neo.image.scene_director.trait_libraries.v25_9_8",
-        "phase": "V25.9.8",
+        "schema": "neo.image.scene_director.trait_libraries.v25_9_16",
+        "phase": "SD-V054-27.15",
         "categories": categories,
-        "category_order": SCENE_DIRECTOR_TRAIT_CATEGORIES,
-        "policy": "Built-in trait library JSON is merged with user-editable neo_data trait library JSON. Character region explicit fields override auto extraction; empty fields fall back to auto extraction.",
+        "category_order": SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES,
+        "additional_detail_category_order": SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES,
+        "custom_detail_library_category": "custom_detail",
+        "library_category_order": SCENE_DIRECTOR_TRAIT_CATEGORIES,
+        "color_library_category": "colors",
+        "policy": "Built-in trait/color JSON is merged with user-editable neo_data JSON. Explicit character fields and color assignments override auto extraction; empty fields fall back to auto extraction.",
     }
 
 
@@ -842,6 +919,12 @@ def _scene_director_save_trait_item(category: str, payload: dict) -> dict:
         "latent_priority": item.get("latent_priority", 0.75),
         "roles": item.get("roles") if isinstance(item.get("roles"), list) else ["character"],
     }
+    if str(item.get("hex") or item.get("swatch") or "").strip():
+        clean_item["hex"] = str(item.get("hex") or item.get("swatch")).strip()
+    if str(item.get("family") or "").strip():
+        clean_item["family"] = str(item.get("family")).strip()
+    if str(item.get("target_area") or item.get("target") or "").strip():
+        clean_item["target_area"] = str(item.get("target_area") or item.get("target")).strip()
     path = _scene_director_trait_file(SCENE_DIRECTOR_TRAIT_LIBRARY_DIR, category)
     existing = _scene_director_read_json(path)
     items = existing.get("items") if isinstance(existing.get("items"), list) else []

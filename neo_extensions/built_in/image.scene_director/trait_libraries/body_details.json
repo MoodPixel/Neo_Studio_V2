@@ -1,0 +1,15 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v2",
+  "category": "body_details",
+  "source": "built_in_default",
+  "items": [
+    {"id":"light_body_hair","label":"Light natural body hair","prompt_terms":["light natural body hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"hairy_chest","label":"Hairy chest","prompt_terms":["dense natural chest hair"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"hairy_torso","label":"Hairy chest and torso","prompt_terms":["dense natural chest and abdominal hair"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"hairy_body","label":"Hairy body","prompt_terms":["dense natural chest abdominal arm and leg hair"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"lower_abdomen_hair","label":"Lower-abdomen hair","prompt_terms":["natural lower-abdomen hair trail"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"freckled_body","label":"Freckled body","prompt_terms":["natural freckles across the body"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"tattooed_body","label":"Tattooed body","prompt_terms":["visible body tattoos"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"scarred_body","label":"Visible body scars","prompt_terms":["visible natural body scars"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ]
+}

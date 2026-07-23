@@ -1,5 +1,5 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "gender",
   "source": "built_in_default",
   "items": [
@@ -8,53 +8,64 @@
       "label": "Male",
       "prompt_terms": [
         "male",
-        "man",
         "adult man",
-        "masculine presentation"
+        "masculine face",
+        "masculine presentation",
+        "masculine body silhouette"
       ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
+      "negative_terms": [
+        "female",
+        "woman",
+        "girl",
+        "feminine face",
+        "feminine body",
+        "breasts",
+        "cleavage",
+        "curvy hips",
+        "hourglass figure"
+      ],
+      "latent_priority": 0.95,
+      "roles": ["character"]
     },
     {
       "id": "female",
       "label": "Female",
       "prompt_terms": [
         "female",
-        "woman",
         "adult woman",
-        "feminine presentation"
+        "feminine face",
+        "feminine presentation",
+        "feminine body silhouette"
       ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
+      "negative_terms": [
+        "male",
+        "man",
+        "boy",
+        "masculine face",
+        "masculine body",
+        "broad male torso"
+      ],
+      "latent_priority": 0.95,
+      "roles": ["character"]
     },
     {
       "id": "nonbinary",
       "label": "Nonbinary / Androgynous",
       "prompt_terms": [
-        "nonbinary",
+        "nonbinary person",
         "androgynous presentation"
       ],
       "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
+      "latent_priority": 0.85,
+      "roles": ["character"]
     },
     {
       "id": "custom",
       "label": "Custom gender expression",
       "prompt_terms": [],
       "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
+      "latent_priority": 0.85,
+      "roles": ["character"]
     }
   ]
 }

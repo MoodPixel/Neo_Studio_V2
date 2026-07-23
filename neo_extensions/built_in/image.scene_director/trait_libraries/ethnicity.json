@@ -1,91 +1,30 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "ethnicity",
   "source": "built_in_default",
   "items": [
-    {
-      "id": "sri_lankan",
-      "label": "Sri Lankan",
-      "prompt_terms": [
-        "Sri Lankan"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "chinese",
-      "label": "Chinese",
-      "prompt_terms": [
-        "Chinese"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "korean",
-      "label": "Korean",
-      "prompt_terms": [
-        "Korean"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "thai",
-      "label": "Thai",
-      "prompt_terms": [
-        "Thai"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "american",
-      "label": "American",
-      "prompt_terms": [
-        "American"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "japanese",
-      "label": "Japanese",
-      "prompt_terms": [
-        "Japanese"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "indian",
-      "label": "Indian",
-      "prompt_terms": [
-        "Indian"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    }
+    {"id":"sri_lankan","label":"Sri Lankan","prompt_terms":["Sri Lankan","South Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"chinese","label":"Chinese","prompt_terms":["Chinese","East Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"korean","label":"Korean","prompt_terms":["Korean","East Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"japanese","label":"Japanese","prompt_terms":["Japanese","East Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"thai","label":"Thai","prompt_terms":["Thai","Southeast Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"vietnamese","label":"Vietnamese","prompt_terms":["Vietnamese","Southeast Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"filipino","label":"Filipino","prompt_terms":["Filipino","Southeast Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"indonesian","label":"Indonesian","prompt_terms":["Indonesian","Southeast Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"malaysian","label":"Malaysian","prompt_terms":["Malaysian","Southeast Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"indian","label":"Indian","prompt_terms":["Indian","South Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"pakistani","label":"Pakistani","prompt_terms":["Pakistani","South Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"bangladeshi","label":"Bangladeshi","prompt_terms":["Bangladeshi","South Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"nepali","label":"Nepali","prompt_terms":["Nepali","South Asian appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"arab","label":"Arab","prompt_terms":["Arab","Middle Eastern appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"north_african","label":"North African","prompt_terms":["North African appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"black_african","label":"Black African","prompt_terms":["Black African","Sub-Saharan African appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"african_american","label":"African American","prompt_terms":["African American","Black appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"white_european","label":"White / European","prompt_terms":["White European appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"latino_hispanic","label":"Latino / Hispanic","prompt_terms":["Latino","Latin American appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"indigenous_american","label":"Indigenous American","prompt_terms":["Indigenous American appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"pacific_islander","label":"Pacific Islander","prompt_terms":["Pacific Islander appearance"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"mixed_ethnicity","label":"Mixed ethnicity","prompt_terms":["mixed-ethnicity appearance"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"american","label":"American (nationality only)","prompt_terms":["American"],"negative_terms":[],"latent_priority":0.7,"roles":["character"]}
   ]
 }

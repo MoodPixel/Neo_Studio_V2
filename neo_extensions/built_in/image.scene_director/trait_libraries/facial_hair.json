@@ -1,0 +1,20 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v2",
+  "category": "facial_hair",
+  "source": "built_in_default",
+  "items": [
+    {"id":"clean_shaven","label":"Clean-shaven","prompt_terms":["clean-shaven face"],"negative_terms":["stubble","beard","moustache","facial hair"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"five_oclock_shadow","label":"Five-o'clock shadow","prompt_terms":["subtle five-o'clock shadow","faint beard shadow covering jaw chin and upper lip"],"negative_terms":["clean-shaven face","full beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"light_stubble","label":"Light stubble","prompt_terms":["light natural stubble","fine short beard texture along jaw chin and upper lip"],"negative_terms":["clean-shaven face","full beard","heavy beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"medium_stubble","label":"Medium stubble","prompt_terms":["medium facial stubble","visible beard shadow covering jaw chin and upper lip"],"negative_terms":["clean-shaven face","long beard"],"latent_priority":0.95,"roles":["character"]},
+    {"id":"heavy_stubble","label":"Heavy stubble","prompt_terms":["heavy facial stubble","dense short beard texture across jaw chin and upper lip"],"negative_terms":["clean-shaven face","long beard"],"latent_priority":0.95,"roles":["character"]},
+    {"id":"short_boxed_beard","label":"Short boxed beard","prompt_terms":["short boxed beard"],"negative_terms":["clean-shaven face","long untrimmed beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"full_beard","label":"Full beard","prompt_terms":["full beard"],"negative_terms":["clean-shaven face","stubble only"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"goatee","label":"Goatee","prompt_terms":["goatee facial hair"],"negative_terms":["clean-shaven face","full cheek beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"moustache","label":"Moustache","prompt_terms":["moustache"],"negative_terms":["clean-shaven upper lip","full beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"moustache_stubble","label":"Moustache with stubble","prompt_terms":["moustache with facial stubble"],"negative_terms":["clean-shaven face","full long beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"soul_patch","label":"Soul patch","prompt_terms":["small soul patch"],"negative_terms":["clean-shaven chin","full beard"],"latent_priority":0.85,"roles":["character"]},
+    {"id":"chinstrap","label":"Chinstrap beard","prompt_terms":["chinstrap beard"],"negative_terms":["clean-shaven jawline","full cheek beard"],"latent_priority":0.9,"roles":["character"]},
+    {"id":"prominent_sideburns","label":"Prominent sideburns","prompt_terms":["prominent sideburns"],"negative_terms":["clean-shaven sideburn area"],"latent_priority":0.85,"roles":["character"]}
+  ]
+}

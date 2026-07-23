@@ -39,6 +39,80 @@ LATENT_RESTORE_POINT_LABELS: Final[dict[str, str]] = {
 }
 
 
+def _normalized_comfy_latent_fields(source: dict[str, Any]) -> dict[str, Any]:
+    """Normalize flat or nested Comfy latent coordinates from persisted metadata.
+
+    Legacy records may keep the provider reference in flat ``source_*`` fields,
+    while Phase 2 records also carry a nested ``provider_reference`` block. The
+    provider-relative reference is execution authority; the Neo ``path`` field is
+    only a retention/cleanup copy and is deliberately ignored here.
+    """
+    # Delayed import avoids the eager neo_app.providers registry import while
+    # output_records itself is still being imported by ComfyProvider.
+    from neo_app.providers.comfy_artifact_paths import (
+        ComfyArtifactPathError,
+        normalize_comfy_artifact_reference,
+    )
+
+    provider_reference = source.get("provider_reference") if isinstance(source.get("provider_reference"), dict) else {}
+    filename = (
+        provider_reference.get("filename")
+        or source.get("source_filename")
+        or source.get("filename")
+        or ""
+    )
+    subfolder = (
+        provider_reference.get("subfolder")
+        or source.get("source_subfolder")
+        or source.get("subfolder")
+        or ""
+    )
+    artifact_type = (
+        provider_reference.get("type")
+        or source.get("source_type")
+        or source.get("type")
+        or "output"
+    )
+    load_name = (
+        provider_reference.get("load_name")
+        or source.get("comfy_load_name")
+        or source.get("load_latent_name")
+        or ""
+    )
+    try:
+        reference = normalize_comfy_artifact_reference(
+            filename=filename,
+            subfolder=subfolder,
+            artifact_type=artifact_type,
+            load_name=load_name,
+        )
+    except ComfyArtifactPathError as exc:
+        return {
+            "source_filename": "",
+            "source_subfolder": "",
+            "source_type": "",
+            "comfy_load_name": "",
+            "provider_reference": {},
+            "provider_reference_valid": False,
+            "provider_reference_error": str(exc),
+        }
+    normalized_reference = {
+        "filename": reference.filename,
+        "subfolder": reference.subfolder,
+        "type": reference.artifact_type,
+        "load_name": reference.load_name,
+    }
+    return {
+        "source_filename": reference.filename,
+        "source_subfolder": reference.subfolder,
+        "source_type": reference.artifact_type,
+        "comfy_load_name": reference.load_name,
+        "provider_reference": normalized_reference,
+        "provider_reference_valid": True,
+        "provider_reference_error": "",
+    }
+
+
 def normalize_latent_capture_request(params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return the IMG-R7 latent capture request contract carried by job params.
 
@@ -72,7 +146,12 @@ def normalize_latent_capture_request(params: dict[str, Any] | None = None) -> di
 
 
 def normalize_latent_capture_artifacts(params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Sanitize provider-owned latent artifact manifests for future R8/R9 support."""
+    """Normalize provider-owned latent manifests without treating Neo copies as executable.
+
+    A latent is replay-ready only when it has safe Comfy provider coordinates.
+    ``neo_data`` copies remain useful for retention and deletion but cannot be fed
+    directly to Comfy ``LoadLatent``.
+    """
     source = params if isinstance(params, dict) else {}
     raw_items = source.get("_neo_latent_artifacts") if isinstance(source.get("_neo_latent_artifacts"), list) else []
     artifacts: list[dict[str, Any]] = []
@@ -83,6 +162,20 @@ def normalize_latent_capture_artifacts(params: dict[str, Any] | None = None) -> 
         if restore_point not in LATENT_RESTORE_POINT_LABELS:
             continue
         path = str(item.get("path") or item.get("relative_path") or "").strip()
+        comfy_fields = _normalized_comfy_latent_fields(item)
+        provider_owned = bool(item.get("provider_owned", True))
+        provider_id = str(item.get("provider_id") or "")
+        backend = str(item.get("backend") or "")
+        provider_is_comfy = (not provider_id or provider_id in {"comfyui", "comfyui_portable"}) and (not backend or backend == "comfyui")
+        provider_resume_ready = bool(provider_owned and provider_is_comfy and comfy_fields.get("provider_reference_valid"))
+        neo_copy_state = str(item.get("neo_copy_state") or ("available" if path else "unavailable"))
+        state = "available" if provider_resume_ready else ("neo_copy_only" if path else "manifest_only")
+        if provider_resume_ready:
+            provider_reference_state = str(item.get("provider_reference_state") or "normalized")
+        elif comfy_fields.get("provider_reference_valid"):
+            provider_reference_state = "provider_incompatible"
+        else:
+            provider_reference_state = "missing_or_invalid"
         artifact = {
             "artifact_id": str(item.get("artifact_id") or f"latent_{index}"),
             "restore_point": restore_point,
@@ -90,15 +183,16 @@ def normalize_latent_capture_artifacts(params: dict[str, Any] | None = None) -> 
             "kind": str(item.get("kind") or "latent_tensor"),
             "path": path,
             "format": str(item.get("format") or "safetensors"),
-            "provider_owned": bool(item.get("provider_owned", True)),
-            "provider_id": str(item.get("provider_id") or ""),
-            "backend": str(item.get("backend") or ""),
+            "provider_owned": provider_owned,
+            "provider_id": provider_id,
+            "backend": backend,
             "source_node_id": str(item.get("source_node_id") or item.get("node_id") or ""),
-            "source_filename": str(item.get("source_filename") or item.get("filename") or ""),
-            "source_subfolder": str(item.get("source_subfolder") or item.get("subfolder") or ""),
-            "source_type": str(item.get("source_type") or item.get("type") or ""),
-            "comfy_load_name": str(item.get("comfy_load_name") or item.get("load_latent_name") or ""),
-            "state": "available" if path else "manifest_only",
+            **comfy_fields,
+            "provider_resume_ready": provider_resume_ready,
+            "provider_reference_state": provider_reference_state,
+            "neo_copy_state": neo_copy_state,
+            "neo_copy_role": str(item.get("neo_copy_role") or "retention_cleanup_copy_not_loadlatent_source"),
+            "state": state,
         }
         artifacts.append(artifact)
     return artifacts
@@ -1097,12 +1191,28 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
     replay_source = str(replay_context.get("replay_source") or replay_context.get("replay_kind") or "full_recipe")
     replay_kind = str(replay_context.get("replay_kind") or replay_source or "full_recipe")
     branch_restore = replay_context.get("branch_restore") if isinstance(replay_context.get("branch_restore"), dict) else {}
+    branch_comfy_fields = _normalized_comfy_latent_fields(branch_restore) if branch_restore else {}
+    branch_provider_owned = bool(branch_restore.get("provider_owned", True)) if branch_restore else False
+    branch_provider_id = str(branch_restore.get("provider_id") or "")
+    branch_backend = str(branch_restore.get("backend") or "")
+    branch_provider_is_comfy = (
+        (not branch_provider_id or branch_provider_id in {"comfyui", "comfyui_portable"})
+        and (not branch_backend or branch_backend == "comfyui")
+    )
+    branch_provider_resume_ready = bool(
+        branch_restore
+        and branch_provider_owned
+        and branch_provider_is_comfy
+        and branch_comfy_fields.get("provider_reference_valid")
+    )
     branch_restore_point = str(branch_restore.get("restore_point") or "")
     source_is_output_image = bool(replay_context.get("source_is_output_image") or replay_source == "final_output_as_source" or params.get("source_image"))
     latent_capture = normalize_latent_capture_request(params)
     latent_artifacts = normalize_latent_capture_artifacts(params)
     latent_restore_points = []
     for artifact in latent_artifacts:
+        if artifact.get("provider_resume_ready") is not True or artifact.get("state") != "available":
+            continue
         restore_point = str(artifact.get("restore_point") or "")
         if restore_point and restore_point not in latent_restore_points:
             latent_restore_points.append(restore_point)
@@ -1116,6 +1226,25 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
     gated_restore_points = [item for item in all_latent_restore_points if item not in latent_restore_points and item != "base_generation_only"]
     latent_resume_available = bool(latent_restore_points)
     phase_checkpoint_available = any(item in latent_restore_points for item in ("base_generation_only", "before_high_res_fix", "after_high_res_fix", "before_adetailer"))
+    has_neo_copy_only_artifact = any(
+        artifact.get("state") == "neo_copy_only"
+        and artifact.get("neo_copy_state") == "available"
+        and bool(artifact.get("path"))
+        for artifact in latent_artifacts
+    )
+    latent_provider_hook_state = (
+        "available"
+        if latent_restore_points
+        else (
+            "neo_copy_only"
+            if has_neo_copy_only_artifact
+            else (
+                "unavailable"
+                if latent_artifacts
+                else ("requested_pending_provider_support" if latent_capture.get("requested") else "not_requested")
+            )
+        )
+    )
     return {
         "schema_version": "neo.image.replay.v1",
         "surface": "image",
@@ -1136,11 +1265,9 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
             "artifact_format": str(branch_restore.get("artifact_format") or ""),
             "provider_id": str(branch_restore.get("provider_id") or ""),
             "backend": str(branch_restore.get("backend") or ""),
-            "provider_owned": bool(branch_restore.get("provider_owned")),
-            "source_filename": str(branch_restore.get("source_filename") or ""),
-            "source_subfolder": str(branch_restore.get("source_subfolder") or ""),
-            "source_type": str(branch_restore.get("source_type") or ""),
-            "comfy_load_name": str(branch_restore.get("comfy_load_name") or branch_restore.get("load_latent_name") or ""),
+            "provider_owned": branch_provider_owned,
+            **branch_comfy_fields,
+            "provider_resume_ready": branch_provider_resume_ready,
             "no_png_reencode": bool(branch_restore.get("no_png_reencode", True)) if branch_restore else False,
             "resume_policy": str(branch_restore.get("resume_policy") or ""),
             "state": str(branch_restore.get("state") or ""),
@@ -1151,7 +1278,7 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
         "latent_capture": {
             "request": latent_capture,
             "artifacts": latent_artifacts,
-            "provider_hook_state": "available" if latent_artifacts else ("requested_pending_provider_support" if latent_capture.get("requested") else "not_requested"),
+            "provider_hook_state": latent_provider_hook_state,
         },
         "latent_restore_points": latent_restore_points,
         "postfix_restore_points": ["final_output_as_source"] if active_file or source_is_output_image else [],

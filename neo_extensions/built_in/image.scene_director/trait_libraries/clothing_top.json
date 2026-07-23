@@ -1,67 +1,24 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "clothing_top",
   "source": "built_in_default",
+  "color_capable": true,
   "items": [
-    {
-      "id": "red_hoodie",
-      "label": "Red oversized hoodie",
-      "prompt_terms": [
-        "red oversized hoodie"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "cream_polo",
-      "label": "Cream short-sleeve knit polo",
-      "prompt_terms": [
-        "cream short-sleeve knit polo"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "white_tank",
-      "label": "White tank top",
-      "prompt_terms": [
-        "white tank top"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "linen_overshirt",
-      "label": "Linen overshirt",
-      "prompt_terms": [
-        "linen overshirt"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "black_tshirt",
-      "label": "Black t-shirt",
-      "prompt_terms": [
-        "black t-shirt"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    }
-  ]
+    {"id":"oversized_hoodie","label":"Oversized hoodie","prompt_terms":["oversized hoodie"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"knit_polo","label":"Short-sleeve knit polo","prompt_terms":["short-sleeve knit polo"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"tank_top","label":"Tank top","prompt_terms":["tank top"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"linen_overshirt","label":"Linen overshirt","prompt_terms":["linen overshirt"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"tshirt","label":"T-shirt","prompt_terms":["t-shirt"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"button_up_shirt","label":"Button-up shirt","prompt_terms":["button-up shirt"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"cropped_jacket","label":"Cropped jacket","prompt_terms":["cropped jacket"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"bomber_jacket","label":"Bomber jacket","prompt_terms":["bomber jacket"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"leather_jacket","label":"Leather jacket","prompt_terms":["leather jacket"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"sweater","label":"Knit sweater","prompt_terms":["knit sweater"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ],
+  "legacy_migrations": {
+    "red_hoodie": {"replacement_id":"oversized_hoodie","primary_color_id":"red"},
+    "cream_polo": {"replacement_id":"knit_polo","primary_color_id":"cream"},
+    "white_tank": {"replacement_id":"tank_top","primary_color_id":"white"},
+    "black_tshirt": {"replacement_id":"tshirt","primary_color_id":"black"}
+  }
 }

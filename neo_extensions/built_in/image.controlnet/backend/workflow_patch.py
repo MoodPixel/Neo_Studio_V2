@@ -20,6 +20,7 @@ from .support_matrix import (
 )
 
 PHASE = "P9.2"
+QWEN_VAE_CONTRACT_SCHEMA_VERSION = "neo.image.controlnet.qwen_vae_contract.v1"
 
 
 def _next_graph_id(workflow: dict[str, Any], preferred: int | str | None = None) -> str:
@@ -381,6 +382,72 @@ def _schema_all_inputs(schema: dict[str, Any] | None) -> set[str]:
     return {str(name) for name in names}
 
 
+def _schema_input_mode(schema: dict[str, Any] | None, name: str) -> str:
+    """Return the declared input mode without treating an unknown schema as support."""
+    if not isinstance(schema, dict) or not schema:
+        return "unknown"
+    wanted = str(name)
+    if wanted in {str(item) for item in schema.get("required_inputs") or []}:
+        return "required"
+    if wanted in {str(item) for item in schema.get("optional_inputs") or []}:
+        return "optional"
+    if wanted in {str(item) for item in schema.get("hidden_inputs") or []}:
+        return "hidden"
+    return "unsupported"
+
+
+def _qwen_vae_contract(status: dict[str, Any], adapter: str) -> dict[str, Any]:
+    """Describe VAE behavior for the selected Qwen adapter from its real node schema.
+
+    DiffSynth is model-patch based and must not inherit the generic ControlNet
+    apply-node VAE policy. It only blocks when its own apply node explicitly
+    declares ``vae`` as required. InstantX/native Qwen ControlNet is VAE-aware:
+    when its apply node explicitly exposes ``vae`` (required or optional), Neo
+    resolves and injects the active route VAE and blocks if that VAE is absent.
+    Unknown schemas never create a synthetic requirement.
+    """
+    adapter_name = "instantx" if str(adapter or "").strip().lower() == "instantx" else "diffsynth"
+    schema_key = "qwen_instantx_apply" if adapter_name == "instantx" else "qwen_diffsynth_apply"
+    schema = _node_schema(status, schema_key)
+    mode = _schema_input_mode(schema, "vae")
+    supported = mode in {"required", "optional"}
+    required = (mode == "required") if adapter_name == "diffsynth" else supported
+    if adapter_name == "diffsynth":
+        policy = "required_by_apply_schema" if mode == "required" else ("optional_if_available" if mode == "optional" else "not_used")
+    else:
+        policy = "required_for_vae_aware_apply" if supported else "not_exposed_by_apply_schema"
+    return {
+        "schema_version": QWEN_VAE_CONTRACT_SCHEMA_VERSION,
+        "adapter": adapter_name,
+        "schema_key": schema_key,
+        "schema_node": str(schema.get("node") or ""),
+        "input_mode": mode,
+        "supported": supported,
+        "required": required,
+        "inject": supported,
+        "policy": policy,
+    }
+
+
+def _qwen_vae_missing_result(notes: list[dict[str, Any]], contract: dict[str, Any], source: str) -> dict[str, Any]:
+    adapter_label = "InstantX" if contract.get("adapter") == "instantx" else "DiffSynth"
+    return {
+        "ok": False,
+        "reason": f"validation_failed: Qwen {adapter_label} ControlNet requires the active Qwen VAE but none was found",
+        "notes": notes + [{
+            "level": "error",
+            "field": "workflow.qwen_controlnet_vae",
+            "message": f"The selected Qwen {adapter_label} apply node declares a VAE contract. Connect or configure the matching route-owned Qwen VAE before applying ControlNet.",
+            "source": source,
+            "adapter": contract.get("adapter"),
+            "schema_node": contract.get("schema_node"),
+            "input_mode": contract.get("input_mode"),
+            "vae_policy": contract.get("policy"),
+        }],
+        "vae_contract": deepcopy(contract),
+    }
+
+
 def _choose_input_name(schema: dict[str, Any] | None, candidates: tuple[str, ...], fallback: str) -> str:
     names = _schema_all_inputs(schema)
     if not names:
@@ -605,6 +672,16 @@ def _apply_qwen_diffsynth_patch(
     apply_node = str(qwen_status.get("diffsynth_apply_node") or "QwenImageDiffsynthControlnet")
     patch_loader_schema = _node_schema(status, "qwen_diffsynth_patch_loader")
     apply_schema = _node_schema(status, "qwen_diffsynth_apply")
+    vae_contract = _qwen_vae_contract(status, "diffsynth")
+    qwen_vae_ref: list[Any] | None = None
+    qwen_vae_source = "diffsynth_apply_schema_has_no_vae_input"
+    if vae_contract.get("supported"):
+        qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
+            graph,
+            (previous_positive_ref, previous_negative_ref),
+        )
+        if vae_contract.get("required") and not qwen_vae_ref:
+            return _qwen_vae_missing_result(notes, vae_contract, qwen_vae_source)
     applied_units: list[dict[str, Any]] = []
     created_node_ids: list[str] = []
     current_model_ref = _copy_ref(sampler_inputs.get("model"), ["1", 0])
@@ -637,6 +714,8 @@ def _apply_qwen_diffsynth_patch(
         mask_input = _choose_input_name(apply_schema, ("mask", "control_mask", "inpaint_mask"), "mask")
         apply_inputs[mask_input] = list(mask_ref)
         _add_supported_input(apply_inputs, apply_schema, "strength", float(unit.get("strength", 0.75)))
+        if qwen_vae_ref and vae_contract.get("inject"):
+            apply_inputs["vae"] = deepcopy(qwen_vae_ref)
         graph[apply_id] = {"class_type": apply_node, "inputs": apply_inputs}
         current_model_ref = [apply_id, 0]
         created_node_ids.extend([loader_id, apply_id])
@@ -645,9 +724,35 @@ def _apply_qwen_diffsynth_patch(
         applied["adapter"] = "qwen_diffsynth_model_patch"
         applied["adapter_control_image"] = image_source
         applied["adapter_mask"] = mask_source
+        applied["vae_policy"] = vae_contract.get("policy")
+        if qwen_vae_ref:
+            applied["vae_source"] = qwen_vae_source
         applied_units.append(applied)
     graph[sampler_key]["inputs"]["model"] = deepcopy(current_model_ref)
-    return {"ok": True, "reason": "patched", "notes": notes + [{"level": "info", "field": "params.qwen_controlnet_adapter", "message": "Qwen DiffSynth model-patch ControlNet adapter patched the sampler model input.", "controlnet_task": route_data.get("controlnet_task"), "control_image_source": image_source, "mask_source": mask_source}], "applied_units": applied_units, "created_node_ids": created_node_ids, "patched_model_ref": current_model_ref, "patched_positive_ref": previous_positive_ref, "patched_negative_ref": previous_negative_ref, "control_image_source": image_source, "mask_source": mask_source, "adapter": "qwen_diffsynth_model_patch"}
+    return {
+        "ok": True,
+        "reason": "patched",
+        "notes": notes + [{
+            "level": "info",
+            "field": "params.qwen_controlnet_adapter",
+            "message": "Qwen DiffSynth model-patch ControlNet patched the sampler model using its own apply-node VAE contract.",
+            "controlnet_task": route_data.get("controlnet_task"),
+            "control_image_source": image_source,
+            "mask_source": mask_source,
+            "vae_policy": vae_contract.get("policy"),
+            "vae_source": qwen_vae_source if qwen_vae_ref else "",
+        }],
+        "applied_units": applied_units,
+        "created_node_ids": created_node_ids,
+        "patched_model_ref": current_model_ref,
+        "patched_positive_ref": previous_positive_ref,
+        "patched_negative_ref": previous_negative_ref,
+        "control_image_source": image_source,
+        "mask_source": mask_source,
+        "vae_source": qwen_vae_source if qwen_vae_ref else "",
+        "vae_contract": deepcopy(vae_contract),
+        "adapter": "qwen_diffsynth_model_patch",
+    }
 
 
 def _apply_qwen_instantx_patch(
@@ -679,21 +784,16 @@ def _apply_qwen_instantx_patch(
     apply_node = str(qwen_status.get("instantx_apply_node") or status.get("apply_node") or "ControlNetApplyAdvanced")
     loader_schema = _node_schema(status, "qwen_instantx_loader") or _node_schema(status, "loader")
     apply_schema = _node_schema(status, "qwen_instantx_apply") or _node_schema(status, "apply")
-    qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
-        graph,
-        (previous_positive_ref, previous_negative_ref),
-    )
-    if _input_supports(apply_schema, "vae") and not qwen_vae_ref:
-        return {
-            "ok": False,
-            "reason": "validation_failed: Qwen ControlNet apply node requires a VAE but the active Qwen workflow has none",
-            "notes": notes + [{
-                "level": "error",
-                "field": "workflow.qwen_controlnet_vae",
-                "message": "This Qwen ControlNet requires the active Qwen VAE. Connect or configure a route-owned VAE before applying ControlNet.",
-                "source": qwen_vae_source,
-            }],
-        }
+    vae_contract = _qwen_vae_contract(status, "instantx")
+    qwen_vae_ref: list[Any] | None = None
+    qwen_vae_source = "instantx_apply_schema_has_no_vae_input"
+    if vae_contract.get("supported"):
+        qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
+            graph,
+            (previous_positive_ref, previous_negative_ref),
+        )
+        if vae_contract.get("required") and not qwen_vae_ref:
+            return _qwen_vae_missing_result(notes, vae_contract, qwen_vae_source)
     model_input = _loader_model_input({**status, "model_inputs": status.get("model_inputs") or {}})
     applied_units: list[dict[str, Any]] = []
     created_node_ids: list[str] = []
@@ -741,11 +841,35 @@ def _apply_qwen_instantx_patch(
         applied["adapter"] = "qwen_instantx_controlnet"
         applied["adapter_control_image"] = image_source
         applied["adapter_mask"] = mask_source
-        applied["vae_source"] = qwen_vae_source
+        applied["vae_policy"] = vae_contract.get("policy")
+        if qwen_vae_ref:
+            applied["vae_source"] = qwen_vae_source
         applied_units.append(applied)
     graph[sampler_key]["inputs"]["positive"] = deepcopy(current_positive_ref)
     graph[sampler_key]["inputs"]["negative"] = deepcopy(current_negative_ref)
-    return {"ok": True, "reason": "patched", "notes": notes + [{"level": "info", "field": "params.qwen_controlnet_adapter", "message": "Qwen InstantX ControlNet adapter patched sampler conditioning with the active Qwen VAE.", "controlnet_task": route_data.get("controlnet_task"), "control_image_source": image_source, "mask_source": mask_source, "vae_source": qwen_vae_source}], "applied_units": applied_units, "created_node_ids": created_node_ids, "patched_positive_ref": current_positive_ref, "patched_negative_ref": current_negative_ref, "control_image_source": image_source, "mask_source": mask_source, "vae_source": qwen_vae_source, "adapter": "qwen_instantx_controlnet"}
+    return {
+        "ok": True,
+        "reason": "patched",
+        "notes": notes + [{
+            "level": "info",
+            "field": "params.qwen_controlnet_adapter",
+            "message": "Qwen InstantX ControlNet patched sampler conditioning using its adapter-specific VAE contract.",
+            "controlnet_task": route_data.get("controlnet_task"),
+            "control_image_source": image_source,
+            "mask_source": mask_source,
+            "vae_source": qwen_vae_source if qwen_vae_ref else "",
+            "vae_policy": vae_contract.get("policy"),
+        }],
+        "applied_units": applied_units,
+        "created_node_ids": created_node_ids,
+        "patched_positive_ref": current_positive_ref,
+        "patched_negative_ref": current_negative_ref,
+        "control_image_source": image_source,
+        "mask_source": mask_source,
+        "vae_source": qwen_vae_source if qwen_vae_ref else "",
+        "vae_contract": deepcopy(vae_contract),
+        "adapter": "qwen_instantx_controlnet",
+    }
 
 
 def _apply_qwen_controlnet_patch(
@@ -1119,23 +1243,25 @@ def apply_controlnet_patch(
 
     qwen_vae_ref: list[Any] | None = None
     qwen_vae_source = ""
-    if _is_qwen_controlnet_route(route_data):
-        qwen_apply_schema = _node_schema(status, "apply")
-        qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
-            graph,
-            (previous_positive_ref, previous_negative_ref),
-        )
-        if _input_supports(qwen_apply_schema, "vae") and not qwen_vae_ref:
-            return no_patch(
-                "validation_failed: Qwen ControlNet apply node requires a VAE but the active Qwen workflow has none",
-                status=status,
-                extra_notes=[{
-                    "level": "error",
-                    "field": "workflow.qwen_controlnet_vae",
-                    "message": "This Qwen ControlNet requires the active Qwen VAE. Connect or configure a route-owned VAE before applying ControlNet.",
-                    "source": qwen_vae_source,
-                }],
+    qwen_vae_contract: dict[str, Any] = {}
+    # Qwen inpaint/outpaint adapters own their VAE contracts inside their
+    # adapter patchers. Only the generic Qwen map-control lane is InstantX-
+    # based here, so it resolves VAE state before the shared map patch loop.
+    if _is_qwen_controlnet_route(route_data) and controlnet_task == TASK_MAP_CONTROL:
+        qwen_vae_contract = _qwen_vae_contract(status, "instantx")
+        qwen_vae_source = "instantx_apply_schema_has_no_vae_input"
+        if qwen_vae_contract.get("supported"):
+            qwen_vae_ref, qwen_vae_source = _resolve_qwen_vae_ref(
+                graph,
+                (previous_positive_ref, previous_negative_ref),
             )
+            if qwen_vae_contract.get("required") and not qwen_vae_ref:
+                missing = _qwen_vae_missing_result(notes, qwen_vae_contract, qwen_vae_source)
+                return no_patch(
+                    str(missing.get("reason") or "validation_failed: Qwen InstantX ControlNet requires the active Qwen VAE"),
+                    status=status,
+                    extra_notes=list(missing.get("notes") or [])[len(notes):],
+                )
 
     if controlnet_task in {TASK_INPAINT_CONTROL, TASK_OUTPAINT_CONTROL} and _flux_route_active(route_data, controlnet_task):
         adapter_result = _apply_flux_controlnet_patch(
@@ -1216,6 +1342,11 @@ def apply_controlnet_patch(
         patch["qwen_adapter"] = adapter_result.get("qwen_adapter")
         patch["control_image_source"] = adapter_result.get("control_image_source")
         patch["mask_source"] = adapter_result.get("mask_source")
+        vae_contract = adapter_result.get("vae_contract") if isinstance(adapter_result.get("vae_contract"), dict) else {}
+        if vae_contract:
+            patch["qwen_controlnet_vae_contract_schema"] = vae_contract.get("schema_version")
+            patch["qwen_controlnet_vae_policy"] = vae_contract.get("policy")
+            patch["qwen_controlnet_vae_input_mode"] = vae_contract.get("input_mode")
         if adapter_result.get("vae_source"):
             patch["qwen_controlnet_vae_source"] = adapter_result.get("vae_source")
         if adapter_result.get("patched_model_ref"):
@@ -1351,7 +1482,9 @@ def apply_controlnet_patch(
         current_negative_ref = [apply_id, 1]
         created_node_ids.extend([load_image_id, loader_id, apply_id])
         applied = deepcopy(unit)
-        if qwen_vae_source:
+        if qwen_vae_contract:
+            applied["vae_policy"] = qwen_vae_contract.get("policy")
+        if qwen_vae_ref:
             applied["vae_source"] = qwen_vae_source
         applied_units.append(applied)
 
@@ -1372,7 +1505,11 @@ def apply_controlnet_patch(
         applied=True,
         controlnet_task=controlnet_task,
     )
-    if qwen_vae_source:
+    if qwen_vae_contract:
+        patch["qwen_controlnet_vae_contract_schema"] = qwen_vae_contract.get("schema_version")
+        patch["qwen_controlnet_vae_policy"] = qwen_vae_contract.get("policy")
+        patch["qwen_controlnet_vae_input_mode"] = qwen_vae_contract.get("input_mode")
+    if qwen_vae_ref:
         patch["qwen_controlnet_vae_source"] = qwen_vae_source
     return {
         "workflow": graph,

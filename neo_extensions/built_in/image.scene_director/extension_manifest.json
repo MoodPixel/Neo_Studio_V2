@@ -1,8 +1,8 @@
 {
   "id": "image.scene_director",
   "name": "Image · Scene Director",
-  "version": "1.0.1",
-  "description": "Built-in Image Scene Director extension for regional scene planning, prompt balancing, mask/refine metadata, IP Adapter and LoRA region targeting, and replay-safe output metadata.",
+  "version": "1.2.6",
+  "description": "Built-in Image Scene Director extension with Character Additional Details, child-owned Attached Detail roles, character-local Pose and held-item authority, merged face/grooming authority, body-scoped clothing states and underlayers, and shared visual color palettes.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -118,37 +118,10 @@
       "backend/dependency_routing.py",
       "backend/v054_contract.py",
       "backend/v054_node.py",
+      "backend/prompt_authority.py",
       "comfy_node/nodes.py"
     ],
-    "docs": [
-      "docs/SCENE_DIRECTOR_NODE_DECISION.md",
-      "docs/SCENE_DIRECTOR_NODE_DECISION.json",
-      "docs/SCENE_DIRECTOR_SUPPORT_MATRIX.md",
-      "docs/SCENE_DIRECTOR_SUPPORT_MATRIX.json",
-      "docs/SCENE_DIRECTOR_CONTRACT.md",
-      "docs/SCENE_DIRECTOR_V1_PARITY_AUDIT.md",
-      "docs/SCENE_DIRECTOR_V1_PARITY_MAP.json",
-      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.md",
-      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.json",
-      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.md",
-      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.json",
-      "docs/SCENE_DIRECTOR_UI_MIGRATION.md",
-      "docs/SCENE_DIRECTOR_UI_MIGRATION.json",
-      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.md",
-      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.json",
-      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.md",
-      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.json",
-      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.md",
-      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.json",
-      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.md",
-      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.json",
-      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.md",
-      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.json",
-      "docs/SCENE_DIRECTOR_V1_SUBSECTIONS_PARITY.md",
-      "docs/SCENE_DIRECTOR_V1_SUBSECTIONS_PARITY.json",
-      "docs/SCENE_DIRECTOR_EXTENSION_INTEROP.md",
-      "docs/SCENE_DIRECTOR_EXTENSION_INTEROP.json"
-    ],
+    "docs": [],
     "backend": [
       "backend/workflow_patch.py"
     ]
@@ -219,15 +192,11 @@
     "required_groups": [
       "backend",
       "ui",
-      "docs",
       "tests"
     ],
     "no_external_extensions_mount": true,
     "feature_specific_code_boundary": "extension_folder_first",
-    "skeleton_docs": [
-      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.md",
-      "docs/SCENE_DIRECTOR_EXTENSION_SKELETON.json"
-    ]
+    "skeleton_docs": []
   },
   "entrypoints": {
     "mount_contract": "backend/mount_contract.py",
@@ -255,10 +224,7 @@
     "external_section_allowed": false,
     "runtime_mount_when_disabled": false,
     "admin_visibility_when_disabled": true,
-    "docs": [
-      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.md",
-      "docs/SCENE_DIRECTOR_BUILT_IN_MOUNT.json"
-    ]
+    "docs": []
   },
   "phase_g_ui_migration": {
     "phase": "G",
@@ -293,10 +259,7 @@
     "route_aware_visibility": true,
     "expert_payload_preview": true,
     "hidden_field_pruning_preview": true,
-    "docs": [
-      "docs/SCENE_DIRECTOR_UI_MIGRATION.md",
-      "docs/SCENE_DIRECTOR_UI_MIGRATION.json"
-    ]
+    "docs": []
   },
   "phase_h_payload_contract": {
     "phase": "H",
@@ -315,10 +278,7 @@
       "workflow_patch_requested",
       "NeoSceneDirectorV054"
     ],
-    "docs": [
-      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.md",
-      "docs/SCENE_DIRECTOR_PAYLOAD_CONTRACT.json"
-    ]
+    "docs": []
   },
   "phase_i_validation_hooks": {
     "phase": "I",
@@ -343,18 +303,12 @@
       "can_emit_workflow_patch"
     ],
     "strict_mode_available": true,
-    "docs": [
-      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.md",
-      "docs/SCENE_DIRECTOR_VALIDATION_HOOKS.json"
-    ]
+    "docs": []
   },
   "phase_j_workflow_patch": {
     "status": "implemented",
     "patch_module": "backend/workflow_patch.py",
-    "docs": [
-      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.md",
-      "docs/SCENE_DIRECTOR_WORKFLOW_PATCH.json"
-    ],
+    "docs": [],
     "node_order": [
       "NeoSceneDirectorV054"
     ],
@@ -388,10 +342,7 @@
       "workflow_patched"
     ],
     "restore_policy": "revalidate_route_node_assets_regions_before_enable",
-    "docs": [
-      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.md",
-      "docs/SCENE_DIRECTOR_METADATA_OUTPUT_INSPECTOR.json"
-    ]
+    "docs": []
   },
   "phase_l_replay_reuse_readiness": {
     "status": "implemented",
@@ -412,10 +363,7 @@
       "no_missing_required_assets"
     ],
     "gated_restore_behavior": "restore_for_review_without_active_workflow_patch",
-    "docs": [
-      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.md",
-      "docs/SCENE_DIRECTOR_REPLAY_REUSE_READINESS.json"
-    ]
+    "docs": []
   },
   "ui_hotfix_region_canvas_core_prompts": {
     "region_canvas_visible": true,

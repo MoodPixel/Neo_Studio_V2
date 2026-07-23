@@ -1,29 +1,30 @@
 """V1-compatible CSV storage helpers for the Style Stack extension.
 
-Phase C implements the durable style library only. It intentionally does not
-register API routes, mutate prompts, or patch provider workflow graphs.
-
 Canonical V2 runtime path:
     neo_data/extensions/image/style_stack/generation_styles.csv
 
-Bundled default seed path:
+Bundled default source:
     neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv
+
+The bundled CSV is read-only application content. The runtime CSV is the user's
+editable library. Phase 6B keeps those authorities separate while synchronizing
+new or safely updated bundled defaults into existing installations.
 
 CSV contract:
     name,prompt,negative_prompt
-
-The loader keeps the V1 encoding fallback because existing user style libraries
-may be Windows/ANSI encoded. The bundled migration CSV currently requires cp1252.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 CANONICAL_CSV_RELATIVE_PATH = "neo_data/extensions/image/style_stack/generation_styles.csv"
 BUNDLED_DEFAULT_CSV_RELATIVE_PATH = "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv"
@@ -31,6 +32,7 @@ STYLE_STACK_DATA_RELATIVE_DIR = "neo_data/extensions/image/style_stack"
 IMPORTS_RELATIVE_DIR = "neo_data/extensions/image/style_stack/imports"
 EXPORTS_RELATIVE_DIR = "neo_data/extensions/image/style_stack/exports"
 BACKUPS_RELATIVE_DIR = "neo_data/extensions/image/style_stack/backups"
+SYNC_STATE_RELATIVE_PATH = "neo_data/extensions/image/style_stack/bundled_runtime_sync_state.json"
 LEGACY_CSV_RELATIVE_PATHS = (
     "neo_data/generation_styles.csv",
     "generation_styles.csv",
@@ -38,26 +40,24 @@ LEGACY_CSV_RELATIVE_PATHS = (
 CSV_FIELDS = ("name", "prompt", "negative_prompt")
 ENCODING_FALLBACK = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
 DEFAULT_WRITE_ENCODING = "utf-8-sig"
+SYNC_STATE_SCHEMA_VERSION = "neo.image.style_stack.bundled_runtime_sync.v1"
+SYNC_RESULT_SCHEMA_VERSION = "neo.image.style_stack.bundled_runtime_sync_result.v1"
 
 
 @dataclass(frozen=True)
 class StyleStoreResult:
-    """Small operation result used by route layers in later phases."""
+    """Operation result returned to API and UI layers."""
 
     ok: bool
     styles: list[dict[str, str]]
     path: str
     message: str = ""
     encoding: str | None = None
+    sync: dict[str, Any] = field(default_factory=dict)
 
 
 def resolve_repo_root(root: str | Path | None = None) -> Path:
-    """Resolve the Neo repo root for storage operations.
-
-    Tests and future route handlers can pass an explicit root. Without one, this
-    walks up from the extension backend until a directory containing ``neo_data``
-    and ``neo_extensions`` is found.
-    """
+    """Resolve the Neo repository/runtime root without machine-specific paths."""
 
     if root is not None:
         return Path(root).expanduser().resolve()
@@ -66,8 +66,6 @@ def resolve_repo_root(root: str | Path | None = None) -> Path:
     for parent in here.parents:
         if (parent / "neo_data").exists() and (parent / "neo_extensions").exists():
             return parent
-    # Fallback for unusual packaged runs: extension root is
-    # <repo>/neo_extensions/built_in/image.style_stack/backend/style_store.py
     return here.parents[4]
 
 
@@ -77,6 +75,10 @@ def canonical_csv_path(root: str | Path | None = None) -> Path:
 
 def bundled_default_csv_path(root: str | Path | None = None) -> Path:
     return resolve_repo_root(root) / BUNDLED_DEFAULT_CSV_RELATIVE_PATH
+
+
+def sync_state_path(root: str | Path | None = None) -> Path:
+    return resolve_repo_root(root) / SYNC_STATE_RELATIVE_PATH
 
 
 def imports_dir(root: str | Path | None = None) -> Path:
@@ -143,14 +145,13 @@ def _parse_styles_from_text(text: str) -> list[dict[str, str]]:
         if not style["name"] and not style["prompt"] and not style["negative_prompt"]:
             continue
         if not style["name"]:
-            # Empty style names cannot be addressed by update/delete/chips.
             continue
         styles.append(style)
     return styles
 
 
 def read_styles_csv(path: str | Path) -> tuple[list[dict[str, str]], str]:
-    """Read a style CSV from ``path`` and return ``(styles, encoding_used)``."""
+    """Read a style CSV and return ``(styles, encoding_used)``."""
 
     csv_path = Path(path).expanduser().resolve()
     text, encoding = _read_text_with_fallback(csv_path)
@@ -158,7 +159,7 @@ def read_styles_csv(path: str | Path) -> tuple[list[dict[str, str]], str]:
 
 
 def _dedupe_styles(styles: Iterable[dict[str, object]]) -> list[dict[str, str]]:
-    """Dedupe by name while preserving the last definition for updates/imports."""
+    """Dedupe by exact style name while preserving last-definition updates."""
 
     ordered_names: list[str] = []
     by_name: dict[str, dict[str, str]] = {}
@@ -200,20 +201,108 @@ def find_legacy_csv(root: str | Path | None = None) -> Path | None:
     return None
 
 
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _relative_to_root(path: Path, root: str | Path | None = None) -> str:
+    base = resolve_repo_root(root)
+    try:
+        return path.resolve().relative_to(base).as_posix()
+    except (OSError, ValueError):
+        return path.name
+
+
+def _style_map(styles: Sequence[dict[str, object]]) -> dict[str, dict[str, str]]:
+    return {style["name"]: style for style in _dedupe_styles(styles)}
+
+
+def _styles_digest(styles: Sequence[dict[str, object]]) -> str:
+    payload = json.dumps(_dedupe_styles(styles), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _default_sync_state() -> dict[str, Any]:
+    return {
+        "schema_version": SYNC_STATE_SCHEMA_VERSION,
+        "bundled_digest": "",
+        "bundled_styles": {},
+        "tombstones": [],
+        "last_sync": {},
+    }
+
+
+def _load_sync_state(root: str | Path | None = None) -> tuple[dict[str, Any], bool]:
+    path = sync_state_path(root)
+    if not path.exists():
+        return _default_sync_state(), False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Style Stack sync state must be an object")
+        state = _default_sync_state()
+        state.update(payload)
+        if not isinstance(state.get("bundled_styles"), dict):
+            state["bundled_styles"] = {}
+        if not isinstance(state.get("tombstones"), list):
+            state["tombstones"] = []
+        return state, False
+    except (OSError, ValueError, json.JSONDecodeError):
+        backups_dir(root).mkdir(parents=True, exist_ok=True)
+        recovery = backups_dir(root) / f"bundled_runtime_sync_state.corrupt.{_utc_timestamp()}.json"
+        try:
+            shutil.copy2(path, recovery)
+        except OSError:
+            pass
+        return _default_sync_state(), True
+
+
+def _write_sync_state(state: dict[str, Any], root: str | Path | None = None) -> Path:
+    path = sync_state_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(state)
+    payload["schema_version"] = SYNC_STATE_SCHEMA_VERSION
+    with NamedTemporaryFile("w", encoding="utf-8", newline="\n", delete=False, dir=path.parent) as tmp:
+        json.dump(payload, tmp, ensure_ascii=False, indent=2, sort_keys=True)
+        tmp.write("\n")
+        tmp_path = Path(tmp.name)
+    tmp_path.replace(path)
+    return path
+
+
+def _update_tombstones(
+    root: str | Path | None = None,
+    *,
+    add: Iterable[str] = (),
+    remove: Iterable[str] = (),
+) -> set[str]:
+    state, _ = _load_sync_state(root)
+    tombstones = {_normalise_cell(name) for name in state.get("tombstones", []) if _normalise_cell(name)}
+    tombstones.update(_normalise_cell(name) for name in add if _normalise_cell(name))
+    tombstones.difference_update(_normalise_cell(name) for name in remove if _normalise_cell(name))
+    state["tombstones"] = sorted(tombstones, key=str.casefold)
+    _write_sync_state(state, root)
+    return tombstones
+
+
+def _backup_runtime_before_sync(target: Path, root: str | Path | None = None) -> Path:
+    directory = backups_dir(root)
+    directory.mkdir(parents=True, exist_ok=True)
+    backup = directory / f"generation_styles.before_bundled_sync.{_utc_timestamp()}.csv"
+    shutil.copy2(target, backup)
+    return backup
+
+
 def ensure_generation_styles_file(
     root: str | Path | None = None,
     *,
     seed_from: str | Path | None = None,
     create_empty: bool = True,
 ) -> Path:
-    """Ensure the canonical V2 style CSV exists.
+    """Ensure the canonical runtime style CSV exists.
 
-    Priority:
-    1. keep existing canonical runtime file so user edits are preserved
-    2. copy an explicit seed file
-    3. copy the bundled built-in extension default CSV
-    4. copy a legacy V1-style file discovered in the repo
-    5. create an empty canonical CSV with the required header
+    Existing non-empty runtime libraries remain user-owned. Bundled/runtime
+    synchronization is performed separately by ``load_generation_styles``.
     """
 
     target = canonical_csv_path(root)
@@ -223,11 +312,6 @@ def ensure_generation_styles_file(
     backups_dir(root).mkdir(parents=True, exist_ok=True)
 
     if target.exists():
-        # Phase N UI/load repair: earlier migration builds could leave an empty
-        # runtime CSV in neo_data. Because neo_data is preserved between updates,
-        # that empty file would block the bundled default seed forever. Preserve
-        # non-empty user libraries, but repair empty/header-only runtime files
-        # from the bundled extension default when available.
         bundled_default = bundled_default_csv_path(root)
         if bundled_default.exists() and bundled_default.is_file():
             try:
@@ -266,17 +350,168 @@ def ensure_generation_styles_file(
     raise FileNotFoundError(f"Style Stack CSV not found at {target}")
 
 
+def synchronize_bundled_generation_styles(
+    root: str | Path | None = None,
+    *,
+    runtime_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Non-destructively synchronize bundled defaults into the runtime library.
+
+    Rules:
+    - new bundled names are appended to the user-owned runtime library;
+    - an untouched bundled row may receive a later bundled prompt update;
+    - user-edited rows with matching names always win;
+    - runtime-only custom rows are preserved;
+    - bundled rows deleted through Neo are tombstoned and stay deleted;
+    - a runtime backup is written before every sync mutation.
+    """
+
+    target = Path(runtime_path).expanduser().resolve() if runtime_path else ensure_generation_styles_file(root)
+    bundled_path = bundled_default_csv_path(root)
+    runtime_styles, runtime_encoding = read_styles_csv(target)
+
+    if not bundled_path.exists() or not bundled_path.is_file():
+        return {
+            "schema_version": SYNC_RESULT_SCHEMA_VERSION,
+            "status": "bundled_default_unavailable",
+            "runtime_count": len(runtime_styles),
+            "bundled_count": 0,
+            "added": 0,
+            "updated_defaults": 0,
+            "preserved_overrides": 0,
+            "runtime_only": len(runtime_styles),
+            "tombstoned": 0,
+            "sync_applied": False,
+            "backup_created": False,
+            "backup_path": "",
+            "runtime_encoding": runtime_encoding,
+        }
+
+    bundled_styles, bundled_encoding = read_styles_csv(bundled_path)
+    state, state_recovered = _load_sync_state(root)
+    previous_bundled = {
+        str(name): normalise_style(style)
+        for name, style in (state.get("bundled_styles") or {}).items()
+        if str(name).strip() and isinstance(style, dict)
+    }
+    tombstones = {_normalise_cell(name) for name in state.get("tombstones", []) if _normalise_cell(name)}
+
+    runtime_styles = _dedupe_styles(runtime_styles)
+    bundled_styles = _dedupe_styles(bundled_styles)
+    runtime_by_name = _style_map(runtime_styles)
+    bundled_by_name = _style_map(bundled_styles)
+
+    # A manually re-added or imported bundled style is an explicit restoration.
+    restored_names = tombstones.intersection(runtime_by_name)
+    if restored_names:
+        tombstones.difference_update(restored_names)
+
+    merged = [dict(style) for style in runtime_styles]
+    index_by_name = {style["name"]: index for index, style in enumerate(merged)}
+    added = 0
+    updated_defaults = 0
+    preserved_overrides = 0
+
+    for bundled_style in bundled_styles:
+        name = bundled_style["name"]
+        if name in tombstones:
+            continue
+        runtime_style = runtime_by_name.get(name)
+        if runtime_style is None:
+            index_by_name[name] = len(merged)
+            merged.append(dict(bundled_style))
+            runtime_by_name[name] = dict(bundled_style)
+            added += 1
+            continue
+
+        previous_style = previous_bundled.get(name)
+        if previous_style is not None and runtime_style == previous_style and runtime_style != bundled_style:
+            merged[index_by_name[name]] = dict(bundled_style)
+            runtime_by_name[name] = dict(bundled_style)
+            updated_defaults += 1
+        elif runtime_style != bundled_style:
+            preserved_overrides += 1
+
+    runtime_changed = merged != runtime_styles
+    backup_path = ""
+    if runtime_changed:
+        backup = _backup_runtime_before_sync(target, root)
+        backup_path = _relative_to_root(backup, root)
+        write_styles_csv(target, merged)
+
+    bundled_digest = _styles_digest(bundled_styles)
+    previous_digest = str(state.get("bundled_digest") or "")
+    runtime_names = {style["name"] for style in merged}
+    bundled_names = set(bundled_by_name)
+    result = {
+        "schema_version": SYNC_RESULT_SCHEMA_VERSION,
+        "status": "synchronized" if runtime_changed else "already_synchronized",
+        "runtime_count": len(merged),
+        "bundled_count": len(bundled_styles),
+        "added": added,
+        "updated_defaults": updated_defaults,
+        "preserved_overrides": preserved_overrides,
+        "runtime_only": len(runtime_names - bundled_names),
+        "tombstoned": len(tombstones.intersection(bundled_names)),
+        "sync_applied": runtime_changed,
+        "backup_created": bool(backup_path),
+        "backup_path": backup_path,
+        "state_created": not bool(previous_digest or previous_bundled),
+        "state_recovered": state_recovered,
+        "bundled_changed": bool(previous_digest and previous_digest != bundled_digest),
+        "runtime_encoding": runtime_encoding,
+        "bundled_encoding": bundled_encoding,
+    }
+
+    state.update({
+        "schema_version": SYNC_STATE_SCHEMA_VERSION,
+        "bundled_digest": bundled_digest,
+        "bundled_styles": bundled_by_name,
+        "tombstones": sorted(tombstones, key=str.casefold),
+        "last_sync": {
+            **result,
+            "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    })
+    _write_sync_state(state, root)
+    return result
+
+
 def load_generation_styles(root: str | Path | None = None) -> StyleStoreResult:
     path = ensure_generation_styles_file(root)
+    sync = synchronize_bundled_generation_styles(root, runtime_path=path)
     styles, encoding = read_styles_csv(path)
-    return StyleStoreResult(ok=True, styles=styles, path=str(path), encoding=encoding)
+    return StyleStoreResult(ok=True, styles=styles, path=str(path), encoding=encoding, sync=sync)
 
 
-def save_generation_styles(styles: Sequence[dict[str, object]], root: str | Path | None = None) -> StyleStoreResult:
-    path = ensure_generation_styles_file(root)
-    write_styles_csv(path, styles)
+def save_generation_styles(
+    styles: Sequence[dict[str, object]],
+    root: str | Path | None = None,
+    *,
+    track_bundled_removals: bool = False,
+) -> StyleStoreResult:
+    """Save the runtime library while maintaining bundled deletion tombstones."""
+
+    current_result = load_generation_styles(root)
+    path = Path(current_result.path)
+    current = current_result.styles
+    next_styles = _dedupe_styles(styles)
+
+    bundled_path = bundled_default_csv_path(root)
+    bundled_names: set[str] = set()
+    if bundled_path.exists() and bundled_path.is_file():
+        bundled_names = {style["name"] for style in read_styles_csv(bundled_path)[0]}
+
+    current_names = {style["name"] for style in current}
+    next_names = {style["name"] for style in next_styles}
+    removed_bundled = (current_names - next_names).intersection(bundled_names) if track_bundled_removals else set()
+    restored_bundled = next_names.intersection(bundled_names)
+    _update_tombstones(root, add=removed_bundled, remove=restored_bundled)
+
+    write_styles_csv(path, next_styles)
+    sync = synchronize_bundled_generation_styles(root, runtime_path=path)
     loaded, encoding = read_styles_csv(path)
-    return StyleStoreResult(ok=True, styles=loaded, path=str(path), message="styles_saved", encoding=encoding)
+    return StyleStoreResult(ok=True, styles=loaded, path=str(path), message="styles_saved", encoding=encoding, sync=sync)
 
 
 def upsert_generation_style(style: dict[str, object], root: str | Path | None = None) -> StyleStoreResult:
@@ -303,7 +538,7 @@ def delete_generation_style(name: str, root: str | Path | None = None) -> StyleS
         raise ValueError("Style name is required")
     current = load_generation_styles(root).styles
     next_styles = [style for style in current if style["name"] != target_name]
-    result = save_generation_styles(next_styles, root)
+    result = save_generation_styles(next_styles, root, track_bundled_removals=True)
     removed = len(current) - len(next_styles)
     return StyleStoreResult(
         ok=True,
@@ -311,6 +546,7 @@ def delete_generation_style(name: str, root: str | Path | None = None) -> StyleS
         path=result.path,
         message="style_deleted" if removed else "style_not_found",
         encoding=result.encoding,
+        sync=result.sync,
     )
 
 
@@ -344,15 +580,11 @@ def import_generation_styles_csv(
     *,
     mode: str = "merge",
 ) -> StyleStoreResult:
-    """Import a CSV into the canonical store.
-
-    ``mode='merge'`` keeps current rows and overwrites matching names from the
-    import. ``mode='replace'`` writes only the imported rows.
-    """
+    """Import a CSV into the canonical runtime store."""
 
     source = Path(source_csv).expanduser().resolve()
     imported, source_encoding = read_styles_csv(source)
-    target = ensure_generation_styles_file(root)
+    ensure_generation_styles_file(root)
 
     imports_dir(root).mkdir(parents=True, exist_ok=True)
     archive_name = source.name if source.name.lower().endswith(".csv") else "generation_styles_import.csv"
@@ -360,20 +592,22 @@ def import_generation_styles_csv(
 
     if mode == "replace":
         next_styles = imported
+        track_bundled_removals = True
     elif mode == "merge":
         current = load_generation_styles(root).styles
         next_styles = _dedupe_styles([*current, *imported])
+        track_bundled_removals = False
     else:
         raise ValueError("Import mode must be 'merge' or 'replace'")
 
-    write_styles_csv(target, next_styles)
-    loaded, encoding = read_styles_csv(target)
+    result = save_generation_styles(next_styles, root, track_bundled_removals=track_bundled_removals)
     return StyleStoreResult(
         ok=True,
-        styles=loaded,
-        path=str(target),
+        styles=result.styles,
+        path=result.path,
         message=f"styles_imported:{len(imported)}:{mode}:source_encoding={source_encoding}",
-        encoding=encoding,
+        encoding=result.encoding,
+        sync=result.sync,
     )
 
 

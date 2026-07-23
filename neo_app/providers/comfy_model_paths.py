@@ -15,6 +15,7 @@ except Exception:  # pragma: no cover - PyYAML is optional during source-only ch
 COMFY_PROVIDER_IDS = {"comfyui", "comfyui_portable"}
 COMFY_MODEL_PATH_SCHEMA = "neo.providers.comfy_model_paths.v1"
 COMFY_MODEL_FILE_SCAN_SCHEMA = "neo.providers.comfy_model_files.v1"
+COMFY_EXTRA_MODEL_PATH_SCHEMA = "neo.providers.comfy_extra_model_paths.v1"
 SERVER_PATH_POLICY = "absolute_paths_server_side_only"
 DEFAULT_MODEL_FILE_SUFFIXES = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf"}
 
@@ -86,13 +87,52 @@ def _existing_directory(path: Path | None) -> bool:
         return False
 
 
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for path in paths:
+        key = _path_key(path)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(path)
+    return result
+
+
+def _node_manager_authority_roots(settings: Mapping[str, Any]) -> list[Path]:
+    """Return every local Comfy root already owned by Node Manager settings.
+
+    Portable installs may save the wrapper as ``comfy_root_path`` while the
+    ``custom_nodes_path`` points inside ``<wrapper>/ComfyUI/custom_nodes``. The
+    inner root remains authoritative for native models; the wrapper remains
+    authoritative for a sibling ``extra_model_paths.yaml``. Keep both.
+    """
+
+    roots: list[Path] = []
+    custom_nodes = _path(settings.get("custom_nodes_path"))
+    if custom_nodes:
+        inner_root = custom_nodes.parent if custom_nodes.name.casefold() == "custom_nodes" else custom_nodes
+        roots.append(inner_root)
+        if inner_root.name.casefold() == "comfyui":
+            roots.append(inner_root.parent)
+    configured_root = _path(settings.get("comfy_root_path"))
+    if configured_root:
+        roots.append(configured_root)
+        roots.append(configured_root / "ComfyUI")
+    return _dedupe_paths(roots)
+
+
 def _node_manager_root_candidates(settings: Mapping[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     custom_nodes = _path(settings.get("custom_nodes_path"))
-    if custom_nodes:
-        comfy_root = custom_nodes.parent if custom_nodes.name.casefold() == "custom_nodes" else custom_nodes
-        candidates.extend(_comfy_root_candidates(comfy_root, "node_manager_custom_nodes"))
-    candidates.extend(_comfy_root_candidates(settings.get("comfy_root_path"), "node_manager_comfy_root"))
+    custom_nodes_root = (
+        custom_nodes.parent
+        if custom_nodes and custom_nodes.name.casefold() == "custom_nodes"
+        else custom_nodes
+    )
+    for root in _node_manager_authority_roots(settings):
+        source = "node_manager_custom_nodes" if custom_nodes_root and _path_key(root) == _path_key(custom_nodes_root) else "node_manager_comfy_root"
+        candidates.extend(_comfy_root_candidates(root, source))
     return candidates
 
 
@@ -156,8 +196,22 @@ def resolve_comfy_model_paths(
     ):
         candidates.extend(_comfy_root_candidates(value, source))
 
-    candidates.extend(_node_manager_root_candidates(_mapping(node_manager_settings)))
+    node_manager = _mapping(node_manager_settings)
+    candidates.extend(_node_manager_root_candidates(node_manager))
     candidates = _dedupe_candidates(candidates)
+
+    authority_roots = _dedupe_paths([
+        candidate_root
+        for candidate in candidates
+        for candidate_root in (candidate.get("comfy_root"),)
+        if isinstance(candidate_root, Path)
+    ] + _node_manager_authority_roots(node_manager))
+    if authority_roots:
+        details["_comfy_path_authority"] = {
+            "schema_version": COMFY_MODEL_PATH_SCHEMA,
+            "path_policy": SERVER_PATH_POLICY,
+            "comfy_roots": [str(root) for root in authority_roots],
+        }
 
     selected = next(
         (candidate for candidate in candidates if _existing_directory(candidate.get("models_root"))),
@@ -186,6 +240,7 @@ def resolve_comfy_model_paths(
         "admin_models_root_configured": bool(configured_models_root),
         "admin_comfy_root_configured": bool(configured_comfy_root),
         "candidate_count": len(candidates),
+        "authority_root_count": len(authority_roots),
     }
     return details
 
@@ -219,42 +274,68 @@ def _split_folder_values(value: Any) -> list[str]:
 
 def _candidate_extra_model_yaml_paths(details: Mapping[str, Any]) -> list[Path]:
     paths: list[Path] = []
+    connection = _mapping(details.get("connection"))
+    runtime = _mapping(details.get("runtime"))
+    authority = _mapping(details.get("_comfy_path_authority"))
+
     for raw in (
         os.environ.get("COMFYUI_EXTRA_MODEL_PATHS"),
         os.environ.get("COMFYUI_EXTRA_MODEL_PATHS_YAML"),
         details.get("extra_model_paths_yaml"),
+        details.get("extra_model_paths"),
+        connection.get("extra_model_paths_yaml"),
+        connection.get("extra_model_paths"),
+        runtime.get("extra_model_paths_yaml"),
+        runtime.get("extra_model_paths"),
     ):
-        path = _path(raw)
-        if path:
-            paths.append(path)
+        for value in _split_folder_values(raw):
+            path = _path(value)
+            if path:
+                paths.append(path)
 
+    roots: list[Path] = []
     for raw_root in (
         details.get("resolved_comfy_root"),
         details.get("configured_comfy_root"),
         details.get("comfy_root"),
+        details.get("comfy_root_path"),
         details.get("portable_path"),
+        connection.get("comfy_root"),
+        connection.get("comfy_root_path"),
+        connection.get("portable_path"),
+        runtime.get("comfy_root"),
+        runtime.get("comfy_root_path"),
+        runtime.get("portable_path"),
     ):
         root = _path(raw_root)
-        if not root:
-            continue
-        paths.extend(
-            [
-                root / "extra_model_paths.yaml",
-                root / "extra_model_paths.yml",
-                root / "ComfyUI" / "extra_model_paths.yaml",
-                root / "ComfyUI" / "extra_model_paths.yml",
-            ]
-        )
+        if root:
+            roots.append(root)
+    for raw_root in authority.get("comfy_roots") if isinstance(authority.get("comfy_roots"), list) else []:
+        root = _path(raw_root)
+        if root:
+            roots.append(root)
 
-    seen: set[str] = set()
-    result: list[Path] = []
-    for path in paths:
-        key = _path_key(path)
-        if key and key not in seen:
-            seen.add(key)
-            result.append(path)
-    return result
+    for models_key in ("resolved_models_root", "configured_models_root", "models_root"):
+        models_root = _path(details.get(models_key))
+        if models_root and models_root.name.casefold() == "models":
+            roots.append(models_root.parent)
 
+    for root in _dedupe_paths(roots):
+        paths.extend([
+            root / "extra_model_paths.yaml",
+            root / "extra_model_paths.yml",
+            root / "ComfyUI" / "extra_model_paths.yaml",
+            root / "ComfyUI" / "extra_model_paths.yml",
+        ])
+        # Conservative portable-wrapper recovery: only the YAML candidate is
+        # considered, never an arbitrary parent models directory.
+        if root.name.casefold() == "comfyui":
+            paths.extend([
+                root.parent / "extra_model_paths.yaml",
+                root.parent / "extra_model_paths.yml",
+            ])
+
+    return _dedupe_paths(paths)
 
 def _load_extra_model_paths_yaml(path: Path) -> dict[str, Any]:
     if not path.exists() or not path.is_file():
@@ -324,6 +405,52 @@ def _extra_model_folders(yaml_path: Path, categories: set[str]) -> list[Path]:
     return folders
 
 
+
+def resolve_comfy_extra_model_folders(
+    backend_details: Mapping[str, Any] | None,
+    *,
+    categories: set[str] | tuple[str, ...] | list[str],
+) -> dict[str, Any]:
+    """Resolve existing ``extra_model_paths`` folders using shared path authority.
+
+    Absolute paths remain internal ``Path`` objects. Diagnostics are deliberately
+    path-free so callers may expose only the counts at a public API boundary.
+    """
+
+    details = _mapping(backend_details)
+    normalized_categories = {
+        str(item or "").strip().casefold().replace("-", "_")
+        for item in categories
+        if str(item or "").strip()
+    }
+    candidates = _candidate_extra_model_yaml_paths(details)
+    config_files_found = 0
+    configured: list[Path] = []
+    for yaml_path in candidates:
+        try:
+            exists = yaml_path.exists() and yaml_path.is_file()
+        except OSError:
+            exists = False
+        if not exists:
+            continue
+        config_files_found += 1
+        configured.extend(_extra_model_folders(yaml_path, normalized_categories))
+
+    folders = _dedupe_paths(configured)
+    existing_folder_count = sum(1 for folder in folders if _existing_directory(folder))
+    return {
+        "folders": folders,
+        "diagnostics": {
+            "schema_version": COMFY_EXTRA_MODEL_PATH_SCHEMA,
+            "path_policy": SERVER_PATH_POLICY,
+            "config_candidates": len(candidates),
+            "config_files_found": config_files_found,
+            "configured_folder_count": len(folders),
+            "existing_folder_count": existing_folder_count,
+            "category_count": len(normalized_categories),
+        },
+    }
+
 def _scan_model_folder(folder: Path, suffixes: set[str]) -> list[str]:
     if not _existing_directory(folder):
         return []
@@ -387,22 +514,16 @@ def discover_comfy_model_files(
         if str(item or "").strip()
     }
     extra_models: list[str] = []
-    config_files_found = 0
-    extra_folder_count = 0
-    seen_extra_folders: set[str] = set()
-    if categories:
-        for yaml_path in _candidate_extra_model_yaml_paths(details):
-            if not yaml_path.exists() or not yaml_path.is_file():
-                continue
-            config_files_found += 1
-            for folder in _extra_model_folders(yaml_path, categories):
-                folder_key = _path_key(folder)
-                if not folder_key or folder_key in seen_extra_folders:
-                    continue
-                seen_extra_folders.add(folder_key)
-                if _existing_directory(folder):
-                    extra_folder_count += 1
-                extra_models.extend(_scan_model_folder(folder, allowed_suffixes))
+    extra_resolution = resolve_comfy_extra_model_folders(details, categories=categories) if categories else {
+        "folders": [],
+        "diagnostics": {
+            "config_files_found": 0,
+            "existing_folder_count": 0,
+        },
+    }
+    for folder in extra_resolution.get("folders", []):
+        if isinstance(folder, Path):
+            extra_models.extend(_scan_model_folder(folder, allowed_suffixes))
 
     direct_models = _dedupe_names(direct_models)
     extra_models = _dedupe_names(extra_models)
@@ -419,8 +540,8 @@ def discover_comfy_model_files(
             "models_root_available": bool(models_root),
             "direct_folder_count": direct_folder_count,
             "direct_file_count": len(direct_models),
-            "extra_config_files_found": config_files_found,
-            "extra_folder_count": extra_folder_count,
+            "extra_config_files_found": int(extra_resolution.get("diagnostics", {}).get("config_files_found") or 0),
+            "extra_folder_count": int(extra_resolution.get("diagnostics", {}).get("existing_folder_count") or 0),
             "extra_file_count": len(extra_models),
         },
     }

@@ -97,7 +97,7 @@ When **Upscale engine** is SeedVR2 experimental, extra controls appear:
 | **Tile size / Tile overlap** | Tiled processing controls. |
 | **Swap I/O components / Encode tiled / Decode tiled / Cache models / Debug logs** | Runtime safety/performance toggles. |
 
-SeedVR2 is experimental and expects `ComfyUI-SeedVR2_VideoUpscaler` plus models in `ComfyUI/models/SEEDVR2/`.
+SeedVR2 is experimental and expects `ComfyUI-SeedVR2_VideoUpscaler` plus models in `ComfyUI/models/SEEDVR2/`. External shared folders can be registered through `extra_model_paths.yaml` using `upscale_models`, `facerestore_models`, and `SEEDVR2` as appropriate. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md).
 
 ## Transparent PNG and RGBA upscaling
 

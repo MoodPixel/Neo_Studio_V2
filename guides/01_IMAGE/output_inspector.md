@@ -22,8 +22,8 @@ tags:
   - results
   - replay
 priority: 105
-version: 2
-updated: 2026-07-09
+version: 4
+updated: 2026-07-23
 ---
 
 # Image Output Inspector and Metadata
@@ -92,6 +92,33 @@ Replay does not mean “blindly restore everything and run.” Neo should revali
 - latent restore availability.
 
 Some branches such as **Before High-Res Fix**, **After High-Res Fix**, and **Before ADetailer** stay locked until the metadata includes the corresponding restore point.
+
+### Latent persistence and replay availability
+
+Neo stores latent information in two separate forms:
+
+- **Comfy provider reference:** the provider-relative filename, subfolder, type, and `LoadLatent` name used for execution.
+- **Neo copy:** a retained file under `neo_data/outputs/image_latents/` used for storage accounting, inspection, and safe deletion.
+
+The Neo copy is not an executable Comfy reference. When a saved latent has bytes but no valid provider coordinates, Output Inspector records it as `neo_copy_only`. That state does not unlock **Final latent** or phase-checkpoint replay.
+
+Before a latent branch is queued, Neo verifies the saved provider reference against Comfy. When the original Comfy output has been removed, replay stops before the workflow is submitted and reports:
+
+```txt
+Latent checkpoint is no longer available in ComfyUI. Start a clean generation or select another checkpoint.
+```
+
+Neo does not silently substitute or upload the retained copy. This avoids false replay claims and prevents host filesystem paths from leaking into the provider workflow.
+
+### Comfy latent path portability
+
+Saved Comfy latent metadata is provider-relative. Neo normalizes Windows and POSIX separators into one `/`-based Comfy reference before persistence or replay, for example:
+
+```txt
+NeoStudio_latent/neo-run-123/final.latent [output]
+```
+
+Absolute machine paths, drive letters, UNC paths, home paths, URLs, and traversal components are not valid replay references and must be blocked before queueing. The Neo-owned copy under `neo_data/outputs/image_latents/` is retained for Neo storage and cleanup; it is not a substitute for the original Comfy provider-relative `LoadLatent` name.
 
 ## Assistant rules
 

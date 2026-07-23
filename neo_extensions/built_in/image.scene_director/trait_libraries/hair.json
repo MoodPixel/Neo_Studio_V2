@@ -1,69 +1,35 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "hair",
   "source": "built_in_default",
+  "color_capable": true,
   "items": [
-    {
-      "id": "short_wavy_black",
-      "label": "Short wavy black hair",
-      "prompt_terms": [
-        "short wavy black hair"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "straight_black_undercut",
-      "label": "Straight black undercut",
-      "prompt_terms": [
-        "straight black hair",
-        "neat side-part undercut"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "curly_black",
-      "label": "Curly black hair",
-      "prompt_terms": [
-        "curly black hair"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "long_black",
-      "label": "Long black hair",
-      "prompt_terms": [
-        "long black hair"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "buzz_cut",
-      "label": "Buzz cut",
-      "prompt_terms": [
-        "buzz cut",
-        "very short hair"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    }
-  ]
+    {"id":"short_wavy","label":"Short wavy hair","prompt_terms":["short wavy hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"straight_undercut","label":"Straight side-part undercut","prompt_terms":["straight hair","neat side-part undercut"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"curly","label":"Curly hair","prompt_terms":["curly hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"long_straight","label":"Long straight hair","prompt_terms":["long straight hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"buzz_cut","label":"Buzz cut","prompt_terms":["buzz cut","very short hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"short_spiky","label":"Short spiky hair","prompt_terms":["short spiky hair"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"pixie_cut","label":"Pixie cut","prompt_terms":["pixie cut","short layered hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"bob_cut","label":"Bob cut","prompt_terms":["bob haircut"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"shoulder_wavy","label":"Shoulder-length wavy hair","prompt_terms":["shoulder-length wavy hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"afro","label":"Afro","prompt_terms":["natural afro hairstyle"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"dreadlocks","label":"Dreadlocks","prompt_terms":["dreadlocks"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"braided","label":"Braided hair","prompt_terms":["braided hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"ponytail","label":"Ponytail","prompt_terms":["hair tied in a ponytail"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"bun","label":"Hair bun","prompt_terms":["hair tied in a bun"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"mohawk","label":"Mohawk","prompt_terms":["mohawk hairstyle"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"shaved_sides","label":"Shaved sides","prompt_terms":["shaved sides hairstyle"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"messy_layered","label":"Messy layered hair","prompt_terms":["messy layered hair"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ],
+  "legacy_migrations": {
+    "short_wavy_black": {"replacement_id":"short_wavy","primary_color_id":"black"},
+    "straight_black_undercut": {"replacement_id":"straight_undercut","primary_color_id":"black"},
+    "curly_black": {"replacement_id":"curly","primary_color_id":"black"},
+    "long_black": {"replacement_id":"long_straight","primary_color_id":"black"},
+    "pink_spiky": {"replacement_id":"short_spiky","primary_color_id":"pink"},
+    "pink_spiky_hair": {"replacement_id":"short_spiky","primary_color_id":"pink"},
+    "short_spiky_pink": {"replacement_id":"short_spiky","primary_color_id":"pink"},
+    "vivid_pink_spiky_hair": {"replacement_id":"short_spiky","primary_color_id":"pink"}
+  }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import uuid
@@ -11,6 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 PRESET_ROOT = ROOT_DIR / "neo_data" / "ui_presets"
 VALID_SURFACE = re.compile(r"^[a-z0-9_-]{1,48}$")
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,80}$")
+IMAGE_UI_PRESET_LATENT_CHECKPOINT_SCHEMA = "neo.image.ui_preset_latent_checkpoint.v1"
 
 
 def _now() -> str:
@@ -86,12 +88,87 @@ def _summary_from_record(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_snapshot(value: Any) -> dict[str, Any]:
-    snapshot = value if isinstance(value, dict) else {}
+def _is_late_pass_replay_context(value: Any) -> bool:
+    replay = value if isinstance(value, dict) else {}
+    branch = replay.get("branch_restore") if isinstance(replay.get("branch_restore"), dict) else {}
+    restore_point = str(branch.get("restore_point") or "").strip()
+    return bool(
+        replay.get("replay_kind") == "late_pass_continuation"
+        or isinstance(replay.get("late_pass_continuation"), dict)
+        or branch.get("activation_scope") == "explicit_late_pass_continuation"
+        or (replay.get("replay_kind") == "latent_branch" and restore_point and restore_point != "base_generation_only")
+    )
+
+
+def _normalize_image_preset_latent_checkpoint(value: Any) -> dict[str, Any] | None:
+    checkpoint = value if isinstance(value, dict) else {}
+    raw_branch = checkpoint.get("branch_restore") if isinstance(checkpoint.get("branch_restore"), dict) else checkpoint
+    restore_point = str(raw_branch.get("restore_point") or checkpoint.get("restore_point") or "").strip()
+    if not restore_point or restore_point == "base_generation_only":
+        return None
+    provider_reference = raw_branch.get("provider_reference") if isinstance(raw_branch.get("provider_reference"), dict) else {}
+    allowed_passes = raw_branch.get("allowed_passes") if isinstance(raw_branch.get("allowed_passes"), list) else checkpoint.get("allowed_passes")
+    allowed_passes = [str(item) for item in (allowed_passes or []) if str(item).strip()]
+    branch_restore = {
+        **raw_branch,
+        "source_result_id": str(raw_branch.get("source_result_id") or checkpoint.get("source_result_id") or "").strip(),
+        "restore_point": restore_point,
+        "restore_point_label": str(raw_branch.get("restore_point_label") or checkpoint.get("restore_point_label") or restore_point),
+        "provider_reference": dict(provider_reference),
+        "activation_scope": "ui_preset_reference_only",
+        "late_pass_only": True,
+        "allowed_passes": allowed_passes,
+        "enabled_passes": [],
+        "state": "ui_preset_latent_checkpoint_inactive",
+    }
+    return {
+        "schema_version": IMAGE_UI_PRESET_LATENT_CHECKPOINT_SCHEMA,
+        "source_result_id": branch_restore["source_result_id"],
+        "restore_point": restore_point,
+        "restore_point_label": branch_restore["restore_point_label"],
+        "provider_id": str(branch_restore.get("provider_id") or ""),
+        "backend": str(branch_restore.get("backend") or ""),
+        "artifact_id": str(branch_restore.get("artifact_id") or ""),
+        "provider_reference": dict(provider_reference),
+        "allowed_passes": allowed_passes,
+        "branch_restore": branch_restore,
+        "activation_scope": "ui_preset_reference_only",
+        "state": "saved_in_ui_preset_inactive",
+        "requires_explicit_load": True,
+        "no_png_reencode": branch_restore.get("no_png_reencode") is not False,
+    }
+
+
+def _sanitize_image_draft_for_ui_preset(value: Any) -> dict[str, Any]:
+    draft = copy.deepcopy(value) if isinstance(value, dict) else {}
+    replay = draft.get("_replay_context") if isinstance(draft.get("_replay_context"), dict) else {}
+    checkpoint = None
+    if _is_late_pass_replay_context(replay):
+        checkpoint = _normalize_image_preset_latent_checkpoint(replay.get("branch_restore") or replay.get("late_pass_continuation"))
+        draft.pop("_replay_context", None)
+        draft.pop("_late_pass_continuation", None)
+    if checkpoint is None:
+        checkpoint = _normalize_image_preset_latent_checkpoint(draft.get("_preset_latent_checkpoint"))
+    if checkpoint is not None:
+        draft["_preset_latent_checkpoint"] = checkpoint
+    else:
+        draft.pop("_preset_latent_checkpoint", None)
+    return draft
+
+
+def normalize_snapshot(value: Any, *, surface: str = "") -> dict[str, Any]:
+    snapshot = copy.deepcopy(value) if isinstance(value, dict) else {}
     # Preserve extension data when the frontend includes it, but keep the shell stable.
     snapshot.setdefault("extensions", {})
     snapshot.setdefault("extension_settings", {})
     snapshot.setdefault("surface_state", {})
+    if str(surface or "").strip().lower() == "image":
+        if isinstance(snapshot.get("imageDraft"), dict):
+            snapshot["imageDraft"] = _sanitize_image_draft_for_ui_preset(snapshot["imageDraft"])
+        surface_state = snapshot.get("surface_state") if isinstance(snapshot.get("surface_state"), dict) else {}
+        if isinstance(surface_state.get("imageDraft"), dict):
+            surface_state["imageDraft"] = _sanitize_image_draft_for_ui_preset(surface_state["imageDraft"])
+        snapshot["surface_state"] = surface_state
     return snapshot
 
 
@@ -116,6 +193,7 @@ def get_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise FileNotFoundError("UI preset not found")
     index = _load_index(surface)
+    record["snapshot"] = normalize_snapshot(record.get("snapshot"), surface=surface)
     record["is_default"] = preset_id == index.get("default_preset_id")
     return record
 
@@ -130,7 +208,7 @@ def create_ui_preset(surface: str, payload: dict[str, Any]) -> dict[str, Any]:
         "surface": surface,
         "name": name,
         "description": str(payload.get("description") or "").strip(),
-        "snapshot": normalize_snapshot(payload.get("snapshot")),
+        "snapshot": normalize_snapshot(payload.get("snapshot"), surface=surface),
         "created_at": now,
         "updated_at": now,
     }
@@ -151,7 +229,7 @@ def update_ui_preset(surface: str, preset_id: str, payload: dict[str, Any]) -> d
     if "description" in payload:
         record["description"] = str(payload.get("description") or "").strip()
     if "snapshot" in payload:
-        record["snapshot"] = normalize_snapshot(payload.get("snapshot"))
+        record["snapshot"] = normalize_snapshot(payload.get("snapshot"), surface=surface)
     record["updated_at"] = _now()
     record.pop("is_default", None)
     _write_json(_preset_path(surface, preset_id), record)

@@ -7,6 +7,12 @@ from pathlib import Path
 
 from pathlib import Path
 
+from .prompt_authority import (
+    PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY,
+    build_prompt_authority_contract,
+    normalize_prompt_authority,
+)
+
 def studio_data_path(name: str, legacy_rel: str | None = None):
     root = Path(__file__).resolve().parents[4]
     path = root / 'neo_data' / name
@@ -429,6 +435,11 @@ def _compose_scene_director_prompt_context(payload: dict[str, Any], scene: dict[
     model patch compiles region prompts separately from sampler conditioning.
     """
     global_data = scene.get('global') if isinstance(scene.get('global'), dict) else {}
+    prompt_authority = normalize_prompt_authority(
+        scene.get('prompt_authority')
+        or global_data.get('prompt_authority')
+        or payload.get('scene_director_prompt_authority')
+    )
     main_prompt = _prompt_text(global_data.get('prompt') or payload.get('positive') or '')
     main_negative = _prompt_text(global_data.get('negative_prompt') or payload.get('negative') or '')
     style_positive = _prompt_text(payload.get('style_positive') or '')
@@ -471,6 +482,12 @@ def _compose_scene_director_prompt_context(payload: dict[str, Any], scene: dict[
             _render_contract(_contract_template_for_render(contracts.get('count_contract')), count),
         ])
     effective_negative = _unique_csv([main_negative, style_negative if style_allowed else '', _render_contract(contracts.get('negative_contract'), count) if contracts.get('enabled') is not False else ''])
+    if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY:
+        # Scene Director-only deliberately keeps only local region prompts and
+        # contracts in the regional lanes. The Neo core prompt remains stored in
+        # the payload for replay, but is excluded from conditioning here.
+        effective_global = ''
+        effective_negative = ''
 
     raw_context = scene.get('prompt_context') if isinstance(scene.get('prompt_context'), dict) else {}
     mode = str(payload.get('scene_director_region_context_mode') or raw_context.get('mode') or 'global_and_style').strip().lower()
@@ -479,7 +496,9 @@ def _compose_scene_director_prompt_context(payload: dict[str, Any], scene: dict[
     enabled = payload.get('scene_director_region_context_enabled')
     if enabled is None:
         enabled = raw_context.get('enabled')
-    enabled = enabled is not False and mode != 'off'
+    enabled = enabled is not False and mode != 'off' and prompt_authority != PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY
+    if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY:
+        mode = 'off'
     weight = _clamp_float(payload.get('scene_director_region_context_weight') if payload.get('scene_director_region_context_weight') is not None else raw_context.get('weight'), 0.35, 0.0, 2.0)
     if mode == 'global_and_style':
         # Use the user-authored global/style prompt before Scene Director contracts.
@@ -505,6 +524,21 @@ def _compose_scene_director_prompt_context(payload: dict[str, Any], scene: dict[
         region_refinement_negative_prompt = style_stack_original_negative or main_negative
         region_refinement_policy = 'global_style_blocked_for_region_refinement'
 
+    prompt_authority_contract = build_prompt_authority_contract(
+        {
+            'prompt_authority': prompt_authority,
+            'region_context': {'enabled': enabled, 'mode': mode, 'weight': weight},
+            'global_context_routing': payload.get('global_context_routing') if isinstance(payload.get('global_context_routing'), dict) else {
+                'positive': payload.get('scene_director_global_context_route_positive', True),
+                'negative': payload.get('scene_director_global_context_route_negative', True),
+                'style': payload.get('scene_director_global_context_route_style', True),
+            },
+        },
+        global_positive=main_prompt,
+        global_negative=main_negative,
+        style_positive=style_positive,
+        region_context_weight=weight,
+    )
     return {
         'main_prompt': main_prompt,
         'main_negative': main_negative,
@@ -526,6 +560,8 @@ def _compose_scene_director_prompt_context(payload: dict[str, Any], scene: dict[
         'region_refinement_global_prompt': region_refinement_global_prompt,
         'region_refinement_negative_prompt': region_refinement_negative_prompt,
         'region_refinement_policy': region_refinement_policy,
+        'prompt_authority': prompt_authority,
+        'prompt_authority_contract': prompt_authority_contract,
     }
 
 
@@ -752,6 +788,10 @@ def normalize_scene_director_state(extension_state: dict[str, Any] | None = None
         'family': str(state.get('family') or '').strip().lower(),
         'size': state.get('size') if isinstance(state.get('size'), dict) else {},
         'global': state.get('global') if isinstance(state.get('global'), dict) else {},
+        'prompt_authority': normalize_prompt_authority(
+            state.get('prompt_authority')
+            or (state.get('global') if isinstance(state.get('global'), dict) else {}).get('prompt_authority')
+        ),
         'contracts': state.get('contracts') if isinstance(state.get('contracts'), dict) else {},
         'mask_refine': state.get('mask_refine') if isinstance(state.get('mask_refine'), dict) else {},
         'regions': regions,
@@ -882,6 +922,8 @@ def build_v052_scene_json(scene: dict[str, Any], width: int, height: int, mask_r
         'identity': {'ipadapter': ipadapter},
         'mask_refinement': mask_policy,
         'prompt_context': {
+            'prompt_authority': prompt_context.get('prompt_authority'),
+            'prompt_authority_contract': prompt_context.get('prompt_authority_contract', {}),
             'region_context_enabled': bool(prompt_context.get('region_context_enabled')),
             'region_context_mode': prompt_context.get('region_context_mode'),
             'region_context_weight': prompt_context.get('region_context_weight'),
@@ -1100,6 +1142,11 @@ def scene_director_to_regional_payload(payload: dict[str, Any]) -> tuple[dict[st
     payload['scene_director_v052_global_prompt_override'] = prompt_context.get('effective_global_prompt', '')
     payload['scene_director_effective_global_prompt'] = prompt_context.get('effective_global_prompt', '')
     payload['scene_director_effective_negative_prompt'] = prompt_context.get('effective_negative_prompt', '')
+    payload['scene_director_prompt_authority'] = normalize_prompt_authority(prompt_context.get('prompt_authority'))
+    payload['scene_director_prompt_authority_contract'] = prompt_context.get('prompt_authority_contract', {})
+    payload['scene_director_global_prompt_excluded'] = bool(
+        payload['scene_director_prompt_authority'] == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY
+    )
     payload['scene_director_region_refinement_global_prompt'] = prompt_context.get('region_refinement_global_prompt', prompt_context.get('effective_global_prompt', ''))
     payload['scene_director_region_refinement_negative_prompt'] = prompt_context.get('region_refinement_negative_prompt', prompt_context.get('effective_negative_prompt', ''))
     payload['scene_director_style_stack_apply_to_region_refinement'] = bool(prompt_context.get('style_stack_apply_to_region_refinement'))

@@ -424,7 +424,7 @@ const state = {
     source_image_width: 0,
     source_image_height: 0,
     lora_stack: { rows: [], library: { folder_path: '', search: '', selected_record_id: '', selected_preview_index: 0, edit_mode: false, merge_mode: 'fill_missing', records: [], current_record: null, status: '', catalog_count: 0, available_count: 0, backend_loaded_profile_id: '' } },
-    style_stack: { enabled: true, target: 'both', active_styles: [], manual_positive: '', manual_negative: '', search: '', selected_name: '', editor: { name: '', prompt: '', negative_prompt: '' }, library: { records: [], status: '', loading: false, loaded: false, count: 0, path: '', encoding: '' }, payload_version: 1, last_payload_preview: null },
+    style_stack: { enabled: true, target: 'both', active_styles: [], manual_positive: '', manual_negative: '', search: '', selected_name: '', editor: { name: '', prompt: '', negative_prompt: '' }, library: { records: [], status: '', loading: false, loaded: false, count: 0, path: '', encoding: '', sync: {} }, payload_version: 1, last_payload_preview: null },
     wildcards: { enabled: true, root: '', selected_token: '', target: 'positive_prompt', auto_resolve: true, use_seed: true, preview_count: 3, queue_count: 3, variant_offset: 0, max_passes: 24, search: '', editor: { token: '', values_text: '', extension: '.txt' }, library: { entries: [], values: [], status: '', loading: false, loaded: false, count: 0, root: '' }, payload_version: 1, last_preview_results: [], last_payload_preview: null, releaseStage: 'ready' },
     'image.layerdiffuse': { enabled: false, mode: 'transparent_asset', source_type: 'prompt', decode_mode: 'rgba', output_policy: 'new_run', save_rgba: true, save_rgb: false, save_alpha: true, save_metadata: true, compatibility_mode: 'auto', sd_version: 'auto', workflow_variant: 'auto', layerdiffuse_weight: 1.0, blend_strength: 0.35, sub_batch_size: 16 },
   },
@@ -442,6 +442,7 @@ const state = {
   imageResultsFilterCategory: 'all',
   imageResultsSort: 'newest',
   imageResultsReplaySource: 'none',
+  imageResultsLatePassRestorePoint: 'none',
   imageResultsLoading: false,
   imageResultsError: '',
   imageResultsIntegrityChecked: false,
@@ -738,6 +739,107 @@ async function roleplaySceneDirectorTraces() {
 let uiStateSaveTimer = null;
 let videoElapsedTicker = null;
 let imageElapsedTicker = null;
+
+const IMAGE_UI_PRESET_LATENT_CHECKPOINT_SCHEMA = 'neo.image.ui_preset_latent_checkpoint.v1';
+
+function imageReplayContextIsLatePassContinuation(replayContext = null) {
+  if (!replayContext || typeof replayContext !== 'object') return false;
+  const branch = replayContext.branch_restore && typeof replayContext.branch_restore === 'object'
+    ? replayContext.branch_restore
+    : null;
+  return Boolean(
+    replayContext.replay_kind === 'late_pass_continuation'
+    || replayContext.late_pass_continuation
+    || branch?.activation_scope === 'explicit_late_pass_continuation'
+    || (replayContext.replay_kind === 'latent_branch' && branch?.restore_point && branch.restore_point !== 'base_generation_only')
+  );
+}
+
+function normalizeImageUiPresetLatentCheckpoint(checkpoint = null) {
+  if (!checkpoint || typeof checkpoint !== 'object') return null;
+  const rawBranch = checkpoint.branch_restore && typeof checkpoint.branch_restore === 'object'
+    ? checkpoint.branch_restore
+    : checkpoint;
+  const restorePoint = String(rawBranch.restore_point || checkpoint.restore_point || '').trim();
+  if (!restorePoint || restorePoint === 'base_generation_only') return null;
+  const providerReference = rawBranch.provider_reference && typeof rawBranch.provider_reference === 'object'
+    ? { ...rawBranch.provider_reference }
+    : {};
+  const allowedPasses = Array.isArray(rawBranch.allowed_passes) && rawBranch.allowed_passes.length
+    ? rawBranch.allowed_passes.map((item) => String(item || '')).filter(Boolean)
+    : (typeof imageLatePassAllowedPasses === 'function' ? imageLatePassAllowedPasses(restorePoint) : []);
+  const branchRestore = {
+    ...rawBranch,
+    source_result_id: String(rawBranch.source_result_id || checkpoint.source_result_id || '').trim(),
+    restore_point: restorePoint,
+    restore_point_label: rawBranch.restore_point_label || checkpoint.restore_point_label || (typeof imageLatePassRestorePointLabel === 'function' ? imageLatePassRestorePointLabel(restorePoint) : restorePoint),
+    provider_reference: providerReference,
+    activation_scope: 'ui_preset_reference_only',
+    late_pass_only: true,
+    allowed_passes: allowedPasses,
+    enabled_passes: [],
+    state: 'ui_preset_latent_checkpoint_inactive',
+  };
+  return {
+    schema_version: IMAGE_UI_PRESET_LATENT_CHECKPOINT_SCHEMA,
+    source_result_id: branchRestore.source_result_id,
+    restore_point: restorePoint,
+    restore_point_label: branchRestore.restore_point_label,
+    provider_id: branchRestore.provider_id || '',
+    backend: branchRestore.backend || '',
+    artifact_id: branchRestore.artifact_id || '',
+    provider_reference: providerReference,
+    allowed_passes: allowedPasses,
+    branch_restore: branchRestore,
+    activation_scope: 'ui_preset_reference_only',
+    state: 'saved_in_ui_preset_inactive',
+    requires_explicit_load: true,
+    no_png_reencode: branchRestore.no_png_reencode !== false,
+  };
+}
+
+function imageUiPresetLatentCheckpointFromDraft(imageDraft = {}) {
+  const draft = imageDraft && typeof imageDraft === 'object' ? imageDraft : {};
+  const replayContext = draft._replay_context && typeof draft._replay_context === 'object'
+    ? draft._replay_context
+    : null;
+  if (imageReplayContextIsLatePassContinuation(replayContext)) {
+    const source = replayContext.branch_restore || replayContext.late_pass_continuation || null;
+    return normalizeImageUiPresetLatentCheckpoint(source);
+  }
+  return normalizeImageUiPresetLatentCheckpoint(draft._preset_latent_checkpoint);
+}
+
+function serializeImageDraftForUiPreset(imageDraft = {}) {
+  const serialized = { ...(imageDraft || {}) };
+  const checkpoint = imageUiPresetLatentCheckpointFromDraft(serialized);
+  if (checkpoint) serialized._preset_latent_checkpoint = checkpoint;
+  else delete serialized._preset_latent_checkpoint;
+  if (imageReplayContextIsLatePassContinuation(serialized._replay_context)) {
+    delete serialized._replay_context;
+    delete serialized._late_pass_continuation;
+  }
+  return serialized;
+}
+
+function applyImageDraftFromUiPreset(currentDraft = {}, savedDraft = {}) {
+  const current = currentDraft && typeof currentDraft === 'object' ? currentDraft : {};
+  const saved = savedDraft && typeof savedDraft === 'object' ? savedDraft : {};
+  const merged = { ...current, ...saved };
+  const checkpoint = imageUiPresetLatentCheckpointFromDraft(saved);
+  if (checkpoint) merged._preset_latent_checkpoint = checkpoint;
+  else delete merged._preset_latent_checkpoint;
+
+  const savedHasReplayContext = Object.prototype.hasOwnProperty.call(saved, '_replay_context');
+  const currentContinuationActive = imageReplayContextIsLatePassContinuation(current._replay_context);
+  const savedContinuationActive = imageReplayContextIsLatePassContinuation(saved._replay_context);
+  if (savedContinuationActive || (currentContinuationActive && !savedHasReplayContext)) {
+    delete merged._replay_context;
+    delete merged._late_pass_continuation;
+  }
+  return merged;
+}
+
 function serializeUiState() {
   const activeProfile = activeImageProfile ? activeImageProfile() : null;
   const surfaceState = {
@@ -749,7 +851,7 @@ function serializeUiState() {
     activeBackendProfileId: state.activeBackendProfileId,
     activeBackendProfileIdsBySurface: { ...(state.activeBackendProfileIdsBySurface || {}) },
     detailMode: state.detailMode,
-    imageDraft: { ...state.imageDraft },
+    imageDraft: serializeImageDraftForUiPreset(state.imageDraft),
     videoDraft: { ...state.videoDraft },
     imageCustomSizePresets: state.imageCustomSizePresets || [],
     activeSavedOutputFileId: state.activeSavedOutputFileId,
@@ -795,7 +897,7 @@ function applyUiState(saved = {}) {
     activeBackendProfileId: snapshot.activeBackendProfileId || state.activeBackendProfileId,
     activeBackendProfileIdsBySurface: snapshot.activeBackendProfileIdsBySurface && typeof snapshot.activeBackendProfileIdsBySurface === 'object' ? snapshot.activeBackendProfileIdsBySurface : (state.activeBackendProfileIdsBySurface || {}),
     detailMode: snapshot.detailMode || state.detailMode,
-    imageDraft: { ...state.imageDraft, ...(snapshot.imageDraft || {}) },
+    imageDraft: applyImageDraftFromUiPreset(state.imageDraft, snapshot.imageDraft || {}),
     videoDraft: { ...state.videoDraft, ...(snapshot.videoDraft || {}) },
     imageCustomSizePresets: Array.isArray(snapshot.imageCustomSizePresets) ? snapshot.imageCustomSizePresets : state.imageCustomSizePresets,
     activeSavedOutputFileId: snapshot.activeSavedOutputFileId || state.activeSavedOutputFileId,
@@ -823,6 +925,7 @@ function applyUiState(saved = {}) {
   ensureSurfaceRuntime('video');
   ensureSurfaceRuntime(state.activeSurfaceId || 'image');
 }
+// Phase 11.7A: UI state is manual-preset driven; legacy autosave stays disabled.
 function saveUiState() {
     clearTimeout(uiStateSaveTimer);
 }
@@ -845,7 +948,7 @@ async function loadDefaultUiPreset(surfaceId) {
     state.activeUiPresetIds[surfaceId] = payload.preset.preset_id;
     state.uiPresetDefaultsLoadedBySurface = state.uiPresetDefaultsLoadedBySurface || {};
     state.uiPresetDefaultsLoadedBySurface[surfaceId] = true;
-    state.uiPresetStatus = `Loaded default preset: ${payload.preset.name}`;
+    state.uiPresetStatus = `Loaded default preset: ${payload.preset.name}${imageUiPresetLatentCheckpoint() ? ' · latent checkpoint available but inactive' : ''}`;
   }
 }
 async function applySelectedUiPreset(surfaceId, presetId) {
@@ -856,7 +959,7 @@ async function applySelectedUiPreset(surfaceId, presetId) {
   state.activeUiPresetIds[surfaceId] = presetId;
   state.uiPresetDefaultsLoadedBySurface = state.uiPresetDefaultsLoadedBySurface || {};
   state.uiPresetDefaultsLoadedBySurface[surfaceId] = true;
-  state.uiPresetStatus = `Loaded preset: ${preset.name}`;
+  state.uiPresetStatus = `Loaded preset: ${preset.name}${imageUiPresetLatentCheckpoint() ? ' · latent checkpoint available but inactive' : ''}`;
   render();
 }
 async function createUiPresetFromCurrent(surfaceId) {
@@ -5311,6 +5414,30 @@ function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = 
       : backendProfileBlockedMessage(profile, 'Image generation');
   push('provider_status', 'Provider status', connected ? 'ready' : 'blocked', providerMessage, !connected);
   push('prompt', 'Prompt', promptText ? 'ready' : 'warning', promptText ? 'Positive prompt is present.' : 'Prompt is empty. You can still run, but output quality may be unpredictable.', false);
+  const latePassContinuation = activeImageLatePassContinuation();
+  if (latePassContinuation) {
+    const allowedPasses = imageLatePassContinuationAllowedPasses(latePassContinuation);
+    const enabledPasses = imageEnabledLatePassIds();
+    const enabledAllowedPasses = enabledPasses.filter((item) => allowedPasses.includes(item));
+    const disallowedPasses = enabledPasses.filter((item) => !allowedPasses.includes(item));
+    const continuationModeReady = mode === 'generate';
+    push(
+      'late_pass_workflow_mode',
+      'Late-pass workflow mode',
+      continuationModeReady ? 'ready' : 'blocked',
+      continuationModeReady ? 'Generate mode will compile the saved latent directly into the selected late passes.' : 'Late-Pass Continuation only runs in Generate mode. Exit continuation before using Img2Img, Inpaint, or Outpaint.',
+      !continuationModeReady,
+    );
+    push(
+      'late_pass_selection',
+      'Late-pass selection',
+      enabledAllowedPasses.length && !disallowedPasses.length ? 'ready' : 'blocked',
+      disallowedPasses.length
+        ? `The selected restore point does not allow: ${disallowedPasses.join(', ')}.`
+        : (enabledAllowedPasses.length ? `Enabled: ${enabledAllowedPasses.join(', ')}.` : 'Enable at least one allowed late pass, such as High-Res Fix or ADetailer.'),
+      !enabledAllowedPasses.length || Boolean(disallowedPasses.length),
+    );
+  }
   if (requiresSource) {
     push('source_image', 'Source image', sourceConditioningReady ? 'ready' : 'blocked', sourceReady ? sourceImageLabel() : (stitchOnlyReady ? 'Stitch Group will provide the base image lane.' : `${workflowOption?.label || mode} requires a source image.`), !sourceConditioningReady);
   } else {
@@ -5593,7 +5720,7 @@ function renderImageCommandStrip(ctx = {}) {
           <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="imageProgressLabel">${imageProgressLabel('Idle')}</span><span id="imageProgressElapsed" class="neo-progress-elapsed">${imageProgressElapsedLabel()}</span></span></div>
           <div class="neo-progress-track"><span id="imageProgressFill" style="width: ${imageProgressPercent()}%"></span></div>
         </div>`;
-  return commandStripShell('image', 'image-generation-command-strip', `${configHtml}${renderImageGenerationReadinessPreflight(imageReadiness)}${actionsHtml}`, 'neo-image-command-strip');
+  return commandStripShell('image', 'image-generation-command-strip', `${configHtml}${renderImageUiPresetLatentCheckpointBanner()}${renderImageLatePassContinuationBanner()}${renderImageGenerationReadinessPreflight(imageReadiness)}${actionsHtml}`, 'neo-image-command-strip');
 }
 
 function renderVideoCommandStrip(ctx = {}) {
@@ -5909,6 +6036,35 @@ function renderWorkspaceHeader(surface, subtab) {
   const generateBtn = document.getElementById('imageGenerateBtn');
   if (generateBtn && surface.surface_id === 'image') {
     generateBtn.addEventListener('click', () => runImageGeneration());
+  }
+
+  const presetLatentLoadBtn = document.getElementById('imagePresetLatentLoadBtn');
+  if (presetLatentLoadBtn && surface.surface_id === 'image') {
+    presetLatentLoadBtn.addEventListener('click', () => activateImageUiPresetLatentCheckpoint());
+  }
+
+  const presetLatentRemoveBtn = document.getElementById('imagePresetLatentRemoveBtn');
+  if (presetLatentRemoveBtn && surface.surface_id === 'image') {
+    presetLatentRemoveBtn.addEventListener('click', () => {
+      clearImageUiPresetLatentCheckpoint({ renderAfter: true, statusMessage: 'The inactive latent checkpoint reference was removed from the current draft. Update the UI preset to save that change.' });
+    });
+  }
+
+  const latePassOpenFinishBtn = document.getElementById('imageLatePassOpenFinishBtn');
+  if (latePassOpenFinishBtn && surface.surface_id === 'image') {
+    latePassOpenFinishBtn.addEventListener('click', () => {
+      setSurfaceWorkspaceAppId('image', 'finish');
+      setImageWorkflowMode('generate');
+      saveUiState();
+      render();
+    });
+  }
+
+  const latePassExitBtn = document.getElementById('imageLatePassExitBtn');
+  if (latePassExitBtn && surface.surface_id === 'image') {
+    latePassExitBtn.addEventListener('click', () => {
+      clearImageLatePassContinuation({ renderAfter: true, statusMessage: 'Late-Pass Continuation exited. Current recipe and extension settings were kept.' });
+    });
   }
 
   const stopBtn = document.getElementById('imageStopBtn');
@@ -7464,7 +7620,7 @@ function sceneDirectorDefaultRegion(index = 0, role = 'character') {
     attach_to: '',
     relationship: '',
     target_area: safeRole === 'hair_detail' ? 'hair' : (safeRole === 'face_detail' ? 'face' : (safeRole === 'hand_detail' ? 'hands' : (safeRole === 'clothing' ? 'outfit' : (safeRole === 'held_prop' ? 'hand' : '')))),
-    priority: safeRole === 'hair_detail' ? 'override' : 'reinforce',
+    priority: SCENE_DIRECTOR_V054_PARENT_REQUIRED_ROLES.includes(safeRole) ? 'override' : 'reinforce',
     bbox: [box.x, box.y, box.w, box.h],
     feather: safeType === 'character' ? 8 : (safeType === 'object' ? 10 : 18),
     reference: 'off',
@@ -7485,6 +7641,77 @@ function sceneDirectorDefaultRegion(index = 0, role = 'character') {
     extension_routes: { schema: 'neo.image.scene_director.extension_unit_routing.v054.v1', releaseStage: 'ready', legacy_stage: 'SD-V054-26.3', controlnet_unit_id: '', adetailer_pass_id: '', ipadapter_unit_id: '', ipadapter_profile_id: '', lora_row_ids: [], mask_mode: 'region', execution: 'region_assignment_ready' },
   };
 }
+
+const SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT = 'global_context';
+const SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY = 'scene_director_only';
+function sceneDirectorPromptAuthority(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/[ -]+/g, '_');
+  if (['scene', 'scene_only', 'scene_director', 'regional_only', 'local_only'].includes(raw)) return SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY;
+  return SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT;
+}
+function sceneDirectorPromptAuthorityLabel(value) {
+  return sceneDirectorPromptAuthority(value) === SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY
+    ? 'Scene Director only'
+    : 'Global context + Scene Director structure';
+}
+function sceneDirectorPromptAuthorityOptions(selected, disabled = '') {
+  const value = sceneDirectorPromptAuthority(selected);
+  return `<option value="${SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT}" ${value === SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT ? 'selected' : ''}>Global context + Scene Director structure</option><option value="${SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY}" ${value === SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY ? 'selected' : ''}>Scene Director only</option>`;
+}
+function sceneDirectorCompactPromptContext(value, maxChars = 420) {
+  const chunks = String(value || '').replace(/[\n;]/g, ',').split(',').map((item) => item.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const seen = new Set();
+  const unique = chunks.filter((item) => {
+    const key = item.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 18);
+  const compact = unique.join(', ') || String(value || '').trim().replace(/\s+/g, ' ');
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, maxChars).replace(/\s+\S*$/, '').replace(/[ ,;:.]+$/, '')}`;
+}
+function sceneDirectorPromptAuthorityContract(settings, corePrompts) {
+  const mode = sceneDirectorPromptAuthority(settings?.prompt_authority);
+  const positiveAllowed = settings?.global_context_route_positive !== false;
+  const styleAllowed = settings?.global_context_route_style !== false;
+  const contextMode = ['off', 'global_only', 'style_only', 'global_and_style'].includes(settings?.region_context_mode) ? settings.region_context_mode : 'global_and_style';
+  const positive = positiveAllowed ? String(corePrompts?.positive_prompt || settings?.global_prompt || '').trim() : '';
+  const style = styleAllowed ? String(corePrompts?.style_prompt || '').trim() : '';
+  const regionalRaw = contextMode === 'global_only' ? positive : (contextMode === 'style_only' ? style : (contextMode === 'off' ? '' : [positive, style].filter(Boolean).join(', ')));
+  const regionalContext = mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY ? '' : sceneDirectorCompactPromptContext(regionalRaw);
+  const regionalEnabled = mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT && settings?.region_context_enabled !== false && contextMode !== 'off' && Boolean(regionalContext);
+  return {
+    schema: 'neo.image.scene_director.prompt_authority.v1',
+    mode,
+    label: sceneDirectorPromptAuthorityLabel(mode),
+    global_context_enabled: mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT,
+    global_prompt_excluded: mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY,
+    regional_context_enabled: regionalEnabled,
+    regional_context_mode: mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_ONLY ? 'off' : contextMode,
+    regional_context_weight: Number(settings?.region_context_weight ?? 0.35),
+    regional_context_position: 'suffix',
+    regional_context: regionalEnabled ? regionalContext : '',
+    negative_context_enabled: mode === SCENE_DIRECTOR_PROMPT_AUTHORITY_GLOBAL_CONTEXT && settings?.global_context_route_negative !== false,
+    source: 'neo_core_prompts',
+  };
+}
+function sceneDirectorCharacterLockExecutionMode(value = 'latent_attention') {
+  const raw = String(value || 'latent_attention').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const aliases = {
+    prompt: 'prompt_guard_only', prompt_only: 'prompt_guard_only', prompt_guard: 'prompt_guard_only', guard_only: 'prompt_guard_only',
+    attention: 'latent_attention', attention_only: 'latent_attention', in_sampler: 'latent_attention', in_sampler_attention: 'latent_attention',
+    legacy_attention: 'latent_attention', legacy_in_sampler_attention: 'latent_attention', hairlock_strong: 'latent_attention',
+    latent: 'latent_attention', latent_pass: 'latent_attention', latent_correction: 'latent_attention', latent_correction_pass: 'latent_attention',
+    character_latent: 'latent_repair', latent_trait_repair: 'latent_repair', latent_repair_pass: 'latent_repair',
+    masked: 'end_refinement', mask: 'end_refinement', masked_pass: 'end_refinement', masked_correction: 'end_refinement', masked_correction_pass: 'end_refinement',
+    refinement: 'end_refinement', end: 'end_refinement', end_pass: 'end_refinement', final: 'end_refinement',
+    both: 'latent_and_refinement', latent_plus_refinement: 'latent_and_refinement', latent_and_end_refinement: 'latent_and_refinement',
+    none: 'off', disabled: 'off', false: 'off',
+  };
+  const mode = aliases[raw] || raw;
+  return ['prompt_guard_only', 'latent_attention', 'latent_repair', 'end_refinement', 'latent_and_refinement', 'off'].includes(mode) ? mode : 'latent_attention';
+}
 function sceneDirectorSettings() {
   const raw = state.imageDraft?.[SCENE_DIRECTOR_EXTENSION_ID] || {};
   const regions = Array.isArray(raw.regions) && raw.regions.length ? raw.regions : [sceneDirectorDefaultRegion(0)];
@@ -7499,6 +7726,7 @@ function sceneDirectorSettings() {
     max_subject_slots: raw.max_subject_slots ?? 4,
     backend_mode: raw.backend_mode || 'v054_scene_graph',
     authority_mode: raw.authority_mode || raw.scene_director_authority_mode || 'balanced',
+    prompt_authority: sceneDirectorPromptAuthority(raw.prompt_authority || raw.scene_director_prompt_authority || 'global_context'),
     mask_source: raw.mask_source || 'region_box',
     contracts_enabled: raw.contracts_enabled !== false,
     use_node_auto_prompts: Boolean(raw.use_node_auto_prompts),
@@ -7512,7 +7740,7 @@ function sceneDirectorSettings() {
     region_context_position: 'suffix',
     apply_global_style_to_region_refinement: Boolean(raw.apply_global_style_to_region_refinement || raw.style_stack_apply_to_region_refinement),
     mask_refine_enabled: Boolean(raw.mask_refine_enabled),
-    character_lock_execution_mode: raw.character_lock_execution_mode || raw.scene_director_character_lock_execution_mode || 'masked_correction',
+    character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(raw.character_lock_execution_mode || raw.scene_director_character_lock_execution_mode || raw.character_lock_pass_plan || 'latent_attention'),
     character_lock_first_pass_enabled: raw.character_lock_first_pass_enabled !== false,
     character_lock_first_pass_apply_to: raw.character_lock_first_pass_apply_to || 'strong_strict_only',
     character_lock_first_pass_timing: raw.character_lock_first_pass_timing || 'before_adapters',
@@ -7556,11 +7784,12 @@ function sceneDirectorSettings() {
     identity_profile_optional_lora: raw.identity_profile_optional_lora || '',
     identity_profile_lora_weight: raw.identity_profile_lora_weight ?? 0.8,
     identity_profile_trigger_words: raw.identity_profile_trigger_words || '',
-    pair_pose_enabled: Boolean(raw.pair_pose_enabled),
-    pair_pose_prompt: raw.pair_pose_prompt || raw.relationship_pose_prompt || '',
-    pair_pose_negative_guard: raw.pair_pose_negative_guard || raw.relationship_pose_negative_guard || '',
-    pair_pose_strength: raw.pair_pose_strength ?? 0.75,
-    pair_pose_apply_to_character_traits: raw.pair_pose_apply_to_character_traits !== false,
+    // Phase 27.13 retires Advanced Pair Pose. Record only whether an older
+    // saved scene contained it; never retain or replay its prompt text.
+    legacy_pair_pose_present: Boolean(
+      raw.legacy_pair_pose_present || raw.pair_pose_enabled || raw.pair_pose_prompt ||
+      raw.relationship_pose_prompt || raw.pair_pose_negative_guard || raw.relationship_pose_negative_guard
+    ),
     background_space_enabled: Boolean(raw.background_space_enabled),
     background_space_prompt: raw.background_space_prompt || '',
     background_space_negative_guard: raw.background_space_negative_guard || '',
@@ -7646,6 +7875,10 @@ function sceneDirectorRegionHasReference(region = {}) {
 }
 const SCENE_DIRECTOR_V054_ROLES = ['character', 'face_detail', 'hair_detail', 'hand_detail', 'character_detail', 'clothing', 'held_prop', 'object', 'background', 'background_object', 'transition_effect', 'text', 'lighting', 'effect', 'style', 'custom'];
 const SCENE_DIRECTOR_V054_PARENT_REQUIRED_ROLES = ['face_detail', 'hair_detail', 'hand_detail', 'character_detail', 'clothing', 'held_prop'];
+const SCENE_DIRECTOR_V054_MAIN_PARENT_ROLES = ['character', 'background'];
+const SCENE_DIRECTOR_V054_CHARACTER_PARENT_ONLY_ROLES = ['face_detail', 'hair_detail', 'hand_detail', 'character_detail', 'clothing', 'held_prop'];
+const SCENE_DIRECTOR_V054_BACKGROUND_PARENT_ONLY_ROLES = ['background_object', 'transition_effect'];
+const SCENE_DIRECTOR_V054_CHILD_OWNED_ATTACHMENT_ROLES = SCENE_DIRECTOR_V054_ROLES.filter((role) => !SCENE_DIRECTOR_V054_MAIN_PARENT_ROLES.includes(role));
 const SCENE_DIRECTOR_V054_RELATIONSHIPS = ['', 'holding', 'wearing', 'attached_to', 'standing_near', 'behind', 'in_front_of', 'around', 'on_top_of', 'inside', 'carrying', 'looking_at', 'touching', 'hugging', 'leaning_on', 'resting_head_on', 'custom'];
 const SCENE_DIRECTOR_V054_RELATIONSHIP_COMPILER_PHASE = 'SD-V054-15';
 // Legacy test anchor: SCENE_DIRECTOR_V054_RELATIONSHIP_COMPILER_PHASE = 'SD-V054-7'
@@ -7654,12 +7887,47 @@ const SCENE_DIRECTOR_CHARACTER_LOCK_MODES = ['off', 'soft', 'balanced', 'strong'
 const SCENE_DIRECTOR_CHARACTER_GUARD_MODES = ['off', 'soft', 'balanced', 'strong', 'strict'];
 const SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES = [
   'gender', 'ethnicity', 'species_race', 'build', 'skin_tone', 'hair',
+  'facial_hair',
   'clothing_top', 'clothing_bottom', 'full_costume', 'pose', 'expression',
   'accessories', 'shoes',
 ];
+const SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES = [
+  'body_details', 'top_garment_state', 'bottom_garment_state', 'underlayer',
+];
 const SCENE_DIRECTOR_CHARACTER_TRAIT_LABELS = {
   gender: 'Gender', ethnicity: 'Ethnicity', species_race: 'Species / Fantasy Race', build: 'Build / Body', skin_tone: 'Skin Tone', hair: 'Hair',
+  facial_hair: 'Facial Hair',
   clothing_top: 'Clothing Top', clothing_bottom: 'Clothing Bottom', full_costume: 'Full Costume', pose: 'Pose', expression: 'Expression', accessories: 'Accessories', shoes: 'Shoes',
+};
+const SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_LABELS = {
+  body_details: 'Body Details',
+  top_garment_state: 'Top Garment State',
+  bottom_garment_state: 'Bottom Garment State',
+  underlayer: 'Underlayer / Underwear',
+};
+const SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS = {
+  full_body: 'Full body',
+  face: 'Face',
+  torso: 'Torso / upper body',
+  lower_torso: 'Lower torso / waist',
+  arms_hands: 'Arms / hands',
+  legs: 'Legs',
+  feet: 'Feet',
+};
+const SCENE_DIRECTOR_HELD_ITEM_HANDS = {
+  auto: 'Auto / unspecified',
+  left: 'Left hand',
+  right: 'Right hand',
+  both: 'Both hands',
+};
+const SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS = new Set(['hair', 'clothing_top', 'clothing_bottom', 'full_costume', 'underlayer']);
+const SCENE_DIRECTOR_HAIR_COLOR_BLEND_MODES = {
+  highlights: 'Primary + secondary highlights',
+  roots: 'Primary roots → secondary lengths',
+  tips: 'Primary + secondary tips',
+  streaks: 'Primary + secondary streaks',
+  split_dye: 'Split dye',
+  ombre: 'Primary → secondary ombré',
 };
 
 function sceneDirectorTraitLibraries() {
@@ -7667,10 +7935,139 @@ function sceneDirectorTraitLibraries() {
   return lib.traitLibraries && typeof lib.traitLibraries === 'object' ? lib.traitLibraries : {};
 }
 
-function sceneDirectorTraitLibraryItems(category = '') {
+function sceneDirectorTraitLibraryBlock(category = '') {
   const libraries = sceneDirectorTraitLibraries();
-  const block = libraries[category] || {};
+  return libraries[category] && typeof libraries[category] === 'object' ? libraries[category] : {};
+}
+
+function sceneDirectorTraitLibraryItems(category = '') {
+  const block = sceneDirectorTraitLibraryBlock(category);
   return Array.isArray(block.items) ? block.items : [];
+}
+
+function sceneDirectorTraitMigration(category = '', selectedId = '') {
+  const migrations = sceneDirectorTraitLibraryBlock(category).legacy_migrations || {};
+  const migration = migrations[String(selectedId || '')];
+  return migration && typeof migration === 'object' ? migration : null;
+}
+
+function sceneDirectorColorLibraryItems(category = '') {
+  return sceneDirectorTraitLibraryItems('colors').filter((item) => {
+    const roles = Array.isArray(item.roles) ? item.roles.map(String) : [];
+    return !category || !roles.length || roles.includes(category) || (category === 'underlayer' && roles.includes('clothing_bottom'));
+  });
+}
+
+function sceneDirectorColorItemById(id = '', category = '') {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return sceneDirectorColorLibraryItems(category).find((item) => String(item.id || '') === target) || null;
+}
+
+function sceneDirectorColorOptionMarkup(selected = '', category = '') {
+  const target = String(selected || '');
+  const options = ['<option value="">Auto / no explicit color</option>'];
+  sceneDirectorColorLibraryItems(category).forEach((item) => {
+    const id = String(item.id || item.label || '');
+    if (!id) return;
+    options.push(`<option value="${escapeAttr(id)}" ${id === target ? 'selected' : ''}>${escapeHtml(item.label || id)}</option>`);
+  });
+  return options.join('');
+}
+
+function sceneDirectorColorHex(item = null) {
+  const value = String(item?.hex || '').trim();
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : '';
+}
+
+function sceneDirectorColorSwatchMarkup(item = null, extraClass = '') {
+  const hex = sceneDirectorColorHex(item);
+  const label = String(item?.label || item?.id || 'No explicit color');
+  const title = hex ? `${label} · ${hex}` : label;
+  return `<span class="neo-scene-color-swatch ${escapeAttr(extraClass)} ${hex ? '' : 'is-empty'}" style="--neo-scene-trait-swatch:${escapeAttr(hex || 'transparent')}" title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}"></span>`;
+}
+
+function sceneDirectorColorPaletteMarkup(selected = '', category = '', kind = 'primary', index = 0, locked = '') {
+  const target = String(selected || '');
+  const buttons = sceneDirectorColorLibraryItems(category).map((item) => {
+    const id = String(item.id || item.label || '');
+    if (!id) return '';
+    const hex = sceneDirectorColorHex(item);
+    const title = `${item.label || id}${hex ? ` · ${hex}` : ''}`;
+    return `<button type="button" class="neo-scene-color-choice ${id === target ? 'is-selected' : ''} ${hex ? '' : 'is-empty'}" style="--neo-scene-trait-swatch:${escapeAttr(hex || 'transparent')}" title="${escapeAttr(title)}" aria-label="Choose ${escapeAttr(title)}" aria-pressed="${id === target ? 'true' : 'false'}" data-scene-region-color-choice="${escapeAttr(id)}" data-scene-region-color-choice-kind="${escapeAttr(kind)}" data-scene-region-color-choice-category="${escapeAttr(category)}" data-scene-region-index="${index}" ${locked}></button>`;
+  }).join('');
+  return `<details class="neo-scene-color-palette-panel"><summary>View visual palette</summary><div class="neo-scene-color-palette" role="listbox" aria-label="${escapeAttr(category)} ${escapeAttr(kind)} color palette">${buttons}</div></details>`;
+}
+
+function sceneDirectorColorTerms(item = null) {
+  return Array.isArray(item?.prompt_terms) ? item.prompt_terms.map(String).map((term) => term.trim()).filter(Boolean) : [];
+}
+
+function sceneDirectorTraitColorState(region = {}, category = '', currentCategory = null) {
+  const current = currentCategory && typeof currentCategory === 'object' ? currentCategory : (() => {
+    const traits = region.character_traits && typeof region.character_traits === 'object' ? region.character_traits : {};
+    const categories = traits.categories && typeof traits.categories === 'object' ? traits.categories : traits;
+    return categories[category] && typeof categories[category] === 'object' ? categories[category] : {};
+  })();
+  const rawSelected = String(current.selected_id || current.id || region[`trait_${category}_selected`] || '');
+  const migration = sceneDirectorTraitMigration(category, rawSelected);
+  const raw = current.color_assignment && typeof current.color_assignment === 'object' ? current.color_assignment : {};
+  const primaryId = String(raw.primary_id || raw.primary_color_id || migration?.primary_color_id || '');
+  const secondaryId = String(raw.secondary_id || raw.secondary_color_id || '');
+  const blendMode = String(raw.blend_mode || (secondaryId ? 'highlights' : 'single'));
+  return {
+    enabled: raw.enabled === false ? false : Boolean(primaryId),
+    primary_id: primaryId,
+    secondary_id: category === 'hair' ? secondaryId : '',
+    blend_mode: category === 'hair' && secondaryId ? (SCENE_DIRECTOR_HAIR_COLOR_BLEND_MODES[blendMode] ? blendMode : 'highlights') : 'single',
+    source: String(raw.source || (migration?.primary_color_id ? 'legacy_trait_color_migration' : 'shared_color_library')),
+  };
+}
+
+function sceneDirectorCompileColoredTraitTerms(category = '', styleTerms = [], colorState = {}) {
+  const authoredStyles = (Array.isArray(styleTerms) ? styleTerms : []).map(String).map((term) => term.trim()).filter(Boolean);
+  const primary = sceneDirectorColorItemById(colorState.primary_id, category);
+  const secondary = category === 'hair' ? sceneDirectorColorItemById(colorState.secondary_id, category) : null;
+  const primaryText = sceneDirectorColorTerms(primary)[0] || '';
+  const secondaryText = sceneDirectorColorTerms(secondary)[0] || '';
+  if (!colorState.enabled || !primaryText) {
+    return { terms: authoredStyles, style_terms: authoredStyles, color_terms: [], primary: null, secondary: null, blend_mode: 'single', applied: false };
+  }
+  // A color may intentionally override only the color while hairstyle/garment
+  // remains Auto. Use a neutral category noun for that case; never discard the
+  // user's explicit color just because no library style was selected.
+  const autoTargets = { hair: 'hair', clothing_top: 'top garment', clothing_bottom: 'bottom garment', full_costume: 'full outfit', underlayer: 'underlayer' };
+  const styles = authoredStyles.length ? authoredStyles : [autoTargets[category] || 'item'];
+  if (category !== 'hair' || !secondaryText || secondaryText.toLowerCase() === primaryText.toLowerCase()) {
+    return {
+      terms: styles.map((style) => `${primaryText} ${style}`.trim()),
+      style_terms: authoredStyles,
+      color_terms: [primaryText],
+      primary,
+      secondary: null,
+      blend_mode: 'single',
+      applied: true,
+    };
+  }
+  const style = styles[0];
+  const blend = colorState.blend_mode || 'highlights';
+  const templates = {
+    highlights: `${primaryText} ${style} with ${secondaryText} highlights`,
+    roots: `${primaryText} roots fading into ${secondaryText} ${style}`,
+    tips: `${primaryText} ${style} with ${secondaryText} tips`,
+    streaks: `${primaryText} ${style} with ${secondaryText} streaks`,
+    split_dye: `split-dyed ${primaryText} and ${secondaryText} ${style}`,
+    ombre: `${primaryText}-to-${secondaryText} ombré ${style}`,
+  };
+  return {
+    terms: [templates[blend] || templates.highlights, ...styles.slice(1)],
+    style_terms: authoredStyles,
+    color_terms: [primaryText, secondaryText],
+    primary,
+    secondary,
+    blend_mode: templates[blend] ? blend : 'highlights',
+    applied: true,
+  };
 }
 
 function sceneDirectorTraitOptionMarkup(category = '', selected = '') {
@@ -7695,35 +8092,225 @@ function sceneDirectorTraitCategoryState(region = {}, category = '') {
   const traits = region.character_traits && typeof region.character_traits === 'object' ? region.character_traits : {};
   const categories = traits.categories && typeof traits.categories === 'object' ? traits.categories : traits;
   const current = categories[category] && typeof categories[category] === 'object' ? categories[category] : {};
+  const rawSelected = String(current.selected_id || current.id || region[`trait_${category}_selected`] || '');
+  const migration = sceneDirectorTraitMigration(category, rawSelected);
   return {
-    selected_id: String(current.selected_id || current.id || region[`trait_${category}_selected`] || ''),
+    selected_id: String(migration?.replacement_id || rawSelected),
     custom: String(current.custom || current.custom_text || region[`trait_${category}_custom`] || ''),
+    color_assignment: sceneDirectorTraitColorState(region, category, current),
+  };
+}
+
+function sceneDirectorAdditionalDetailsState(region = {}) {
+  const traits = region.character_traits && typeof region.character_traits === 'object' ? region.character_traits : {};
+  const source = traits.additional_details && typeof traits.additional_details === 'object'
+    ? traits.additional_details
+    : (region.character_additional_details && typeof region.character_additional_details === 'object' ? region.character_additional_details : {});
+  const cleanTarget = (value = 'full_body') => {
+    const target = String(value || 'full_body').trim().toLowerCase().replaceAll(' ', '_');
+    return SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS[target] ? target : 'full_body';
+  };
+  const heldItems = (Array.isArray(source.held_items) ? source.held_items : []).slice(0, 8).map((item = {}, index) => ({
+    id: String(item.id || `held_item_${index + 1}`),
+    enabled: item.enabled !== false,
+    item: String(item.item || item.name || item.description || ''),
+    hand: SCENE_DIRECTOR_HELD_ITEM_HANDS[String(item.hand || '').toLowerCase()] ? String(item.hand).toLowerCase() : 'auto',
+    action: String(item.action || 'holding'),
+    appearance: String(item.appearance || item.material_color || item.material || ''),
+  }));
+  const customDetails = (Array.isArray(source.custom_details) ? source.custom_details : []).slice(0, 12).map((item = {}, index) => ({
+    id: String(item.id || `custom_detail_${index + 1}`),
+    enabled: item.enabled !== false,
+    preset_id: String(item.preset_id || item.selected_id || ''),
+    target_area: cleanTarget(item.target_area || item.target || 'full_body'),
+    instruction: String(item.instruction || item.prompt || item.text || ''),
+    negative: String(item.negative || item.negative_prompt || ''),
+  }));
+  return {
+    schema: 'neo.image.scene_director.character_additional_details.v25_9_16',
+    phase: 'SD-V054-27.15',
+    held_items: heldItems,
+    custom_details: customDetails,
+    adds_attention_branches: false,
+  };
+}
+
+function sceneDirectorCompileHeldItem(item = {}) {
+  if (item.enabled === false || !String(item.item || '').trim()) return '';
+  const object = String(item.item || '').trim();
+  const action = String(item.action || 'holding').trim() || 'holding';
+  const hand = String(item.hand || 'auto').toLowerCase();
+  const placement = hand === 'both' ? 'with both hands' : (hand === 'left' || hand === 'right' ? `in the ${hand} hand` : 'in hand');
+  const appearance = String(item.appearance || '').trim();
+  return [(`${action} ${object} ${placement}`).replace(/\s+/g, ' ').trim(), appearance].filter(Boolean).join(', ');
+}
+
+function sceneDirectorAdditionalDetailsFromRegion(region = {}, categories = {}) {
+  const stateValue = sceneDirectorAdditionalDetailsState(region);
+  const heldItems = stateValue.held_items.map((item) => ({ ...item, prompt: sceneDirectorCompileHeldItem(item) })).filter((item) => item.prompt);
+  const customDetails = stateValue.custom_details.map((item) => {
+    const preset = sceneDirectorTraitItemById('custom_detail', item.preset_id);
+    const instruction = String(item.instruction || (Array.isArray(preset?.prompt_terms) ? preset.prompt_terms.join(', ') : '') || '').trim();
+    const negative = String(item.negative || (Array.isArray(preset?.negative_terms) ? preset.negative_terms.join(', ') : '') || '').trim();
+    const targetArea = SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS[item.target_area]
+      ? item.target_area
+      : (SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS[String(preset?.target_area || '')] ? String(preset.target_area) : 'full_body');
+    return { ...item, target_area: targetArea, instruction, negative };
+  }).filter((item) => item.enabled !== false && item.instruction);
+  const detailCategories = {};
+  SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES.forEach((category) => {
+    if (categories[category]) detailCategories[category] = categories[category];
+  });
+  return {
+    ...stateValue,
+    detail_categories: detailCategories,
+    held_items: heldItems,
+    custom_details: customDetails,
+    routing: {
+      body_details: ['primary_character_region_branch', 'existing_full_character_branch'],
+      top_garment_state: ['primary_character_region_branch', 'existing_top_or_full_outfit_branch'],
+      bottom_garment_state: ['primary_character_region_branch', 'existing_bottom_or_full_outfit_branch'],
+      underlayer: ['primary_character_region_branch', 'existing_bottom_or_full_outfit_branch'],
+      held_items: ['primary_character_region_branch', 'existing_character_pose_and_full_character_branches'],
+      custom_details: ['primary_character_region_branch', 'matching_existing_face_clothing_or_full_character_branch'],
+    },
+    policy: 'Additional Details reuse existing character, face, clothing, and pose conditioning. They do not create one attention lane per detail or add a sampler.',
   };
 }
 
 function sceneDirectorCharacterTraitsFromRegion(region = {}) {
   const categories = {};
-  SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES.forEach((category) => {
+  [...SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES, ...SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES].forEach((category) => {
     const current = sceneDirectorTraitCategoryState(region, category);
     const item = sceneDirectorTraitItemById(category, current.selected_id);
     const promptTerms = Array.isArray(item?.prompt_terms) ? item.prompt_terms.filter(Boolean).map(String) : [];
+    const negativeTerms = Array.isArray(item?.negative_terms) ? item.negative_terms.filter(Boolean).map(String) : [];
     const customTerms = String(current.custom || '').split(/[\n,;]+/).map((part) => part.trim()).filter(Boolean);
-    if (!current.selected_id && !customTerms.length) return;
+    const styleTerms = [...promptTerms, ...customTerms].filter(Boolean);
+    const colored = SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)
+      ? sceneDirectorCompileColoredTraitTerms(category, styleTerms, current.color_assignment)
+      : { terms: styleTerms, style_terms: styleTerms, color_terms: [], applied: false, blend_mode: 'single', primary: null, secondary: null };
+    if (!current.selected_id && !customTerms.length && !colored.applied) return;
     categories[category] = {
       selected_id: current.selected_id,
       selected_label: item?.label || '',
       prompt_terms: promptTerms,
+      negative_terms: negativeTerms,
       custom: current.custom,
-      explicit_terms: [...promptTerms, ...customTerms].filter(Boolean),
+      style_terms: colored.style_terms,
+      color_terms: colored.color_terms,
+      color_assignment: SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category) ? {
+        ...current.color_assignment,
+        primary_label: colored.primary?.label || '',
+        primary_terms: sceneDirectorColorTerms(colored.primary),
+        secondary_label: colored.secondary?.label || '',
+        secondary_terms: sceneDirectorColorTerms(colored.secondary),
+        applied: Boolean(colored.applied),
+      } : undefined,
+      explicit_terms: colored.terms,
       source: current.selected_id && customTerms.length ? 'explicit_library_plus_custom' : (current.selected_id ? 'explicit_library' : 'explicit_custom'),
+      prompt_provenance: colored.applied ? 'trait_style_plus_shared_color_library' : 'trait_library_or_custom_text',
     };
   });
+  const additionalDetails = sceneDirectorAdditionalDetailsFromRegion(region, categories);
+  const heldTerms = additionalDetails.held_items.map((item) => item.prompt).filter(Boolean);
+  if (heldTerms.length) {
+    categories.held_items = {
+      explicit_terms: heldTerms,
+      prompt_terms: heldTerms,
+      negative_terms: [],
+      items: additionalDetails.held_items,
+      source: 'character_additional_details',
+    };
+  }
+  const customTerms = additionalDetails.custom_details.map((item) => item.instruction).filter(Boolean);
+  if (customTerms.length) {
+    categories.custom_details = {
+      explicit_terms: customTerms,
+      prompt_terms: customTerms,
+      negative_terms: additionalDetails.custom_details.map((item) => item.negative).filter(Boolean),
+      items: additionalDetails.custom_details,
+      source: 'character_additional_details',
+    };
+  }
   return {
-    schema: 'neo.image.scene_director.character_trait_fields.v25_9_8',
+    schema: 'neo.image.scene_director.character_trait_fields.v25_9_16',
     releaseStage: 'preview',
     source_policy: 'explicit_fields_first_auto_extract_fallback',
     categories,
+    additional_details: additionalDetails,
   };
+}
+
+function sceneDirectorTraitColorPromptConflict(region = {}, category = '', current = {}) {
+  if (!SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)) return null;
+  if (!String(region.prompt || '').trim()) return null;
+  const color = current.color_assignment || {};
+  const assigned = [color.primary_id, color.secondary_id].map(String).filter(Boolean);
+  if (!assigned.length) return null;
+  const style = sceneDirectorTraitItemById(category, current.selected_id);
+  const styleTerms = [
+    ...(Array.isArray(style?.prompt_terms) ? style.prompt_terms : []),
+    ...String(current.custom || '').split(/[\n,;]+/).map((part) => part.trim()).filter(Boolean),
+  ];
+  if (!styleTerms.length) return null;
+  const detected = sceneDirectorDetectColorNearStyle(region.prompt || '', styleTerms, category);
+  if (!detected || assigned.includes(String(detected.id || ''))) return null;
+  const assignedLabels = assigned.map((id) => sceneDirectorColorItemById(id, category)?.label || id);
+  return {
+    category,
+    prompt_color_id: String(detected.id || ''),
+    prompt_color_label: String(detected.label || detected.id || ''),
+    assigned_color_ids: assigned,
+    assigned_color_labels: assignedLabels,
+    message: `Free text says ${detected.label || detected.id} near ${style?.label || category}, while the trait picker says ${assignedLabels.join(' + ')}. Both reach the sampler; update one side to avoid mixed color conditioning.`,
+  };
+}
+
+function sceneDirectorTraitColorConflictMarkup(region = {}, category = '', current = {}) {
+  const conflict = sceneDirectorTraitColorPromptConflict(region, category, current);
+  return conflict ? `<p class="neo-scene-color-conflict">⚠ ${escapeHtml(conflict.message)}</p>` : '';
+}
+
+function sceneDirectorTraitColorPanel(category = '', current = {}, index = 0, locked = '', region = {}) {
+  if (!SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)) return '';
+  const color = current.color_assignment || {};
+  const primary = sceneDirectorColorItemById(color.primary_id, category);
+  const secondary = category === 'hair' ? sceneDirectorColorItemById(color.secondary_id, category) : null;
+  const summary = primary
+    ? `${primary.label || color.primary_id}${secondary ? ` + ${secondary.label || color.secondary_id} · ${SCENE_DIRECTOR_HAIR_COLOR_BLEND_MODES[color.blend_mode] || 'Highlights'}` : ''}`
+    : 'Add color';
+  const summarySwatches = [primary, secondary].filter(Boolean).map((item) => sceneDirectorColorSwatchMarkup(item, 'is-summary')).join('');
+  const secondaryControls = category === 'hair' ? `<label>Secondary color (optional)<div class="neo-scene-color-selection">${sceneDirectorColorSwatchMarkup(secondary)}<select data-scene-region-trait-color-kind="secondary" data-scene-region-trait-color-category="${escapeAttr(category)}" data-scene-region-index="${index}" ${locked}>${sceneDirectorColorOptionMarkup(color.secondary_id, category)}</select></div></label>${sceneDirectorColorPaletteMarkup(color.secondary_id, category, 'secondary', index, locked)}<label>Two-color pattern<select data-scene-region-trait-color-kind="blend_mode" data-scene-region-trait-color-category="${escapeAttr(category)}" data-scene-region-index="${index}" ${locked}>${Object.entries(SCENE_DIRECTOR_HAIR_COLOR_BLEND_MODES).map(([id, label]) => `<option value="${escapeAttr(id)}" ${id === color.blend_mode ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>` : '';
+  return `<details class="neo-scene-trait-color-panel" data-scene-trait-color-panel-category="${escapeAttr(category)}"><summary><span>🎨 ${escapeHtml(summary)}<span class="neo-scene-color-summary-swatches">${summarySwatches}</span></span><small>shared color library</small></summary><div class="neo-scene-trait-color-controls"><label>Primary color<div class="neo-scene-color-selection">${sceneDirectorColorSwatchMarkup(primary)}<select data-scene-region-trait-color-kind="primary" data-scene-region-trait-color-category="${escapeAttr(category)}" data-scene-region-index="${index}" ${locked}>${sceneDirectorColorOptionMarkup(color.primary_id, category)}</select></div></label>${sceneDirectorColorPaletteMarkup(color.primary_id, category, 'primary', index, locked)}${secondaryControls}${sceneDirectorTraitColorConflictMarkup(region, category, current)}<button class="neo-btn secondary" type="button" data-scene-region-color-add="${index}" data-scene-region-color-category="${escapeAttr(category)}" ${locked}>＋ Add custom color</button></div></details>`;
+}
+
+function sceneDirectorAdditionalDetailTargetOptions(selected = 'full_body') {
+  return Object.entries(SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS).map(([id, label]) => `<option value="${escapeAttr(id)}" ${id === String(selected || 'full_body') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+
+function sceneDirectorHeldItemHandOptions(selected = 'auto') {
+  return Object.entries(SCENE_DIRECTOR_HELD_ITEM_HANDS).map(([id, label]) => `<option value="${escapeAttr(id)}" ${id === String(selected || 'auto') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+
+function sceneDirectorCustomDetailPresetOptions(selected = '') {
+  const value = String(selected || '');
+  return ['<option value="">Manual / no preset</option>', ...sceneDirectorTraitLibraryItems('custom_detail').map((item) => {
+    const id = String(item.id || item.label || '');
+    return id ? `<option value="${escapeAttr(id)}" ${id === value ? 'selected' : ''}>${escapeHtml(item.label || id)}</option>` : '';
+  })].join('');
+}
+
+function sceneDirectorCharacterAdditionalDetailsFields(region = {}, index = 0, locked = '') {
+  const details = sceneDirectorAdditionalDetailsState(region);
+  const categoryRows = SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES.map((category) => {
+    const current = sceneDirectorTraitCategoryState(region, category);
+    const label = SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_LABELS[category] || category;
+    return `<div class="neo-scene-trait-field"><label>${escapeHtml(label)}<select data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="selected" data-scene-region-index="${index}" ${locked}>${sceneDirectorTraitOptionMarkup(category, current.selected_id)}</select></label><label>${escapeHtml(label)} custom<div class="neo-inline-input-action"><input data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="custom" data-scene-region-index="${index}" value="${escapeAttr(current.custom)}" placeholder="custom ${escapeAttr(label.toLowerCase())}" ${locked}><button class="neo-btn secondary icon" type="button" title="Add custom ${escapeAttr(label)} to library" aria-label="Add custom ${escapeAttr(label)} to library" data-scene-region-trait-add="${index}" data-scene-region-trait-add-category="${escapeAttr(category)}" ${locked}>＋</button></div></label>${sceneDirectorTraitColorPanel(category, current, index, locked, region)}</div>`;
+  }).join('');
+  const heldItems = details.held_items.length ? details.held_items.map((item) => `<div class="neo-scene-additional-item" data-scene-additional-item-id="${escapeAttr(item.id)}"><div class="neo-scene-additional-item-head"><strong>Held item</strong><button class="neo-btn secondary danger" type="button" data-scene-additional-remove="held_items" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-region-index="${index}" ${locked}>Remove</button></div><div class="neo-scene-region-row neo-scene-additional-item-grid"><label>Item / description<input data-scene-additional-collection="held_items" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="item" data-scene-region-index="${index}" value="${escapeAttr(item.item)}" placeholder="medieval longsword, white flower, camera" ${locked}></label><label>Hand<select data-scene-additional-collection="held_items" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="hand" data-scene-region-index="${index}" ${locked}>${sceneDirectorHeldItemHandOptions(item.hand)}</select></label><label>Action<input data-scene-additional-collection="held_items" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="action" data-scene-region-index="${index}" value="${escapeAttr(item.action)}" placeholder="holding, presenting, carrying" ${locked}></label><label>Material / color / appearance<input data-scene-additional-collection="held_items" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="appearance" data-scene-region-index="${index}" value="${escapeAttr(item.appearance)}" placeholder="silver blade, black leather grip" ${locked}></label></div></div>`).join('') : '<p class="neo-muted">No character-level held item. Use this for ownership and hand action; add a child Held Prop box when the object itself needs precise shape or local detail.</p>';
+  const customDetails = details.custom_details.length ? details.custom_details.map((item) => `<div class="neo-scene-additional-item" data-scene-additional-item-id="${escapeAttr(item.id)}"><div class="neo-scene-additional-item-head"><strong>Targeted custom detail</strong><div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-additional-save-preset="${escapeAttr(item.id)}" data-scene-region-index="${index}" ${locked}>Save as preset</button><button class="neo-btn secondary danger" type="button" data-scene-additional-remove="custom_details" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-region-index="${index}" ${locked}>Remove</button></div></div><div class="neo-scene-region-row neo-scene-additional-custom-grid"><label>Preset<select data-scene-additional-collection="custom_details" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="preset_id" data-scene-region-index="${index}" ${locked}>${sceneDirectorCustomDetailPresetOptions(item.preset_id)}</select></label><label>Target area<select data-scene-additional-collection="custom_details" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="target_area" data-scene-region-index="${index}" ${locked}>${sceneDirectorAdditionalDetailTargetOptions(item.target_area)}</select></label><label class="wide">Instruction<textarea rows="2" data-scene-additional-collection="custom_details" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="instruction" data-scene-region-index="${index}" placeholder="detail that belongs only to this character" ${locked}>${escapeHtml(item.instruction)}</textarea></label><label class="wide">Optional regional negative<textarea rows="2" data-scene-additional-collection="custom_details" data-scene-additional-item-id="${escapeAttr(item.id)}" data-scene-additional-item-field="negative" data-scene-region-index="${index}" placeholder="leave empty unless this detail needs an explicit exclusion" ${locked}>${escapeHtml(item.negative)}</textarea></label></div></div>`).join('') : '<p class="neo-muted">No targeted custom detail. Add one for an unusual character-owned instruction and choose the body area that should receive it.</p>';
+  return `<details class="neo-scene-additional-details" data-scene-additional-details-index="${index}"><summary><span>🧩 Additional Details</span><small>body, garment states, underlayers, held items, targeted custom details</small></summary><div class="neo-scene-additional-details-body"><p class="neo-muted">These fields belong to this Character region. They reuse the existing face, full-character, clothing, and pose branches; they do not create one new lane per detail.</p><div class="neo-scene-region-row neo-scene-character-trait-grid">${categoryRows}</div><section class="neo-scene-additional-section"><div class="neo-scene-additional-section-head"><div><strong>Held Items</strong><p>Use Pose for arm placement and a child Held Prop box for exact object appearance.</p></div><button class="neo-btn secondary" type="button" data-scene-additional-add="held_items" data-scene-region-index="${index}" ${locked}>＋ Add held item</button></div>${heldItems}</section><section class="neo-scene-additional-section"><div class="neo-scene-additional-section-head"><div><strong>Targeted Custom Details</strong><p>Instruction and optional negative stay subject-local and are routed by target area.</p></div><button class="neo-btn secondary" type="button" data-scene-additional-add="custom_details" data-scene-region-index="${index}" ${locked}>＋ Add custom detail</button></div>${customDetails}</section><p class="neo-muted">Essential visible states should still be established once in the Base Prompt. Neo adds no blanket content-policy negatives or generation restrictions here.</p></div></details>`;
 }
 
 function sceneDirectorRegionTraitFields(region = {}, index = 0, locked = '') {
@@ -7732,9 +8319,26 @@ function sceneDirectorRegionTraitFields(region = {}, index = 0, locked = '') {
   const rows = SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES.map((category) => {
     const current = sceneDirectorTraitCategoryState(region, category);
     const label = SCENE_DIRECTOR_CHARACTER_TRAIT_LABELS[category] || category;
-    return `<label>${escapeHtml(label)}<select data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="selected" data-scene-region-index="${index}" ${locked}>${sceneDirectorTraitOptionMarkup(category, current.selected_id)}</select></label><label>${escapeHtml(label)} custom<div class="neo-inline-input-action"><input data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="custom" data-scene-region-index="${index}" value="${escapeAttr(current.custom)}" placeholder="custom ${escapeAttr(label.toLowerCase())} terms" ${locked}><button class="neo-btn secondary icon" type="button" title="Add custom ${escapeAttr(label)} to library" aria-label="Add custom ${escapeAttr(label)} to library" data-scene-region-trait-add="${index}" data-scene-region-trait-add-category="${escapeAttr(category)}" ${locked}>＋</button></div></label>`;
+    const customEditor = category === 'pose'
+      ? `<div class="neo-inline-input-action neo-scene-pose-input"><textarea rows="3" data-scene-region-trait-category="pose" data-scene-region-trait-kind="custom" data-scene-region-index="${index}" placeholder="Describe only this character: seated on the table, knees bent, torso toward Person 1" ${locked}>${escapeHtml(current.custom)}</textarea><button class="neo-btn secondary icon" type="button" title="Add custom Pose to library" aria-label="Add custom Pose to library" data-scene-region-trait-add="${index}" data-scene-region-trait-add-category="pose" ${locked}>＋</button></div><p class="neo-muted">This is this character’s sole text-pose authority. Mention another Person only as a contact target; do not assign both actors’ postures here.</p>`
+      : `<div class="neo-inline-input-action"><input data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="custom" data-scene-region-index="${index}" value="${escapeAttr(current.custom)}" placeholder="custom ${escapeAttr(label.toLowerCase())} terms" ${locked}><button class="neo-btn secondary icon" type="button" title="Add custom ${escapeAttr(label)} to library" aria-label="Add custom ${escapeAttr(label)} to library" data-scene-region-trait-add="${index}" data-scene-region-trait-add-category="${escapeAttr(category)}" ${locked}>＋</button></div>`;
+    return `<div class="neo-scene-trait-field"><label>${escapeHtml(label)}<select data-scene-region-trait-category="${escapeAttr(category)}" data-scene-region-trait-kind="selected" data-scene-region-index="${index}" ${locked}>${sceneDirectorTraitOptionMarkup(category, current.selected_id)}</select></label><label>${escapeHtml(label)} custom${customEditor}</label>${sceneDirectorTraitColorPanel(category, current, index, locked, region)}</div>`;
   }).join('');
-  return `<details class="neo-scene-nested-card neo-scene-character-traits" data-scene-region-traits-index="${index}"><summary><span>🧬 Character Trait Lock</span><small>explicit fields override auto extraction</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Available only for V054 Character regions. Dropdowns load from JSON trait libraries. Type a custom value, press ＋ beside that field, and Neo saves it into the matching user JSON library.</p><div class="neo-scene-region-row neo-scene-character-trait-grid">${rows}</div><div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-region-trait-autofill="${index}" ${locked}>Auto-fill from prompt</button><button class="neo-btn secondary" type="button" data-scene-region-trait-save="${index}" ${locked}>Save custom trait</button></div><p class="neo-muted">Dropdown changes no longer collapse this panel. Empty fields stay on auto-pick fallback.</p></div></details>`;
+  return `<details class="neo-scene-nested-card neo-scene-character-traits" data-scene-region-traits-index="${index}"><summary><span>🧬 Character Trait Lock</span><small>explicit fields override auto extraction</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Available only for V054 Character regions. Dropdowns load from editable JSON libraries. Character → Pose is the only text-pose authority and follows Character Lock strength. Hair, Clothing Top, Clothing Bottom, Full Costume, and Underlayer share one color library; hair can add a second color and a blend pattern.</p><div class="neo-scene-region-row neo-scene-character-trait-grid">${rows}</div>${sceneDirectorCharacterAdditionalDetailsFields(region, index, locked)}<div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-region-trait-autofill="${index}" ${locked}>Auto-fill from prompt</button><button class="neo-btn secondary" type="button" data-scene-region-trait-save="${index}" ${locked}>Save custom trait</button></div><p class="neo-muted">Open 🎨 Add color only when needed. For exact joint/limb placement, route OpenPose or another pose ControlNet to that character region.</p></div></details>`;
+}
+
+function sceneDirectorAttachedDetailControls(region = {}, index = 0, locked = '', regions = []) {
+  const role = sceneDirectorV054NormalizeRole(region.role || region.type);
+  if (!sceneDirectorV054RoleOwnsAttachment(role)) return '';
+  const link = sceneDirectorV054LinkMetadata(region);
+  const parent = String(region.attach_to || '');
+  const requiredState = link.requiresParent && !parent
+    ? '<span class="neo-badge warning">Parent required</span>'
+    : parent
+      ? '<span class="neo-badge success">Child-owned link active</span>'
+      : '<span class="neo-badge">Standalone or optional link</span>';
+  const roleLabel = role === 'clothing' ? 'clothing detail' : role.replaceAll('_', ' ');
+  return `<section class="neo-scene-attached-detail" data-scene-attached-detail-role="${escapeAttr(role)}"><div class="neo-scene-attached-detail-head"><div><strong>🔗 Attach ${escapeHtml(roleLabel)}</strong><p>Choose the parent here on this detail region. Character and Background parents stay uncluttered and never receive a duplicate copy of this detail prompt.</p></div>${requiredState}</div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Attach to<select data-scene-region-field="attach_to" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054ParentOptions(regions, region.id, parent, role)}</select></label><label>Relationship<select data-scene-region-field="relationship" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RelationshipOptions(region.relationship || link.relationship)}</select></label><label>Target area<input data-scene-region-field="target_area" data-scene-region-index="${index}" value="${escapeAttr(region.target_area || link.targetArea || '')}" placeholder="necktie, jacket, right hand, face" ${locked}></label><label>Overlap behavior<select data-scene-region-field="priority" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054PriorityOptions(region.priority)}</select></label></div><p class="neo-muted">Override makes this small box win locally. Reinforce shares authority with the parent; Blend stays softer. Neo adds no content-policy restriction—your prompt and optional Region negative prompt remain authoritative.</p></section>`;
 }
 
 const SCENE_DIRECTOR_V054_CONFLICT_COLOR_WORDS = ['black', 'white', 'brown', 'blonde', 'blond', 'pink', 'red', 'blue', 'green', 'purple', 'violet', 'orange', 'yellow', 'silver', 'gray', 'grey', 'gold', 'golden'];
@@ -8842,6 +9446,26 @@ function sceneDirectorV054ConflictPreview(regions = []) {
   return warnings;
 }
 
+function sceneDirectorTraitColorConflictPreview(regions = []) {
+  const warnings = [];
+  (Array.isArray(regions) ? regions : []).forEach((region, index) => {
+    if (sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character') return;
+    SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.forEach((category) => {
+      const current = sceneDirectorTraitCategoryState(region, category);
+      const conflict = sceneDirectorTraitColorPromptConflict(region, category, current);
+      if (!conflict) return;
+      warnings.push({
+        extension_id: SCENE_DIRECTOR_EXTENSION_ID,
+        level: 'warning',
+        field: `inputs.regions[${index}].character_traits.${category}.color_assignment`,
+        code: 'trait_prompt_color_conflict',
+        message: conflict.message,
+      });
+    });
+  });
+  return warnings;
+}
+
 
 function sceneDirectorCharacterLockMode(value = 'balanced') {
   const raw = String(value || 'balanced').trim().toLowerCase();
@@ -8896,7 +9520,7 @@ function sceneDirectorV054NormalizeRole(value = 'character') {
 
 function sceneDirectorV054RoleOptions(selected = 'character') {
   const labels = {
-    character: 'Character', face_detail: 'Face detail', hair_detail: 'Hair detail', hand_detail: 'Hand detail', character_detail: 'Character detail', clothing: 'Clothing', held_prop: 'Held prop', object: 'Object', background: 'Background', background_object: 'Background object', transition_effect: 'Transition effect', text: 'Text', lighting: 'Lighting', effect: 'Effect', style: 'Style', custom: 'Custom',
+    character: 'Character', face_detail: 'Face detail', hair_detail: 'Hair detail', hand_detail: 'Hand detail', character_detail: 'Character detail', clothing: 'Clothing detail', held_prop: 'Held prop', object: 'Object', background: 'Background', background_object: 'Background object', transition_effect: 'Transition effect', text: 'Text', lighting: 'Lighting', effect: 'Effect', style: 'Style', custom: 'Custom detail',
   };
   return SCENE_DIRECTOR_V054_ROLES.map((role) => `<option value="${role}" ${role === selected ? 'selected' : ''}>${escapeHtml(labels[role] || role)}</option>`).join('');
 }
@@ -8913,17 +9537,32 @@ function sceneDirectorV054PriorityOptions(selected = 'reinforce') {
   return SCENE_DIRECTOR_V054_PRIORITIES.map((priority) => `<option value="${priority}" ${priority === value ? 'selected' : ''}>${escapeHtml(labels[priority])}</option>`).join('');
 }
 
-function sceneDirectorV054ParentOptions(regions = [], currentId = '', selected = '') {
+function sceneDirectorV054RoleOwnsAttachment(role = '') {
+  return SCENE_DIRECTOR_V054_CHILD_OWNED_ATTACHMENT_ROLES.includes(sceneDirectorV054NormalizeRole(role));
+}
+
+function sceneDirectorV054AllowedParentRoles(role = '') {
+  const safeRole = sceneDirectorV054NormalizeRole(role);
+  if (SCENE_DIRECTOR_V054_CHARACTER_PARENT_ONLY_ROLES.includes(safeRole)) return ['character'];
+  if (SCENE_DIRECTOR_V054_BACKGROUND_PARENT_ONLY_ROLES.includes(safeRole)) return ['background'];
+  return sceneDirectorV054RoleOwnsAttachment(safeRole) ? [...SCENE_DIRECTOR_V054_MAIN_PARENT_ROLES] : [];
+}
+
+function sceneDirectorV054ParentOptions(regions = [], currentId = '', selected = '', childRole = 'custom') {
   const selectedValue = String(selected || '');
   const rows = Array.isArray(regions) ? regions : [];
+  const allowedParentRoles = sceneDirectorV054AllowedParentRoles(childRole);
   const options = ['<option value="" ' + (!selectedValue ? 'selected' : '') + '>None</option>'];
   rows.map((sourceRegion, parentIndex) => sceneDirectorNormalizeRegion(sourceRegion, parentIndex))
-    .filter((parent) => parent.id !== currentId)
+    .filter((parent) => parent.id !== currentId && allowedParentRoles.includes(sceneDirectorV054NormalizeRole(parent.role || parent.type)))
     .forEach((parent) => {
       const value = escapeAttr(parent.id);
       const label = `${parent.label || parent.id} · ${parent.role || parent.type}`;
       options.push(`<option value="${value}" ${parent.id === selectedValue ? 'selected' : ''}>${escapeHtml(label)}</option>`);
     });
+  if (selectedValue && !options.some((option) => option.includes(`value="${escapeAttr(selectedValue)}"`))) {
+    options.push(`<option value="${escapeAttr(selectedValue)}" selected>${escapeHtml(selectedValue)} · unavailable parent</option>`);
+  }
   return options.join('');
 }
 
@@ -8932,6 +9571,7 @@ function sceneDirectorV054LinkMetadata(region = {}) {
   const targetDefaults = { face_detail: 'face', hair_detail: 'hair', hand_detail: 'hands', character_detail: 'character detail', clothing: 'outfit', held_prop: 'hand', background: 'auto', background_object: 'background object', transition_effect: 'center seam' };
   const relationshipDefaults = { face_detail: 'attached_to', hair_detail: 'attached_to', hand_detail: 'attached_to', character_detail: 'attached_to', clothing: 'wearing', held_prop: 'holding' };
   return {
+    ownsAttachment: sceneDirectorV054RoleOwnsAttachment(role),
     requiresParent: SCENE_DIRECTOR_V054_PARENT_REQUIRED_ROLES.includes(role),
     targetArea: region.target_area || targetDefaults[role] || '',
     relationship: region.relationship || relationshipDefaults[role] || '',
@@ -8942,6 +9582,7 @@ function sceneDirectorV054LinkMetadata(region = {}) {
 function sceneDirectorNormalizeRegion(region = {}, index = 0) {
   const role = sceneDirectorV054NormalizeRole(region.role || region.region_role || region.type || 'character');
   const type = sceneDirectorRoleToLegacyType(role);
+  const ownsAttachment = sceneDirectorV054RoleOwnsAttachment(role);
   const bboxRaw = Array.isArray(region.bbox) ? { x: region.bbox[0], y: region.bbox[1], w: region.bbox[2], h: region.bbox[3] } : (region.bbox || { x: region.x ?? 0.1, y: region.y ?? 0.1, w: region.w ?? 0.8, h: region.h ?? 0.8 });
   const clamp = (value, fallback, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : fallback));
   const x = clamp(bboxRaw.x, 0.08);
@@ -8961,8 +9602,8 @@ function sceneDirectorNormalizeRegion(region = {}, index = 0) {
     prompt: String(region.prompt || ''),
     negative_prompt: String(region.negative_prompt ?? region.negative ?? ''),
     strength: clamp(region.strength ?? 1, 1, 0, 2),
-    attach_to: String(region.attach_to || region.parent_id || region.bound_to || ''),
-    relationship: String(region.relationship || region.relation || ''),
+    attach_to: ownsAttachment ? String(region.attach_to || region.parent_id || region.bound_to || '') : '',
+    relationship: ownsAttachment ? String(region.relationship || region.relation || '') : '',
     target_area: String(region.target_area || region.area || ''),
     relationship_prompt: String(region.relationship_prompt || region.parent_prompt || region.parent_prompt_template || ''),
     local_prompt_template: String(region.local_prompt_template || region.local_prompt || ''),
@@ -9034,7 +9675,7 @@ function sceneDirectorNormalizeRegion(region = {}, index = 0) {
     },
     character_traits: region.character_traits && typeof region.character_traits === 'object' ? { ...region.character_traits } : {},
   };
-  SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES.forEach((category) => {
+  [...SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES, ...SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES].forEach((category) => {
     normalized[`trait_${category}_selected`] = String(region[`trait_${category}_selected`] || '');
     normalized[`trait_${category}_custom`] = String(region[`trait_${category}_custom`] || '');
   });
@@ -9050,6 +9691,91 @@ function sceneDirectorNormalizeRegion(region = {}, index = 0) {
   }
   return normalized;
 }
+
+function sceneDirectorV054AttachmentOverlapRatio(child = {}, parent = {}) {
+  const c = sceneDirectorClampCanvasBox(child.bbox || {});
+  const p = sceneDirectorClampCanvasBox(parent.bbox || {});
+  const x1 = Math.max(c.x, p.x);
+  const y1 = Math.max(c.y, p.y);
+  const x2 = Math.min(c.x + c.w, p.x + p.w);
+  const y2 = Math.min(c.y + c.h, p.y + p.h);
+  const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  return intersection / Math.max(0.000001, c.w * c.h);
+}
+
+function sceneDirectorV054AutoParentId(region = {}, regions = []) {
+  const role = sceneDirectorV054NormalizeRole(region.role || region.type);
+  if (!sceneDirectorV054RoleOwnsAttachment(role)) return '';
+  const allowed = sceneDirectorV054AllowedParentRoles(role);
+  const candidates = (Array.isArray(regions) ? regions : [])
+    .map((item, index) => sceneDirectorNormalizeRegion(item, index))
+    .filter((parent) => parent.id !== region.id && allowed.includes(sceneDirectorV054NormalizeRole(parent.role || parent.type)))
+    .map((parent) => ({ parent, overlap: sceneDirectorV054AttachmentOverlapRatio(region, parent) }))
+    .sort((left, right) => right.overlap - left.overlap);
+  if (!candidates.length) return '';
+  // A full-canvas Background overlaps every small box. Prefer a genuinely
+  // overlapping Character for flexible detail roles; the user can still pick
+  // Background explicitly, and background-only roles never enter this branch.
+  const characterCandidate = candidates.find(({ parent, overlap }) => (
+    overlap > 0 && sceneDirectorV054NormalizeRole(parent.role || parent.type) === 'character'
+  ));
+  if (characterCandidate) return characterCandidate.parent.id;
+  if (candidates[0].overlap > 0) return candidates[0].parent.id;
+  return candidates.length === 1 ? candidates[0].parent.id : '';
+}
+
+function sceneDirectorV054ResolveAttachmentRegions(regions = []) {
+  const normalized = (Array.isArray(regions) ? regions : []).map((region, index) => sceneDirectorNormalizeRegion(region, index));
+  const byId = new Map(normalized.map((region) => [String(region.id || ''), region]));
+  const activeRegions = [];
+  const messages = [];
+  const skipped = [];
+  const cleared = [];
+  normalized.forEach((region, index) => {
+    const role = sceneDirectorV054NormalizeRole(region.role || region.type);
+    if (!sceneDirectorV054RoleOwnsAttachment(role)) {
+      activeRegions.push({ ...region, attach_to: '', relationship: '' });
+      return;
+    }
+    const parentId = String(region.attach_to || '');
+    const parent = parentId ? byId.get(parentId) : null;
+    const allowedParentRoles = sceneDirectorV054AllowedParentRoles(role);
+    const parentRole = parent ? sceneDirectorV054NormalizeRole(parent.role || parent.type) : '';
+    const requiresParent = SCENE_DIRECTOR_V054_PARENT_REQUIRED_ROLES.includes(role);
+    const invalidReason = !parentId
+      ? (requiresParent ? 'missing parent' : '')
+      : !parent
+        ? 'parent not found'
+        : parentId === region.id
+          ? 'cannot attach to itself'
+          : !allowedParentRoles.includes(parentRole)
+            ? `parent must be ${allowedParentRoles.join(' or ')}`
+            : '';
+    if (invalidReason && requiresParent) {
+      skipped.push({ region_id: region.id, label: region.label, role, reason: invalidReason });
+      messages.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: `inputs.regions[${index}].attach_to`, code: 'attached_detail_skipped', message: `${region.label || region.id} was skipped for this generation: ${invalidReason}. Select its parent inside the detail region.` });
+      return;
+    }
+    if (invalidReason && parentId) {
+      cleared.push({ region_id: region.id, label: region.label, role, previous_parent_id: parentId, reason: invalidReason });
+      messages.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: `inputs.regions[${index}].attach_to`, code: 'optional_attachment_cleared', message: `${region.label || region.id} has an unavailable parent, so it will run as a standalone ${role.replaceAll('_', ' ')} region.` });
+      activeRegions.push({ ...region, attach_to: '', relationship: '' });
+      return;
+    }
+    activeRegions.push(region);
+  });
+  return {
+    schema: 'neo.image.scene_director.attached_detail_resolution.v054.v1',
+    phase: 'SD-V054-27.14',
+    policy: 'attachment_is_authored_on_the_child_region_only',
+    content_policy_guards_added: false,
+    regions: activeRegions,
+    messages,
+    skipped,
+    cleared,
+  };
+}
+
 function sceneDirectorCleanRegions(regions = []) {
   return (Array.isArray(regions) ? regions : []).map(sceneDirectorNormalizeRegion).filter((region) => {
     const hasRouteIntent = Boolean(
@@ -9088,19 +9814,26 @@ function sceneDirectorPromptHasBuildBodyTerms(prompt = '') {
   return /\b(slim|average|lean|skinny|thin|athletic|muscular|stocky|broad|narrow|slender|lithe)\s+(build|body|frame|physique|torso|waist|shoulders|chest|hips)\b/.test(text) ||
     /\b(flat male chest|male chest|masculine torso|male torso|adult male body|adult male body silhouette|masculine body silhouette|female body silhouette|feminine body silhouette|broad shoulders|narrow waist|average height|short height|tall height|short stature|tall stature)\b/.test(text);
 }
+function sceneDirectorLegacyExposedAnatomyCorrection(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return false;
+  return /\b(flat male chest|male torso|female torso)\b/.test(text) && /\bpreserve (selected )?outfit and pose\b/.test(text);
+}
 function sceneDirectorCharacterLockCorrectionFromRegion(region = {}) {
   const block = region.character_lock_correction && typeof region.character_lock_correction === 'object' ? region.character_lock_correction : {};
   const label = String(region.label || 'Character');
   const detected = sceneDirectorPromptGenderFamily(region.prompt || '');
   const gender = region.character_lock_gender_family || block.gender_family || detected || 'auto';
-  const malePositive = `${label}: exactly one male subject, masculine face, masculine body silhouette, flat male chest, male torso, preserve outfit and pose`;
+  const malePositive = `${label}: exactly one male subject, masculine face, masculine presentation, masculine body silhouette, preserve selected outfit and pose`;
   const maleNegative = 'female, woman, girl, feminine face, feminine body, breasts, cleavage, curvy hips, hourglass figure, gender swap, wrong gender';
-  const femalePositive = `${label}: exactly one female subject, feminine presentation, preserve requested female silhouette, outfit and pose`;
+  const femalePositive = `${label}: exactly one female subject, feminine face, feminine presentation, preserve requested silhouette, selected outfit and pose`;
   const femaleNegative = 'male, man, boy, masculine face, beard, mustache, broad male torso, gender swap, wrong gender';
+  const storedPositive = region.character_lock_positive_text ?? block.positive_text ?? block.positive ?? '';
+  const migratedPositive = sceneDirectorLegacyExposedAnatomyCorrection(storedPositive) ? '' : storedPositive;
   return {
     enabled: region.character_lock_correction_enabled ?? block.enabled ?? 'auto',
     gender_family: gender,
-    positive_text: region.character_lock_positive_text ?? block.positive_text ?? block.positive ?? (gender === 'male' ? malePositive : (gender === 'female' ? femalePositive : `${label}: preserve explicitly requested subject gender, body silhouette, outfit and pose`)),
+    positive_text: migratedPositive || (gender === 'male' ? malePositive : (gender === 'female' ? femalePositive : `${label}: preserve explicitly requested subject gender, body silhouette, selected outfit and pose`)),
     negative_text: region.character_lock_negative_text ?? block.negative_text ?? block.negative ?? (gender === 'male' ? maleNegative : (gender === 'female' ? femaleNegative : 'gender swap, wrong gender, changed body presentation, changed silhouette')),
     denoise: region.character_lock_correction_denoise ?? block.denoise ?? '',
     steps: region.character_lock_correction_steps ?? block.steps ?? '',
@@ -9108,9 +9841,15 @@ function sceneDirectorCharacterLockCorrectionFromRegion(region = {}) {
 }
 function sceneDirectorCharacterLockAuthorityControls(settings = {}, disabled = '') {
   const checked = (value) => value ? 'checked' : '';
-  const selected = (value, target) => String(value || '') === String(target) ? 'selected' : '';
-  return `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-fix-pass-detail"><summary><span>First-pass Character Lock Authority</span><small>repair-lane details owned by Fix Pass Controls</small></summary><div class="neo-scene-nested-body neo-scene-character-lock-authority-panel"><p class="neo-muted">Character Lock defines what to protect. These controls decide whether/how the optional first-pass repair lane runs.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Execution type<select id="sceneDirectorCharacterLockExecutionMode" ${disabled}><option value="prompt_guard_only" ${selected(settings.character_lock_execution_mode, 'prompt_guard_only')}>Prompt guard only / no repair pass</option><option value="masked_correction" ${selected(settings.character_lock_execution_mode, 'masked_correction')}>Masked correction pass</option><option value="latent_correction" ${selected(settings.character_lock_execution_mode, 'latent_correction')}>Latent correction pass</option><option value="off" ${selected(settings.character_lock_execution_mode, 'off')}>Off</option></select></label><label><input id="sceneDirectorFirstPassCharacterLockEnabled" type="checkbox" ${checked(settings.character_lock_first_pass_enabled)} ${disabled}> Enable first-pass character correction</label><label>Apply to<select id="sceneDirectorFirstPassCharacterLockApplyTo" ${disabled}><option value="strong_strict_only" ${selected(settings.character_lock_first_pass_apply_to, 'strong_strict_only')}>Strong/Strict locks only</option><option value="all_locked_characters" ${selected(settings.character_lock_first_pass_apply_to, 'all_locked_characters')}>All locked characters</option></select></label><label>Correction timing<select id="sceneDirectorFirstPassCharacterLockTiming" ${disabled}><option value="before_adapters" ${selected(settings.character_lock_first_pass_timing, 'before_adapters')}>After base composition / before adapters</option><option value="final_pass" ${selected(settings.character_lock_first_pass_timing, 'final_pass')}>Final pass only</option><option value="both" ${selected(settings.character_lock_first_pass_timing, 'both')}>Before adapters + final pass</option></select></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Correction denoise<input id="sceneDirectorFirstPassCharacterLockDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.character_lock_first_pass_denoise ?? 0.30)}" ${disabled}></label><label>Correction steps<input id="sceneDirectorFirstPassCharacterLockSteps" type="number" min="1" max="80" step="1" value="${escapeAttr(settings.character_lock_first_pass_steps ?? 10)}" ${disabled}></label><label>Correction CFG<select id="sceneDirectorFirstPassCharacterLockCfgMode" ${disabled}><option value="inherit" ${selected(settings.character_lock_first_pass_cfg_mode, 'inherit')}>Inherit main CFG</option><option value="custom" ${selected(settings.character_lock_first_pass_cfg_mode, 'custom')}>Use custom CFG</option></select></label><label>Custom CFG<input id="sceneDirectorFirstPassCharacterLockCfg" type="number" min="0" max="30" step="0.1" value="${escapeAttr(settings.character_lock_first_pass_cfg ?? '')}" placeholder="inherit" ${disabled}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask source<select id="sceneDirectorFirstPassCharacterLockMaskSource" ${disabled}><option value="full_character_mask" ${selected(settings.character_lock_first_pass_mask_source, 'full_character_mask')}>Full character mask</option><option value="upper_body" ${selected(settings.character_lock_first_pass_mask_source, 'upper_body')}>Upper body</option><option value="face_torso" ${selected(settings.character_lock_first_pass_mask_source, 'face_torso')}>Face + torso</option><option value="subject_mask" ${selected(settings.character_lock_first_pass_mask_source, 'subject_mask')}>Subject mask</option></select></label><label>Mask feather<input id="sceneDirectorFirstPassCharacterLockMaskFeather" type="number" min="0" max="256" step="1" value="${escapeAttr(settings.character_lock_first_pass_mask_feather ?? 24)}" ${disabled}></label><label><input id="sceneDirectorFirstPassCharacterLockProtectOutfit" type="checkbox" ${checked(settings.character_lock_first_pass_protect_outfit)} ${disabled}> Protect outfit / props</label><label><input id="sceneDirectorFirstPassCharacterLockProtectPose" type="checkbox" ${checked(settings.character_lock_first_pass_protect_pose_contact)} ${disabled}> Protect pose / contact</label></div></div></details>`;
+  const selected = (value, target) => sceneDirectorCharacterLockExecutionMode(value) === String(target || '') ? 'selected' : '';
+  return `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-fix-pass-detail"><summary><span>Character Lock execution path</span><small>choose in-sampler, latent repair, or end refinement separately</small></summary><div class="neo-scene-nested-body neo-scene-character-lock-authority-panel"><p class="neo-muted">The legacy V1-style in-sampler lock is the fast path. Extra masked samplers are independent and run only when you choose them here; Strong/Strict alone never adds a late repair pass.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Character Lock pass plan<select id="sceneDirectorCharacterLockExecutionMode" ${disabled}><option value="latent_attention" ${selected(settings.character_lock_execution_mode, 'latent_attention')}>In-sampler latent lock (fast)</option><option value="latent_repair" ${selected(settings.character_lock_execution_mode, 'latent_repair')}>Latent trait repair (extra sampler)</option><option value="end_refinement" ${selected(settings.character_lock_execution_mode, 'end_refinement')}>End refinement only</option><option value="latent_and_refinement" ${selected(settings.character_lock_execution_mode, 'latent_and_refinement')}>Latent lock + end refinement</option><option value="prompt_guard_only" ${selected(settings.character_lock_execution_mode, 'prompt_guard_only')}>Prompt guard only</option><option value="off" ${selected(settings.character_lock_execution_mode, 'off')}>Off</option></select></label><label><input id="sceneDirectorFirstPassCharacterLockEnabled" type="checkbox" ${checked(settings.character_lock_first_pass_enabled)} ${disabled}> Allow end-refinement character pass</label><label>Apply to<select id="sceneDirectorFirstPassCharacterLockApplyTo" ${disabled}><option value="strong_strict_only" ${selected(settings.character_lock_first_pass_apply_to, 'strong_strict_only')}>Strong/Strict locks only</option><option value="all_locked_characters" ${selected(settings.character_lock_first_pass_apply_to, 'all_locked_characters')}>All locked characters</option></select></label><label>Correction timing<select id="sceneDirectorFirstPassCharacterLockTiming" ${disabled}><option value="before_adapters" ${selected(settings.character_lock_first_pass_timing, 'before_adapters')}>After base composition / before adapters</option><option value="final_pass" ${selected(settings.character_lock_first_pass_timing, 'final_pass')}>Final pass only</option><option value="both" ${selected(settings.character_lock_first_pass_timing, 'both')}>Before adapters + final pass</option></select></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Correction denoise<input id="sceneDirectorFirstPassCharacterLockDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.character_lock_first_pass_denoise ?? 0.30)}" ${disabled}></label><label>Correction steps<input id="sceneDirectorFirstPassCharacterLockSteps" type="number" min="1" max="80" step="1" value="${escapeAttr(settings.character_lock_first_pass_steps ?? 10)}" ${disabled}></label><label>Correction CFG<select id="sceneDirectorFirstPassCharacterLockCfgMode" ${disabled}><option value="inherit" ${selected(settings.character_lock_first_pass_cfg_mode, 'inherit')}>Inherit main CFG</option><option value="custom" ${selected(settings.character_lock_first_pass_cfg_mode, 'custom')}>Use custom CFG</option></select></label><label>Custom CFG<input id="sceneDirectorFirstPassCharacterLockCfg" type="number" min="0" max="30" step="0.1" value="${escapeAttr(settings.character_lock_first_pass_cfg ?? '')}" placeholder="inherit" ${disabled}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask source<select id="sceneDirectorFirstPassCharacterLockMaskSource" ${disabled}><option value="full_character_mask" ${selected(settings.character_lock_first_pass_mask_source, 'full_character_mask')}>Full character mask</option><option value="upper_body" ${selected(settings.character_lock_first_pass_mask_source, 'upper_body')}>Upper body</option><option value="face_torso" ${selected(settings.character_lock_first_pass_mask_source, 'face_torso')}>Face + torso</option><option value="subject_mask" ${selected(settings.character_lock_first_pass_mask_source, 'subject_mask')}>Subject mask</option></select></label><label>Mask feather<input id="sceneDirectorFirstPassCharacterLockMaskFeather" type="number" min="0" max="256" step="1" value="${escapeAttr(settings.character_lock_first_pass_mask_feather ?? 24)}" ${disabled}></label><label><input id="sceneDirectorFirstPassCharacterLockProtectOutfit" type="checkbox" ${checked(settings.character_lock_first_pass_protect_outfit)} ${disabled}> Protect outfit / props</label><label><input id="sceneDirectorFirstPassCharacterLockProtectPose" type="checkbox" ${checked(settings.character_lock_first_pass_protect_pose_contact)} ${disabled}> Protect pose / contact</label></div></div></details>`;
 }
+const _sceneDirectorCharacterLockAuthorityControlsLegacy = sceneDirectorCharacterLockAuthorityControls;
+sceneDirectorCharacterLockAuthorityControls = (settings = {}, disabled = '') => _sceneDirectorCharacterLockAuthorityControlsLegacy(settings, disabled)
+  .replaceAll('choose in-sampler, latent repair, or end refinement separately', 'choose live attention, experimental midpoint repair, or end refinement separately')
+  .replaceAll('Extra masked samplers are independent and run only when you choose them here; Strong/Strict alone never adds a late repair pass.', 'The recommended legacy-style route is one uninterrupted sampler. The repair gate never overrides this selection. Midpoint repair is experimental and blocked for incompatible SDE or multistep samplers. End refinement remains separate.')
+  .replaceAll('Latent trait repair (extra sampler)', 'Experimental midpoint trait repair')
+  .replaceAll('Allow end-refinement character pass', 'Allow optional end-refinement character pass');
 function sceneDirectorPerCharacterCorrectionControls(settings = {}, disabled = '') {
   const regions = sceneDirectorCleanRegions(settings.regions || []).filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) === 'character');
   if (!regions.length) return '<p class="neo-muted">Add character regions to expose per-character correction text.</p>';
@@ -9143,6 +9882,9 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
     negative: normalized.negative_prompt || '',
     strength: Number(normalized.strength ?? 1),
     priority: normalized.priority || 'reinforce',
+    // Keep the execution-facing value top-level for the V053 attention bridge;
+    // metadata.mask remains available for inspector/replay compatibility.
+    feather: Math.max(0, Math.round(Number(normalized.mask?.feather ?? normalized.feather ?? 8))),
   };
   if (normalized.attach_to) item.attach_to = normalized.attach_to;
   if (normalized.relationship) item.relationship = normalized.relationship;
@@ -9426,23 +10168,214 @@ function sceneDirectorCleanStateDirtyWarnings(route = {}) {
 }
 
 
-function sceneDirectorRelationshipPoseAuthority(settings = {}, regions = []) {
-  const prompt = String(settings.pair_pose_prompt || settings.relationship_pose_prompt || '').trim();
-  const negative = String(settings.pair_pose_negative_guard || settings.relationship_pose_negative_guard || '').trim();
-  const characterCount = sceneDirectorCharacterCount(Array.isArray(regions) ? regions : []);
-  const enabled = Boolean(settings.pair_pose_enabled) && Boolean(prompt);
+function sceneDirectorPairPoseActionRoots(text = '') {
+  const roots = new Set();
+  const source = String(text || '').toLowerCase();
+  const patterns = {
+    holding: /\b(holds|holding)\b/g,
+    hugging: /\b(hugs|hugging|embraces|embracing)\b/g,
+    touching: /\b(touches|touching)\b/g,
+    supporting: /\b(supports|supporting)\b/g,
+    leaning: /\b(leans|leaning)\b/g,
+    kissing: /\b(kisses|kissing)\b/g,
+    carrying: /\b(carries|carrying)\b/g,
+  };
+  Object.entries(patterns).forEach(([root, regex]) => { if (regex.test(source)) roots.add(root); });
+  return [...roots];
+}
+
+function sceneDirectorPairPosePostures(text = '') {
+  const source = String(text || '').toLowerCase();
+  const groups = {
+    standing: /\b(standing|stands|upright)\b/,
+    seated: /\b(seated|sitting|sits)\b/,
+    kneeling: /\b(kneeling|kneels)\b/,
+    lying: /\b(lying|reclining|reclined)\b/,
+    crouching: /\b(crouching|crouched|squatting)\b/,
+  };
+  return Object.entries(groups).filter(([, regex]) => regex.test(source)).map(([name]) => name);
+}
+
+function sceneDirectorPairPoseNearestPostureBefore(text = '') {
+  const source = String(text || '').toLowerCase();
+  const patterns = {
+    standing: /\b(standing|stands|upright)\b/g,
+    seated: /\b(seated|sitting|sits)\b/g,
+    kneeling: /\b(kneeling|kneels)\b/g,
+    lying: /\b(lying|reclining|reclined)\b/g,
+    crouching: /\b(crouching|crouched|squatting)\b/g,
+  };
+  const matches = [];
+  Object.entries(patterns).forEach(([posture, regex]) => {
+    let match;
+    while ((match = regex.exec(source))) matches.push({ posture, position: match.index });
+  });
+  matches.sort((a, b) => a.position - b.position);
+  return matches.length ? matches[matches.length - 1].posture : '';
+}
+
+function sceneDirectorPairPoseAliases(region = {}, index = 0) {
+  const aliases = new Set();
+  const add = (value) => {
+    const text = String(value || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+    if (text.length >= 3) aliases.add(text);
+  };
+  add(region.id);
+  add(region.label);
+  add(`person ${index + 1}`);
+  const ethnicity = sceneDirectorTraitCategoryState(region, 'ethnicity');
+  const ethnicityItem = sceneDirectorTraitItemById('ethnicity', ethnicity.selected_id);
+  add(ethnicityItem?.label);
+  (ethnicityItem?.prompt_terms || []).forEach(add);
+  const prompt = String(region.prompt || '').toLowerCase();
+  sceneDirectorTraitLibraryItems('ethnicity').forEach((item) => {
+    (item.prompt_terms || []).forEach((term) => { if (String(term || '').length >= 3 && prompt.includes(String(term).toLowerCase())) add(term); });
+  });
+  return [...aliases].sort((a, b) => b.length - a.length);
+}
+
+function sceneDirectorPairPoseConflictReport(settings = {}, regions = [], promptOverride = '') {
+  const prompt = String(promptOverride || settings.pair_pose_prompt || settings.relationship_pose_prompt || '').trim();
+  const characters = (Array.isArray(regions) ? regions : [])
+    .map((region, index) => ({ region: sceneDirectorNormalizeRegion(region, index), index }))
+    .filter((entry) => sceneDirectorV054NormalizeRole(entry.region.role || entry.region.type) === 'character');
+  if (!prompt || characters.length < 2) {
+    return { schema: 'neo.image.scene_director.pair_pose_conflicts.v25_9_14', status: 'not_applicable', conflicts: [], character_poses: [] };
+  }
+  const lower = prompt.toLowerCase();
+  const aliasesByCharacter = characters.map((entry, order) => sceneDirectorPairPoseAliases(entry.region, order));
+  const aliasOccurrences = [];
+  aliasesByCharacter.forEach((aliases, characterIndex) => aliases.forEach((alias) => {
+    let position = lower.indexOf(alias);
+    while (position >= 0) {
+      aliasOccurrences.push({ characterIndex, alias, position });
+      position = lower.indexOf(alias, position + alias.length);
+    }
+  }));
+  aliasOccurrences.sort((a, b) => a.position - b.position || b.alias.length - a.alias.length);
+  const actionActors = {};
+  const actionPatterns = {
+    holding: /\b(holds|holding)\b/g,
+    hugging: /\b(hugs|hugging|embraces|embracing)\b/g,
+    touching: /\b(touches|touching)\b/g,
+    supporting: /\b(supports|supporting)\b/g,
+    leaning: /\b(leans|leaning)\b/g,
+    kissing: /\b(kisses|kissing)\b/g,
+    carrying: /\b(carries|carrying)\b/g,
+  };
+  Object.entries(actionPatterns).forEach(([root, regex]) => {
+    let match;
+    while ((match = regex.exec(lower))) {
+      const prior = aliasOccurrences.filter((entry) => entry.position <= match.index && match.index - entry.position <= 180).sort((a, b) => b.position - a.position)[0];
+      if (prior) {
+        if (!actionActors[root]) actionActors[root] = new Set();
+        actionActors[root].add(prior.characterIndex);
+      }
+    }
+  });
+  const conflicts = [];
+  const characterPoses = characters.map((entry, characterIndex) => {
+    const poseState = sceneDirectorTraitCategoryState(entry.region, 'pose');
+    const poseItem = sceneDirectorTraitItemById('pose', poseState.selected_id);
+    const poseTerms = [...(poseItem?.prompt_terms || []), ...String(poseState.custom || '').split(/[\n,;]+/)].map(String).map((term) => term.trim()).filter(Boolean);
+    const localText = poseTerms.join(', ');
+    const localActions = sceneDirectorPairPoseActionRoots(localText);
+    localActions.forEach((action) => {
+      const actors = actionActors[action];
+      if (actors?.size && !actors.has(characterIndex)) conflicts.push({
+        code: 'pair_pose_actor_conflict',
+        level: 'warning',
+        region_id: entry.region.id,
+        label: entry.region.label,
+        action,
+        message: `${entry.region.label} has an individual “${action}” pose, but the shared Pair Pose assigns that action to another character.`,
+      });
+    });
+    const localPostures = sceneDirectorPairPosePostures(localText);
+    const sharedPostures = new Set();
+    aliasOccurrences.filter((occurrence) => occurrence.characterIndex === characterIndex).forEach((occurrence) => {
+      const previousOther = aliasOccurrences.filter((candidate) => candidate.position < occurrence.position && candidate.characterIndex !== characterIndex).sort((a, b) => b.position - a.position)[0];
+      const nextOther = aliasOccurrences.find((candidate) => candidate.position > occurrence.position && candidate.characterIndex !== characterIndex);
+      const end = Math.min(lower.length, nextOther?.position || occurrence.position + 160);
+      const beforeStart = Math.max(previousOther ? previousOther.position + previousOther.alias.length : 0, occurrence.position - 72);
+      const nearestBefore = sceneDirectorPairPoseNearestPostureBefore(lower.slice(beforeStart, occurrence.position));
+      if (nearestBefore) sharedPostures.add(nearestBefore);
+      else sceneDirectorPairPosePostures(lower.slice(occurrence.position, end)).forEach((posture) => sharedPostures.add(posture));
+    });
+    if (localPostures.length && sharedPostures.size && !localPostures.some((posture) => sharedPostures.has(posture))) conflicts.push({
+      code: 'pair_pose_posture_conflict',
+      level: 'warning',
+      region_id: entry.region.id,
+      label: entry.region.label,
+      local_postures: localPostures,
+      shared_postures: [...sharedPostures],
+      message: `${entry.region.label} individual Pose (${localPostures.join('/')}) conflicts with the shared Pair Pose (${[...sharedPostures].join('/')}).`,
+    });
+    return { region_id: entry.region.id, label: entry.region.label, aliases: aliasesByCharacter[characterIndex], pose_terms: poseTerms, local_actions: localActions, local_postures: localPostures, shared_postures: [...sharedPostures] };
+  });
+  const unique = conflicts.filter((item, index, rows) => rows.findIndex((candidate) => `${candidate.code}:${candidate.region_id}:${candidate.action || ''}` === `${item.code}:${item.region_id}:${item.action || ''}`) === index);
   return {
-    schema: 'neo.image.scene_director.relationship_pose_authority.v25_9_9',
-    releaseStage: 'preview',
-    enabled,
-    status: enabled ? (characterCount >= 2 ? 'active' : 'waiting_for_two_characters') : (prompt ? 'disabled' : 'empty'),
-    source: prompt ? 'explicit_scene_pair_pose_field' : 'empty',
-    prompt,
-    negative,
-    strength: Number(settings.pair_pose_strength ?? 0.75),
-    apply_to_character_traits: settings.pair_pose_apply_to_character_traits !== false,
+    schema: 'neo.image.scene_director.pair_pose_conflicts.v25_9_14',
+    status: unique.length ? 'conflict_detected' : 'clear',
+    conflict_count: unique.length,
+    conflicts: unique,
+    character_poses: characterPoses,
+    policy: 'Pair Pose owns shared actor/contact intent; per-character Pose owns non-conflicting individual posture. Exact limbs still require OpenPose/ControlNet.',
+  };
+}
+
+function sceneDirectorRelationshipPoseAuthority(settings = {}, regions = []) {
+  const characterCount = sceneDirectorCharacterCount(Array.isArray(regions) ? regions : []);
+  return {
+    schema: 'neo.image.scene_director.pair_pose_retirement.v25_9_15',
+    phase: 'SD-V054-27.13',
+    releaseStage: 'ready',
+    enabled: false,
+    status: 'retired_character_region_pose_only',
+    source: settings.legacy_pair_pose_present ? 'retired_legacy_pair_pose_metadata' : 'empty',
+    prompt: '',
+    negative: '',
+    strength: 0,
+    apply_to_character_traits: false,
     character_count: characterCount,
-    policy: 'Shared pair pose/contact intent is compiled into character pose trait context; exact skeleton authority still belongs to a pose ControlNet/OpenPose lane.',
+    legacy_input_present: Boolean(settings.legacy_pair_pose_present),
+    conflict_report: { status: 'retired', conflicts: [], character_poses: [] },
+    policy: 'Advanced Pair Pose is retired. Character → Pose is the sole text-pose authority; exact skeleton authority still belongs to a regional pose ControlNet/OpenPose lane.',
+  };
+}
+
+function sceneDirectorCharacterPoseAuthority(regions = []) {
+  const characters = (Array.isArray(regions) ? regions : [])
+    .map((region, index) => sceneDirectorNormalizeRegion(region, index))
+    .filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) === 'character')
+    .map((region) => {
+      const pose = sceneDirectorTraitCategoryState(region, 'pose');
+      const item = sceneDirectorTraitItemById('pose', pose.selected_id);
+      const libraryTerms = (item?.prompt_terms || []).map(String).map((term) => term.trim()).filter(Boolean);
+      const customTerms = String(pose.custom || '').split(/[\n,;]+/).map((term) => term.trim()).filter(Boolean);
+      const terms = [...new Set([...libraryTerms, ...customTerms])];
+      return {
+        region_id: region.id,
+        label: region.label || region.id,
+        enabled: Boolean(terms.length),
+        source: terms.length ? 'character_pose_trait' : 'empty',
+        terms,
+      };
+    });
+  const active = characters.filter((character) => character.enabled);
+  return {
+    schema: 'neo.image.scene_director.character_pose_authority.v25_9_15',
+    phase: 'SD-V054-27.13',
+    enabled: Boolean(active.length),
+    status: active.length ? 'active' : 'empty',
+    source: 'character_region_pose_only',
+    character_count: characters.length,
+    active_character_count: active.length,
+    characters,
+    routes: ['primary_character_region_branch', 'existing_full_character_branch'],
+    adds_attention_branch: false,
+    advanced_pair_pose_execution: false,
+    policy: 'Each Character region owns only its own Pose terms. Mention another Person only as a contact target. Exact skeleton authority requires regional OpenPose/ControlNet.',
   };
 }
 
@@ -9499,7 +10432,7 @@ function sceneDirectorAdvancedFixPassControls(settings = {}, regions = []) {
     layout_safety_full_height_threshold: Number(settings.layout_safety_full_height_threshold ?? 0.92),
     layout_safety_autofit_policy: settings.layout_safety_autofit_policy || 'v1_safe_character_boxes',
     layout_safety: layout,
-    policy: 'Repair/fix passes are optional surgical tools. Default Smart/Auto preserves existing behavior while letting users disable overcooking passes from Advanced Scene Control.',
+    policy: 'The Character Lock pass plan is authoritative. Strong/Strict traits run in the uninterrupted main sampler. Character Trait Lanes only gates an explicitly selected midpoint plan and never promotes the fast plan; end refinement remains separate.',
   };
 }
 
@@ -9617,7 +10550,9 @@ function sceneDirectorAutoFitCharacterRegions(mode = 'selected') {
 
 function sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, route = {}) {
   const size = sceneDirectorCanvasSizeSnapshot();
-  const effectiveRegions = sceneDirectorV054ApplyBackgroundBlendDefaults(Array.isArray(cleanRegions) ? cleanRegions : []);
+  const attachmentResolution = sceneDirectorV054ResolveAttachmentRegions(Array.isArray(cleanRegions) ? cleanRegions : []);
+  const effectiveRegions = sceneDirectorV054ApplyBackgroundBlendDefaults(attachmentResolution.regions);
+  const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const autoBlendApplied = effectiveRegions.length !== (Array.isArray(cleanRegions) ? cleanRegions.length : 0);
   const sourceWorkflowActive = sceneDirectorV054SourceWorkflowActive(route);
   const img2imgReusePlan = sourceWorkflowActive ? sceneDirectorV054Img2ImgReusePlan(effectiveRegions) : sceneDirectorV054Img2ImgReuseDisabledPlan(route);
@@ -9627,11 +10562,33 @@ function sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, r
     global: {
       prompt: corePrompts.positive_prompt || settings.global_prompt || '',
       negative: corePrompts.negative_prompt || settings.negative_prompt || '',
+      prompt_authority: promptAuthorityContract.mode,
+      regional_context: promptAuthorityContract.regional_context,
+      regional_context_enabled: promptAuthorityContract.regional_context_enabled,
+      regional_context_weight: promptAuthorityContract.regional_context_weight,
       style_strength: Number(settings.style_strength ?? 0.8),
     },
     regions: effectiveRegions.map((region, index) => sceneDirectorV054Region(region, index, settings)),
     metadata: {
       source: 'scene_director_v054_ui',
+      prompt_provenance: {
+        global: 'neo_core_prompt_fields',
+        regions: 'user_authored_scene_director_region_fields',
+        traits: 'editable_json_trait_libraries_plus_user_custom_terms',
+        colors: 'shared_editable_color_library',
+        pose: 'character_region_trait_only',
+        advanced_pair_pose_retired: true,
+        demo_or_personal_prompt_injection: false,
+      },
+      attached_detail_roles: {
+        schema: attachmentResolution.schema,
+        phase: attachmentResolution.phase,
+        policy: attachmentResolution.policy,
+        content_policy_guards_added: false,
+        active_child_count: attachmentResolution.regions.filter((region) => sceneDirectorV054RoleOwnsAttachment(region.role || region.type) && region.attach_to).length,
+        skipped: attachmentResolution.skipped,
+        cleared: attachmentResolution.cleared,
+      },
       
       legacy_qwen_adapter_anchor: 'SD-V054-20',
       legacy_sdxl_full_lock_anchor: 'SD-V054-18',
@@ -9641,12 +10598,15 @@ function sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, r
       legacy_relationship_compiler_phase_anchor: "compiler_phase: 'SD-V054-7'",
       legacy_compiler_phase_anchor: "compiler_phase: 'SD-V054-5'",
       global_context_source: 'neo_core_prompts',
+      prompt_authority: promptAuthorityContract.mode,
+      prompt_authority_contract: promptAuthorityContract,
       complexity: sceneDirectorV054ComplexityMeter(effectiveRegions),
       background_regions: { ...sceneDirectorV054BackgroundPlan(effectiveRegions), auto_blend_seam_applied: autoBlendApplied, auto_blend_seam_prompt: autoBlendApplied ? SCENE_DIRECTOR_V054_BLEND_SEAM_PROMPT : '' },
       advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions),
       layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions),
       relationship_pose_authority: sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions),
       pair_pose_authority: sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions),
+      character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions),
       background_space_authority: sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, effectiveRegions),
       regional_controlnet: sceneDirectorV054ControlPlan(effectiveRegions),
       regional_detailer: sceneDirectorV054DetailerPlan(effectiveRegions),
@@ -9688,6 +10648,7 @@ function sceneDirectorSubmitIntentExists(settingsOverride = null) {
 function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   const settings = sceneDirectorSyncExtensionRoutesFromDomToDraft();
   const corePrompts = sceneDirectorCorePromptSnapshot();
+  const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const route = sceneDirectorActiveRoute(record);
   const sourceWorkflowActive = sceneDirectorV054SourceWorkflowActive(route);
   const applied = appliedOverride === null ? (extensionWorkflowAppliedAnyContext(record) || Boolean(settings.enabled)) : Boolean(appliedOverride);
@@ -9734,7 +10695,7 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   const sceneGraph = active ? sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, route) : null;
   const relationshipPoseAuthority = sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions);
   const backgroundSpaceAuthority = sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, effectiveRegions);
-  const disabledMeta = { schema: 'neo.image.scene_director.v2', scene_graph_schema: 'neo.image.scene_director.scene_graph.v054', payload_schema: 'neo.extension.payload.v1', source: 'scene_director_v054_ui', route_state: route.route_state, route: { backend: route.backend, family: route.family, loader: route.loader, mode: route.workflow_mode, workspace: route.workspace_app, subtab: route.subtab }, workflow_patch_requested: false, workflow_patch_allowed: false, reason: active ? '' : sceneDirectorStatusLabel(route, applied), gated_reason: active ? '' : sceneDirectorStatusLabel(route, applied), regional_count: cleanRegions.length, subject_count: active ? sceneDirectorCharacterCount(settings.regions) : 0, detail_region_count: active ? cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length : 0, node_readiness: 'NeoSceneDirectorV054 preferred; V053/V052 fallback checked by backend workflow hook', ui_mode: state.detailMode || 'guided', character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), global_context_source: 'neo_core_prompts', suppress_global_ipadapter: false, complexity: active ? sceneDirectorV054ComplexityMeter(cleanRegions) : sceneDirectorV054ComplexityMeter([]), background_regions: active ? sceneDirectorV054BackgroundPlan(cleanRegions) : sceneDirectorV054BackgroundPlan([]), relationship_pose_authority: relationshipPoseAuthority, pair_pose_authority: relationshipPoseAuthority, background_space_authority: backgroundSpaceAuthority, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions), layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions), provider_capabilities: sceneDirectorV054ProviderCapability(route),
+  const disabledMeta = { schema: 'neo.image.scene_director.v2', scene_graph_schema: 'neo.image.scene_director.scene_graph.v054', payload_schema: 'neo.extension.payload.v1', source: 'scene_director_v054_ui', route_state: route.route_state, route: { backend: route.backend, family: route.family, loader: route.loader, mode: route.workflow_mode, workspace: route.workspace_app, subtab: route.subtab }, workflow_patch_requested: false, workflow_patch_allowed: false, reason: active ? '' : sceneDirectorStatusLabel(route, applied), gated_reason: active ? '' : sceneDirectorStatusLabel(route, applied), regional_count: cleanRegions.length, subject_count: active ? sceneDirectorCharacterCount(settings.regions) : 0, detail_region_count: active ? cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length : 0, node_readiness: 'NeoSceneDirectorV054 preferred; V053/V052 fallback checked by backend workflow hook', ui_mode: state.detailMode || 'guided', character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), global_context_source: 'neo_core_prompts', suppress_global_ipadapter: false, complexity: active ? sceneDirectorV054ComplexityMeter(cleanRegions) : sceneDirectorV054ComplexityMeter([]), background_regions: active ? sceneDirectorV054BackgroundPlan(cleanRegions) : sceneDirectorV054BackgroundPlan([]), relationship_pose_authority: relationshipPoseAuthority, pair_pose_authority: relationshipPoseAuthority, character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions), background_space_authority: backgroundSpaceAuthority, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions), layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions), provider_capabilities: sceneDirectorV054ProviderCapability(route),
       route: { ...(route || {}), source_workflow_active: sourceWorkflowActive },
       clean_state_boundary: { schema: 'neo.image.scene_director.clean_state_boundary.v25_9_5', releaseStage: 'ready', source_workflow_active: sourceWorkflowActive, workflow_mode: route.workflow_mode || route.mode || getImageWorkflowMode() || 'generate', img2img_region_reuse_enabled: sourceWorkflowActive },
       extension_unit_routing: sceneDirectorV054ExtensionUnitRoutingPlan(cleanRegions),
@@ -9744,10 +10705,10 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   return { extensions: { [SCENE_DIRECTOR_EXTENSION_ID]: {
     enabled: active,
     version: 1,
-    inputs: active ? { scene_graph_json: sceneGraph, scene_graph: sceneGraph, regions: cleanRegions, contracts: { enabled: settings.contracts_enabled, use_node_auto_prompts: settings.use_node_auto_prompts, count_contract: settings.count_contract, subject_contract: settings.subject_contract, negative_contract: settings.negative_contract, style_merge: settings.style_merge }, global: { positive_prompt: corePrompts.positive_prompt, negative_prompt: corePrompts.negative_prompt, style_prompt: corePrompts.style_prompt } } : {},
-    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), character_lock_execution_mode: settings.character_lock_execution_mode || 'masked_correction', scene_director_character_lock_execution_mode: settings.character_lock_execution_mode || 'masked_correction', first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v1', phase: 'SD-V054-26.10.8K4', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: settings.character_lock_execution_mode || 'masked_correction', execution: settings.character_lock_execution_mode || 'masked_correction', enabled: Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
+    inputs: active ? { scene_graph_json: sceneGraph, scene_graph: sceneGraph, regions: cleanRegions, contracts: { enabled: settings.contracts_enabled, use_node_auto_prompts: settings.use_node_auto_prompts, count_contract: settings.count_contract, subject_contract: settings.subject_contract, negative_contract: settings.negative_contract, style_merge: settings.style_merge }, global: { positive_prompt: corePrompts.positive_prompt, negative_prompt: corePrompts.negative_prompt, style_prompt: corePrompts.style_prompt, prompt_authority: promptAuthorityContract.mode } } : {},
+    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', prompt_authority: promptAuthorityContract.mode, scene_director_prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), scene_director_character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), scene_director_character_lock_pass_plan: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v2', phase: 'SD-V054-27.1', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), execution: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), enabled: Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
     assets: active ? { identity_units: identityUnits, ipadapter_bindings: ipadapterBindings, lora_bindings: loraBindings } : {},
-        metadata: active ? { ...disabledMeta, workflow_patch_requested: true, workflow_patch_allowed: false, reason: '', gated_reason: 'Backend validation must confirm NeoSceneDirectorV054 before graph mutation or explicitly fall back to V053/V052.', suppress_global_ipadapter: Boolean(ipadapterBindings.length), regional_count: cleanRegions.length, subject_count: sceneDirectorCharacterCount(settings.regions), detail_region_count: cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length, scene_graph_region_count: sceneGraph.regions.length } : disabledMeta,
+        metadata: active ? { ...disabledMeta, workflow_patch_requested: true, workflow_patch_allowed: false, reason: '', gated_reason: 'Backend validation must confirm NeoSceneDirectorV054 before graph mutation.', prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, global_prompt_excluded: promptAuthorityContract.global_prompt_excluded, suppress_global_ipadapter: Boolean(ipadapterBindings.length), regional_count: cleanRegions.length, subject_count: sceneDirectorCharacterCount(settings.regions), detail_region_count: cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length, scene_graph_region_count: sceneGraph.regions.length } : disabledMeta,
   } } };
 }
 function sceneDirectorValidationPreview(record, appliedOverride = null) {
@@ -9758,6 +10719,7 @@ function sceneDirectorValidationPreview(record, appliedOverride = null) {
   // submit intent must not make a disabled extension look active.
   const applied = appliedOverride === null ? (extensionWorkflowApplied(record) || Boolean(settings.enabled)) : Boolean(appliedOverride && settings.enabled);
   const regions = sceneDirectorCleanRegions(settings.regions);
+  const attachmentResolution = sceneDirectorV054ResolveAttachmentRegions(regions);
   const items = [];
   if (!applied) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'info', field: 'enabled', message: 'Scene Director is disabled for this workflow.' });
   if (!sceneDirectorRouteControlsEnabled(route)) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
@@ -9783,7 +10745,9 @@ function sceneDirectorValidationPreview(record, appliedOverride = null) {
   if (identityRequested && !ipAdapterApplied) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'dependencies.image.ip_adapter', message: 'Regional identity profiles need image.ip_adapter enabled for FaceID/IPAdapter execution. Trigger words are still preserved.' });
   if (loraRequested && !loraStackApplied) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'dependencies.lora_stack', message: 'Regional LoRA targets need LoRA Stack enabled. Scene Director will preserve intent but will not own LoRA loading.' });
   items.push(...sceneDirectorCleanStateDirtyWarnings(route));
+  items.push(...attachmentResolution.messages);
   items.push(...sceneDirectorV054ConflictPreview(regions));
+  items.push(...sceneDirectorTraitColorConflictPreview(regions));
   items.push(...sceneDirectorV054ComplexityPreview(regions));
   items.push(...sceneDirectorV054ControlPreview(regions));
   items.push(...sceneDirectorV054DetailerPreview(regions));
@@ -9850,6 +10814,7 @@ function sceneDirectorCurrentPresetSnapshot() {
       style_merge: settings.style_merge,
     },
     params: {
+      prompt_authority: settings.prompt_authority,
       base_weight: settings.base_weight,
       region_gain: settings.region_gain,
       normalize_masks: settings.normalize_masks,
@@ -9918,6 +10883,7 @@ async function loadSceneDirectorScenePreset(name) {
     subject_contract: contracts.subject_contract || sceneDirectorSettings().subject_contract,
     negative_contract: contracts.negative_contract || sceneDirectorSettings().negative_contract,
     style_merge: contracts.style_merge || sceneDirectorSettings().style_merge,
+    prompt_authority: sceneDirectorPromptAuthority(params.prompt_authority || params.scene_director_prompt_authority || 'global_context'),
     base_weight: params.base_weight ?? sceneDirectorSettings().base_weight,
     region_gain: params.region_gain ?? sceneDirectorSettings().region_gain,
     normalize_masks: params.normalize_masks !== false,
@@ -9980,7 +10946,7 @@ function sceneDirectorApplyTraitPatch(index = 0, category = '', patch = {}) {
   const settings = sceneDirectorSettings();
   const regions = [...(settings.regions || [])];
   const current = sceneDirectorNormalizeRegion(regions[index] || sceneDirectorDefaultRegion(index));
-  const traits = current.character_traits && typeof current.character_traits === 'object' ? { ...current.character_traits } : { schema: 'neo.image.scene_director.character_trait_fields.v25_9_8', releaseStage: 'preview', source_policy: 'explicit_fields_first_auto_extract_fallback', categories: {} };
+  const traits = current.character_traits && typeof current.character_traits === 'object' ? { ...current.character_traits } : { schema: 'neo.image.scene_director.character_trait_fields.v25_9_16', releaseStage: 'preview', source_policy: 'explicit_fields_first_auto_extract_fallback', categories: {} };
   const categories = traits.categories && typeof traits.categories === 'object' ? { ...traits.categories } : {};
   const prior = categories[category] && typeof categories[category] === 'object' ? { ...categories[category] } : {};
   categories[category] = { ...prior, ...patch };
@@ -9992,12 +10958,143 @@ function sceneDirectorApplyTraitPatch(index = 0, category = '', patch = {}) {
   updateSceneDirectorSettings({ regions });
 }
 
+function sceneDirectorApplyAdditionalDetailsPatch(index = 0, updater = (value) => value) {
+  const settings = sceneDirectorSettings();
+  const regions = [...(settings.regions || [])];
+  const current = sceneDirectorNormalizeRegion(regions[index] || sceneDirectorDefaultRegion(index));
+  const traits = current.character_traits && typeof current.character_traits === 'object' ? { ...current.character_traits } : {};
+  const prior = sceneDirectorAdditionalDetailsState(current);
+  const next = updater({
+    ...prior,
+    held_items: prior.held_items.map((item) => ({ ...item })),
+    custom_details: prior.custom_details.map((item) => ({ ...item })),
+  }) || prior;
+  traits.additional_details = {
+    ...next,
+    schema: 'neo.image.scene_director.character_additional_details.v25_9_16',
+    phase: 'SD-V054-27.15',
+    adds_attention_branches: false,
+  };
+  current.character_traits = traits;
+  current.character_traits = sceneDirectorCharacterTraitsFromRegion(current);
+  regions[index] = current;
+  updateSceneDirectorSettings({ regions });
+}
 
-function sceneDirectorReopenTraitPanel(index = 0) {
+function sceneDirectorNextAdditionalItemId(items = [], prefix = 'detail') {
+  const ids = new Set((Array.isArray(items) ? items : []).map((item) => String(item?.id || '')));
+  let counter = ids.size + 1;
+  while (ids.has(`${prefix}_${counter}`)) counter += 1;
+  return `${prefix}_${counter}`;
+}
+
+function sceneDirectorAddAdditionalItem(index = 0, collection = '') {
+  sceneDirectorApplyAdditionalDetailsPatch(index, (details) => {
+    if (collection === 'held_items') {
+      details.held_items.push({ id: sceneDirectorNextAdditionalItemId(details.held_items, 'held_item'), enabled: true, item: '', hand: 'auto', action: 'holding', appearance: '' });
+    } else if (collection === 'custom_details') {
+      details.custom_details.push({ id: sceneDirectorNextAdditionalItemId(details.custom_details, 'custom_detail'), enabled: true, preset_id: '', target_area: 'full_body', instruction: '', negative: '' });
+    }
+    return details;
+  });
+  render();
+  sceneDirectorReopenAdditionalDetailsPanel(index);
+}
+
+function sceneDirectorRemoveAdditionalItem(index = 0, collection = '', itemId = '') {
+  sceneDirectorApplyAdditionalDetailsPatch(index, (details) => {
+    if (collection === 'held_items' || collection === 'custom_details') {
+      details[collection] = details[collection].filter((item) => String(item.id || '') !== String(itemId || ''));
+    }
+    return details;
+  });
+  render();
+  sceneDirectorReopenAdditionalDetailsPanel(index);
+}
+
+function sceneDirectorUpdateAdditionalItem(index = 0, collection = '', itemId = '', field = '', value = '') {
+  sceneDirectorApplyAdditionalDetailsPatch(index, (details) => {
+    if (collection !== 'held_items' && collection !== 'custom_details') return details;
+    const item = details[collection].find((candidate) => String(candidate.id || '') === String(itemId || ''));
+    if (!item) return details;
+    item[field] = value;
+    if (collection === 'custom_details' && field === 'preset_id') {
+      const preset = sceneDirectorTraitItemById('custom_detail', value);
+      if (preset) {
+        item.instruction = Array.isArray(preset.prompt_terms) ? preset.prompt_terms.join(', ') : '';
+        item.negative = Array.isArray(preset.negative_terms) ? preset.negative_terms.join(', ') : '';
+        if (SCENE_DIRECTOR_ADDITIONAL_DETAIL_TARGETS[String(preset.target_area || '')]) item.target_area = String(preset.target_area);
+      }
+    }
+    return details;
+  });
+}
+
+async function sceneDirectorSaveCustomDetailPreset(index = 0, itemId = '') {
+  const settings = sceneDirectorSettings();
+  const region = sceneDirectorNormalizeRegion((settings.regions || [])[index] || sceneDirectorDefaultRegion(index));
+  const item = sceneDirectorAdditionalDetailsState(region).custom_details.find((candidate) => String(candidate.id || '') === String(itemId || ''));
+  if (!item || !String(item.instruction || '').trim()) {
+    window.alert('Add a custom detail instruction first.');
+    return;
+  }
+  const label = String(window.prompt('Custom detail preset name?', String(item.instruction).split(/[\n,;]+/)[0] || 'Custom detail') || '').trim();
+  if (!label) return;
+  const negativeTerms = String(item.negative || '').split(/[\n,;]+/).map((part) => part.trim()).filter(Boolean);
+  const response = await sceneDirectorApi('trait-libraries/custom_detail/items', {
+    method: 'POST',
+    body: JSON.stringify({ item: { label, prompt_terms: [String(item.instruction).trim()], negative_terms: negativeTerms, target_area: item.target_area, roles: ['character'] } }),
+  });
+  await refreshSceneDirectorLibraries();
+  const savedId = String(response?.item?.id || '');
+  if (savedId) sceneDirectorUpdateAdditionalItem(index, 'custom_details', itemId, 'preset_id', savedId);
+  render();
+  sceneDirectorReopenAdditionalDetailsPanel(index);
+}
+
+
+function sceneDirectorReopenTraitPanel(index = 0, colorCategory = '') {
   window.requestAnimationFrame(() => {
     const panel = document.querySelector(`[data-scene-region-traits-index="${Number(index)}"]`);
     if (panel) panel.open = true;
+    if (panel && SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES.includes(String(colorCategory || ''))) {
+      const additional = panel.querySelector(`[data-scene-additional-details-index="${Number(index)}"]`);
+      if (additional) additional.open = true;
+    }
+    if (panel && colorCategory) {
+      const colorPanel = panel.querySelector(`[data-scene-trait-color-panel-category="${String(colorCategory)}"]`);
+      if (colorPanel) colorPanel.open = true;
+    }
   });
+}
+
+function sceneDirectorReopenAdditionalDetailsPanel(index = 0) {
+  window.requestAnimationFrame(() => {
+    const panel = document.querySelector(`[data-scene-region-traits-index="${Number(index)}"]`);
+    if (panel) panel.open = true;
+    const additional = panel?.querySelector(`[data-scene-additional-details-index="${Number(index)}"]`);
+    if (additional) additional.open = true;
+  });
+}
+
+function sceneDirectorDetectColorNearStyle(prompt = '', styleTerms = [], category = '') {
+  const text = String(prompt || '').toLowerCase();
+  const terms = (Array.isArray(styleTerms) ? styleTerms : []).map(String).map((term) => term.toLowerCase()).filter(Boolean);
+  if (!text || !terms.length) return null;
+  const stylePositions = terms.map((term) => text.indexOf(term)).filter((index) => index >= 0);
+  if (!stylePositions.length) return null;
+  let best = null;
+  sceneDirectorColorLibraryItems(category).forEach((item) => {
+    sceneDirectorColorTerms(item).forEach((colorTerm) => {
+      let index = text.indexOf(String(colorTerm).toLowerCase());
+      while (index >= 0) {
+        const distance = Math.min(...stylePositions.map((styleIndex) => Math.abs(styleIndex - index)));
+        if (distance <= 48 && (!best || distance < best.distance)) best = { item, distance };
+        index = text.indexOf(String(colorTerm).toLowerCase(), index + 1);
+      }
+    });
+  });
+  return best?.item || null;
 }
 
 function sceneDirectorAutofillRegionTraits(index = 0) {
@@ -10007,17 +11104,60 @@ function sceneDirectorAutofillRegionTraits(index = 0) {
   const prompt = String(current.prompt || '');
   const lower = prompt.toLowerCase();
   const categories = {};
-  SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES.forEach((category) => {
+  [...SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES, ...SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES].forEach((category) => {
     const item = sceneDirectorTraitLibraryItems(category).find((candidate) => {
       const terms = Array.isArray(candidate.prompt_terms) ? candidate.prompt_terms : [];
       return terms.some((term) => term && lower.includes(String(term).toLowerCase()));
     });
-    if (item) categories[category] = { selected_id: item.id, selected_label: item.label, prompt_terms: item.prompt_terms || [], custom: '', explicit_terms: item.prompt_terms || [], source: 'auto_filled_from_prompt_match' };
+    if (item) {
+      const color = SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)
+        ? sceneDirectorDetectColorNearStyle(prompt, item.prompt_terms || [], category)
+        : null;
+      const colorAssignment = color ? { enabled: true, primary_id: color.id, secondary_id: '', blend_mode: 'single', source: 'auto_filled_near_style_term' } : undefined;
+      const compiled = colorAssignment
+        ? sceneDirectorCompileColoredTraitTerms(category, item.prompt_terms || [], colorAssignment)
+        : { terms: item.prompt_terms || [] };
+      categories[category] = {
+        selected_id: item.id,
+        selected_label: item.label,
+        prompt_terms: item.prompt_terms || [],
+        negative_terms: item.negative_terms || [],
+        custom: '',
+        explicit_terms: compiled.terms || item.prompt_terms || [],
+        color_assignment: colorAssignment,
+        source: 'auto_filled_from_prompt_match',
+      };
+    }
   });
-  current.character_traits = { schema: 'neo.image.scene_director.character_trait_fields.v25_9_8', releaseStage: 'preview', source_policy: 'explicit_fields_first_auto_extract_fallback', categories };
+  current.character_traits = { schema: 'neo.image.scene_director.character_trait_fields.v25_9_16', releaseStage: 'preview', source_policy: 'explicit_fields_first_auto_extract_fallback', categories, additional_details: sceneDirectorAdditionalDetailsState(current) };
   Object.entries(categories).forEach(([category, item]) => { current[`trait_${category}_selected`] = item.selected_id || ''; current[`trait_${category}_custom`] = ''; });
   regions[index] = current;
   updateSceneDirectorSettings({ regions });
+  render();
+  sceneDirectorReopenTraitPanel(index);
+}
+
+async function sceneDirectorAddCustomColor(index = 0, category = '') {
+  if (!SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)) throw new Error('This trait does not use the shared color library.');
+  const label = String(window.prompt('Color name?') || '').trim();
+  if (!label) return;
+  const promptTerm = String(window.prompt('Prompt term for this color?', label) || '').trim();
+  if (!promptTerm) return;
+  const hex = String(window.prompt('Optional swatch hex (for example #FF69B4):', '') || '').trim();
+  const response = await sceneDirectorApi('trait-libraries/colors/items', {
+    method: 'POST',
+    body: JSON.stringify({ item: { label, prompt_terms: [promptTerm], hex, roles: ['hair', 'clothing_top', 'clothing_bottom', 'full_costume', 'underlayer'] } }),
+  });
+  await refreshSceneDirectorLibraries();
+  const saved = response?.item || {};
+  if (saved.id) {
+    const settings = sceneDirectorSettings();
+    const region = sceneDirectorNormalizeRegion((settings.regions || [])[index] || sceneDirectorDefaultRegion(index));
+    const current = sceneDirectorTraitCategoryState(region, category);
+    sceneDirectorApplyTraitPatch(index, category, {
+      color_assignment: { ...current.color_assignment, enabled: true, primary_id: saved.id, source: 'explicit_user_color_library' },
+    });
+  }
   render();
   sceneDirectorReopenTraitPanel(index);
 }
@@ -10045,7 +11185,7 @@ async function sceneDirectorSaveCustomRegionTrait(index = 0) {
 
 async function sceneDirectorAddCustomRegionTrait(index = 0, category = '') {
   const cleanCategory = String(category || '').trim();
-  if (!SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES.includes(cleanCategory)) {
+  if (![...SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES, ...SCENE_DIRECTOR_ADDITIONAL_DETAIL_TRAIT_CATEGORIES].includes(cleanCategory)) {
     throw new Error('Unknown trait category.');
   }
   const settings = sceneDirectorSettings();
@@ -10077,7 +11217,7 @@ async function sceneDirectorAddCustomRegionTrait(index = 0, category = '') {
     });
   }
   render();
-  sceneDirectorReopenTraitPanel(index);
+  sceneDirectorReopenTraitPanel(index, cleanCategory);
 }
 function sceneDirectorParseReferenceList(...values) {
   const refs = [];
@@ -10271,6 +11411,7 @@ function sceneDirectorRegionCanvas(regions = [], disabled = '', selectedIndex = 
 function sceneDirectorPanel(record) {
   const settings = sceneDirectorSettings();
   const corePrompts = sceneDirectorCorePromptSnapshot();
+  const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const route = sceneDirectorActiveRoute(record);
   const routeEnabled = sceneDirectorRouteControlsEnabled(route);
   const expert = state.detailMode === 'expert';
@@ -10283,7 +11424,7 @@ function sceneDirectorPanel(record) {
   const subjectCount = sceneDirectorCharacterCount(regions);
   const routeTone = route.route_state === 'available' ? 'success' : (route.route_state === 'experimental_available' ? 'warning' : 'danger');
   const typeOptions = [{id:'character', label:'Character'}, {id:'object', label:'Object/Prop'}, {id:'background', label:'Background'}, {id:'style', label:'Style'}];
-  const parentOptionsForRegion = (currentId = '', selected = '') => sceneDirectorV054ParentOptions(regions, currentId, selected);
+  const parentOptionsForRegion = (currentId = '', selected = '', childRole = 'custom') => sceneDirectorV054ParentOptions(regions, currentId, selected, childRole);
   const sceneDirectorWorkflowMode = String(route.workflow_mode || route.subtab || '').toLowerCase();
   const sceneDirectorEditMode = sceneDirectorWorkflowMode === 'inpaint' ? 'inpaint' : (sceneDirectorWorkflowMode === 'img2img' ? 'img2img' : 'txt2img');
   const showSceneDirectorImg2ImgControls = sceneDirectorEditMode === 'img2img';
@@ -10305,6 +11446,7 @@ function sceneDirectorPanel(record) {
       </div>
       <div class="neo-scene-region-row neo-scene-region-meta-row"><label>Label<input data-scene-region-field="label" data-scene-region-index="${index}" value="${escapeAttr(region.label || '')}" ${locked}></label><label>V054 Role<select data-scene-region-field="role" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RoleOptions(region.role || region.type)}</select></label></div>
       ${sceneDirectorRegionTraitFields(region, index, locked)}
+      ${sceneDirectorAttachedDetailControls(region, index, locked, regions)}
       <details class="neo-scene-nested-card neo-scene-region-advanced"><summary><span>Advanced Region Control</span><small>attachment, prompts, routes, edit tools</small></summary><div class="neo-scene-nested-body neo-scene-region-advanced-body"><details class="neo-scene-region-control-group" open><summary>Relationship & Attachment</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Attach to<select data-scene-region-field="attach_to" data-scene-region-index="${index}" ${locked}>${parentOptionsForRegion(region.id, region.attach_to)}</select></label><label>Relationship<select data-scene-region-field="relationship" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RelationshipOptions(region.relationship || sceneDirectorV054LinkMetadata(region).relationship)}</select></label><label>Target area<input data-scene-region-field="target_area" data-scene-region-index="${index}" value="${escapeAttr(region.target_area || sceneDirectorV054LinkMetadata(region).targetArea || '')}" placeholder="hair, face, hands, outfit" ${locked}></label><label>Priority<select data-scene-region-field="priority" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054PriorityOptions(region.priority)}</select></label></div></details><details class="neo-scene-region-control-group"><summary>Prompt Overrides</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Parent prompt override<textarea data-scene-region-field="relationship_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Use {parent}, {child}, {target}, {relationship}" ${locked}>${escapeHtml(region.relationship_prompt || '')}</textarea></label><label class="wide">Local mask prompt override<textarea data-scene-region-field="local_prompt_template" data-scene-region-index="${index}" rows="2" placeholder="Optional local prompt for this region mask" ${locked}>${escapeHtml(region.local_prompt_template || '')}</textarea></label><label class="wide">Negative guard override<textarea data-scene-region-field="negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative guard for this relationship" ${locked}>${escapeHtml(region.negative_guard || '')}</textarea></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Conflict resolution override<textarea data-scene-region-field="conflict_resolution_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: {child_label} wins over parent wording for {parent_label}" ${locked}>${escapeHtml(region.conflict_resolution_prompt || '')}</textarea></label><label class="wide">Conflict negative guard<textarea data-scene-region-field="conflict_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative prompt only when this lane conflicts" ${locked}>${escapeHtml(region.conflict_negative_guard || '')}</textarea></label></div></details><details class="neo-scene-region-control-group"><summary>Background Slot</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Background zone<input data-scene-region-field="zone" data-scene-region-index="${index}" value="${escapeAttr(region.zone || sceneDirectorV054BackgroundZone(region))}" placeholder="left side / right side / center seam" ${locked}></label><label class="wide">Background prompt override<textarea data-scene-region-field="background_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: ancient medieval fantasy ruins, warm torchlight, stone walls" ${locked}>${escapeHtml(region.background_prompt || '')}</textarea></label><label class="wide">Background negative guard<textarea data-scene-region-field="background_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="background covering subjects, extra people, wrong era bleed" ${locked}>${escapeHtml(region.background_negative_guard || '')}</textarea></label></div>${sceneDirectorBackgroundComposerControls(region, index, locked, regions)}<p class="neo-muted">Manual background regions only. Background override is compiled as the local background lane; global prompt remains scene context/style only.</p></details>${showSceneDirectorImg2ImgControls ? `<details class="neo-scene-region-control-group"><summary>Img2Img Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Img2Img intent<select data-scene-region-field="edit_intent_mode" data-scene-region-index="${index}" ${locked}><option value="preserve" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'preserve' ? 'selected' : ''}>Preserve</option><option value="modify" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'modify' ? 'selected' : ''}>Modify</option><option value="replace" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'replace' ? 'selected' : ''}>Replace</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="edit_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054EditIntentFromRegion(region).denoise ?? 0.35)}" ${locked}></label><label>Mask reuse<select data-scene-region-field="edit_mask_reuse" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'region' ? 'selected' : ''}>Region mask</option><option value="source" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'source' ? 'selected' : ''}>Source mask</option><option value="metadata" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'metadata' ? 'selected' : ''}>Saved metadata</option></select></label><label class="wide">Source image<input data-scene-region-field="source_image" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054EditIntentFromRegion(region).source_image || region.source_image || '')}" placeholder="output/source image name" ${locked}></label></div></details>` : ''}${showSceneDirectorInpaintControls ? `<details class="neo-scene-region-control-group"><summary>Inpaint Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="neo-scene-region-enable"><input type="checkbox" data-scene-region-field="inpaint_enabled" data-scene-region-index="${index}" ${sceneDirectorV054InpaintTargetFromRegion(region).enabled ? 'checked' : ''} ${locked}> <span>Inpaint Target</span></label><label>Action<select data-scene-region-field="inpaint_action" data-scene-region-index="${index}" ${locked}><option value="change_hair" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_hair' ? 'selected' : ''}>Change Hair</option><option value="change_outfit" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_outfit' ? 'selected' : ''}>Change Outfit</option><option value="add_held_prop" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'add_held_prop' ? 'selected' : ''}>Add Held Prop</option><option value="remove_object" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'remove_object' ? 'selected' : ''}>Remove Object</option><option value="replace_background" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'replace_background' ? 'selected' : ''}>Replace Background</option><option value="fix_face" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_face' ? 'selected' : ''}>Fix Face</option><option value="fix_hands" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_hands' ? 'selected' : ''}>Fix Hands</option><option value="edit_text_plate" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'edit_text_plate' ? 'selected' : ''}>Edit Text Plate</option><option value="custom" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'custom' ? 'selected' : ''}>Custom</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="inpaint_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).denoise ?? 0.5)}" ${locked}></label><label>Mask feather<input type="number" min="0" max="128" step="1" data-scene-region-field="inpaint_mask_feather" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).mask_feather ?? 16)}" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask mode<select data-scene-region-field="inpaint_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="detail" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="subject" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="background" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'background' ? 'selected' : ''}>Background mask</option><option value="source" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'source' ? 'selected' : ''}>Source mask</option></select></label><label class="wide">Inpaint prompt<input data-scene-region-field="inpaint_prompt" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).prompt || '')}" placeholder="Prompt for this inpaint target" ${locked}></label><label class="wide">Inpaint negative<input data-scene-region-field="inpaint_negative" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).negative || '')}" placeholder="Negative for this inpaint target" ${locked}></label></div></details>` : ''}<details class="neo-scene-region-control-group"><summary>Text Region</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Text mode<select data-scene-region-field="text_mode" data-scene-region-index="${index}" ${locked}><option value="composite" ${sceneDirectorV054TextFromRegion(region).mode === 'composite' ? 'selected' : ''}>Composite Text</option><option value="diffusion" ${sceneDirectorV054TextFromRegion(region).mode === 'diffusion' ? 'selected' : ''}>Diffusion Text</option><option value="native" ${sceneDirectorV054TextFromRegion(region).mode === 'native' ? 'selected' : ''}>Model Native</option></select></label><label class="wide">Text content<textarea data-scene-region-field="text" data-scene-region-index="${index}" rows="2" placeholder="Readable text to composite" ${locked}>${escapeHtml(sceneDirectorV054TextFromRegion(region).text || '')}</textarea></label><label>Font style<input data-scene-region-field="font_style" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).font_style || '')}" placeholder="bold futuristic sans-serif" ${locked}></label><label>Color<input data-scene-region-field="color" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).color || 'white')}" placeholder="white / #ffffff" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Font size<input type="number" min="4" max="512" step="1" data-scene-region-field="font_size" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).font_size ?? 48)}" ${locked}></label><label>Align<select data-scene-region-field="align" data-scene-region-index="${index}" ${locked}><option value="left" ${sceneDirectorV054TextFromRegion(region).align === 'left' ? 'selected' : ''}>Left</option><option value="center" ${sceneDirectorV054TextFromRegion(region).align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${sceneDirectorV054TextFromRegion(region).align === 'right' ? 'selected' : ''}>Right</option></select></label><label>Vertical<select data-scene-region-field="valign" data-scene-region-index="${index}" ${locked}><option value="top" ${sceneDirectorV054TextFromRegion(region).valign === 'top' ? 'selected' : ''}>Top</option><option value="middle" ${sceneDirectorV054TextFromRegion(region).valign === 'middle' ? 'selected' : ''}>Middle</option><option value="bottom" ${sceneDirectorV054TextFromRegion(region).valign === 'bottom' ? 'selected' : ''}>Bottom</option></select></label><label>Opacity<input type="number" min="0" max="1" step="0.01" data-scene-region-field="opacity" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).opacity ?? 1)}" ${locked}></label></div></details><details class="neo-scene-region-control-group"><summary>Extension Routing</summary><div class="neo-scene-region-row neo-scene-region-meta-row neo-scene-extension-route-grid">${sceneDirectorExtensionUnitSelect('controlnet', region.extension_routes?.controlnet_unit_id, index, locked)}${sceneDirectorExtensionUnitSelect('adetailer', region.extension_routes?.adetailer_pass_id, index, locked)}${sceneDirectorExtensionUnitSelect('ipadapter', region.extension_routes?.ipadapter_profile_id ? `profile:${region.extension_routes.ipadapter_profile_id}` : (region.extension_routes?.ipadapter_unit_id ? `unit:${region.extension_routes.ipadapter_unit_id}` : ''), index, locked)}${sceneDirectorExtensionUnitSelect('lora', (region.extension_routes?.lora_row_ids || [])[0] || region.ext_lora_row_id || '', index, locked)}<label>Mask mode<select data-scene-region-field="ext_route_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${region.extension_routes?.mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="subject" ${region.extension_routes?.mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="detail" ${region.extension_routes?.mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="background" ${region.extension_routes?.mask_mode === 'background' ? 'selected' : ''}>Background mask</option></select></label></div>${sceneDirectorExtensionRoutingAdvancedSettings(region, index, locked)}${sceneDirectorExtensionRoutingTruthLabels(region, index)}<p class="neo-muted">Owner extensions create units/passes/profiles/rows. Scene Director owns region assignment; ControlNet, ADetailer, assigned LoRA rows, and IP Adapter identity restore can route through region masks when runtime support is available. Advanced route settings stay hidden until a route is selected; truth labels show requested vs actual compiled behavior.</p></details><p class="neo-muted">Defaults come from the prompt compiler registry, conflict resolver, mixed-background registry, regional ControlNet router, and regional Detailer router, inpaint target planner, and text compositor. Override here when the scene needs custom wording; templates support {parent}, {parent_label}, {child}, {child_label}, {target}, {relationship}, {zone}, and {focus}.</p></div></details>
       <div class="neo-scene-region-row neo-scene-region-flags neo-scene-region-flag-row">${sceneDirectorBoolControl(`sceneRegionVisible${index}`, 'Visible', region.visible !== false, disabled, `data-scene-region-field="visible" data-scene-region-index="${index}"`)}${sceneDirectorBoolControl(`sceneRegionLocked${index}`, 'Locked', Boolean(region.locked), disabled, `data-scene-region-field="locked" data-scene-region-index="${index}"`)}</div>
       <label>Prompt<textarea data-scene-region-field="prompt" data-scene-region-index="${index}" ${locked}>${escapeHtml(region.prompt || '')}</textarea></label>
@@ -10321,9 +11463,7 @@ function sceneDirectorPanel(record) {
   const contextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-context-suffix"><summary><span>🧭 Region context suffix</span><small>routes global/style context after each region prompt</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-region-row neo-scene-context-compact-row">${sceneDirectorBoolControl('sceneDirectorRegionContextEnabled', 'Enable region context', settings.region_context_enabled, disabled)}<label>Mode<select id="sceneDirectorContextMode" ${disabled}>${['off','global_only','style_only','global_and_style'].map((mode) => `<option value="${mode}" ${mode === settings.region_context_mode ? 'selected' : ''}>${escapeHtml(mode)}</option>`).join('')}</select></label><label>Context weight<input id="sceneDirectorContextWeight" type="number" min="0" max="2" step="0.01" value="${settings.region_context_weight}" ${disabled}></label><label>Position<input value="suffix" readonly></label></div><div class="neo-scene-style-isolation-panel"><label class="neo-toggle-row"><input id="sceneDirectorApplyGlobalStyleToRegionRefinement" type="checkbox" ${settings.apply_global_style_to_region_refinement ? 'checked' : ''} ${disabled}> <span>Apply global style to regional refinement passes</span></label><p class="neo-muted">Default off: Style Stack stays on the Scene Director global prompt only. LoRA/detail/crop refinement uses the original global prompt plus local region intent unless this is enabled.</p></div></div></details>`;
   const lib = state.sceneDirectorLibrary || { identityProfiles: [], scenePresets: [], regionLayoutPresets: [], status: '' };
   const characterLockBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-character-lock"><summary><span>🔒 Character Lock</span><small>identity, gender, skin, hair, build guards</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Character Lock owns what to protect: identity, gender, skin, hair, build, outfit, and negative guards. Optional repair passes now live only in Fix Pass Controls.</p><div class="neo-scene-region-row neo-scene-character-lock-grid"><label>Character Lock<select id="sceneDirectorCharacterLockMode" ${disabled}>${sceneDirectorCharacterLockOptions(settings.character_lock_mode)}</select></label><label>Gender Guard<select id="sceneDirectorGenderGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.gender_guard_mode)}</select></label><label>Skin Tone Guard<select id="sceneDirectorSkinToneGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.skin_tone_guard_mode)}</select></label><label>Hair Guard<select id="sceneDirectorHairGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.hair_guard_mode)}</select></label><label>Build Guard<select id="sceneDirectorBuildGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.build_guard_mode)}</select></label><label>Body / Height Guard<select id="sceneDirectorBodyHeightGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.body_height_guard_mode)}</select></label><label>Outfit Preservation<select id="sceneDirectorOutfitPreservationMode" ${disabled}>${sceneDirectorGuardOptions(settings.outfit_preservation_mode)}</select></label><label>Negative Guard<select id="sceneDirectorNegativeIdentityGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.negative_identity_guard_mode)}</select></label></div><div class="neo-parameter-row neo-scene-character-strength-grid"><label>Identity Strength<input id="sceneDirectorIdentityStrength" type="number" min="0" max="1" step="0.01" value="${settings.identity_strength}" ${disabled}></label><label>Detail Strength<input id="sceneDirectorDetailStrength" type="number" min="0" max="2" step="0.01" value="${settings.detail_strength}" ${disabled}></label><label>Background Strength<input id="sceneDirectorBackgroundStrength" type="number" min="0" max="2" step="0.01" value="${settings.background_strength}" ${disabled}></label><label>Mask Feather<input id="sceneDirectorMaskFeather" type="number" min="0" max="128" step="1" value="${settings.mask_feather}" ${disabled}></label></div></div></details>`;
-  const pairPoseAuthority = sceneDirectorRelationshipPoseAuthority(settings, settings.regions || []);
   const backgroundSpaceAuthority = sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, settings.regions || []);
-  const pairPoseBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-pair-pose"><summary><span>🫂 Pair Pose Authority</span><small>shared pose/contact intent for character regions</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use this for relationship/contact pose intent that belongs to the scene, not only one character. It strengthens the character pose trait context; exact limb placement still needs a pose ControlNet/OpenPose reference.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorPairPoseEnabled', 'Enable pair pose authority', pairPoseAuthority.enabled || Boolean(settings.pair_pose_enabled), disabled)}${sceneDirectorBoolControl('sceneDirectorPairPoseApplyToTraits', 'Feed into Character Trait pose group', settings.pair_pose_apply_to_character_traits !== false, disabled)}</div><label>Pair pose / contact intent<textarea id="sceneDirectorPairPosePrompt" placeholder="Person 1 and Person 2 standing close, facing each other, gentle shoulder contact" ${disabled}>${escapeHtml(settings.pair_pose_prompt || '')}</textarea></label><label>Pair pose negative guard<textarea id="sceneDirectorPairPoseNegativeGuard" placeholder="separated bodies, wrong contact, extra arms, fused hands" ${disabled}>${escapeHtml(settings.pair_pose_negative_guard || '')}</textarea></label><div class="neo-parameter-row"><label>Pose strength<input id="sceneDirectorPairPoseStrength" type="number" min="0" max="1.5" step="0.01" value="${escapeAttr(settings.pair_pose_strength ?? 0.75)}" ${disabled}></label><span class="neo-badge ${pairPoseAuthority.enabled ? 'success' : 'warning'}">${escapeHtml(pairPoseAuthority.status)}</span></div></div></details>`;
   const backgroundSpaceBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-background-space"><summary><span>🌄 Background Space Authority</span><small>scene background lane when no background region exists</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use this when the scene has character regions but no explicit background region. Neo can create a hidden full-canvas background lane from this field only, without stealing character masks.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorBackgroundSpaceEnabled', 'Enable background space authority', backgroundSpaceAuthority.enabled || Boolean(settings.background_space_enabled), disabled)}</div><label>Background space prompt<textarea id="sceneDirectorBackgroundSpacePrompt" placeholder="rainy neon rooftop garden, distant city lights, wet reflective floor" ${disabled}>${escapeHtml(settings.background_space_prompt || '')}</textarea></label><label>Background negative guard<textarea id="sceneDirectorBackgroundSpaceNegativeGuard" placeholder="blank background, flat wall, studio backdrop, low detail environment" ${disabled}>${escapeHtml(settings.background_space_negative_guard || '')}</textarea></label><div class="neo-parameter-row"><label>Source mode<select id="sceneDirectorBackgroundSpaceSourceMode" ${disabled}><option value="explicit_only" ${String(settings.background_space_source_mode || 'explicit_only') === 'explicit_only' ? 'selected' : ''}>Explicit field only</option></select></label><label>Strength<input id="sceneDirectorBackgroundSpaceStrength" type="number" min="0" max="2" step="0.01" value="${escapeAttr(settings.background_space_strength ?? 0.70)}" ${disabled}></label><label>Denoise<input id="sceneDirectorBackgroundSpaceDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.background_space_denoise ?? 0.42)}" ${disabled}></label><span class="neo-badge ${backgroundSpaceAuthority.enabled ? 'success' : 'warning'}">${escapeHtml(backgroundSpaceAuthority.status)}</span></div></div></details>`;
   const fixPassControls = sceneDirectorAdvancedFixPassControls(settings, settings.regions || []);
   const layoutSafety = fixPassControls.layout_safety || sceneDirectorLayoutSafetyReport(settings.regions || []);
@@ -10333,10 +11473,11 @@ function sceneDirectorPanel(record) {
     const labels = { smart_auto: 'Smart / Auto', minimal_fast: 'Minimal / Fast', manual: 'Manual toggles', force_all: 'Force all / safety gated' };
     return `<option value="${mode}" ${String(settings.fix_pass_mode || 'smart_auto') === mode ? 'selected' : ''}>${labels[mode]}</option>`;
   }).join('');
-  const fixPassBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-fix-pass-controls"><summary><span>🛠️ Fix Pass Controls + Layout Safety</span><small>optional repair passes and safe region geometry</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use these only when the base Scene Director composition needs help. Smaller character boxes usually give better backgrounds than extra repaint passes.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Fix pass mode<select id="sceneDirectorFixPassMode" ${disabled}>${fixPassModeOptions}</select></label><label>First-pass Character Lock<select id="sceneDirectorFixPassFirstCharacterLockRescue" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_first_character_lock_rescue)}</select></label><label>Background Restore<select id="sceneDirectorFixPassBackgroundRestore" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_background_restore)}</select></label><label>Character Trait Lanes<select id="sceneDirectorFixPassCharacterTraitLanes" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_character_trait_lanes)}</select></label><label>Final Background Reconcile<select id="sceneDirectorFixPassFinalBackgroundReconciliation" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_final_background_reconciliation)}</select></label></div>${sceneDirectorCharacterLockAuthorityControls(settings, disabled)}${sceneDirectorPerCharacterCorrectionControls(settings, disabled)}<div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorFixPassEnvironmentAwareCharacterLanes', 'Environment-aware character lanes', settings.fix_pass_environment_aware_character_lanes !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorLayoutSafetyEnabled', 'Layout safety warnings', settings.layout_safety_enabled !== false, disabled)}</div><div class="neo-parameter-row"><label>Safe background minimum %<input id="sceneDirectorLayoutSafetyBackgroundSafeAreaMin" type="number" min="0" max="100" step="1" value="${escapeAttr(settings.layout_safety_background_safe_area_min ?? 12)}" ${disabled}></label><label>Full-height box threshold<input id="sceneDirectorLayoutSafetyFullHeightThreshold" type="number" min="0.50" max="1" step="0.01" value="${escapeAttr(settings.layout_safety_full_height_threshold ?? 0.92)}" ${disabled}></label><span class="neo-badge ${layoutTone}">Background safe area: ${escapeHtml(layoutSafety.min_raw_background_safe_area_percent ?? 100)}%</span><span class="neo-badge ${layoutTone}">${escapeHtml(layoutSafety.status || 'safe')}</span></div><p class="neo-muted">${layoutSummary}</p>${layoutSafety.warning_codes?.length ? `<p class="neo-warning-text">${layoutSafety.warning_codes.map((code) => escapeHtml(code)).join('<br>')}</p>` : ''}<div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-director-autofit-selected-character="1" ${disabled}>Auto-fit selected character box</button><button class="neo-btn secondary" type="button" data-scene-director-autofit-all-characters="1" ${disabled}>Auto-fit all character boxes</button></div></div></details>`;
-  const globalContextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-global-context-routing"><summary><span>🌐 Global Context Routing</span><small>connects Neo core prompts to Scene Director context</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Routes Neo core prompts into Scene Director global context. No duplicate prompt editing lives here.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorRoutePositiveContext', 'Use Neo positive as global style/context', settings.global_context_route_positive !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorRouteNegativeContext', 'Use Neo negative as global negative', settings.global_context_route_negative !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorRouteStyleContext', 'Allow style context suffix', settings.global_context_route_style !== false, disabled)}</div><div class="neo-badge-row"><span class="neo-badge">Context mode: ${escapeHtml(settings.region_context_mode)}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(settings.region_context_weight))}</span><span class="neo-badge">Position: suffix</span></div></div></details>`;
+  const fixPassBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-fix-pass-controls"><summary><span>🛠️ Fix Pass Controls + Layout Safety</span><small>optional repair passes and safe region geometry</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use these only when the base Scene Director composition needs help. Smaller character boxes usually give better backgrounds than extra repaint passes.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Fix pass mode<select id="sceneDirectorFixPassMode" ${disabled}>${fixPassModeOptions}</select></label><label>First-pass Character Lock<select id="sceneDirectorFixPassFirstCharacterLockRescue" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_first_character_lock_rescue)}</select></label><label>Background Restore<select id="sceneDirectorFixPassBackgroundRestore" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_background_restore)}</select></label><label>Mid-sampling Trait Lanes<select id="sceneDirectorFixPassCharacterTraitLanes" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_character_trait_lanes)}</select></label><label>Final Background Reconcile<select id="sceneDirectorFixPassFinalBackgroundReconciliation" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_final_background_reconciliation)}</select></label></div>${sceneDirectorCharacterLockAuthorityControls(settings, disabled)}${sceneDirectorPerCharacterCorrectionControls(settings, disabled)}<div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorFixPassEnvironmentAwareCharacterLanes', 'Environment-aware character lanes', settings.fix_pass_environment_aware_character_lanes !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorLayoutSafetyEnabled', 'Layout safety warnings', settings.layout_safety_enabled !== false, disabled)}</div><div class="neo-parameter-row"><label>Safe background minimum %<input id="sceneDirectorLayoutSafetyBackgroundSafeAreaMin" type="number" min="0" max="100" step="1" value="${escapeAttr(settings.layout_safety_background_safe_area_min ?? 12)}" ${disabled}></label><label>Full-height box threshold<input id="sceneDirectorLayoutSafetyFullHeightThreshold" type="number" min="0.50" max="1" step="0.01" value="${escapeAttr(settings.layout_safety_full_height_threshold ?? 0.92)}" ${disabled}></label><span class="neo-badge ${layoutTone}">Background safe area: ${escapeHtml(layoutSafety.min_raw_background_safe_area_percent ?? 100)}%</span><span class="neo-badge ${layoutTone}">${escapeHtml(layoutSafety.status || 'safe')}</span></div><p class="neo-muted">${layoutSummary}</p>${layoutSafety.warning_codes?.length ? `<p class="neo-warning-text">${layoutSafety.warning_codes.map((code) => escapeHtml(code)).join('<br>')}</p>` : ''}<div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-director-autofit-selected-character="1" ${disabled}>Auto-fit selected character box</button><button class="neo-btn secondary" type="button" data-scene-director-autofit-all-characters="1" ${disabled}>Auto-fit all character boxes</button></div></div></details>`;
+  const globalContextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-global-context-routing"><summary><span>🌐 Prompt routing status</span><small>controlled by the single Prompt authority selector</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">${escapeHtml(promptAuthorityContract.label)}. ${promptAuthorityContract.global_prompt_excluded ? 'Neo core positive/negative conditioning is excluded from the Scene Director node.' : 'Neo core context stays on the canvas lane and a compact suffix is shared with regional branches.'}</p><div class="neo-badge-row"><span class="neo-badge">Authority: ${escapeHtml(promptAuthorityContract.mode)}</span><span class="neo-badge">Regional suffix: ${promptAuthorityContract.regional_context_enabled ? 'on' : 'off'}</span><span class="neo-badge">Weight: ${escapeHtml(String(promptAuthorityContract.regional_context_weight))}</span><span class="neo-badge">Position: suffix</span></div></div></details>`;
   const identityProfilesBlock = '';   const presetsBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-presets-combined"><summary><span>🎛️ Presets</span><small>scene presets and region layout presets</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-preset-group"><h4>🎬 Scene Presets</h4><p class="neo-muted">Save/load the full Scene Director state: regions, prompt rules, routing, Character Lock, and mask settings.</p><div class="neo-scene-region-row"><label>Scene preset<select id="sceneDirectorScenePresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.scenePresets, settings.selected_scene_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-scene-preset="1" ${disabled}>Load</button><button class="neo-btn secondary" type="button" data-scene-director-save-scene-preset="1" ${disabled}>Save Current</button></div></div><div class="neo-scene-preset-group"><h4>🧩 Region Layout Presets</h4><p class="neo-muted">Save/load only region rectangles, labels, types, visible/locked state. Prompts, identity profile data, and external LoRA/IPAdapter routing stay intact where possible.</p><div class="neo-scene-region-row"><label>Layout preset<select id="sceneDirectorLayoutPresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.regionLayoutPresets, settings.selected_region_layout_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-layout-preset="1" ${disabled}>Load Layout</button><button class="neo-btn secondary" type="button" data-scene-director-save-layout-preset="1" ${disabled}>Save Layout</button></div></div>${lib.status ? `<p class="neo-muted">${escapeHtml(lib.status)}</p>` : ''}</div></details>`;
-  const advancedSceneControlBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control" open><summary><span>🧰 Advanced Scene Control</span><small>prompt rules, context, locks, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${contractBlock}${contextBlock}${pairPoseBlock}${backgroundSpaceBlock}${fixPassBlock}${characterLockBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
+  const advancedCoreControls = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-core-controls"><summary><span>⚙️ Expert execution controls</span><small>weights, slots, masks, legacy authority compatibility</small></summary><div class="neo-scene-nested-body"><div class="neo-parameter-row neo-scene-balance-row"><label>Legacy authority mode<select id="sceneDirectorAuthorityMode" ${disabled}><option value="neutral_planning" ${String(settings.authority_mode || 'balanced') === 'neutral_planning' ? 'selected' : ''}>Neutral / planning only</option><option value="layout_only" ${String(settings.authority_mode || 'balanced') === 'layout_only' ? 'selected' : ''}>Layout only</option><option value="soft_regional_guide" ${String(settings.authority_mode || 'balanced') === 'soft_regional_guide' ? 'selected' : ''}>Soft regional guide</option><option value="anime_safe_prompt" ${String(settings.authority_mode || 'balanced') === 'anime_safe_prompt' ? 'selected' : ''}>Anime safe / prompt append only</option><option value="balanced" ${String(settings.authority_mode || 'balanced') === 'balanced' ? 'selected' : ''}>Balanced</option><option value="strong_correction" ${String(settings.authority_mode || 'balanced') === 'strong_correction' ? 'selected' : ''}>Strong regional correction</option><option value="debug_aggressive" ${String(settings.authority_mode || 'balanced') === 'debug_aggressive' ? 'selected' : ''}>Debug / aggressive</option></select></label><label>Base weight<input id="sceneDirectorBaseWeight" type="number" min="0" max="1" step="0.01" value="${settings.base_weight}" ${disabled}></label><label>Region gain<input id="sceneDirectorRegionGain" type="number" min="0" max="1" step="0.01" value="${settings.region_gain}" ${disabled}></label><label>Max subject slots<input id="sceneDirectorMaxSubjectSlots" type="number" min="1" max="8" step="1" value="${settings.max_subject_slots}" ${disabled}></label></div><p class="neo-muted">These fields stay available for expert tuning and legacy payload replay. Prompt ownership is controlled above.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorNormalizeMasks', 'Normalize masks', settings.normalize_masks, disabled)}${sceneDirectorBoolControl('sceneDirectorMaskRefine', 'Character mask refinement metadata', settings.mask_refine_enabled, disabled)}</div></div></details>`;
+  const advancedSceneControlBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Control</span><small>contracts, backgrounds, repair passes, locks, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${fixPassBlock}${characterLockBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
   const expertBlock = expert ? `<section class="neo-scene-subsection neo-scene-expert"><h4>Expert payload preview</h4><div class="neo-badge-row"><span class="neo-badge">Route: ${escapeHtml(route.backend)}:${escapeHtml(route.family)}:${escapeHtml(route.loader)}:${escapeHtml(route.workflow_mode)}</span><span class="neo-badge">Node: V054 preferred / V053-V052 fallback</span><span class="neo-badge">State: ${escapeHtml(route.route_state)}</span></div><pre>${escapeHtml(JSON.stringify(sceneDirectorPayloadPreview(record).extensions[SCENE_DIRECTOR_EXTENSION_ID], null, 2))}</pre></section>` : '';
   const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}">
     <header class="neo-scene-header"><div><strong>Scene Director</strong>${!compact ? '<span class="neo-muted">Built-in regional scene planner</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-workflow-chip ${settings.enabled ? 'enabled' : 'disabled'}">${settings.enabled ? 'Enabled' : 'Disabled'}</span><span class="neo-state-pill ${routeTone}">${escapeHtml(sceneDirectorStateLabel(route))}</span><span class="neo-badge">Node readiness: V054 preferred</span></div></header>
@@ -10351,7 +11492,22 @@ function sceneDirectorPanel(record) {
     <section class="neo-scene-subsection"><div class="neo-card-head"><h4>Region Cards</h4><span class="neo-muted">Active rule: enabled + visible + prompt or identity/reference.</span></div><div class="neo-scene-region-grid">${regionCards || '<p class="neo-muted">No regions yet.</p>'}</div></section>
     ${expertBlock}
   </section>`;
-  return panel('Scene Director', body, false, extensionWorkflowChip(record));
+  return panel('Scene Director', sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled), false, extensionWorkflowChip(record));
+}
+function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled = '') {
+  const contract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
+  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns subjects, relationships, poses, and object placement.'}</p></div></div><div class="neo-badge-row"><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Node: V054 active</span></div></section>`;
+}
+function sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled = '') {
+  const marker = '<section class="neo-scene-subsection"><h4>Global Scene Director settings</h4>';
+  const start = body.indexOf(marker);
+  if (start < 0) return body;
+  const end = body.indexOf('</section>', start);
+  if (end < 0) return body;
+  const simplified = `${body.slice(0, start)}${sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled)}${body.slice(end + '</section>'.length)}`;
+  return simplified
+    .replaceAll('V054 preferred / V053-V052 fallback', 'V054 active')
+    .replaceAll('Node readiness: V054 preferred', 'Node readiness: V054 active');
 }
 function bindSceneDirectorPanel() {
   const toggle = document.querySelector('[data-scene-director-toggle]');
@@ -10359,6 +11515,7 @@ function bindSceneDirectorPanel() {
   const add = document.querySelector('[data-scene-director-add-region]');
   if (add) add.addEventListener('click', () => { const settings = sceneDirectorSettings(); updateSceneDirectorSettings({ enabled: true, regions: [...settings.regions, sceneDirectorDefaultRegion(settings.regions.length)] }); setWorkflowExtensionApplied(SCENE_DIRECTOR_EXTENSION_ID, true); render(); });
   const bindValue = (id, key, parser = (value) => value, eventName = 'input') => { const el = document.getElementById(id); if (el) el.addEventListener(eventName, (e) => updateSceneDirectorSettings({ [key]: parser(e.target.type === 'checkbox' ? e.target.checked : e.target.value) })); };
+  bindValue('sceneDirectorPromptAuthority', 'prompt_authority', sceneDirectorPromptAuthority, 'change');
   bindValue('sceneDirectorAuthorityMode', 'authority_mode', String, 'change');
   bindValue('sceneDirectorBaseWeight', 'base_weight', Number);
   bindValue('sceneDirectorRegionGain', 'region_gain', Number);
@@ -10414,11 +11571,6 @@ function bindSceneDirectorPanel() {
   bindValue('sceneDirectorIdentityOptionalLora', 'identity_profile_optional_lora');
   bindValue('sceneDirectorIdentityLoraWeight', 'identity_profile_lora_weight', Number);
   bindValue('sceneDirectorIdentityTriggerWords', 'identity_profile_trigger_words');
-  bindValue('sceneDirectorPairPoseEnabled', 'pair_pose_enabled', Boolean, 'change');
-  bindValue('sceneDirectorPairPosePrompt', 'pair_pose_prompt');
-  bindValue('sceneDirectorPairPoseNegativeGuard', 'pair_pose_negative_guard');
-  bindValue('sceneDirectorPairPoseStrength', 'pair_pose_strength', Number);
-  bindValue('sceneDirectorPairPoseApplyToTraits', 'pair_pose_apply_to_character_traits', Boolean, 'change');
   bindValue('sceneDirectorBackgroundSpaceEnabled', 'background_space_enabled', Boolean, 'change');
   bindValue('sceneDirectorBackgroundSpacePrompt', 'background_space_prompt');
   bindValue('sceneDirectorBackgroundSpaceNegativeGuard', 'background_space_negative_guard');
@@ -10569,13 +11721,20 @@ function bindSceneDirectorPanel() {
       if (['zone', 'background_prompt', 'background_negative_guard'].includes(String(field || '')) || String(field || '').startsWith('bg_')) {
         current.background_override = sceneDirectorV054BackgroundOverrideFromRegion(current);
       }
-            if (field === 'role') {
+      if (field === 'role') {
         current.type = sceneDirectorRoleToLegacyType(value);
-        const linkMeta = sceneDirectorV054LinkMetadata({ role: value, priority: current.priority, target_area: current.target_area });
-        if (!current.target_area && linkMeta.targetArea) current.target_area = linkMeta.targetArea;
-        if (!current.relationship && linkMeta.relationship) current.relationship = linkMeta.relationship;
-        if (value === 'hair_detail' && (!current.priority || current.priority === 'reinforce')) current.priority = 'override';
-        if (sceneDirectorV054NormalizeRole(value) === 'text') {
+        const normalizedRole = sceneDirectorV054NormalizeRole(value);
+        const linkMeta = sceneDirectorV054LinkMetadata({ role: normalizedRole, priority: current.priority, target_area: current.target_area });
+        if (!sceneDirectorV054RoleOwnsAttachment(normalizedRole)) {
+          current.attach_to = '';
+          current.relationship = '';
+        } else {
+          if (!current.target_area && linkMeta.targetArea) current.target_area = linkMeta.targetArea;
+          if (!current.relationship && linkMeta.relationship) current.relationship = linkMeta.relationship;
+          if (!current.attach_to) current.attach_to = sceneDirectorV054AutoParentId({ ...current, role: normalizedRole }, regions);
+        }
+        if (SCENE_DIRECTOR_V054_PARENT_REQUIRED_ROLES.includes(normalizedRole) && (!current.priority || current.priority === 'reinforce')) current.priority = 'override';
+        if (normalizedRole === 'text') {
           current.text_mode = current.text_mode || 'composite';
           current.text = current.text || current.prompt || '';
           current.font_style = current.font_style || 'bold clean sans-serif';
@@ -10583,7 +11742,7 @@ function bindSceneDirectorPanel() {
           current.align = current.align || 'center';
           current.valign = current.valign || 'middle';
         }
-        if (SCENE_DIRECTOR_V054_BACKGROUND_ZONE_ROLES.includes(sceneDirectorV054NormalizeRole(value))) {
+        if (SCENE_DIRECTOR_V054_BACKGROUND_ZONE_ROLES.includes(normalizedRole)) {
           current.zone = current.zone || sceneDirectorV054BackgroundZone(current);
           if (!current.strength || Number(current.strength) === 1) current.strength = SCENE_DIRECTOR_V054_BACKGROUND_DEFAULTS[sceneDirectorV054NormalizeRole(value)]?.strength ?? 0.65;
           current.feather = current.feather || SCENE_DIRECTOR_V054_BACKGROUND_DEFAULTS[sceneDirectorV054NormalizeRole(value)]?.feather || 32;
@@ -10630,11 +11789,94 @@ function bindSceneDirectorPanel() {
     input.addEventListener('input', handler);
     input.addEventListener('change', handler);
   });
+  document.querySelectorAll('[data-scene-region-trait-color-kind]').forEach((input) => {
+    const handler = () => {
+      const idx = Number(input.getAttribute('data-scene-region-index'));
+      const category = input.getAttribute('data-scene-region-trait-color-category') || '';
+      if (!SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category)) return;
+      const settings = sceneDirectorSettings();
+      const region = sceneDirectorNormalizeRegion((settings.regions || [])[idx] || sceneDirectorDefaultRegion(idx));
+      const current = sceneDirectorTraitCategoryState(region, category);
+      const color = { ...(current.color_assignment || {}) };
+      const kind = input.getAttribute('data-scene-region-trait-color-kind') || 'primary';
+      if (kind === 'primary') {
+        color.primary_id = input.value;
+        color.enabled = Boolean(input.value);
+        if (!input.value) {
+          color.secondary_id = '';
+          color.blend_mode = 'single';
+        }
+      } else if (kind === 'secondary') {
+        color.secondary_id = input.value;
+        color.blend_mode = input.value ? (color.blend_mode === 'single' ? 'highlights' : (color.blend_mode || 'highlights')) : 'single';
+      } else if (kind === 'blend_mode') {
+        color.blend_mode = SCENE_DIRECTOR_HAIR_COLOR_BLEND_MODES[input.value] ? input.value : 'highlights';
+      }
+      color.source = 'explicit_shared_color_library';
+      sceneDirectorApplyTraitPatch(idx, category, { color_assignment: color });
+      render();
+      sceneDirectorReopenTraitPanel(idx, category);
+    };
+    input.addEventListener('change', handler);
+  });
+  document.querySelectorAll('[data-scene-region-color-choice]').forEach((button) => button.addEventListener('click', () => {
+    const idx = Number(button.getAttribute('data-scene-region-index'));
+    const category = button.getAttribute('data-scene-region-color-choice-category') || '';
+    const kind = button.getAttribute('data-scene-region-color-choice-kind') || 'primary';
+    const colorId = button.getAttribute('data-scene-region-color-choice') || '';
+    if (!SCENE_DIRECTOR_COLOR_CAPABLE_TRAITS.has(category) || !colorId) return;
+    const settings = sceneDirectorSettings();
+    const region = sceneDirectorNormalizeRegion((settings.regions || [])[idx] || sceneDirectorDefaultRegion(idx));
+    const current = sceneDirectorTraitCategoryState(region, category);
+    const color = { ...(current.color_assignment || {}) };
+    if (kind === 'secondary' && category === 'hair') {
+      color.secondary_id = colorId;
+      color.blend_mode = color.blend_mode === 'single' ? 'highlights' : (color.blend_mode || 'highlights');
+    } else {
+      color.primary_id = colorId;
+      color.enabled = true;
+    }
+    color.source = 'explicit_shared_color_library';
+    sceneDirectorApplyTraitPatch(idx, category, { color_assignment: color });
+    render();
+    sceneDirectorReopenTraitPanel(idx, category);
+  }));
   document.querySelectorAll('[data-scene-region-trait-autofill]').forEach((button) => button.addEventListener('click', () => sceneDirectorAutofillRegionTraits(Number(button.getAttribute('data-scene-region-trait-autofill') || 0))));
   document.querySelectorAll('[data-scene-region-trait-save]').forEach((button) => button.addEventListener('click', () => sceneDirectorSaveCustomRegionTrait(Number(button.getAttribute('data-scene-region-trait-save') || 0)).catch((error) => window.alert(error?.message || String(error)))));
   document.querySelectorAll('[data-scene-region-trait-add]').forEach((button) => button.addEventListener('click', () => sceneDirectorAddCustomRegionTrait(
     Number(button.getAttribute('data-scene-region-trait-add') || 0),
     button.getAttribute('data-scene-region-trait-add-category') || ''
+  ).catch((error) => window.alert(error?.message || String(error)))));
+  document.querySelectorAll('[data-scene-additional-add]').forEach((button) => button.addEventListener('click', () => sceneDirectorAddAdditionalItem(
+    Number(button.getAttribute('data-scene-region-index') || 0),
+    button.getAttribute('data-scene-additional-add') || ''
+  )));
+  document.querySelectorAll('[data-scene-additional-remove]').forEach((button) => button.addEventListener('click', () => sceneDirectorRemoveAdditionalItem(
+    Number(button.getAttribute('data-scene-region-index') || 0),
+    button.getAttribute('data-scene-additional-remove') || '',
+    button.getAttribute('data-scene-additional-item-id') || ''
+  )));
+  document.querySelectorAll('[data-scene-additional-item-field]').forEach((input) => {
+    const handler = () => {
+      const index = Number(input.getAttribute('data-scene-region-index') || 0);
+      const collection = input.getAttribute('data-scene-additional-collection') || '';
+      const itemId = input.getAttribute('data-scene-additional-item-id') || '';
+      const field = input.getAttribute('data-scene-additional-item-field') || '';
+      sceneDirectorUpdateAdditionalItem(index, collection, itemId, field, input.value);
+      if (collection === 'custom_details' && field === 'preset_id') {
+        render();
+        sceneDirectorReopenAdditionalDetailsPanel(index);
+      }
+    };
+    input.addEventListener(input.tagName === 'SELECT' ? 'change' : 'input', handler);
+  });
+  document.querySelectorAll('[data-scene-additional-save-preset]').forEach((button) => button.addEventListener('click', () => sceneDirectorSaveCustomDetailPreset(
+    Number(button.getAttribute('data-scene-region-index') || 0),
+    button.getAttribute('data-scene-additional-save-preset') || ''
+  ).catch((error) => window.alert(error?.message || String(error)))));
+  document.querySelectorAll('[data-scene-region-color-add]').forEach((button) => button.addEventListener('click', () => sceneDirectorAddCustomColor(
+    Number(button.getAttribute('data-scene-region-color-add') || 0),
+    button.getAttribute('data-scene-region-color-category') || ''
   ).catch((error) => window.alert(error?.message || String(error)))));
   document.querySelectorAll('[data-scene-region-bbox]').forEach((input) => input.addEventListener('input', () => { const idx = Number(input.getAttribute('data-scene-region-index')); const bi = Number(input.getAttribute('data-scene-region-bbox')); const settings = sceneDirectorSettings(); const regions = [...settings.regions]; const currentBox = sceneDirectorNormalizeRegion(regions[idx] || sceneDirectorDefaultRegion(idx), idx).bbox; const keys = ['x','y','w','h']; const bbox = { ...currentBox, [keys[bi]]: Number(input.value) }; regions[idx] = { ...(regions[idx] || sceneDirectorDefaultRegion(idx)), bbox }; updateSceneDirectorSettings({ regions }); }));
 }
@@ -18089,7 +19331,7 @@ const STYLE_STACK_DEFAULT_STATE = {
   category: '',
   selected_name: '',
   editor: { name: '', prompt: '', negative_prompt: '' },
-  library: { records: [], status: '', loading: false, loaded: false, count: 0, path: '', encoding: '' },
+  library: { records: [], status: '', loading: false, loaded: false, count: 0, path: '', encoding: '', sync: {} },
   payload_version: 1,
   last_payload_preview: null,
 };
@@ -18100,7 +19342,7 @@ function styleStackSettings() {
     ...raw,
     active_styles: Array.isArray(raw.active_styles) ? raw.active_styles : [],
     editor: { ...STYLE_STACK_DEFAULT_STATE.editor, ...(raw.editor || {}) },
-    library: { ...STYLE_STACK_DEFAULT_STATE.library, ...(raw.library || {}) },
+    library: { ...STYLE_STACK_DEFAULT_STATE.library, ...(raw.library || {}), sync: raw.library?.sync && typeof raw.library.sync === 'object' ? raw.library.sync : {} },
     payload_version: Number(raw.payload_version || STYLE_STACK_DEFAULT_STATE.payload_version || 1),
     last_payload_preview: raw.last_payload_preview || null,
   };
@@ -18139,6 +19381,17 @@ function styleStackStatusLabel(route, settings, applied) {
   const count = Array.isArray(settings.active_styles) ? settings.active_styles.length : 0;
   const manual = String(settings.manual_positive || settings.manual_negative || '').trim() ? 1 : 0;
   return count || manual ? `Ready · ${count + manual} style part(s)` : 'Ready';
+}
+function styleStackSyncSummary(sync = {}, runtimeFallback = 0) {
+  const runtime = Number(sync.runtime_count ?? runtimeFallback ?? 0);
+  const bundled = Number(sync.bundled_count ?? 0);
+  const parts = [`Runtime ${runtime}`];
+  if (bundled) parts.push(`Bundled ${bundled}`);
+  if (Number(sync.added || 0)) parts.push(`Added ${Number(sync.added)}`);
+  if (Number(sync.updated_defaults || 0)) parts.push(`Updated ${Number(sync.updated_defaults)}`);
+  if (Number(sync.preserved_overrides || 0)) parts.push(`Preserved ${Number(sync.preserved_overrides)} override(s)`);
+  if (Number(sync.tombstoned || 0)) parts.push(`Deleted defaults hidden ${Number(sync.tombstoned)}`);
+  return parts.join(' · ');
 }
 function styleStackCategoryHeaderName(styleOrName) {
   const name = typeof styleOrName === 'string' ? styleOrName : String(styleOrName?.name || '');
@@ -18277,14 +19530,17 @@ async function styleStackLoadLibrary(force = false) {
   if (!force && (settings.library.loaded || settings.library.loading)) return;
   updateStyleStackSettings({ library: { loading: true, status: 'Loading Style Stack library…' } });
   try {
-    const result = await loadJson('/api/extensions/style_stack/styles', { ok: false, styles: [] });
+    const response = await fetch('/api/extensions/style_stack/styles', { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || 'Style library unavailable');
     const records = Array.isArray(result.styles) ? result.styles : [];
+    const sync = result.sync && typeof result.sync === 'object' ? result.sync : {};
     const selected = settings.selected_name || records[0]?.name || '';
     const selectedStyle = records.find((style) => style.name === selected) || records[0] || null;
     updateStyleStackSettings({
       selected_name: selectedStyle?.name || '',
       editor: selectedStyle ? { name: selectedStyle.name || '', prompt: selectedStyle.prompt || '', negative_prompt: selectedStyle.negative_prompt || '' } : settings.editor,
-      library: { records, loaded: true, loading: false, count: result.count ?? records.length, path: result.path || '', encoding: result.encoding || '', status: result.ok ? `Loaded ${records.length} style(s).` : 'Style library unavailable.' },
+      library: { records, loaded: true, loading: false, count: result.count ?? records.length, path: result.path || '', encoding: result.encoding || '', sync, status: styleStackSyncSummary(sync, records.length) },
     });
     render();
   } catch (error) {
@@ -18305,7 +19561,7 @@ async function styleStackSaveEditor() {
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || 'Style save failed');
   const records = Array.isArray(result.styles) ? result.styles : [];
-  updateStyleStackSettings({ selected_name: style.name, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Saved ${style.name}.`, path: result.path || '', encoding: result.encoding || '' } });
+  updateStyleStackSettings({ selected_name: style.name, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Saved ${style.name}. · ${styleStackSyncSummary(result.sync || {}, records.length)}`, path: result.path || '', encoding: result.encoding || '', sync: result.sync || {} } });
   render();
 }
 async function styleStackDeleteSelected() {
@@ -18318,7 +19574,7 @@ async function styleStackDeleteSelected() {
   if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || 'Style delete failed');
   const records = Array.isArray(result.styles) ? result.styles : [];
   const selected = records[0] || null;
-  updateStyleStackSettings({ selected_name: selected?.name || '', active_styles: (settings.active_styles || []).filter((item) => item !== name), editor: selected ? { name: selected.name || '', prompt: selected.prompt || '', negative_prompt: selected.negative_prompt || '' } : { name: '', prompt: '', negative_prompt: '' }, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: result.message || `Deleted ${name}.`, path: result.path || '', encoding: result.encoding || '' } });
+  updateStyleStackSettings({ selected_name: selected?.name || '', active_styles: (settings.active_styles || []).filter((item) => item !== name), editor: selected ? { name: selected.name || '', prompt: selected.prompt || '', negative_prompt: selected.negative_prompt || '' } : { name: '', prompt: '', negative_prompt: '' }, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Deleted ${name}. · ${styleStackSyncSummary(result.sync || {}, records.length)}`, path: result.path || '', encoding: result.encoding || '', sync: result.sync || {} } });
   render();
 }
 async function styleStackDuplicateSelected() {
@@ -18330,7 +19586,7 @@ async function styleStackDuplicateSelected() {
   if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || 'Style duplicate failed');
   const records = Array.isArray(result.styles) ? result.styles : [];
   const copy = records.find((style) => style.name.startsWith(`${name} Copy`)) || records[records.length - 1] || null;
-  updateStyleStackSettings({ selected_name: copy?.name || name, editor: copy ? { name: copy.name || '', prompt: copy.prompt || '', negative_prompt: copy.negative_prompt || '' } : settings.editor, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Duplicated ${name}.`, path: result.path || '', encoding: result.encoding || '' } });
+  updateStyleStackSettings({ selected_name: copy?.name || name, editor: copy ? { name: copy.name || '', prompt: copy.prompt || '', negative_prompt: copy.negative_prompt || '' } : settings.editor, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Duplicated ${name}. · ${styleStackSyncSummary(result.sync || {}, records.length)}`, path: result.path || '', encoding: result.encoding || '', sync: result.sync || {} } });
   render();
 }
 async function styleStackImportCsv() {
@@ -18344,7 +19600,7 @@ async function styleStackImportCsv() {
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || 'Style import failed');
   const records = Array.isArray(result.styles) ? result.styles : [];
-  updateStyleStackSettings({ selected_name: records[0]?.name || '', editor: records[0] ? { name: records[0].name || '', prompt: records[0].prompt || '', negative_prompt: records[0].negative_prompt || '' } : { name: '', prompt: '', negative_prompt: '' }, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: result.message || `Imported ${records.length} style(s).`, path: result.path || '', encoding: result.encoding || '' } });
+  updateStyleStackSettings({ selected_name: records[0]?.name || '', editor: records[0] ? { name: records[0].name || '', prompt: records[0].prompt || '', negative_prompt: records[0].negative_prompt || '' } : { name: '', prompt: '', negative_prompt: '' }, library: { records, loaded: true, loading: false, count: result.count ?? records.length, status: `Imported ${records.length} style(s). · ${styleStackSyncSummary(result.sync || {}, records.length)}`, path: result.path || '', encoding: result.encoding || '', sync: result.sync || {} } });
   render();
 }
 function styleStackAddActiveStyle(name) {
@@ -18400,7 +19656,8 @@ function styleStackPanel(record) {
       <label>Target pass<select id="styleStackTarget" ${locked ? 'disabled' : ''}><option value="both" ${settings.target === 'both' ? 'selected' : ''}>Both base + finish</option><option value="base" ${settings.target === 'base' ? 'selected' : ''}>Base only</option><option value="finish" ${settings.target === 'finish' ? 'selected' : ''}>Finish / redraw only</option></select></label>
       <button class="neo-btn secondary" type="button" id="styleStackRefresh">Refresh</button>
       <a class="neo-btn secondary" href="/api/extensions/style_stack/styles/export" download="generation_styles_export.csv">Export CSV</a>
-      <span class="neo-badge">${records.length} shown / ${Number(settings.library.count || settings.library.records?.length || 0)} total</span>
+      <span class="neo-badge">${records.length} shown / ${Number(settings.library.count || settings.library.records?.length || 0)} runtime</span>
+      <span class="neo-badge">${escapeHtml(styleStackSyncSummary(settings.library.sync || {}, settings.library.count || settings.library.records?.length || 0))}</span>
     </div>
     <div class="neo-style-stack-browser-row">
       <label>Category<select id="styleStackCategory" ${locked ? 'disabled' : ''}>${categorySelectOptions}</select></label>
@@ -20024,6 +21281,14 @@ function adetailerValidationPreview(record, appliedOverride = null) {
   }
   if (!clean.detector_model) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.detector_model', message: 'Select a detector model before queueing.' });
   (settings.detailer_passes || []).filter((pass, index) => index === 0 || pass.enabled !== false).forEach((pass, index) => {
+    const catalogRuntime = adetailerModelCatalogState();
+    const catalog = adetailerCatalogPayloadForProfile();
+    const selectedModel = String(pass.detector_model || '').trim();
+    if (catalogRuntime.loaded && selectedModel && !adetailerCatalogCanonicalModel(catalog, pass.detector_type, selectedModel)) {
+      const recovery = adetailerDetectorModelRecovery(pass, catalog);
+      const recoveryHint = recovery.matches.length ? ` Switch to ${recovery.matches.map((item) => item.label).join(' or ')}.` : ' Refresh models or select a discovered model.';
+      items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: `params.detailer_passes[${index}].detector_model`, message: `${pass.label || `Pass ${index + 1}`}: the saved detector is inactive for ${adetailerDetectorTypeLabel(pass.detector_type)}.${recoveryHint}` });
+    }
     const dependency = adetailerReferenceLockDependency(pass);
     if (!dependency.ready) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: `params.detailer_passes[${index}].reference_lock`, message: `${pass.label || `Pass ${index + 1}`}: ${dependency.message} The pass will run without that lock.` });
   });
@@ -20170,6 +21435,69 @@ function adetailerCatalogCanonicalModel(payload = {}, detectorType = 'bbox', mod
 function adetailerCatalogContainsModel(payload = {}, detectorType = 'bbox', modelName = '') {
   return Boolean(adetailerCatalogCanonicalModel(payload, detectorType, modelName));
 }
+function adetailerDetectorTypePool(detectorType = 'bbox') {
+  const type = String(detectorType || 'bbox').toLowerCase();
+  if (type.includes('onnx')) return 'onnx';
+  if (type.includes('segm')) return 'segm';
+  return 'bbox';
+}
+function adetailerDetectorTypeLabel(detectorType = 'bbox') {
+  const type = String(detectorType || 'bbox').toLowerCase();
+  if (type === 'onnx_segm') return 'ONNX Segmentation';
+  if (type.includes('onnx')) return 'ONNX BBox';
+  if (type.includes('segm')) return 'Segmentation';
+  return 'BBox';
+}
+function adetailerCatalogTypeDescriptors(currentType = 'bbox') {
+  const normalizedCurrent = String(currentType || 'bbox').toLowerCase();
+  return [
+    { detector_type: 'bbox', pool: 'bbox', label: 'BBox' },
+    { detector_type: 'segm', pool: 'segm', label: 'Segmentation' },
+    { detector_type: normalizedCurrent === 'onnx_segm' ? 'onnx_segm' : 'onnx_bbox', pool: 'onnx', label: normalizedCurrent === 'onnx_segm' ? 'ONNX Segmentation' : 'ONNX BBox' },
+  ];
+}
+function adetailerCatalogModelTypeMatches(payload = {}, modelName = '', currentType = 'bbox') {
+  const requested = String(modelName || '').trim().replaceAll('\\', '/');
+  if (!requested) return [];
+  const requestedFolded = requested.toLowerCase();
+  const requestedBase = basename(requested).toLowerCase();
+  const currentPool = adetailerDetectorTypePool(currentType);
+  return adetailerCatalogTypeDescriptors(currentType).flatMap((descriptor) => {
+    if (descriptor.pool === currentPool) return [];
+    const rows = adetailerCatalogListForType(payload, descriptor.detector_type);
+    const exact = rows.find((name) => String(name || '').replaceAll('\\', '/').toLowerCase() === requestedFolded);
+    const basenameMatches = rows.filter((name) => basename(String(name || '')).toLowerCase() === requestedBase);
+    const model = exact || (basenameMatches.length === 1 ? basenameMatches[0] : '');
+    return model ? [{ ...descriptor, model: String(model), match: exact ? 'exact' : 'basename' }] : [];
+  });
+}
+function adetailerCatalogPoolCounts(payload = {}) {
+  return {
+    bbox: adetailerCatalogListForType(payload, 'bbox').length,
+    segm: adetailerCatalogListForType(payload, 'segm').length,
+    onnx: adetailerCatalogListForType(payload, 'onnx_bbox').length,
+  };
+}
+function adetailerDetectorModelRecovery(pass = {}, payload = adetailerCatalogPayloadForProfile()) {
+  const current = String(pass.detector_model || '').trim();
+  const detectorType = String(pass.detector_type || 'bbox').toLowerCase();
+  const currentModels = adetailerCatalogListForType(payload, detectorType);
+  const currentCanonical = adetailerCatalogCanonicalModel(payload, detectorType, current);
+  const counts = adetailerCatalogPoolCounts(payload);
+  const matches = current && !currentCanonical ? adetailerCatalogModelTypeMatches(payload, current, detectorType) : [];
+  const alternatives = adetailerCatalogTypeDescriptors(detectorType)
+    .filter((descriptor) => descriptor.pool !== adetailerDetectorTypePool(detectorType) && counts[descriptor.pool] > 0);
+  return {
+    state: currentCanonical ? 'ready' : current ? (matches.length ? 'cross_type' : 'missing') : (currentModels.length ? 'unselected' : (alternatives.length ? 'empty_type' : 'empty_all')),
+    current,
+    detector_type: detectorType,
+    detector_type_label: adetailerDetectorTypeLabel(detectorType),
+    canonical_current: currentCanonical,
+    matches,
+    alternatives,
+    counts,
+  };
+}
 function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, commonAttrs = '') {
   const catalog = adetailerCatalogPayloadForProfile();
   const catalogRuntime = adetailerModelCatalogState();
@@ -20182,15 +21510,11 @@ function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, com
     counts[key] = (counts[key] || 0) + 1;
     return counts;
   }, {});
-  const detectorTypeLabel = String(pass.detector_type || 'bbox').toLowerCase().includes('onnx')
-    ? 'ONNX'
-    : String(pass.detector_type || 'bbox').toLowerCase().includes('segm') ? 'Segmentation' : 'BBox';
-  const savedMissingLabel = catalogRuntime.loaded
-    ? `${basename(current)} (saved · not in current ${detectorTypeLabel} scan)`
-    : `${basename(current)} (saved selection)`;
-  const savedMissing = current && !canonicalCurrent ? [`<option value="${escapeAttr(current)}" selected>${escapeHtml(savedMissingLabel)}</option>`] : [];
-  const options = [`<option value="" ${current ? '' : 'selected'}>${escapeHtml(placeholder)}</option>`]
-    .concat(savedMissing)
+  const pendingSaved = current && !canonicalCurrent && !catalogRuntime.loaded
+    ? [`<option value="${escapeAttr(current)}" selected>${escapeHtml(`${basename(current)} (saved selection · scan pending)`)}</option>`]
+    : [];
+  const options = [`<option value="" ${canonicalCurrent || pendingSaved.length ? '' : 'selected'}>${escapeHtml(placeholder)}</option>`]
+    .concat(pendingSaved)
     .concat(models.map((name) => {
       const shortName = basename(name);
       const label = basenameCounts[shortName.toLowerCase()] > 1 ? name : shortName;
@@ -20198,6 +21522,26 @@ function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, com
       return `<option value="${escapeAttr(name)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
     }));
   return `<select id="${prefix}DetectorModel" ${commonAttrs} data-adetailer-pass-field="detector_model" data-adetailer-catalog-profile="${escapeAttr(adetailerCatalogProfileId())}" ${disabled ? 'disabled' : ''}>${options.join('')}</select>`;
+}
+function adetailerDetectorModelRecoveryMarkup(pass, index, disabled = false) {
+  const runtime = adetailerModelCatalogState();
+  const catalog = adetailerCatalogPayloadForProfile();
+  const recovery = adetailerDetectorModelRecovery(pass, catalog);
+  const countBadges = `<div class="neo-adetailer-model-pool-counts" aria-label="Detector model scan counts"><span>BBox ${recovery.counts.bbox}</span><span>Segm ${recovery.counts.segm}</span><span>ONNX ${recovery.counts.onnx}</span></div>`;
+  if (!runtime.loaded || runtime.loading) return countBadges;
+  const button = (descriptor, model = '') => `<button class="btn btn-small" type="button" data-adetailer-model-recovery-action="switch-type" data-adetailer-pass-index="${index}" data-adetailer-recovery-type="${escapeAttr(descriptor.detector_type)}" data-adetailer-recovery-model="${escapeAttr(model)}" ${disabled ? 'disabled' : ''}>Switch to ${escapeHtml(descriptor.label)}</button>`;
+  if (recovery.state === 'cross_type') {
+    const matchLabels = recovery.matches.map((item) => item.label).join(' / ');
+    return `${countBadges}<div class="neo-adetailer-model-recovery" role="status" data-adetailer-model-recovery-state="cross_type"><div><strong>Saved detector is inactive</strong><p><code>${escapeHtml(basename(recovery.current))}</code> is not in the current ${escapeHtml(recovery.detector_type_label)} pool. It was found in ${escapeHtml(matchLabels)}.</p></div><div class="neo-adetailer-model-recovery-actions">${recovery.matches.map((item) => button(item, item.model)).join('')}</div></div>`;
+  }
+  if (recovery.state === 'missing') {
+    const alternatives = recovery.alternatives.map((item) => button(item)).join('');
+    return `${countBadges}<div class="neo-adetailer-model-recovery neo-adetailer-model-recovery--warning" role="status" data-adetailer-model-recovery-state="missing"><div><strong>Saved detector is unavailable</strong><p><code>${escapeHtml(basename(recovery.current))}</code> was not found in any current detector pool. Refresh models or choose a discovered model.${recovery.alternatives.length ? ' Other detector pools are available.' : ''}</p></div>${alternatives ? `<div class="neo-adetailer-model-recovery-actions">${alternatives}</div>` : ''}</div>`;
+  }
+  if (recovery.state === 'empty_type') {
+    return `${countBadges}<div class="neo-adetailer-model-recovery" role="status" data-adetailer-model-recovery-state="empty_type"><div><strong>No ${escapeHtml(recovery.detector_type_label)} models found</strong><p>Other typed pools contain detector models. Switching type selects that pool's discovered default.</p></div><div class="neo-adetailer-model-recovery-actions">${recovery.alternatives.map((item) => button(item)).join('')}</div></div>`;
+  }
+  return countBadges;
 }
 function adetailerHasManualTargetMode(settings = adetailerSettings()) {
   const passes = Array.isArray(settings.detailer_passes) && settings.detailer_passes.length ? settings.detailer_passes : [{ target_mode: settings.target_mode }];
@@ -20261,6 +21605,7 @@ function adetailerPassCard(pass, index, disabled = false, compact = false) {
       <label>Reference lock${adetailerOptionSelect(`${prefix}ReferenceLock`, [{id:'none',label:'Off'}, {id:'soft_identity',label:'Soft identity'}, {id:'strong_identity',label:'Strong identity'}, {id:'face_only',label:'Face only'}, {id:'style_only',label:'Style only'}, {id:'controlnet',label:'Follow ControlNet'}, {id:'ipadapter',label:'Legacy IP-Adapter / FaceID'}, {id:'both',label:'Legacy both'}], p.reference_lock, disabled, `${commonAttrs} data-adetailer-pass-field="reference_lock"`)}</label>
       <label>Target mode${adetailerOptionSelect(`${prefix}TargetMode`, [{id:'auto_detect',label:'Auto detect'}, {id:'manual_boxes',label:'Manual boxes'}], p.target_mode, disabled, `${commonAttrs} data-adetailer-pass-field="target_mode"`)}</label>`}
     </div>
+    ${adetailerDetectorModelRecoveryMarkup(p, index, disabled)}
     <p class="neo-muted neo-adetailer-pass-note">Reference Lock preserves active upstream FaceID/IP Adapter or ControlNet conditioning during repair. It never uses a reference image as the ADetailer pixel source.${adetailerReferenceLockDependency(p).ready ? '' : ` ${escapeHtml(adetailerReferenceLockDependency(p).message)}`}</p>
     ${`${p.target_mode === 'manual_boxes' ? `<label class="neo-field-wide neo-adetailer-manual-box-field">Manual boxes<textarea ${commonAttrs} data-adetailer-pass-field="manual_boxes" rows="3" ${disabled ? 'disabled' : ''} placeholder="xywh:120,80,300,300 or xyxy:120,80,420,380 or 12%,10%,28%,28%">${escapeHtml(p.manual_boxes)}</textarea></label>` : `<div class="neo-adetailer-manual-box-note neo-muted">Manual boxes are hidden for this pass while Target mode is Auto detect.</div>`}
     <div class="neo-cfg-fix-control-grid"><label class="neo-field-wide">Positive prompt<textarea ${commonAttrs} data-adetailer-pass-field="positive_prompt" rows="2" ${disabled ? 'disabled' : ''} placeholder="Prompt chunk for this target/pass. [SEP] is supported.">${escapeHtml(p.positive_prompt)}</textarea></label><label class="neo-field-wide">Negative prompt<textarea ${commonAttrs} data-adetailer-pass-field="negative_prompt" rows="2" ${disabled ? 'disabled' : ''}>${escapeHtml(p.negative_prompt)}</textarea></label></div>`}
@@ -28017,6 +29362,9 @@ function renderPreviewActionToolbar(sourceContext = {}, options = {}) {
 function outputReplayDraftContextForResult(resultId = '') {
   const context = state.imageDraft && typeof state.imageDraft._replay_context === 'object' ? state.imageDraft._replay_context : null;
   if (!context || !context.source_result_id) return null;
+  const branchRestorePoint = context.branch_restore && typeof context.branch_restore === 'object' ? context.branch_restore.restore_point : '';
+  const legacyLatentBranch = context.replay_kind === 'latent_branch' && branchRestorePoint && branchRestorePoint !== 'base_generation_only';
+  if (context.replay_kind === 'late_pass_continuation' || context.late_pass_continuation || legacyLatentBranch) return null;
   if (resultId && context.source_result_id !== resultId) return null;
   return context;
 }
@@ -28033,6 +29381,187 @@ function outputReplayDraftContextForResult(resultId = '') {
 // latent_restore_points: []
 const IMAGE_REPLAY_LATENT_RESTORE_POINTS = ['base_generation_only', 'before_high_res_fix', 'after_high_res_fix', 'before_adetailer', 'final_latent'];
 const IMAGE_REPLAY_METADATA_BRANCH_POINTS = ['base_generation_only'];
+const IMAGE_LATE_PASS_LATENT_RESTORE_POINTS = ['before_high_res_fix', 'after_high_res_fix', 'before_adetailer', 'final_latent'];
+
+function imageUiPresetLatentCheckpoint() {
+  return normalizeImageUiPresetLatentCheckpoint(state.imageDraft?._preset_latent_checkpoint);
+}
+
+function clearImageUiPresetLatentCheckpoint({ renderAfter = false, statusMessage = '' } = {}) {
+  if (!state.imageDraft || typeof state.imageDraft !== 'object' || !state.imageDraft._preset_latent_checkpoint) return false;
+  delete state.imageDraft._preset_latent_checkpoint;
+  if (statusMessage) setWorkspaceStatus(statusMessage, 'info');
+  if (renderAfter) render();
+  return true;
+}
+
+function activateImageUiPresetLatentCheckpoint() {
+  const checkpoint = imageUiPresetLatentCheckpoint();
+  if (!checkpoint) {
+    setWorkspaceStatus('This UI preset does not contain a saved latent checkpoint reference.', 'warning');
+    render();
+    return false;
+  }
+  const rawBranch = checkpoint.branch_restore && typeof checkpoint.branch_restore === 'object'
+    ? checkpoint.branch_restore
+    : checkpoint;
+  const providerReference = rawBranch.provider_reference && typeof rawBranch.provider_reference === 'object'
+    ? { ...rawBranch.provider_reference }
+    : {};
+  if (!providerReference.load_name && !providerReference.filename && !rawBranch.comfy_load_name && !rawBranch.source_filename) {
+    setWorkspaceStatus('The preset latent reference is incomplete. Select the saved output again and reload its latent checkpoint.', 'warning');
+    render();
+    return false;
+  }
+  const allowedPasses = Array.isArray(checkpoint.allowed_passes) && checkpoint.allowed_passes.length
+    ? checkpoint.allowed_passes
+    : imageLatePassAllowedPasses(checkpoint.restore_point || rawBranch.restore_point || '');
+  const activatedAt = new Date().toISOString();
+  const branchRestore = {
+    ...rawBranch,
+    source_result_id: checkpoint.source_result_id || rawBranch.source_result_id || '',
+    restore_point: checkpoint.restore_point || rawBranch.restore_point || '',
+    restore_point_label: checkpoint.restore_point_label || rawBranch.restore_point_label || imageLatePassRestorePointLabel(checkpoint.restore_point || rawBranch.restore_point || ''),
+    provider_reference: providerReference,
+    activation_scope: 'explicit_late_pass_continuation',
+    late_pass_only: true,
+    allowed_passes: allowedPasses,
+    enabled_passes: [],
+    state: 'branch_draft_loaded_provider_resume_ready',
+  };
+  const continuation = {
+    ...branchRestore,
+    schema_version: 'neo.image.late_pass_continuation.v1',
+    state: 'loaded_waiting_for_explicit_pass_selection',
+    loaded_at: activatedAt,
+    activation_trigger: 'ui_preset_explicit_load',
+  };
+  state.imageDraft._replay_context = {
+    schema_version: 'neo.image.replay_draft.v1',
+    source_result_id: branchRestore.source_result_id,
+    replay_kind: 'late_pass_continuation',
+    replay_source: 'none',
+    source_is_output_image: false,
+    loaded_at: activatedAt,
+    trigger: 'load_ui_preset_latent_checkpoint',
+    branch_restore: branchRestore,
+    late_pass_continuation: continuation,
+    auto_run: false,
+  };
+  prepareImageLatePassContinuationDraft(branchRestore, branchRestore.source_result_id);
+  state.imageResultsReplaySource = 'none';
+  setSurfaceWorkspaceAppId('image', 'finish');
+  setImageWorkflowMode('generate');
+  state.imageDraft.workflow_mode = 'generate';
+  setWorkspaceProgress(`Preset latent loaded from ${branchRestore.restore_point_label}. Choose High-Res Fix or ADetailer before generating.`, 100, { allowBackwards: true });
+  render();
+  return true;
+}
+
+function renderImageUiPresetLatentCheckpointBanner() {
+  if (activeImageLatePassContinuation()) return '';
+  const checkpoint = imageUiPresetLatentCheckpoint();
+  if (!checkpoint) return '';
+  const allowed = Array.isArray(checkpoint.allowed_passes) && checkpoint.allowed_passes.length
+    ? checkpoint.allowed_passes
+    : imageLatePassAllowedPasses(checkpoint.restore_point || '');
+  const passLabel = (passId) => passId === 'image.high_res_lab' ? 'High-Res Fix' : passId === 'image.adetailer' ? 'ADetailer' : humanize(passId);
+  const passLabels = allowed.map(passLabel).join(' or ') || 'a compatible late pass';
+  return `
+    <div class="neo-late-pass-preset-banner" data-image-preset-latent="inactive">
+      <div class="neo-late-pass-active-copy">
+        <strong>Preset Latent Checkpoint Available</strong>
+        <span>${escapeHtml(checkpoint.restore_point_label || imageLatePassRestorePointLabel(checkpoint.restore_point || ''))} · source ${escapeHtml(checkpoint.source_result_id || 'saved output')}</span>
+        <small>Inactive reference only. New image generations use a fresh latent until you explicitly load it for ${escapeHtml(passLabels)}.</small>
+      </div>
+      <div class="neo-late-pass-active-actions">
+        <button class="neo-btn secondary" id="imagePresetLatentLoadBtn" type="button">Load for Late Passes</button>
+        <button class="neo-btn secondary" id="imagePresetLatentRemoveBtn" type="button">Remove Reference</button>
+      </div>
+    </div>`;
+}
+
+function activeImageLatePassContinuation() {
+  const replay = state.imageDraft && typeof state.imageDraft._replay_context === 'object' ? state.imageDraft._replay_context : null;
+  if (!replay) return null;
+  const continuation = replay.late_pass_continuation && typeof replay.late_pass_continuation === 'object'
+    ? replay.late_pass_continuation
+    : null;
+  if (continuation) return continuation;
+  const branch = replay.branch_restore && typeof replay.branch_restore === 'object' ? replay.branch_restore : null;
+  if (branch?.activation_scope === 'explicit_late_pass_continuation') return branch;
+  const legacyLatentBranch = replay.replay_kind === 'latent_branch' && IMAGE_LATE_PASS_LATENT_RESTORE_POINTS.includes(branch?.restore_point || '');
+  if (!legacyLatentBranch) return null;
+  return {
+    ...branch,
+    activation_scope: 'explicit_late_pass_continuation',
+    late_pass_only: true,
+    allowed_passes: Array.isArray(branch.allowed_passes) && branch.allowed_passes.length ? branch.allowed_passes : imageLatePassAllowedPasses(branch.restore_point || ''),
+    state: 'legacy_latent_branch_visible_as_late_pass_continuation',
+  };
+}
+
+function imageLatePassContinuationForResult(resultId = '') {
+  const continuation = activeImageLatePassContinuation();
+  if (!continuation) return null;
+  if (resultId && continuation.source_result_id !== resultId) return null;
+  return continuation;
+}
+
+function imageEnabledLatePassIds() {
+  const enabled = [];
+  if (highResLabSettings()?.enabled === true) enabled.push('image.high_res_lab');
+  if (adetailerSettings()?.enabled === true) enabled.push('image.adetailer');
+  return enabled;
+}
+
+function imageLatePassContinuationAllowedPasses(continuation = activeImageLatePassContinuation()) {
+  const declared = continuation?.allowed_passes;
+  if (Array.isArray(declared) && declared.length) return declared.map((item) => String(item || '')).filter(Boolean);
+  return imageLatePassAllowedPasses(continuation?.restore_point || '');
+}
+
+function clearImageLatePassContinuation({ renderAfter = false, statusMessage = '' } = {}) {
+  if (!activeImageLatePassContinuation()) return false;
+  if (state.imageDraft && typeof state.imageDraft === 'object') {
+    delete state.imageDraft._replay_context;
+    delete state.imageDraft._late_pass_continuation;
+  }
+  saveUiState();
+  if (statusMessage) setWorkspaceStatus(statusMessage, 'info');
+  if (renderAfter) render();
+  return true;
+}
+
+function renderImageLatePassContinuationBanner() {
+  const continuation = activeImageLatePassContinuation();
+  if (!continuation) return '';
+  const allowed = imageLatePassContinuationAllowedPasses(continuation);
+  const enabled = imageEnabledLatePassIds();
+  const enabledAllowed = enabled.filter((item) => allowed.includes(item));
+  const disallowed = enabled.filter((item) => !allowed.includes(item));
+  const passLabel = (passId) => passId === 'image.high_res_lab' ? 'High-Res Fix' : passId === 'image.adetailer' ? 'ADetailer' : humanize(passId);
+  const passLabels = enabledAllowed.map(passLabel);
+  const disallowedLabels = disallowed.map(passLabel);
+  const waiting = enabledAllowed.length === 0 && disallowed.length === 0;
+  const blocked = disallowed.length > 0;
+  const stateClass = blocked ? ' is-blocked' : (waiting ? ' is-waiting' : ' is-ready');
+  const stateMessage = blocked
+    ? `Blocked: this restore point does not allow ${disallowedLabels.join(', ')}.`
+    : (waiting ? 'Choose at least one allowed pass before generating. Initial generation will not rerun.' : `Ready to run: ${passLabels.join(', ')}.`);
+  return `
+    <div class="neo-late-pass-active-banner${stateClass}" data-image-late-pass-active="true">
+      <div class="neo-late-pass-active-copy">
+        <strong>Late-Pass Continuation Active</strong>
+        <span>${escapeHtml(imageLatePassRestorePointLabel(continuation.restore_point || ''))} · source ${escapeHtml(continuation.source_result_id || 'saved output')}</span>
+        <small>${escapeHtml(stateMessage)}</small>
+      </div>
+      <div class="neo-late-pass-active-actions">
+        <button class="neo-btn secondary" id="imageLatePassOpenFinishBtn" type="button">Open Finish Workspace</button>
+        <button class="neo-btn danger" id="imageLatePassExitBtn" type="button">Exit Continuation</button>
+      </div>
+    </div>`;
+}
 
 function imageReplayRestoreSupport(activeMetadata = {}, restorePoint = '') {
   const replay = activeMetadata?.replay || {};
@@ -28043,7 +29572,11 @@ function imageReplayRestoreSupport(activeMetadata = {}, restorePoint = '') {
 function imageReplayLatentArtifact(activeMetadata = {}, restorePoint = '') {
   const artifacts = activeMetadata?.replay?.latent_capture?.artifacts;
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find((item) => item?.restore_point === restorePoint && item?.state !== 'failed_to_persist' && item?.path) || null;
+  return artifacts.find((item) => {
+    if (item?.restore_point !== restorePoint || item?.state !== 'available' || item?.provider_resume_ready !== true) return false;
+    const providerReference = item?.provider_reference && typeof item.provider_reference === 'object' ? item.provider_reference : {};
+    return Boolean(providerReference.load_name || providerReference.filename || item?.comfy_load_name || item?.source_filename);
+  }) || null;
 }
 
 function imageReplayRestorePointAvailable(activeMetadata = {}, restorePoint = '') {
@@ -28059,7 +29592,6 @@ function imageReplayRestorePointAvailable(activeMetadata = {}, restorePoint = ''
 
 function imageReplaySourceOptions(activeSummary = {}, activeMetadata = {}, activeFile = {}) {
   const hasResult = Boolean(activeSummary?.result_id || activeMetadata?.result_id);
-  const hasSelectedOutput = Boolean(activeFile?.url || activeFile?.path || activeFile?.filename || activeSummary?.active_file?.url || activeSummary?.active_file?.path || activeSummary?.active_file?.filename);
   const latentOption = (id, label, gatedDescription, availableDescription) => {
     const available = imageReplayRestorePointAvailable(activeMetadata, id);
     const support = imageReplayRestoreSupport(activeMetadata, id);
@@ -28087,10 +29619,6 @@ function imageReplaySourceOptions(activeSummary = {}, activeMetadata = {}, activ
       description: 'Restore saved prompt, params, model fields, and safe extension settings.',
     },
     latentOption('base_generation_only', 'Base generation only', 'Available from saved base recipe; enhancement passes are stripped for review.', 'Load a clean base-generation branch draft from the saved recipe. High-Res, ADetailer, Image Upscale, and LayerDiffuse are disabled; no latent resume is claimed.'),
-    latentOption('before_high_res_fix', 'Before High-Res Fix', 'Locked until Neo saves a restore point before High-Res processing.', 'Load a branch draft from the saved pre-High-Res restore point.'),
-    latentOption('after_high_res_fix', 'After High-Res Fix', 'Locked until Neo saves a restore point after High-Res processing.', 'Load a branch draft from the saved post-High-Res restore point.'),
-    latentOption('before_adetailer', 'Before ADetailer', 'Locked until Neo saves a restore point before ADetailer processing.', 'Load a branch draft from the saved pre-ADetailer restore point.'),
-    latentOption('final_latent', 'Final latent', 'Locked until Neo stores the final latent tensor before VAE decode.', 'Load a branch draft from the saved final latent tensor. No PNG re-encode is used.'),
   ];
 }
 
@@ -28127,26 +29655,119 @@ function renderOutputReplayRegeneratePanel(activeSummary, activeMetadata, active
   const loadedAt = context?.loaded_at ? new Date(context.loaded_at).toLocaleString() : '';
   const selectedSource = selectedImageReplaySourceOption(activeSummary, activeMetadata, activeFile);
   const selectedIsNone = (selectedSource?.id || 'none') === 'none';
-  const selectedIsBranch = IMAGE_REPLAY_LATENT_RESTORE_POINTS.includes(selectedSource?.id || '');
-  const statusLabel = loaded ? (context?.branch_restore ? 'Branch Draft loaded' : 'Replay Draft loaded') : (selectedIsNone ? 'No replay source selected' : (selectedIsBranch ? 'Latent branch available' : 'Metadata replay available'));
+  const selectedIsBranch = IMAGE_REPLAY_METADATA_BRANCH_POINTS.includes(selectedSource?.id || '');
+  const statusLabel = loaded ? (context?.branch_restore ? 'Base Branch Draft loaded' : 'Replay Draft loaded') : (selectedIsNone ? 'No replay source selected' : (selectedIsBranch ? 'Base branch available' : 'Metadata replay available'));
   const statusDetail = loaded
     ? `Loaded from this output${context?.replay_source ? ` · ${context.replay_source}` : ''}${loadedAt ? ` · ${loadedAt}` : ''}`
     : (selectedIsNone
       ? 'Use the source buttons below to send the selected output directly, or choose a replay source to load a draft before sending.'
       : (selectedIsBranch
-        ? ((selectedSource?.id === 'final_latent' || selectedSource?.id === 'before_high_res_fix' || selectedSource?.id === 'after_high_res_fix' || selectedSource?.id === 'before_adetailer') ? 'Choose this restore point to load a provider-owned latent branch. Neo will use Comfy LoadLatent; no PNG re-encode is used.' : 'Choose this restore point to load a branch draft. Generation remains blocked until a provider resume hook consumes the latent.')
+        ? 'Load the saved base recipe with finishing extensions disabled. This does not load a latent tensor.'
         : 'Choose a supported replay source, then load the draft for review before generating.'));
-  const actionLabel = selectedIsBranch ? 'Load Branch Draft' : 'Load Replay Draft';
+  const actionLabel = selectedIsBranch ? 'Load Base Branch Draft' : 'Load Replay Draft';
   const actionDisabled = selectedIsNone ? 'disabled' : '';
   return `
     <div class="neo-output-replay-panel" data-output-replay-panel="metadata" data-output-replay-source="${escapeAttr(selectedSource?.id || 'full_recipe')}">
       <div class="neo-output-replay-copy">
-        <div class="neo-output-replay-title">Replay / Regenerate</div>
+        <div class="neo-output-replay-title">Replay / Regenerate Recipe</div>
         <div class="neo-output-replay-status"><span class="neo-output-chip${loaded ? ' is-active' : ''}">${escapeHtml(statusLabel)}</span><span class="neo-muted">${escapeHtml(statusDetail)}</span></div>
         ${renderImageReplaySourceSelect(activeSummary, activeMetadata, activeFile)}
       </div>
       <div class="neo-output-replay-actions">
         <button class="neo-btn primary" id="imageResultLoadReplayDraftBtn" type="button" ${actionDisabled}>${escapeHtml(actionLabel)}</button>
+      </div>
+    </div>`;
+}
+
+function imageLatePassAllowedPasses(restorePoint = '') {
+  if (restorePoint === 'before_high_res_fix' || restorePoint === 'final_latent') {
+    return ['image.high_res_lab', 'image.adetailer'];
+  }
+  if (restorePoint === 'after_high_res_fix' || restorePoint === 'before_adetailer') {
+    return ['image.adetailer'];
+  }
+  return [];
+}
+
+function imageLatePassRestorePointLabel(restorePoint = '') {
+  const labels = {
+    before_high_res_fix: 'Before High-Res Fix',
+    after_high_res_fix: 'After High-Res Fix',
+    before_adetailer: 'Before ADetailer',
+    final_latent: 'Final Latent',
+  };
+  return labels[restorePoint] || humanize(restorePoint || 'latent');
+}
+
+function imageLatePassContinuationOptions(activeMetadata = {}) {
+  const descriptions = {
+    before_high_res_fix: 'Continue from the saved base latent. Add High-Res Fix, ADetailer, or both without rerunning initial generation.',
+    after_high_res_fix: 'Continue after the saved High-Res stage. Use this for ADetailer and future downstream latent-aware passes.',
+    before_adetailer: 'Continue immediately before ADetailer. Use this to add or rerun ADetailer without rerunning earlier stages.',
+    final_latent: 'Use the saved final latent as a new late-pass starting point. Add High-Res Fix, ADetailer, or future latent-aware passes.',
+  };
+  const options = [{
+    id: 'none',
+    label: 'Choose saved latent…',
+    enabled: true,
+    badge: 'Not loaded',
+    description: 'Latent continuation is separate from recipe replay and image-source handoff.',
+    allowed_passes: [],
+  }];
+  IMAGE_LATE_PASS_LATENT_RESTORE_POINTS.forEach((restorePoint) => {
+    const support = imageReplayRestoreSupport(activeMetadata, restorePoint);
+    const artifact = imageReplayLatentArtifact(activeMetadata, restorePoint);
+    const available = support.state === 'available' && Boolean(artifact);
+    options.push({
+      id: restorePoint,
+      label: imageLatePassRestorePointLabel(restorePoint),
+      enabled: available,
+      badge: available ? 'Provider latent available' : (support.reason || 'Needs latent capture'),
+      description: available ? descriptions[restorePoint] : `${descriptions[restorePoint]} Generate with Latent Capture enabled to create this restore point.`,
+      allowed_passes: imageLatePassAllowedPasses(restorePoint),
+    });
+  });
+  return options;
+}
+
+function selectedImageLatePassContinuationOption(activeMetadata = {}) {
+  const options = imageLatePassContinuationOptions(activeMetadata);
+  const selectedId = state.imageResultsLatePassRestorePoint || 'none';
+  const selected = options.find((item) => item.id === selectedId);
+  if (selected?.enabled) return selected;
+  return options[0];
+}
+
+function renderOutputLatePassContinuationPanel(activeSummary = {}, activeMetadata = {}) {
+  const resultId = activeSummary?.result_id || activeMetadata?.result_id || '';
+  const active = imageLatePassContinuationForResult(resultId);
+  const selected = selectedImageLatePassContinuationOption(activeMetadata);
+  if (selected?.id && state.imageResultsLatePassRestorePoint !== selected.id) state.imageResultsLatePassRestorePoint = selected.id;
+  const options = imageLatePassContinuationOptions(activeMetadata);
+  const optionHtml = options.map((item) => {
+    const text = `${item.label}${item.enabled ? '' : ` — ${item.badge}`}`;
+    return `<option value="${escapeAttr(item.id)}" ${item.id === selected.id ? 'selected' : ''} ${item.enabled ? '' : 'disabled'} title="${escapeAttr(item.description)}">${escapeHtml(text)}</option>`;
+  }).join('');
+  const allowedLabels = (selected?.allowed_passes || []).map((passId) => passId === 'image.high_res_lab' ? 'High-Res Fix' : passId === 'image.adetailer' ? 'ADetailer' : humanize(passId));
+  const statusLabel = active ? 'Continuation active' : (selected?.id === 'none' ? 'No latent loaded' : selected?.badge || 'Provider latent available');
+  const statusDetail = active
+    ? `${imageLatePassRestorePointLabel(active.restore_point)} · source ${active.source_result_id || resultId}`
+    : (selected?.description || 'Choose a provider-owned latent restore point.');
+  const actionDisabled = selected?.id === 'none' ? 'disabled' : '';
+  return `
+    <div class="neo-output-late-pass-panel${active ? ' is-active' : ''}" data-output-late-pass-panel="true" data-late-pass-source-result="${escapeAttr(resultId)}">
+      <div class="neo-output-late-pass-copy">
+        <div class="neo-output-late-pass-title">Late-Pass Continuation</div>
+        <div class="neo-output-late-pass-status"><span class="neo-output-chip${active ? ' is-active' : ''}">${escapeHtml(statusLabel)}</span><span class="neo-muted">${escapeHtml(statusDetail)}</span></div>
+        <label class="neo-output-replay-source-label" for="imageResultLatePassRestoreSelect">
+          <span>Saved latent restore point</span>
+          <select id="imageResultLatePassRestoreSelect" data-output-late-pass-restore-select>${optionHtml}</select>
+        </label>
+        <div class="neo-output-replay-source-help"><strong>Late passes only</strong><span>${escapeHtml(allowedLabels.length ? `Allowed next passes: ${allowedLabels.join(', ')}. The saved PNG is not staged as an Img2Img source.` : 'Choose an available latent to see its allowed continuation passes.')}</span></div>
+      </div>
+      <div class="neo-output-late-pass-actions">
+        <button class="neo-btn primary" id="imageResultLoadLatePassBtn" type="button" ${actionDisabled}>Load Latent for Late Passes</button>
+        ${active ? '<button class="neo-btn secondary" id="imageResultExitLatePassBtn" type="button">Exit Continuation</button>' : ''}
       </div>
     </div>`;
 }
@@ -28296,6 +29917,7 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
         </div>
       </div>
       ${renderOutputReplayRegeneratePanel(activeSummary, metadata, media || activeFile || {})}
+      ${renderOutputLatePassContinuationPanel(activeSummary, metadata)}
       ${renderOutputProviderReplayValidation(metadata)}
       ${renderOutputFileStrip(metadata.outputs?.files || [], activeFile?.file_id)}
       ${renderOutputInputAssetStrip(inputAssets, state.activeSavedInspectorMediaId)}
@@ -28711,7 +30333,7 @@ function restoreSceneDirectorSettingsFromReuse(reuse = {}) {
     region_context_weight: context.weight ?? 0.35,
     region_context_position: 'suffix',
     mask_refine_enabled: Boolean(maskRefine.enabled),
-    character_lock_execution_mode: firstPassLock.execution_mode || firstPassLock.execution || params.character_lock_execution_mode || params.scene_director_character_lock_execution_mode || 'masked_correction',
+    character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(firstPassLock.execution_mode || firstPassLock.execution || params.character_lock_execution_mode || params.scene_director_character_lock_execution_mode || 'latent_attention'),
     character_lock_first_pass_enabled: firstPassLock.enabled !== false,
     character_lock_first_pass_apply_to: firstPassLock.apply_to || 'strong_strict_only',
     character_lock_first_pass_timing: firstPassLock.timing || 'before_adapters',
@@ -28796,7 +30418,7 @@ function restoreAdetailerSettingsFromReuse(reuse = {}) {
   return true;
 }
 
-function buildImageBranchRestoreContext(activeMetadata = {}, restorePoint = '', resultId = '') {
+function buildImageBranchRestoreContext(activeMetadata = {}, restorePoint = '', resultId = '', options = {}) {
   if (!IMAGE_REPLAY_LATENT_RESTORE_POINTS.includes(restorePoint)) return null;
   const support = imageReplayRestoreSupport(activeMetadata, restorePoint);
   if (restorePoint === 'base_generation_only') {
@@ -28826,6 +30448,9 @@ function buildImageBranchRestoreContext(activeMetadata = {}, restorePoint = '', 
   }
   const artifact = imageReplayLatentArtifact(activeMetadata, restorePoint);
   if (!artifact || support.state !== 'available') return null;
+  const latePassContinuation = options.latePassContinuation === true;
+  const allowedPasses = latePassContinuation ? imageLatePassAllowedPasses(restorePoint) : [];
+  const providerReference = artifact.provider_reference && typeof artifact.provider_reference === 'object' ? artifact.provider_reference : {};
   return {
     schema_version: 'neo.image.branch_restore.v1',
     source_result_id: resultId || activeMetadata?.result_id || '',
@@ -28841,11 +30466,21 @@ function buildImageBranchRestoreContext(activeMetadata = {}, restorePoint = '', 
     source_subfolder: artifact.source_subfolder || '',
     source_type: artifact.source_type || '',
     comfy_load_name: artifact.comfy_load_name || '',
+    provider_reference: {
+      filename: providerReference.filename || artifact.source_filename || '',
+      subfolder: providerReference.subfolder || artifact.source_subfolder || '',
+      type: providerReference.type || artifact.source_type || 'output',
+      load_name: providerReference.load_name || artifact.comfy_load_name || '',
+    },
     no_png_reencode: true,
     resume_policy: restorePoint === 'final_latent' ? 'provider_owned_load_latent_no_png_reencode' : (restorePoint === 'before_high_res_fix' ? 'provider_owned_pre_high_res_latent_continue_no_png_reencode' : (restorePoint === 'after_high_res_fix' ? 'provider_owned_post_high_res_latent_continue_no_png_reencode' : (restorePoint === 'before_adetailer' ? 'provider_owned_pre_adetailer_latent_continue_no_png_reencode' : 'provider_owned_latent_only_no_png_reencode'))),
     state: (restorePoint === 'final_latent' || restorePoint === 'before_high_res_fix' || restorePoint === 'after_high_res_fix' || restorePoint === 'before_adetailer') ? 'branch_draft_loaded_provider_resume_ready' : 'branch_draft_loaded_provider_resume_pending',
     requires_provider_resume: !(restorePoint === 'final_latent' || restorePoint === 'before_high_res_fix' || restorePoint === 'after_high_res_fix' || restorePoint === 'before_adetailer'),
     provider_resume_supported: restorePoint === 'final_latent' || restorePoint === 'before_high_res_fix' || restorePoint === 'after_high_res_fix' || restorePoint === 'before_adetailer',
+    activation_scope: latePassContinuation ? 'explicit_late_pass_continuation' : 'legacy_branch_restore',
+    late_pass_only: latePassContinuation,
+    allowed_passes: allowedPasses,
+    enabled_passes: [],
   };
 }
 
@@ -28869,6 +30504,50 @@ function stripEnhancementExtensionsForBaseGenerationBranch(resultId = '') {
   };
 }
 
+function prepareImageLatePassContinuationDraft(branchRestore = {}, resultId = '') {
+  if (!state.imageDraft || typeof state.imageDraft !== 'object') state.imageDraft = {};
+  const continuationMarker = {
+    source_result_id: resultId || branchRestore.source_result_id || '',
+    restore_point: branchRestore.restore_point || '',
+    restore_point_label: branchRestore.restore_point_label || imageLatePassRestorePointLabel(branchRestore.restore_point || ''),
+    activation_scope: 'explicit_late_pass_continuation',
+  };
+  state.imageDraft[HIGH_RES_LAB_EXTENSION_ID] = {
+    ...highResLabSettings(),
+    enabled: false,
+    restored_from_output: resultId,
+    restore_state: 'late_pass_continuation_loaded_disabled_for_explicit_selection',
+    late_pass_continuation: continuationMarker,
+  };
+  state.imageDraft[ADETAILER_EXTENSION_ID] = adetailerNormalizeSettings({
+    ...adetailerSettings(),
+    enabled: false,
+    restored_from_output: resultId,
+    restore_state: 'late_pass_continuation_loaded_disabled_for_explicit_selection',
+    revalidation_required: true,
+    ready_to_auto_enable: false,
+    late_pass_continuation: continuationMarker,
+  });
+  state.imageDraft[IMAGE_UPSCALE_EXTENSION_ID] = {
+    ...imageUpscaleSettings(),
+    enabled: false,
+    restored_from_output: resultId,
+    restore_state: 'disabled_for_latent_late_pass_continuation',
+  };
+  state.imageDraft[LAYERDIFFUSE_EXTENSION_ID] = {
+    ...layerDiffuseSettings(),
+    enabled: false,
+    restored_from_output: resultId,
+    restore_state: 'disabled_for_latent_late_pass_continuation',
+  };
+  [HIGH_RES_LAB_EXTENSION_ID, ADETAILER_EXTENSION_ID, IMAGE_UPSCALE_EXTENSION_ID, LAYERDIFFUSE_EXTENSION_ID].forEach((extensionId) => setWorkflowExtensionApplied(extensionId, false));
+  delete state.imageDraft._preview_action;
+  delete state.imageDraft._preview_action_force_workflow_mode;
+  delete state.imageDraft._preview_action_run_label;
+  delete state.imageDraft._preview_action_finish_pass;
+  state.imageDraft.output_policy = 'append_derived';
+}
+
 function applyImageResultReusePayload(reuse = {}, options = {}) {
   const prompt = reuse.prompt || {};
   const params = reuse.params || {};
@@ -28876,10 +30555,13 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
   const resultId = reuse.result_id || options.resultId || activeSavedResultSummary()?.result_id || '';
   const activeMetadata = options.activeMetadata || state.activeSavedResultMetadata || {};
   const replaySource = options.replaySource || options.replayKind || 'full_recipe';
-  const branchRestore = buildImageBranchRestoreContext(activeMetadata, replaySource, resultId);
+  const latePassContinuation = options.latePassContinuation === true;
+  const branchRestore = buildImageBranchRestoreContext(activeMetadata, replaySource, resultId, { latePassContinuation });
   const replayMetadata = activeMetadata?.replay || {};
   const availableRestorePoints = Array.isArray(replayMetadata.available_restore_points) ? replayMetadata.available_restore_points : ['full_recipe', 'final_output_as_source'];
-  const latentRestorePoints = Array.isArray(replayMetadata.latent_restore_points) ? replayMetadata.latent_restore_points : [];
+  const latePassRestorePoints = Array.isArray(replayMetadata.late_pass_restore_points)
+    ? replayMetadata.late_pass_restore_points
+    : (Array.isArray(replayMetadata.latent_restore_points) ? replayMetadata.latent_restore_points : []);
   const gatedRestorePoints = Array.isArray(replayMetadata.gated_restore_points) ? replayMetadata.gated_restore_points : ['base_generation_only', 'before_high_res_fix', 'after_high_res_fix', 'before_adetailer', 'final_latent'];
   state.imageDraft = {
     ...state.imageDraft,
@@ -28893,15 +30575,32 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
     _replay_context: {
       schema_version: 'neo.image.replay_draft.v1',
       source_result_id: resultId,
-      replay_kind: branchRestore ? 'latent_branch' : (options.replayKind || replaySource || 'full_recipe'),
-      replay_source: replaySource,
+      replay_kind: latePassContinuation ? 'late_pass_continuation' : (branchRestore ? 'latent_branch' : (options.replayKind || replaySource || 'full_recipe')),
+      replay_source: latePassContinuation ? 'none' : replaySource,
       source_is_output_image: false,
       loaded_at: new Date().toISOString(),
       trigger: options.trigger || 'reuse_prompt_params',
       available_restore_points: availableRestorePoints,
-      latent_restore_points: latentRestorePoints,
+      latent_restore_points: latePassRestorePoints,
+      late_pass_restore_points: latePassRestorePoints,
       gated_restore_points: gatedRestorePoints,
       branch_restore: branchRestore,
+      late_pass_continuation: latePassContinuation && branchRestore ? {
+        schema_version: 'neo.image.late_pass_continuation.v1',
+        source_result_id: resultId,
+        restore_point: branchRestore.restore_point,
+        restore_point_label: branchRestore.restore_point_label,
+        artifact_id: branchRestore.artifact_id,
+        provider_id: branchRestore.provider_id,
+        backend: branchRestore.backend,
+        provider_reference: branchRestore.provider_reference,
+        allowed_passes: branchRestore.allowed_passes || [],
+        enabled_passes: [],
+        activation_scope: 'explicit_late_pass_continuation',
+        state: 'loaded_waiting_for_explicit_pass_selection',
+        loaded_at: new Date().toISOString(),
+        no_png_reencode: true,
+      } : null,
       auto_run: false,
     },
   };
@@ -28911,6 +30610,7 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
   const restoredHighResLab = restoreHighResLabSettingsFromReuse(reuse);
   const restoredAdetailer = restoreAdetailerSettingsFromReuse(reuse);
   if (isBaseGenerationBranch) stripEnhancementExtensionsForBaseGenerationBranch(resultId);
+  if (latePassContinuation && branchRestore) prepareImageLatePassContinuationDraft(branchRestore, resultId);
   state.activeSavedResultReuse = reuse;
   saveUiState();
   const baseBranchLabel = isBaseGenerationBranch ? 'Base branch: finish extensions stripped' : '';
@@ -28954,6 +30654,42 @@ async function loadActiveImageReplayDraft() {
     render();
   } catch (error) {
     state.imageResultsError = error.message || 'Could not load replay draft.';
+    render();
+  }
+}
+
+async function loadActiveImageLatePassContinuation() {
+  const summary = activeSavedResultSummary();
+  if (!summary?.result_id) return;
+  try {
+    const activeMetadata = state.activeSavedResultMetadata || {};
+    const selected = selectedImageLatePassContinuationOption(activeMetadata);
+    if (!selected || selected.id === 'none' || !selected.enabled) {
+      setWorkspaceStatus('Choose an available saved latent restore point first.', 'warning');
+      render();
+      return;
+    }
+    const reuse = await fetchActiveImageResultReusePayload();
+    const applied = applyImageResultReusePayload(reuse || {}, {
+      trigger: 'load_late_pass_continuation',
+      replayKind: 'late_pass_continuation',
+      replaySource: selected.id,
+      resultId: summary.result_id,
+      activeMetadata,
+      latePassContinuation: true,
+    });
+    const continuation = activeImageLatePassContinuation();
+    if (!continuation) throw new Error('The saved latent could not be activated for late-pass continuation.');
+    state.imageResultsReplaySource = 'none';
+    setSurfaceWorkspaceAppId('image', 'finish');
+    setImageWorkflowMode('generate');
+    state.imageDraft.workflow_mode = 'generate';
+    saveUiState();
+    const restoredSuffix = applied.restoredLabels ? ` Recipe restored: ${applied.restoredLabels}.` : '';
+    setWorkspaceProgress(`Late-Pass Continuation loaded from ${continuation.restore_point_label || imageLatePassRestorePointLabel(continuation.restore_point)}.${restoredSuffix} Choose High-Res Fix or ADetailer before generating.`, 100, { allowBackwards: true });
+    render();
+  } catch (error) {
+    state.imageResultsError = error.message || 'Could not load the saved latent for late-pass continuation.';
     render();
   }
 }
@@ -29339,6 +31075,17 @@ function bindImageResultsWorkspace() {
   });
   const replayDraft = document.getElementById('imageResultLoadReplayDraftBtn');
   if (replayDraft) replayDraft.addEventListener('click', () => loadActiveImageReplayDraft());
+  const latePassRestoreSelect = document.getElementById('imageResultLatePassRestoreSelect');
+  if (latePassRestoreSelect) latePassRestoreSelect.addEventListener('change', () => {
+    state.imageResultsLatePassRestorePoint = latePassRestoreSelect.value || 'none';
+    render();
+  });
+  const loadLatePassBtn = document.getElementById('imageResultLoadLatePassBtn');
+  if (loadLatePassBtn) loadLatePassBtn.addEventListener('click', () => loadActiveImageLatePassContinuation());
+  const exitLatePassBtn = document.getElementById('imageResultExitLatePassBtn');
+  if (exitLatePassBtn) exitLatePassBtn.addEventListener('click', () => {
+    clearImageLatePassContinuation({ renderAfter: true, statusMessage: 'Late-Pass Continuation exited. The current recipe remains loaded.' });
+  });
   document.querySelectorAll('[data-output-postfix-action]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.disabled) return;
@@ -43899,6 +45646,7 @@ async function sendOutputToSourceMode(mode, sourceOverride = null) {
     alert(source.missing_reason || 'No preview output is selected yet.');
     return false;
   }
+  clearImageLatePassContinuation();
   let replayInfo = { replaySource: 'none', applied: null, branch: null };
   try {
     replayInfo = await applySelectedReplaySourceForOutputHandoff(`send_output_to_${cleanMode}`);
@@ -43939,6 +45687,7 @@ async function sendOutputToImageUpscale(sourceOverride = null) {
     alert(source.missing_reason || 'No preview output is selected yet.');
     return false;
   }
+  clearImageLatePassContinuation();
   let replayInfo = { replaySource: 'none', applied: null, branch: null };
   try {
     replayInfo = await applySelectedReplaySourceForOutputHandoff('send_output_to_image_upscale');
@@ -44005,6 +45754,7 @@ async function previewActionRunFinishPass(actionId, source, stageFn, label) {
     setWorkspaceStatus(evaluated.disabledReason || `${label} is not available for this source.`, 'warning');
     return false;
   }
+  clearImageLatePassContinuation();
   const previousUi = {
     activeWorkspaceAppId: state.activeWorkspaceAppId,
     activeSubtabId: state.activeSubtabId,
@@ -45447,12 +47197,11 @@ function bindAdetailerControls() {
       if (key === 'detector_type') {
         const catalog = adetailerCatalogPayloadForProfile();
         const available = adetailerCatalogListForType(catalog, raw);
-        if (available.length) {
-          const currentPass = adetailerSettings().detailer_passes?.[index] || {};
-          patch.detector_model = adetailerCatalogCanonicalModel(catalog, raw, currentPass.detector_model)
-            || adetailerDefaultDetectorForType(catalog, raw)
-            || available[0];
-        }
+        const currentPass = adetailerSettings().detailer_passes?.[index] || {};
+        patch.detector_model = adetailerCatalogCanonicalModel(catalog, raw, currentPass.detector_model)
+          || adetailerDefaultDetectorForType(catalog, raw)
+          || available[0]
+          || '';
       }
       updateAdetailerPass(index, patch);
       if (event.type === 'change' && ['mode','detector_type','target_mode','target_order','reference_lock','enabled'].includes(key)) render();
@@ -45460,6 +47209,19 @@ function bindAdetailerControls() {
     node.addEventListener('input', handler);
     node.addEventListener('change', handler);
   });
+  document.querySelectorAll('[data-adetailer-model-recovery-action="switch-type"]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-adetailer-pass-index') || 0);
+    const detectorType = String(button.getAttribute('data-adetailer-recovery-type') || 'bbox');
+    const requestedModel = String(button.getAttribute('data-adetailer-recovery-model') || '');
+    const catalog = adetailerCatalogPayloadForProfile();
+    const available = adetailerCatalogListForType(catalog, detectorType);
+    const detectorModel = adetailerCatalogCanonicalModel(catalog, detectorType, requestedModel)
+      || adetailerDefaultDetectorForType(catalog, detectorType)
+      || available[0]
+      || '';
+    updateAdetailerPass(index, { detector_type: detectorType, detector_model: detectorModel });
+    render();
+  }));
   document.querySelectorAll('[data-adetailer-pass-action]').forEach((button) => button.addEventListener('click', () => {
     const index = Number(button.getAttribute('data-adetailer-pass-index') || 0);
     const action = button.getAttribute('data-adetailer-pass-action');
@@ -46983,7 +48745,37 @@ function buildImageJobPayload() {
   if (usesField('mask_grow')) params.mask_grow = Number(draft.mask_grow ?? numberValue('imageMaskGrow', 6));
   if (usesField('mask_blur')) params.mask_blur = Number(draft.mask_blur ?? numberValue('imageMaskBlur', 0));
   if (draft._replay_context && typeof draft._replay_context === 'object') {
-    params._neo_replay_context = { ...draft._replay_context };
+    const replayContext = { ...draft._replay_context };
+    const continuation = replayContext.late_pass_continuation && typeof replayContext.late_pass_continuation === 'object'
+      ? { ...replayContext.late_pass_continuation }
+      : null;
+    const branchRestore = replayContext.branch_restore && typeof replayContext.branch_restore === 'object'
+      ? { ...replayContext.branch_restore }
+      : null;
+    const legacyLatentBranch = replayContext.replay_kind === 'latent_branch' && IMAGE_LATE_PASS_LATENT_RESTORE_POINTS.includes(branchRestore?.restore_point || '');
+    if (continuation || branchRestore?.activation_scope === 'explicit_late_pass_continuation' || legacyLatentBranch) {
+      const enabledPasses = imageEnabledLatePassIds();
+      const allowedPasses = imageLatePassContinuationAllowedPasses(continuation || branchRestore);
+      const nextContinuation = {
+        ...(continuation || {}),
+        enabled_passes: enabledPasses,
+        allowed_passes: allowedPasses,
+        state: enabledPasses.length ? 'ready_for_provider_compile' : 'loaded_waiting_for_explicit_pass_selection',
+        activation_scope: 'explicit_late_pass_continuation',
+      };
+      const nextBranch = {
+        ...(branchRestore || {}),
+        enabled_passes: enabledPasses,
+        allowed_passes: allowedPasses,
+        activation_scope: 'explicit_late_pass_continuation',
+        late_pass_only: true,
+      };
+      replayContext.replay_kind = 'late_pass_continuation';
+      replayContext.replay_source = 'none';
+      replayContext.late_pass_continuation = nextContinuation;
+      replayContext.branch_restore = nextBranch;
+    }
+    params._neo_replay_context = replayContext;
   }
   const previewActionAllowed = imagePreviewActionPayloadAllowed(mode, runtimeMode, draft);
   if (draft._preview_action && typeof draft._preview_action === 'object' && previewActionAllowed) {

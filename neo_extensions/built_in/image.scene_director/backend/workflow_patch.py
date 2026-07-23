@@ -8,6 +8,12 @@ from typing import Any
 from .node_decision import detect_node_status, workflow_readiness
 from .payload_schema import legacy_payload_from_block
 from .v054_contract import normalize_scene_graph_v054
+from .prompt_authority import (
+    PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY,
+    apply_prompt_authority_to_scene_graph,
+    build_prompt_authority_contract,
+    normalize_prompt_authority,
+)
 from .support_matrix import ACTIVE_STATES, EXTENSION_ID
 from .provider_capabilities import resolve_provider_capabilities_v054
 from .flux_adapter import build_flux_adapter_plan_v054
@@ -22,7 +28,10 @@ from .extension_routing import (
 )
 from .validation import validate_and_normalize_payload
 
-PHASE = "phase_26_9_16_postpass_character_lock_gate_standalone_route_validation"
+PHASE = "phase_27_15_character_additional_details"
+# Phase 27.14 compatibility anchor: PHASE = "phase_27_14_child_owned_attached_detail_roles"
+# Phase 27.1 compatibility anchor: PHASE = "phase_27_1_character_lock_pass_separation_trait_attention_restore"
+# Phase 26.9.16 compatibility anchor: PHASE = "phase_26_9_16_postpass_character_lock_gate_standalone_route_validation"
 # Phase 26.9.15 compatibility anchor: PHASE = "phase_26_9_15_adetailer_style_regional_lora_crop_refinement_pass"
 # Phase 26.9.14 compatibility anchor: PHASE = "phase_26_9_14_regional_lora_runtime_proof_visual_fallback"
 # Phase 26.9.13 compatibility anchor: PHASE = "phase_26_9_13_regional_lora_model_delta_mixer"
@@ -288,6 +297,27 @@ def _v054_source_block(payload: Any, normalized_block: dict[str, Any]) -> dict[s
             metadata.setdefault("raw_v054_payload_metadata", deepcopy(raw_metadata))
     return merged
 
+
+def _existing_v054_fix_pass_controls(graph: dict[str, Any] | None) -> dict[str, Any]:
+    """Read persisted Fix Pass controls from an existing V054 node on replay."""
+    for node in (graph or {}).values():
+        if not isinstance(node, dict) or str(node.get("class_type") or "") != V054_NODE_CLASS:
+            continue
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        candidate = inputs.get("scene_graph_json")
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate)
+            except Exception:
+                candidate = None
+        if not isinstance(candidate, dict) and isinstance(inputs.get("scene_graph"), dict):
+            candidate = inputs.get("scene_graph")
+        metadata = candidate.get("metadata") if isinstance(candidate, dict) and isinstance(candidate.get("metadata"), dict) else {}
+        controls = metadata.get("advanced_fix_pass_controls") if isinstance(metadata.get("advanced_fix_pass_controls"), dict) else None
+        if controls:
+            return deepcopy(controls)
+    return {}
+
 def _block_params(block: dict[str, Any]) -> dict[str, Any]:
     return block.get("params") if isinstance(block.get("params"), dict) else {}
 
@@ -319,15 +349,205 @@ def _region_role_v054(region: dict[str, Any]) -> str:
     return aliases.get(role, role)
 
 
+_V054_MAIN_PARENT_ROLES = {"character", "background"}
+_V054_REQUIRED_CHILD_ROLES = {"face_detail", "hair_detail", "hand_detail", "character_detail", "clothing", "held_prop"}
+_V054_CHARACTER_PARENT_ONLY_ROLES = set(_V054_REQUIRED_CHILD_ROLES)
+_V054_BACKGROUND_PARENT_ONLY_ROLES = {"background_object", "transition_effect"}
+
+
+def _v054_backend_allowed_parent_roles(role: str) -> set[str]:
+    if role in _V054_CHARACTER_PARENT_ONLY_ROLES:
+        return {"character"}
+    if role in _V054_BACKGROUND_PARENT_ONLY_ROLES:
+        return {"background"}
+    return set(_V054_MAIN_PARENT_ROLES) if role not in _V054_MAIN_PARENT_ROLES else set()
+
+
+def _sanitize_child_owned_attachments_v054(scene_graph: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Keep broken child rows from disabling the complete Scene Director graph."""
+    graph = deepcopy(scene_graph or {})
+    rows = [row for row in graph.get("regions", []) if isinstance(row, dict)]
+    by_id = {str(row.get("id") or "").strip(): row for row in rows if str(row.get("id") or "").strip()}
+    resolved: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    cleared: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for source in rows:
+        region = deepcopy(source)
+        rid = str(region.get("id") or "").strip()
+        label = str(region.get("label") or rid or "detail")
+        role = _region_role_v054(region)
+        parent_id = str(region.get("attach_to") or "").strip()
+        if role in _V054_MAIN_PARENT_ROLES:
+            if parent_id:
+                cleared.append({"region_id": rid, "role": role, "previous_parent_id": parent_id, "reason": "main_parent_role"})
+            region.pop("attach_to", None)
+            region.pop("relationship", None)
+            resolved.append(region)
+            continue
+
+        parent = by_id.get(parent_id) if parent_id else None
+        allowed = _v054_backend_allowed_parent_roles(role)
+        parent_role = _region_role_v054(parent) if parent else ""
+        invalid_reason = ""
+        if not parent_id and role in _V054_REQUIRED_CHILD_ROLES:
+            invalid_reason = "missing parent"
+        elif parent_id == rid:
+            invalid_reason = "cannot attach to itself"
+        elif parent_id and parent is None:
+            invalid_reason = "parent not found"
+        elif parent and allowed and parent_role not in allowed:
+            invalid_reason = "parent must be " + " or ".join(sorted(allowed))
+
+        if invalid_reason and role in _V054_REQUIRED_CHILD_ROLES:
+            skipped.append({"region_id": rid, "label": label, "role": role, "reason": invalid_reason})
+            warnings.append(f"Attached detail '{label}' was skipped: {invalid_reason}; select the parent inside the child region")
+            continue
+        if invalid_reason and parent_id:
+            cleared.append({"region_id": rid, "label": label, "role": role, "previous_parent_id": parent_id, "reason": invalid_reason})
+            region.pop("attach_to", None)
+            region.pop("relationship", None)
+            warnings.append(f"Optional attachment for '{label}' was cleared: {invalid_reason}; the region remains standalone")
+        resolved.append(region)
+
+    graph["regions"] = resolved
+    metadata = graph.get("metadata") if isinstance(graph.get("metadata"), dict) else {}
+    graph["metadata"] = metadata
+    report = {
+        "schema": "neo.image.scene_director.attached_detail_resolution.v054.v1",
+        "phase": "SD-V054-27.14",
+        "policy": "attachment_is_authored_on_the_child_region_only",
+        "content_policy_guards_added": False,
+        "active_child_count": len([r for r in resolved if _region_role_v054(r) not in _V054_MAIN_PARENT_ROLES and str(r.get("attach_to") or "").strip()]),
+        "skipped": skipped,
+        "cleared": cleared,
+    }
+    metadata["attached_detail_roles"] = report
+    return graph, report, warnings
+
+
+def _prompt_authority_contract_for_block(
+    block: dict[str, Any],
+    legacy: dict[str, Any],
+    scene_graph: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve the single prompt ownership contract for any payload generation."""
+
+    inputs = _block_inputs(block)
+    params = _block_params(block)
+    global_data = inputs.get("global") if isinstance(inputs.get("global"), dict) else {}
+    graph_global = scene_graph.get("global") if isinstance(scene_graph, dict) and isinstance(scene_graph.get("global"), dict) else {}
+    graph_metadata = scene_graph.get("metadata") if isinstance(scene_graph, dict) and isinstance(scene_graph.get("metadata"), dict) else {}
+    saved_contract = graph_metadata.get("prompt_authority_contract") if isinstance(graph_metadata.get("prompt_authority_contract"), dict) else {}
+    authority = normalize_prompt_authority(
+        params.get("prompt_authority")
+        or params.get("scene_director_prompt_authority")
+        or global_data.get("prompt_authority")
+        or graph_global.get("prompt_authority")
+        or saved_contract.get("mode")
+        or legacy.get("scene_director_prompt_authority")
+    )
+    contract_source = dict(params)
+    contract_source["prompt_authority"] = authority
+    if isinstance(saved_contract, dict):
+        contract_source.setdefault("region_context", saved_contract)
+    return build_prompt_authority_contract(
+        contract_source,
+        global_positive=(
+            global_data.get("positive_prompt")
+            or global_data.get("prompt")
+            or graph_global.get("prompt")
+            or legacy.get("scene_director_v052_global_prompt_override")
+        ),
+        global_negative=(
+            global_data.get("negative_prompt")
+            or global_data.get("negative")
+            or graph_global.get("negative")
+            or legacy.get("scene_director_effective_negative_prompt")
+        ),
+        style_positive=global_data.get("style_prompt") or graph_global.get("style_prompt") or "",
+        region_context_weight=(params.get("region_context") or {}).get("weight") if isinstance(params.get("region_context"), dict) else None,
+    )
+
+
+def _restore_replay_character_fields_v054(scene_graph: dict[str, Any] | None, workflow: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Keep explicit character fields when a replay payload predates them.
+
+    Some saved workflows contain the richer fields in the existing V054 node
+    while the normalized extension payload only carries the older region
+    shape. Merge only missing/empty character fields from that existing node;
+    current UI values remain authoritative when they are present.
+    """
+    if not isinstance(scene_graph, dict) or not isinstance(workflow, dict):
+        return scene_graph
+    replay_by_id: dict[str, dict[str, Any]] = {}
+    for node in workflow.values():
+        if not isinstance(node, dict) or node.get("class_type") != V054_NODE_CLASS:
+            continue
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        raw = inputs.get("scene_graph_json")
+        try:
+            saved = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            saved = None
+        if not isinstance(saved, dict):
+            continue
+        for region in saved.get("regions") or []:
+            if isinstance(region, dict) and str(region.get("id") or "").strip():
+                replay_by_id[str(region["id"]).strip()] = region
+
+    restored: list[str] = []
+    for region in scene_graph.get("regions") or []:
+        if not isinstance(region, dict) or str(region.get("role") or "").strip().lower() != "character":
+            continue
+        saved = replay_by_id.get(str(region.get("id") or "").strip())
+        if not saved:
+            continue
+        for field in ("character_traits", "trait_lock"):
+            current = region.get(field)
+            previous = saved.get(field)
+            if isinstance(previous, dict) and previous and not (isinstance(current, dict) and current):
+                region[field] = deepcopy(previous)
+                restored.append(f"{region.get('id')}:{field}")
+        current_correction = region.get("character_lock_correction") if isinstance(region.get("character_lock_correction"), dict) else {}
+        previous_correction = saved.get("character_lock_correction") if isinstance(saved.get("character_lock_correction"), dict) else {}
+        if previous_correction:
+            merged_correction = {**previous_correction, **current_correction}
+            for key, value in previous_correction.items():
+                if key not in current_correction or current_correction.get(key) in (None, "", {}, []):
+                    merged_correction[key] = deepcopy(value)
+            if merged_correction != current_correction:
+                region["character_lock_correction"] = merged_correction
+                restored.append(f"{region.get('id')}:character_lock_correction")
+    if restored:
+        metadata = scene_graph.setdefault("metadata", {}) if isinstance(scene_graph.setdefault("metadata", {}), dict) else {}
+        metadata["replay_character_field_restore"] = {
+            "schema": "neo.image.scene_director.replay_character_field_restore.v054.v1",
+            "phase": "SD-V054-27.2",
+            "status": "restored",
+            "fields": sorted(set(restored)),
+            "policy": "Merge only missing explicit character fields from the existing V054 workflow node during replay; current payload fields remain authoritative.",
+        }
+    return scene_graph
+
+
 def _scene_graph_from_block_v054(block: dict[str, Any], *, width: int, height: int, legacy: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str], list[str]]:
     inputs = _block_inputs(block)
     params = _block_params(block)
     candidate = inputs.get("scene_graph") or inputs.get("scene_graph_json") or block.get("scene_graph")
     if isinstance(candidate, dict):
+        candidate, _attachment_report, attachment_warnings = _sanitize_child_owned_attachments_v054(candidate)
         result = normalize_scene_graph_v054(candidate)
         errors = [str(item.get("message") or item.get("code") or item) for item in result.get("errors") or []]
-        warnings = [str(item.get("message") or item.get("code") or item) for item in result.get("warnings") or []]
-        return (result.get("scene_graph") if result.get("ok") else None), errors, warnings
+        warnings = [*attachment_warnings, *[str(item.get("message") or item.get("code") or item) for item in result.get("warnings") or []]]
+        graph = result.get("scene_graph") if result.get("ok") else None
+        if isinstance(graph, dict):
+            graph = apply_prompt_authority_to_scene_graph(
+                graph,
+                _prompt_authority_contract_for_block(block, legacy, graph),
+            )
+        return graph, errors, warnings
 
     global_data = inputs.get("global") if isinstance(inputs.get("global"), dict) else {}
     raw_regions = inputs.get("regions") if isinstance(inputs.get("regions"), list) else []
@@ -394,6 +614,11 @@ def _scene_graph_from_block_v054(block: dict[str, Any], *, width: int, height: i
         "global": {
             "prompt": str(global_data.get("positive_prompt") or global_data.get("prompt") or legacy.get("scene_director_v052_global_prompt_override") or ""),
             "negative": str(global_data.get("negative_prompt") or global_data.get("negative") or legacy.get("scene_director_effective_negative_prompt") or ""),
+            "prompt_authority": normalize_prompt_authority(
+                params.get("prompt_authority")
+                or global_data.get("prompt_authority")
+                or legacy.get("scene_director_prompt_authority")
+            ),
             "style_strength": _float(params.get("style_strength"), 0.8),
         },
         "regions": scene_regions,
@@ -406,10 +631,17 @@ def _scene_graph_from_block_v054(block: dict[str, Any], *, width: int, height: i
             "legacy_scene_json_available": bool(str(legacy.get("scene_director_v052_scene_json") or "").strip()),
         },
     }
+    scene_graph, _attachment_report, attachment_warnings = _sanitize_child_owned_attachments_v054(scene_graph)
     result = normalize_scene_graph_v054(scene_graph)
     errors = [str(item.get("message") or item.get("code") or item) for item in result.get("errors") or []]
-    warnings = [str(item.get("message") or item.get("code") or item) for item in result.get("warnings") or []]
-    return (result.get("scene_graph") if result.get("ok") else None), errors, warnings
+    warnings = [*attachment_warnings, *[str(item.get("message") or item.get("code") or item) for item in result.get("warnings") or []]]
+    graph = result.get("scene_graph") if result.get("ok") else None
+    if isinstance(graph, dict):
+        graph = apply_prompt_authority_to_scene_graph(
+            graph,
+            _prompt_authority_contract_for_block(block, legacy, graph),
+        )
+    return graph, errors, warnings
 
 
 def _node_inputs_for_scene_director(
@@ -425,6 +657,7 @@ def _node_inputs_for_scene_director(
     extension_routes_json: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     params = _block_params(block)
+    prompt_authority_contract = _prompt_authority_contract_for_block(block, legacy, scene_graph)
     inputs: dict[str, Any] = {
         "model": deepcopy(model_ref),
         "clip": deepcopy(clip_ref),
@@ -437,12 +670,19 @@ def _node_inputs_for_scene_director(
         "normalize_masks": bool(legacy.get("scene_director_v052_normalize_masks", True)),
         "enable_auto_prompts": bool(legacy.get("scene_director_v052_enable_auto_prompts", False)),
     }
+    if prompt_authority_contract.get("mode") == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY:
+        # Do not let a stale V1 effective-global field reconnect the Neo core
+        # prompt through the node's override widget.
+        inputs["global_prompt_override"] = ""
     if node_class == V054_NODE_CLASS:
         # ComfyUI widget inputs are string-oriented. Passing a Python dict here can
         # arrive inside the custom node as a Python-literal string with single quotes,
         # which json.loads() cannot parse. The active V054 contract therefore sends
         # a canonical JSON string while preserving dict metadata elsewhere.
-        scene_graph_for_node = deepcopy(scene_graph or {})
+        scene_graph_for_node = apply_prompt_authority_to_scene_graph(
+            deepcopy(scene_graph or {}),
+            prompt_authority_contract,
+        )
         background_prime_authority = _scene_background_prime_contract(scene_graph_for_node)
         prime_prompt = _clean_text(background_prime_authority.get("prompt") or "")
         if prime_prompt:
@@ -476,6 +716,12 @@ def _node_inputs_for_scene_director(
             appearance_lock_mode = "full_character_soft"
         else:
             appearance_lock_mode = "off"
+        character_lock_execution = _character_lock_execution_settings(params)
+        if not character_lock_execution.get("in_sampler_attention_enabled"):
+            # End refinement is a deliberately separate late-pass choice. Do
+            # not leave the full-character attention branch active when the
+            # user explicitly asks for refinement-only behavior.
+            appearance_lock_mode = "off"
         if appearance_lock_mode in {"upper_identity_strong", "full_character_strong"}:
             appearance_lock_gain = max(identity_strength, 0.90)
             appearance_lock_height = max(float(legacy.get("scene_director_appearance_lock_height") or 0.46), 0.46)
@@ -501,6 +747,7 @@ def _node_inputs_for_scene_director(
         if isinstance(scene_graph_for_node, dict):
             scene_graph_for_node.setdefault("metadata", {})["effective_authority_values"] = deepcopy(effective_authority_values)
             scene_graph_for_node.setdefault("metadata", {})["background_prime_authority"] = deepcopy(background_prime_authority)
+            scene_graph_for_node.setdefault("metadata", {})["character_lock_execution"] = deepcopy(character_lock_execution)
         scene_graph_payload = json.dumps(scene_graph_for_node or {}, ensure_ascii=False, separators=(",", ":"))
         inputs.update({
             "scene_graph_json": scene_graph_payload,
@@ -1663,16 +1910,24 @@ def _extract_build_terms(prompt: str) -> list[str]:
     return []
 
 
-def _body_guard_terms_for_gender(gender_family: str) -> tuple[str, str]:
+def _body_guard_terms_for_gender(gender_family: str, *, clothed: bool = False) -> tuple[str, str]:
     family = str(gender_family or "unspecified").strip().lower()
     if family == "male":
         return (
-            "flat male chest, masculine torso, adult male body silhouette, male shoulder line",
+            (
+                "masculine body silhouette and shoulder line preserved beneath the selected clothing"
+                if clothed
+                else "flat male chest, masculine torso, adult male body silhouette, male shoulder line"
+            ),
             "feminine body on male subject, breasts, cleavage, curvy hips, hourglass figure",
         )
     if family == "female":
         return (
-            "requested female body silhouette and proportions, preserve the region-described presentation",
+            (
+                "requested feminine body silhouette and proportions preserved beneath the selected clothing"
+                if clothed
+                else "requested female body silhouette and proportions, preserve the region-described presentation"
+            ),
             "masculine body on female subject, broad male torso, male chest",
         )
     if family == "flexible":
@@ -1732,6 +1987,8 @@ def _character_lock_phrase(label: str, prompt: str, lock: dict[str, Any], attach
     gender_family = str(gender_terms.get("family") or "unspecified")
     build_terms = _extract_build_terms(prompt)
     extracted_terms["build"] = build_terms
+    outfit_terms = _extract_outfit_terms(prompt)
+    extracted_terms["outfit"] = outfit_terms
     auto_inferred_guards: dict[str, str] = {}
     if _should_infer_body_guard(character_mode, gender_mode, build_mode, gender_family, build_terms):
         build_mode = "strict" if "strict" in {character_mode, gender_mode} else "strong"
@@ -1777,7 +2034,7 @@ def _character_lock_phrase(label: str, prompt: str, lock: dict[str, Any], attach
 
     if build_mode != "off":
         applied_guards["build"] = build_mode
-        body_positive, body_negative = _body_guard_terms_for_gender(gender_family)
+        body_positive, body_negative = _body_guard_terms_for_gender(gender_family, clothed=bool(outfit_terms))
         build_source = ", ".join(build_terms) if build_terms else "only the body, build, height, or proportion terms explicitly described for this region"
         inferred_note = " inferred" if "build" in auto_inferred_guards else ""
         positive_parts.append(f"{label} build/body guard{inferred_note} {build_mode}: preserve {build_source}; preserve {body_positive}")
@@ -1786,8 +2043,6 @@ def _character_lock_phrase(label: str, prompt: str, lock: dict[str, Any], attach
 
     if outfit_mode != "off":
         applied_guards["outfit"] = outfit_mode
-        outfit_terms = _extract_outfit_terms(prompt)
-        extracted_terms["outfit"] = outfit_terms
         positive_parts.append(f"{label} outfit preservation {outfit_mode}: preserve {', '.join(outfit_terms) if outfit_terms else 'only the clothing or costume terms explicitly described for this region'}")
         if negative_mode != "off":
             negative_parts.append("wrong outfit, changed clothing, missing costume details")
@@ -1960,12 +2215,13 @@ def _repair_scene_director_detail_lanes_v054(scene_graph: dict[str, Any]) -> dic
 
 
 def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], params: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any], str, str]:
-    """Compile Character Lock V2 metadata into real prompt text.
+    """Normalize Character Lock metadata without hiding live V054 conditioning.
 
-    This is deliberately provider-safe: it does not create new model nodes and
-    does not pretend FaceID/IPAdapter is active. It strengthens the actual text
-    conditioning and repairs detail-lane semantics so the current V054 route has
-    useful behavior before dedicated regional attention execution is re-enabled.
+    This bridge is deliberately provider-safe: it does not create new model
+    nodes or pretend FaceID/IPAdapter is active. It sanitizes legacy recursive
+    guard text and preserves explicit trait/correction fields. The active V054
+    node consumes those fields when it builds subject-local CLIP branches; they
+    must not be treated as metadata-only.
     """
     graph = _repair_scene_director_detail_lanes_v054(scene_graph)
     params = params or {}
@@ -1987,6 +2243,7 @@ def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], par
             "global_negative_bridge": "",
             "character_lock_execution": deepcopy(execution),
             "detail_lane_role_repair": metadata.get("detail_lane_role_repair"),
+            "live_conditioning_route": "v054_node_attn2_subject_branches" if execution.get("in_sampler_attention_enabled") else "not_requested",
         }
         metadata["character_lock_execution_bridge"] = bridge_meta
         return graph, bridge_meta, "", ""
@@ -2042,13 +2299,15 @@ def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], par
             label,
             sanitized_prompt,
             lock,
-            attached_by_parent.get(str(region.get("id") or ""), {"hair": [], "detail": []}),
+            {"hair": [], "detail": []},
             identity_strength,
         )
         report["prompt_hygiene"] = prompt_hygiene
         report["negative_prompt_hygiene"] = negative_hygiene
         report["prompt_conflicts"] = conflict_meta
         report["nested_prompt_hygiene"] = nested_hygiene
+        report["attached_detail_conditioning_owner"] = "child_region_only"
+        report["attached_detail_prompt_copied_to_parent"] = False
         if report.get("status") == "applied":
             region["lock"] = lock
             for attached_hair in attached_by_parent.get(str(region.get("id") or ""), {}).get("hair", []):
@@ -2070,11 +2329,20 @@ def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], par
     global_block["prompt"] = sanitized_global_prompt
     if raw_global_negative:
         global_block["negative"] = sanitized_global_negative
-    # Guard phrases remain visible in metadata for debugging, but they are no
-    # longer appended into the main/global CLIP prompt. This prevents prompt soup
-    # and repeated Character Lock recursion across runs.
+    # Guard phrases remain visible in metadata. Explicit per-character negative
+    # corrections are also routed to the sampler's negative CLIP input so the
+    # active V054 attention path can suppress a gender/body swap during denoise.
     global_positive_add = ""
-    global_negative_add = ""
+    live_negative_terms: list[str] = []
+    for region in regions:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        correction = _character_lock_correction_block(region)
+        negative_text = _clean_text(correction.get("negative_text") or "")
+        if negative_text:
+            label = _region_label(region, 0)
+            live_negative_terms.append(f"{label} live Character Lock negative correction: {negative_text}")
+    global_negative_add = ", ".join(live_negative_terms)
     compiled_positive_preview = ", ".join([p for p in all_positive if p])
     compiled_negative_preview = ", ".join([n for n in all_negative if n])
 
@@ -2111,6 +2379,18 @@ def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], par
         },
         "global_positive_bridge": global_positive_add,
         "global_negative_bridge": global_negative_add,
+        "live_conditioning_route": "v054_node_attn2_subject_branches" if execution.get("in_sampler_attention_enabled") else "not_requested",
+        "live_negative_bridge": global_negative_add,
+        "explicit_character_trait_field_count": sum(
+            1 for region in regions
+            if isinstance(region, dict)
+            and (
+                _flatten_character_trait_values(region.get("character_traits"))
+                or _flatten_character_trait_values(region.get("trait_lock"))
+                or _character_lock_correction_block(region).get("positive_text")
+                or _character_lock_correction_block(region).get("negative_text")
+            )
+        ),
         "compiled_positive_preview": compiled_positive_preview,
         "compiled_negative_preview": compiled_negative_preview,
         "prompt_hygiene": {
@@ -2125,7 +2405,9 @@ def _apply_character_lock_execution_bridge_v054(scene_graph: dict[str, Any], par
             "sanitized_region_prompt_used": any(bool((c.get("prompt_hygiene") or {}).get("sanitized_region_prompt_used")) for c in character_reports) or bool(global_prompt_hygiene.get("sanitized_region_prompt_used")),
             "bridge_prompt_appended_to_global": False,
             "bridge_prompt_appended_to_regions": False,
-            "policy": "Compiled Character Lock reports remain metadata; prompt conditioning uses sanitized user-authored region/global text only.",
+            "negative_bridge_appended_to_sampler": bool(global_negative_add),
+            "live_conditioning_route": "v054_node_attn2_subject_branches" if execution.get("in_sampler_attention_enabled") else "not_requested",
+            "policy": "Guard reports remain metadata, while explicit Character Trait Lock and Character Lock correction fields are consumed by NeoSceneDirectorV054 before CLIP branch encoding.",
         },
         "character_lock_execution": deepcopy(execution),
         "detail_lane_role_repair": metadata.get("detail_lane_role_repair"),
@@ -2220,35 +2502,42 @@ def _bool_user_override(src: dict[str, Any], *keys: str) -> bool:
 
 
 def _scene_relationship_pose_authority(scene_graph: dict[str, Any] | None) -> dict[str, Any]:
-    """V25.9.9 scene-level pair pose/contact authority metadata.
+    """Retire the old scene-level Pair Pose route without replaying its text.
 
-    This reads only user-submitted scene metadata. It does not invent pose text and
-    does not replace pose ControlNet/OpenPose; it gives the existing character
-    latent controller a shared relationship-pose phrase when requested.
+    Phase 27.13 makes Character > Pose the only text-pose authority.  Older
+    payloads may still contain Pair Pose metadata, so retain a content-free
+    tombstone for provenance while explicitly preventing that text from reaching
+    character contracts or executable conditioning.
     """
     graph_data = scene_graph if isinstance(scene_graph, dict) else {}
     metadata = graph_data.get("metadata") if isinstance(graph_data.get("metadata"), dict) else {}
     raw = metadata.get("relationship_pose_authority") if isinstance(metadata.get("relationship_pose_authority"), dict) else metadata.get("pair_pose_authority")
     raw = raw if isinstance(raw, dict) else {}
-    prompt = _clean_text(raw.get("prompt") or raw.get("pair_pose_prompt") or raw.get("relationship_pose_prompt"))
-    negative = _clean_text(raw.get("negative") or raw.get("negative_guard") or raw.get("pair_pose_negative_guard") or raw.get("relationship_pose_negative_guard"))
-    enabled = bool(raw.get("enabled")) and bool(prompt)
+    legacy_prompt_present = bool(_clean_text(raw.get("prompt") or raw.get("pair_pose_prompt") or raw.get("relationship_pose_prompt")))
+    legacy_negative_present = bool(_clean_text(raw.get("negative") or raw.get("negative_guard") or raw.get("pair_pose_negative_guard") or raw.get("relationship_pose_negative_guard")))
+    raw_is_retirement_marker = bool(
+        str(raw.get("schema") or "").startswith("neo.image.scene_director.pair_pose_retirement")
+        or str(raw.get("status") or "") == "retired_character_region_pose_only"
+    )
+    legacy_input_present = bool(raw.get("legacy_input_present")) if raw_is_retirement_marker else bool(raw)
     character_count = len([r for r in (graph_data.get("regions") if isinstance(graph_data.get("regions"), list) else []) if isinstance(r, dict) and _role_is_character(r)])
-    status = "active" if enabled and character_count >= 2 else ("waiting_for_two_characters" if enabled else ("disabled" if prompt else "empty"))
     return {
-        "schema": "neo.image.scene_director.relationship_pose_authority.v25_9_9",
-        "phase": "V25.9.9",
-        "enabled": enabled,
-        "status": status,
-        "source": "explicit_scene_pair_pose_field" if prompt else "empty",
-        "prompt": prompt,
-        "negative": negative,
-        "prompt_terms": _split_trait_terms(prompt),
-        "negative_terms": _split_trait_terms(negative),
-        "strength": _float(raw.get("strength"), 0.75),
-        "apply_to_character_traits": raw.get("apply_to_character_traits") is not False,
+        "schema": "neo.image.scene_director.pair_pose_retirement.v25_9_15",
+        "phase": "SD-V054-27.13",
+        "enabled": False,
+        "status": "retired_character_region_pose_only",
+        "source": "retired_legacy_pair_pose_metadata" if (legacy_input_present or legacy_prompt_present or legacy_negative_present) else "empty",
+        "prompt": "",
+        "negative": "",
+        "prompt_terms": [],
+        "negative_terms": [],
+        "strength": 0.0,
+        "apply_to_character_traits": False,
         "character_count": character_count,
-        "policy": "Scene-level pair pose/contact terms are merged into character pose trait context only when explicitly submitted; exact skeleton authority still requires ControlNet/OpenPose.",
+        "legacy_input_present": legacy_input_present,
+        "legacy_prompt_present": legacy_prompt_present,
+        "legacy_negative_present": legacy_negative_present,
+        "policy": "Advanced Pair Pose is retired. Character > Pose is the sole text-pose authority; exact skeleton authority still requires ControlNet/OpenPose.",
     }
 
 
@@ -3577,61 +3866,171 @@ def _latent_character_lock_local_conditioning_text(
     }
 
 
-def _character_lock_execution_settings(legacy: dict[str, Any] | None) -> dict[str, Any]:
-    """Phase 26.10.8K4: visible Character Lock execution policy.
+def _normalize_character_lock_execution_mode(value: Any, default: str = "latent_attention") -> str:
+    """Normalize the user-facing Character Lock pass plan.
 
-    Anime-safe regional authority may stay prompt-only, but Character Lock can
-    still request its own mask/latent correction lane. The value must come from
-    visible UI payload fields; the backend only normalizes it and reports the
-    effective behavior.
+    The old labels were ambiguous: ``latent_correction`` and
+    ``masked_correction`` both meant extra KSampler work, even though the
+    legacy V1 ``hair_focus_strong`` behavior came from the main sampler's
+    attention patch. Keep old payloads readable, but give them the intended
+    separation in the V054 runtime:
+
+    * ``latent_attention``: the fast in-sampler attn2 lock only;
+    * ``latent_repair``: in-sampler lock plus the optional structured masked
+      trait repair lanes;
+    * ``end_refinement``: optional late repair lanes without the in-sampler
+      Character Lock branch;
+    * ``latent_and_refinement``: explicitly request both families.
     """
-    legacy = legacy if isinstance(legacy, dict) else {}
-    first_pass = legacy.get("scene_director_first_pass_character_lock_authority") if isinstance(legacy.get("scene_director_first_pass_character_lock_authority"), dict) else {}
-    raw_policy = legacy.get("scene_director_character_lock_execution") if isinstance(legacy.get("scene_director_character_lock_execution"), dict) else {}
-    raw = (
-        raw_policy.get("mode")
-        or raw_policy.get("execution_mode")
-        or first_pass.get("execution_mode")
-        or first_pass.get("execution")
-        or legacy.get("scene_director_character_lock_execution_mode")
-        or legacy.get("scene_director_character_lock_execution")
-        or legacy.get("character_lock_execution_mode")
-        or "masked_correction"
-    )
-    mode = str(raw or "masked_correction").strip().lower().replace("-", "_").replace(" ", "_")
+    raw = str(value if value is not None else default).strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
         "prompt": "prompt_guard_only",
         "prompt_only": "prompt_guard_only",
         "prompt_guard": "prompt_guard_only",
         "guard_only": "prompt_guard_only",
         "text_only": "prompt_guard_only",
-        "masked": "masked_correction",
-        "mask": "masked_correction",
-        "masked_pass": "masked_correction",
-        "masked_correction_pass": "masked_correction",
-        "latent": "latent_correction",
-        "latent_pass": "latent_correction",
-        "latent_correction_pass": "latent_correction",
+        "attention": "latent_attention",
+        "attention_only": "latent_attention",
+        "in_sampler": "latent_attention",
+        "in_sampler_attention": "latent_attention",
+        "legacy_attention": "latent_attention",
+        "legacy_in_sampler_attention": "latent_attention",
+        "hairlock_strong": "latent_attention",
+        # V1/V2 payload compatibility: these old names did not describe the
+        # actual execution layer. V054 now maps them to the intended legacy
+        # in-sampler behavior instead of silently adding late samplers.
+        "latent": "latent_attention",
+        "latent_pass": "latent_attention",
+        "latent_correction": "latent_attention",
+        "latent_correction_pass": "latent_attention",
+        "character_latent": "latent_repair",
+        "latent_trait_repair": "latent_repair",
+        "latent_repair_pass": "latent_repair",
+        "masked": "end_refinement",
+        "mask": "end_refinement",
+        "masked_pass": "end_refinement",
+        "masked_correction": "end_refinement",
+        "masked_correction_pass": "end_refinement",
+        "refinement": "end_refinement",
+        "end": "end_refinement",
+        "end_pass": "end_refinement",
+        "final": "end_refinement",
+        "both": "latent_and_refinement",
+        "latent_plus_refinement": "latent_and_refinement",
+        "latent_and_end_refinement": "latent_and_refinement",
         "none": "off",
         "false": "off",
         "disabled": "off",
         "0": "off",
     }
-    mode = aliases.get(mode, mode)
-    if mode not in {"prompt_guard_only", "masked_correction", "latent_correction", "off"}:
-        mode = "masked_correction"
-    source = "ui_visible_fields" if (raw_policy or "execution_mode" in first_pass or "execution" in first_pass or "scene_director_character_lock_execution_mode" in legacy or "character_lock_execution_mode" in legacy) else "visible_ui_default"
+    mode = aliases.get(raw, raw)
+    return mode if mode in {
+        "prompt_guard_only",
+        "latent_attention",
+        "latent_repair",
+        "end_refinement",
+        "latent_and_refinement",
+        "off",
+    } else default
+
+
+def _character_trait_lanes_force_on(legacy: dict[str, Any] | None) -> bool:
+    """Return whether the visible Character Trait Lanes gate is force-enabled.
+
+    This control is a *gate* for a separately selected repair plan.  It must not
+    change ``latent_attention`` into a split sampler by itself.  Earlier V054
+    builds did that promotion for compatibility, but it made a stale ``force_on``
+    value silently replace the legacy one-sampler Hairlock route.
+    """
+    legacy = legacy if isinstance(legacy, dict) else {}
+    controls = legacy.get("scene_director_advanced_fix_pass_controls")
+    if not isinstance(controls, dict):
+        controls = legacy.get("advanced_fix_pass_controls")
+    controls = controls if isinstance(controls, dict) else {}
+    raw = controls.get("character_trait_lanes")
+    if raw is None:
+        raw = legacy.get("scene_director_fix_pass_character_trait_lanes")
+    if raw is None and str(controls.get("mode") or "").strip().lower().replace("-", "_") == "force_all":
+        raw = "force_on"
+    return str(raw or "auto").strip().lower().replace("-", "_").replace(" ", "_") in {
+        "on",
+        "force",
+        "force_on",
+        "always",
+        "enabled",
+        "true",
+        "1",
+    }
+
+
+def _character_lock_execution_settings(legacy: dict[str, Any] | None) -> dict[str, Any]:
+    """Phase 27.1: resolve Character Lock layers independently.
+
+    Character Lock strength owns the main V054 attn2 branch. Extra masked
+    samplers are opt-in pass families and must never be inferred from the
+    strength value alone.
+    """
+    legacy = legacy if isinstance(legacy, dict) else {}
+    first_pass = legacy.get("scene_director_first_pass_character_lock_authority") if isinstance(legacy.get("scene_director_first_pass_character_lock_authority"), dict) else {}
+    raw_policy = legacy.get("scene_director_character_lock_execution") if isinstance(legacy.get("scene_director_character_lock_execution"), dict) else {}
+    explicit_plan = (
+        raw_policy.get("pass_plan")
+        or raw_policy.get("plan")
+        or legacy.get("scene_director_character_lock_pass_plan")
+        or legacy.get("character_lock_pass_plan")
+    )
+    raw = (
+        explicit_plan
+        or raw_policy.get("mode")
+        or raw_policy.get("execution_mode")
+        or first_pass.get("execution_mode")
+        or first_pass.get("execution")
+        or legacy.get("scene_director_character_lock_execution_mode")
+        or legacy.get("character_lock_execution_mode")
+        or "latent_attention"
+    )
+    requested_mode = _normalize_character_lock_execution_mode(raw)
+    mode = requested_mode
+    source = "ui_visible_fields" if (
+        explicit_plan
+        or raw_policy
+        or "execution_mode" in first_pass
+        or "execution" in first_pass
+        or "scene_director_character_lock_execution_mode" in legacy
+        or "character_lock_execution_mode" in legacy
+    ) else "visible_ui_default"
+    trait_lanes_force_on = _character_trait_lanes_force_on(legacy)
+    # Phase 27.7: never infer a second sampler from the lane gate.  The pass-plan
+    # selector is the sole execution owner.  Strong/Strict Character Lock and
+    # its explicit traits already run inside V054's main attn2 model patch.
+    promoted_from_fast_attention = False
+    in_sampler_attention = mode in {"latent_attention", "latent_repair", "latent_and_refinement"}
+    latent_repair = mode in {"latent_repair", "latent_and_refinement"}
+    end_refinement = mode in {"end_refinement", "latent_and_refinement"}
     return {
-        "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v1",
-        "phase": "SD-V054-26.10.8K4",
+        "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v2",
+        "phase": "SD-V054-27.1",
         "dedupe_phase": "V25.9.14",
         "mode": mode,
-        "prompt_guard_enabled": mode in {"prompt_guard_only", "masked_correction", "latent_correction"},
-        "masked_correction_enabled": mode in {"masked_correction", "latent_correction"},
-        "latent_correction_requested": mode == "latent_correction",
-        "uses_scene_masks": mode in {"masked_correction", "latent_correction"},
+        "pass_plan": mode,
+        "requested_mode": requested_mode,
+        "requested_pass_plan": requested_mode,
+        "effective_mode": mode,
+        "effective_pass_plan": mode,
+        "pass_plan_source": source,
+        "character_trait_lanes_force_on": trait_lanes_force_on,
+        "promoted_from_fast_attention": promoted_from_fast_attention,
+        "trait_lane_gate_role": "selected_plan_gate_only",
+        "single_sampler_legacy_route": bool(mode == "latent_attention"),
+        "prompt_guard_enabled": mode != "off",
+        "in_sampler_attention_enabled": in_sampler_attention,
+        "masked_correction_enabled": latent_repair or end_refinement,
+        "latent_correction_requested": latent_repair,
+        "latent_repair_enabled": latent_repair,
+        "end_refinement_enabled": end_refinement,
+        "uses_scene_masks": latent_repair or end_refinement,
         "source": source,
-        "policy": "V25.9.14 separates ownership: Character Lock defines protected traits; Fix Pass Controls own optional masked/latent repair execution. Prompt-guard-only/off modes do not run correction samplers.",
+        "policy": "Character Lock strength and explicit traits run through the uninterrupted V054 in-sampler attention branch. Character Trait Lanes only gates an explicitly selected repair plan and never promotes the fast plan. End refinement remains a separate opt-in family.",
     }
 
 
@@ -3699,7 +4098,7 @@ def _normalize_fix_pass_mode(value: Any, default: str = "auto") -> str:
 
 def _advanced_fix_pass_controls(legacy: dict[str, Any] | None) -> dict[str, Any]:
     legacy = legacy if isinstance(legacy, dict) else {}
-    raw = legacy.get("scene_director_advanced_fix_pass_controls") if isinstance(legacy.get("scene_director_advanced_fix_pass_controls"), dict) else {}
+    raw = legacy.get("scene_director_advanced_fix_pass_controls") if isinstance(legacy.get("scene_director_advanced_fix_pass_controls"), dict) else legacy.get("advanced_fix_pass_controls") if isinstance(legacy.get("advanced_fix_pass_controls"), dict) else {}
     mode = str(raw.get("mode") or legacy.get("scene_director_fix_pass_mode") or "smart_auto").strip().lower().replace("-", "_").replace(" ", "_")
     if mode not in {"smart_auto", "minimal_fast", "manual", "force_all"}:
         mode = "smart_auto"
@@ -3727,12 +4126,53 @@ def _advanced_fix_pass_controls(legacy: dict[str, Any] | None) -> dict[str, Any]
         "layout_safety_background_safe_area_min": _float(raw.get("layout_safety_background_safe_area_min"), 12.0),
         "layout_safety_full_height_threshold": _float(raw.get("layout_safety_full_height_threshold"), 0.92),
         "source": "ui_visible_advanced_scene_control",
-        "policy": "Fix passes are optional surgical tools. Auto preserves legacy behavior; Off skips costly/overcooking repair lanes; Force on still respects hard safety gates.",
+        "policy": "Fix passes are optional surgical tools. Auto preserves legacy behavior; Off skips costly/overcooking repair lanes; Character Trait Lanes = Force on promotes a fast default to midpoint repair; Force on still respects hard safety gates.",
     }
     layout = raw.get("layout_safety") if isinstance(raw.get("layout_safety"), dict) else {}
     if layout:
         controls["layout_safety"] = deepcopy(layout)
     return controls
+
+
+def _v054_live_character_conditioning_report(scene_graph: dict[str, Any] | None, execution: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Report whether explicit character fields reach the active V054 route.
+
+    This is a runtime contract, not a promise that the model will never drift.
+    It distinguishes the live V054 attn2 conditioning path from optional masked
+    repair samplers so diagnostics cannot call a deliberately unrequested lane
+    "disabled" when the selected in-sampler path is active.
+    """
+    graph = scene_graph if isinstance(scene_graph, dict) else {}
+    execution = execution if isinstance(execution, dict) else _character_lock_execution_settings({})
+    regions = graph.get("regions") if isinstance(graph.get("regions"), list) else []
+    character_regions = [region for region in regions if isinstance(region, dict) and _role_is_character(region)]
+    trait_regions = []
+    correction_regions = []
+    negative_regions = []
+    for region in character_regions:
+        traits = region.get("character_traits") if isinstance(region.get("character_traits"), dict) else {}
+        correction = _character_lock_correction_block(region)
+        if traits:
+            trait_regions.append(str(region.get("id") or region.get("label") or "character"))
+        if str(correction.get("positive_text") or "").strip() or str(correction.get("negative_text") or "").strip():
+            correction_regions.append(str(region.get("id") or region.get("label") or "character"))
+        if str(correction.get("negative_text") or "").strip():
+            negative_regions.append(str(region.get("id") or region.get("label") or "character"))
+    in_sampler = bool(execution.get("in_sampler_attention_enabled"))
+    return {
+        "schema": "neo.image.scene_director.character_trait_conditioning.workflow.v054.v1",
+        "phase": "SD-V054-27.2",
+        "status": "live_in_sampler" if in_sampler and (trait_regions or correction_regions) else ("no_explicit_fields" if not (trait_regions or correction_regions) else "preserved_for_node"),
+        "route": "scene_graph_json -> NeoSceneDirectorV054 -> subject_local_clip_branches -> attn2_main_sampler",
+        "execution_mode": execution.get("mode"),
+        "in_sampler_attention_enabled": in_sampler,
+        "character_trait_regions": trait_regions,
+        "character_correction_regions": correction_regions,
+        "character_negative_correction_regions": negative_regions,
+        "explicit_trait_fields_preserved": bool(trait_regions or correction_regions),
+        "masked_repair_is_separate": True,
+        "policy": "Explicit trait and correction fields are live conditioning for in-sampler V054 attention; masked trait lanes are only built for the selected latent-repair plan.",
+    }
 
 
 def _fix_pass_allowed(controls: dict[str, Any], key: str) -> bool:
@@ -3858,11 +4298,13 @@ def _character_lock_conditional_rescue_policy(
         })
 
     # Structural risk only. No prompt phrase matching and no hidden character text.
+    execution = settings.get("character_lock_execution") if isinstance(settings.get("character_lock_execution"), dict) else _character_lock_execution_settings(legacy)
+    end_refinement_requested = bool(execution.get("end_refinement_enabled"))
     high_risk = bool(
         primary_attention_lock_active
         and settings.get("enabled")
         and settings.get("masked_correction_enabled", True) is not False
-        and str(settings.get("execution_mode") or settings.get("execution") or "masked_correction") in {"masked_correction", "latent_correction"}
+        and end_refinement_requested
         and profile in {"strong", "strict"}
         and candidate_count > 0
         and (candidate_count >= 2 or gender_body_outfit_locked)
@@ -4729,6 +5171,7 @@ V25_9_8_CHARACTER_TRAIT_CATEGORY_GROUPS: dict[str, str] = {
     "skin_tone": "skin",
     "skin": "skin",
     "hair": "hair",
+    "facial_hair": "facial_hair",
     "clothing_top": "outfit",
     "clothing_bottom": "outfit",
     "full_costume": "outfit",
@@ -4738,6 +5181,12 @@ V25_9_8_CHARACTER_TRAIT_CATEGORY_GROUPS: dict[str, str] = {
     "expression": "expression",
     "accessories": "accessories",
     "shoes": "shoes",
+    "body_details": "body",
+    "top_garment_state": "outfit",
+    "bottom_garment_state": "outfit",
+    "underlayer": "outfit",
+    "held_items": "accessories",
+    "custom_details": "additional_details",
 }
 
 
@@ -4867,6 +5316,57 @@ def _flatten_character_trait_values(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def _region_local_pose_terms_from_prompt(prompt: Any) -> list[str]:
+    """Extract only posture/contact clauses from one character's own prompt."""
+    local_terms: list[str] = []
+    pose_markers = (
+        "body angled", "standing", "stands", "upright", "sitting", "seated",
+        "sits", "kneeling", "kneels", "lying", "reclining", "crouching",
+        "squatting", "pose", "posture", "toward", "close to", "holding",
+        "holds", "hugging", "embracing", "touching", "supporting", "hand",
+        "contact", "waist", "shoulder", "arm around", "leaning", "leans",
+    )
+    for fragment in _split_prompt_clauses(_clean_text(prompt)):
+        fragment_l = fragment.casefold()
+        if any(marker in fragment_l for marker in pose_markers):
+            local_terms.append(fragment)
+    return _dedupe_text_items(local_terms)
+
+
+def _scene_character_pose_authority(scene_graph: dict[str, Any] | None) -> dict[str, Any]:
+    """Report the character-local Pose fields that own text-pose conditioning."""
+    graph_data = scene_graph if isinstance(scene_graph, dict) else {}
+    rows: list[dict[str, Any]] = []
+    for region in graph_data.get("regions") if isinstance(graph_data.get("regions"), list) else []:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        explicit_groups, _ = _explicit_character_trait_groups(region)
+        explicit_terms = _dedupe_text_items(explicit_groups.get("pose") or [])
+        fallback_terms = [] if explicit_terms else _region_local_pose_terms_from_prompt(region.get("prompt"))
+        terms = explicit_terms or fallback_terms
+        rows.append({
+            "region_id": str(region.get("id") or ""),
+            "label": _clean_text(region.get("label") or region.get("id") or "Character"),
+            "enabled": bool(terms),
+            "source": "character_pose_trait" if explicit_terms else ("character_region_prompt_fallback" if fallback_terms else "empty"),
+            "terms": terms,
+        })
+    active_rows = [row for row in rows if row.get("enabled")]
+    return {
+        "schema": "neo.image.scene_director.character_pose_authority.v25_9_15",
+        "phase": "SD-V054-27.13",
+        "enabled": bool(active_rows),
+        "status": "active" if active_rows else "empty",
+        "source": "character_region_pose_only",
+        "character_count": len(rows),
+        "active_character_count": len(active_rows),
+        "characters": rows,
+        "advanced_pair_pose_execution": False,
+        "adds_attention_branch": False,
+        "policy": "Each Character region owns only its own Pose terms. Pose is carried in existing character conditioning; exact skeleton authority requires ControlNet/OpenPose.",
+    }
+
+
 def _character_trait_contract(region: dict[str, Any], scene_graph: dict[str, Any] | None = None) -> dict[str, Any]:
     """V25.9.7: compile user-authored character traits into one latent contract.
 
@@ -4886,22 +5386,15 @@ def _character_trait_contract(region: dict[str, Any], scene_graph: dict[str, Any
         "body": _extract_build_terms(region_prompt),
         "outfit": _extract_outfit_terms(region_prompt),
     }
-    # Keep pose/contact as a soft metadata channel only. The current extractor is
-    # intentionally conservative to avoid inventing pose templates.
-    pose_terms = []
-    for fragment in _split_prompt_clauses(region_prompt):
-        frag_l = fragment.casefold()
-        if any(key in frag_l for key in ("body angled", "standing", "pose", "toward", "close", "holding", "hand", "contact")):
-            pose_terms.append(fragment)
-    auto_extracted["pose"] = _dedupe_text_items(pose_terms)
+    # Pose fallback is local to this character's own region prompt. Scene-level
+    # Pair Pose metadata is deliberately excluded from this contract.
+    auto_extracted["pose"] = _region_local_pose_terms_from_prompt(region_prompt)
     explicit_groups, explicit_meta = _explicit_character_trait_groups(region)
     relationship_pose = _scene_relationship_pose_authority(scene_graph)
-    pair_pose_terms = []
-    if relationship_pose.get("enabled") and relationship_pose.get("apply_to_character_traits") is not False:
-        pair_pose_terms = _split_trait_terms(relationship_pose.get("prompt"))
+    pair_pose_terms: list[str] = []
     extracted: dict[str, Any] = {}
     trait_source_report: dict[str, Any] = {}
-    all_group_names = ["gender", "ethnicity", "species_race", "skin", "hair", "body", "outfit", "pose", "expression", "accessories", "shoes"]
+    all_group_names = ["gender", "ethnicity", "species_race", "skin", "hair", "facial_hair", "body", "outfit", "pose", "expression", "accessories", "shoes", "additional_details"]
     for group_name in all_group_names:
         explicit_terms = explicit_groups.get(group_name) or []
         auto_terms = auto_extracted.get(group_name) or []
@@ -4910,16 +5403,15 @@ def _character_trait_contract(region: dict[str, Any], scene_graph: dict[str, Any
             selected_terms = extracted[group_name].get("terms") or []
         else:
             if group_name == "pose":
-                base_pose_terms = explicit_terms if explicit_terms else auto_terms
-                extracted[group_name] = _dedupe_text_items(list(base_pose_terms) + list(pair_pose_terms))
+                extracted[group_name] = _dedupe_text_items(explicit_terms if explicit_terms else auto_terms)
             else:
                 extracted[group_name] = _dedupe_text_items(explicit_terms) if explicit_terms else _dedupe_text_items(auto_terms)
             selected_terms = extracted[group_name]
         trait_source_report[group_name] = {
-            "source": "explicit" if explicit_terms else ("auto" if auto_terms else ("pair_pose" if group_name == "pose" and pair_pose_terms else "empty")),
+            "source": "explicit" if explicit_terms else ("auto" if auto_terms else "empty"),
             "explicit_terms": explicit_terms,
             "auto_terms": _flatten_character_trait_values(auto_terms),
-            "pair_pose_terms": _flatten_character_trait_values(pair_pose_terms) if group_name == "pose" else [],
+            "pair_pose_terms": [],
             "selected_terms": _flatten_character_trait_values(selected_terms),
         }
     bodywear_risk_terms = [
@@ -4944,7 +5436,8 @@ def _character_trait_contract(region: dict[str, Any], scene_graph: dict[str, Any
         "trait_source_report": trait_source_report,
         "relationship_pose_authority": relationship_pose,
         "scene_pair_pose_terms": pair_pose_terms,
-        "scene_pair_pose_used": bool(pair_pose_terms),
+        "scene_pair_pose_used": False,
+        "pose_authority_source": "character_region_pose_only",
         "environment_character_context": deepcopy(environment_context),
         "environment_context_used": environment_context.get("status") == "applied",
         "active_trait_groups": active_groups,
@@ -4963,23 +5456,129 @@ def _character_trait_contract(region: dict[str, Any], scene_graph: dict[str, Any
     }
 
 
+def _character_trait_runtime_authority(
+    region: dict[str, Any],
+    contract: dict[str, Any],
+) -> tuple[str, str, dict[str, Any]]:
+    """Compile concise per-character authority for executable conditioning.
+
+    The full Character Lock compiler already reported strong gender/hair/body
+    guards, but the midpoint CLIP nodes previously received only the raw region
+    prose.  Keep exact submitted trait terms first, then add only guard terms
+    justified by the selected trait and visible lock mode.  Negatives stay
+    region-local so one character's pink-hair guard cannot forbid another
+    character's required black hair.
+    """
+    groups = contract.get("trait_groups") if isinstance(contract.get("trait_groups"), dict) else {}
+    lock = region.get("lock") if isinstance(region.get("lock"), dict) else {}
+    correction = _character_lock_correction_block(region)
+    profile = _character_trait_lock_profile(region)
+    order = ("gender", "ethnicity", "species_race", "hair", "facial_hair", "skin", "body", "outfit", "pose", "accessories", "additional_details", "expression", "shoes")
+    owners = {
+        "gender": "gender",
+        "ethnicity": "character",
+        "species_race": "character",
+        "hair": "hair",
+        "facial_hair": "character",
+        "skin": "skin_tone",
+        "body": "build",
+        "outfit": "outfit",
+        "pose": "character",
+        "additional_details": "character",
+    }
+    weights = {"strict": 1.55, "strong": 1.42, "balanced": 1.20, "soft": 1.10, "off": 1.0}
+    weighted_terms: list[str] = []
+    plain_terms: list[str] = []
+    seen: set[str] = set()
+    for group_name in order:
+        owner = owners.get(group_name)
+        fallback = profile if owner == "character" and profile in {"strong", "strict"} else "balanced"
+        mode = _guard_mode(lock.get(owner) if owner else None, fallback)
+        weight = weights.get(mode, 1.20)
+        for term in _flatten_character_trait_values(groups.get(group_name)):
+            key = _clean_text(term).casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            plain_terms.append(_clean_text(term))
+            weighted_terms.append(f"({_clean_text(term)}:{weight:.2f})")
+            if len(weighted_terms) >= 24:
+                break
+        if len(weighted_terms) >= 24:
+            break
+
+    negative_terms: list[str] = []
+
+    def add_negative(value: Any) -> None:
+        for item in re.split(r"[\n,;]+", _clean_text(value)):
+            text = _clean_text(item).strip(" ,.;:")
+            if text and text.casefold() not in {part.casefold() for part in negative_terms}:
+                negative_terms.append(text)
+
+    add_negative(correction.get("negative_text") or "")
+    gender = groups.get("gender") if isinstance(groups.get("gender"), dict) else {}
+    family = str(gender.get("family") or correction.get("gender_family") or "auto").strip().lower()
+    gender_mode = _guard_mode(lock.get("gender") or lock.get("character"), "off")
+    if gender_mode in {"balanced", "strong", "strict"}:
+        if family == "male":
+            add_negative("female, woman, girl, feminine face, feminine body, breasts, cleavage, curvy hips, hourglass figure, gender swap, wrong gender")
+        elif family == "female":
+            add_negative("male, man, boy, masculine face, masculine body, gender swap, wrong gender")
+    hair_mode = _guard_mode(lock.get("hair"), "off")
+    hair_text = " ".join(_flatten_character_trait_values(groups.get("hair"))).casefold()
+    if hair_mode in {"balanced", "strong", "strict"}:
+        add_negative("wrong hair color, changed hairstyle, missing hair detail, inconsistent hair")
+        if "pink" in hair_text:
+            add_negative("black hair, brown hair, blonde hair, natural hair color instead of pink")
+    if _guard_mode(lock.get("skin_tone"), "off") in {"balanced", "strong", "strict"}:
+        add_negative("wrong skin tone, changed complexion, inconsistent skin color")
+    if _guard_mode(lock.get("build") or lock.get("body_height"), "off") in {"balanced", "strong", "strict"}:
+        add_negative("wrong body build, changed body type, distorted body proportions")
+    if _guard_mode(lock.get("outfit"), "off") in {"balanced", "strong", "strict"}:
+        add_negative("wrong outfit, changed clothing, missing costume details")
+
+    positive = _append_unique_text(
+        "",
+        ", ".join(weighted_terms),
+        _clean_text(correction.get("positive_text") or ""),
+    )
+    negative = ", ".join(negative_terms)
+    return positive, negative, {
+        "schema": "neo.image.scene_director.character_trait_runtime_authority.v054.v1",
+        "phase": "SD-V054-27.6",
+        "profile": profile,
+        "weighted_terms": weighted_terms,
+        "plain_terms": plain_terms,
+        "positive": positive,
+        "negative": negative,
+        "correction_positive_used": bool(_clean_text(correction.get("positive_text") or "")),
+        "correction_negative_used": bool(_clean_text(correction.get("negative_text") or "")),
+        "regional_negative_required": bool(negative),
+        "policy": "Exact visible Character Trait values lead the executable regional CLIP branch; generated exclusions remain scoped to the same character mask.",
+    }
+
+
 def _character_latent_controller_prompt_pair(region: dict[str, Any], scene_graph: dict[str, Any] | None = None) -> tuple[str, str, dict[str, Any]]:
     contract = _character_trait_contract(region, scene_graph=scene_graph)
     region_prompt = str(contract.get("region_prompt") or "")
     region_negative = str(contract.get("region_negative") or "")
     groups = contract.get("trait_groups") if isinstance(contract.get("trait_groups"), dict) else {}
     reinforcement_terms: list[str] = []
-    for group_name in ("gender", "ethnicity", "species_race", "body", "skin", "hair", "outfit", "pose", "expression", "accessories", "shoes"):
+    for group_name in ("gender", "ethnicity", "species_race", "body", "skin", "hair", "facial_hair", "outfit", "pose", "expression", "accessories", "shoes", "additional_details"):
         reinforcement_terms.extend(_flatten_character_trait_values(groups.get(group_name)))
     environment_context = _scene_environment_character_context(scene_graph)
     env_prompt = _clean_text(environment_context.get("prompt") or "")
     env_negative = _clean_text(environment_context.get("negative") or "")
+    runtime_positive, runtime_negative, runtime_authority = _character_trait_runtime_authority(region, contract)
     # Repeating extracted user-authored fragments is allowed; adding backend
     # wording is not. This remains user-region text + extracted region terms;
     # V25.9.12 appends sanitized user-authored background context so late masked
     # character lanes do not repaint the area around characters back to studio space.
-    positive = _append_unique_text(region_prompt, ", ".join(_dedupe_text_items(reinforcement_terms)), env_prompt)
-    negative = _append_unique_text(region_negative, env_negative)
+    positive = _append_unique_text("", runtime_positive, region_prompt, ", ".join(_dedupe_text_items(reinforcement_terms, limit=32)), env_prompt)
+    negative = _append_unique_text("", runtime_negative, region_negative, env_negative)
+    contract["runtime_authority"] = deepcopy(runtime_authority)
+    contract["runtime_positive_leads_prompt"] = bool(runtime_positive and positive.startswith(runtime_positive))
+    contract["runtime_regional_negative_live"] = bool(runtime_negative)
     contract["environment_character_context"] = deepcopy(environment_context)
     contract["environment_context_used"] = bool(env_prompt or env_negative)
     if env_prompt:
@@ -5197,6 +5796,397 @@ def _apply_scene_director_character_latent_controller(
             for lane in lanes
         ]
     return next_id, current_ref, added, notes, meta
+
+
+def _character_midstep_sampler_safety(sampler_name: Any) -> dict[str, Any]:
+    """Report whether a sampler can be restarted safely at a denoise midpoint.
+
+    A second KSampler invocation cannot preserve multistep solver history or the
+    original Brownian/SDE noise process.  Matching ``noise_seed`` is therefore
+    insufficient for DPM++ 2M/3M SDE and similar stateful samplers.  Keep the
+    experimental split route limited to deterministic single-step solvers; all
+    other samplers fall back to the uninterrupted V054 attention route.
+    """
+    name = str(sampler_name or "").strip().lower()
+    safe = {
+        "euler",
+        "euler_cfg_pp",
+        "heun",
+        "heunpp2",
+        "dpm_2",
+        "lcm",
+    }
+    if name in safe:
+        return {
+            "safe": True,
+            "sampler_name": name,
+            "reason": "deterministic_single_step_solver",
+        }
+    stateful_tokens = (
+        "sde",
+        "ancestral",
+        "2m",
+        "3m",
+        "multistep",
+        "lms",
+        "ipndm",
+        "deis",
+        "sa_solver",
+        "seeds_",
+        "gradient_estimation",
+    )
+    reason = "stateful_or_stochastic_solver_restart" if any(token in name for token in stateful_tokens) else "split_continuity_not_proven"
+    return {
+        "safe": False,
+        "sampler_name": name,
+        "reason": reason,
+    }
+
+
+def _apply_scene_director_character_latent_midstep(
+    graph: dict[str, Any],
+    *,
+    sampler_node_id: str,
+    next_id: int,
+    model_ref: list[Any],
+    clip_ref: list[Any],
+    scene_node_id: str,
+    scene_graph: dict[str, Any] | None,
+    sampler_inputs: dict[str, Any],
+    sampler_seed: int,
+    available_nodes: Any,
+    subject_slot_by_region: dict[str, int] | None = None,
+) -> tuple[int, list[Any], list[str], list[str], dict[str, Any]]:
+    """Split the main sampler for an optional, genuinely mid-sampling repair.
+
+    ``latent_repair`` used to append ordinary KSamplers after the full image was
+    already denoised.  That was an end repair with a latent-sounding label.  The
+    repaired route changes the main sampler to ``KSamplerAdvanced`` for an
+    early composition segment, then continues denoising the *whole* latent from
+    the selected midpoint through the remaining steps while applying the
+    character-trait conditioning through subject masks. A fresh ``txt2img``
+    latent cannot be left at the midpoint outside the subject mask: doing that
+    freezes unfinished noise into the background. End refinement remains a
+    separate plan and is not enabled by this helper.
+    """
+    graph_data = scene_graph if isinstance(scene_graph, dict) else {}
+    subject_slot_by_region = subject_slot_by_region or {}
+    meta: dict[str, Any] = {
+        "schema": "neo.image.scene_director.character_latent_controller.v054.midstep.v1",
+        "phase": "SD-V054-27.4",
+        "status": "not_applicable",
+        "execution": "mid_sampler_split",
+        "split_sampler": True,
+        "nodes_added": [],
+        "lanes": [],
+        "applied_count": 0,
+        "skipped_count": 0,
+        "warnings": [],
+        "policy": "Optional latent repair runs inside the denoise schedule after the early composition segment; end refinement is a separate user-selected plan.",
+    }
+    if not _available_node(available_nodes, "KSamplerAdvanced"):
+        meta.update({
+            "status": "skipped_missing_nodes",
+            "warnings": ["character_latent_midstep_missing_nodes:KSamplerAdvanced"],
+        })
+        return next_id, [str(sampler_node_id), 0], [], ["Scene Director mid-sampling Character Lock skipped: KSamplerAdvanced is not available."], meta
+
+    regions = graph_data.get("regions") if isinstance(graph_data.get("regions"), list) else []
+    candidates: list[tuple[str, dict[str, Any], int, str, str, dict[str, Any]]] = []
+    for region in regions:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        profile = _character_trait_lock_profile(region)
+        correction = _character_lock_correction_block(region)
+        explicit = bool(
+            _flatten_character_trait_values(region.get("character_traits"))
+            or _flatten_character_trait_values(region.get("trait_lock"))
+            or str(correction.get("positive_text") or "").strip()
+            or str(correction.get("negative_text") or "").strip()
+        )
+        if profile not in {"strong", "strict"} and not explicit:
+            continue
+        region_id = str(region.get("id") or "")
+        slot = max(1, min(4, _int(subject_slot_by_region.get(region_id), len(candidates) + 1)))
+        positive, negative, conditioning = _character_latent_controller_prompt_pair(region, scene_graph=graph_data)
+        if positive:
+            candidates.append((region_id, region, slot, positive, negative, conditioning))
+
+    if not candidates:
+        meta.update({"status": "skipped_no_explicit_trait_regions", "warnings": ["character_latent_midstep_no_eligible_regions"]})
+        return next_id, [str(sampler_node_id), 0], [], [], meta
+
+    sampler = graph.get(str(sampler_node_id)) if isinstance(graph.get(str(sampler_node_id)), dict) else {}
+    inputs = sampler.setdefault("inputs", {}) if isinstance(sampler, dict) else {}
+    total_steps = max(2, _int(inputs.get("steps"), 20))
+    midpoint_step = max(1, min(total_steps - 1, int(round(total_steps * 0.42))))
+    seed = int(sampler_seed)
+    sampler_name = str(inputs.get("sampler_name") or "dpmpp_2m_sde")
+    scheduler = str(inputs.get("scheduler") or "karras")
+    cfg = max(0.0, _float(inputs.get("cfg"), 7.0))
+    repair_model_ref = deepcopy(inputs.get("model") or model_ref)
+    base_positive_ref = _copy_ref(inputs.get("positive"), [])
+    base_negative_ref = _copy_ref(inputs.get("negative"), [])
+    sampler_safety = _character_midstep_sampler_safety(sampler_name)
+    meta["sampler_safety"] = deepcopy(sampler_safety)
+    if not sampler_safety.get("safe"):
+        warning = f"character_latent_midstep_blocked_sampler:{sampler_name}:{sampler_safety.get('reason')}"
+        meta.update({
+            "status": "blocked_incompatible_sampler",
+            "fallback": "uninterrupted_in_sampler_attention",
+            "warnings": [warning],
+        })
+        return (
+            next_id,
+            [str(sampler_node_id), 0],
+            [],
+            [f"Scene Director midpoint repair was skipped for {sampler_name}; the uninterrupted in-sampler Character Lock remains active."],
+            meta,
+        )
+
+    # Convert the existing main sampler into the early denoise segment. The
+    # model/positive/negative references are already wired to V054 above.
+    sampler["class_type"] = "KSamplerAdvanced"
+    inputs.update({
+        "add_noise": "enable",
+        "noise_seed": seed,
+        "steps": total_steps,
+        "cfg": cfg,
+        "sampler_name": sampler_name,
+        "scheduler": scheduler,
+        "start_at_step": 0,
+        "end_at_step": midpoint_step,
+        "return_with_leftover_noise": "enable",
+    })
+
+    positive_parts = [f"subject {region_id}: {positive}" for region_id, _region, _slot, positive, _negative, _conditioning in candidates]
+    negative_parts = [negative for _region_id, _region, _slot, _positive, negative, _conditioning in candidates if negative]
+
+    # A latent noise mask is correct for source-image inpaint, where the
+    # unmasked pixels already contain a finished image. It is not correct for
+    # this txt2img midpoint split: the unmasked pixels are still unfinished
+    # noise from ``midpoint_step``. Continue the full latent instead and scope
+    # only the extra trait conditioning to each subject region.
+    conditioning_mask_class = "ConditioningSetMask" if _available_node(available_nodes, "ConditioningSetMask") else None
+    conditioning_combine_class = None
+    for candidate_class in ("ConditioningCombine", "ConditioningConcat"):
+        if _available_node(available_nodes, candidate_class):
+            conditioning_combine_class = candidate_class
+            break
+
+    region_mask_refs = [[str(scene_node_id), 5 + slot] for _region_id, _region, slot, _positive, _negative, _conditioning in candidates]
+    scoped_conditioning = bool(
+        conditioning_mask_class
+        and conditioning_combine_class
+        and base_positive_ref
+        and base_negative_ref
+    )
+    conditioning_scope = "subject_masked_full_canvas" if scoped_conditioning else "full_canvas_fallback"
+    conditioning_mask_node_ids: list[str] = []
+    conditioning_combine_node_ids: list[str] = []
+    conditioner_positive_node_ids: list[str] = []
+    conditioner_negative_node_ids: list[str] = []
+    added: list[str] = []
+
+    if scoped_conditioning:
+        repair_positive_ref = list(base_positive_ref)
+        repair_negative_ref = list(base_negative_ref)
+        conditioning_next_id = int(next_id)
+        regional_conditioning_strengths: list[float] = []
+        for (_region_id, _region, _slot, positive, negative, _conditioning), mask_ref in zip(candidates, region_mask_refs):
+            profile = _character_trait_lock_profile(_region)
+            conditioning_strength = 1.55 if profile == "strict" else (1.35 if profile == "strong" else 1.0)
+            regional_conditioning_strengths.append(conditioning_strength)
+            region_positive_id = str(conditioning_next_id)
+            region_negative_id = str(conditioning_next_id + 1)
+            masked_positive_id = str(conditioning_next_id + 2)
+            masked_negative_id = str(conditioning_next_id + 3)
+            combined_positive_id = str(conditioning_next_id + 4)
+            combined_negative_id = str(conditioning_next_id + 5)
+            graph[region_positive_id] = {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": deepcopy(clip_ref), "text": positive},
+            }
+            graph[region_negative_id] = {
+                "class_type": "CLIPTextEncode",
+                "inputs": {"clip": deepcopy(clip_ref), "text": negative or " "},
+            }
+            graph[masked_positive_id] = {
+                "class_type": conditioning_mask_class,
+                "inputs": _conditioning_set_mask_inputs(
+                    available_nodes,
+                    conditioning_mask_class,
+                    [region_positive_id, 0],
+                    mask_ref,
+                    conditioning_strength,
+                ),
+            }
+            graph[masked_negative_id] = {
+                "class_type": conditioning_mask_class,
+                "inputs": _conditioning_set_mask_inputs(
+                    available_nodes,
+                    conditioning_mask_class,
+                    [region_negative_id, 0],
+                    mask_ref,
+                    conditioning_strength,
+                ),
+            }
+            graph[combined_positive_id] = {
+                "class_type": conditioning_combine_class,
+                "inputs": _conditioning_combine_inputs(
+                    conditioning_combine_class,
+                    repair_positive_ref,
+                    [masked_positive_id, 0],
+                ),
+            }
+            graph[combined_negative_id] = {
+                "class_type": conditioning_combine_class,
+                "inputs": _conditioning_combine_inputs(
+                    conditioning_combine_class,
+                    repair_negative_ref,
+                    [masked_negative_id, 0],
+                ),
+            }
+            repair_positive_ref = [combined_positive_id, 0]
+            repair_negative_ref = [combined_negative_id, 0]
+            conditioner_positive_node_ids.append(region_positive_id)
+            conditioner_negative_node_ids.append(region_negative_id)
+            conditioning_mask_node_ids.extend([masked_positive_id, masked_negative_id])
+            conditioning_combine_node_ids.extend([combined_positive_id, combined_negative_id])
+            added.extend([
+                region_positive_id,
+                region_negative_id,
+                masked_positive_id,
+                masked_negative_id,
+                combined_positive_id,
+                combined_negative_id,
+            ])
+            conditioning_next_id += 6
+    else:
+        # Provider-safe fallback for older Comfy installs that do not expose
+        # ConditioningSetMask/ConditioningCombine. This still performs a
+        # genuine midpoint continuation and keeps the live V054 attention
+        # branch active; it deliberately avoids the background-corrupting
+        # SetLatentNoiseMask route.
+        positive_id = str(next_id)
+        negative_id = str(next_id + 1)
+        graph[positive_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": deepcopy(clip_ref), "text": ", ".join(positive_parts)},
+        }
+        graph[negative_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": deepcopy(clip_ref), "text": ", ".join(negative_parts) or " "},
+        }
+        repair_positive_ref = [positive_id, 0]
+        repair_negative_ref = [negative_id, 0]
+        conditioner_positive_node_ids.append(positive_id)
+        conditioner_negative_node_ids.append(negative_id)
+        added.extend([positive_id, negative_id])
+        meta["warnings"].append(
+            "character_latent_midstep_conditioning_mask_nodes_unavailable_full_canvas_fallback"
+        )
+        regional_conditioning_strengths = []
+
+    # ``next_id`` was the first id available before the conditioning nodes.
+    # Recompute from the actual graph so this stays safe if a provider changes
+    # the number of conditioning nodes in a future compatibility branch.
+    repair_sampler_id = str(_next_id(graph))
+    graph[repair_sampler_id] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            "add_noise": "disable",
+            # SDE samplers use noise_seed for their stochastic continuation even
+            # when add_noise is disabled. Switching seeds at the split changes
+            # the Brownian path and can undo identity/hair structure established
+            # during the first segment.
+            "noise_seed": seed,
+            "steps": total_steps,
+            "cfg": cfg,
+            "sampler_name": sampler_name,
+            "scheduler": scheduler,
+            "start_at_step": midpoint_step,
+            "end_at_step": total_steps,
+            "return_with_leftover_noise": "disable",
+            "model": repair_model_ref,
+            "positive": repair_positive_ref,
+            "negative": repair_negative_ref,
+            "latent_image": [str(sampler_node_id), 0],
+        },
+    }
+    next_id = int(repair_sampler_id) + 1
+    added.append(repair_sampler_id)
+    lane_mask_ref: list[Any] = deepcopy(region_mask_refs[0]) if len(region_mask_refs) == 1 else []
+    lane = {
+        "schema": "neo.image.scene_director.character_latent_controller.v054.midstep.lane.v1",
+        "phase": "SD-V054-27.4",
+        "region_ids": [region_id for region_id, *_rest in candidates],
+        "subject_slots": [slot for _region_id, _region, slot, *_rest in candidates],
+        "mask_ref": lane_mask_ref,
+        "mask_refs": deepcopy(region_mask_refs),
+        "mask_source": "subject_conditioning_masks" if scoped_conditioning else "full_canvas_fallback",
+        "conditioner_positive_node_id": conditioner_positive_node_ids[0] if conditioner_positive_node_ids else None,
+        "conditioner_negative_node_id": conditioner_negative_node_ids[0] if conditioner_negative_node_ids else None,
+        "conditioner_positive_node_ids": conditioner_positive_node_ids,
+        "conditioner_negative_node_ids": conditioner_negative_node_ids,
+        "conditioning_mask_node_ids": conditioning_mask_node_ids,
+        "conditioning_combine_node_ids": conditioning_combine_node_ids,
+        "latent_mask_node_id": None,
+        "sampler_node_id": repair_sampler_id,
+        "base_sampler_node_id": str(sampler_node_id),
+        "start_at_step": 0,
+        "midpoint_step": midpoint_step,
+        "end_at_step": total_steps,
+        "midpoint_fraction": round(midpoint_step / float(total_steps), 4),
+        "conditioned_regions": [
+            {
+                "region_id": region_id,
+                "label": _clean_text(region.get("label") or region_id),
+                "profile": _character_trait_lock_profile(region),
+                "active_trait_groups": list(conditioning.get("active_trait_groups") or []),
+            }
+            for region_id, region, _slot, _positive, _negative, conditioning in candidates
+        ],
+        "conditioning": {
+            "source": "explicit_character_traits_and_correction_fields",
+            "positive_regions": len(positive_parts),
+            "negative_regions": len(negative_parts),
+            "prompt_template_injection": False,
+            "scope": conditioning_scope,
+            "regional_strengths": regional_conditioning_strengths,
+            "mask_nodes": conditioning_mask_node_ids,
+            "combine_nodes": conditioning_combine_node_ids,
+        },
+    }
+    meta.update({
+        "status": "applied",
+        "nodes_added": added,
+        "lanes": [lane],
+        "applied_count": 1,
+        "skipped_count": 0,
+        "base_sampler_node_id": str(sampler_node_id),
+        "repair_sampler_node_id": repair_sampler_id,
+        "midpoint_step": midpoint_step,
+        "total_steps": total_steps,
+        "midpoint_fraction": round(midpoint_step / float(total_steps), 4),
+        "live_in_sampler_attention": True,
+        "conditioning_scope": conditioning_scope,
+        "mask_source": "subject_conditioning_masks" if scoped_conditioning else "full_canvas_fallback",
+        "mask_refs": deepcopy(region_mask_refs),
+        "conditioning_mask_node_ids": conditioning_mask_node_ids,
+        "conditioning_combine_node_ids": conditioning_combine_node_ids,
+        "background_preservation": {
+            "mode": "full_canvas_continuation",
+            "latent_noise_mask_used": False,
+            "policy": "Continue every latent pixel from the midpoint; constrain only the additional Character Trait conditioning to subject masks.",
+        },
+    })
+    notes = [
+        f"Scene Director split the main sampler at step {midpoint_step}/{total_steps} and continued the full latent while applying Character Trait conditioning through subject masks.",
+        "SetLatentNoiseMask is intentionally not used on this fresh txt2img midpoint; it would freeze unfinished background noise.",
+        "End refinement remains independent; this midstep lane is not a late full-image repair pass.",
+    ]
+    return next_id, [repair_sampler_id, 0], added, notes, meta
 
 
 def _merged_outfit_restore_metadata_from_character_controller(controller: dict[str, Any]) -> dict[str, Any]:
@@ -6623,6 +7613,44 @@ def _same_ref(a: Any, b: Any) -> bool:
     return str(a[0]) == str(b[0]) and a[1] == b[1]
 
 
+_SAMPLER_MODEL_WRAPPER_CLASSES = {
+    "DynamicThresholdingFull",
+    "RescaleCFG",
+    "ModelSamplingDiscrete",
+    "ModelSamplingContinuousEDM",
+    "ModelSamplingContinuousV",
+    "ModelSamplingFlux",
+    "ModelSamplingAuraFlow",
+}
+
+
+def _rewire_existing_sampler_model_wrapper(
+    graph: dict[str, Any],
+    original_model_ref: Any,
+    scene_model_ref: list[Any],
+) -> list[Any]:
+    """Keep an already compiled model wrapper on both split samplers.
+
+    Dynamic Thresholding and Comfy model-sampling nodes are often compiled
+    before Scene Director. Replacing the main sampler's model with the raw
+    V054 output would leave the midpoint sampler on a different model path.
+    Rebind only known model-wrapper nodes to the new Scene Director output;
+    unknown nodes stay untouched and safely fall back to the raw scene model.
+    """
+    if not isinstance(original_model_ref, (list, tuple)) or len(original_model_ref) < 2:
+        return list(scene_model_ref)
+    source = str(original_model_ref[0])
+    output = original_model_ref[1]
+    node = graph.get(source)
+    if not isinstance(node, dict) or str(node.get("class_type") or "") not in _SAMPLER_MODEL_WRAPPER_CLASSES:
+        return list(scene_model_ref)
+    inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+    if not isinstance(inputs.get("model"), (list, tuple)):
+        return list(scene_model_ref)
+    inputs["model"] = deepcopy(scene_model_ref)
+    return [source, output]
+
+
 def _find_vae_decode_consumers(graph: dict[str, Any], latent_ref: list[Any]) -> list[str]:
     consumers: list[str] = []
     for node_id, node in graph.items():
@@ -6632,6 +7660,345 @@ def _find_vae_decode_consumers(graph: dict[str, Any], latent_ref: list[Any]) -> 
         if _same_ref(inputs.get("samples"), latent_ref):
             consumers.append(str(node_id))
     return consumers
+
+
+def _prune_stale_character_lock_passes(
+    graph: dict[str, Any],
+    *,
+    sampler_node_id: str,
+    scene_node_ids: set[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Remove an older Scene Director Character Lock repair chain before replanning.
+
+    A replayed Comfy graph can already contain the previous four-KSampler
+    Character Lock chain. Replacing the payload alone does not remove those
+    nodes, and the old VAEDecode may still point at the last repair sampler.
+    Only chains that satisfy all of these constraints are eligible:
+
+    * the sampler model is a V054 Scene Director model output;
+    * the latent enters through ``SetLatentNoiseMask``;
+    * that mask is one of the V054 subject-mask outputs; and
+    * the chain descends from the current main sampler.
+
+    This deliberately leaves unrelated IPAdapter, LoRA, ADetailer, and user
+    KSampler passes intact. The caller can then build exactly the newly chosen
+    pass plan on the clean main latent.
+    """
+    scene_ids = {str(item) for item in (scene_node_ids or set()) if str(item).strip()}
+    main_ref = [str(sampler_node_id), 0]
+    meta: dict[str, Any] = {
+        "schema": "neo.image.scene_director.character_lock_graph_cleanup.v054.v1",
+        "phase": "SD-V054-27.1",
+        "status": "not_needed",
+        "scene_node_ids": sorted(scene_ids),
+        "nodes_removed": [],
+        "decode_nodes_rewired": [],
+        "warnings": [],
+    }
+    if not scene_ids:
+        meta["status"] = "no_existing_v054_node"
+        return graph, meta
+
+    def ref_source(value: Any) -> str | None:
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return str(value[0])
+        return None
+
+    def ref_output(value: Any) -> int | None:
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                return int(value[1])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def is_subject_mask_ref(value: Any, visited: set[str] | None = None) -> bool:
+        source = ref_source(value)
+        output = ref_output(value)
+        if source in scene_ids and output is not None and 6 <= output <= 9:
+            return True
+        # Older midpoint plans inserted a MaskComposite before
+        # SetLatentNoiseMask for two or more characters. Follow those mask
+        # inputs so replay can remove the complete stale chain, not just the
+        # final SetLatentNoiseMask node.
+        if not source:
+            return False
+        seen = set(visited or set())
+        if source in seen:
+            return False
+        seen.add(source)
+        node = graph.get(source)
+        if not isinstance(node, dict) or node.get("class_type") != "MaskComposite":
+            return False
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        return is_subject_mask_ref(inputs.get("destination"), seen) or is_subject_mask_ref(inputs.get("source"), seen)
+
+    def node_inputs(node_id: str) -> dict[str, Any]:
+        node = graph.get(str(node_id))
+        return node.get("inputs") if isinstance(node, dict) and isinstance(node.get("inputs"), dict) else {}
+
+    # Phase 27.6: the background-safe midpoint route no longer uses
+    # SetLatentNoiseMask, so the older cleanup signature below cannot see it.
+    # Detect only a continuation sampler that descends directly from the main
+    # sampler and whose conditioning depends on V054 subject masks.
+    subject_conditioning_mask_nodes = {
+        str(node_id)
+        for node_id, node in graph.items()
+        if isinstance(node, dict)
+        and node.get("class_type") in {"ConditioningSetMask", "ConditioningSetMaskAndCombine"}
+        and is_subject_mask_ref((node.get("inputs") or {}).get("mask"))
+    }
+
+    def conditioning_depends_on_subject_mask(value: Any, visited: set[str] | None = None) -> bool:
+        source = ref_source(value)
+        if not source:
+            return False
+        if source in subject_conditioning_mask_nodes:
+            return True
+        seen = set(visited or set())
+        if source in seen:
+            return False
+        seen.add(source)
+        node = graph.get(source)
+        if not isinstance(node, dict) or node.get("class_type") not in {"ConditioningCombine", "ConditioningConcat"}:
+            return False
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        return any(conditioning_depends_on_subject_mask(ref, seen) for ref in inputs.values())
+
+    stale_midpoint_sampler_ids: set[str] = set()
+    for node_id, node in graph.items():
+        node_key = str(node_id)
+        if node_key == str(sampler_node_id) or not isinstance(node, dict) or node.get("class_type") != "KSamplerAdvanced":
+            continue
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        if ref_source(inputs.get("latent_image")) != str(sampler_node_id) or ref_output(inputs.get("latent_image")) != 0:
+            continue
+        if str(inputs.get("add_noise") or "").strip().lower() != "disable" or _int(inputs.get("start_at_step"), 0) <= 0:
+            continue
+        if not (
+            conditioning_depends_on_subject_mask(inputs.get("positive"))
+            or conditioning_depends_on_subject_mask(inputs.get("negative"))
+        ):
+            continue
+        stale_midpoint_sampler_ids.add(node_key)
+
+    if stale_midpoint_sampler_ids:
+        midpoint_conditioning_nodes: set[str] = set()
+        midpoint_text_nodes: set[str] = set()
+
+        def collect_conditioning_path(value: Any, visited: set[str] | None = None) -> bool:
+            source = ref_source(value)
+            if not source:
+                return False
+            seen = set(visited or set())
+            if source in seen:
+                return False
+            seen.add(source)
+            node = graph.get(source)
+            if not isinstance(node, dict):
+                return False
+            cls = str(node.get("class_type") or "")
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            if source in subject_conditioning_mask_nodes:
+                midpoint_conditioning_nodes.add(source)
+                cond_source = ref_source(inputs.get("conditioning"))
+                cond_node = graph.get(cond_source) if cond_source else None
+                if cond_source and isinstance(cond_node, dict) and cond_node.get("class_type") == "CLIPTextEncode":
+                    midpoint_text_nodes.add(cond_source)
+                return True
+            if cls not in {"ConditioningCombine", "ConditioningConcat"}:
+                return False
+            child_hit = False
+            for ref in inputs.values():
+                if collect_conditioning_path(ref, seen):
+                    child_hit = True
+            if child_hit:
+                midpoint_conditioning_nodes.add(source)
+            return child_hit
+
+        for sampler_id in stale_midpoint_sampler_ids:
+            inputs = node_inputs(sampler_id)
+            collect_conditioning_path(inputs.get("positive"))
+            collect_conditioning_path(inputs.get("negative"))
+
+        removable_midpoint_ids = set(stale_midpoint_sampler_ids) | midpoint_conditioning_nodes | midpoint_text_nodes
+        for consumer_id, consumer in list(graph.items()):
+            if not isinstance(consumer, dict) or str(consumer_id) in removable_midpoint_ids:
+                continue
+            inputs = consumer.get("inputs") if isinstance(consumer.get("inputs"), dict) else {}
+            for key, value in list(inputs.items()):
+                if ref_source(value) not in stale_midpoint_sampler_ids or ref_output(value) != 0:
+                    continue
+                if consumer.get("class_type") == "VAEDecode" and key == "samples":
+                    inputs[key] = list(main_ref)
+                    meta["decode_nodes_rewired"].append(str(consumer_id))
+
+        for node_id in removable_midpoint_ids:
+            graph.pop(str(node_id), None)
+
+        # Restore the early segment to a complete ordinary sampler before the
+        # newly selected plan is compiled. Otherwise an attention-only replay
+        # would decode the unfinished midpoint latent.
+        main_node = graph.get(str(sampler_node_id))
+        if isinstance(main_node, dict) and main_node.get("class_type") == "KSamplerAdvanced":
+            main_inputs = main_node.get("inputs") if isinstance(main_node.get("inputs"), dict) else {}
+            main_node["class_type"] = "KSampler"
+            main_inputs["seed"] = int(main_inputs.get("noise_seed", main_inputs.get("seed", 0)) or 0)
+            main_inputs.setdefault("denoise", 1.0)
+            for key in ("add_noise", "noise_seed", "start_at_step", "end_at_step", "return_with_leftover_noise"):
+                main_inputs.pop(key, None)
+
+        meta.update({
+            "status": "pruned",
+            "midpoint_sampler_nodes_removed": sorted(stale_midpoint_sampler_ids),
+            "conditioning_nodes_removed": sorted(midpoint_conditioning_nodes),
+            "text_nodes_removed": sorted(midpoint_text_nodes),
+            "nodes_removed": sorted(removable_midpoint_ids),
+        })
+
+    subject_mask_nodes = {
+        str(node_id)
+        for node_id, node in graph.items()
+        if isinstance(node, dict)
+        and node.get("class_type") == "SetLatentNoiseMask"
+        and is_subject_mask_ref((node.get("inputs") or {}).get("mask"))
+    }
+    if not subject_mask_nodes:
+        return graph, meta
+
+    pass_sampler_ids: set[str] = set()
+    pass_mask_ids: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for mask_id in subject_mask_nodes:
+            inputs = node_inputs(mask_id)
+            source = ref_source(inputs.get("samples"))
+            if source == str(sampler_node_id) or source in pass_sampler_ids:
+                if mask_id not in pass_mask_ids:
+                    pass_mask_ids.add(mask_id)
+                    changed = True
+        for node_id, node in graph.items():
+            if not isinstance(node, dict) or node.get("class_type") not in {"KSampler", "KSamplerAdvanced"}:
+                continue
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            model_ref = inputs.get("model")
+            latent_source = ref_source(inputs.get("latent_image"))
+            if ref_source(model_ref) not in scene_ids or ref_output(model_ref) != 0 or latent_source not in pass_mask_ids:
+                continue
+            node_key = str(node_id)
+            if node_key not in pass_sampler_ids:
+                pass_sampler_ids.add(node_key)
+                changed = True
+
+    if not pass_sampler_ids:
+        return graph, meta
+
+    # Do not remove a pass that feeds an unrelated node type. The normal
+    # Character Lock chain ends at VAEDecode; preserving an unusual external
+    # consumer is safer than guessing how to rewrite it.
+    removable_sampler_ids: set[str] = set()
+    for sampler_id in pass_sampler_ids:
+        external = []
+        for consumer_id, consumer in graph.items():
+            if str(consumer_id) in pass_sampler_ids or str(consumer_id) in pass_mask_ids or not isinstance(consumer, dict):
+                continue
+            inputs = consumer.get("inputs") if isinstance(consumer.get("inputs"), dict) else {}
+            for key, value in inputs.items():
+                if ref_source(value) == sampler_id and ref_output(value) == 0:
+                    external.append((str(consumer.get("class_type") or ""), str(key)))
+        if all(cls == "VAEDecode" and key == "samples" for cls, key in external):
+            removable_sampler_ids.add(sampler_id)
+        elif not external:
+            removable_sampler_ids.add(sampler_id)
+        else:
+            meta["warnings"].append(f"preserved_character_lock_sampler_{sampler_id}_external_consumer")
+
+    if not removable_sampler_ids:
+        meta["status"] = "preserved_external_consumer"
+        return graph, meta
+
+    # Remove only masks that feed a sampler being removed. A preceding mask in
+    # a retained chain is left intact and therefore cannot be orphaned by this
+    # cleanup.
+    removable_mask_ids = {
+        mask_id
+        for mask_id in pass_mask_ids
+        if any(ref_source(node_inputs(sampler_id).get("latent_image")) == mask_id for sampler_id in removable_sampler_ids)
+    }
+
+    # Include any old MaskComposite nodes that feed the removable latent mask.
+    # They are part of the stale Character Lock chain and must not remain as
+    # orphaned graph nodes after a new midpoint plan is compiled.
+    def collect_mask_dependencies(value: Any, collected: set[str] | None = None) -> set[str]:
+        collected = collected if collected is not None else set()
+        source = ref_source(value)
+        if not source or source in collected or source in scene_ids:
+            return collected
+        node = graph.get(source)
+        if not isinstance(node, dict):
+            return collected
+        if node.get("class_type") != "MaskComposite":
+            return collected
+        collected.add(source)
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        collect_mask_dependencies(inputs.get("destination"), collected)
+        collect_mask_dependencies(inputs.get("source"), collected)
+        return collected
+
+    for mask_id in list(removable_mask_ids):
+        collect_mask_dependencies(node_inputs(mask_id).get("mask"), removable_mask_ids)
+    removable_ids = set(removable_sampler_ids) | removable_mask_ids
+
+    # Reconnect the final latent consumers before deleting the stale chain.
+    for consumer_id, consumer in list(graph.items()):
+        if not isinstance(consumer, dict) or str(consumer_id) in removable_ids:
+            continue
+        inputs = consumer.get("inputs") if isinstance(consumer.get("inputs"), dict) else {}
+        for key, value in list(inputs.items()):
+            if ref_source(value) not in removable_ids or ref_output(value) != 0:
+                continue
+            if consumer.get("class_type") == "VAEDecode" and key == "samples":
+                inputs[key] = list(main_ref)
+                meta["decode_nodes_rewired"].append(str(consumer_id))
+            elif key in {"samples", "latent_image"}:
+                inputs[key] = list(main_ref)
+            else:
+                meta["warnings"].append(f"unrewritten_consumer_{consumer_id}_{key}")
+
+    # Character-lock text nodes are removed only when they have no remaining
+    # consumers after the KSampler chain is removed.
+    text_candidates: set[str] = set()
+    for sampler_id in removable_sampler_ids:
+        inputs = node_inputs(sampler_id)
+        for key in ("positive", "negative"):
+            source = ref_source(inputs.get(key))
+            node = graph.get(source) if source else None
+            if source and isinstance(node, dict) and node.get("class_type") == "CLIPTextEncode":
+                text_candidates.add(source)
+    for text_id in text_candidates:
+        still_used = False
+        for consumer_id, consumer in graph.items():
+            if str(consumer_id) in removable_ids or str(consumer_id) == text_id or not isinstance(consumer, dict):
+                continue
+            inputs = consumer.get("inputs") if isinstance(consumer.get("inputs"), dict) else {}
+            if any(ref_source(value) == text_id for value in inputs.values()):
+                still_used = True
+                break
+        if not still_used:
+            removable_ids.add(text_id)
+
+    for node_id in sorted(removable_ids, key=lambda item: (not str(item).isdigit(), int(item) if str(item).isdigit() else str(item))):
+        graph.pop(str(node_id), None)
+
+    meta.update({
+        "status": "pruned",
+        "nodes_removed": sorted(removable_ids),
+        "sampler_nodes_removed": sorted(removable_sampler_ids),
+        "mask_nodes_removed": sorted(removable_mask_ids),
+        "text_nodes_removed": sorted(text_candidates & removable_ids),
+    })
+    return graph, meta
 
 
 
@@ -7591,6 +8958,7 @@ def apply_scene_director_patch(
 
     sampler = graph.get(sampler_key) if isinstance(graph.get(sampler_key), dict) else {}
     sampler_inputs = sampler.setdefault("inputs", {}) if isinstance(sampler, dict) else {}
+    original_sampler_model_ref = deepcopy(sampler_inputs.get("model"))
     previous_positive_ref = _copy_ref(sampler_inputs.get("positive"), ["2", 0])
     previous_negative_ref = _copy_ref(sampler_inputs.get("negative"), ["3", 0])
 
@@ -7605,6 +8973,13 @@ def apply_scene_director_patch(
     block = validation.get("block") if isinstance(validation.get("block"), dict) else {}
     v054_block = _v054_source_block(payload, block)
     v054_params = _block_params(v054_block) if isinstance(v054_block, dict) else {}
+    if not isinstance(v054_params.get("advanced_fix_pass_controls"), dict):
+        persisted_workflow_controls = _existing_v054_fix_pass_controls(graph)
+        if persisted_workflow_controls:
+            # A compact replay payload may omit Advanced Scene Control even
+            # though the existing NeoSceneDirectorV054 node still contains the
+            # user's visible settings. Carry them into this compile pass.
+            v054_params["advanced_fix_pass_controls"] = persisted_workflow_controls
     authority_mode = str(v054_params.get("authority_mode") or v054_params.get("scene_director_authority_mode") or "balanced").strip().lower() or "balanced"
     effective_authority = _effective_authority_mode_v054(authority_mode, payload if isinstance(payload, dict) else {}, route_data)
     effective_authority_mode = str(effective_authority.get("effective_mode") or authority_mode).strip().lower() or authority_mode
@@ -7636,6 +9011,8 @@ def apply_scene_director_patch(
             "prompt_extension_merge": (payload.get("prompt_extension_merge") if isinstance(payload, dict) and isinstance(payload.get("prompt_extension_merge"), dict) else {}),
         },
     )
+    prompt_authority_contract = _prompt_authority_contract_for_block(v054_block, legacy)
+    prompt_authority = normalize_prompt_authority(prompt_authority_contract.get("mode"))
     if isinstance(v054_params.get("advanced_fix_pass_controls"), dict):
         legacy["scene_director_advanced_fix_pass_controls"] = deepcopy(v054_params.get("advanced_fix_pass_controls") or {})
     advanced_fix_pass_controls = _advanced_fix_pass_controls(legacy if isinstance(legacy, dict) else {})
@@ -7672,7 +9049,26 @@ def apply_scene_director_patch(
     if scene_node_class == V054_NODE_CLASS:
         scene_graph_v054, v054_errors, v054_warnings = _scene_graph_from_block_v054(v054_block, width=width_value, height=height_value, legacy=legacy)
         if scene_graph_v054 is not None:
+            scene_graph_v054 = _restore_replay_character_fields_v054(scene_graph_v054, graph)
             scene_graph_v054 = strip_disabled_owner_routes_v054(scene_graph_v054, payload)
+            persisted_fix_controls = (
+                (scene_graph_v054.get("metadata") or {}).get("advanced_fix_pass_controls")
+                if isinstance(scene_graph_v054.get("metadata"), dict)
+                else None
+            )
+            has_explicit_fix_controls = bool(
+                isinstance(v054_params.get("advanced_fix_pass_controls"), dict)
+                or isinstance(legacy.get("scene_director_advanced_fix_pass_controls"), dict)
+            )
+            if isinstance(persisted_fix_controls, dict) and not has_explicit_fix_controls:
+                # Replayed workflows can carry the visible Fix Pass controls in
+                # the saved scene graph even when the compact extension payload
+                # no longer contains that UI block. Restore them before plan
+                # resolution so Force on cannot degrade into metadata-only
+                # diagnostics on the next submit.
+                v054_params["advanced_fix_pass_controls"] = deepcopy(persisted_fix_controls)
+                legacy["scene_director_advanced_fix_pass_controls"] = deepcopy(persisted_fix_controls)
+                advanced_fix_pass_controls = _advanced_fix_pass_controls(legacy)
             extension_region_assignments = build_controlnet_adetailer_region_assignments_v054(scene_graph_v054, payload)
             if neutral_authority_mode:
                 neutral_metadata = dict(scene_graph_v054.get("metadata") or {}) if isinstance(scene_graph_v054, dict) else {}
@@ -7781,6 +9177,26 @@ def apply_scene_director_patch(
         if lora_first_pass_units and _available_node(available_nodes, "LoraLoader"):
             scene_graph_v054, lora_first_pass_prompt_meta = _inject_lora_trigger_terms_into_scene_graph(scene_graph_v054, lora_first_pass_units)
 
+    stale_character_lock_cleanup: dict[str, Any] = {
+        "schema": "neo.image.scene_director.character_lock_graph_cleanup.v054.v1",
+        "phase": "SD-V054-27.1",
+        "status": "not_applicable",
+        "nodes_removed": [],
+        "decode_nodes_rewired": [],
+        "warnings": [],
+    }
+    if scene_node_class == V054_NODE_CLASS:
+        existing_scene_node_ids = {
+            str(existing_id)
+            for existing_id, existing_node in graph.items()
+            if isinstance(existing_node, dict) and existing_node.get("class_type") == V054_NODE_CLASS
+        }
+        graph, stale_character_lock_cleanup = _prune_stale_character_lock_passes(
+            graph,
+            sampler_node_id=sampler_key,
+            scene_node_ids=existing_scene_node_ids,
+        )
+
     node_id = str(_next_id(graph))
     positive_encode_id = str(int(node_id) + 1)
     negative_encode_id = str(int(node_id) + 2)
@@ -7826,6 +9242,13 @@ def apply_scene_director_patch(
         sg_meta["effective_authority"] = deepcopy(effective_authority)
         layout_safety_report = _background_and_character_area_report(scene_graph_v054)
         sg_meta["advanced_fix_pass_controls"] = deepcopy(advanced_fix_pass_controls)
+        sg_meta["character_lock_execution"] = deepcopy(
+            _character_lock_execution_settings(_block_params(v054_block))
+        )
+        sg_meta["character_lock_live_conditioning"] = _v054_live_character_conditioning_report(
+            scene_graph_v054,
+            _character_lock_execution_settings(_block_params(v054_block)),
+        )
         sg_meta["layout_safety"] = {
             "schema": "neo.image.scene_director.layout_safety.v25_9_13",
             "phase": "V25.9.13",
@@ -7848,11 +9271,19 @@ def apply_scene_director_patch(
         if regional_authority_restore.get("status") == "applied":
             if positive_node_id in graph and isinstance(graph.get(positive_node_id), dict):
                 text = str(graph[positive_node_id].setdefault("inputs", {}).get("text") or "")
-                graph[positive_node_id]["inputs"]["text"] = _append_unique_text(text, str(regional_authority_restore.get("positive") or ""))
+                graph[positive_node_id]["inputs"]["text"] = (
+                    _clean_text(regional_authority_restore.get("positive") or "") or " "
+                    if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY
+                    else _append_unique_text(text, str(regional_authority_restore.get("positive") or ""))
+                )
                 positive_appended = True
             if negative_node_id in graph and isinstance(graph.get(negative_node_id), dict):
                 text = str(graph[negative_node_id].setdefault("inputs", {}).get("text") or "")
-                graph[negative_node_id]["inputs"]["text"] = _append_unique_text(text, str(regional_authority_restore.get("negative") or ""))
+                graph[negative_node_id]["inputs"]["text"] = (
+                    _clean_text(regional_authority_restore.get("negative") or "") or " "
+                    if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY
+                    else _append_unique_text(text, str(regional_authority_restore.get("negative") or ""))
+                )
                 negative_appended = True
         prompt_only_character_lock_execution = _character_lock_execution_settings(_block_params(v054_block if scene_node_class == V054_NODE_CLASS else block))
         prompt_only_scene_node_id = None
@@ -7964,6 +9395,8 @@ def apply_scene_director_patch(
             "scene_director_effective_authority_mode": effective_authority_mode,
             "scene_director_effective_authority": effective_authority,
             "scene_director_prompt_only_mode": True,
+            "scene_director_prompt_authority": prompt_authority,
+            "scene_director_prompt_authority_contract": deepcopy(prompt_authority_contract),
             "scene_director_neutral_mode": False,
             "scene_director_regional_authority_restore": regional_authority_restore,
             "scene_director_regional_authority_mode": regional_authority_restore.get("mode"),
@@ -7980,6 +9413,7 @@ def apply_scene_director_patch(
             "scene_director_lora_nodes_added": [],
             "scene_director_extra_samplers_added": len([node for node in prompt_only_character_lock_nodes_added if isinstance(graph.get(node), dict) and graph[node].get("class_type") == "KSampler"]),
             "scene_director_character_lock_execution": prompt_only_character_lock_execution,
+            "scene_director_character_lock_graph_cleanup": deepcopy(stale_character_lock_cleanup),
             "scene_director_character_lock_execution_mode": prompt_only_character_lock_execution.get("mode"),
             "scene_director_character_lock_execution_masked": bool(prompt_only_character_lock_nodes_added),
             "scene_director_first_pass_character_lock_authority": prompt_only_character_lock_authority,
@@ -8046,6 +9480,14 @@ def apply_scene_director_patch(
         effective_negative = _prepend_unique_text(prime_negative, effective_negative)
         effective_positive = _append_unique_text(effective_positive, character_lock_positive_add)
         effective_negative = _append_unique_text(effective_negative, character_lock_negative_add)
+    if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY:
+        # The node output is the only conditioning source in this mode. It has
+        # already been compiled from local Scene Director lanes and explicit
+        # scene-owned controls, while the Neo core prompt was blanked above.
+        effective_positive = ""
+        # Keep explicit Character Lock negative corrections connected even when
+        # the global Neo prompt is intentionally excluded.
+        effective_negative = character_lock_negative_add
     graph[positive_encode_id] = {
         "class_type": "CLIPTextEncode",
         "inputs": {
@@ -8206,16 +9648,21 @@ def apply_scene_director_patch(
             available_nodes=available_nodes,
         )
 
+    sampler_model_execution_ref = _rewire_existing_sampler_model_wrapper(
+        graph,
+        original_sampler_model_ref,
+        patched_model_ref,
+    )
     sampler_rewired = False
     if isinstance(sampler, dict):
-        sampler_inputs["model"] = deepcopy(patched_model_ref)
+        sampler_inputs["model"] = deepcopy(sampler_model_execution_ref)
         sampler_inputs["positive"] = deepcopy(patched_positive_ref)
         sampler_inputs["negative"] = deepcopy(patched_negative_ref)
         sampler_rewired = True
 
     scene_node_inputs_for_proof = graph.get(node_id, {}).get("inputs", {}) if isinstance(graph.get(node_id, {}), dict) else {}
     _pre_sampler_model_ref = list(sampler_inputs.get("model")) if isinstance(sampler_inputs, dict) and isinstance(sampler_inputs.get("model"), (list, tuple)) else []
-    _pre_patched_model_ref = list(patched_model_ref or [])
+    _pre_patched_model_ref = list(sampler_model_execution_ref or [])
     _pre_appearance_mode = str(scene_node_inputs_for_proof.get("appearance_lock_mode") or "off")
     primary_attention_lock_active = bool(
         scene_node_class == V054_NODE_CLASS
@@ -8223,10 +9670,49 @@ def apply_scene_director_patch(
         and _pre_patched_model_ref
         and _pre_sampler_model_ref == _pre_patched_model_ref
     )
+    character_lock_execution = _character_lock_execution_settings(
+        _block_params(v054_block if scene_node_class == V054_NODE_CLASS else block)
+    )
+    latent_repair_enabled = bool(character_lock_execution.get("latent_repair_enabled"))
+    end_refinement_enabled = bool(character_lock_execution.get("end_refinement_enabled"))
+
+    character_midstep_nodes_added: list[str] = []
+    character_midstep_notes: list[str] = []
+    character_midstep_authority: dict[str, Any] = {
+        "schema": "neo.image.scene_director.character_latent_controller.v054.midstep.v1",
+        "phase": "SD-V054-27.2",
+        "status": "not_requested",
+        "nodes_added": [],
+        "lanes": [],
+    }
+    primary_latent_ref = [sampler_key, 0]
+    midstep_next_id = controlnet_next_id
+    if scene_node_class == V054_NODE_CLASS and latent_repair_enabled and _fix_pass_allowed(advanced_fix_pass_controls, "character_trait_lanes"):
+        midstep_next_id, primary_latent_ref, character_midstep_nodes_added, character_midstep_notes, character_midstep_authority = _apply_scene_director_character_latent_midstep(
+            graph,
+            sampler_node_id=sampler_key,
+            next_id=controlnet_next_id,
+            model_ref=sampler_model_execution_ref,
+            clip_ref=clip_output_ref,
+            scene_node_id=node_id,
+            scene_graph=scene_graph_v054,
+            sampler_inputs=sampler_inputs if isinstance(sampler_inputs, dict) else {},
+            sampler_seed=_int((sampler_inputs or {}).get("seed"), 0),
+            available_nodes=available_nodes,
+            subject_slot_by_region=subject_slot_by_region,
+        )
+    elif scene_node_class == V054_NODE_CLASS and latent_repair_enabled:
+        character_midstep_authority = _fix_pass_disabled_meta(
+            "neo.image.scene_director.character_latent_controller.v054.midstep.v1",
+            "SD-V054-27.2",
+            "character_trait_lanes",
+            advanced_fix_pass_controls,
+            extra={"execution_mode": character_lock_execution.get("mode"), "end_refinement_separate": True},
+        )
 
     first_pass_character_lock_nodes_added: list[str] = []
     first_pass_character_lock_notes: list[str] = []
-    first_pass_character_lock_final_latent_ref = [sampler_key, 0]
+    first_pass_character_lock_final_latent_ref = list(primary_latent_ref)
     first_pass_character_lock_authority: dict[str, Any] = {
         "schema": "neo.image.scene_director.first_pass_character_lock_authority.v054.v1",
         "phase": "SD-V054-26.10.8J",
@@ -8235,12 +9721,12 @@ def apply_scene_director_patch(
         "nodes_added": [],
         "warnings": [],
     }
-    first_pass_next_id = controlnet_next_id
-    if scene_node_class == V054_NODE_CLASS and _fix_pass_allowed(advanced_fix_pass_controls, "first_pass_character_lock_rescue"):
+    first_pass_next_id = midstep_next_id
+    if scene_node_class == V054_NODE_CLASS and end_refinement_enabled and _fix_pass_allowed(advanced_fix_pass_controls, "first_pass_character_lock_rescue"):
         first_pass_next_id, first_pass_character_lock_final_latent_ref, first_pass_character_lock_nodes_added, first_pass_character_lock_notes, first_pass_character_lock_authority = _apply_scene_director_first_pass_character_lock_authority(
             graph,
-            next_id=controlnet_next_id,
-            base_latent_ref=[sampler_key, 0],
+            next_id=first_pass_next_id,
+            base_latent_ref=list(primary_latent_ref),
             model_ref=patched_model_ref,
             clip_ref=clip_output_ref,
             negative_ref=patched_negative_ref,
@@ -8287,7 +9773,7 @@ def apply_scene_director_patch(
         scene_graph=scene_graph_v054,
         sampler_node_id=sampler_key,
         sampler_inputs=sampler_inputs if isinstance(sampler_inputs, dict) else {},
-        patched_model_ref=patched_model_ref,
+        patched_model_ref=sampler_model_execution_ref,
         appearance_lock_mode=scene_node_inputs_for_proof.get("appearance_lock_mode"),
         base_weight=scene_node_inputs_for_proof.get("base_weight"),
         region_gain=scene_node_inputs_for_proof.get("region_gain"),
@@ -8390,7 +9876,7 @@ def apply_scene_director_patch(
     }
     final_pass_character_lock_final_latent_ref = list(lora_final_latent_ref)
     final_pass_next_id = _latent_next_id
-    if scene_node_class == V054_NODE_CLASS and _fix_pass_allowed(advanced_fix_pass_controls, "first_pass_character_lock_rescue"):
+    if scene_node_class == V054_NODE_CLASS and end_refinement_enabled and _fix_pass_allowed(advanced_fix_pass_controls, "first_pass_character_lock_rescue"):
         final_pass_next_id, final_pass_character_lock_final_latent_ref, final_pass_character_lock_nodes_added, final_pass_character_lock_notes, final_pass_character_lock_authority = _apply_scene_director_first_pass_character_lock_authority(
             graph,
             next_id=_latent_next_id,
@@ -8428,7 +9914,7 @@ def apply_scene_director_patch(
     }
     background_restore_final_latent_ref = list(final_pass_character_lock_final_latent_ref)
     background_restore_next_id = final_pass_next_id
-    if scene_node_class == V054_NODE_CLASS and _fix_pass_allowed(advanced_fix_pass_controls, "background_restore"):
+    if scene_node_class == V054_NODE_CLASS and end_refinement_enabled and _fix_pass_allowed(advanced_fix_pass_controls, "background_restore"):
         background_restore_next_id, background_restore_final_latent_ref, background_restore_nodes_added, background_restore_notes, background_authority_restore = _apply_scene_director_background_authority_restore(
             graph,
             next_id=final_pass_next_id,
@@ -8487,20 +9973,28 @@ def apply_scene_director_patch(
     }
     character_latent_controller_final_ref = list(skin_build_restore_final_latent_ref)
     character_latent_controller_next_id = skin_build_restore_next_id
-    if scene_node_class == V054_NODE_CLASS and _fix_pass_allowed(advanced_fix_pass_controls, "character_trait_lanes"):
-        character_latent_controller_next_id, character_latent_controller_final_ref, character_latent_controller_nodes_added, character_latent_controller_notes, character_latent_controller = _apply_scene_director_character_latent_controller(
-            graph,
-            next_id=skin_build_restore_next_id,
-            base_latent_ref=skin_build_restore_final_latent_ref,
-            model_ref=patched_model_ref,
-            clip_ref=clip_output_ref,
-            scene_node_id=node_id,
-            scene_graph=scene_graph_v054,
-            sampler_inputs=sampler_inputs if isinstance(sampler_inputs, dict) else {},
-            sampler_seed=_int((sampler_inputs or {}).get("seed"), 0),
-            available_nodes=available_nodes,
-            subject_slot_by_region=subject_slot_by_region,
-        )
+    if scene_node_class == V054_NODE_CLASS and latent_repair_enabled:
+        character_latent_controller = deepcopy(character_midstep_authority)
+        character_latent_controller["execution_mode"] = character_lock_execution.get("mode")
+        character_latent_controller["live_in_sampler_attention"] = bool(character_lock_execution.get("in_sampler_attention_enabled"))
+        character_latent_controller["final_latent_ref_after_follow_on_passes"] = deepcopy(character_latent_controller_final_ref)
+        character_latent_controller_nodes_added = list(character_midstep_nodes_added)
+        character_latent_controller_notes = list(character_midstep_notes)
+    elif scene_node_class == V054_NODE_CLASS and character_lock_execution.get("in_sampler_attention_enabled"):
+        character_latent_controller = {
+            "schema": "neo.image.scene_director.character_latent_controller.v25_9_8",
+            "phase": "SD-V054-27.2",
+            "status": "live_in_sampler_attention",
+            "lanes": [],
+            "nodes_added": [],
+            "applied_count": 0,
+            "skipped_count": 0,
+            "live_in_sampler_attention": True,
+            "execution_mode": character_lock_execution.get("mode"),
+            "advanced_fix_pass_controls": deepcopy(advanced_fix_pass_controls),
+            "live_conditioning": _v054_live_character_conditioning_report(scene_graph_v054, character_lock_execution),
+            "policy": "Character Trait Lanes control masked repair only. The selected in-sampler plan is already consuming explicit traits through V054 attn2 subject branches; no late KSampler was requested.",
+        }
     elif scene_node_class == V054_NODE_CLASS:
         character_latent_controller = _fix_pass_disabled_meta(
             "neo.image.scene_director.character_latent_controller.v25_9_8",
@@ -8515,7 +10009,7 @@ def apply_scene_director_patch(
     outfit_preservation_restore: dict[str, Any] = _merged_outfit_restore_metadata_from_character_controller(character_latent_controller)
     outfit_restore_final_latent_ref = list(character_latent_controller_final_ref)
     outfit_restore_next_id = character_latent_controller_next_id
-    if scene_node_class == V054_NODE_CLASS and not character_latent_controller_nodes_added:
+    if scene_node_class == V054_NODE_CLASS and end_refinement_enabled and not character_latent_controller_nodes_added:
         outfit_restore_next_id, outfit_restore_final_latent_ref, outfit_restore_nodes_added, outfit_restore_notes, outfit_preservation_restore = _apply_scene_director_outfit_preservation_restore(
             graph,
             next_id=character_latent_controller_next_id,
@@ -8543,7 +10037,7 @@ def apply_scene_director_patch(
     }
     final_background_reconciliation_ref = list(outfit_restore_final_latent_ref)
     final_background_reconciliation_next_id = outfit_restore_next_id
-    if scene_node_class == V054_NODE_CLASS and _fix_pass_allowed(advanced_fix_pass_controls, "final_background_reconciliation"):
+    if scene_node_class == V054_NODE_CLASS and end_refinement_enabled and _fix_pass_allowed(advanced_fix_pass_controls, "final_background_reconciliation"):
         final_background_reconciliation_next_id, final_background_reconciliation_ref, final_background_reconciliation_nodes_added, final_background_reconciliation_notes, final_background_reconciliation_restore = _apply_scene_director_final_background_reconciliation(
             graph,
             next_id=outfit_restore_next_id,
@@ -8679,6 +10173,7 @@ def apply_scene_director_patch(
 
     notes = [
         f"Scene Director routed through {scene_node_class} with V054 scene_graph_json conditioning.",
+        f"Prompt authority: {prompt_authority}; Neo core prompt is {'excluded' if prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY else 'kept as global context with a compact regional suffix'}.",
         "Sampler model/positive/negative inputs were rewired to the Scene Director branch.",
         f"Character Lock Execution Bridge {character_lock_bridge.get('status', 'not_applicable')}: compiled {character_lock_bridge.get('compiled_positive_count', 0)} positive guard phrase(s) and {character_lock_bridge.get('compiled_negative_count', 0)} negative guard phrase(s).",
         *ip_notes,
@@ -8744,13 +10239,18 @@ def apply_scene_director_patch(
         "scene_director_authority_mode": authority_mode,
         "scene_director_effective_authority_mode": effective_authority_mode,
         "scene_director_effective_authority": effective_authority,
+        "scene_director_prompt_authority": prompt_authority,
+        "scene_director_prompt_authority_contract": deepcopy(prompt_authority_contract),
+        "scene_director_global_prompt_excluded": prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY,
         "scene_director_prompt_only_mode": False,
         "scene_director_neutral_mode": False,
-        "scene_director_character_lock_execution": deepcopy(character_lock_bridge.get("character_lock_execution") or _character_lock_execution_settings(_block_params(v054_block if scene_node_class == V054_NODE_CLASS else block))),
-        "scene_director_character_lock_execution_mode": (character_lock_bridge.get("character_lock_execution") or _character_lock_execution_settings(_block_params(v054_block if scene_node_class == V054_NODE_CLASS else block))).get("mode"),
-        "scene_director_character_lock_primary_path": "legacy_in_sampler_attention" if primary_attention_lock_active else "fallback_masked_correction",
+        "scene_director_character_lock_execution": deepcopy(character_lock_execution),
+        "scene_director_character_lock_graph_cleanup": deepcopy(stale_character_lock_cleanup),
+        "scene_director_character_lock_execution_mode": character_lock_execution.get("mode"),
+        "scene_director_character_lock_pass_plan": character_lock_execution.get("pass_plan"),
+        "scene_director_character_lock_primary_path": "legacy_in_sampler_attention" if (primary_attention_lock_active and character_lock_execution.get("in_sampler_attention_enabled")) else ("end_refinement_only" if character_lock_execution.get("end_refinement_enabled") else "none"),
         "scene_director_legacy_attention_lock_primary": bool(primary_attention_lock_active),
-        "scene_director_masked_correction_role": "rescue_only",
+        "scene_director_masked_correction_role": "optional_pass_plan" if character_lock_execution.get("uses_scene_masks") else "not_requested",
         "scene_director_character_lock_execution_masked": bool(first_pass_character_lock_nodes_added or final_pass_character_lock_nodes_added),
         "scene_director_effective_authority_values": deepcopy(scene_node_effective_authority_values),
         "scene_director_effective_authority_values_phase": "V25.9.6-fix1",
@@ -8773,6 +10273,7 @@ def apply_scene_director_patch(
         "scene_director_final_character_lock_nodes_added": final_pass_character_lock_nodes_added,
         "scene_director_relationship_pose_authority": _scene_relationship_pose_authority(scene_graph_v054),
         "scene_director_pair_pose_authority": _scene_relationship_pose_authority(scene_graph_v054),
+        "scene_director_character_pose_authority": _scene_character_pose_authority(scene_graph_v054),
         "scene_director_background_space_authority": _scene_background_space_authority(scene_graph_v054),
         "scene_director_advanced_fix_pass_controls": deepcopy(advanced_fix_pass_controls),
         "scene_director_layout_safety": deepcopy((scene_graph_v054.get("metadata", {}) if isinstance(scene_graph_v054, dict) else {}).get("layout_safety", {})),
@@ -8781,6 +10282,8 @@ def apply_scene_director_patch(
         "scene_director_background_restore_nodes_added": background_restore_nodes_added,
         "scene_director_skin_build_contrast_authority": skin_build_contrast_authority,
         "scene_director_skin_build_restore_nodes_added": skin_build_restore_nodes_added,
+        "scene_director_character_latent_midstep_authority": character_midstep_authority,
+        "scene_director_character_latent_midstep_nodes_added": character_midstep_nodes_added,
         "scene_director_character_latent_controller": character_latent_controller,
         "scene_director_environment_aware_character_lanes": deepcopy(character_latent_controller.get("environment_aware_character_lanes") or {}),
         "scene_director_character_latent_controller_nodes_added": character_latent_controller_nodes_added,
@@ -8871,6 +10374,7 @@ def apply_scene_director_patch(
             "background_separation_guard": background_separation_guard,
             "background_authority_restore": background_authority_restore,
             "skin_build_contrast_authority": skin_build_contrast_authority,
+            "character_latent_midstep_authority": character_midstep_authority,
             "character_latent_controller": character_latent_controller,
             "outfit_preservation_restore": outfit_preservation_restore,
             "final_background_reconciliation": final_background_reconciliation_restore,
@@ -8897,6 +10401,7 @@ def apply_scene_director_patch(
         "scene_director_character_lock_execution_bridge_mode": True,
         "scene_director_character_lock_positive_added": character_lock_positive_add,
         "scene_director_character_lock_negative_added": character_lock_negative_add,
+        "scene_director_character_lock_live_conditioning": _v054_live_character_conditioning_report(scene_graph_v054, character_lock_execution) if scene_node_class == V054_NODE_CLASS else {"status": "not_applicable"},
         "scene_director_attention_lock_runtime_proof": attention_lock_runtime_proof,
         "scene_director_attention_lock_runtime": attention_lock_runtime_proof,
         "scene_director_legacy_appearance_lock_parity": {

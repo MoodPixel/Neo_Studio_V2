@@ -11,7 +11,7 @@ applies_to:
   - regional prompting
   - regional masks
   - character lock
-  - pair pose authority
+  - character pose authority
   - background space authority
   - extension routing
   - sdxl
@@ -28,7 +28,7 @@ tags:
   - region cards
   - v054
   - character lock
-  - pair pose
+  - character pose
   - background space
   - mask refinement
   - layout safety
@@ -38,22 +38,62 @@ tags:
   - route aware
   - loader aware
 priority: 126
-version: 1
-updated: 2026-07-09
+version: 2
+updated: 2026-07-22
 ---
 
 # Scene Director
 
 **Scene Director** is Neo Studio's built-in regional scene planner for the **Image → Generation** workspace. It lets the user divide an image into regions, assign each region a role and prompt, preserve character/body traits, route global prompt context into regions, and coordinate region-aware extension intent.
 
-Use this guide when the user asks about Scene Director, region boxes, Character Lock, V054 roles, background/character regions, regional LoRA/IPAdapter/ControlNet routing, pair pose authority, or why Scene Director is disabled for a selected Image route.
+Use this guide when the user asks about Scene Director, region boxes, Character Lock, V054 roles, background/character regions, regional LoRA/IPAdapter/ControlNet routing, character-local pose authority, or why Scene Director is disabled for a selected Image route.
 
-Scene Director does **not** replace the main Positive/Negative Prompt fields. Neo's main prompts remain the **global scene context**. Scene Director reads those prompts, then adds structured regional guidance on top.
+Scene Director does **not** replace the main Positive/Negative Prompt fields by default. The current V054 default is **Global context + Scene Director structure**: Neo's main prompts own scene mood, environment, style, lighting, and camera context, while Scene Director owns subject count, identities, relationships, poses, and exact object/region placement. The advanced **Scene Director only** mode explicitly excludes the Neo core positive/negative conditioning from the V054 node.
+
+## Current V054 simplification
+
+The normal workflow has one prompt-ownership selector and a canvas with simple region cards. The old authority modes, numeric weights, mask switches, contracts, context tuning, repair passes, identity locks, extension routing, and raw payload details remain available inside collapsed Advanced controls for replay and expert tuning.
+
+| Prompt authority | Runtime behavior | Best use |
+|---|---|---|
+| **Global context + Scene Director structure** | Keeps Neo core positive/negative conditioning on the canvas lane and shares only a compact, token-safe context suffix with regional branches. | Default for coherent style/environment plus difficult multi-subject or placement scenes. |
+| **Scene Director only** | Blanks Neo core prompt conditioning inside the V054 route. Local region prompts, relationships, poses, contracts, and explicit Scene Director-owned lanes remain active. | Advanced isolation/debugging when every conditioning phrase should be authored in Scene Director. |
+
+The global prompt is not copied in full into every region. This keeps regional identity/pose wording readable while preserving the main scene context. Existing saved payloads normalize through the legacy bridge and receive the default global-context mode when no explicit authority field exists.
+
+## Character Lock execution plan
+
+Character Lock strength and extra repair passes are separate controls. **Character Lock Lanes: Strong** activates the V054 in-sampler attention branch; explicit traits influence the character throughout one uninterrupted denoising run. **Mid-sampling Trait Lanes** is only a gate for the separately selected experimental midpoint plan. `Force on` never overrides the fast plan or adds a sampler by itself.
+
+Choose one pass plan when needed:
+
+| Pass plan | Runtime behavior | Cost / use |
+|---|---|---|
+| **In-sampler latent lock (fast)** | Legacy V1 Hairlock Strong behavior through the V054 `attn2` model patch. No Character Lock repair KSamplers. | Default for gender, ethnicity, hair, build, and clothing stability. |
+| **Experimental midpoint trait repair** | Requests a split `KSamplerAdvanced` route. Neo blocks the split for SDE/multistep samplers because a second invocation cannot preserve their solver history. | Diagnostic only; prefer the uninterrupted in-sampler lock. |
+| **End refinement only** | Disables the in-sampler appearance branch and runs the selected late repair/refinement controls. | Use only when a deliberate final repair is wanted. |
+| **Latent lock + end refinement** | Runs both families. | Slowest and most likely to overcook; use for diagnosis only. |
+
+The old `latent_correction` label normalizes to **In-sampler latent lock (fast)** for compatibility with the legacy behavior. The old `masked_correction` label normalizes to **End refinement only**. Submit a fresh workflow after changing this setting; if a replayed graph still contains the old Scene Director subject-mask chain, the backend now removes that identifiable chain and reconnects decode to the selected plan.
+
+Compatibility behavior: a replayed or older payload may still say
+`character_lock_execution_mode = latent_attention` while its visible
+**Mid-sampling Trait Lanes** control is `Force on`. The backend now preserves
+`latent_attention` as the effective plan, removes any stale midpoint chain, and
+keeps one uninterrupted sampler. Only an explicit midpoint pass-plan selection
+can request a split.
+
+Character Trait Lock values are live runtime inputs. V054 preserves the region
+`character_traits` and `character_lock_correction` fields, compiles positive
+terms into the subject-local attention branches, and routes explicit negative
+corrections to the sampler negative conditioning. A runtime report of
+`live_in_sampler_attention` means no separate masked trait lane is expected for
+the fast plan.
 
 
 ## Quick field map
 
-Scene Director's visible controls are grouped as: **Main Scene Director panel**, **Prompt rules**, **Region context suffix**, **Pair Pose Authority**, **Background Space Authority**, **Fix Pass Controls + Layout Safety**, **First-pass Character Lock Authority**, **Character Lock**, **Global Context Routing**, **Presets**, **Region Canvas**, **Region Cards**, **Advanced Region Control**, **Extension Routing**, and **Character Trait Lock**. Active workflow patching expects the **NeoSceneDirectorV054** Comfy node on supported SDXL/SD1.5 checkpoint routes.
+Scene Director's visible controls are grouped as: **Prompt authority**, **Region Canvas**, **Region Cards**, and collapsed **Advanced Scene Control**. Advanced Scene Control contains prompt rules, region context tuning, background space, fix passes, Character Lock, owner-extension routing, presets, and expert payload details. Each Character region's **Character Trait Lock → Pose** field is the sole text-pose authority. Active workflow patching expects the **NeoSceneDirectorV054** Comfy node on supported SDXL/SD1.5 checkpoint routes.
 
 ## Route support and gating
 
@@ -89,7 +129,9 @@ If Scene Director is visible but disabled/gated, explain the route reason instea
 | **Normalize masks** | Normalizes/cleans region masks for safer regional routing. | Usually keep on. Turn off only for advanced debugging. |
 | **Character mask refinement metadata** | Preserves intent that character masks should be refined. | Useful for character-heavy scenes, but it is metadata/route-dependent and not always an active extra pass. |
 
-## Authority modes
+## Legacy execution authority (advanced only)
+
+The seven historical execution modes are retained only for saved-payload compatibility and expert diagnosis. They do not replace the two-option Prompt authority contract above.
 
 | Mode | Meaning | Use case |
 |---|---|---|
@@ -128,19 +170,24 @@ Region context suffix controls whether global/style context is appended to each 
 | **Position** | Current UI uses `suffix`. | This means context is appended after each region prompt. |
 | **Apply global style to regional refinement passes** | Allows Style Stack/global style to affect regional refinement passes. | Default off keeps Style Stack in the Scene Director global prompt only. Turn on if refinement passes need the same style language. |
 
-## Pair Pose Authority
+## Character-local Pose Authority
 
-Pair Pose Authority is for relationship/contact intent across character regions.
+Phase 27.13 retires the separate Advanced **Pair Pose Authority** control. Each
+Character region now owns its own Pose text inside **Character Trait Lock →
+Pose**, and that Pose follows the visible Character Lock strength.
 
-| Field | What it does | Advice |
-|---|---|---|
-| **Enable pair pose authority** | Activates shared pose/contact intent for character regions. | Use for couples, hugs, hand-holding, close selfie poses, fighting/contact poses, or any pose involving more than one person. |
-| **Feed into Character Trait pose group** | Copies pair-pose intent into character trait pose context. | Keep enabled when character pose dropdowns should inherit the shared contact idea. |
-| **Pair pose / contact intent** | Describes the relationship/contact action for the scene. | Be specific: who is behind/in front, who touches whom, relaxed vs dramatic, etc. |
-| **Pair pose negative guard** | Guards against failed contact. | Include issues like separated bodies, wrong contact, extra arms, fused hands, broken anatomy. |
-| **Pose strength** | Controls influence of pair pose intent. | Around `0.75` is strong but still flexible. Lower if composition becomes stiff. |
+Describe only the selected character's body state and action. Another character
+may be named only as a contact target:
 
-Pair Pose Authority does not replace exact spatial control. Use it together with clear region boxes and, when needed, OpenPose/ControlNet/reference images.
+- Person 1: `standing beside Person 2, one arm around Person 2's waist`;
+- Person 2: `seated on the office table, knees bent, torso toward Person 1`.
+
+Do not copy one shared paragraph into both characters. That makes actor/posture
+ownership ambiguous and lets one model seed swap who is standing or seated.
+Character-local Pose terms ride the existing primary/full-character branches;
+they do not add a pose lane, mask, sampler, or repair pass. For exact joint,
+hand, and limb coordinates, route OpenPose or another pose ControlNet to the
+matching character region.
 
 ## Background Space Authority
 
@@ -161,12 +208,14 @@ If the scene already has a proper background region card, use the region card in
 
 Fix Pass Controls are optional repair/cleanup lanes. They are not always needed. Smaller, tighter character boxes usually solve more than extra repair passes.
 
+The **Character Lock pass plan** is the parent switch for these lanes. By default, **In-sampler latent lock (fast)** skips Character Lock repair samplers, outfit fallback, background restore, and final background reconciliation. The **Mid-sampling Trait Lanes** control cannot change that selection; it only permits a midpoint lane after the midpoint plan is explicitly selected. The first-pass rescue and end/background lanes run only when **End refinement only** or **Latent lock + end refinement** is selected; the individual controls below can still turn those selected lanes off.
+
 | Field | What it does | Advice |
 |---|---|---|
 | **Fix pass mode** | Controls the overall repair strategy: Minimal/Fast, Smart/Auto, Manual, or Force All. | Use Minimal/Fast for first tests. Use Smart/Auto for normal correction. Use Force All only when debugging stubborn failures. |
 | **First-pass Character Lock** | Controls whether character lock rescue runs before adapters/other passes. | Use Auto unless identity/gender/body preservation is failing. |
 | **Background Restore** | Controls background repair/restoration pass. | Use Auto or Off. Force on only when backgrounds are broken and masks are safe. |
-| **Character Trait Lanes** | Controls repair lanes for explicit character traits. | Use Auto for character consistency problems. |
+| **Mid-sampling Trait Lanes** | Gates an explicitly selected experimental midpoint lane. It never promotes the fast plan. | Keep Auto/Off for normal work. Force on only after explicitly choosing the midpoint plan with a proven split-safe sampler. |
 | **Final Background Reconcile** | Controls final cleanup between character/background lanes. | Use Auto if backgrounds and characters conflict. |
 | **Environment-aware character lanes** | Lets character repair consider nearby environment. | Usually keep on so character fixes do not ignore the scene. |
 | **Layout safety warnings** | Reports whether region boxes leave enough raw background area. | If warnings appear, tighten character boxes or add a background region. |
@@ -174,14 +223,14 @@ Fix Pass Controls are optional repair/cleanup lanes. They are not always needed.
 | **Full-height box threshold** | Detects too-large/full-height character boxes. | Default `0.92`; warnings mean region boxes may be stealing background authority. |
 | **Auto-fit selected/all character boxes** | Shrinks/aligns character boxes to safer proportions. | Use when boxes are oversized or background authority is blocked. |
 
-## First-pass Character Lock Authority
+## Character Lock execution path and repair settings
 
-This nested section owns the first character rescue pass details.
+This nested section contains the pass-plan selector and the numeric settings for optional repair samplers. The pass plan is the activation control; these fields only tune a selected repair family. The fast in-sampler plan does not add a late sampler.
 
 | Field | What it does |
 |---|---|
-| **Execution type** | Usually `Masked correction pass`; runs correction inside the selected character mask. |
-| **Enable first-pass character correction** | Turns the first-pass correction lane on/off. |
+| **Character Lock pass plan** | Selects the independent execution layer: in-sampler latent lock, mid-sampling trait repair, end refinement, both, prompt guard only, or off. |
+| **Allow end-refinement character pass** | Gates the optional end character repair when an end-refinement plan is selected. It does not affect the fast in-sampler lock. |
 | **Apply to** | Usually `Strong/Strict locks only`; prevents unnecessary correction when locks are soft. |
 | **Correction timing** | Usually after base composition / before adapters, so identity/trait correction happens before adapter-heavy steps. |
 | **Correction denoise** | Amount of change in the correction pass. `0.3` is moderate. |
@@ -190,7 +239,7 @@ This nested section owns the first character rescue pass details.
 | **Mask source** | Chooses full character mask or another mask source. Full character mask is safest for identity/body preservation. |
 | **Mask feather** | Softens the correction mask edge. `24` is a common safe value. |
 | **Protect outfit / props** | Avoids rewriting clothing/props while correcting character traits. |
-| **Protect pose / contact** | Avoids breaking pair pose/contact while correcting identity/traits. |
+| **Protect pose / contact** | Avoids breaking character-local pose/contact while correcting identity/traits. |
 | **Per-character correction fields** | Optional per-person gender/positive lock/negative guard text. Use these for exact subject protection. |
 
 ## Character Lock
@@ -200,6 +249,7 @@ Character Lock controls what to preserve about character regions.
 | Field | What it protects |
 |---|---|
 | **Character Lock** | Overall identity/subject consistency. Modes: Off, Soft, Balanced, Strong, Strict. |
+| **Character Lock pass plan** | Chooses in-sampler latent lock versus optional latent repair and end refinement passes. Strong/Strict does not automatically activate late samplers. |
 | **Gender Guard** | Prevents gender swap/wrong gender. Strong/Strict are useful for binary-gender preservation tests. |
 | **Skin Tone Guard** | Helps preserve described skin tone. |
 | **Hair Guard** | Helps preserve hair color/style. |
@@ -214,7 +264,9 @@ Character Lock controls what to preserve about character regions.
 
 Use **Strong** or **Strict** only when identity/traits keep changing. Higher locks can protect subjects but may reduce creative flexibility.
 
-## Global Context Routing
+## Prompt routing status
+
+Global routing is now summarized from the Prompt authority contract. There are no duplicate global-routing checkboxes in the normal workflow. The compact regional suffix uses Neo core positive/style context only in the global-context mode; Scene Director-only mode disables that suffix and the core canvas conditioning.
 
 Global Context Routing connects the main Neo prompts to Scene Director.
 
@@ -270,18 +322,45 @@ Each region card defines a local lane.
 
 A region is active when it is enabled, visible, and has prompt/reference/routing intent.
 
-## Advanced Region Control
+## Attached Detail Roles (Phase 27.14)
 
-Advanced Region Control contains optional region-level routing and overrides.
-
-### Relationship & Attachment
+Character and Background are main parent regions. Their cards do not carry
+attachment controls. Every other role owns its link on the child/detail card,
+so attachment is authored in one place only.
 
 | Field | What it does |
 |---|---|
-| **Attach to** | Links this region to another region/parent. Useful for hair/detail/object regions attached to a character. |
-| **Relationship** | Defines relationship type to the attached region. |
-| **Target area** | Names the target area such as hair, face, hands, outfit, prop. |
-| **Priority** | Controls whether the region reinforces, overrides, or resolves conflicts with parent wording. |
+| **Attach to** | Selects the Character or Background parent from inside the child/detail region. |
+| **Relationship** | Defines how the child belongs to the parent, such as Wearing, Holding, or Attached to. |
+| **Target area** | Names the precise target, such as necktie, jacket, hair, face, or right hand. |
+| **Overlap behavior** | Override wins locally; Reinforce shares authority; Blend is softer. |
+
+The child prompt is compiled only into the child mask. It is not copied into
+the complete parent Character prompt. This prevents a phrase such as `red silk
+necktie` from tinting a black suit while still letting the small tie box win at
+the overlap. A required child with no valid parent is skipped with a visible
+warning; it does not disable the remaining Scene Director graph.
+
+Example:
+
+```text
+Role: Clothing detail
+Attach to: Person 1
+Relationship: Wearing
+Target area: necktie
+Overlap behavior: Override
+Prompt: clearly visible saturated red silk necktie
+```
+
+Neo does not add blanket NSFW/nudity filters or hidden content-policy negatives.
+The user's Base Prompt, detail Prompt, structured selections, and optional
+Region negative prompt remain authoritative.
+
+## Advanced Region Control
+
+Advanced Region Control contains optional prompt templates, region-level
+routing, source/edit settings, and compositor controls. Attachment itself now
+lives only in the visible child-role panel.
 
 ### Prompt Overrides
 
@@ -358,21 +437,230 @@ Character Trait Lock is available on V054 Character regions. It gives explicit t
 | Trait field | Purpose |
 |---|---|
 | **Gender** | Explicit gender terms for the character. |
-| **Ethnicity** | Explicit ethnicity/heritage terms. |
+| **Ethnicity** | Explicit ethnicity/heritage terms from the editable data library. Built-in entries include broader appearance wording where useful. |
 | **Species / Fantasy Race** | Human, mer, demon, elf, etc. |
 | **Build / Body** | Slim, muscular, curvy, athletic, etc. |
 | **Skin Tone** | Skin tone preservation terms. |
-| **Hair** | Hair color/style/length terms. |
-| **Clothing Top** | Top/shirt/jacket/upper outfit. |
-| **Clothing Bottom** | Pants/skirt/lower outfit. |
-| **Full Costume** | Full outfit override when top/bottom is not enough. |
-| **Pose** | Character pose or relation to another region. |
+| **Hair** | Color-neutral hairstyle/length. Open **🎨 Add color** for a primary color and, optionally, a second color plus a blend pattern. |
+| **Facial Hair** | Clean-shaven, stubble, beard, moustache, sideburn, and related facial-hair authority. |
+| **Clothing Top** | Color-neutral top/shirt/jacket/upper outfit; optional shared color. |
+| **Clothing Bottom** | Color-neutral pants/skirt/lower outfit; optional shared color. |
+| **Full Costume** | Color-neutral full outfit override when top/bottom is not enough; optional shared color. |
+| **Pose** | Sole text-pose authority for this character. Describe its own posture/action; mention another Person only as a contact target. |
 | **Expression** | Facial expression / mood. |
 | **Accessories** | Glasses, jewelry, props, bags, etc. |
 | **Shoes** | Footwear terms. |
 | **Custom + button** | Adds custom terms to the matching trait JSON library for future dropdown reuse. |
 
-Use trait fields when the model keeps changing gender, body, clothing, ethnicity, pose, or expression. Keep fields short and descriptive. The region prompt still carries the main creative wording.
+Use trait fields when the model keeps changing gender, body, clothing, ethnicity, pose, or expression. Keep fields short and descriptive. The region prompt still carries the main creative wording. For stubborn gender/body drift, use the per-character correction positive/negative fields; they are compiled into the live V054 route rather than stored only as metadata.
+
+### Shared colors and two-color hair
+
+Hair, Clothing Top, Clothing Bottom, and Full Costume use one editable shared
+color library. Style entries are intentionally color-neutral, so a hairstyle or
+garment does not need to be duplicated once per color. The built-in palette is
+a curated set of 72 common, fashion, natural-hair, pastel, metallic, and neon
+colors; **＋ Add custom color** can extend it without changing Python code.
+
+The palette opener is shown as **🎨 Add color**. The normal `＋` icon remains
+reserved for creating a new reusable trait/color, which avoids confusing
+"assign this existing color" with "add a new library record."
+
+The selected value now includes a real swatch, and **View visual palette**
+opens clickable color chips. Hex values remain library metadata/tooltips rather
+than being the only visible clue. If the free character prompt names one color
+near the selected style while the picker assigns another, Neo shows a warning:
+both values would otherwise reach the sampler and compete.
+
+Clothing uses one optional color. Hair supports a primary color plus one
+optional secondary color with an explicit pattern:
+
+- highlights;
+- roots to lengths;
+- colored tips;
+- streaks;
+- split dye;
+- ombré.
+
+A color can also be selected while the style dropdown remains **Auto / none**.
+In that case Neo compiles a neutral target such as `pink hair` or `red top
+garment` and leaves the exact style to the prompt/model.
+
+Two colors are compiled as a deterministic phrase (for example, a primary
+hairstyle with secondary highlights); Neo does not numerically average RGB
+values. Literal color mixing is ambiguous to diffusion models and is less
+controllable than naming where each color appears.
+
+Older combined library selections such as a colored hairstyle are migrated to
+their neutral style plus the matching shared color. Saved V054 queues that
+predate structured colors can still recover a color already present in their
+authored trait text.
+
+### Facial hair, ethnicity, character Pose, and mask edges
+
+Facial Hair is a first-class live trait category, so requested stubble or a
+clean-shaven face receives the same character-local Strong/Strict authority as
+other identity traits. Its opposite terms also remain subject-local; one
+character's clean-shaven guard cannot remove another character's beard.
+
+For Strong/Strict Character Lock, facial hair shares one short face-local lane
+with structural gender/identity. Phase 27.12 replaces the older standalone
+facial-hair lane because two overlapping normalized face masks could make the
+grooming branch steal authority from the male/female face without actually
+rendering a small stubble texture. The merged lane uses only selected editable
+identity/grooming terms and their data-authored negatives, applies them to one
+softly feathered head/face zone, and stays inside the same uninterrupted
+sampler. Accessories, expression, clothing, pose, and relationship prose remain
+in the normal styling/character branches and cannot redefine structural face
+identity.
+
+Ethnicity wording is stored in editable JSON trait entries. The runtime does
+not contain person-specific ethnicity substitutions or a hidden example scene.
+Prompt provenance reports that core prompts, region text, traits, colors, and
+character-local Pose come from explicit user fields or editable libraries;
+demo/personal prompt injection is false.
+
+Character Pose is compiled first in that character's primary prompt and carried
+through its existing full-character branch at Character Lock strength. Regional
+opposite-posture guards remain inside the same character mask. Old Pair Pose
+metadata is retained only as a content-free retirement marker and cannot reach
+conditioning. This remains text conditioning, not a replacement for pose
+ControlNet when exact limbs/contact geometry is required.
+
+V054 now reads feather from the normalized region mask, including
+`metadata.mask.feather`, before converting to the live attention graph. This
+keeps soft character boundaries around hair, hands, and overlapping bodies
+instead of silently falling back to a hard zero-feather edge.
+
+### Seed-stable structural gender authority
+
+Strong and Strict gender locks add one compact subject-local face/grooming lane
+inside the existing sampler. It contains only selected data-authored gender,
+ethnicity, skin/species, and facial-hair cues, the face-safe portion of the
+visible per-character correction field, and their matching regional negative.
+This prevents a long pose/outfit/relationship/accessory branch from diluting or
+re-gendering the face differently across random seeds.
+
+The lane does not start a second sampler, restart an SDE solver, repaint the
+latent, or inject a person-specific scene prompt. Gender and grooming
+vocabulary lives in editable JSON libraries; generic compiler wording only
+describes how the selected values are applied.
+
+### Clothing-aware gender and body-scoped garment lanes
+
+When Clothing Top or Full Costume is explicitly selected, legacy positive
+correction fragments such as bare-chest/torso anatomy are removed from live
+conditioning. The selected gender, face, presentation, silhouette, and all
+regional gender negatives remain active. Fresh built-in gender entries are
+clothing-safe by default; the runtime filter exists for older saved queues and
+custom correction text.
+
+Strong/Strict structured clothing now receives exact subject-local garment
+conditioning from the editable trait and shared color libraries:
+
+- Clothing Top uses a softly feathered upper-body slice and regional
+  missing/wrong-top consistency guards. When Top Garment State explicitly says
+  open or unbuttoned, Neo removes the conflicting `bare chest` exclusion while
+  still preserving the worn garment.
+- Clothing Bottom uses a lower-body slice and missing/wrong-bottom guards.
+  Lowered/unzipped states and a visible Underlayer disable the old
+  `underwear instead of selected bottom garment` conflict.
+- Full Costume uses one body clothing slice and takes precedence over separate
+  Top/Bottom lanes to avoid contradictory outfit stacks.
+
+These masks start below the face, so a hoodie, suit, shorts, or costume cannot
+compete with stubble/gender at face pixels. Earrings and other Accessories still
+reach the primary character prompt as requested styling, but are excluded from
+structural face identity. Every lane remains inside one uninterrupted sampler.
+
+### Character Additional Details
+
+Phase 27.15 adds a nested **Character → Additional Details** panel for visible
+character-owned requirements that do not belong in identity, ethnicity, Pose,
+or the main garment-type picker:
+
+- **Body Details** uses an editable JSON library plus custom text for body hair,
+  freckles, tattoos, scars, and similar body-wide traits.
+- **Top Garment State** controls buttoned, unbuttoned, open, rolled-sleeve,
+  tucked, and related states without changing the selected top garment.
+- **Bottom Garment State** controls fastened, unzipped, belt-open, lowered, or
+  partially pulled-down states without replacing the selected bottom garment.
+- **Underlayer / Underwear** controls the visible underlayer type and uses the
+  shared visual color library.
+- **Held Items** is repeatable and records the item, hand, action, and
+  material/color description.
+- **Targeted Custom Details** is repeatable and stores an instruction, target
+  area, optional subject-local negative, and an optional reusable JSON preset.
+
+Targeted custom areas are Full body, Face, Torso / upper body, Lower torso /
+waist, Arms / hands, Legs, and Feet. They reuse the matching existing branch:
+Face joins the merged face/grooming branch; torso and lower-body targets join
+the existing clothing branch; full-body and limb details stay in the existing
+character branch. Neo does not create one attention lane per detail.
+
+Held Items establishes character ownership and hand action in that character's
+existing Pose/full-character text. When the object's exact silhouette or local
+appearance matters, use a Phase 27.14 child **Held Prop** rectangle as well.
+The character field and child object serve different jobs and neither prompt is
+copied into the parent from the child.
+
+Essential visible states should still be stated once in the Base Prompt. The
+Base Prompt owns the complete scene and shared visibility; Character Additional
+Details assigns exact body, garment-state, underlayer, and held-item ownership
+to the correct person.
+
+All built-in Additional Detail presets are editable JSON. User-written prompts
+and optional negatives remain authoritative. Phase 27.15 adds no blanket
+content-policy negative, nudity restriction, hidden safety prompt, extra
+sampler, masked repaint pass, or per-detail attention branch.
+
+### Mid-sampling Character Trait Repair
+
+The V054 midpoint route runs only when the **Character Lock pass plan** is
+explicitly set to the experimental midpoint option and the lane gate allows it.
+It continues the full latent canvas and scopes extra conditioning to character
+masks, but it is not the default Character Lock mechanism.
+
+This is important for fresh txt2img generation: the midpoint route must not
+freeze the background with a new `SetLatentNoiseMask`, because the background
+would still be unfinished diffusion noise at that point. End refinement is a
+separate optional pass and remains off unless selected independently.
+
+Neo blocks midpoint splitting for SDE and multistep samplers such as
+`dpmpp_3m_sde_gpu`. Matching the seed cannot restore the solver/Brownian state
+lost when a new sampler invocation begins. The safe fallback is the uninterrupted
+V054 in-sampler attention route.
+
+### Strong trait authority and regional negatives
+
+Strong/Strict character traits are compiled at the front of each character's
+live CLIP branch. Phase 27.8 keeps this inside the same uninterrupted sampler
+and gives each locked character two compact identity lanes: a full structural
+identity lane and an upper/head identity lane. These lanes use the original
+submitted character description plus the explicit trait/correction fields;
+they do not recursively copy V054's generated lock prose.
+
+Strong exact traits use bounded CLIP authority (`1.55`), while the submitted
+structural correction clauses use `1.62`. This makes gender morphology and
+distinctive hair instructions materially stronger than Balanced without
+starting a second sampler or changing the denoising schedule.
+
+Negative guards are character-local. This matters in mixed-trait scenes: a
+pink-hair character can reject black/brown/blonde hair inside Person 1's mask
+while Person 2 still keeps explicitly requested black hair. Gender/body guards
+follow the same subject-mask boundary instead of becoming diagnostic-only text.
+When the same negative arrives from both a Balanced free-text field and a Strong
+structured guard, the strongest weight wins instead of the earlier entry
+silently downgrading it.
+
+Mask feathering is applied before numeric authority. This preserves Strong and
+Strict mask gain above `1.0`; the previous order clamped the gain during
+feathering even though diagnostics still reported the stronger value.
+
+Replayed graphs remove old midpoint conditioning chains when the fast plan is
+selected, so decode reconnects to the uninterrupted main sampler. The upper
+identity mask also expands slightly above the authored character rectangle to
+cover hair that drifts beyond the box during txt2img generation.
 
 ## Best practices
 
@@ -382,7 +670,7 @@ Use trait fields when the model keeps changing gender, body, clothing, ethnicity
 - Use region prompts for local subject/background/object instructions.
 - Add a background region when the background matters.
 - Use Prompt Rules for subject count and anti-merge protection.
-- Use Pair Pose Authority for contact/relationship scenes.
+- For contact scenes, give each Character its own Pose and name the other Person only as the contact target.
 - Use Character Lock and Trait Lock when identity/body/gender/clothing keep drifting.
 - Test once with Style Stack/CFG Fix off if you are debugging pure Scene Director behavior.
 - Do not expect Scene Director to work on Qwen/Flux/ZImage/HiDream/Grok routes unless the UI explicitly shows a future compatible adapter route.
@@ -394,6 +682,6 @@ When answering Scene Director questions:
 1. Check the live Image snapshot for Model Family, Main Model Type, Workflow Mode, backend, Scene Director enabled state, and route state.
 2. If the route is not SDXL/SD1.5 checkpoint Generate/Img2Img/Inpaint on ComfyUI, explain the gating first.
 3. Explain fields in user terms. Do not dump raw `scene_graph_json` or metadata unless requested.
-4. For prompt help, produce a practical region setup: global prompt, region labels/roles, region prompts, negatives, and any useful Pair Pose / Background Space / Character Lock settings.
-5. For multi-character issues, recommend tighter boxes, one character per region, Prompt Rules, Pair Pose Authority, Character Lock, and explicit Character Trait Lock.
+4. For prompt help, produce a practical region setup: global prompt, region labels/roles, region prompts, character-local Pose fields, negatives, and any useful Background Space / Character Lock settings.
+5. For multi-character issues, recommend tighter boxes, one character per region, Prompt Rules, one Pose per character, Character Lock, and explicit Character Trait Lock.
 6. For regional LoRA/IPAdapter/ControlNet, explain owner-extension dependency: LoRA Stack/IP Adapter/ControlNet own assets; Scene Director owns regional assignment.

@@ -3539,6 +3539,21 @@ body.neo-modal-open {
 }
 .neo-scene-core-prompts strong { display: block; margin-bottom: 0.35rem; }
 .neo-scene-core-prompts p { margin: 0; color: var(--neo-muted, #94a3b8); font-size: 0.86rem; line-height: 1.35; max-height: 5.2rem; overflow: auto; }
+.neo-scene-authority-choice {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: end;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(45, 212, 191, 0.34);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.32);
+}
+.neo-scene-authority-choice p { margin: 0.3rem 0 0; }
+@media (max-width: 720px) {
+  .neo-scene-authority-choice { grid-template-columns: 1fr; }
+}
 .neo-scene-canvas-section { overflow: visible; }
 .neo-scene-canvas-wrap {
   display: flex;
@@ -11156,6 +11171,104 @@ textarea {
   }
 }
 
+/* IMG-R18 — explicit provider-latent continuation for late passes only */
+.neo-output-late-pass-panel {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  border-radius: 14px;
+  background: rgba(14, 116, 144, 0.09);
+}
+.neo-output-late-pass-panel.is-active {
+  border-color: rgba(34, 211, 238, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.1);
+}
+.neo-output-late-pass-copy {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.neo-output-late-pass-title {
+  color: var(--neo-text-main);
+  font-size: 13px;
+  font-weight: 800;
+}
+.neo-output-late-pass-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.neo-output-late-pass-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.neo-late-pass-preset-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px dashed rgba(167, 139, 250, 0.55);
+  border-radius: 12px;
+  background: rgba(76, 29, 149, 0.10);
+}
+.neo-late-pass-preset-banner strong {
+  color: var(--neo-text-main);
+}
+
+.neo-late-pass-active-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(34, 211, 238, 0.48);
+  border-radius: 12px;
+  background: rgba(8, 145, 178, 0.12);
+}
+.neo-late-pass-active-banner.is-waiting {
+  border-color: rgba(245, 158, 11, 0.58);
+  background: rgba(146, 64, 14, 0.12);
+}
+.neo-late-pass-active-banner.is-blocked {
+  border-color: rgba(239, 68, 68, 0.62);
+  background: rgba(127, 29, 29, 0.14);
+}
+.neo-late-pass-active-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.neo-late-pass-active-copy strong { color: var(--neo-text-main); }
+.neo-late-pass-active-copy span { color: var(--neo-text-soft); font-size: 12px; }
+.neo-late-pass-active-copy small { color: var(--neo-text-muted); }
+.neo-late-pass-active-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+@media (max-width: 880px) {
+  .neo-output-late-pass-panel,
+  .neo-late-pass-active-banner,
+  .neo-late-pass-preset-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .neo-output-late-pass-actions .neo-btn,
+  .neo-late-pass-active-actions .neo-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* Image Replay Resume IMG-R5 — Output Inspector Post-Fix staging panel */
 .neo-output-postfix-panel {
   display: flex;
@@ -11923,6 +12036,125 @@ textarea {
   gap: 0.75rem;
 }
 .neo-scene-character-trait-grid label { min-width: 0; }
+.neo-scene-trait-field {
+  min-width: 0;
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+  padding: 0.65rem;
+  border: 1px solid var(--neo-border-soft);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.22);
+}
+.neo-scene-trait-color-panel {
+  border: 1px solid rgba(236, 72, 153, 0.28);
+  border-radius: 10px;
+  background: rgba(236, 72, 153, 0.06);
+}
+.neo-scene-trait-color-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  color: var(--neo-text-main);
+  font-weight: 700;
+}
+.neo-scene-trait-color-panel > summary small { color: var(--neo-text-muted); font-weight: 600; }
+.neo-scene-trait-color-controls {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0 0.65rem 0.65rem;
+}
+.neo-scene-trait-color-controls .neo-btn { justify-self: start; }
+.neo-scene-color-selection {
+  display: grid;
+  grid-template-columns: 1.45rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+.neo-scene-color-selection select { min-width: 0; width: 100%; }
+.neo-scene-color-swatch {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.72);
+  background: var(--neo-scene-trait-swatch);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.82), 0 2px 8px rgba(2, 6, 23, 0.34);
+  vertical-align: middle;
+}
+.neo-scene-color-swatch.is-empty,
+.neo-scene-color-choice.is-empty {
+  background:
+    linear-gradient(45deg, transparent 45%, rgba(248, 113, 113, 0.92) 46% 54%, transparent 55%),
+    repeating-conic-gradient(rgba(148, 163, 184, 0.45) 0 25%, rgba(30, 41, 59, 0.72) 0 50%) 50% / 8px 8px;
+}
+.neo-scene-color-summary-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  margin-left: 0.42rem;
+}
+.neo-scene-color-swatch.is-summary {
+  width: 0.92rem;
+  height: 0.92rem;
+  flex-basis: 0.92rem;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.78);
+}
+.neo-scene-color-palette-panel {
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  border-radius: 9px;
+  background: rgba(2, 6, 23, 0.22);
+}
+.neo-scene-color-palette-panel > summary {
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: var(--neo-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.neo-scene-color-palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(1.7rem, 1fr));
+  gap: 0.38rem;
+  max-height: 11rem;
+  overflow: auto;
+  padding: 0 0.55rem 0.6rem;
+}
+.neo-scene-color-choice {
+  appearance: none;
+  width: 100%;
+  min-width: 1.7rem;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.52);
+  background: var(--neo-scene-trait-swatch);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+}
+.neo-scene-color-choice:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.04);
+  border-color: rgba(125, 211, 252, 0.92);
+}
+.neo-scene-color-choice.is-selected {
+  outline: 2px solid rgba(56, 189, 248, 0.96);
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px rgba(2, 6, 23, 0.72), 0 0 12px rgba(56, 189, 248, 0.34);
+}
+.neo-scene-color-conflict {
+  margin: 0;
+  padding: 0.55rem 0.62rem;
+  border: 1px solid rgba(251, 191, 36, 0.48);
+  border-radius: 9px;
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.18);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
 .neo-inline-input-action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -11952,6 +12184,15 @@ textarea {
 .neo-scene-background-space .neo-badge {
   align-self: end;
 }
+.neo-scene-pair-pose-conflicts {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fde68a;
+}
+.neo-scene-pair-pose-conflicts ul { margin: 0.45rem 0 0 1.1rem; padding: 0; }
+.neo-scene-pair-pose-conflicts li + li { margin-top: 0.3rem; }
 
 
 .neo-video-finish-source-uploader { display: grid; gap: 0.6rem; margin: 0.7rem 0; }
@@ -12415,3 +12656,137 @@ textarea {
 .neo-qwen-stitch-settings label { min-width:0; }
 .neo-qwen-stitch-settings .neo-checkbox-label { display:flex; align-items:center; gap:7px; min-height:34px; }
 @media (max-width:900px) { .neo-qwen-stitch-input-grid,.neo-qwen-stitch-settings { grid-template-columns:1fr; } }
+
+/* Scene Director Phase 27.14 — child-owned attached detail roles */
+.neo-scene-attached-detail {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #8b5cf6) 42%, var(--line, #26334a));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #8b5cf6) 7%, rgba(7, 13, 24, .7));
+}
+.neo-scene-attached-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.neo-scene-attached-detail-head > div:first-child { display: grid; gap: 4px; }
+.neo-scene-attached-detail-head p { margin: 0; color: var(--muted, #94a3b8); }
+/* The old duplicate controls remain readable in legacy saved markup, but the
+   live UI owns attachments only in the visible child-role panel above. */
+.neo-scene-region-advanced-body > .neo-scene-region-control-group:first-child { display: none; }
+@media (max-width: 760px) {
+  .neo-scene-attached-detail-head { display: grid; }
+}
+
+/* Scene Director Phase 27.15 — Character Additional Details */
+.neo-scene-additional-details {
+  margin-top: 0.9rem;
+  border: 1px solid rgba(34, 211, 238, 0.32);
+  border-radius: 12px;
+  background: rgba(8, 145, 178, 0.055);
+}
+.neo-scene-additional-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  cursor: pointer;
+  font-weight: 750;
+}
+.neo-scene-additional-details > summary small { color: var(--neo-text-muted); font-weight: 600; }
+.neo-scene-additional-details-body { display: grid; gap: 0.85rem; padding: 0 0.75rem 0.75rem; }
+.neo-scene-additional-section {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--neo-border-soft);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.24);
+}
+.neo-scene-additional-section-head,
+.neo-scene-additional-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.neo-scene-additional-section-head > div { display: grid; gap: 0.2rem; }
+.neo-scene-additional-section-head p { margin: 0; color: var(--neo-text-muted); font-size: 0.78rem; }
+.neo-scene-additional-item {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.24);
+}
+.neo-scene-additional-item-grid,
+.neo-scene-additional-custom-grid { grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); }
+.neo-scene-additional-custom-grid .wide { grid-column: span 2; }
+@media (max-width: 760px) {
+  .neo-scene-additional-details > summary,
+  .neo-scene-additional-section-head,
+  .neo-scene-additional-item-head { display: grid; }
+  .neo-scene-additional-custom-grid .wide { grid-column: auto; }
+}
+
+/* ADetailer Phase 6A: typed detector-pool visibility and recovery. */
+.neo-adetailer-model-pool-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  align-items: center;
+  margin-top: -.15rem;
+}
+.neo-adetailer-model-pool-counts span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: .3rem .55rem;
+  border: 1px solid rgba(148, 163, 184, .20);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .48);
+  color: rgba(191, 219, 254, .82);
+  font-size: .78rem;
+  font-weight: 750;
+  line-height: 1;
+}
+.neo-adetailer-model-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  flex-wrap: wrap;
+  padding: .75rem .85rem;
+  border: 1px solid rgba(56, 189, 248, .30);
+  border-radius: 14px;
+  background: rgba(14, 165, 233, .08);
+}
+.neo-adetailer-model-recovery--warning {
+  border-color: rgba(245, 158, 11, .34);
+  background: rgba(245, 158, 11, .08);
+}
+.neo-adetailer-model-recovery > div:first-child {
+  display: grid;
+  gap: .22rem;
+  min-width: min(22rem, 100%);
+  flex: 1 1 22rem;
+}
+.neo-adetailer-model-recovery p {
+  margin: 0;
+  color: rgba(203, 213, 225, .85);
+  line-height: 1.4;
+}
+.neo-adetailer-model-recovery code {
+  overflow-wrap: anywhere;
+}
+.neo-adetailer-model-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  justify-content: flex-end;
+}

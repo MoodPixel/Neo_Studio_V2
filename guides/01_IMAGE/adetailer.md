@@ -22,8 +22,8 @@ tags:
   - detailer
   - impact pack
 priority: 111
-version: 3
-updated: 2026-07-18
+version: 2
+updated: 2026-07-17
 ---
 
 # Image ADetailer
@@ -128,6 +128,8 @@ The Detector model list is built from the active Comfy backend rather than a Neo
 
 Set **ComfyUI models root** to the parent models directory, not directly to its `adetailer` child. Neo derives `adetailer`, `ultralytics/bbox`, `ultralytics/segm`, `onnx`, and `sams` beneath that root. It also reads Comfy's registered `/models` folder endpoints so a URL-only local profile is not limited to the small list returned by one provider node.
 
+For Comfy Portable, Neo also reuses **Admin → Extensions → Node Manager**. The `custom_nodes` parent identifies the inner Comfy application root, while the saved portable wrapper remains eligible to own a sibling `extra_model_paths.yaml`. You do not need to enter the YAML location again in Neo, but Comfy's YAML must explicitly register the detector folder. A mixed detector library normally uses `adetailer: adetailer`; typed layouts may use `ultralytics_bbox` and `ultralytics_segm`. After editing the YAML, restart or refresh Comfy as needed and click **Refresh models**. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete shared-model template and key reference.
+
 The selected Detector type controls the dropdown. BBox, Segmentation, and ONNX lists remain separate so a face bounding-box model is not shown as a valid segmentation choice. Refresh models after Comfy starts or after changing model-path configuration. If live Comfy discovery is temporarily unavailable, the backend keeps filesystem models and records safe source/count/error diagnostics without returning absolute machine paths.
 
 The loaded status reports total BBox, Segmentation, ONNX, and SAM choices. When diagnostics are available, it also reports **folder files** separately from **Comfy registered** choices. This distinction makes a folder-resolution problem visible without exposing the absolute folder path.
@@ -147,12 +149,13 @@ Immediately before Neo builds and queues an ADetailer graph, the execution bridg
 - a selected flat BBox detector is copied into the matching relative path under `ultralytics/bbox`;
 - a selected flat segmentation detector is copied into the matching relative path under `ultralytics/segm`;
 - a selected flat ONNX detector is copied into the matching relative path under `onnx`;
+- a selected detector discovered through `extra_model_paths.yaml` uses that same server-side source resolver and can be staged into the matching native folder when required;
 - an existing non-empty native target wins and is never overwritten;
-- the source file remains in `adetailer` and is never moved or changed;
+- the source file remains in its configured external or `adetailer` folder and is never moved or changed;
 - copies use a temporary sibling plus atomic replace so Comfy cannot observe a partial model;
 - absolute, drive-qualified, and parent-traversal selections are rejected before any copy.
 
-This bridge is execution-time only. Opening or refreshing the model scan never writes into the models directory. It runs only when Neo can establish local/shared filesystem access for the active Comfy profile. A remote URL-only profile is reported as non-local and is not staged. A model with no flat-folder source remains non-blocking because Comfy may already register it through its own folders or `extra_model_paths.yaml`.
+This bridge is execution-time only. Opening or refreshing the model scan never writes into the models directory. It runs only when Neo can establish local/shared filesystem access for the active Comfy profile. A remote URL-only profile is reported as non-local and is not staged. Catalog discovery and execution-time resolution share the same Node Manager, Admin Models, native-folder, and `extra_model_paths.yaml` authority, so an externally discovered detector is not left as a display-only choice.
 
 Bridge metadata reports only safe states and relative model values: `staged`, `already_ready`, `not_local_source`, `remote_url_only`, or `blocked`. Absolute source and target paths remain server-side. A rejected path or failed copy creates a blocking extension validation item, so the provider stops before posting the workflow to Comfy.
 
@@ -184,9 +187,17 @@ Model scan states are explicit:
 | Models loaded | The status shows BBox, Segmentation, ONNX, and SAM counts plus available source labels. |
 | No BBox/Segmentation/ONNX models found | The selected type has no models in the successful catalog; other type pools may still be populated. |
 | Refresh failed | Check/start Comfy and refresh again. A previous successful catalog is retained. |
-| Saved · not in current BBox/Segmentation/ONNX scan | The saved detector is preserved for review but is not currently reported by that detector type. Select a current model before queueing. |
+| Saved detector is inactive | The saved detector is not valid in the selected typed pool. Use the offered **Switch to BBox / Segmentation / ONNX** action, refresh models, or select a current model. |
 
 Switching the Image backend automatically resolves a separate scan. A successful backend **Connect/Test** also triggers a new silent scan. A response from the previously selected profile cannot replace the active profile's dropdown or detector selection.
+
+### Typed model recovery
+
+BBox, Segmentation, and ONNX are separate executable pools. The Face, Hands, Person, and Custom target labels do not narrow those pools. Most normal person, hand, face, and custom YOLO checkpoints are BBox models unless they are stored under an explicit `segm` folder or clearly identify segmentation/mask behavior.
+
+Each pass card shows BBox, Segm, and ONNX counts. A saved detector from a preset or draft is inactive when it is not present in the selected type. Neo shows where the model was found and provides an explicit type-switch action. It does not keep the stale value looking selected, and it does not silently switch the detector type during preset restoration.
+
+Changing **Detector type** intentionally selects a valid model from the new pool or clears the model when that pool is empty. A mismatched saved detector blocks validation until it is recovered or replaced.
 
 ## Detailer pass cards
 
@@ -221,32 +232,6 @@ Reference Lock is a **conditioning policy**, not an image-source selector. ADeta
 Reference Lock does not force the SEGS route. SEGS is selected only when targeting features such as multiple targets, manual boxes, ordering, or area filters require it. If a dependency is missing or **Face only** is used on a non-face pass, Neo shows a warning and safely runs that pass without claiming that the lock was applied.
 
 The IP Adapter unit's own weights and timing remain authoritative. Reference Lock does not hardcode a detector filename, reference path, IP Adapter model, or personal filesystem location.
-
-## FaceID generation followed by ADetailer
-
-Use this order when the goal is a new prompted image with the reference person's
-identity and a final face repair:
-
-1. In **Image → Reference → IP Adapter / FaceID**, enable one FaceID unit.
-2. Select the FaceID model, matching preset, CLIP Vision model, provider, and
-   reference portrait.
-3. Keep the reference weight moderate so the prompt still controls clothing,
-   pose, background, and scene.
-4. In **Image → Finish → ADetailer**, enable a Face pass and select a detector
-   accepted by the active Comfy detector-provider list.
-5. Set **Reference Lock** to **Face only** and use conservative face denoise.
-6. Generate normally. IP Adapter conditions the model first; ADetailer detects
-   and repairs the generated face afterward.
-
-The FaceID portrait is never ADetailer's pixel source. If the output resembles
-the reference image's original pose/background instead of following the prompt,
-check for an overly high IP Adapter weight and confirm only one durable reference
-is present. If Comfy reports `Value not in list` for the detector, refresh the
-ADetailer model list and select the exact live provider value; do not rename or
-hardcode a detector path in Neo.
-
-For **Apply ADetailer Pass** on a completed output, the selected output becomes
-the Img2Img-owned pixel source. The FaceID reference remains conditioning only.
 
 ## Manual boxes and visual target picker
 

@@ -7,10 +7,10 @@ from typing import Any
 from urllib.request import urlretrieve
 from uuid import uuid4
 
-try:
-    import yaml  # type: ignore
-except Exception:  # pragma: no cover
-    yaml = None
+from neo_app.providers.comfy_model_paths import (
+    resolve_comfy_extra_model_folders,
+    resolve_comfy_model_paths,
+)
 
 try:
     from neo_app.admin.image_node_manager import load_node_manager_settings
@@ -203,6 +203,30 @@ def _scan_model_dir(path: Path | None, *, recursive: bool = False) -> list[str]:
     return rows
 
 
+def _detector_pool_for_identifier(identifier: str, suffix: str = '') -> str:
+    """Return the typed ADetailer pool for one portable model identifier.
+
+    Explicit folder scopes win over filename heuristics. This keeps nested custom
+    layouts such as ``adetailer/segm/body.pt`` typed correctly while generic
+    face/person/hand/custom checkpoints remain BBox models.
+    """
+
+    portable = str(identifier or '').strip().replace('\\', '/')
+    folded = portable.casefold().strip('/')
+    extension = str(suffix or Path(portable).suffix).casefold()
+    if extension == '.onnx':
+        return 'onnx'
+    parts = [part for part in folded.split('/') if part]
+    explicit_segm = {'segm', 'seg', 'segment', 'segmentation', 'mask', 'masks'}
+    explicit_bbox = {'bbox', 'box', 'boxes', 'detection', 'detections'}
+    if any(part in explicit_segm for part in parts[:-1]):
+        return 'segm'
+    if any(part in explicit_bbox for part in parts[:-1]):
+        return 'bbox'
+    stem = Path(portable).stem.casefold()
+    return 'segm' if ('seg' in stem or 'mask' in stem) else 'bbox'
+
+
 def _classify_standard_ultralytics(path: Path | None) -> tuple[list[str], list[str], list[str]]:
     """Discover detector assets even when they are not placed directly in bbox/segm.
 
@@ -226,9 +250,10 @@ def _classify_standard_ultralytics(path: Path | None) -> tuple[list[str], list[s
         # here so nested files are not exposed twice under different names.
         if folded.startswith('bbox/') or folded.startswith('segm/'):
             continue
-        if child.suffix.lower() == '.onnx':
+        pool = _detector_pool_for_identifier(rel, child.suffix)
+        if pool == 'onnx':
             onnx.append(rel)
-        elif 'seg' in child.stem.casefold() or 'mask' in child.stem.casefold():
+        elif pool == 'segm':
             segm.append(rel)
         else:
             bbox.append(rel)
@@ -247,172 +272,68 @@ def _dedupe(rows: list[str]) -> list[str]:
     return out
 
 
-def _split_folder_values(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        rows: list[str] = []
-        for item in value:
-            rows.extend(_split_folder_values(item))
-        return rows
-    text = str(value).strip()
-    if not text:
-        return []
-    return [row.strip() for row in text.replace(';', '\n').splitlines() if row.strip()]
-
-
-def _candidate_extra_model_yaml_paths(backend_details: dict[str, Any] | None = None) -> list[Path]:
-    backend_details = backend_details or {}
-    connection = backend_details.get('connection') if isinstance(backend_details.get('connection'), dict) else {}
-    runtime = backend_details.get('runtime') if isinstance(backend_details.get('runtime'), dict) else {}
-    roots = _detailer_roots_for_backend(backend_details)
-    candidates: list[Path] = []
-    for raw in (
-        os.environ.get('COMFYUI_EXTRA_MODEL_PATHS'),
-        os.environ.get('COMFYUI_EXTRA_MODEL_PATHS_YAML'),
-        backend_details.get('extra_model_paths_yaml'),
-        backend_details.get('extra_model_paths'),
-        connection.get('extra_model_paths_yaml'),
-        connection.get('extra_model_paths'),
-        runtime.get('extra_model_paths_yaml'),
-    ):
-        for value in _split_folder_values(raw):
-            candidates.append(Path(value).expanduser())
-    for raw_root in (
-        backend_details.get('portable_path'),
-        backend_details.get('comfy_root'),
-        connection.get('portable_path'),
-        connection.get('comfy_root'),
-        runtime.get('portable_path'),
-        roots.get('comfy_root'),
-    ):
-        if not raw_root:
-            continue
-        root = Path(str(raw_root)).expanduser()
-        candidates.extend([
-            root / 'extra_model_paths.yaml',
-            root / 'extra_model_paths.yml',
-            root / 'ComfyUI' / 'extra_model_paths.yaml',
-            root / 'ComfyUI' / 'extra_model_paths.yml',
-        ])
-    seen: set[str] = set()
-    out: list[Path] = []
-    for candidate in candidates:
-        key = str(candidate).casefold()
-        if key not in seen:
-            seen.add(key)
-            out.append(candidate)
-    return out
-
-
-def _load_extra_model_paths_yaml(path: Path) -> dict[str, Any]:
-    if not path.exists() or not path.is_file():
-        return {}
-    try:
-        if yaml is not None:
-            payload = yaml.safe_load(path.read_text(encoding='utf-8'))
-            return payload if isinstance(payload, dict) else {}
-    except Exception:
-        return {}
-    root: dict[str, Any] = {}
-    current: dict[str, Any] | None = None
-    current_block_key = ''
-    try:
-        lines = path.read_text(encoding='utf-8').splitlines()
-    except Exception:
-        return {}
-    for raw_line in lines:
-        line = raw_line.split('#', 1)[0].rstrip()
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip(' '))
-        stripped = line.strip()
-        if indent == 0 and stripped.endswith(':'):
-            current = root.setdefault(stripped[:-1].strip(), {})
-            current_block_key = ''
-            continue
-        if current is None or ':' not in stripped:
-            if current is not None and current_block_key:
-                current[current_block_key] = f"{current.get(current_block_key, '')}\n{stripped}".strip()
-            continue
-        key, value = stripped.split(':', 1)
-        key = key.strip()
-        value = value.strip()
-        if value == '|':
-            current[key] = ''
-            current_block_key = key
-        else:
-            current[key] = value.strip('"\'')
-            current_block_key = ''
-    return root
-
-
-def _resolve_extra_model_folders(yaml_path: Path, categories: set[str]) -> list[Path]:
-    payload = _load_extra_model_paths_yaml(yaml_path)
-    folders: list[Path] = []
-    for group in payload.values():
-        if not isinstance(group, dict):
-            continue
-        base = Path(str(group.get('base_path') or yaml_path.parent)).expanduser()
-        for key, raw_value in group.items():
-            normalized = str(key or '').strip().casefold().replace('-', '_')
-            if normalized not in categories:
-                continue
-            for folder_value in _split_folder_values(raw_value):
-                folder = Path(folder_value).expanduser()
-                if not folder.is_absolute():
-                    folder = base / folder
-                folders.append(folder)
-    return folders
-
 
 def _scan_extra_ultralytics(backend_details: dict[str, Any] | None = None) -> dict[str, Any]:
+    details = backend_details if isinstance(backend_details, dict) else {}
     bbox: list[str] = []
     segm: list[str] = []
     onnx: list[str] = []
-    config_candidates = _candidate_extra_model_yaml_paths(backend_details)
-    config_files_found = 0
-    configured_folder_count = 0
-    for yaml_path in config_candidates:
-        if yaml_path.exists() and yaml_path.is_file():
-            config_files_found += 1
-        bbox_folders = _resolve_extra_model_folders(yaml_path, EXTRA_BBOX_DETECTOR_KEYS)
-        segm_folders = _resolve_extra_model_folders(yaml_path, EXTRA_SEGM_DETECTOR_KEYS)
-        generic_folders = _resolve_extra_model_folders(yaml_path, EXTRA_GENERIC_DETECTOR_KEYS)
-        configured_folder_count += len(bbox_folders) + len(segm_folders) + len(generic_folders)
-        for folder in bbox_folders:
-            for name in _scan_model_dir(folder, recursive=True):
-                if Path(name).suffix.casefold() == '.onnx':
-                    onnx.append(name)
-                else:
-                    bbox.append(f'bbox/{name}')
-        for folder in segm_folders:
-            for name in _scan_model_dir(folder, recursive=True):
-                if Path(name).suffix.casefold() == '.onnx':
-                    onnx.append(name)
-                else:
-                    segm.append(f'segm/{name}')
-        for folder in generic_folders:
-            for name in _scan_model_dir(folder, recursive=True):
-                folded = name.casefold().replace('\\', '/')
-                stem = Path(name).stem.casefold()
-                if Path(name).suffix.casefold() == '.onnx':
-                    onnx.append(name)
-                elif folded.startswith('segm/') or '/segm/' in folded or 'seg' in stem or 'mask' in stem:
-                    segm.append(name if folded.startswith('segm/') else f'segm/{name}')
-                else:
-                    bbox.append(name if folded.startswith('bbox/') else f'bbox/{name}')
+    bbox_resolution = resolve_comfy_extra_model_folders(details, categories=EXTRA_BBOX_DETECTOR_KEYS)
+    segm_resolution = resolve_comfy_extra_model_folders(details, categories=EXTRA_SEGM_DETECTOR_KEYS)
+    generic_resolution = resolve_comfy_extra_model_folders(details, categories=EXTRA_GENERIC_DETECTOR_KEYS)
+
+    for folder in bbox_resolution.get('folders', []):
+        for name in _scan_model_dir(folder, recursive=True):
+            if Path(name).suffix.casefold() == '.onnx':
+                onnx.append(name)
+            else:
+                bbox.append(f'bbox/{name}')
+    for folder in segm_resolution.get('folders', []):
+        for name in _scan_model_dir(folder, recursive=True):
+            if Path(name).suffix.casefold() == '.onnx':
+                onnx.append(name)
+            else:
+                segm.append(f'segm/{name}')
+    for folder in generic_resolution.get('folders', []):
+        for name in _scan_model_dir(folder, recursive=True):
+            folded = name.casefold().replace('\\', '/')
+            pool = _detector_pool_for_identifier(name)
+            if pool == 'onnx':
+                onnx.append(name)
+            elif pool == 'segm':
+                segm.append(name if folded.startswith('segm/') else f'segm/{name}')
+            else:
+                bbox.append(name if folded.startswith('bbox/') else f'bbox/{name}')
+
+    resolutions = (bbox_resolution, segm_resolution, generic_resolution)
+    folder_keys = {
+        str(folder).replace('\\', '/').casefold()
+        for resolution in resolutions
+        for folder in resolution.get('folders', [])
+    }
+    diagnostics = [
+        resolution.get('diagnostics', {})
+        for resolution in resolutions
+        if isinstance(resolution.get('diagnostics'), dict)
+    ]
     return {
         'bbox_models': _dedupe(bbox),
         'segm_models': _dedupe(segm),
         'onnx_models': _dedupe(onnx),
         'diagnostics': {
-            'config_candidates': len(config_candidates),
-            'config_files_found': config_files_found,
-            'configured_detector_folders': configured_folder_count,
+            'schema_id': 'neo.image.adetailer.extra_model_paths.v2',
+            'config_candidates': max((int(item.get('config_candidates') or 0) for item in diagnostics), default=0),
+            'config_files_found': max((int(item.get('config_files_found') or 0) for item in diagnostics), default=0),
+            'configured_detector_folders': len(folder_keys),
+            'existing_detector_folders': len({
+                str(folder).replace('\\', '/').casefold()
+                for resolution in resolutions
+                for folder in resolution.get('folders', [])
+                if isinstance(folder, Path) and folder.exists() and folder.is_dir()
+            }),
+            'path_policy': 'absolute_paths_server_side_only',
         },
     }
-
 
 def _preferred_detector(models: list[str], *, avoid_face: bool = True) -> str:
     rows = _dedupe(models)
@@ -493,10 +414,11 @@ def live_detailer_model_choices(object_info: dict[str, Any] | None) -> dict[str,
         folded_node = str(node_name).casefold()
         if "ultralyticsdetectorprovider" in folded_node:
             for item in _node_choice_values(info, str(node_name), "model_name", "model", "detector_model"):
-                folded = item.casefold()
-                stem = Path(item).stem.casefold()
-                if folded.startswith("segm/") or "/segm/" in folded or "seg" in stem or "mask" in stem:
+                pool = _detector_pool_for_identifier(item)
+                if pool == "segm":
                     segm.append(item)
+                elif pool == "onnx":
+                    onnx.append(item)
                 else:
                     bbox.append(item)
         elif "onnxdetectorprovider" in folded_node:
@@ -535,11 +457,10 @@ def registered_detailer_model_choices(backend_details: dict[str, Any] | None) ->
             sam.extend(names)
         elif key in {'ultralytics', 'adetailer', 'adetailer_models', 'detectors'}:
             for name in names:
-                folded = name.casefold()
-                stem = Path(name).stem.casefold()
-                if Path(name).suffix.casefold() == '.onnx':
+                pool = _detector_pool_for_identifier(name)
+                if pool == 'onnx':
                     onnx.append(name)
-                elif folded.startswith('segm/') or '/segm/' in folded or 'seg' in stem or 'mask' in stem:
+                elif pool == 'segm':
                     segm.append(name)
                 else:
                     bbox.append(name)
@@ -564,10 +485,10 @@ def _classify_custom_detector_files(path: Path | None) -> tuple[list[str], list[
             display_name = child.relative_to(path).as_posix()
         except Exception:
             display_name = child.name
-        name = child.name.lower()
-        if child.suffix.lower() == '.onnx':
+        pool = _detector_pool_for_identifier(display_name, child.suffix)
+        if pool == 'onnx':
             onnx.append(display_name)
-        elif 'seg' in name or 'mask' in name:
+        elif pool == 'segm':
             segm.append(display_name)
         else:
             bbox.append(display_name)
@@ -744,17 +665,15 @@ def _configured_detailer_backend_details(
         model_paths = load_model_paths(create=False)
     except Exception:  # pragma: no cover - Node Manager/profile fallback remains available.
         model_paths = {}
-    backends = model_paths.get('backends') if isinstance(model_paths.get('backends'), dict) else {}
-    comfy = backends.get('comfyui') if isinstance(backends.get('comfyui'), dict) else {}
-    if comfy.get('enabled', True) is not False:
-        configured_models_root = str(comfy.get('models_root') or '').strip()
-        configured_comfy_root = str(comfy.get('root') or '').strip()
-        if configured_models_root:
-            details.setdefault('configured_models_root', configured_models_root)
-            details.setdefault('models_root_source', 'admin_models_paths')
-        if configured_comfy_root:
-            details.setdefault('configured_comfy_root', configured_comfy_root)
-    return details
+    try:
+        node_manager_settings = load_node_manager_settings()
+    except Exception:  # pragma: no cover - profile/Admin Models remain usable.
+        node_manager_settings = {}
+    return resolve_comfy_model_paths(
+        details,
+        model_paths=model_paths,
+        node_manager_settings=node_manager_settings,
+    )
 
 
 def configured_detailer_backend_details(
@@ -912,13 +831,12 @@ def resolve_detailer_model_file(
         if kind == 'bbox'
         else set()
     )
-    for yaml_path in _candidate_extra_model_yaml_paths(details):
-        extra_folders = [
-            *_resolve_extra_model_folders(yaml_path, typed_categories),
-            *_resolve_extra_model_folders(yaml_path, EXTRA_GENERIC_DETECTOR_KEYS),
-        ]
-        for folder in extra_folders:
-            add_candidate(folder, relative)
+    extra_resolution = resolve_comfy_extra_model_folders(
+        details,
+        categories=set(typed_categories) | EXTRA_GENERIC_DETECTOR_KEYS,
+    )
+    for folder in extra_resolution.get('folders', []):
+        add_candidate(folder, relative)
 
     seen: set[str] = set()
     for candidate in candidates:
@@ -983,6 +901,8 @@ def prepare_detailer_assets_for_execution(
         'admin_models_paths',
         'backend_profile',
         'node_manager',
+        'node_manager_custom_nodes',
+        'node_manager_comfy_root',
         'profile_or_node_manager',
     } else 'configured_runtime'
     result: dict[str, Any] = {
@@ -1059,7 +979,13 @@ def prepare_detailer_assets_for_execution(
             result['records'].append({**record, 'status': 'already_ready'})
             continue
         try:
-            source = _find_flat_source(source_root, relative) if source_root else None
+            source = resolve_detailer_model_file(
+                model_name,
+                kind,
+                backend_details=details,
+            )
+            if not source and source_root:
+                source = _find_flat_source(source_root, relative)
         except (OSError, ValueError):
             source = None
         if not source:

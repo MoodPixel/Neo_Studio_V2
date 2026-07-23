@@ -1,7 +1,7 @@
 {
   "id": "style_stack",
   "name": "Style Stack",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Built-in Image prompt-composition extension for Style Stack presets, searchable style libraries, prompt merging, output-inspector details, and replay metadata.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
@@ -155,13 +155,18 @@
     "imports_dir": "neo_data/extensions/image/style_stack/imports",
     "exports_dir": "neo_data/extensions/image/style_stack/exports",
     "write_encoding": "utf-8-sig",
-    "seeded_rows": 492,
     "phase_m_status": "bundled_default_csv_runtime_seed_repair_implemented",
     "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
     "bundled_default_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
-    "seed_policy": "copy_bundled_default_to_runtime_csv_on_first_run_without_overwriting_existing_runtime_csv",
+    "seed_policy": "seed_first_run_then_non_destructive_bundled_runtime_sync",
     "repo_safe_default_assets": true,
-    "neo_data_personal_runtime_state": true
+    "neo_data_personal_runtime_state": true,
+    "bundled_row_count_policy": "derived_from_current_bundled_csv",
+    "runtime_authority": "user_owned",
+    "bundled_authority": "read_only_defaults",
+    "sync_state": "neo_data/extensions/image/style_stack/bundled_runtime_sync_state.json",
+    "sync_backup_dir": "neo_data/extensions/image/style_stack/backups",
+    "phase_6b_status": "bundled_runtime_synchronization_implemented"
   },
   "ui_contract": {
     "panel_html": "ui/panel.html",
@@ -224,11 +229,11 @@
       "export_generation_styles_path"
     ],
     "canonical_csv_seeded": true,
-    "seeded_rows": 492,
     "no_api_routes": false,
     "no_runtime_merge": true,
     "no_registry_mount_patch": true,
-    "next_phase": "Phase D API Routes complete; next Phase E — UI Panel Migration"
+    "next_phase": "Phase D API Routes complete; next Phase E — UI Panel Migration",
+    "seeded_row_count_policy": "derived_from_current_bundled_csv"
   },
   "api_routes": [
     {
@@ -535,7 +540,7 @@
     "test_suite": "neo_extensions/built_in/image.style_stack/tests",
     "coverage_areas": [
       "extension skeleton and manifest contract",
-      "CSV store encoding/header/492-row seed",
+      "CSV store encoding/header and derived bundled seed count",
       "API routes for load/save/save-all/delete/duplicate/import/export",
       "UI panel control and frontend helper presence",
       "frontend payload normalization and replay-safe submit shape",
@@ -557,7 +562,6 @@
     "extension_id": "style_stack",
     "bundled_default_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
     "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
-    "default_rows": 492,
     "seed_priority": [
       "existing_runtime_csv_preserved",
       "explicit_seed_from",
@@ -566,10 +570,11 @@
       "empty_header_fallback"
     ],
     "repo_upload_policy": "commit bundled default CSV under neo_extensions; do not require neo_data to ship default styles",
-    "user_data_policy": "neo_data runtime CSV remains editable local state and is not overwritten if it exists",
+    "user_data_policy": "neo_data runtime CSV remains editable local state; Phase 6B synchronizes new defaults without replacing user rows",
     "provider_graph_mutation": false,
     "workflow_patches": [],
-    "updated_at": "2026-06-18"
+    "updated_at": "2026-06-18",
+    "default_row_count_policy": "derived_from_current_bundled_csv"
   },
   "phase_n_library_load_self_heal_category_multiselect_ui_contract": {
     "empty_runtime_csv_self_heal": true,
@@ -595,5 +600,30 @@
     "workflow_patches": [],
     "depends_on_phase_j_output_metadata_replay": true,
     "no_prompt_behavior_change": true
+  },
+  "phase_6b_bundled_runtime_synchronization_contract": {
+    "phase": "6B-style-stack-bundled-runtime-synchronization",
+    "status": "implemented",
+    "schema_version": "neo.image.style_stack.bundled_runtime_sync.v1",
+    "result_schema_version": "neo.image.style_stack.bundled_runtime_sync_result.v1",
+    "runtime_csv": "neo_data/extensions/image/style_stack/generation_styles.csv",
+    "bundled_csv": "neo_extensions/built_in/image.style_stack/assets/default_generation_styles.csv",
+    "sync_state": "neo_data/extensions/image/style_stack/bundled_runtime_sync_state.json",
+    "backup_pattern": "neo_data/extensions/image/style_stack/backups/generation_styles.before_bundled_sync.<utc>.csv",
+    "runtime_authority": "user_owned",
+    "bundled_authority": "read_only_defaults",
+    "new_style_policy": "append_missing_bundled_names",
+    "same_name_policy": "three_way_merge_preserve_user_override",
+    "untouched_default_update_policy": "update_only_when_runtime_matches_previous_bundled_snapshot",
+    "runtime_only_style_policy": "preserve",
+    "deletion_policy": "bundled_name_tombstones",
+    "explicit_readd_policy": "clear_matching_tombstone",
+    "sync_trigger": "style_library_load_and_refresh",
+    "cache_policy": "no_store",
+    "runtime_backup_before_sync_mutation": true,
+    "bundled_row_count_policy": "derived_from_current_bundled_csv",
+    "provider_graph_mutation": false,
+    "workflow_patches": [],
+    "updated_at": "2026-07-23"
   }
 }

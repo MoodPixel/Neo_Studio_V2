@@ -87,6 +87,12 @@ neo_data/cache/model_installed_index.json
 
 Do not commit user model paths, API tokens, download jobs, installed model scans, partial downloads, or downloaded model files.
 
+## Shared Comfy model folders
+
+When Comfy models live outside the active installation, configure them in Comfy's local `extra_model_paths.yaml`. Neo reuses the Comfy roots stored under **Admin → Extensions → Node Manager**; it does not need another personal YAML path field.
+
+The YAML must explicitly register every folder family you expect Comfy or Neo to discover. A `base_path` alone does not make arbitrary child folders visible. Use the complete placeholder-only reference in [Comfy extra model paths](comfy_extra_model_paths.md), including core Comfy keys and optional Neo/custom-node keys such as `ipadapter`, `adetailer`, `sams`, `BiRefNet`, `facerestore_models`, and `SEEDVR2`.
+
 ## Category normalization
 
 Category normalization maps messy source tags into controlled Neo categories.

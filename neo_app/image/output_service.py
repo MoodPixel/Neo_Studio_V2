@@ -11,6 +11,7 @@ from urllib import parse, request
 
 from neo_app.image.output_paths import ROOT_DIR, get_image_output_paths, sanitize_path_part
 from neo_app.image.upload_validation import ALLOWED_IMAGE_EXTENSIONS, _detect_image_type, canonical_image_suffix_for_type
+from neo_app.providers.comfy_artifact_paths import ComfyArtifactPathError, normalize_comfy_artifact_reference
 from neo_app.image.output_settings import (
     ensure_output_settings_dirs,
     load_image_output_settings,
@@ -168,6 +169,11 @@ def persist_image_outputs(
             errors.append(f"Output {index} could not be persisted: {exc}")
 
     latent_artifacts = persist_latent_outputs(latent_outputs, result_id=result_id, timeout=timeout)
+    for artifact in latent_artifacts:
+        if isinstance(artifact, dict) and artifact.get("neo_copy_state") == "failed_to_persist":
+            label = str(artifact.get("restore_point") or artifact.get("artifact_id") or "latent")
+            detail = str(artifact.get("neo_copy_error") or "unknown persistence error")
+            errors.append(f"Latent {label} could not be copied into Neo storage: {detail}")
     first_output = image_outputs[0] if image_outputs else {}
     record_params = context.get("params") if isinstance(context.get("params"), dict) else {}
     if latent_artifacts:
@@ -311,23 +317,19 @@ def _output_file_metadata(output: dict[str, Any], *, index: int) -> dict[str, An
     return safe
 
 
-def _comfy_load_latent_name(output: dict[str, Any], filename: str) -> str:
-    """Build the Comfy LoadLatent name without f-string backslash expressions.
-
-    Python 3.10 rejects backslashes inside f-string expression bodies. Keep the
-    path cleanup in normal statements so Neo can start on the user's runtime.
-    """
-    subfolder = str(output.get("subfolder") or "").strip("/\\")
-    source_type = str(output.get("type") or "output")
-    prefix = f"{subfolder}/" if subfolder else ""
-    suffix = f" [{source_type}]" if source_type != "input" else ""
-    return f"{prefix}{filename}{suffix}"
 
 def persist_latent_outputs(latent_outputs: list[dict[str, Any]], *, result_id: str, timeout: float = 30.0) -> list[dict[str, Any]]:
-    """Copy provider-owned Comfy latent artifacts into Neo_Data and return replay manifests.
+    """Persist Comfy latent outputs while keeping execution and storage authority separate.
 
-    R8 only accepts provider outputs explicitly marked kind=latent. This keeps
-    latent resume honest: no PNG re-encode and no synthetic checkpoint claims.
+    Neo keeps a byte-for-byte copy under ``neo_data`` for retention, inspection,
+    and cleanup. Replay execution still requires the original provider-relative
+    Comfy reference because ``LoadLatent`` cannot consume Neo-local filesystem
+    paths. A copied latent without canonical Comfy coordinates is therefore
+    recorded as ``neo_copy_only`` and must not unlock provider resume.
+
+    A Neo-copy failure does not erase a valid provider reference. The artifact
+    remains provider-replayable and is revalidated against Comfy before queueing,
+    while the failed retention copy is surfaced as a persistence warning.
     """
     if not latent_outputs:
         return []
@@ -336,51 +338,92 @@ def persist_latent_outputs(latent_outputs: list[dict[str, Any]], *, result_id: s
     target_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[dict[str, Any]] = []
     for index, output in enumerate(latent_outputs, start=1):
-        try:
-            restore_point = str(output.get("restore_point") or "final_latent").strip() or "final_latent"
-            original_name = str(output.get("filename") or f"{restore_point}_{index}.latent")
-            suffix = Path(original_name).suffix.lower() or ".latent"
-            if suffix not in {".latent", ".safetensors", ".pt", ".bin"}:
-                suffix = ".latent"
-            filename = sanitize_path_part(f"{restore_point}_{index}{suffix}", fallback=f"latent_{index}{suffix}")
+        restore_point = str(output.get("restore_point") or "final_latent").strip() or "final_latent"
+        raw_filename = str(output.get("filename") or "").strip()
+        raw_load_name = str(output.get("comfy_load_name") or output.get("load_latent_name") or "").strip()
+        reference = None
+        reference_error = ""
+        if raw_filename or raw_load_name:
+            try:
+                reference = normalize_comfy_artifact_reference(
+                    filename=raw_filename,
+                    subfolder=output.get("subfolder") or "",
+                    artifact_type=output.get("type") or "output",
+                    load_name=raw_load_name,
+                )
+            except ComfyArtifactPathError as exc:
+                reference_error = str(exc)
+
+        local_source_name = raw_filename.replace("\\", "/").rsplit("/", 1)[-1] if raw_filename else ""
+        local_source_name = local_source_name or f"{restore_point}_{index}.latent"
+        suffix = Path(local_source_name).suffix.lower() or ".latent"
+        if suffix not in {".latent", ".safetensors", ".pt", ".bin"}:
+            suffix = ".latent"
+        filename = sanitize_path_part(f"{restore_point}_{index}{suffix}", fallback=f"latent_{index}{suffix}")
+        target = target_dir / filename
+        counter = 2
+        while target.exists():
+            filename = sanitize_path_part(f"{restore_point}_{index}_{counter}{suffix}", fallback=f"latent_{index}_{counter}{suffix}")
             target = target_dir / filename
-            counter = 2
-            while target.exists():
-                filename = sanitize_path_part(f"{restore_point}_{index}_{counter}{suffix}", fallback=f"latent_{index}_{counter}{suffix}")
-                target = target_dir / filename
-                counter += 1
+            counter += 1
+
+        neo_path = ""
+        neo_copy_state = "available"
+        copy_error = ""
+        try:
             target.write_bytes(_read_output_bytes(output, timeout=timeout))
-            artifacts.append({
-                "artifact_id": f"latent_{index}",
-                "restore_point": restore_point,
-                "kind": "latent_tensor",
-                "path": _relative_to_root(target),
-                "format": str(output.get("format") or "comfy_latent"),
-                "provider_owned": True,
-                "provider_id": str(output.get("provider_id") or "comfyui"),
-                "backend": "comfyui",
-                "source_node_id": str(output.get("node_id") or ""),
-                "source_filename": original_name,
-                "source_subfolder": str(output.get("subfolder") or ""),
-                "source_type": str(output.get("type") or "output"),
-                "comfy_load_name": _comfy_load_latent_name(output, original_name),
-                "state": "available",
-            })
+            neo_path = _relative_to_root(target)
         except Exception as exc:  # noqa: BLE001
-            artifacts.append({
-                "artifact_id": f"latent_{index}",
-                "restore_point": str(output.get("restore_point") or "final_latent"),
-                "kind": "latent_tensor",
-                "path": "",
-                "format": str(output.get("format") or "comfy_latent"),
-                "provider_owned": True,
-                "provider_id": str(output.get("provider_id") or "comfyui"),
-                "backend": "comfyui",
-                "source_node_id": str(output.get("node_id") or ""),
-                "state": "failed_to_persist",
-                "error": str(exc),
-            })
-    return [item for item in artifacts if item.get("path")]
+            neo_copy_state = "failed_to_persist"
+            copy_error = str(exc)
+
+        provider_reference = ({
+            "filename": reference.filename,
+            "subfolder": reference.subfolder,
+            "type": reference.artifact_type,
+            "load_name": reference.load_name,
+        } if reference is not None else {})
+        provider_owned = bool(output.get("provider_owned", True))
+        provider_id = str(output.get("provider_id") or "comfyui")
+        backend = str(output.get("backend") or "comfyui")
+        provider_is_comfy = provider_id in {"comfyui", "comfyui_portable"} and backend == "comfyui"
+        provider_resume_ready = bool(reference is not None and provider_owned and provider_is_comfy)
+        if provider_resume_ready:
+            state = "available"
+            provider_reference_state = "captured_from_comfy_history"
+        elif neo_path:
+            state = "neo_copy_only"
+            provider_reference_state = "provider_incompatible" if reference is not None else "missing_or_invalid"
+        else:
+            state = "failed_to_persist"
+            provider_reference_state = "provider_incompatible" if reference is not None else "missing_or_invalid"
+        artifact = {
+            "artifact_id": f"latent_{index}",
+            "restore_point": restore_point,
+            "kind": "latent_tensor",
+            "path": neo_path,
+            "format": str(output.get("format") or "comfy_latent"),
+            "provider_owned": provider_owned,
+            "provider_id": provider_id,
+            "backend": backend,
+            "source_node_id": str(output.get("node_id") or ""),
+            "source_filename": reference.filename if reference is not None else "",
+            "source_subfolder": reference.subfolder if reference is not None else "",
+            "source_type": reference.artifact_type if reference is not None else "",
+            "comfy_load_name": reference.load_name if reference is not None else "",
+            "provider_reference": provider_reference,
+            "provider_resume_ready": provider_resume_ready,
+            "provider_reference_state": provider_reference_state,
+            "neo_copy_state": neo_copy_state,
+            "neo_copy_role": "retention_cleanup_copy_not_loadlatent_source",
+            "state": state,
+        }
+        if reference_error:
+            artifact["provider_reference_error"] = reference_error
+        if copy_error:
+            artifact["neo_copy_error"] = copy_error
+        artifacts.append(artifact)
+    return artifacts
 
 
 IMAGE_ASSET_CLEANUP_SCHEMA_VERSION = "neo.image.asset_cleanup.v1"

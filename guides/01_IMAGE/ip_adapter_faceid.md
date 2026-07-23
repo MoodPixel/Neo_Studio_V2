@@ -29,7 +29,7 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 8
+version: 7
 updated: 2026-07-18
 ---
 
@@ -60,7 +60,7 @@ The card can show a node-readiness panel and a **Check nodes / refresh dropdowns
 
 If Standard nodes are ready but FaceID nodes are missing, standard reference can work while FaceID is unavailable. If FaceID nodes are ready but Standard nodes are missing, FaceID can be usable while Standard is unavailable. The UI may show **partial** readiness in those cases.
 
-Model dropdowns are populated from the selected Comfy profile's live loader choices, registered model folders, configured primary models root, and supported `extra_model_paths.yaml` entries. Neo does not require a hardcoded user path or a separately maintained catalog.
+Model dropdowns are populated from the selected Comfy profile's live loader choices, registered model folders, configured primary models root, and supported `extra_model_paths.yaml` entries. Neo does not require a hardcoded user path or a separately maintained catalog. Register shared folders with `ipadapter` and `clip_vision`; see [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete template.
 
 ## Model discovery and placement
 
@@ -240,33 +240,6 @@ This prevents one reference from becoming two `LoadImage` nodes when a previous 
 Intentional multi-reference batches are preserved. Two different durable assets remain two references and are combined through `ImageBatch`; only repeated representations of the same reference are collapsed.
 
 Workflow metadata records path-free per-unit counts under `reference_deduplication`: submitted references, durable assets, runtime references, removed duplicates, and the identity source policy.
-
-## Using FaceID with ADetailer
-
-FaceID and ADetailer have different ownership roles:
-
-| Stage | Owner | Image role |
-|---|---|---|
-| Reference conditioning | IP Adapter / FaceID | Encodes the portrait as identity guidance. |
-| Base generation | Main sampler | Generates the image described by the positive and negative prompts. |
-| Local face repair | ADetailer | Detects and repairs the face on the generated/current image. |
-
-For identity-safe repair, select **ADetailer → Reference Lock → Face only**.
-This reuses the already FaceID-conditioned model and applies the conservative
-repair policy. It does not copy the reference portrait into the output or make
-that portrait ADetailer's source pixels.
-
-If the output simply reproduces the reference image, first check:
-
-- IP Adapter weight and timing are not excessively strong;
-- the unit contains one intended durable reference rather than a duplicate
-  durable asset plus an old Comfy upload alias;
-- ADetailer is using the generated/current source ownership lane;
-- the prompt clearly describes the desired clothing, pose, environment, and
-  camera framing.
-
-See `guides/01_IMAGE/adetailer.md` for detector-provider validation and safe
-face-repair settings.
 
 ## Family / loader support summary
 

@@ -397,6 +397,9 @@ ATTACHABLE_REGION_ROLES = {
     "text",
     "effect",
     "lighting",
+    "transition_effect",
+    "style",
+    "custom",
 }
 
 REQUIRES_PARENT_ROLES = {
@@ -864,6 +867,10 @@ def normalize_scene_graph_v054(scene_graph: Any) -> dict[str, Any]:
         "global": {
             "prompt": _text(raw_global.get("prompt") or raw_global.get("positive_prompt")),
             "negative": _text(raw_global.get("negative") or raw_global.get("negative_prompt")),
+            "prompt_authority": _text(raw_global.get("prompt_authority") or "global_context").lower(),
+            "regional_context": _text(raw_global.get("regional_context")),
+            "regional_context_enabled": raw_global.get("regional_context_enabled", True) is not False,
+            "regional_context_weight": _clamp_float(raw_global.get("regional_context_weight"), 0.35, 0.0, 2.0),
             "style_strength": _clamp_float(raw_global.get("style_strength"), 0.8, 0.0, 1.0),
         },
         "regions": [],
@@ -963,14 +970,14 @@ def normalize_scene_graph_v054(scene_graph: Any) -> dict[str, Any]:
         role = region.get("role")
         parent = region.get("attach_to")
         if role in REQUIRES_PARENT_ROLES and not parent:
-            errors.append(_note("error", f"{field}.attach_to", f"Role '{role}' requires attach_to in V054.", "missing_required_parent"))
+            warnings.append(_note("warning", f"{field}.attach_to", f"Role '{role}' requires a parent and will be skipped for this generation until Attach to is selected inside the child region.", "missing_required_parent_skipped"))
         if parent:
             if parent == rid:
-                errors.append(_note("error", f"{field}.attach_to", "Region cannot attach to itself.", "self_attachment"))
+                warnings.append(_note("warning", f"{field}.attach_to", "Region cannot attach to itself; the runtime will skip or clear this child-owned link.", "self_attachment_skipped"))
             if parent not in seen:
-                errors.append(_note("error", f"{field}.attach_to", f"attach_to target '{parent}' does not exist.", "missing_attach_parent"))
+                warnings.append(_note("warning", f"{field}.attach_to", f"attach_to target '{parent}' does not exist; the runtime will skip or clear this child-owned link.", "missing_attach_parent_skipped"))
             if role not in ATTACHABLE_REGION_ROLES:
-                errors.append(_note("error", f"{field}.role", f"Role '{role}' cannot attach to a parent region.", "non_attachable_role"))
+                warnings.append(_note("warning", f"{field}.role", f"Role '{role}' is a main parent role; its attach_to value will be ignored.", "main_parent_attachment_ignored"))
             if parent in seen and id_role.get(parent) in {"background", "transition_effect", "style"} and role in {"face_detail", "hair_detail", "hand_detail", "clothing", "held_prop"}:
                 warnings.append(_note("warning", f"{field}.attach_to", f"Role '{role}' usually should attach to a character/object, not '{id_role.get(parent)}'.", "suspicious_parent_role"))
         if not _region_has_actionable_content(region):

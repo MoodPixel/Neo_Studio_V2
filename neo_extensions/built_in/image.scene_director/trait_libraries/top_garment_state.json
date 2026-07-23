@@ -1,0 +1,15 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v2",
+  "category": "top_garment_state",
+  "source": "built_in_default",
+  "items": [
+    {"id":"buttoned_closed","label":"Buttoned / closed","prompt_terms":["top garment fully buttoned and closed"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"partially_unbuttoned","label":"Partially unbuttoned","prompt_terms":["top garment partially unbuttoned"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"unbuttoned_to_chest","label":"Unbuttoned to chest","prompt_terms":["shirt unbuttoned to the chest"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"fully_open","label":"Fully open","prompt_terms":["top garment fully open at the front while still worn"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"jacket_open","label":"Jacket open","prompt_terms":["jacket worn open at the front"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"sleeves_rolled","label":"Sleeves rolled","prompt_terms":["sleeves rolled up"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"tucked_in","label":"Tucked in","prompt_terms":["top garment tucked into the waistband"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"untucked","label":"Untucked","prompt_terms":["top garment worn untucked"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ]
+}

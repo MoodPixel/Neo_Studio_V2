@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 
 from .style_store import (
@@ -34,6 +34,7 @@ def _result_payload(result: Any) -> dict[str, Any]:
         "message": result.message,
         "encoding": result.encoding,
         "csv_fields": list(CSV_FIELDS),
+        "sync": dict(getattr(result, "sync", {}) or {}),
     }
 
 
@@ -60,7 +61,9 @@ def create_style_stack_api_router(root: str | Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/extensions/style_stack", tags=["style_stack"])
 
     @router.get("/styles")
-    def styles() -> dict[str, Any]:
+    def styles(response: Response) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
         return _result_payload(load_generation_styles(root))
 
     @router.post("/styles/save")
@@ -76,7 +79,7 @@ def create_style_stack_api_router(root: str | Path | None = None) -> APIRouter:
         if not isinstance(styles_payload, list):
             raise HTTPException(status_code=400, detail="styles must be a list")
         try:
-            return _result_payload(save_generation_styles(styles_payload, root))
+            return _result_payload(save_generation_styles(styles_payload, root, track_bundled_removals=True))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

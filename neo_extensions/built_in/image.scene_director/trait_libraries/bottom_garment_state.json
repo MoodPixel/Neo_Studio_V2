@@ -1,0 +1,14 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v2",
+  "category": "bottom_garment_state",
+  "source": "built_in_default",
+  "items": [
+    {"id":"fastened","label":"Fastened","prompt_terms":["bottom garment fully fastened"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"unzipped","label":"Unzipped","prompt_terms":["bottom garment visibly unzipped"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"belt_open","label":"Belt open","prompt_terms":["belt visibly open"],"negative_terms":[],"latent_priority":0.85,"roles":["character"]},
+    {"id":"waistband_lowered_slightly","label":"Waistband lowered slightly","prompt_terms":["bottom garment waistband lowered slightly at the hips"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"lowered_to_hips","label":"Lowered to hips","prompt_terms":["bottom garment lowered to the hips while still worn"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"partially_pulled_down","label":"Partially pulled down","prompt_terms":["bottom garment partially pulled down while still visible"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"cuffs_rolled","label":"Cuffs rolled","prompt_terms":["bottom garment cuffs rolled up"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ]
+}

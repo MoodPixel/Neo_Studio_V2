@@ -1,0 +1,15 @@
+{
+  "schema": "neo.image.scene_director.trait_library.v2",
+  "category": "underlayer",
+  "source": "built_in_default",
+  "color_capable": true,
+  "items": [
+    {"id":"visible_underwear_waistband","label":"Visible underwear waistband","prompt_terms":["underwear waistband clearly visible"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"visible_briefs","label":"Visible briefs","prompt_terms":["briefs clearly visible above the lowered waistband"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"visible_boxer_briefs","label":"Visible boxer briefs","prompt_terms":["boxer briefs clearly visible above the lowered waistband"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"visible_boxers","label":"Visible boxers","prompt_terms":["boxer shorts clearly visible above the lowered waistband"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"visible_jockstrap","label":"Visible jockstrap","prompt_terms":["jockstrap clearly visible beneath the lowered outer garment"],"negative_terms":[],"latent_priority":0.9,"roles":["character"]},
+    {"id":"undershirt","label":"Undershirt","prompt_terms":["undershirt visible beneath the outer top"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"tank_underlayer","label":"Tank underlayer","prompt_terms":["tank-style underlayer visible beneath the outer top"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ]
+}

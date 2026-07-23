@@ -38,8 +38,8 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 4
-updated: 2026-07-18
+version: 5
+updated: 2026-07-23
 ---
 
 # ControlNet
@@ -144,13 +144,22 @@ When the selected Qwen route exposes inpaint/outpaint ControlNet adapter control
 
 ### Qwen ControlNet VAE contract
 
-Qwen ControlNet implementations that require a VAE must receive the matching active Qwen VAE at the ControlNet apply step. Loading the ControlNet model without connecting a VAE produces the ComfyUI error:
+Qwen’s two adapter lanes do **not** share one generic VAE rule. Neo reads the actual apply-node schema discovered from the selected Comfy profile and applies an adapter-specific contract.
+
+| Adapter | VAE behavior |
+|---|---|
+| **DiffSynth model patch** | Uses the `QwenImageDiffsynthControlnet` schema only. It does not inherit the generic `ControlNetApplyAdvanced` VAE rule. An optional `vae` input is filled when the active Qwen VAE is available, but does not block the route. It blocks only when the DiffSynth apply node itself declares `vae` as required. |
+| **InstantX / native Qwen ControlNet** | When the selected InstantX apply node explicitly exposes a `vae` input—required or optional—Neo treats it as a VAE-aware Qwen node, resolves the matching active route-owned Qwen VAE, injects the graph reference, and blocks before queueing if no matching VAE can be found. |
+| **Schema has no `vae` input** | Neo does not add one and does not create a synthetic VAE requirement. |
+| **Schema unavailable** | Neo does not guess. Refresh the selected Comfy profile’s nodes so Neo can inspect the real node contract. |
+
+A VAE-aware Qwen ControlNet node without the active Qwen VAE can produce errors such as:
 
 ```text
 This Controlnet needs a VAE but none was provided
 ```
 
-Neo’s supported Qwen route carries the active VAE through the ControlNet apply contract. For a manually assembled ComfyUI workflow, connect the VAE output from the matching Qwen loader to the `vae` input of the VAE-aware ControlNet apply node. Do not substitute an unrelated SD or Flux VAE.
+Use the VAE already owned by the active Qwen workflow. Do not substitute an unrelated SD or Flux VAE, and do not configure a filesystem path manually—the workflow passes a portable Comfy graph reference.
 
 ### Flux ControlNet adapter
 
@@ -178,7 +187,7 @@ built at runtime from the selected Comfy profile and these additive sources:
 1. live `ControlNetLoader` choices from Comfy `/object_info`;
 2. the registered Comfy `/models/controlnet` folder when available;
 3. files under the configured `<Comfy models root>/controlnet` directory;
-4. ControlNet folders declared by `extra_model_paths.yaml`.
+4. ControlNet folders declared by `extra_model_paths.yaml` under the canonical `controlnet` key or a supported alias. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete shared-model template.
 
 Nested directories are preserved in the dropdown because Comfy loaders use the
 relative filename. Put normal ControlNet loader files in:

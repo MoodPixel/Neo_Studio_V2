@@ -1,55 +1,16 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "full_costume",
   "source": "built_in_default",
+  "color_capable": true,
   "items": [
-    {
-      "id": "streetwear",
-      "label": "Streetwear outfit",
-      "prompt_terms": [
-        "streetwear outfit"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "editorial",
-      "label": "Editorial fashion outfit",
-      "prompt_terms": [
-        "editorial fashion outfit"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "fantasy_armor",
-      "label": "Fantasy armor",
-      "prompt_terms": [
-        "fantasy armor"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "formal_suit",
-      "label": "Formal suit",
-      "prompt_terms": [
-        "formal suit"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    }
+    {"id":"streetwear","label":"Streetwear outfit","prompt_terms":["streetwear outfit"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"editorial","label":"Editorial fashion outfit","prompt_terms":["editorial fashion outfit"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"fantasy_armor","label":"Fantasy armor","prompt_terms":["fantasy armor"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"formal_suit","label":"Formal suit","prompt_terms":["formal suit"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"business_casual","label":"Business-casual outfit","prompt_terms":["business-casual outfit"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"athleisure","label":"Athleisure outfit","prompt_terms":["athleisure outfit"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"ceremonial_robe","label":"Ceremonial robe","prompt_terms":["ceremonial robe"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"sci_fi_uniform","label":"Sci-fi uniform","prompt_terms":["science-fiction uniform"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
   ]
 }

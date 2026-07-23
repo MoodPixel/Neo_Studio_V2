@@ -168,7 +168,7 @@ rembg downloads the selected ONNX model on first use into `U2NET_HOME` or its de
 - `RembgByBiRefNetAdvanced`
 - `MaskToImage`
 - `SaveImage`
-- At least one BiRefNet model under `ComfyUI/models/BiRefNet/`.
+- At least one BiRefNet model under `ComfyUI/models/BiRefNet/`. Shared external folders may be registered with `BiRefNet`, `sams`, and `adetailer`/typed detector keys; see [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md).
 
 ### Mask Review refinement
 

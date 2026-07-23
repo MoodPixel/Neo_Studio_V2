@@ -350,7 +350,8 @@
   "extension_type": "workflow_extension",
   "id": "image.controlnet",
   "implementation_notes": [
-    "P9.3 promotes Flux Klein safetensors/components and GGUF ControlNet through Flux2/Klein Fun Union route profiles; no SD/Flux1/Qwen/ZImage fallback is allowed."
+    "P9.3 promotes Flux Klein safetensors/components and GGUF ControlNet through Flux2/Klein Fun Union route profiles; no SD/Flux1/Qwen/ZImage fallback is allowed.",
+    "Phase 4 Qwen VAE hotfix makes VAE validation adapter-specific: DiffSynth uses only its own apply-node schema, while VAE-aware InstantX apply nodes receive the active route-owned Qwen VAE and block clearly when it is missing."
   ],
   "memory_contract": {
     "assistant_summary_required": true,
@@ -3137,7 +3138,23 @@
     "ordering": "Runs after prompt/embedding/LoRA conditioning graph preparation and before sampler execution; does not mutate model/clip refs.",
     "patch_type": "conditioning",
     "phase": "P",
-    "status": "phase_q_flux_controlnet_adapter"
+    "status": "phase_q_flux_controlnet_adapter",
+    "qwen_vae_contract": {
+      "schema_version": "neo.image.controlnet.qwen_vae_contract.v1",
+      "diffsynth": {
+        "policy": "model_patch_apply_schema_authority",
+        "required": "only_when_qwen_diffsynth_apply_schema_declares_vae_required",
+        "optional": "inject_when_available_without_blocking",
+        "unsupported_or_unknown": "do_not_create_a_synthetic_vae_requirement"
+      },
+      "instantx": {
+        "policy": "vae_aware_apply_schema_authority",
+        "required": "when_qwen_instantx_apply_schema_explicitly_exposes_vae_as_required_or_optional",
+        "source": "active_route_owned_qwen_vae_graph_reference",
+        "missing_behavior": "block_before_queue_with_actionable_validation"
+      },
+      "path_policy": "graph_references_only_no_model_or_vae_filesystem_paths"
+    }
   },
   "workspace_apps": [
     "reference"

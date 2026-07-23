@@ -14,6 +14,12 @@ from uuid import uuid4
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.extensions.workflow_hooks import apply_comfy_workflow_extension_patches, has_comfy_workflow_extension_requests
 from neo_app.providers.base import BaseProvider
+from neo_app.providers.comfy_artifact_paths import (
+    ComfyArtifactPathError,
+    ComfyArtifactReference,
+    normalize_comfy_artifact_reference,
+    parse_comfy_artifact_name,
+)
 from neo_app.providers.capability_discovery import discover_comfy_backend_capabilities, discovery_result_to_dict
 from neo_app.providers.compile_router import select_comfy_compile_route
 from neo_app.providers.comfy_workflows.checkpoint_sd import resolve_sd_checkpoint_defaults
@@ -1072,24 +1078,79 @@ class ComfyProvider(BaseProvider):
         return dict(branch) if branch else {}
 
     @staticmethod
-    def _comfy_load_latent_name_from_branch(branch: dict[str, Any]) -> str:
-        """Build the LoadLatent filename for a provider-owned Comfy latent artifact.
+    def _comfy_latent_reference_from_branch(branch: dict[str, Any]) -> ComfyArtifactReference:
+        """Return the provider-owned Comfy reference for a replay branch.
 
-        Prefer the original Comfy output filename/subfolder because LoadLatent can
-        consume Comfy-owned latent files without PNG re-encoding.  Fall back to
-        the Neo-owned artifact path for test/runtime diagnostics; providers that
-        disallow absolute paths will fail cleanly before queueing when LoadLatent
-        validation rejects it.
+        ``artifact_path`` is a Neo retention copy and is never a valid fallback
+        for Comfy ``LoadLatent``. Legacy flat fields and the Phase 2 nested
+        ``provider_reference`` block are both accepted and normalized.
         """
-        source_filename = str(branch.get("source_filename") or branch.get("filename") or "").strip()
-        source_subfolder = str(branch.get("source_subfolder") or branch.get("subfolder") or "").strip().strip("/\\")
-        source_type = str(branch.get("source_type") or branch.get("type") or "output").strip() or "output"
+        if branch.get("provider_owned") is False:
+            raise ComfyArtifactPathError(
+                "The selected latent checkpoint is not marked as provider-owned and cannot be resumed in ComfyUI."
+            )
+        provider_id = str(branch.get("provider_id") or "").strip()
+        backend = str(branch.get("backend") or "").strip()
+        if provider_id and provider_id not in {"comfyui", "comfyui_portable"}:
+            raise ComfyArtifactPathError(
+                "The selected latent checkpoint belongs to a different provider and cannot be loaded by ComfyUI."
+            )
+        if backend and backend != "comfyui":
+            raise ComfyArtifactPathError(
+                "The selected latent checkpoint belongs to a non-Comfy backend and cannot be loaded by ComfyUI."
+            )
+
+        provider_reference = branch.get("provider_reference") if isinstance(branch.get("provider_reference"), dict) else {}
+        source_filename = (
+            provider_reference.get("filename")
+            or branch.get("source_filename")
+            or branch.get("filename")
+            or ""
+        )
+        source_subfolder = (
+            provider_reference.get("subfolder")
+            or branch.get("source_subfolder")
+            or branch.get("subfolder")
+            or ""
+        )
+        source_type = (
+            provider_reference.get("type")
+            or branch.get("source_type")
+            or branch.get("type")
+            or "output"
+        )
         if source_filename:
-            latent_name = f"{source_subfolder}/{source_filename}" if source_subfolder else source_filename
-            if source_type and source_type != "input":
-                latent_name = f"{latent_name} [{source_type}]"
-            return latent_name
-        return str(branch.get("artifact_path") or "").strip()
+            return normalize_comfy_artifact_reference(
+                filename=source_filename,
+                subfolder=source_subfolder,
+                artifact_type=source_type,
+            )
+
+        load_name = (
+            provider_reference.get("load_name")
+            or branch.get("comfy_load_name")
+            or branch.get("load_latent_name")
+            or ""
+        )
+        if load_name:
+            return normalize_comfy_artifact_reference(
+                artifact_type=source_type,
+                load_name=load_name,
+            )
+
+        if str(branch.get("artifact_path") or "").strip():
+            raise ComfyArtifactPathError(
+                "The selected latent checkpoint has only a Neo-owned storage copy and no Comfy provider reference. "
+                "Start a clean generation or select another checkpoint."
+            )
+        raise ComfyArtifactPathError(
+            "The selected latent checkpoint is missing its Comfy provider reference. "
+            "Start a clean generation or select another checkpoint."
+        )
+
+    @staticmethod
+    def _comfy_load_latent_name_from_branch(branch: dict[str, Any]) -> str:
+        return ComfyProvider._comfy_latent_reference_from_branch(branch).load_name
 
     def _apply_comfy_latent_branch_restore_hook(self, compiled: CompiledJob, job: NeoJob, route: Any) -> CompiledJob:
         """Consume a saved provider-owned final latent as the sampler source.
@@ -1132,12 +1193,22 @@ class ComfyProvider(BaseProvider):
             notes.append("IMG-R11 final-latent branch gated because ComfyUI LoadLatent is unavailable/offline.")
             backend_payload["phase_notes"] = notes
             return compiled.model_copy(update={"compile_status": "mock_compiled", "backend_payload": backend_payload})
-        latent_name = self._comfy_load_latent_name_from_branch(branch)
-        if not latent_name:
-            actual_params["_neo_branch_restore_provider_hook_state"] = "provider_gated_missing_latent_name"
-            actual_params["_neo_branch_restore_provider_hook_reason"] = "Saved latent artifact does not include a Comfy LoadLatent filename."
+        try:
+            latent_reference = self._comfy_latent_reference_from_branch(branch)
+        except ComfyArtifactPathError as exc:
+            message = str(exc)
+            actual_params["_neo_branch_restore_provider_hook_state"] = "provider_gated_invalid_latent_name"
+            actual_params["_neo_branch_restore_provider_hook_reason"] = message
             backend_payload["actual_params"] = actual_params
+            backend_payload["latent_branch_resume_validation"] = {
+                "schema_version": "neo.image.comfy_latent_replay_validation.v1",
+                "ok": False,
+                "state": "blocked_before_workflow_mutation",
+                "reason_code": "invalid_or_missing_provider_reference",
+                "message": message,
+            }
             return compiled.model_copy(update={"compile_status": "mock_compiled", "backend_payload": backend_payload})
+        latent_name = latent_reference.load_name
         sampler_ids: list[str] = []
         for raw_id, node in workflow.items():
             if isinstance(node, dict) and str(node.get("class_type") or "") == "KSampler":
@@ -1199,6 +1270,13 @@ class ComfyProvider(BaseProvider):
             "artifact_format": str(branch.get("artifact_format") or "comfy_latent"),
             "load_latent_node_id": load_node_id,
             "load_latent_name": latent_name,
+            "provider_reference": {
+                "filename": latent_reference.filename,
+                "subfolder": latent_reference.subfolder,
+                "type": latent_reference.artifact_type,
+                "load_name": latent_name,
+            },
+            "preflight_state": "pending_provider_artifact_check",
             "sampler_node_id": sampler_id,
             "previous_latent_ref": previous_latent,
             "patched_latent_ref": [load_node_id, 0],
@@ -1209,8 +1287,18 @@ class ComfyProvider(BaseProvider):
         branch["requires_provider_resume"] = False
         branch["state"] = "provider_resume_enabled"
         branch["load_latent_name"] = latent_name
-        branch["source_filename"] = branch.get("source_filename") or ""
-        branch["source_subfolder"] = branch.get("source_subfolder") or ""
+        branch["comfy_load_name"] = latent_name
+        branch["source_filename"] = latent_reference.filename
+        branch["source_subfolder"] = latent_reference.subfolder
+        branch["source_type"] = latent_reference.artifact_type
+        branch["provider_reference"] = {
+            "filename": latent_reference.filename,
+            "subfolder": latent_reference.subfolder,
+            "type": latent_reference.artifact_type,
+            "load_name": latent_name,
+        }
+        branch["provider_resume_ready"] = True
+        branch["provider_reference_state"] = "normalized_pending_probe"
         actual_params["_neo_branch_restore"] = branch
         actual_params["_neo_branch_restore_provider_hook_state"] = "workflow_patched"
         actual_params["_neo_branch_restore_provider"] = branch_provider
@@ -1753,6 +1841,122 @@ class ComfyProvider(BaseProvider):
                 return int(getattr(response, "status", 200)) < 400
         except Exception:  # noqa: BLE001
             return False
+
+
+    def _probe_comfy_artifact_reference(self, reference: ComfyArtifactReference) -> dict[str, Any]:
+        """Check one provider-relative Comfy artifact without executing a graph."""
+        query = parse.urlencode({
+            "filename": reference.filename,
+            "subfolder": reference.subfolder,
+            "type": reference.artifact_type,
+        })
+        req = request.Request(self._url(f"/view?{query}"), method="GET")
+        try:
+            with request.urlopen(req, timeout=max(self.timeout, 5)) as response:
+                status_code = int(getattr(response, "status", 200))
+            return {
+                "ok": status_code < 400,
+                "state": "available" if status_code < 400 else "unavailable",
+                "status_code": status_code,
+                "load_name": reference.load_name,
+            }
+        except error.HTTPError as exc:
+            code = int(getattr(exc, "code", 0) or 0)
+            return {
+                "ok": False,
+                "state": "missing" if code == 404 else "rejected",
+                "status_code": code,
+                "load_name": reference.load_name,
+                "error": str(exc),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "state": "verification_unavailable",
+                "status_code": 0,
+                "load_name": reference.load_name,
+                "error": str(exc),
+            }
+
+    def _validate_prompt_load_latents(self, prompt_graph: dict[str, Any], *, run_id: str) -> list[dict[str, Any]]:
+        """Preflight every LoadLatent reference before sending ``/prompt``.
+
+        This catches stale provider outputs and malformed legacy metadata before
+        Comfy rejects the whole graph. Neo-owned copied paths are never uploaded
+        or substituted automatically.
+        """
+        invalid: list[dict[str, Any]] = []
+        if not isinstance(prompt_graph, dict):
+            return invalid
+        for node_id, node in prompt_graph.items():
+            if not isinstance(node, dict) or node.get("class_type") != "LoadLatent":
+                continue
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            raw_name = str(inputs.get("latent") or "").strip()
+            try:
+                reference = parse_comfy_artifact_name(raw_name, default_type="input")
+            except ComfyArtifactPathError as exc:
+                message = f"Latent checkpoint reference is invalid: {exc}"
+                invalid.append({
+                    "node_id": str(node_id),
+                    "class_type": "LoadLatent",
+                    "load_name": raw_name,
+                    "state": "invalid_reference",
+                    "message": message,
+                })
+                continue
+
+            inputs["latent"] = reference.load_name
+            node["inputs"] = inputs
+            probe = self._probe_comfy_artifact_reference(reference)
+            if probe.get("ok"):
+                log_image_event(
+                    "loadlatent_reference_verified",
+                    run_id=run_id,
+                    payload={
+                        "node_id": str(node_id),
+                        "load_name": reference.load_name,
+                        "state": "available",
+                    },
+                )
+                continue
+
+            state = str(probe.get("state") or "unavailable")
+            if state == "missing":
+                message = (
+                    f"Latent checkpoint is no longer available in ComfyUI: {reference.load_name}. "
+                    "Start a clean generation or select another checkpoint."
+                )
+            elif state == "verification_unavailable":
+                message = (
+                    f"Neo could not verify the selected latent checkpoint in ComfyUI: {reference.load_name}. "
+                    "Check the ComfyUI connection, then try again."
+                )
+            else:
+                message = (
+                    f"ComfyUI rejected the selected latent checkpoint reference: {reference.load_name}. "
+                    "Start a clean generation or select another checkpoint."
+                )
+            invalid.append({
+                "node_id": str(node_id),
+                "class_type": "LoadLatent",
+                "load_name": reference.load_name,
+                "state": state,
+                "status_code": int(probe.get("status_code") or 0),
+                "message": message,
+                "error": str(probe.get("error") or ""),
+            })
+
+        if invalid:
+            record_generation_error(
+                run_id=run_id,
+                message="Comfy LoadLatent validation failed before queue.",
+                payload={
+                    "invalid_load_latents": invalid,
+                    "warning": "latent_checkpoint_missing_or_unavailable",
+                },
+            )
+        return invalid
 
 
 
@@ -3207,7 +3411,10 @@ class ComfyProvider(BaseProvider):
                 route_payload = compiled.backend_payload.get("compile_route") or {}
                 blockers = route_payload.get("blockers") or []
                 route_label = "+".join(str(route_payload.get(key) or "") for key in ("family", "loader", "mode")).strip("+")
-                message = "; ".join(blockers) or f"Route is not enabled for Comfy queue: {route_label or runtime_job.mode}."
+                latent_validation = compiled.backend_payload.get("latent_branch_resume_validation") if isinstance(compiled.backend_payload.get("latent_branch_resume_validation"), dict) else {}
+                actual_params_for_gate = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+                latent_reason = str(latent_validation.get("message") or actual_params_for_gate.get("_neo_branch_restore_provider_hook_reason") or "").strip()
+                message = latent_reason or "; ".join(blockers) or f"Route is not enabled for Comfy queue: {route_label or runtime_job.mode}."
                 record_generation_error(
                     run_id=run_id,
                     message="Provider route was gated before Comfy queue.",
@@ -3246,6 +3453,21 @@ class ComfyProvider(BaseProvider):
                     log_image_event("layerdiffuse_cache_guard_free_failed", run_id=run_id, level="WARNING", payload={"error": str(exc), "reason": "non_layerdiffuse_4ch_compile"})
             queue_payload_for_error = payload
             invalid_load_images = self._validate_prompt_load_images(prompt_graph, run_id=run_id)
+            invalid_load_latents = self._validate_prompt_load_latents(prompt_graph, run_id=run_id)
+            load_latent_node_count = sum(
+                1
+                for node in prompt_graph.values()
+                if isinstance(node, dict) and node.get("class_type") == "LoadLatent"
+            )
+            latent_preflight_report = ({
+                "schema_version": "neo.image.comfy_latent_replay_validation.v1",
+                "ok": not invalid_load_latents,
+                "state": "blocked_before_queue" if invalid_load_latents else "provider_artifact_available",
+                "node_count": load_latent_node_count,
+                "invalid_load_latents": invalid_load_latents,
+            } if load_latent_node_count or invalid_load_latents else {})
+            if latent_preflight_report:
+                compiled.backend_payload["latent_branch_resume_validation"] = latent_preflight_report
             actual_params_for_handoff = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
             qwen_stitch_metadata = actual_params_for_handoff.get("qwen_stitch") if isinstance(actual_params_for_handoff.get("qwen_stitch"), dict) else None
             if qwen_stitch_metadata is not None:
@@ -3261,6 +3483,36 @@ class ComfyProvider(BaseProvider):
                     message="source_image_missing_or_unreadable: one or more LoadImage references are missing or unreadable before Comfy queue.",
                     runtime={"debug_logs": {"run_id": run_id}, "invalid_load_images": invalid_load_images},
                 )
+            if invalid_load_latents:
+                message = str(invalid_load_latents[0].get("message") or "Latent checkpoint is missing or unavailable in ComfyUI.")
+                return ProviderRunResult(
+                    job_id=run_id,
+                    provider_id=self.manifest.provider_id,
+                    status="failed",
+                    message=message,
+                    runtime={
+                        "debug_logs": {"run_id": run_id},
+                        "invalid_load_latents": invalid_load_latents,
+                        "latent_branch_resume_validation": latent_preflight_report,
+                    },
+                )
+            branch_resume = compiled.backend_payload.get("latent_branch_resume") if isinstance(compiled.backend_payload.get("latent_branch_resume"), dict) else None
+            if branch_resume is not None:
+                branch_resume["preflight_state"] = "provider_artifact_available"
+                branch_resume["preflight_checked"] = True
+                compiled.backend_payload["latent_branch_resume"] = branch_resume
+                actual_params_for_handoff = dict(actual_params_for_handoff)
+                branch_meta = actual_params_for_handoff.get("_neo_branch_restore") if isinstance(actual_params_for_handoff.get("_neo_branch_restore"), dict) else {}
+                if branch_meta:
+                    branch_meta = dict(branch_meta)
+                    branch_meta["provider_reference_state"] = "verified_available"
+                    actual_params_for_handoff["_neo_branch_restore"] = branch_meta
+                provider_meta = actual_params_for_handoff.get("_neo_branch_restore_provider") if isinstance(actual_params_for_handoff.get("_neo_branch_restore_provider"), dict) else {}
+                if provider_meta:
+                    provider_meta = dict(provider_meta)
+                    provider_meta["preflight_state"] = "provider_artifact_available"
+                    actual_params_for_handoff["_neo_branch_restore_provider"] = provider_meta
+                compiled.backend_payload["actual_params"] = actual_params_for_handoff
             record_queue_payload(run_id=run_id, request_payload=payload)
             response_payload = self._post_json("/prompt", payload)
             prompt_id = response_payload.get("prompt_id") or run_id or f"comfy-{uuid4().hex[:8]}"
@@ -3320,6 +3572,7 @@ class ComfyProvider(BaseProvider):
                 "route_metadata": route_metadata,
                 "route_snapshot": route_snapshot,
                 "extensions": runtime_extensions,
+                "latent_branch_resume_validation": latent_preflight_report,
             }
             registry_record = {}
             try:
@@ -3354,7 +3607,7 @@ class ComfyProvider(BaseProvider):
                 message="Queued in ComfyUI.",
                 outputs=[],
                 client_id=compiled.backend_payload.get("client_id"),
-                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary},
+                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary},
             )
         except Exception as exc:  # noqa: BLE001
             error_payload: dict[str, Any] = {"job": model_to_dict(runtime_job)}
@@ -3633,20 +3886,49 @@ class ComfyProvider(BaseProvider):
             for latent in node_output.get("latents") or node_output.get("latent") or []:
                 if not isinstance(latent, dict):
                     continue
+                raw_filename = str(latent.get("filename") or "").strip()
+                raw_subfolder = str(latent.get("subfolder") or "").strip()
+                raw_type = str(latent.get("type") or "output").strip() or "output"
+                reference = None
+                reference_error = ""
+                try:
+                    reference = normalize_comfy_artifact_reference(
+                        filename=raw_filename,
+                        subfolder=raw_subfolder,
+                        artifact_type=raw_type,
+                    )
+                except ComfyArtifactPathError as exc:
+                    # Keep the provider output importable so Neo can retain the
+                    # bytes, but mark the provider coordinates as unusable for
+                    # replay. persist_latent_outputs will record neo_copy_only.
+                    reference_error = str(exc)
+
                 query = parse.urlencode({
-                    "filename": latent.get("filename", ""),
-                    "subfolder": latent.get("subfolder", ""),
-                    "type": latent.get("type", "output"),
+                    "filename": reference.filename if reference is not None else raw_filename,
+                    "subfolder": reference.subfolder if reference is not None else raw_subfolder,
+                    "type": reference.artifact_type if reference is not None else raw_type,
                 })
-                outputs.append({
+                item = {
                     "job_id": job_id,
                     "node_id": node_id,
                     "kind": "latent",
                     "restore_point": self._infer_restore_point_from_latent_output(latent),
-                    "filename": latent.get("filename"),
-                    "subfolder": latent.get("subfolder", ""),
-                    "type": latent.get("type", "output"),
+                    "filename": reference.filename if reference is not None else raw_filename,
+                    "subfolder": reference.subfolder if reference is not None else raw_subfolder,
+                    "type": reference.artifact_type if reference is not None else raw_type,
                     "format": "comfy_latent",
                     "url": f"{self.base_url}/view?{query}",
-                })
+                    "provider_resume_ready": reference is not None,
+                }
+                if reference is not None:
+                    item["comfy_load_name"] = reference.load_name
+                    item["provider_reference"] = {
+                        "filename": reference.filename,
+                        "subfolder": reference.subfolder,
+                        "type": reference.artifact_type,
+                        "load_name": reference.load_name,
+                    }
+                if reference_error:
+                    item["provider_reference_error"] = reference_error
+                outputs.append(item)
         return outputs

@@ -1,67 +1,22 @@
 {
-  "schema": "neo.image.scene_director.trait_library.v1",
+  "schema": "neo.image.scene_director.trait_library.v2",
   "category": "clothing_bottom",
   "source": "built_in_default",
+  "color_capable": true,
   "items": [
-    {
-      "id": "dark_trousers",
-      "label": "Dark tailored trousers",
-      "prompt_terms": [
-        "dark tailored trousers"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "charcoal_trousers",
-      "label": "Loose charcoal trousers",
-      "prompt_terms": [
-        "loose charcoal trousers"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "blue_jeans",
-      "label": "Blue jeans",
-      "prompt_terms": [
-        "blue jeans"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "black_pants",
-      "label": "Black pants",
-      "prompt_terms": [
-        "black pants"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    },
-    {
-      "id": "shorts",
-      "label": "Shorts",
-      "prompt_terms": [
-        "shorts"
-      ],
-      "negative_terms": [],
-      "latent_priority": 0.75,
-      "roles": [
-        "character"
-      ]
-    }
-  ]
+    {"id":"tailored_trousers","label":"Tailored trousers","prompt_terms":["tailored trousers"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"loose_trousers","label":"Loose trousers","prompt_terms":["loose trousers"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"jeans","label":"Jeans","prompt_terms":["denim jeans"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"pants","label":"Pants","prompt_terms":["pants"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"shorts","label":"Shorts","prompt_terms":["shorts"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"cargo_pants","label":"Cargo pants","prompt_terms":["cargo pants"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"joggers","label":"Joggers","prompt_terms":["jogger pants"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]},
+    {"id":"pleated_skirt","label":"Pleated skirt","prompt_terms":["pleated skirt"],"negative_terms":[],"latent_priority":0.8,"roles":["character"]}
+  ],
+  "legacy_migrations": {
+    "dark_trousers": {"replacement_id":"tailored_trousers","primary_color_id":"dark_brown"},
+    "charcoal_trousers": {"replacement_id":"loose_trousers","primary_color_id":"charcoal"},
+    "blue_jeans": {"replacement_id":"jeans","primary_color_id":"blue"},
+    "black_pants": {"replacement_id":"pants","primary_color_id":"black"}
+  }
 }

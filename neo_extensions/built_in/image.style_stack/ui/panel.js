@@ -11,6 +11,7 @@
     manual_negative: "",
     editor: { name: "", prompt: "", negative_prompt: "" },
     records: [],
+    sync: {},
     payload_version: 1,
     last_payload_preview: null,
   };
@@ -22,6 +23,7 @@
       editor: { ...DEFAULT_STATE.editor, ...(state.editor || {}) },
       active_styles: Array.isArray(state.active_styles) ? state.active_styles : [],
       records: Array.isArray(state.records) ? state.records : [],
+      sync: state.sync && typeof state.sync === "object" ? state.sync : {},
       payload_version: Number(state.payload_version || DEFAULT_STATE.payload_version || 1),
       last_payload_preview: state.last_payload_preview || null,
     };
@@ -39,6 +41,18 @@
   function setMessage(panel, message) {
     const node = panel.querySelector("[data-style-stack-message]");
     if (node) node.textContent = message || "Ready.";
+  }
+
+  function syncSummary(sync = {}, runtimeFallback = 0) {
+    const runtime = Number(sync.runtime_count ?? runtimeFallback ?? 0);
+    const bundled = Number(sync.bundled_count ?? 0);
+    const parts = [`Runtime ${runtime}`];
+    if (bundled) parts.push(`Bundled ${bundled}`);
+    if (Number(sync.added || 0)) parts.push(`Added ${Number(sync.added)}`);
+    if (Number(sync.updated_defaults || 0)) parts.push(`Updated ${Number(sync.updated_defaults)}`);
+    if (Number(sync.preserved_overrides || 0)) parts.push(`Preserved ${Number(sync.preserved_overrides)} override(s)`);
+    if (Number(sync.tombstoned || 0)) parts.push(`Deleted defaults hidden ${Number(sync.tombstoned)}`);
+    return parts.join(" · ");
   }
 
   function filteredRecords(state) {
@@ -124,7 +138,7 @@
         : '<option value="">No styles found</option>';
     }
     const count = panel.querySelector("[data-style-stack-count]");
-    if (count) count.textContent = `${state.records.length} styles`;
+    if (count) count.textContent = syncSummary(state.sync, state.records.length);
     const chips = panel.querySelector("[data-style-stack-active-chips]");
     if (chips) {
       chips.innerHTML = state.active_styles.length
@@ -142,15 +156,16 @@
 
   async function loadStyles(panel) {
     setMessage(panel, "Loading Style Stack library…");
-    const response = await fetch(API_BASE);
+    const response = await fetch(API_BASE, { cache: "no-store", headers: { "Cache-Control": "no-cache" } });
     const result = await response.json();
     if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || "Style load failed");
     const state = panelState(panel);
     state.records = Array.isArray(result.styles) ? result.styles : [];
+    state.sync = result.sync && typeof result.sync === "object" ? result.sync : {};
     state.selected_name = state.selected_name || state.records[0]?.name || "";
     const selected = selectedStyle(state);
     if (selected) state.editor = { name: selected.name || "", prompt: selected.prompt || "", negative_prompt: selected.negative_prompt || "" };
-    setMessage(panel, `Loaded ${state.records.length} style(s).${result.encoding ? ` Encoding: ${result.encoding}` : ""}`);
+    setMessage(panel, `${syncSummary(state.sync, state.records.length)}.${result.encoding ? ` Encoding: ${result.encoding}` : ""}`);
     renderPanel(panel);
   }
 
@@ -166,6 +181,7 @@
     const result = await response.json();
     if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || "Style save failed");
     state.records = Array.isArray(result.styles) ? result.styles : [];
+    state.sync = result.sync && typeof result.sync === "object" ? result.sync : {};
     state.selected_name = style.name;
     state.editor = style;
     setMessage(panel, `Saved ${style.name}.`);
@@ -180,6 +196,7 @@
     const result = await response.json();
     if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || "Style delete failed");
     state.records = Array.isArray(result.styles) ? result.styles : [];
+    state.sync = result.sync && typeof result.sync === "object" ? result.sync : state.sync;
     state.active_styles = state.active_styles.filter((item) => item !== name);
     state.selected_name = state.records[0]?.name || "";
     state.editor = selectedStyle(state) || { name: "", prompt: "", negative_prompt: "" };
@@ -195,6 +212,7 @@
     const result = await response.json();
     if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || "Style duplicate failed");
     state.records = Array.isArray(result.styles) ? result.styles : [];
+    state.sync = result.sync && typeof result.sync === "object" ? result.sync : state.sync;
     const copy = state.records.find((style) => style.name.startsWith(`${name} Copy`)) || state.records[state.records.length - 1];
     if (copy) {
       state.selected_name = copy.name;
@@ -215,6 +233,7 @@
     if (!response.ok || result.ok === false) throw new Error(result.detail || result.message || "Style import failed");
     const state = panelState(panel);
     state.records = Array.isArray(result.styles) ? result.styles : [];
+    state.sync = result.sync && typeof result.sync === "object" ? result.sync : {};
     state.selected_name = state.records[0]?.name || "";
     state.editor = selectedStyle(state) || { name: "", prompt: "", negative_prompt: "" };
     setMessage(panel, result.message || `Imported ${state.records.length} style(s).`);
