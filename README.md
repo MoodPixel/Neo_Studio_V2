@@ -416,7 +416,7 @@ ComfyUI/custom_nodes/
 |---|---|---|
 | `comfyui-essentials` | Common utility nodes used by many workflows | https://github.com/comfyorg/comfyui-essentials.git |
 | `ComfyUI-GGUF` | GGUF model support for image/video model routes. **Note:** for **Krea 2 GGUF** support, users may need a **Krea 2–compatible GGUF fork** instead of the standard `city96` build | https://github.com/city96/ComfyUI-GGUF.git |
-| `ComfyUI-GGUF` | GGUF utility support (install only one not both | https://github.com/molbal/ComfyUI-GGUF.git |
+| `ComfyUI-GGUF` | GGUF utility support (install only one, not both; you need this if you are planning to use Krea2) | https://github.com/molbal/ComfyUI-GGUF.git |
 | `gguf` | Additional GGUF utility support | https://github.com/calcuis/gguf.git |
 | `ComfyUI-Impact-Pack` | Detection, detailing, masks, segmentation, and utility workflows | https://github.com/ltdrdata/ComfyUI-Impact-Pack.git |
 | `ComfyUI-Impact-Subpack` | Support package for Impact Pack | https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git |
