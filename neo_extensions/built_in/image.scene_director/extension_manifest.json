@@ -1,8 +1,8 @@
 {
   "id": "image.scene_director",
-  "name": "Image · Scene Director",
-  "version": "1.2.6",
-  "description": "Built-in Image Scene Director extension with Character Additional Details, child-owned Attached Detail roles, character-local Pose and held-item authority, merged face/grooming authority, body-scoped clothing states and underlayers, and shared visual color palettes.",
+  "name": "Image \u00b7 Scene Director",
+  "version": "1.2.11",
+  "description": "Built-in Image Scene Director extension with Phase 27.17C presence-only 3+ occupancy de-duplication and Advanced boundary cleanup over the Phase 27.17B occupancy stabilizer, Phase 27.17A.1 execution-state restore, Phase 27.17A Basic/Advanced Scene Mode, frozen Character Lock workflows, and the finalized Character Trait, Pose, repair, Additional Details, and child-owned Attached Detail workflows.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",

@@ -13,6 +13,8 @@ applies_to:
   - sd15
   - flux
   - flux2_klein
+  - krea2
+  - krea2_turbo
   - qwen_rapid_aio
   - qwen_image_edit
   - qwen_image_edit_2509
@@ -43,8 +45,8 @@ tags:
   - checkpoint
   - routes
 priority: 120
-version: 2
-updated: 2026-07-09
+version: 3
+updated: 2026-07-26
 ---
 
 # Image Model Families, Loaders, and Routes
@@ -69,6 +71,8 @@ These are the current normal Image workspace families from the route matrix. Ava
 | **SD 1.5** | `sd15` | **Safetensors / Checkpoint** | Generate, Img2Img, Inpaint, Outpaint | Classic SD 1.5 checkpoint route. Useful for older SD models, some LoRAs, ControlNet-heavy workflows, and lower VRAM tests. |
 | **Flux 1** | `flux` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Component route uses diffusion model + text encoders + AE/VAE + Flux Guidance. Inpaint/outpaint resolve through internal Flux Fill behavior; Flux Fill is not a separate normal dropdown family. |
 | **Flux 2 Klein** | `flux2_klein` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Flux 2 Klein route. Uses component or GGUF loaders with native image-conditioned route support. |
+| **Krea 2 RAW** | `krea2` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Standalone Krea 2 base/normal family. Generate is native for components; image-conditioned and GGUF routes are selectable experimental routes. Uses Qwen3-VL-4B + Qwen Image VAE. |
+| **Krea 2 Turbo** | `krea2_turbo` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Distilled Krea 2 family with locked Comfy 8-step / CFG-1 / zeroed-negative behavior. Image-conditioned and GGUF routes are experimental. |
 | **Qwen Rapid AIO** | `qwen_rapid_aio` | **Safetensors / Bundled**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Compact all-in-one Qwen image route. Bundled checkpoint keeps extra model components hidden unless needed. GGUF route needs matching GGUF/runtime support. |
 | **Qwen Image Edit** | `qwen_image` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Qwen-native edit family for source-image workflows. Stronger fit when the user wants instruction-like edits while preserving a source image. |
 | **Qwen Image Edit 2509** | `qwen_image_edit_2509` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Newer Qwen edit route with multi-source edit support where the selected loader/profile exposes it. |
@@ -113,14 +117,32 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 - Main Model Type can be **Safetensors / Components** or **GGUF**.
 - Flux uses **Flux Guidance** instead of normal SD-style CFG.
 - CFG and Clip Skip are hidden/disabled on Flux component routes.
-- Inpaint/outpaint use internal Flux Fill behavior when selected through Workflow Mode. Do not tell users to select a separate Flux Fill family in the normal dropdown.
+- **FLUX.1 Krea is a Flux 1 variant (`krea_dev`), not a separate Model Family.** Selecting a Krea model keeps the normal Flux 1 family and automatically resolves the Krea runtime.
+- Krea uses the FLUX.1 dual-encoder stack: one **T5XXL** + one **CLIP-L** encoder, in either slot order. Qwen/MMProj assets do not belong to this route.
+- Krea supports Generate, Img2Img, Inpaint, and Outpaint for both Safetensors / Components and GGUF. Krea Inpaint/Outpaint retain the selected Krea model and use latent-mask + DifferentialDiffusion semantics.
+- For **non-Krea** Flux 1 models, Inpaint/Outpaint continue to use internal Flux Fill behavior when selected through Workflow Mode. Do not tell users to select a separate Flux Fill family in the normal dropdown.
 
 ### Flux 2 Klein
 
 - Normal family label is **Flux 2 Klein**.
-- Supports component and GGUF route types.
-- Explain it as a modern Flux-family route with native image-conditioned support when readiness passes.
+- Supports **Safetensors / Components** and **GGUF** route types.
+- The selected model size owns encoder compatibility: **Klein 4B requires Qwen3-4B; Klein 9B requires Qwen3-8B**.
+- For Klein GGUF, the diffusion model can remain GGUF while the matching Qwen3 encoder is either native safetensors (`CLIPLoader(type=flux2)`) or GGUF (`CLIPLoaderGGUF(type=flux2)`).
+- Qwen2/Qwen2.5-VL and MMProj files belong to other Qwen image/edit contracts and are not valid Klein text encoders.
+- Model selection filters the Klein encoder lane; a known wrong-size encoder is rejected before Comfy queue instead of failing later in sampling.
+- **M14.1:** `qwen3_text_encoder` is the canonical Klein selection. Older `text_encoder_1` / GGUF aliases are synchronized automatically on preset load, route changes, and submission, so hidden stale aliases cannot override the visible encoder.
+- Qwen Image/Edit MMProj state is removed when the active family is Flux 2 Klein.
 - Uses Flux-style guidance behavior rather than classic SD checkpoint assumptions.
+
+### Krea 2 RAW and Krea 2 Turbo
+
+- These are **standalone Krea 2 families**, not FLUX.1 Krea. `krea2` is the RAW/base/normal family; `krea2_turbo` is the distilled Turbo family.
+- Native/component routes require a Krea 2 diffusion model, **Qwen3-VL-4B** through `CLIPLoader(type=krea2)`, and **Qwen Image VAE**.
+- Krea 2 does not use FLUX Guidance, FLUX dual encoders, Klein's plain Qwen3 encoder contract, or Qwen Image MMProj.
+- RAW defaults to the full-step profile (52 steps / CFG 3.5). Turbo is family-locked to the official Comfy convention: 8 steps, KSampler CFG 1.0, Euler + Simple, and zeroed negative conditioning.
+- Component Generate/txt2img is normal available. Img2Img/Inpaint/Outpaint are **experimental available** Neo latent adapters that keep the selected Krea 2 model.
+- Krea 2 GGUF is **experimental available** and quantizes the diffusion transformer only in M16. The Qwen3-VL-4B encoder stays native/safetensors so Comfy can preserve Krea 2's multi-layer conditioning. A Krea2-capable GGUF transformer loader/fork is required.
+- Do not tell users to select a GGUF Qwen3-VL encoder for Krea 2 in M16; Neo intentionally blocks that combination until the specialized 12-layer conditioning path is proven.
 
 ### Qwen Rapid AIO
 

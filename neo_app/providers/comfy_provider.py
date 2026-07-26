@@ -23,13 +23,26 @@ from neo_app.providers.comfy_artifact_paths import (
 from neo_app.providers.capability_discovery import discover_comfy_backend_capabilities, discovery_result_to_dict
 from neo_app.providers.compile_router import select_comfy_compile_route
 from neo_app.providers.comfy_workflows.checkpoint_sd import resolve_sd_checkpoint_defaults
-from neo_app.providers.comfy_workflows.flux_native import compile_flux_native_txt2img, compile_flux_klein_txt2img, compile_flux_fill_workflow
+from neo_app.providers.comfy_workflows.flux_native import compile_flux_native_txt2img, compile_flux_klein_txt2img, compile_flux_fill_workflow, compile_flux_krea_workflow
 from neo_app.providers.comfy_workflows.flux_gguf import compile_flux_gguf_txt2img
+from neo_app.providers.comfy_workflows.krea2 import compile_krea2_workflow
 from neo_app.providers.comfy_workflows.qwen_gguf import compile_qwen_gguf_txt2img
 from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_txt2img
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
 from neo_app.providers.comfy_workflows.qwen_stitch_handoff import record_qwen_stitch_comfy_handoff
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload
+from neo_app.image.flux2_klein_contract import (
+    check_flux2_klein_compatibility,
+    reconcile_flux2_klein_encoder_params,
+    resolve_flux2_klein_variant,
+)
+from neo_app.image.flux1_krea_contract import (
+    check_flux1_krea_compatibility,
+    is_flux1_krea_route,
+    is_flux1_krea_variant,
+    resolve_flux1_variant,
+)
+from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
 from neo_app.providers.comfy_workflows.image_stitch_route import (
     extract_image_stitch_payload,
     image_stitch_has_ready_group,
@@ -669,10 +682,72 @@ class ComfyProvider(BaseProvider):
         clean_params, _boundary = sanitize_image_params_for_state_boundary(job.params or {}, runtime_mode)
         if job.family == "flux2_klein":
             clean_params = dict(clean_params)
-            clean_params.setdefault("flux_variant", "flux2_klein")
+            selected_model = job.model or clean_params.get("gguf_unet") or clean_params.get("gguf_model") or clean_params.get("diffusion_model") or clean_params.get("model") or ""
+            clean_params, encoder_reconciliation = reconcile_flux2_klein_encoder_params(
+                clean_params,
+                selected_model,
+                default_if_missing=False,
+            )
+            canonical_variant = resolve_flux2_klein_variant(clean_params.get("flux_variant") or clean_params.get("variant") or "flux2_klein", selected_model)
+            clean_params["flux_variant"] = canonical_variant or "flux2_klein"
             clean_params.setdefault("gguf_clip_type", "flux2_klein")
             clean_params.setdefault("gguf_clip_mode", "single")
             clean_params.setdefault("clip_type", "flux2")
+            clean_params["_neo_flux2_klein_encoder_reconciliation"] = encoder_reconciliation
+        if job.family == "flux":
+            clean_params = dict(clean_params)
+            selected_model = job.model or clean_params.get("gguf_unet") or clean_params.get("gguf_model") or clean_params.get("diffusion_model") or clean_params.get("model") or clean_params.get("unet") or ""
+            resolved_flux1_variant = resolve_flux1_variant(clean_params.get("flux_variant") or clean_params.get("variant") or "dev", selected_model)
+            if is_flux1_krea_route(resolved_flux1_variant, selected_model):
+                clean_params["flux_variant"] = "krea_dev"
+                clean_params.setdefault("clip_type", "flux")
+                if job.loader == "gguf":
+                    clean_params.setdefault("gguf_clip_type", "flux")
+                    clean_params.setdefault("gguf_clip_mode", "dual")
+                for foreign_key in ("qwen_text_encoder", "qwen3_text_encoder", "qwen_mmproj", "mmproj", "mmproj_name"):
+                    clean_params.pop(foreign_key, None)
+                clean_params["_neo_flux1_krea_runtime_reconciled"] = True
+            else:
+                model_text = str(selected_model or "").strip().lower()
+                submitted_variant = clean_params.get("flux_variant") or clean_params.get("variant") or ""
+                if model_text and model_text not in {"provider_default", "automatic", "auto", "none"} and is_flux1_krea_variant(submitted_variant):
+                    clean_params["flux_variant"] = "dev"
+                    clean_params["_neo_flux1_krea_stale_variant_cleared"] = True
+        if job.family in {"krea2", "krea2_turbo"}:
+            clean_params = dict(clean_params)
+            selected_model = job.model or clean_params.get("gguf_unet") or clean_params.get("gguf_model") or clean_params.get("diffusion_model") or clean_params.get("model") or clean_params.get("unet") or ""
+            variant = resolve_krea2_variant(job.family, selected_model)
+            clean_params["krea2_variant"] = variant
+            clean_params["clip_type"] = "krea2"
+            # One canonical Krea2 encoder lane. M16 intentionally keeps the
+            # Qwen3-VL-4B encoder native even when the transformer is GGUF.
+            encoder = (
+                clean_params.get("qwen3vl_text_encoder")
+                or clean_params.get("text_encoder_1")
+                or clean_params.get("text_encoder_primary")
+                or clean_params.get("clip_name")
+                or ""
+            )
+            if encoder:
+                clean_params["qwen3vl_text_encoder"] = encoder
+                clean_params["text_encoder_1"] = encoder
+                clean_params["text_encoder_primary"] = encoder
+            clean_params["text_encoder_2"] = ""
+            clean_params.pop("gguf_text_encoder_1", None)
+            clean_params.pop("gguf_text_encoder_primary", None)
+            clean_params.pop("gguf_text_encoder_2", None)
+            clean_params.pop("gguf_text_encoder_secondary", None)
+            clean_params.pop("flux_variant", None)
+            clean_params.pop("flux_guidance", None)
+            clean_params.pop("qwen_text_encoder", None)
+            clean_params.pop("qwen3_text_encoder", None)
+            clean_params.pop("qwen_mmproj", None)
+            clean_params.pop("mmproj", None)
+            clean_params.pop("mmproj_name", None)
+            if job.loader == "gguf":
+                clean_params["gguf_clip_mode"] = "single"
+                clean_params["gguf_clip_type"] = "krea2"
+            clean_params["_neo_krea2_runtime_reconciled"] = True
         if job.family in {"z_image", "z_image_turbo"}:
             clean_params = dict(clean_params)
             clean_params["gguf_clip_type"] = "z_image"
@@ -1453,24 +1528,61 @@ class ComfyProvider(BaseProvider):
             (job.family == "flux" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "flux1_fill" and job.mode in {"inpaint", "outpaint"})
             or (job.family == "flux2_klein" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
+            or (job.family in {"krea2", "krea2_turbo"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "qwen_image" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
             or (job.family == "qwen_image_edit_2509" and job.mode in {"img2img", "edit", "inpaint", "outpaint"})
             or (job.family == "z_image" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "z_image_turbo" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "hidream" and job.mode == "txt2img")
         ):
-            result.warnings.append("Diffusion-model loader compile is enabled for declared Flux, Qwen Image, ZImage base/Turbo txt2img/img2img/inpaint/outpaint, and HiDream txt2img routes. Wan/Hunyuan remain provider-gated until confirmed image workflows exist.")
+            result.warnings.append("Diffusion-model loader compile is enabled for declared Flux, Krea 2 RAW/Turbo, Qwen Image, ZImage base/Turbo txt2img/img2img/inpaint/outpaint, and HiDream txt2img routes. Wan/Hunyuan remain provider-gated until confirmed image workflows exist.")
         if job.loader == "checkpoint_aio" and not (job.family == "qwen_rapid_aio" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"}):
             result.warnings.append("Checkpoint AIO loader compile is currently enabled only for Qwen Rapid AIO routes; Qwen Image Edit uses Safetensors / Components or GGUF.")
+        if job.family == "flux2_klein" and job.loader in {"diffusion_model", "gguf"}:
+            params = job.params or {}
+            selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or ""
+            params, _encoder_reconciliation = reconcile_flux2_klein_encoder_params(params, selected_model, default_if_missing=False)
+            text_encoder = params.get("qwen3_text_encoder") or params.get("text_encoder_1") or params.get("gguf_text_encoder_1") or params.get("gguf_text_encoder_primary") or params.get("text_encoder_primary") or params.get("clip_name") or ""
+            compatibility = check_flux2_klein_compatibility(params.get("flux_variant") or params.get("variant") or "flux2_klein", selected_model, text_encoder)
+            if compatibility.compatible is False:
+                result.errors.append(compatibility.message)
+                result.ok = False
+            elif compatibility.compatible is None and compatibility.message and str(text_encoder).strip():
+                result.warnings.append(compatibility.message)
+        if job.family == "flux" and job.loader in {"diffusion_model", "gguf"}:
+            params = job.params or {}
+            selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or params.get("unet") or ""
+            resolved_flux1_variant = resolve_flux1_variant(params.get("flux_variant") or params.get("variant") or "dev", selected_model)
+            if is_flux1_krea_route(resolved_flux1_variant, selected_model):
+                encoder_a = params.get("text_encoder_1") or params.get("gguf_text_encoder_1") or params.get("gguf_text_encoder_primary") or params.get("text_encoder_primary") or params.get("clip_name1") or ""
+                encoder_b = params.get("text_encoder_2") or params.get("gguf_text_encoder_2") or params.get("gguf_text_encoder_secondary") or params.get("text_encoder_secondary") or params.get("clip_name2") or ""
+                compatibility = check_flux1_krea_compatibility(resolved_flux1_variant, selected_model, encoder_a, encoder_b)
+                if compatibility.compatible is False:
+                    result.errors.append(compatibility.message)
+                    result.ok = False
+                elif compatibility.compatible is None and compatibility.message and (str(encoder_a).strip() or str(encoder_b).strip()):
+                    result.warnings.append(compatibility.message)
+        if job.family in {"krea2", "krea2_turbo"} and job.loader in {"diffusion_model", "gguf"}:
+            params = job.params or {}
+            selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or params.get("unet") or ""
+            text_encoder = params.get("qwen3vl_text_encoder") or params.get("text_encoder_1") or params.get("text_encoder_primary") or params.get("clip_name") or ""
+            vae = params.get("vae") or params.get("vae_or_ae") or params.get("ae") or ""
+            compatibility = check_krea2_compatibility(job.family, selected_model, text_encoder, vae, loader=job.loader)
+            if compatibility.compatible is False:
+                result.errors.append(compatibility.message)
+                result.ok = False
+            elif compatibility.compatible is None and compatibility.message:
+                result.warnings.append(compatibility.message)
         if job.loader == "gguf" and not (
-            (job.family == "flux" and job.mode == "txt2img")
+            (job.family == "flux" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "flux2_klein" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"})
+            or (job.family in {"krea2", "krea2_turbo"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"})
             or (job.family == "z_image" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "z_image_turbo" and job.mode == "txt2img")
             or (job.family == "hidream" and job.mode == "txt2img")
         ):
-            result.warnings.append("GGUF loader compile is currently enabled only for Flux txt2img, Qwen/Qwen Rapid AIO txt2img/img2img/inpaint/outpaint, Z-Image base/Turbo txt2img, and HiDream txt2img routes. ZImage Turbo GGUF image modes remain a separate workflow pass.")
+            result.warnings.append("GGUF loader compile is enabled for Flux txt2img/img2img/inpaint/outpaint, Flux 2 Klein routes, experimental Krea 2 RAW/Turbo routes, Qwen/Qwen Rapid AIO image routes, Z-Image base image routes, Z-Image Turbo txt2img, and HiDream txt2img. ZImage Turbo GGUF image modes remain a separate workflow pass.")
         if job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} and job.loader == "gguf" and job.mode in {"img2img", "inpaint", "outpaint", "edit"}:
             params = job.params or {}
             mmproj = (
@@ -2798,8 +2910,31 @@ class ComfyProvider(BaseProvider):
                     ],
                 },
             )
+        if route.compiler_id in {"comfy.krea2", "comfy.krea2_gguf"}:
+            compiled = compile_krea2_workflow(
+                provider_id=self.manifest.provider_id,
+                base_url=self.base_url,
+                job=job,
+                validation=validation,
+                route=route,
+                capabilities=self.feature_capability_payload(),
+                backend_capabilities=self.discover_backend_capabilities() if route.compiler_id == "comfy.krea2_gguf" else {},
+            )
+            return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
+
         if route.compiler_id == "comfy.flux_fill":
             compiled = compile_flux_fill_workflow(
+                provider_id=self.manifest.provider_id,
+                base_url=self.base_url,
+                job=job,
+                validation=validation,
+                route=route,
+                capabilities=self.feature_capability_payload(),
+            )
+            return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
+
+        if route.compiler_id == "comfy.flux_krea":
+            compiled = compile_flux_krea_workflow(
                 provider_id=self.manifest.provider_id,
                 base_url=self.base_url,
                 job=job,
@@ -2831,7 +2966,7 @@ class ComfyProvider(BaseProvider):
                     capabilities=self.feature_capability_payload(),
                 )
             return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
-        if route.compiler_id in {"comfy.flux_gguf", "comfy.flux_gguf.klein"}:
+        if route.compiler_id in {"comfy.flux_gguf", "comfy.flux_gguf.klein", "comfy.flux_gguf.krea"}:
             compiled = compile_flux_gguf_txt2img(
                 provider_id=self.manifest.provider_id,
                 base_url=self.base_url,

@@ -16,6 +16,8 @@ applies_to:
   - sd15
   - flux
   - flux2_klein
+  - krea2
+  - krea2_turbo
   - qwen_rapid_aio
   - qwen_image_edit
   - qwen_image_edit_2509
@@ -38,8 +40,8 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 3
-updated: 2026-07-10
+version: 4
+updated: 2026-07-26
 ---
 
 # Image Parameters
@@ -52,7 +54,7 @@ These controls decide which Image route Neo will validate and run.
 
 | Field | What it does | How to use it |
 |---|---|---|
-| **Model Family** | Selects the model family/workflow family, such as SDXL, SD 1.5, Flux 1, Flux 2 Klein, Qwen Rapid AIO, Qwen Image Edit, ZImage, ZImage Turbo, or HiDream. | Choose this first. It controls which loaders, workflow modes, and parameter fields are allowed. |
+| **Model Family** | Selects the model family/workflow family, such as SDXL, SD 1.5, Flux 1, Flux 2 Klein, Krea 2 RAW, Krea 2 Turbo, Qwen Rapid AIO, Qwen Image Edit, ZImage, ZImage Turbo, or HiDream. | Choose this first. It controls which loaders, workflow modes, and parameter fields are allowed. |
 | **Main Model Type** | Selects the main file/loader contract for the family. Visible labels include **Safetensors / Checkpoint**, **Safetensors / Bundled**, **Safetensors / Components**, and **GGUF**. | Use Checkpoint for classic SDXL/SD 1.5 files, Bundled for all-in-one Qwen Rapid AIO models, Components for split model + text encoder + VAE workflows, and GGUF for quantized routes. |
 | **Workflow Mode** | Selects the generation type. In the normal Image command strip this is usually **Generate**, **Img2Img**, **Inpaint**, or **Outpaint**. Internally, Generate maps to `txt2img`. | Use Generate for text-only creation, Img2Img to preserve a source image, Inpaint to edit a masked region, and Outpaint to expand/canvas extend an image. |
 | **Validate** | Runs the readiness/preflight checks without starting a generation. | Use this when a route says a model/source/mask/backend is missing. |
@@ -93,6 +95,8 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Steps** | Number of denoising/sampling steps. | Higher can add refinement but increases time and can overcook. Turbo routes often use very low steps. |
 | **CFG** | Prompt adherence/guidance for SD-style routes. | Available on SDXL/SD 1.5 and some non-Flux routes. Hidden or disabled when the selected profile uses another guidance system. |
 | **Flux Guidance** | Flux-family guidance replacement for SD-style CFG. | Flux 1/Flux 2 component routes use Flux Guidance instead of normal CFG. |
+| **Krea 2 Qwen3-VL-4B Text Encoder** | Selects Krea 2's single Qwen3-VL-4B conditioning model. | Krea 2 requires the specialized `CLIPLoader(type=krea2)` path. For Krea 2 GGUF, keep this encoder as native/safetensors in M16. |
+| **Krea 2 VAE** | Selects the Qwen Image VAE used by Krea 2. | Use `qwen_image_vae.safetensors` or a compatible Qwen Image VAE. FLUX `ae.safetensors` is not the Krea 2 VAE contract. |
 | **Seed** | Controls repeatability. `-1` usually means random/auto-resolved. | Use random for exploration, lock/reuse a seed for revisions, and copy seed when documenting a result. |
 | **Seed lock** | Keeps future generations on the same seed. | Use for controlled iterations. |
 | **Seed randomize** | Uses a fresh seed. | Use for exploration. |
@@ -111,6 +115,16 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Max Long Edge / Max Canvas MP** | Outpaint source/canvas safety limits. | Prevents very large source images from creating oversized canvases. |
 | **Outpaint Left / Right / Top / Bottom** | Adds canvas area on each side. | Use small increments first. Large padding can increase VRAM and make composition harder. |
 | **Outpaint Feather** | Blends old image and new canvas extension. | Higher feather can soften the transition; too high can smear details. |
+
+## Krea 2 RAW / Turbo parameter behavior
+
+Krea 2 is a separate image architecture, not FLUX.1 Krea. Both **Krea 2 RAW** and **Krea 2 Turbo** use one Qwen3-VL-4B text encoder through `CLIPLoader(type=krea2)` plus the Qwen Image VAE. Neo preflights that Krea 2 CLIP type through backend capability discovery; an older ComfyUI build that exposes `CLIPLoader` but not `type=krea2` is blocked before queue submission.
+
+- **Krea 2 RAW:** full/base model. Neo defaults to 52 steps and CFG 3.5. A normal negative prompt remains available.
+- **Krea 2 Turbo:** distilled fast model. Neo's Comfy route follows the official Comfy graph: 8 steps, CFG 1, and zeroed negative conditioning.
+- **Safetensors / Components:** the diffusion model, Qwen3-VL-4B encoder, and Qwen Image VAE remain native Comfy components.
+- **GGUF (M16 experimental):** only the Krea 2 diffusion transformer may be GGUF. Keep the Qwen3-VL-4B encoder native/safetensors through `CLIPLoader(type=krea2)` because Krea 2 consumes a specialized multi-layer conditioning stack.
+- **Img2Img / Inpaint / Outpaint:** M16 exposes provider-owned latent adapter routes. These do not imply separate official Krea 2 editing/inpaint checkpoints.
 
 ## Preview panel
 
@@ -136,6 +150,10 @@ Output deletion, metadata inspection, replay, source/control asset tracking, and
 
 - **SDXL / SD 1.5 checkpoint routes** usually show Checkpoint, VAE override, Sampler, Scheduler, Steps, CFG, Seed, Batch Count, Clip Skip, and source/mask/outpaint fields as needed.
 - **Flux 1 / Flux 2 Klein component routes** use split model components and Flux Guidance. Normal CFG and Clip Skip are hidden or disabled.
+  - **FLUX.1 Krea (M15):** Krea remains under Flux 1 and resolves to `krea_dev`. Select one T5XXL + one CLIP-L encoder. Krea supports Generate/Img2Img/Inpaint/Outpaint for Safetensors / Components and GGUF; its masked modes retain Krea and use latent-noise-mask + DifferentialDiffusion instead of silently changing to FLUX.1 Fill.
+  - **Flux 2 Klein:** pair Klein 4B with Qwen3-4B and Klein 9B with Qwen3-8B; Neo filters the encoder lane and blocks known incompatible pairings before queue.
+  - **M14.1:** the visible Klein Qwen3 encoder is stored canonically as `qwen3_text_encoder`. Legacy encoder aliases are reconciled automatically before submission; they are not independent controls.
+- **Krea 2 RAW / Krea 2 Turbo (M16):** use the dedicated Krea 2 family contract with Qwen3-VL-4B + Qwen Image VAE. Native txt2img is the primary supported route; Img2Img/Inpaint/Outpaint and GGUF are exposed as experimental provider-owned adapters. Krea 2 does not use Flux Guidance, T5XXL, CLIP-L, Qwen2.5-VL, or MMProj.
 - **Qwen Rapid AIO** uses a bundled model route or GGUF route. Extra component fields stay hidden unless the selected loader/profile requires them.
 - **Qwen Image Edit / Qwen Image Edit 2509** are stronger for source-image/edit workflows and can expose multi-source behavior depending on route and loader.
 - **ZImage Turbo** uses low-step/low-CFG defaults and may hide negative prompt because turbo conditioning is simplified.
@@ -192,6 +210,7 @@ When **Main Model Type** is **Safetensors / Components**, Neo may show a separat
 | Secondary Text Encoder | Flux 1 dual-encoder routes | Exact installed secondary/T5 encoder. |
 | Qwen Text Encoder | Qwen Image and Qwen Image Edit | Exact installed Qwen vision-language text encoder. |
 | Qwen3 Text Encoder | Flux 2 Klein, Z-Image, Z-Image Turbo | Exact installed Qwen3 encoder. |
+| Qwen3-VL-4B Text Encoder | Krea 2 RAW, Krea 2 Turbo | Exact installed Qwen3-VL-4B encoder. Neo requires a backend `CLIPLoader` that advertises `type=krea2`. |
 | Flux Guidance | Flux component routes | Flux-specific guidance value; this replaces normal SD CFG. |
 | Family Variant | Routes such as HiDream where a compiler variant is required | Select the variant supported by the current route. |
 

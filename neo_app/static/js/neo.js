@@ -363,6 +363,10 @@ const state = {
     gguf_clip_type: 'flux',
     text_encoder_1: '',
     text_encoder_2: '',
+    qwen3_text_encoder: '',
+    qwen3vl_text_encoder: '',
+    gguf_text_encoder_1: '',
+    gguf_text_encoder_primary: '',
     qwen_text_encoder: '',
     qwen_mmproj: '',
     flux_guidance: 3.5,
@@ -841,6 +845,8 @@ function applyImageDraftFromUiPreset(currentDraft = {}, savedDraft = {}) {
 }
 
 function serializeUiState() {
+  if ((state.imageDraft?.family || '') === 'flux2_klein') syncFlux2KleinComponentState({ autoSelect: false, persist: false });
+  if ((state.imageDraft?.family || '') === 'flux') syncFlux1KreaState({ persist: false });
   const activeProfile = activeImageProfile ? activeImageProfile() : null;
   const surfaceState = {
     activeSurfaceId: state.activeSurfaceId,
@@ -924,6 +930,8 @@ function applyUiState(saved = {}) {
   ensureSurfaceRuntime('image');
   ensureSurfaceRuntime('video');
   ensureSurfaceRuntime(state.activeSurfaceId || 'image');
+  if ((state.imageDraft?.family || '') === 'flux2_klein') syncFlux2KleinComponentState({ autoSelect: false, persist: false });
+  if ((state.imageDraft?.family || '') === 'flux') syncFlux1KreaState({ persist: false });
 }
 // Phase 11.7A: UI state is manual-preset driven; legacy autosave stays disabled.
 function saveUiState() {
@@ -1484,7 +1492,7 @@ function imageOutpaintSourceResolutionMode() {
 function imageOutpaintSourceResolutionPresetForFamily() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
-  if (['qwen_image', 'qwen_rapid_aio', 'flux', 'flux1_fill', 'z_image', 'z_image_turbo', 'hidream', 'flux2_klein'].includes(family) || loader === 'gguf') {
+  if (['qwen_image', 'qwen_rapid_aio', 'flux', 'flux1_fill', 'z_image', 'z_image_turbo', 'hidream', 'flux2_klein', 'krea2', 'krea2_turbo'].includes(family) || loader === 'gguf') {
     return { longEdge: 1536, megapixels: 4, label: 'heavy-model safe' };
   }
   return { longEdge: 2048, megapixels: 6, label: 'standard outpaint' };
@@ -2008,6 +2016,8 @@ function syncGgufArchitectureForFamily(familyId) {
   const architectureMap = {
     flux: 'flux',
     flux2_klein: 'flux2_klein',
+    krea2: 'krea2',
+    krea2_turbo: 'krea2',
     qwen_image: 'qwen_image',
     qwen_rapid_aio: 'qwen_image',
     qwen_image_edit_2509: 'qwen_image',
@@ -2018,8 +2028,17 @@ function syncGgufArchitectureForFamily(familyId) {
     hidream: 'hidream',
   };
   if (architectureMap[familyId]) state.imageDraft.gguf_clip_type = architectureMap[familyId];
-  if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'flux2_klein'].includes(familyId)) state.imageDraft.gguf_clip_mode = 'single';
-  if (familyId === 'flux2_klein') state.imageDraft.flux_variant = state.imageDraft.flux_variant && isFluxKleinVariant(state.imageDraft.flux_variant) ? state.imageDraft.flux_variant : 'flux2_klein';
+  if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'flux2_klein', 'krea2', 'krea2_turbo'].includes(familyId)) state.imageDraft.gguf_clip_mode = 'single';
+  if (familyId === 'flux2_klein') {
+    const modelName = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.diffusion_model || state.imageDraft.model || '';
+    state.imageDraft.flux_variant = canonicalFlux2KleinVariant(state.imageDraft.flux_variant || 'flux2_klein', modelName);
+    state.imageDraft.qwen_text_encoder = '';
+    state.imageDraft.qwen_mmproj = '';
+  }
+  if (['krea2', 'krea2_turbo'].includes(familyId)) {
+    state.imageDraft.gguf_clip_mode = 'single';
+    state.imageDraft.gguf_clip_type = 'krea2';
+  }
   if (familyId === 'flux' && !state.imageDraft.gguf_clip_mode) state.imageDraft.gguf_clip_mode = 'dual';
 }
 
@@ -2480,7 +2499,7 @@ function imageParameterFieldsForMode(modeOverride = '') {
   return fields.filter((field) => !Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode));
 }
 
-const GGUF_RUNTIME_FIELD_IDS = new Set(['gguf_model', 'gguf_loader_status', 'flux_guidance', 'text_encoder_1', 'text_encoder_2', 'qwen_text_encoder', 'qwen_mmproj', 'vae']);
+const GGUF_RUNTIME_FIELD_IDS = new Set(['gguf_model', 'gguf_loader_status', 'flux_guidance', 'text_encoder_1', 'text_encoder_2', 'qwen_text_encoder', 'qwen3_text_encoder', 'qwen3vl_text_encoder', 'qwen_mmproj', 'vae']);
 const QWEN_RAPID_AIO_BUNDLED_HIDDEN_PARAM_KEYS = new Set(['diffusion_model', 'unet', 'unet_name', 'qwen_image_edit_model', 'qwen_model', 'text_encoder_1', 'text_encoder_2', 'text_encoder_primary', 'text_encoder_secondary', 'qwen_text_encoder', 'qwen3_text_encoder', 'clip_name', 'clip_type', 'clip_device', 'gguf_text_encoder_1', 'gguf_text_encoder_2', 'gguf_text_encoder_primary', 'gguf_text_encoder_secondary', 'qwen_mmproj', 'mmproj', 'mmproj_name', 'vae', 'vae_or_ae', 'qwen_vae', 'ae', 'gguf_model', 'gguf_unet', 'gguf_clip_type', 'gguf_clip_mode']);
 
 function isImageGgufRuntimeActive() {
@@ -2492,10 +2511,264 @@ function normalizedFluxVariant(value = '') {
 function isFluxKleinVariant(value = '') {
   return ['klein', 'flux2_klein', 'flux_2_klein', 'klein_4b', 'klein_9b', 'klein_4b_distilled', 'klein_9b_distilled'].includes(normalizedFluxVariant(value));
 }
+function isFlux1KreaVariant(value = '') {
+  return ['krea', 'krea_dev', 'flux1_krea', 'flux_1_krea', 'flux1_krea_dev', 'flux_1_krea_dev'].includes(normalizedFluxVariant(value));
+}
+function isFlux1KreaModelName(modelName = '') {
+  const normalized = String(modelName || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (normalized.includes('krea2') || normalized.includes('krea-2')) return false;
+  return Boolean(normalized && normalized.includes('krea') && (normalized.includes('flux') || normalized.startsWith('krea')));
+}
+function krea2RuntimeActive() {
+  return ['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family') || '');
+}
+function krea2SelectedModelName() {
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || 'diffusion_model';
+  return loader === 'gguf'
+    ? (state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.model || '')
+    : (state.imageDraft.diffusion_model || state.imageDraft.model || '');
+}
+function krea2VariantFromState() {
+  const family = state.imageDraft.family || imageCommandValue('family') || 'krea2';
+  // RAW/Turbo are separate visible families in M16; family semantics are
+  // authoritative. A mismatched concrete filename is rejected by provider
+  // compatibility validation instead of silently changing sampling behavior.
+  return family === 'krea2_turbo' ? 'turbo' : 'raw';
+}
+function syncKrea2State({ persist = true } = {}) {
+  if (!krea2RuntimeActive()) return { active: false };
+  const variant = krea2VariantFromState();
+  const family = state.imageDraft.family || 'krea2';
+  state.imageDraft.krea2_variant = variant;
+  state.imageDraft.clip_type = 'krea2';
+  state.imageDraft.gguf_clip_type = 'krea2';
+  state.imageDraft.gguf_clip_mode = 'single';
+  const visible = String(document.getElementById('imageParam_qwen3vl_text_encoder')?.value || '').trim();
+  const canonical = visible || state.imageDraft.qwen3vl_text_encoder || state.imageDraft.text_encoder_1 || '';
+  if (canonical) {
+    state.imageDraft.qwen3vl_text_encoder = canonical;
+    state.imageDraft.text_encoder_1 = canonical;
+    state.imageDraft.text_encoder_primary = canonical;
+  }
+  state.imageDraft.text_encoder_2 = '';
+  state.imageDraft.gguf_text_encoder_1 = '';
+  state.imageDraft.gguf_text_encoder_primary = '';
+  state.imageDraft.gguf_text_encoder_2 = '';
+  state.imageDraft.gguf_text_encoder_secondary = '';
+  state.imageDraft.qwen_text_encoder = '';
+  state.imageDraft.qwen3_text_encoder = '';
+  state.imageDraft.qwen_mmproj = '';
+  state.imageDraft.mmproj = '';
+  state.imageDraft.mmproj_name = '';
+  state.imageDraft.flux_variant = '';
+  state.imageDraft.flux_guidance = 0;
+  if (family === 'krea2_turbo') {
+    state.imageDraft.steps = 8;
+    state.imageDraft.cfg = 1.0;
+    state.imageDraft.negative_prompt = '';
+  } else if (family === 'krea2') {
+    if (!Number(state.imageDraft.steps) || Number(state.imageDraft.steps) === 8) state.imageDraft.steps = 52;
+    if (!Number(state.imageDraft.cfg) || Number(state.imageDraft.cfg) === 1) state.imageDraft.cfg = 3.5;
+  }
+  state.imageDraft._neo_krea2_state = {
+    schema: 'neo.image.krea2.state.v1',
+    active: true, family, variant, selected_model: krea2SelectedModelName(),
+    encoder_policy: 'qwen3vl_4b_native_cliploader_krea2',
+    vae_policy: 'qwen_image_vae',
+    gguf_transformer_only: (state.imageDraft.loader || imageCommandValue('loader')) === 'gguf',
+  };
+  if (persist) saveUiState();
+  return state.imageDraft._neo_krea2_state;
+}
+function flux1SelectedModelName() {
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || 'diffusion_model';
+  if (loader === 'gguf') return state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.model || '';
+  if (loader === 'diffusion_model' || loader === 'unet') return state.imageDraft.diffusion_model || state.imageDraft.unet || state.imageDraft.model || '';
+  return state.imageDraft.model || state.imageDraft.diffusion_model || state.imageDraft.gguf_model || state.imageDraft.gguf_unet || '';
+}
+function flux1KreaRuntimeActive() {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  if (family !== 'flux') return false;
+  const modelName = flux1SelectedModelName();
+  if (isFlux1KreaModelName(modelName)) return true;
+  const concreteModel = String(modelName || '').trim().toLowerCase();
+  if (concreteModel && !['provider_default', 'automatic', 'auto', 'none'].includes(concreteModel)) return false;
+  return isFlux1KreaVariant(state.imageDraft.flux_variant || valueOf('imageParam_flux_variant') || '');
+}
+function syncFlux1KreaState({ persist = true } = {}) {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  if (family !== 'flux') return { active: false, variant: state.imageDraft.flux_variant || '' };
+  const modelName = flux1SelectedModelName();
+  const modelIsKrea = isFlux1KreaModelName(modelName);
+  const concreteModel = String(modelName || '').trim().toLowerCase();
+  const priorVariant = normalizedFluxVariant(state.imageDraft.flux_variant || valueOf('imageParam_flux_variant') || 'dev');
+  if (modelIsKrea || (!concreteModel || ['provider_default', 'automatic', 'auto', 'none'].includes(concreteModel)) && isFlux1KreaVariant(priorVariant)) {
+    state.imageDraft.flux_variant = 'krea_dev';
+    state.imageDraft.gguf_clip_mode = 'dual';
+    state.imageDraft.gguf_clip_type = 'flux';
+    state.imageDraft.clip_type = 'flux';
+    state.imageDraft.qwen_text_encoder = '';
+    state.imageDraft.qwen3_text_encoder = '';
+    state.imageDraft.qwen_mmproj = '';
+    state.imageDraft.mmproj = '';
+    state.imageDraft.mmproj_name = '';
+    state.imageDraft._neo_flux1_krea_state = {
+      schema: 'neo.image.flux1_krea.state.v1',
+      active: true,
+      architecture: 'flux1',
+      variant: 'krea_dev',
+      selected_model: modelName,
+      encoder_policy: 'dual_t5xxl_plus_clip_l',
+      foreign_qwen_state_cleared: true,
+    };
+  } else if (concreteModel && isFlux1KreaVariant(priorVariant)) {
+    // Model selection is authoritative: moving away from a Krea model clears a
+    // stale Krea variant instead of hijacking base Flux 1 inpaint/outpaint.
+    state.imageDraft.flux_variant = 'dev';
+    delete state.imageDraft._neo_flux1_krea_state;
+  }
+  if (persist) saveUiState();
+  return { active: flux1KreaRuntimeActive(), variant: state.imageDraft.flux_variant || 'dev', model: modelName };
+}
+function flux2KleinModelScale(modelName = '') {
+  const normalized = String(modelName || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (!normalized.includes('klein')) return '';
+  if (/(^|[^a-z0-9])9b([^a-z0-9]|$)/.test(normalized)) return '9b';
+  if (/(^|[^a-z0-9])4b([^a-z0-9]|$)/.test(normalized)) return '4b';
+  return '';
+}
+function flux2KleinVariantScale(value = '') {
+  const normalized = normalizedFluxVariant(value);
+  if (normalized.includes('9b')) return '9b';
+  if (normalized.includes('4b')) return '4b';
+  return '';
+}
+function canonicalFlux2KleinVariant(value = '', modelName = '') {
+  const normalized = normalizedFluxVariant(value);
+  const modelScale = flux2KleinModelScale(modelName);
+  if (modelScale) return `klein_${modelScale}${normalized.includes('distill') ? '_distilled' : ''}`;
+  if (['klein_4b', 'klein_9b', 'klein_4b_distilled', 'klein_9b_distilled'].includes(normalized)) return normalized;
+  return normalized && isFluxKleinVariant(normalized) ? normalized : 'flux2_klein';
+}
+function flux2KleinExpectedEncoderScale(variant = '', modelName = '') {
+  const modelScale = flux2KleinModelScale(modelName) || flux2KleinVariantScale(variant);
+  if (modelScale === '9b') return '8b';
+  if (modelScale === '4b') return '4b';
+  return '';
+}
+function flux2KleinEncoderNameCompatible(value = '', expectedScale = '') {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s.-]+/g, '_');
+  if (!normalized || normalized === 'provider_default' || normalized.startsWith('select_')) return false;
+  if (!(normalized.includes('qwen3') || normalized.includes('qwen_3'))) return false;
+  if (!expectedScale) return true;
+  const expected = String(expectedScale).toLowerCase();
+  return new RegExp(`(^|_)${expected.replace('.', '_')}(_|$)`).test(normalized);
+}
+function mergeImageModelOptionLists(...lists) {
+  const seen = new Set();
+  const merged = [];
+  lists.flat().forEach((option) => {
+    if (!option) return;
+    const id = String((typeof option === 'object' ? (option.id ?? option.value ?? option.name) : option) || '').trim();
+    if (!id || seen.has(id.toLowerCase())) return;
+    seen.add(id.toLowerCase());
+    merged.push(typeof option === 'object' ? { ...option, id, label: String(option.label ?? option.name ?? id) } : { id, label: id });
+  });
+  return merged;
+}
+function flux2KleinTextEncoderOptions() {
+  const modelName = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.diffusion_model || state.imageDraft.model || '';
+  const variant = canonicalFlux2KleinVariant(state.imageDraft.flux_variant || 'flux2_klein', modelName);
+  const expectedScale = flux2KleinExpectedEncoderScale(variant, modelName);
+  const pools = isImageGgufRuntimeActive()
+    ? [profileModelOptions('text_encoders'), profileModelOptions('qwen_text_encoders'), profileModelOptions('gguf_text_encoders'), profileModelOptions('gguf_text_encoder_primary')]
+    : [profileModelOptions('text_encoders'), profileModelOptions('qwen_text_encoders')];
+  const compatible = mergeImageModelOptionLists(...pools).filter((option) => flux2KleinEncoderNameCompatible(option.id, expectedScale));
+  if (compatible.length) return compatible;
+  const label = expectedScale ? `No compatible Qwen3-${expectedScale.toUpperCase()} encoder detected` : 'No compatible Qwen3 encoder detected';
+  return [{ id: 'provider_default', label }];
+}
+function flux2KleinEncoderAliasValues() {
+  return [
+    ['qwen3_text_encoder', state.imageDraft.qwen3_text_encoder || ''],
+    ['text_encoder_1', state.imageDraft.text_encoder_1 || ''],
+    ['gguf_text_encoder_1', state.imageDraft.gguf_text_encoder_1 || ''],
+    ['gguf_text_encoder_primary', state.imageDraft.gguf_text_encoder_primary || ''],
+  ];
+}
+function setFlux2KleinCanonicalEncoder(value = '') {
+  const canonical = String(value || '').trim();
+  state.imageDraft.qwen3_text_encoder = canonical;
+  state.imageDraft.text_encoder_1 = canonical;
+  state.imageDraft.gguf_text_encoder_1 = canonical;
+  state.imageDraft.gguf_text_encoder_primary = canonical;
+  return canonical;
+}
+function clearFlux2KleinForeignQwenState() {
+  state.imageDraft.qwen_text_encoder = '';
+  state.imageDraft.qwen_mmproj = '';
+  state.imageDraft.mmproj = '';
+  state.imageDraft.mmproj_name = '';
+}
+function flux2KleinVisibleEncoderValue() {
+  const canonicalNode = document.getElementById('imageParam_qwen3_text_encoder');
+  if (canonicalNode && String(canonicalNode.value || '').trim()) return String(canonicalNode.value || '').trim();
+  const legacyNode = document.getElementById('imageParam_text_encoder_1');
+  if (legacyNode && String(legacyNode.value || '').trim()) return String(legacyNode.value || '').trim();
+  return '';
+}
+function syncFlux2KleinComponentState({ autoSelect = true, persist = true } = {}) {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  if (family !== 'flux2_klein') return { reconciled: false, encoder: '', source: '' };
+  const modelName = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.diffusion_model || state.imageDraft.model || '';
+  const canonicalVariant = canonicalFlux2KleinVariant(state.imageDraft.flux_variant || 'flux2_klein', modelName);
+  state.imageDraft.flux_variant = canonicalVariant;
+  clearFlux2KleinForeignQwenState();
+  const expectedScale = flux2KleinExpectedEncoderScale(canonicalVariant, modelName);
+  const visibleEncoder = flux2KleinVisibleEncoderValue();
+  const aliasCandidates = flux2KleinEncoderAliasValues();
+  const candidatePairs = [];
+  if (visibleEncoder) candidatePairs.push(['visible_dropdown', visibleEncoder]);
+  aliasCandidates.forEach((item) => candidatePairs.push(item));
+  const seen = new Set();
+  const candidates = candidatePairs.filter(([, value]) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+  let selected = candidates.find(([, value]) => flux2KleinEncoderNameCompatible(value, expectedScale)) || null;
+  let source = selected?.[0] || '';
+  if (!selected && autoSelect) {
+    const candidate = flux2KleinTextEncoderOptions().find((option) => flux2KleinEncoderNameCompatible(option.id, expectedScale));
+    if (candidate) {
+      selected = ['auto_compatible_catalog', candidate.id];
+      source = selected[0];
+    }
+  }
+  if (!selected && candidates.length) {
+    selected = ['incompatible_selection_preserved', candidates[0][1]];
+    source = selected[0];
+  }
+  const encoder = setFlux2KleinCanonicalEncoder(selected?.[1] || '');
+  state.imageDraft._neo_flux2_klein_encoder_reconciliation = {
+    schema: 'neo.image.flux2_klein.encoder_reconciliation.v1',
+    canonical_field: 'qwen3_text_encoder',
+    variant: canonicalVariant,
+    expected_encoder_scale: expectedScale,
+    selected_source: source,
+    selected_encoder: encoder,
+    alias_values_seen: Object.fromEntries(aliasCandidates.filter(([, value]) => String(value || '').trim())),
+    foreign_qwen_state_cleared: true,
+  };
+  if (persist) saveUiState();
+  return { reconciled: true, encoder, source, expectedScale, variant: canonicalVariant };
+}
 function activeGgufArchitecture() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   if (family === 'qwen_image' || family === 'qwen_rapid_aio' || family === 'qwen_image_edit_2509') return 'qwen_image';
   if (family === 'flux2_klein') return 'flux2_klein';
+  if (family === 'krea2' || family === 'krea2_turbo') return 'krea2';
   if (family === 'z_image' || family === 'z_image_turbo') return 'z_image';
   if (family === 'wan_image') return 'wan_image';
   if (family === 'hunyuan_image') return 'hunyuan_image';
@@ -2510,7 +2783,7 @@ function ggufRouteRequiresDualEncoders(architecture = activeGgufArchitecture(), 
 }
 function activeGgufClipMode() {
   const architecture = activeGgufArchitecture();
-  if (['qwen_image', 'z_image', 'hidream', 'flux2_klein'].includes(architecture)) return 'single';
+  if (['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(architecture)) return 'single';
   if (ggufRouteRequiresDualEncoders(architecture)) return 'dual';
   return state.imageDraft.gguf_clip_mode || 'dual';
 }
@@ -2518,10 +2791,12 @@ function ggufRuntimeLabel() {
   const architecture = activeGgufArchitecture();
   if (architecture === 'qwen_image') return (state.imageDraft.family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF Runtime' : (state.imageDraft.family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF Runtime' : 'Qwen Image Edit GGUF Runtime'));
   if (architecture === 'z_image') return state.imageDraft.family === 'z_image_turbo' ? 'Z-Image Turbo GGUF Runtime' : 'Z-Image GGUF Runtime';
+  if (architecture === 'krea2') return state.imageDraft.family === 'krea2_turbo' ? 'Krea 2 Turbo GGUF Runtime' : 'Krea 2 RAW GGUF Runtime';
   if (architecture === 'wan_image') return 'Wan Image GGUF Runtime';
   if (architecture === 'hunyuan_image') return 'Hunyuan GGUF Runtime';
   if (architecture === 'hidream') return 'HiDream GGUF Runtime';
   if (architecture === 'flux2_klein') return 'FLUX.2 Klein GGUF Runtime';
+  if (flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF Runtime';
   return 'Flux GGUF Runtime';
 }
 function ggufRouteRequirementItems() {
@@ -2559,6 +2834,8 @@ function selectedGgufRuntimeValue(fieldId, fallback = '') {
     text_encoder_1: ['gguf_text_encoder_1'],
     text_encoder_2: ['gguf_text_encoder_2'],
     qwen_text_encoder: ['text_encoder_1', 'gguf_text_encoder_1'],
+    qwen3_text_encoder: ['text_encoder_1', 'gguf_text_encoder_1', 'gguf_text_encoder_primary'],
+    qwen3vl_text_encoder: ['text_encoder_1', 'text_encoder_primary'],
     qwen_mmproj: ['mmproj'],
     vae: ['gguf_vae'],
   };
@@ -2586,13 +2863,18 @@ function buildGgufBundleItems() {
   const architecture = activeGgufArchitecture();
   const clipMode = ggufRouteRequiresDualEncoders(architecture, activeImageMode()) ? 'dual' : selectedGgufRuntimeValue('gguf_clip_mode', activeGgufClipMode());
   const isQwen = architecture === 'qwen_image';
+  const isKrea2 = architecture === 'krea2';
   const isFlux = architecture === 'flux' || architecture === 'flux2_klein';
   const mode = activeImageMode();
   const mmprojRequired = isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
   const modelValue = selectedGgufRuntimeValue('gguf_model', state.imageDraft.gguf_unet || state.imageDraft.model || 'provider_default');
   const encoderA = isQwen
     ? selectedGgufRuntimeValue('qwen_text_encoder', state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
-    : selectedGgufRuntimeValue('text_encoder_1', state.imageDraft.gguf_text_encoder_1 || '');
+    : (isKrea2
+      ? selectedGgufRuntimeValue('qwen3vl_text_encoder', state.imageDraft.qwen3vl_text_encoder || state.imageDraft.text_encoder_1 || '')
+      : (architecture === 'flux2_klein'
+        ? selectedGgufRuntimeValue('qwen3_text_encoder', state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
+        : selectedGgufRuntimeValue('text_encoder_1', state.imageDraft.gguf_text_encoder_1 || '')));
   const encoderB = selectedGgufRuntimeValue('text_encoder_2', state.imageDraft.gguf_text_encoder_2 || '');
   const vae = selectedGgufRuntimeValue('vae', state.imageDraft.vae || 'automatic');
   const mmproj = selectedGgufRuntimeValue('qwen_mmproj', state.imageDraft.qwen_mmproj || '');
@@ -2600,10 +2882,10 @@ function buildGgufBundleItems() {
   const guidance = Number(guidanceRaw);
   const cards = [
     ggufBundleItem('GGUF model', modelValue, 'gguf_unet'),
-    ggufBundleItem(isQwen ? 'Qwen text encoder' : (architecture === 'flux2_klein' ? 'Qwen3 text encoder' : 'Encoder A'), encoderA, 'gguf_text_encoder_primary'),
+    ggufBundleItem(isQwen ? 'Qwen text encoder' : (isKrea2 ? 'Qwen3-VL-4B text encoder' : (architecture === 'flux2_klein' ? 'Qwen3 text encoder' : 'Encoder A')), encoderA, isKrea2 ? '' : 'gguf_text_encoder_primary'),
   ];
   if (clipMode === 'dual') cards.push(ggufBundleItem('Encoder B', encoderB, 'gguf_text_encoder_secondary'));
-  cards.push(ggufBundleItem('AE / VAE', vae, 'gguf_vae'));
+  cards.push(ggufBundleItem(isKrea2 ? 'Qwen Image VAE' : 'AE / VAE', vae, isKrea2 ? '' : 'gguf_vae'));
   if (isQwen) cards.push(ggufBundleItem(mmprojRequired ? 'MMProj sidecar' : 'MMProj sidecar optional', mmproj, 'qwen_mmproj', { optional: !mmprojRequired }));
   if (isFlux) cards.push(`<li class="${guidance > 0 ? 'ok' : 'warn'}"><span>${guidance > 0 ? '✓' : '•'}</span><strong>Flux guidance</strong><em>${escapeHtml(String(guidance || 'Not set'))}</em></li>`);
   return cards;
@@ -2620,9 +2902,16 @@ function renderGgufRuntimeCard(p) {
   const clipMode = activeGgufClipMode();
   // Legacy guardrail string: const clipMode = selectedGgufRuntimeValue('gguf_clip_mode', activeGgufClipMode());
   const isQwen = architecture === 'qwen_image';
+  const isKrea2 = architecture === 'krea2';
   const isFlux = architecture === 'flux' || architecture === 'flux2_klein';
   const modelValue = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || p.gguf_model || p.model || 'provider_default';
-  const encoderA = isQwen ? (state.imageDraft.qwen_text_encoder || state.imageDraft.text_encoder_1 || '') : (state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '');
+  const encoderA = isQwen
+    ? (state.imageDraft.qwen_text_encoder || state.imageDraft.text_encoder_1 || '')
+    : (isKrea2
+      ? (state.imageDraft.qwen3vl_text_encoder || state.imageDraft.text_encoder_1 || '')
+      : (architecture === 'flux2_klein'
+        ? (state.imageDraft.qwen3_text_encoder || state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
+        : (state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')));
   const encoderB = state.imageDraft.text_encoder_2 || state.imageDraft.gguf_text_encoder_2 || '';
   const vae = state.imageDraft.vae || p.vae || 'automatic';
   const mmproj = state.imageDraft.qwen_mmproj || '';
@@ -2630,7 +2919,7 @@ function renderGgufRuntimeCard(p) {
   const mode = activeImageMode();
   const mmprojRequired = isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
   const cards = buildGgufBundleItems();
-  const singleEncoderOnly = ['qwen_image', 'z_image', 'hidream', 'flux2_klein'].includes(architecture);
+  const singleEncoderOnly = ['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(architecture);
   const routeRequiresDual = ggufRouteRequiresDualEncoders(architecture, mode);
   const modeOptions = singleEncoderOnly
     ? [{ id: 'single', label: 'Single encoder' }]
@@ -2652,12 +2941,12 @@ function renderGgufRuntimeCard(p) {
     </div>
     <div class="neo-gguf-runtime-grid three">
       <label class="neo-param-field neo-param-status"><span>Resolved route</span><span class="neo-badge">${escapeHtml(resolvedRouteLabel)}</span><small class="neo-muted">Backend architecture is automatic for the selected family.</small></label>
-      <label>${isQwen ? 'Qwen text encoder' : (architecture === 'flux2_klein' ? 'Qwen3 text encoder' : 'Encoder A')}${optionSelect(isQwen ? 'imageParam_qwen_text_encoder' : 'imageParam_text_encoder_1', imageOptionsForField(isQwen ? 'qwen_text_encoder' : 'text_encoder_1'), encoderA)}</label>
+      <label>${isQwen ? 'Qwen text encoder' : (isKrea2 ? 'Qwen3-VL-4B text encoder' : (architecture === 'flux2_klein' ? 'Qwen3 text encoder' : 'Encoder A'))}${optionSelect(isQwen ? 'imageParam_qwen_text_encoder' : (isKrea2 ? 'imageParam_qwen3vl_text_encoder' : (architecture === 'flux2_klein' ? 'imageParam_qwen3_text_encoder' : 'imageParam_text_encoder_1')), imageOptionsForField(isQwen ? 'qwen_text_encoder' : (isKrea2 ? 'qwen3vl_text_encoder' : (architecture === 'flux2_klein' ? 'qwen3_text_encoder' : 'text_encoder_1'))), encoderA)}</label>
       ${clipMode === 'dual' ? `<label>Encoder B${optionSelect('imageParam_text_encoder_2', imageOptionsForField('text_encoder_2'), encoderB)}</label>` : `<label class="neo-param-field neo-param-status"><span>Encoder B</span><span class="neo-badge">Hidden for single encoder</span></label>`}
     </div>
     ${expertDiagnostics}
     <div class="neo-gguf-runtime-grid ${isQwen ? 'three' : 'two'}">
-      <label>AE / VAE${optionSelect('imageParam_vae', imageOptionsForField('vae'), vae)}</label>
+      <label>${isKrea2 ? 'Qwen Image VAE' : 'AE / VAE'}${optionSelect('imageParam_vae', imageOptionsForField('vae'), vae)}</label>
       ${isFlux ? `<label>Flux guidance<div class="neo-slider-pair"><input id="imageParam_flux_guidance" type="number" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance"><input id="imageFluxGuidanceRange" type="range" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance slider"></div></label>` : ''}
       ${isQwen ? `<label>MMProj${optionSelect('imageParam_qwen_mmproj', imageOptionsForField('qwen_mmproj'), mmproj)}</label><label class="neo-param-field neo-param-status"><span>Route readiness</span><span class="neo-badge ${mmprojRequired && !mmproj ? 'warning' : ''}">${mmprojRequired ? 'MMProj required' : 'MMProj optional for txt2img'}</span></label>` : ''}
     </div>
@@ -7696,6 +7985,41 @@ function sceneDirectorPromptAuthorityContract(settings, corePrompts) {
     source: 'neo_core_prompts',
   };
 }
+const SCENE_DIRECTOR_SCENE_MODES = ['basic', 'advanced'];
+function sceneDirectorSceneMode(value = 'basic') {
+  const raw = String(value || 'basic').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['advanced', 'expert', 'full'].includes(raw)) return 'advanced';
+  return 'basic';
+}
+function sceneDirectorResolveSceneMode(raw = {}, regions = []) {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  if (Object.prototype.hasOwnProperty.call(input, 'scene_mode')) return sceneDirectorSceneMode(input.scene_mode);
+  if (Object.prototype.hasOwnProperty.call(input, 'scene_director_scene_mode')) return sceneDirectorSceneMode(input.scene_director_scene_mode);
+  if (input.basic_mode === true || input.scene_director_basic_mode === true) return 'basic';
+  if (input.basic_mode === false || input.scene_director_basic_mode === false) return 'advanced';
+  const lockSource = input.character_lock && typeof input.character_lock === 'object' ? input.character_lock : {};
+  const explicitLock = input.character_lock_mode ?? input.lock_mode ?? lockSource.character ?? input.appearance_lock_mode;
+  if (explicitLock !== undefined && explicitLock !== null && String(explicitLock).trim() !== '') {
+    return sceneDirectorCharacterLockMode(explicitLock) === 'off' ? 'basic' : 'advanced';
+  }
+  const advancedGuardKeys = ['gender_guard_mode', 'skin_tone_guard_mode', 'hair_guard_mode', 'build_guard_mode', 'body_height_guard_mode', 'outfit_preservation_mode', 'negative_identity_guard_mode'];
+  if (advancedGuardKeys.some((key) => sceneDirectorGuardMode(input[key] || 'off') !== 'off')) return 'advanced';
+  if (['latent_repair', 'end_refinement', 'latent_and_refinement', 'prompt_guard_only'].includes(sceneDirectorCharacterLockExecutionMode(input.character_lock_execution_mode || input.scene_director_character_lock_execution_mode || 'off'))) return 'advanced';
+  const rows = Array.isArray(regions) ? regions : (Array.isArray(input.regions) ? input.regions : []);
+  if (rows.some((region) => {
+    if (!region || typeof region !== 'object') return false;
+    const traits = region.character_traits && typeof region.character_traits === 'object' ? region.character_traits : {};
+    const categories = traits.categories && typeof traits.categories === 'object' ? traits.categories : {};
+    const correction = region.character_lock_correction && typeof region.character_lock_correction === 'object' ? region.character_lock_correction : {};
+    return Object.keys(categories).length > 0 || Object.keys(region.trait_lock || {}).length > 0 || Object.keys(correction).length > 0;
+  })) return 'advanced';
+  return 'basic';
+}
+function sceneDirectorSceneModeOptions(selected = 'basic') {
+  const value = sceneDirectorSceneMode(selected);
+  return `<option value="basic" ${value === 'basic' ? 'selected' : ''}>Basic</option><option value="advanced" ${value === 'advanced' ? 'selected' : ''}>Advanced</option>`;
+}
+
 function sceneDirectorCharacterLockExecutionMode(value = 'latent_attention') {
   const raw = String(value || 'latent_attention').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const aliases = {
@@ -7715,6 +8039,12 @@ function sceneDirectorCharacterLockExecutionMode(value = 'latent_attention') {
 function sceneDirectorSettings() {
   const raw = state.imageDraft?.[SCENE_DIRECTOR_EXTENSION_ID] || {};
   const regions = Array.isArray(raw.regions) && raw.regions.length ? raw.regions : [sceneDirectorDefaultRegion(0)];
+  // Phase 27.17A: Scene Mode owns the Basic/Advanced boundary. Character Lock
+  // remains an Advanced feature and its saved values are preserved while Basic is active.
+  const rawCharacterLockMode = raw.character_lock_mode ?? raw.lock_mode ?? raw.appearance_lock_mode ?? 'off';
+  const characterLockMode = sceneDirectorCharacterLockMode(rawCharacterLockMode);
+  const sceneMode = sceneDirectorResolveSceneMode(raw, regions);
+  const basicMode = sceneMode === 'basic';
   return {
     enabled: Boolean(raw.enabled),
     // Scene Director uses Neo core prompts as global context; no duplicate local prompt fields.
@@ -7727,12 +8057,13 @@ function sceneDirectorSettings() {
     backend_mode: raw.backend_mode || 'v054_scene_graph',
     authority_mode: raw.authority_mode || raw.scene_director_authority_mode || 'balanced',
     prompt_authority: sceneDirectorPromptAuthority(raw.prompt_authority || raw.scene_director_prompt_authority || 'global_context'),
+    scene_mode: sceneMode,
     mask_source: raw.mask_source || 'region_box',
     contracts_enabled: raw.contracts_enabled !== false,
     use_node_auto_prompts: Boolean(raw.use_node_auto_prompts),
-    count_contract: raw.count_contract || 'exactly {count} visible subjects, one subject per character region, no extra subjects',
-    subject_contract: raw.subject_contract || 'one complete subject inside this region, not merged, not duplicated',
-    negative_contract: raw.negative_contract || 'extra people, missing subject, wrong number of subjects, merged bodies, fused faces',
+    count_contract: raw.count_contract || 'exactly {count} visible subjects, one complete subject per character region, every assigned character region occupied',
+    subject_contract: raw.subject_contract || 'exactly one complete visible subject inside this assigned region, separate from neighboring subjects',
+    negative_contract: raw.negative_contract || 'fewer than {count} visible subjects, more than {count} visible subjects, missing assigned subject region, merged subjects, shared limbs, fused faces',
     style_merge: raw.style_merge || 'use Neo main prompt as the scene style and composition intent',
     region_context_enabled: raw.region_context_enabled !== false,
     region_context_mode: raw.region_context_mode || 'global_and_style',
@@ -7740,7 +8071,17 @@ function sceneDirectorSettings() {
     region_context_position: 'suffix',
     apply_global_style_to_region_refinement: Boolean(raw.apply_global_style_to_region_refinement || raw.style_stack_apply_to_region_refinement),
     mask_refine_enabled: Boolean(raw.mask_refine_enabled),
-    character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(raw.character_lock_execution_mode || raw.scene_director_character_lock_execution_mode || raw.character_lock_pass_plan || 'latent_attention'),
+    // Phase 27.17A.1: these are STORED Advanced values, not effective Basic values.
+    // Basic submission is still forced off by sceneDirectorEffectiveCharacterLockExecutionMode()
+    // and the first-pass payload gate. Keeping the stored values here prevents a Basic
+    // render/save cycle from destroying the user's finalized Advanced execution choice.
+    character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(
+      (basicMode ? raw.advanced_character_lock_execution_mode : raw.character_lock_execution_mode) ||
+      (basicMode ? raw.character_lock_execution_mode : raw.advanced_character_lock_execution_mode) ||
+      raw.scene_director_character_lock_execution_mode ||
+      raw.character_lock_pass_plan ||
+      'latent_attention'
+    ),
     character_lock_first_pass_enabled: raw.character_lock_first_pass_enabled !== false,
     character_lock_first_pass_apply_to: raw.character_lock_first_pass_apply_to || 'strong_strict_only',
     character_lock_first_pass_timing: raw.character_lock_first_pass_timing || 'before_adapters',
@@ -7752,7 +8093,7 @@ function sceneDirectorSettings() {
     character_lock_first_pass_mask_feather: raw.character_lock_first_pass_mask_feather ?? 24,
     character_lock_first_pass_protect_outfit: raw.character_lock_first_pass_protect_outfit !== false,
     character_lock_first_pass_protect_pose_contact: raw.character_lock_first_pass_protect_pose_contact !== false,
-    character_lock_mode: sceneDirectorCharacterLockMode(raw.character_lock_mode || raw.lock_mode || raw.appearance_lock_mode || 'balanced'),
+    character_lock_mode: characterLockMode,
     gender_guard_mode: sceneDirectorGuardMode(raw.gender_guard_mode || raw.gender_guard || 'off'),
     skin_tone_guard_mode: sceneDirectorGuardMode(raw.skin_tone_guard_mode || raw.skin_tone_guard || 'off'),
     hair_guard_mode: sceneDirectorGuardMode(raw.hair_guard_mode || raw.hair_guard || 'off'),
@@ -7765,8 +8106,8 @@ function sceneDirectorSettings() {
     background_strength: raw.background_strength ?? 0.65,
     mask_feather: raw.mask_feather ?? raw.appearance_lock_feather ?? 18,
     // Legacy bridge only: V054 UI no longer exposes Appearance Lock / hair-focus controls.
-    appearance_lock_enabled: raw.appearance_lock_enabled ?? sceneDirectorCharacterLockMode(raw.character_lock_mode || raw.lock_mode || raw.appearance_lock_mode || 'balanced') !== 'off',
-    appearance_lock_mode: raw.appearance_lock_mode || (sceneDirectorCharacterLockMode(raw.character_lock_mode || raw.lock_mode || 'balanced') === 'off' ? 'off' : (['strong', 'strict'].includes(sceneDirectorCharacterLockMode(raw.character_lock_mode || raw.lock_mode || 'balanced')) ? 'hair_focus_strong' : 'hair_focus_soft')),
+    appearance_lock_enabled: basicMode ? false : (raw.appearance_lock_enabled ?? characterLockMode !== 'off'),
+    appearance_lock_mode: basicMode ? 'off' : (raw.appearance_lock_mode || (['strong', 'strict'].includes(characterLockMode) ? 'hair_focus_strong' : 'hair_focus_soft')),
     appearance_lock_gain: raw.appearance_lock_gain ?? raw.identity_strength ?? 0.55,
     appearance_lock_height: raw.appearance_lock_height ?? 0.42,
     appearance_lock_feather: raw.appearance_lock_feather ?? raw.mask_feather ?? 24,
@@ -7812,11 +8153,23 @@ function sceneDirectorSettings() {
     regions,
   };
 }
+function sceneDirectorRawDraftSettings() {
+  const raw = state.imageDraft?.[SCENE_DIRECTOR_EXTENSION_ID];
+  return raw && typeof raw === 'object' ? raw : {};
+}
+function sceneDirectorPersistDraftPatch(patch = {}, save = true) {
+  // Phase 27.17A.1: never persist the normalized/effective settings object.
+  // In Basic mode that object intentionally contains runtime-off values; writing it back
+  // would erase the saved Advanced Character Lock execution state.
+  const raw = sceneDirectorRawDraftSettings();
+  const next = { ...raw, ...patch };
+  state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID] = next;
+  if (Array.isArray(next.regions)) state.imageDraft.scene_director_regions = next.regions;
+  if (save) saveUiState();
+  return next;
+}
 function updateSceneDirectorSettings(patch = {}) {
-  const current = sceneDirectorSettings();
-  state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID] = { ...current, ...patch };
-  state.imageDraft.scene_director_regions = state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID].regions || [];
-  saveUiState();
+  sceneDirectorPersistDraftPatch(patch, true);
 }
 function sceneDirectorCorePromptSnapshot() {
   return {
@@ -7848,7 +8201,7 @@ function sceneDirectorActiveRoute(record) {
   if (!isGenerationWorkflow) { routeState = 'unsupported'; reason = 'Scene Director controls are only valid for generate/img2img/inpaint workflows.'; }
   else if (!['comfy', 'comfyui', 'comfyui_portable'].includes(backend)) { routeState = 'provider_gated'; reason = 'Scene Director workflow patching is Comfy-node based.'; }
   else if (loader !== 'checkpoint') { routeState = 'unsupported'; reason = 'Scene Director is checkpoint-only; GGUF/diffusion-model routes cannot fallback.'; }
-  else if (['flux', 'qwen', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit', 'z_image', 'z_image_turbo', 'zimage', 'zimage_turbo', 'hidream', 'wan_image', 'wan', 'hunyuan', 'hunyuan_image'].includes(family)) { routeState = 'unsupported'; reason = `${family} does not consume Scene Director V054 SD checkpoint scene-graph conditioning.`; }
+  else if (['flux', 'qwen', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit', 'z_image', 'z_image_turbo', 'zimage', 'zimage_turbo', 'krea2', 'krea2_turbo', 'hidream', 'wan_image', 'wan', 'hunyuan', 'hunyuan_image'].includes(family)) { routeState = 'unsupported'; reason = `${family} does not consume Scene Director V054 SD checkpoint scene-graph conditioning.`; }
   else if (workflowMode === 'outpaint') { routeState = 'planned_gated'; reason = 'Outpaint is canvas-owned and Scene Director stays blocked there.'; }
   else if (['sd', 'sd15', 'sd1.5', 'sd_1_5', 'sd1_5'].includes(family)) { routeState = 'experimental_available'; reason = 'SD 1.5 checkpoint support is available, but this route is still experimental.'; }
   else if (['sdxl', 'sdxl_sd'].includes(family)) { routeState = 'available'; reason = 'SDXL checkpoint Scene Director route is available.'; }
@@ -8732,12 +9085,29 @@ function sceneDirectorSyncExtensionRoutesFromDomToDraft() {
     }
   });
   if (changed) {
-    state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID] = { ...settings, regions };
-    state.imageDraft.scene_director_regions = regions;
-    saveUiState();
-    return { ...settings, regions };
+    sceneDirectorPersistDraftPatch({ regions }, true);
+    return sceneDirectorSettings();
   }
   return settings;
+}
+
+function sceneDirectorSyncAdvancedExecutionControlsFromDomToDraft() {
+  const settings = sceneDirectorSettings();
+  if (sceneDirectorBasicMode(settings) || typeof document === 'undefined') return settings;
+  const patch = {};
+  const executionSelect = document.getElementById('sceneDirectorCharacterLockExecutionMode');
+  if (executionSelect) {
+    const visibleMode = sceneDirectorCharacterLockExecutionMode(executionSelect.value || 'latent_attention');
+    patch.character_lock_execution_mode = visibleMode;
+    patch.advanced_character_lock_execution_mode = visibleMode;
+  }
+  const firstPass = document.getElementById('sceneDirectorFirstPassCharacterLockEnabled');
+  if (firstPass) patch.character_lock_first_pass_enabled = Boolean(firstPass.checked);
+  if (!Object.keys(patch).length) return settings;
+  const raw = sceneDirectorRawDraftSettings();
+  const changed = Object.entries(patch).some(([key, value]) => raw[key] !== value);
+  if (changed) sceneDirectorPersistDraftPatch(patch, true);
+  return { ...settings, ...patch };
 }
 
 function sceneDirectorRegionExtensionAssignmentMap(settingsOverride = null) {
@@ -9467,6 +9837,41 @@ function sceneDirectorTraitColorConflictPreview(regions = []) {
 }
 
 
+function sceneDirectorSubjectCountConflictPreview(regions = [], negativePrompt = '') {
+  const rows = sceneDirectorCleanRegions(Array.isArray(regions) ? regions : []);
+  const subjectCount = rows.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) === 'character').length;
+  const negative = String(negativePrompt || '').toLowerCase().replace(/\s+/g, ' ');
+  if (subjectCount <= 0 || !negative.trim()) return [];
+  const warnings = [];
+  const add = (code, term, severity, message) => warnings.push({
+    extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: severity, field: 'negative_prompt', code, term, expected_subject_count: subjectCount, message,
+  });
+  if (subjectCount > 1) {
+    ['single person', 'one person', 'solo portrait', 'single subject'].forEach((term) => {
+      if (negative.includes(term)) add('subject_count_negative_conflict', term, 'warning', `Scene Director has ${subjectCount} Character regions, but the global negative contains “${term}”. This can suppress the requested multi-subject layout.`);
+    });
+  }
+  const ordinals = [
+    [2, ['second person', '2nd person', 'second subject']],
+    [3, ['third person', '3rd person', 'third subject']],
+    [4, ['fourth person', '4th person', 'fourth subject']],
+    [5, ['fifth person', '5th person', 'fifth subject']],
+    [6, ['sixth person', '6th person', 'sixth subject']],
+    [7, ['seventh person', '7th person', 'seventh subject']],
+    [8, ['eighth person', '8th person', 'eighth subject']],
+  ];
+  ordinals.forEach(([ordinal, terms]) => {
+    if (subjectCount < ordinal) return;
+    terms.forEach((term) => {
+      if (negative.includes(term)) add('subject_ordinal_negative_conflict', term, 'warning', `Scene Director expects ${subjectCount} Character regions, but the negative explicitly rejects the ${term.replace(' subject', '').replace(' person', '')} requested subject.`);
+    });
+  });
+  ['extra people', 'extra person', 'additional person', 'additional people'].forEach((term) => {
+    if (subjectCount > 1 && negative.includes(term)) add('subject_count_negative_ambiguous', term, 'info', `“${term}” is ambiguous in a ${subjectCount}-subject scene. Prefer count-aware wording for people beyond the requested Character regions.`);
+  });
+  return warnings;
+}
+
 function sceneDirectorCharacterLockMode(value = 'balanced') {
   const raw = String(value || 'balanced').trim().toLowerCase();
   const aliases = {
@@ -9485,8 +9890,26 @@ function sceneDirectorGuardMode(value = 'off') {
   return SCENE_DIRECTOR_CHARACTER_GUARD_MODES.includes(mode) ? mode : 'off';
 }
 
+function sceneDirectorBasicMode(settings = {}) {
+  const input = settings && typeof settings === 'object' ? settings : {};
+  if (Object.prototype.hasOwnProperty.call(input, 'scene_mode')) return sceneDirectorSceneMode(input.scene_mode) === 'basic';
+  if (Object.prototype.hasOwnProperty.call(input, 'scene_director_scene_mode')) return sceneDirectorSceneMode(input.scene_director_scene_mode) === 'basic';
+  if (input.basic_mode === true || input.scene_director_basic_mode === true) return true;
+  if (input.basic_mode === false || input.scene_director_basic_mode === false) return false;
+  const hasExplicitLockMode = ['character_lock_mode', 'lock_mode', 'appearance_lock_mode']
+    .some((key) => Object.prototype.hasOwnProperty.call(input, key));
+  if (!hasExplicitLockMode) return false;
+  return sceneDirectorCharacterLockMode(input.character_lock_mode || input.lock_mode || input.appearance_lock_mode || 'off') === 'off';
+}
+
+function sceneDirectorEffectiveCharacterLockExecutionMode(settings = {}) {
+  return sceneDirectorBasicMode(settings) || sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off'
+    ? 'off'
+    : sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.scene_director_character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention');
+}
+
 function sceneDirectorCharacterLockFromSettings(settings = {}) {
-  const mode = sceneDirectorCharacterLockMode(settings.character_lock_mode || settings.lock_mode || settings.appearance_lock_mode || 'balanced');
+  const mode = sceneDirectorCharacterLockMode(settings.character_lock_mode || settings.lock_mode || settings.appearance_lock_mode || 'off');
   return {
     character: mode,
     gender: sceneDirectorGuardMode(settings.gender_guard_mode || settings.gender_guard || (mode === 'strict' ? 'strict' : 'off')),
@@ -9499,7 +9922,12 @@ function sceneDirectorCharacterLockFromSettings(settings = {}) {
   };
 }
 
-function sceneDirectorCharacterLockOptions(selected = 'balanced') {
+function sceneDirectorEffectiveCharacterLockFromSettings(settings = {}) {
+  if (!sceneDirectorBasicMode(settings)) return sceneDirectorCharacterLockFromSettings(settings);
+  return { character: 'off', gender: 'off', skin_tone: 'off', hair: 'off', build: 'off', body_height: 'off', outfit: 'off', negative: 'off' };
+}
+
+function sceneDirectorCharacterLockOptions(selected = 'off') {
   const value = sceneDirectorCharacterLockMode(selected);
   const labels = { off: 'Off', soft: 'Soft', balanced: 'Balanced', strong: 'Strong', strict: 'Strict' };
   return SCENE_DIRECTOR_CHARACTER_LOCK_MODES.map((mode) => `<option value="${mode}" ${mode === value ? 'selected' : ''}>${escapeHtml(labels[mode] || mode)}</option>`).join('');
@@ -9851,6 +10279,8 @@ sceneDirectorCharacterLockAuthorityControls = (settings = {}, disabled = '') => 
   .replaceAll('Latent trait repair (extra sampler)', 'Experimental midpoint trait repair')
   .replaceAll('Allow end-refinement character pass', 'Allow optional end-refinement character pass');
 function sceneDirectorPerCharacterCorrectionControls(settings = {}, disabled = '') {
+  if (sceneDirectorBasicMode(settings)) return '<p class="neo-muted">Basic Scene Mode keeps Character Lock correction and trait controls inactive.</p>';
+  if (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off') return '<p class="neo-muted">Enable Character Lock to expose per-character correction fields.</p>';
   const regions = sceneDirectorCleanRegions(settings.regions || []).filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) === 'character');
   if (!regions.length) return '<p class="neo-muted">Add character regions to expose per-character correction text.</p>';
   const allRegions = settings.regions || [];
@@ -9873,6 +10303,7 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
   const settings = settingsOverride || sceneDirectorSettings();
   const normalized = sceneDirectorNormalizeRegion(region, index);
   const role = sceneDirectorV054NormalizeRole(normalized.role || normalized.type);
+  const basicMode = sceneDirectorBasicMode(settings);
   const item = {
     id: normalized.id,
     role,
@@ -9886,24 +10317,27 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
     // metadata.mask remains available for inspector/replay compatibility.
     feather: Math.max(0, Math.round(Number(normalized.mask?.feather ?? normalized.feather ?? 8))),
   };
-  if (normalized.attach_to) item.attach_to = normalized.attach_to;
-  if (normalized.relationship) item.relationship = normalized.relationship;
-  if (normalized.target_area) item.target_area = normalized.target_area;
-  if (normalized.relationship_prompt) item.relationship_prompt = normalized.relationship_prompt;
-  if (normalized.local_prompt_template) item.local_prompt_template = normalized.local_prompt_template;
-  if (normalized.negative_guard) item.negative_guard = normalized.negative_guard;
-  if (normalized.compiler_override && typeof normalized.compiler_override === 'object' && Object.keys(normalized.compiler_override).length) item.compiler_override = normalized.compiler_override;
-  if (normalized.conflict_resolution_prompt) item.conflict_resolution_prompt = normalized.conflict_resolution_prompt;
-  if (normalized.conflict_negative_guard) item.conflict_negative_guard = normalized.conflict_negative_guard;
-  if (normalized.conflict_override && typeof normalized.conflict_override === 'object' && Object.keys(normalized.conflict_override).length) item.conflict_override = normalized.conflict_override;
+  if (!basicMode) {
+    if (normalized.attach_to) item.attach_to = normalized.attach_to;
+    if (normalized.relationship) item.relationship = normalized.relationship;
+    if (normalized.target_area) item.target_area = normalized.target_area;
+    if (normalized.relationship_prompt) item.relationship_prompt = normalized.relationship_prompt;
+    if (normalized.local_prompt_template) item.local_prompt_template = normalized.local_prompt_template;
+    if (normalized.negative_guard) item.negative_guard = normalized.negative_guard;
+    if (normalized.compiler_override && typeof normalized.compiler_override === 'object' && Object.keys(normalized.compiler_override).length) item.compiler_override = normalized.compiler_override;
+    if (normalized.conflict_resolution_prompt) item.conflict_resolution_prompt = normalized.conflict_resolution_prompt;
+    if (normalized.conflict_negative_guard) item.conflict_negative_guard = normalized.conflict_negative_guard;
+    if (normalized.conflict_override && typeof normalized.conflict_override === 'object' && Object.keys(normalized.conflict_override).length) item.conflict_override = normalized.conflict_override;
+  }
   if (SCENE_DIRECTOR_V054_BACKGROUND_ZONE_ROLES.includes(role)) {
     item.zone = normalized.zone || sceneDirectorV054BackgroundZone(normalized);
     if (normalized.background_prompt) item.background_prompt = normalized.background_prompt;
     if (normalized.background_negative_guard) item.background_negative_guard = normalized.background_negative_guard;
     if (normalized.background_override && typeof normalized.background_override === 'object' && Object.keys(normalized.background_override).length) item.background_override = normalized.background_override;
   }
-  const lock = { ...(normalized.lock || {}) };
-  if (role === 'character') {
+  const lock = basicMode ? {} : { ...(normalized.lock || {}) };
+  const characterLockEnabled = !basicMode && sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') !== 'off';
+  if (role === 'character' && characterLockEnabled) {
     const characterLock = sceneDirectorCharacterLockFromSettings(settings);
     if (characterLock.character !== 'off') lock.character = lock.character || characterLock.character;
     ['gender', 'skin_tone', 'hair', 'build', 'body_height', 'outfit', 'negative'].forEach((key) => {
@@ -9911,7 +10345,7 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
     });
   }
   if (Object.keys(lock).length) item.lock = lock;
-  if (role === 'character') {
+  if (role === 'character' && characterLockEnabled) {
     item.character_traits = sceneDirectorCharacterTraitsFromRegion(normalized);
     const correction = sceneDirectorCharacterLockCorrectionFromRegion(normalized);
     item.character_lock_correction = {
@@ -9926,15 +10360,17 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
       source: 'visible_region_fields',
     };
   }
-  ['detailer'].forEach((key) => {
-    if (normalized[key] && typeof normalized[key] === 'object' && Object.keys(normalized[key]).length) item[key] = normalized[key];
-  });
-  if (normalized.inpaint && typeof normalized.inpaint === 'object' && Object.keys(normalized.inpaint).length) item.inpaint = sceneDirectorV054InpaintTargetFromRegion(normalized);
-  if (normalized.edit_intent && typeof normalized.edit_intent === 'object' && Object.keys(normalized.edit_intent).length) item.edit_intent = sceneDirectorV054EditIntentFromRegion(normalized);
-  if (normalized.source_image) item.source_image = normalized.source_image;
-  if (normalized.source_region_id) item.source_region_id = normalized.source_region_id;
-  if (normalized.control && normalized.control.enabled === true) item.control = normalized.control;
-  if (sceneDirectorV054ExtensionRoutesHaveSelection(normalized.extension_routes)) item.extension_routes = sceneDirectorV054ExtensionRoutesFromRegion(normalized);
+  if (!basicMode) {
+    ['detailer'].forEach((key) => {
+      if (normalized[key] && typeof normalized[key] === 'object' && Object.keys(normalized[key]).length) item[key] = normalized[key];
+    });
+    if (normalized.inpaint && typeof normalized.inpaint === 'object' && Object.keys(normalized.inpaint).length) item.inpaint = sceneDirectorV054InpaintTargetFromRegion(normalized);
+    if (normalized.edit_intent && typeof normalized.edit_intent === 'object' && Object.keys(normalized.edit_intent).length) item.edit_intent = sceneDirectorV054EditIntentFromRegion(normalized);
+    if (normalized.source_image) item.source_image = normalized.source_image;
+    if (normalized.source_region_id) item.source_region_id = normalized.source_region_id;
+    if (normalized.control && normalized.control.enabled === true) item.control = normalized.control;
+    if (sceneDirectorV054ExtensionRoutesHaveSelection(normalized.extension_routes)) item.extension_routes = sceneDirectorV054ExtensionRoutesFromRegion(normalized);
+  }
   if (role === 'text') {
     const textSpec = sceneDirectorV054TextFromRegion(normalized);
     item.text = textSpec.text || normalized.prompt || '';
@@ -9955,8 +10391,18 @@ function sceneDirectorV054Region(region = {}, index = 0, settingsOverride = null
     ui_type: normalized.type,
     mask: normalized.mask || {},
     identity: normalized.identity || {},
-    ipadapter_enabled: Boolean(normalized.ipadapter),
-    lora_enabled: Boolean(normalized.lora),
+    ipadapter_enabled: basicMode ? false : Boolean(normalized.ipadapter),
+    lora_enabled: basicMode ? false : Boolean(normalized.lora),
+    ...(role === 'character' && basicMode ? {
+      basic_occupancy: {
+        schema: 'neo.image.scene_director.basic_region_occupancy.v27_16',
+        phase: 'SD-V054-27.16',
+        required: true,
+        contract: 'exactly one complete visible subject inside this assigned region; this region must not be empty; keep a separate silhouette from neighboring subjects',
+        trait_library_applied: false,
+        pose_authority_applied: false,
+      },
+    } : {}),
   };
   return item;
 }
@@ -10344,7 +10790,29 @@ function sceneDirectorRelationshipPoseAuthority(settings = {}, regions = []) {
   };
 }
 
-function sceneDirectorCharacterPoseAuthority(regions = []) {
+function sceneDirectorCharacterPoseAuthority(regions = [], settings = {}) {
+  const poseSettings = settings && typeof settings === 'object' ? settings : {};
+  const explicitBasicMode = poseSettings.basic_mode === true || (
+    ['character_lock_mode', 'lock_mode', 'appearance_lock_mode'].some((key) => Object.prototype.hasOwnProperty.call(poseSettings, key))
+    && String(poseSettings.character_lock_mode || poseSettings.lock_mode || poseSettings.appearance_lock_mode || 'off').trim().toLowerCase() === 'off'
+  );
+  if (explicitBasicMode) {
+    const characterCount = (Array.isArray(regions) ? regions : []).filter((region) => sceneDirectorV054NormalizeRole(region?.role || region?.type) === 'character').length;
+    return {
+      schema: 'neo.image.scene_director.character_pose_authority.v25_9_15',
+      phase: 'SD-V054-27.16',
+      enabled: false,
+      status: 'disabled_basic_mode',
+      source: 'character_trait_library_gated_by_character_lock',
+      character_count: characterCount,
+      active_character_count: 0,
+      characters: [],
+      routes: [],
+      adds_attention_branch: false,
+      advanced_pair_pose_execution: false,
+      policy: 'Basic mode has no separate Pose handling. Character → Pose is available only inside Character Trait Lock after Character Lock is enabled.',
+    };
+  }
   const characters = (Array.isArray(regions) ? regions : [])
     .map((region, index) => sceneDirectorNormalizeRegion(region, index))
     .filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) === 'character')
@@ -10409,13 +10877,35 @@ function sceneDirectorFixPassMode(value = 'auto') {
 }
 
 function sceneDirectorAdvancedFixPassControls(settings = {}, regions = []) {
+  const layout = sceneDirectorLayoutSafetyReport(regions.length ? regions : settings.regions || []);
+  if (sceneDirectorBasicMode(settings)) {
+    return {
+      schema: 'neo.image.scene_director.advanced_fix_pass_controls.v25_9_13',
+      phase: 'SD-V054-27.16',
+      releaseStage: 'ready',
+      dedupe_releaseStage: 'preview',
+      ui_ownership: { character_lock: 'trait_guard_authority_only', fix_pass_controls: 'repair_pass_execution_and_numeric_controls' },
+      mode: 'basic_single_pass',
+      first_pass_character_lock_rescue: 'off',
+      background_restore: 'off',
+      character_trait_lanes: 'off',
+      final_background_reconciliation: 'off',
+      environment_aware_character_lanes: false,
+      layout_safety_enabled: settings.layout_safety_enabled !== false,
+      layout_safety_background_safe_area_min: Number(settings.layout_safety_background_safe_area_min ?? 12),
+      layout_safety_full_height_threshold: Number(settings.layout_safety_full_height_threshold ?? 0.92),
+      layout_safety_autofit_policy: settings.layout_safety_autofit_policy || 'v1_safe_character_boxes',
+      layout_safety: layout,
+      basic_mode: true,
+      policy: 'Basic mode is a single-sampler regional composition route. Character Lock, trait, pose, latent repair, end refinement, and background repaint passes remain inactive until Character Lock is enabled.',
+    };
+  }
   const mode = String(settings.fix_pass_mode || 'smart_auto').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const modeDefaults = mode === 'minimal_fast'
     ? { first: 'off', background: 'off', character: 'off', final: 'off' }
     : (mode === 'force_all'
       ? { first: 'force_on', background: 'force_on', character: 'force_on', final: 'force_on' }
       : { first: 'auto', background: 'auto', character: 'auto', final: 'auto' });
-  const layout = sceneDirectorLayoutSafetyReport(regions.length ? regions : settings.regions || []);
   return {
     schema: 'neo.image.scene_director.advanced_fix_pass_controls.v25_9_13',
     releaseStage: 'preview',
@@ -10574,9 +11064,9 @@ function sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, r
       prompt_provenance: {
         global: 'neo_core_prompt_fields',
         regions: 'user_authored_scene_director_region_fields',
-        traits: 'editable_json_trait_libraries_plus_user_custom_terms',
-        colors: 'shared_editable_color_library',
-        pose: 'character_region_trait_only',
+        traits: sceneDirectorBasicMode(settings) ? 'disabled_basic_mode' : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? 'disabled_character_lock_off' : 'editable_json_trait_libraries_plus_user_custom_terms'),
+        colors: sceneDirectorBasicMode(settings) ? 'disabled_basic_mode' : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? 'disabled_character_lock_off' : 'shared_editable_color_library'),
+        pose: sceneDirectorBasicMode(settings) ? 'disabled_basic_mode_character_lock_required' : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? 'disabled_character_lock_off' : 'character_region_trait_only'),
         advanced_pair_pose_retired: true,
         demo_or_personal_prompt_injection: false,
       },
@@ -10600,14 +11090,17 @@ function sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, r
       global_context_source: 'neo_core_prompts',
       prompt_authority: promptAuthorityContract.mode,
       prompt_authority_contract: promptAuthorityContract,
+      scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')),
+      scene_mode_contract: { schema: 'neo.image.scene_director.scene_mode.v27_17a', phase: 'SD-V054-27.17A', mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), advanced_ui_visible: !sceneDirectorBasicMode(settings), trait_library_visible: !sceneDirectorBasicMode(settings) && sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') !== 'off', advanced_values_preserved_while_basic: true },
       complexity: sceneDirectorV054ComplexityMeter(effectiveRegions),
       background_regions: { ...sceneDirectorV054BackgroundPlan(effectiveRegions), auto_blend_seam_applied: autoBlendApplied, auto_blend_seam_prompt: autoBlendApplied ? SCENE_DIRECTOR_V054_BLEND_SEAM_PROMPT : '' },
       advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions),
       layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions),
       relationship_pose_authority: sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions),
       pair_pose_authority: sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions),
-      character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions),
-      background_space_authority: sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, effectiveRegions),
+      character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions, settings),
+      basic_mode: { schema: 'neo.image.scene_director.basic_mode.v27_16', phase: 'SD-V054-27.16', enabled: sceneDirectorBasicMode(settings), single_sampler: sceneDirectorBasicMode(settings), trait_library_applied: !sceneDirectorBasicMode(settings), pose_authority_applied: !sceneDirectorBasicMode(settings) },
+      background_space_authority: sceneDirectorBasicMode(settings) ? { schema: 'neo.image.scene_director.background_space_authority.v25_9_9', phase: 'SD-V054-27.17A', enabled: false, status: 'disabled_basic_scene_mode', source: 'scene_mode_boundary', policy: 'Saved Advanced background-space values are preserved in draft state but are not submitted in Basic Scene Mode.' } : sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, effectiveRegions),
       regional_controlnet: sceneDirectorV054ControlPlan(effectiveRegions),
       regional_detailer: sceneDirectorV054DetailerPlan(effectiveRegions),
       text_regions: sceneDirectorV054TextPlan(effectiveRegions),
@@ -10646,7 +11139,10 @@ function sceneDirectorSubmitIntentExists(settingsOverride = null) {
   return Boolean(hasRegionIntent || hasIdentityIntent || hasRegionalLoraIntent);
 }
 function sceneDirectorPayloadPreview(record, appliedOverride = null) {
-  const settings = sceneDirectorSyncExtensionRoutesFromDomToDraft();
+  sceneDirectorSyncExtensionRoutesFromDomToDraft();
+  // Phase 27.17A.1: the visible Advanced execution controls are authoritative at submit.
+  // This repairs old drafts whose stored execution field was previously sanitized to Off.
+  const settings = sceneDirectorSyncAdvancedExecutionControlsFromDomToDraft();
   const corePrompts = sceneDirectorCorePromptSnapshot();
   const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const route = sceneDirectorActiveRoute(record);
@@ -10695,7 +11191,7 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   const sceneGraph = active ? sceneDirectorBuildV054SceneGraph(settings, cleanRegions, corePrompts, route) : null;
   const relationshipPoseAuthority = sceneDirectorRelationshipPoseAuthority(settings, effectiveRegions);
   const backgroundSpaceAuthority = sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, effectiveRegions);
-  const disabledMeta = { schema: 'neo.image.scene_director.v2', scene_graph_schema: 'neo.image.scene_director.scene_graph.v054', payload_schema: 'neo.extension.payload.v1', source: 'scene_director_v054_ui', route_state: route.route_state, route: { backend: route.backend, family: route.family, loader: route.loader, mode: route.workflow_mode, workspace: route.workspace_app, subtab: route.subtab }, workflow_patch_requested: false, workflow_patch_allowed: false, reason: active ? '' : sceneDirectorStatusLabel(route, applied), gated_reason: active ? '' : sceneDirectorStatusLabel(route, applied), regional_count: cleanRegions.length, subject_count: active ? sceneDirectorCharacterCount(settings.regions) : 0, detail_region_count: active ? cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length : 0, node_readiness: 'NeoSceneDirectorV054 preferred; V053/V052 fallback checked by backend workflow hook', ui_mode: state.detailMode || 'guided', character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), global_context_source: 'neo_core_prompts', suppress_global_ipadapter: false, complexity: active ? sceneDirectorV054ComplexityMeter(cleanRegions) : sceneDirectorV054ComplexityMeter([]), background_regions: active ? sceneDirectorV054BackgroundPlan(cleanRegions) : sceneDirectorV054BackgroundPlan([]), relationship_pose_authority: relationshipPoseAuthority, pair_pose_authority: relationshipPoseAuthority, character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions), background_space_authority: backgroundSpaceAuthority, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions), layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions), provider_capabilities: sceneDirectorV054ProviderCapability(route),
+  const disabledMeta = { schema: 'neo.image.scene_director.v2', scene_graph_schema: 'neo.image.scene_director.scene_graph.v054', payload_schema: 'neo.extension.payload.v1', source: 'scene_director_v054_ui', route_state: route.route_state, route: { backend: route.backend, family: route.family, loader: route.loader, mode: route.workflow_mode, workspace: route.workspace_app, subtab: route.subtab }, workflow_patch_requested: false, workflow_patch_allowed: false, reason: active ? '' : sceneDirectorStatusLabel(route, applied), gated_reason: active ? '' : sceneDirectorStatusLabel(route, applied), regional_count: cleanRegions.length, subject_count: active ? sceneDirectorCharacterCount(settings.regions) : 0, detail_region_count: active ? cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length : 0, node_readiness: 'NeoSceneDirectorV054 preferred; V053/V052 fallback checked by backend workflow hook', ui_mode: state.detailMode || 'guided', character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off'), character_lock: sceneDirectorCharacterLockFromSettings(settings), global_context_source: 'neo_core_prompts', suppress_global_ipadapter: false, complexity: active ? sceneDirectorV054ComplexityMeter(cleanRegions) : sceneDirectorV054ComplexityMeter([]), background_regions: active ? sceneDirectorV054BackgroundPlan(cleanRegions) : sceneDirectorV054BackgroundPlan([]), relationship_pose_authority: relationshipPoseAuthority, pair_pose_authority: relationshipPoseAuthority, character_pose_authority: sceneDirectorCharacterPoseAuthority(effectiveRegions, settings), background_space_authority: backgroundSpaceAuthority, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions), layout_safety: sceneDirectorLayoutSafetyReport(effectiveRegions), provider_capabilities: sceneDirectorV054ProviderCapability(route),
       route: { ...(route || {}), source_workflow_active: sourceWorkflowActive },
       clean_state_boundary: { schema: 'neo.image.scene_director.clean_state_boundary.v25_9_5', releaseStage: 'ready', source_workflow_active: sourceWorkflowActive, workflow_mode: route.workflow_mode || route.mode || getImageWorkflowMode() || 'generate', img2img_region_reuse_enabled: sourceWorkflowActive },
       extension_unit_routing: sceneDirectorV054ExtensionUnitRoutingPlan(cleanRegions),
@@ -10706,9 +11202,9 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
     enabled: active,
     version: 1,
     inputs: active ? { scene_graph_json: sceneGraph, scene_graph: sceneGraph, regions: cleanRegions, contracts: { enabled: settings.contracts_enabled, use_node_auto_prompts: settings.use_node_auto_prompts, count_contract: settings.count_contract, subject_contract: settings.subject_contract, negative_contract: settings.negative_contract, style_merge: settings.style_merge }, global: { positive_prompt: corePrompts.positive_prompt, negative_prompt: corePrompts.negative_prompt, style_prompt: corePrompts.style_prompt, prompt_authority: promptAuthorityContract.mode } } : {},
-    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', prompt_authority: promptAuthorityContract.mode, scene_director_prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, character_lock_mode: sceneDirectorCharacterLockMode(settings.character_lock_mode || 'balanced'), character_lock: sceneDirectorCharacterLockFromSettings(settings), character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), scene_director_character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), scene_director_character_lock_pass_plan: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v2', phase: 'SD-V054-27.1', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), execution: sceneDirectorCharacterLockExecutionMode(settings.character_lock_execution_mode || settings.character_lock_pass_plan || 'latent_attention'), enabled: Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
+    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', prompt_authority: promptAuthorityContract.mode, scene_director_prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), scene_director_scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), basic_mode: sceneDirectorBasicMode(settings), character_lock_mode: sceneDirectorBasicMode(settings) ? 'off' : sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off'), character_lock: sceneDirectorEffectiveCharacterLockFromSettings(settings), character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_pass_plan: sceneDirectorEffectiveCharacterLockExecutionMode(settings), first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v2', phase: 'SD-V054-27.1', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), execution: sceneDirectorEffectiveCharacterLockExecutionMode(settings), enabled: !sceneDirectorBasicMode(settings) && Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
     assets: active ? { identity_units: identityUnits, ipadapter_bindings: ipadapterBindings, lora_bindings: loraBindings } : {},
-        metadata: active ? { ...disabledMeta, workflow_patch_requested: true, workflow_patch_allowed: false, reason: '', gated_reason: 'Backend validation must confirm NeoSceneDirectorV054 before graph mutation.', prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, global_prompt_excluded: promptAuthorityContract.global_prompt_excluded, suppress_global_ipadapter: Boolean(ipadapterBindings.length), regional_count: cleanRegions.length, subject_count: sceneDirectorCharacterCount(settings.regions), detail_region_count: cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length, scene_graph_region_count: sceneGraph.regions.length } : disabledMeta,
+        metadata: active ? { ...disabledMeta, workflow_patch_requested: true, workflow_patch_allowed: false, reason: '', gated_reason: 'Backend validation must confirm NeoSceneDirectorV054 before graph mutation.', prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, global_prompt_excluded: promptAuthorityContract.global_prompt_excluded, suppress_global_ipadapter: Boolean(ipadapterBindings.length), regional_count: cleanRegions.length, subject_count: sceneDirectorCharacterCount(settings.regions), detail_region_count: cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length, scene_graph_region_count: sceneGraph.regions.length, scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), basic_mode: sceneDirectorBasicMode(settings), basic_mode_single_sampler_requested: sceneDirectorBasicMode(settings) } : disabledMeta,
   } } };
 }
 function sceneDirectorValidationPreview(record, appliedOverride = null) {
@@ -10748,6 +11244,7 @@ function sceneDirectorValidationPreview(record, appliedOverride = null) {
   items.push(...attachmentResolution.messages);
   items.push(...sceneDirectorV054ConflictPreview(regions));
   items.push(...sceneDirectorTraitColorConflictPreview(regions));
+  items.push(...sceneDirectorSubjectCountConflictPreview(regions, corePrompts.negative_prompt || settings.negative_prompt || ''));
   items.push(...sceneDirectorV054ComplexityPreview(regions));
   items.push(...sceneDirectorV054ControlPreview(regions));
   items.push(...sceneDirectorV054DetailerPreview(regions));
@@ -10884,6 +11381,7 @@ async function loadSceneDirectorScenePreset(name) {
     negative_contract: contracts.negative_contract || sceneDirectorSettings().negative_contract,
     style_merge: contracts.style_merge || sceneDirectorSettings().style_merge,
     prompt_authority: sceneDirectorPromptAuthority(params.prompt_authority || params.scene_director_prompt_authority || 'global_context'),
+    scene_mode: sceneDirectorSceneMode(params.scene_mode || params.scene_director_scene_mode || (params.basic_mode === true ? 'basic' : 'advanced')),
     base_weight: params.base_weight ?? sceneDirectorSettings().base_weight,
     region_gain: params.region_gain ?? sceneDirectorSettings().region_gain,
     normalize_masks: params.normalize_masks !== false,
@@ -11445,7 +11943,7 @@ function sceneDirectorPanel(record) {
         <div class="neo-inline-actions neo-scene-region-order-actions"><button class="neo-icon-btn" type="button" data-scene-region-move="up" data-scene-region-index="${index}" ${disabled || index === 0 ? 'disabled' : ''} title="Move region up">⬆️</button><button class="neo-icon-btn" type="button" data-scene-region-move="down" data-scene-region-index="${index}" ${disabled || index === regions.length - 1 ? 'disabled' : ''} title="Move region down">⬇️</button><button class="neo-icon-btn" type="button" data-scene-region-duplicate="${index}" ${disabled} title="Duplicate region">⧉</button><button class="neo-icon-btn" type="button" data-scene-region-remove="${index}" ${disabled} title="Delete region">🗑️</button></div>
       </div>
       <div class="neo-scene-region-row neo-scene-region-meta-row"><label>Label<input data-scene-region-field="label" data-scene-region-index="${index}" value="${escapeAttr(region.label || '')}" ${locked}></label><label>V054 Role<select data-scene-region-field="role" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RoleOptions(region.role || region.type)}</select></label></div>
-      ${sceneDirectorRegionTraitFields(region, index, locked)}
+      ${sceneDirectorBasicMode(settings) ? '<p class="neo-muted neo-scene-basic-mode-note">Basic Scene Mode: Character Trait Lock, Pose, corrections, and advanced region controls are hidden and not submitted.</p>' : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? '<p class="neo-muted neo-scene-basic-mode-note">Advanced Scene Mode is active. Enable Character Lock to expose Character Trait Lock, including Pose.</p>' : sceneDirectorRegionTraitFields(region, index, locked))}
       ${sceneDirectorAttachedDetailControls(region, index, locked, regions)}
       <details class="neo-scene-nested-card neo-scene-region-advanced"><summary><span>Advanced Region Control</span><small>attachment, prompts, routes, edit tools</small></summary><div class="neo-scene-nested-body neo-scene-region-advanced-body"><details class="neo-scene-region-control-group" open><summary>Relationship & Attachment</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Attach to<select data-scene-region-field="attach_to" data-scene-region-index="${index}" ${locked}>${parentOptionsForRegion(region.id, region.attach_to)}</select></label><label>Relationship<select data-scene-region-field="relationship" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RelationshipOptions(region.relationship || sceneDirectorV054LinkMetadata(region).relationship)}</select></label><label>Target area<input data-scene-region-field="target_area" data-scene-region-index="${index}" value="${escapeAttr(region.target_area || sceneDirectorV054LinkMetadata(region).targetArea || '')}" placeholder="hair, face, hands, outfit" ${locked}></label><label>Priority<select data-scene-region-field="priority" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054PriorityOptions(region.priority)}</select></label></div></details><details class="neo-scene-region-control-group"><summary>Prompt Overrides</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Parent prompt override<textarea data-scene-region-field="relationship_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Use {parent}, {child}, {target}, {relationship}" ${locked}>${escapeHtml(region.relationship_prompt || '')}</textarea></label><label class="wide">Local mask prompt override<textarea data-scene-region-field="local_prompt_template" data-scene-region-index="${index}" rows="2" placeholder="Optional local prompt for this region mask" ${locked}>${escapeHtml(region.local_prompt_template || '')}</textarea></label><label class="wide">Negative guard override<textarea data-scene-region-field="negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative guard for this relationship" ${locked}>${escapeHtml(region.negative_guard || '')}</textarea></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Conflict resolution override<textarea data-scene-region-field="conflict_resolution_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: {child_label} wins over parent wording for {parent_label}" ${locked}>${escapeHtml(region.conflict_resolution_prompt || '')}</textarea></label><label class="wide">Conflict negative guard<textarea data-scene-region-field="conflict_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative prompt only when this lane conflicts" ${locked}>${escapeHtml(region.conflict_negative_guard || '')}</textarea></label></div></details><details class="neo-scene-region-control-group"><summary>Background Slot</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Background zone<input data-scene-region-field="zone" data-scene-region-index="${index}" value="${escapeAttr(region.zone || sceneDirectorV054BackgroundZone(region))}" placeholder="left side / right side / center seam" ${locked}></label><label class="wide">Background prompt override<textarea data-scene-region-field="background_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: ancient medieval fantasy ruins, warm torchlight, stone walls" ${locked}>${escapeHtml(region.background_prompt || '')}</textarea></label><label class="wide">Background negative guard<textarea data-scene-region-field="background_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="background covering subjects, extra people, wrong era bleed" ${locked}>${escapeHtml(region.background_negative_guard || '')}</textarea></label></div>${sceneDirectorBackgroundComposerControls(region, index, locked, regions)}<p class="neo-muted">Manual background regions only. Background override is compiled as the local background lane; global prompt remains scene context/style only.</p></details>${showSceneDirectorImg2ImgControls ? `<details class="neo-scene-region-control-group"><summary>Img2Img Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Img2Img intent<select data-scene-region-field="edit_intent_mode" data-scene-region-index="${index}" ${locked}><option value="preserve" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'preserve' ? 'selected' : ''}>Preserve</option><option value="modify" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'modify' ? 'selected' : ''}>Modify</option><option value="replace" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'replace' ? 'selected' : ''}>Replace</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="edit_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054EditIntentFromRegion(region).denoise ?? 0.35)}" ${locked}></label><label>Mask reuse<select data-scene-region-field="edit_mask_reuse" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'region' ? 'selected' : ''}>Region mask</option><option value="source" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'source' ? 'selected' : ''}>Source mask</option><option value="metadata" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'metadata' ? 'selected' : ''}>Saved metadata</option></select></label><label class="wide">Source image<input data-scene-region-field="source_image" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054EditIntentFromRegion(region).source_image || region.source_image || '')}" placeholder="output/source image name" ${locked}></label></div></details>` : ''}${showSceneDirectorInpaintControls ? `<details class="neo-scene-region-control-group"><summary>Inpaint Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="neo-scene-region-enable"><input type="checkbox" data-scene-region-field="inpaint_enabled" data-scene-region-index="${index}" ${sceneDirectorV054InpaintTargetFromRegion(region).enabled ? 'checked' : ''} ${locked}> <span>Inpaint Target</span></label><label>Action<select data-scene-region-field="inpaint_action" data-scene-region-index="${index}" ${locked}><option value="change_hair" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_hair' ? 'selected' : ''}>Change Hair</option><option value="change_outfit" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_outfit' ? 'selected' : ''}>Change Outfit</option><option value="add_held_prop" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'add_held_prop' ? 'selected' : ''}>Add Held Prop</option><option value="remove_object" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'remove_object' ? 'selected' : ''}>Remove Object</option><option value="replace_background" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'replace_background' ? 'selected' : ''}>Replace Background</option><option value="fix_face" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_face' ? 'selected' : ''}>Fix Face</option><option value="fix_hands" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_hands' ? 'selected' : ''}>Fix Hands</option><option value="edit_text_plate" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'edit_text_plate' ? 'selected' : ''}>Edit Text Plate</option><option value="custom" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'custom' ? 'selected' : ''}>Custom</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="inpaint_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).denoise ?? 0.5)}" ${locked}></label><label>Mask feather<input type="number" min="0" max="128" step="1" data-scene-region-field="inpaint_mask_feather" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).mask_feather ?? 16)}" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask mode<select data-scene-region-field="inpaint_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="detail" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="subject" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="background" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'background' ? 'selected' : ''}>Background mask</option><option value="source" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'source' ? 'selected' : ''}>Source mask</option></select></label><label class="wide">Inpaint prompt<input data-scene-region-field="inpaint_prompt" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).prompt || '')}" placeholder="Prompt for this inpaint target" ${locked}></label><label class="wide">Inpaint negative<input data-scene-region-field="inpaint_negative" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).negative || '')}" placeholder="Negative for this inpaint target" ${locked}></label></div></details>` : ''}<details class="neo-scene-region-control-group"><summary>Text Region</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Text mode<select data-scene-region-field="text_mode" data-scene-region-index="${index}" ${locked}><option value="composite" ${sceneDirectorV054TextFromRegion(region).mode === 'composite' ? 'selected' : ''}>Composite Text</option><option value="diffusion" ${sceneDirectorV054TextFromRegion(region).mode === 'diffusion' ? 'selected' : ''}>Diffusion Text</option><option value="native" ${sceneDirectorV054TextFromRegion(region).mode === 'native' ? 'selected' : ''}>Model Native</option></select></label><label class="wide">Text content<textarea data-scene-region-field="text" data-scene-region-index="${index}" rows="2" placeholder="Readable text to composite" ${locked}>${escapeHtml(sceneDirectorV054TextFromRegion(region).text || '')}</textarea></label><label>Font style<input data-scene-region-field="font_style" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).font_style || '')}" placeholder="bold futuristic sans-serif" ${locked}></label><label>Color<input data-scene-region-field="color" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).color || 'white')}" placeholder="white / #ffffff" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Font size<input type="number" min="4" max="512" step="1" data-scene-region-field="font_size" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).font_size ?? 48)}" ${locked}></label><label>Align<select data-scene-region-field="align" data-scene-region-index="${index}" ${locked}><option value="left" ${sceneDirectorV054TextFromRegion(region).align === 'left' ? 'selected' : ''}>Left</option><option value="center" ${sceneDirectorV054TextFromRegion(region).align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${sceneDirectorV054TextFromRegion(region).align === 'right' ? 'selected' : ''}>Right</option></select></label><label>Vertical<select data-scene-region-field="valign" data-scene-region-index="${index}" ${locked}><option value="top" ${sceneDirectorV054TextFromRegion(region).valign === 'top' ? 'selected' : ''}>Top</option><option value="middle" ${sceneDirectorV054TextFromRegion(region).valign === 'middle' ? 'selected' : ''}>Middle</option><option value="bottom" ${sceneDirectorV054TextFromRegion(region).valign === 'bottom' ? 'selected' : ''}>Bottom</option></select></label><label>Opacity<input type="number" min="0" max="1" step="0.01" data-scene-region-field="opacity" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).opacity ?? 1)}" ${locked}></label></div></details><details class="neo-scene-region-control-group"><summary>Extension Routing</summary><div class="neo-scene-region-row neo-scene-region-meta-row neo-scene-extension-route-grid">${sceneDirectorExtensionUnitSelect('controlnet', region.extension_routes?.controlnet_unit_id, index, locked)}${sceneDirectorExtensionUnitSelect('adetailer', region.extension_routes?.adetailer_pass_id, index, locked)}${sceneDirectorExtensionUnitSelect('ipadapter', region.extension_routes?.ipadapter_profile_id ? `profile:${region.extension_routes.ipadapter_profile_id}` : (region.extension_routes?.ipadapter_unit_id ? `unit:${region.extension_routes.ipadapter_unit_id}` : ''), index, locked)}${sceneDirectorExtensionUnitSelect('lora', (region.extension_routes?.lora_row_ids || [])[0] || region.ext_lora_row_id || '', index, locked)}<label>Mask mode<select data-scene-region-field="ext_route_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${region.extension_routes?.mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="subject" ${region.extension_routes?.mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="detail" ${region.extension_routes?.mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="background" ${region.extension_routes?.mask_mode === 'background' ? 'selected' : ''}>Background mask</option></select></label></div>${sceneDirectorExtensionRoutingAdvancedSettings(region, index, locked)}${sceneDirectorExtensionRoutingTruthLabels(region, index)}<p class="neo-muted">Owner extensions create units/passes/profiles/rows. Scene Director owns region assignment; ControlNet, ADetailer, assigned LoRA rows, and IP Adapter identity restore can route through region masks when runtime support is available. Advanced route settings stay hidden until a route is selected; truth labels show requested vs actual compiled behavior.</p></details><p class="neo-muted">Defaults come from the prompt compiler registry, conflict resolver, mixed-background registry, regional ControlNet router, and regional Detailer router, inpaint target planner, and text compositor. Override here when the scene needs custom wording; templates support {parent}, {parent_label}, {child}, {child_label}, {target}, {relationship}, {zone}, and {focus}.</p></div></details>
       <div class="neo-scene-region-row neo-scene-region-flags neo-scene-region-flag-row">${sceneDirectorBoolControl(`sceneRegionVisible${index}`, 'Visible', region.visible !== false, disabled, `data-scene-region-field="visible" data-scene-region-index="${index}"`)}${sceneDirectorBoolControl(`sceneRegionLocked${index}`, 'Locked', Boolean(region.locked), disabled, `data-scene-region-field="locked" data-scene-region-index="${index}"`)}</div>
@@ -11462,7 +11960,7 @@ function sceneDirectorPanel(record) {
   const contractBlock = `<details class="neo-scene-subsection neo-scene-contracts"><summary><span>Prompt rules</span><small>count, subject, negative, and style merge guidance</small></summary><div class="neo-scene-contracts-body"><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorSetupsEnabled', 'Enable prompt rules', settings.contracts_enabled, disabled)}${sceneDirectorBoolControl('sceneDirectorNodeAutoPrompts', 'Use node auto prompts', settings.use_node_auto_prompts, disabled)}</div><label>Count rule<textarea id="sceneDirectorCountSetup" ${disabled}>${escapeHtml(settings.count_contract)}</textarea></label><label>Subject rule<textarea id="sceneDirectorSubjectSetup" ${disabled}>${escapeHtml(settings.subject_contract)}</textarea></label><label>Negative rule<textarea id="sceneDirectorNegativeSetup" ${disabled}>${escapeHtml(settings.negative_contract)}</textarea></label><label>Style merge note<textarea id="sceneDirectorStyleMerge" ${disabled}>${escapeHtml(settings.style_merge)}</textarea></label></div></details>`;
   const contextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-context-suffix"><summary><span>🧭 Region context suffix</span><small>routes global/style context after each region prompt</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-region-row neo-scene-context-compact-row">${sceneDirectorBoolControl('sceneDirectorRegionContextEnabled', 'Enable region context', settings.region_context_enabled, disabled)}<label>Mode<select id="sceneDirectorContextMode" ${disabled}>${['off','global_only','style_only','global_and_style'].map((mode) => `<option value="${mode}" ${mode === settings.region_context_mode ? 'selected' : ''}>${escapeHtml(mode)}</option>`).join('')}</select></label><label>Context weight<input id="sceneDirectorContextWeight" type="number" min="0" max="2" step="0.01" value="${settings.region_context_weight}" ${disabled}></label><label>Position<input value="suffix" readonly></label></div><div class="neo-scene-style-isolation-panel"><label class="neo-toggle-row"><input id="sceneDirectorApplyGlobalStyleToRegionRefinement" type="checkbox" ${settings.apply_global_style_to_region_refinement ? 'checked' : ''} ${disabled}> <span>Apply global style to regional refinement passes</span></label><p class="neo-muted">Default off: Style Stack stays on the Scene Director global prompt only. LoRA/detail/crop refinement uses the original global prompt plus local region intent unless this is enabled.</p></div></div></details>`;
   const lib = state.sceneDirectorLibrary || { identityProfiles: [], scenePresets: [], regionLayoutPresets: [], status: '' };
-  const characterLockBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-character-lock"><summary><span>🔒 Character Lock</span><small>identity, gender, skin, hair, build guards</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Character Lock owns what to protect: identity, gender, skin, hair, build, outfit, and negative guards. Optional repair passes now live only in Fix Pass Controls.</p><div class="neo-scene-region-row neo-scene-character-lock-grid"><label>Character Lock<select id="sceneDirectorCharacterLockMode" ${disabled}>${sceneDirectorCharacterLockOptions(settings.character_lock_mode)}</select></label><label>Gender Guard<select id="sceneDirectorGenderGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.gender_guard_mode)}</select></label><label>Skin Tone Guard<select id="sceneDirectorSkinToneGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.skin_tone_guard_mode)}</select></label><label>Hair Guard<select id="sceneDirectorHairGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.hair_guard_mode)}</select></label><label>Build Guard<select id="sceneDirectorBuildGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.build_guard_mode)}</select></label><label>Body / Height Guard<select id="sceneDirectorBodyHeightGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.body_height_guard_mode)}</select></label><label>Outfit Preservation<select id="sceneDirectorOutfitPreservationMode" ${disabled}>${sceneDirectorGuardOptions(settings.outfit_preservation_mode)}</select></label><label>Negative Guard<select id="sceneDirectorNegativeIdentityGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.negative_identity_guard_mode)}</select></label></div><div class="neo-parameter-row neo-scene-character-strength-grid"><label>Identity Strength<input id="sceneDirectorIdentityStrength" type="number" min="0" max="1" step="0.01" value="${settings.identity_strength}" ${disabled}></label><label>Detail Strength<input id="sceneDirectorDetailStrength" type="number" min="0" max="2" step="0.01" value="${settings.detail_strength}" ${disabled}></label><label>Background Strength<input id="sceneDirectorBackgroundStrength" type="number" min="0" max="2" step="0.01" value="${settings.background_strength}" ${disabled}></label><label>Mask Feather<input id="sceneDirectorMaskFeather" type="number" min="0" max="128" step="1" value="${settings.mask_feather}" ${disabled}></label></div></div></details>`;
+  const characterLockBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-character-lock"><summary><span>🔒 Character Lock</span><small>identity, gender, skin, hair, build guards</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Character Lock owns what to protect: identity, gender, skin, hair, build, outfit, and negative guards. Character Lock owns identity and trait protection. Repair execution stays separate below so the finalized lock path is not reinterpreted.</p><div class="neo-scene-region-row neo-scene-character-lock-grid"><label>Character Lock<select id="sceneDirectorCharacterLockMode" ${disabled}>${sceneDirectorCharacterLockOptions(settings.character_lock_mode)}</select></label><label>Gender Guard<select id="sceneDirectorGenderGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.gender_guard_mode)}</select></label><label>Skin Tone Guard<select id="sceneDirectorSkinToneGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.skin_tone_guard_mode)}</select></label><label>Hair Guard<select id="sceneDirectorHairGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.hair_guard_mode)}</select></label><label>Build Guard<select id="sceneDirectorBuildGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.build_guard_mode)}</select></label><label>Body / Height Guard<select id="sceneDirectorBodyHeightGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.body_height_guard_mode)}</select></label><label>Outfit Preservation<select id="sceneDirectorOutfitPreservationMode" ${disabled}>${sceneDirectorGuardOptions(settings.outfit_preservation_mode)}</select></label><label>Negative Guard<select id="sceneDirectorNegativeIdentityGuardMode" ${disabled}>${sceneDirectorGuardOptions(settings.negative_identity_guard_mode)}</select></label></div><div class="neo-parameter-row neo-scene-character-strength-grid"><label>Identity Strength<input id="sceneDirectorIdentityStrength" type="number" min="0" max="1" step="0.01" value="${settings.identity_strength}" ${disabled}></label><label>Detail Strength<input id="sceneDirectorDetailStrength" type="number" min="0" max="2" step="0.01" value="${settings.detail_strength}" ${disabled}></label><label>Background Strength<input id="sceneDirectorBackgroundStrength" type="number" min="0" max="2" step="0.01" value="${settings.background_strength}" ${disabled}></label><label>Mask Feather<input id="sceneDirectorMaskFeather" type="number" min="0" max="128" step="1" value="${settings.mask_feather}" ${disabled}></label></div></div></details>`;
   const backgroundSpaceAuthority = sceneDirectorBackgroundSpaceAuthority(settings, corePrompts, settings.regions || []);
   const backgroundSpaceBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-background-space"><summary><span>🌄 Background Space Authority</span><small>scene background lane when no background region exists</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use this when the scene has character regions but no explicit background region. Neo can create a hidden full-canvas background lane from this field only, without stealing character masks.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorBackgroundSpaceEnabled', 'Enable background space authority', backgroundSpaceAuthority.enabled || Boolean(settings.background_space_enabled), disabled)}</div><label>Background space prompt<textarea id="sceneDirectorBackgroundSpacePrompt" placeholder="rainy neon rooftop garden, distant city lights, wet reflective floor" ${disabled}>${escapeHtml(settings.background_space_prompt || '')}</textarea></label><label>Background negative guard<textarea id="sceneDirectorBackgroundSpaceNegativeGuard" placeholder="blank background, flat wall, studio backdrop, low detail environment" ${disabled}>${escapeHtml(settings.background_space_negative_guard || '')}</textarea></label><div class="neo-parameter-row"><label>Source mode<select id="sceneDirectorBackgroundSpaceSourceMode" ${disabled}><option value="explicit_only" ${String(settings.background_space_source_mode || 'explicit_only') === 'explicit_only' ? 'selected' : ''}>Explicit field only</option></select></label><label>Strength<input id="sceneDirectorBackgroundSpaceStrength" type="number" min="0" max="2" step="0.01" value="${escapeAttr(settings.background_space_strength ?? 0.70)}" ${disabled}></label><label>Denoise<input id="sceneDirectorBackgroundSpaceDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.background_space_denoise ?? 0.42)}" ${disabled}></label><span class="neo-badge ${backgroundSpaceAuthority.enabled ? 'success' : 'warning'}">${escapeHtml(backgroundSpaceAuthority.status)}</span></div></div></details>`;
   const fixPassControls = sceneDirectorAdvancedFixPassControls(settings, settings.regions || []);
@@ -11473,13 +11971,15 @@ function sceneDirectorPanel(record) {
     const labels = { smart_auto: 'Smart / Auto', minimal_fast: 'Minimal / Fast', manual: 'Manual toggles', force_all: 'Force all / safety gated' };
     return `<option value="${mode}" ${String(settings.fix_pass_mode || 'smart_auto') === mode ? 'selected' : ''}>${labels[mode]}</option>`;
   }).join('');
-  const fixPassBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-fix-pass-controls"><summary><span>🛠️ Fix Pass Controls + Layout Safety</span><small>optional repair passes and safe region geometry</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Use these only when the base Scene Director composition needs help. Smaller character boxes usually give better backgrounds than extra repaint passes.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Fix pass mode<select id="sceneDirectorFixPassMode" ${disabled}>${fixPassModeOptions}</select></label><label>First-pass Character Lock<select id="sceneDirectorFixPassFirstCharacterLockRescue" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_first_character_lock_rescue)}</select></label><label>Background Restore<select id="sceneDirectorFixPassBackgroundRestore" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_background_restore)}</select></label><label>Mid-sampling Trait Lanes<select id="sceneDirectorFixPassCharacterTraitLanes" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_character_trait_lanes)}</select></label><label>Final Background Reconcile<select id="sceneDirectorFixPassFinalBackgroundReconciliation" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_final_background_reconciliation)}</select></label></div>${sceneDirectorCharacterLockAuthorityControls(settings, disabled)}${sceneDirectorPerCharacterCorrectionControls(settings, disabled)}<div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorFixPassEnvironmentAwareCharacterLanes', 'Environment-aware character lanes', settings.fix_pass_environment_aware_character_lanes !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorLayoutSafetyEnabled', 'Layout safety warnings', settings.layout_safety_enabled !== false, disabled)}</div><div class="neo-parameter-row"><label>Safe background minimum %<input id="sceneDirectorLayoutSafetyBackgroundSafeAreaMin" type="number" min="0" max="100" step="1" value="${escapeAttr(settings.layout_safety_background_safe_area_min ?? 12)}" ${disabled}></label><label>Full-height box threshold<input id="sceneDirectorLayoutSafetyFullHeightThreshold" type="number" min="0.50" max="1" step="0.01" value="${escapeAttr(settings.layout_safety_full_height_threshold ?? 0.92)}" ${disabled}></label><span class="neo-badge ${layoutTone}">Background safe area: ${escapeHtml(layoutSafety.min_raw_background_safe_area_percent ?? 100)}%</span><span class="neo-badge ${layoutTone}">${escapeHtml(layoutSafety.status || 'safe')}</span></div><p class="neo-muted">${layoutSummary}</p>${layoutSafety.warning_codes?.length ? `<p class="neo-warning-text">${layoutSafety.warning_codes.map((code) => escapeHtml(code)).join('<br>')}</p>` : ''}<div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-director-autofit-selected-character="1" ${disabled}>Auto-fit selected character box</button><button class="neo-btn secondary" type="button" data-scene-director-autofit-all-characters="1" ${disabled}>Auto-fit all character boxes</button></div></div></details>`;
+  const characterRepairBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-character-repair-controls"><summary><span>🧬 Character Repair</span><small>existing execution path, optional rescue, trait lanes</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">These controls only decide whether the existing Character Lock path receives optional repair work. They do not redefine Character Lock itself.</p>${sceneDirectorCharacterLockAuthorityControls(settings, disabled)}<div class="neo-scene-region-row neo-scene-region-meta-row"><label>First-pass Character Lock<select id="sceneDirectorFixPassFirstCharacterLockRescue" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_first_character_lock_rescue)}</select></label><label>Mid-sampling Trait Lanes<select id="sceneDirectorFixPassCharacterTraitLanes" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_character_trait_lanes)}</select></label></div>${sceneDirectorPerCharacterCorrectionControls(settings, disabled)}</div></details>`;
+  const sceneRepairBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-scene-repair-controls"><summary><span>🛠️ Scene Repair</span><small>background and scene-level repair passes</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">Scene-level repair stays independent from Character Lock. Use it only when the base composition needs cleanup.</p><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Fix pass mode<select id="sceneDirectorFixPassMode" ${disabled}>${fixPassModeOptions}</select></label><label>Background Restore<select id="sceneDirectorFixPassBackgroundRestore" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_background_restore)}</select></label><label>Final Background Reconcile<select id="sceneDirectorFixPassFinalBackgroundReconciliation" ${disabled}>${sceneDirectorFixPassSelectOptions(settings.fix_pass_final_background_reconciliation)}</select></label></div><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorFixPassEnvironmentAwareCharacterLanes', 'Environment-aware character lanes', settings.fix_pass_environment_aware_character_lanes !== false, disabled)}</div></div></details>`;
+  const layoutSafetyBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-layout-safety-controls"><summary><span>📐 Layout Safety</span><small>safe region geometry and diagnostics</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorLayoutSafetyEnabled', 'Layout safety warnings', settings.layout_safety_enabled !== false, disabled)}</div><div class="neo-parameter-row"><label>Safe background minimum %<input id="sceneDirectorLayoutSafetyBackgroundSafeAreaMin" type="number" min="0" max="100" step="1" value="${escapeAttr(settings.layout_safety_background_safe_area_min ?? 12)}" ${disabled}></label><label>Full-height box threshold<input id="sceneDirectorLayoutSafetyFullHeightThreshold" type="number" min="0.50" max="1" step="0.01" value="${escapeAttr(settings.layout_safety_full_height_threshold ?? 0.92)}" ${disabled}></label><span class="neo-badge ${layoutTone}">Background safe area: ${escapeHtml(layoutSafety.min_raw_background_safe_area_percent ?? 100)}%</span><span class="neo-badge ${layoutTone}">${escapeHtml(layoutSafety.status || 'safe')}</span></div><p class="neo-muted">${layoutSummary}</p>${layoutSafety.warning_codes?.length ? `<p class="neo-warning-text">${layoutSafety.warning_codes.map((code) => escapeHtml(code)).join('<br>')}</p>` : ''}<div class="neo-inline-actions"><button class="neo-btn secondary" type="button" data-scene-director-autofit-selected-character="1" ${disabled}>Auto-fit selected character box</button><button class="neo-btn secondary" type="button" data-scene-director-autofit-all-characters="1" ${disabled}>Auto-fit all character boxes</button></div></div></details>`;
   const globalContextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-global-context-routing"><summary><span>🌐 Prompt routing status</span><small>controlled by the single Prompt authority selector</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">${escapeHtml(promptAuthorityContract.label)}. ${promptAuthorityContract.global_prompt_excluded ? 'Neo core positive/negative conditioning is excluded from the Scene Director node.' : 'Neo core context stays on the canvas lane and a compact suffix is shared with regional branches.'}</p><div class="neo-badge-row"><span class="neo-badge">Authority: ${escapeHtml(promptAuthorityContract.mode)}</span><span class="neo-badge">Regional suffix: ${promptAuthorityContract.regional_context_enabled ? 'on' : 'off'}</span><span class="neo-badge">Weight: ${escapeHtml(String(promptAuthorityContract.regional_context_weight))}</span><span class="neo-badge">Position: suffix</span></div></div></details>`;
   const identityProfilesBlock = '';   const presetsBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-presets-combined"><summary><span>🎛️ Presets</span><small>scene presets and region layout presets</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-preset-group"><h4>🎬 Scene Presets</h4><p class="neo-muted">Save/load the full Scene Director state: regions, prompt rules, routing, Character Lock, and mask settings.</p><div class="neo-scene-region-row"><label>Scene preset<select id="sceneDirectorScenePresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.scenePresets, settings.selected_scene_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-scene-preset="1" ${disabled}>Load</button><button class="neo-btn secondary" type="button" data-scene-director-save-scene-preset="1" ${disabled}>Save Current</button></div></div><div class="neo-scene-preset-group"><h4>🧩 Region Layout Presets</h4><p class="neo-muted">Save/load only region rectangles, labels, types, visible/locked state. Prompts, identity profile data, and external LoRA/IPAdapter routing stay intact where possible.</p><div class="neo-scene-region-row"><label>Layout preset<select id="sceneDirectorLayoutPresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.regionLayoutPresets, settings.selected_region_layout_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-layout-preset="1" ${disabled}>Load Layout</button><button class="neo-btn secondary" type="button" data-scene-director-save-layout-preset="1" ${disabled}>Save Layout</button></div></div>${lib.status ? `<p class="neo-muted">${escapeHtml(lib.status)}</p>` : ''}</div></details>`;
   const advancedCoreControls = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-core-controls"><summary><span>⚙️ Expert execution controls</span><small>weights, slots, masks, legacy authority compatibility</small></summary><div class="neo-scene-nested-body"><div class="neo-parameter-row neo-scene-balance-row"><label>Legacy authority mode<select id="sceneDirectorAuthorityMode" ${disabled}><option value="neutral_planning" ${String(settings.authority_mode || 'balanced') === 'neutral_planning' ? 'selected' : ''}>Neutral / planning only</option><option value="layout_only" ${String(settings.authority_mode || 'balanced') === 'layout_only' ? 'selected' : ''}>Layout only</option><option value="soft_regional_guide" ${String(settings.authority_mode || 'balanced') === 'soft_regional_guide' ? 'selected' : ''}>Soft regional guide</option><option value="anime_safe_prompt" ${String(settings.authority_mode || 'balanced') === 'anime_safe_prompt' ? 'selected' : ''}>Anime safe / prompt append only</option><option value="balanced" ${String(settings.authority_mode || 'balanced') === 'balanced' ? 'selected' : ''}>Balanced</option><option value="strong_correction" ${String(settings.authority_mode || 'balanced') === 'strong_correction' ? 'selected' : ''}>Strong regional correction</option><option value="debug_aggressive" ${String(settings.authority_mode || 'balanced') === 'debug_aggressive' ? 'selected' : ''}>Debug / aggressive</option></select></label><label>Base weight<input id="sceneDirectorBaseWeight" type="number" min="0" max="1" step="0.01" value="${settings.base_weight}" ${disabled}></label><label>Region gain<input id="sceneDirectorRegionGain" type="number" min="0" max="1" step="0.01" value="${settings.region_gain}" ${disabled}></label><label>Max subject slots<input id="sceneDirectorMaxSubjectSlots" type="number" min="1" max="8" step="1" value="${settings.max_subject_slots}" ${disabled}></label></div><p class="neo-muted">These fields stay available for expert tuning and legacy payload replay. Prompt ownership is controlled above.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorNormalizeMasks', 'Normalize masks', settings.normalize_masks, disabled)}${sceneDirectorBoolControl('sceneDirectorMaskRefine', 'Character mask refinement metadata', settings.mask_refine_enabled, disabled)}</div></div></details>`;
-  const advancedSceneControlBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Control</span><small>contracts, backgrounds, repair passes, locks, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${fixPassBlock}${characterLockBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
+  const advancedSceneControlBlock = sceneDirectorBasicMode(settings) ? '' : `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Controls</span><small>Character Lock, repair, layout, contracts, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${characterLockBlock}${characterRepairBlock}${sceneRepairBlock}${layoutSafetyBlock}${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
   const expertBlock = expert ? `<section class="neo-scene-subsection neo-scene-expert"><h4>Expert payload preview</h4><div class="neo-badge-row"><span class="neo-badge">Route: ${escapeHtml(route.backend)}:${escapeHtml(route.family)}:${escapeHtml(route.loader)}:${escapeHtml(route.workflow_mode)}</span><span class="neo-badge">Node: V054 preferred / V053-V052 fallback</span><span class="neo-badge">State: ${escapeHtml(route.route_state)}</span></div><pre>${escapeHtml(JSON.stringify(sceneDirectorPayloadPreview(record).extensions[SCENE_DIRECTOR_EXTENSION_ID], null, 2))}</pre></section>` : '';
-  const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}">
+  const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}" data-scene-mode="${escapeAttr(sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')))}">
     <header class="neo-scene-header"><div><strong>Scene Director</strong>${!compact ? '<span class="neo-muted">Built-in regional scene planner</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-workflow-chip ${settings.enabled ? 'enabled' : 'disabled'}">${settings.enabled ? 'Enabled' : 'Disabled'}</span><span class="neo-state-pill ${routeTone}">${escapeHtml(sceneDirectorStateLabel(route))}</span><span class="neo-badge">Node readiness: V054 preferred</span></div></header>
     <div class="neo-extension-card-actions"><button class="neo-btn ${settings.enabled ? 'secondary' : 'primary'}" type="button" data-scene-director-toggle="1" ${disabled}>${settings.enabled ? 'Disable for workflow' : 'Enable for workflow'}</button><button class="neo-btn secondary" type="button" data-scene-director-add-region="1" ${disabled}>➕ Add Region</button></div>
     <div class="neo-badge-row"><span class="neo-badge ${routeTone}">${escapeHtml(status)}</span><span class="neo-badge">Active regions: ${activeCount}</span><span class="neo-badge">Subjects: ${subjectCount}</span><span class="neo-badge">${escapeHtml(route.family)} / ${escapeHtml(route.loader)}</span></div>
@@ -11496,8 +11996,15 @@ function sceneDirectorPanel(record) {
 }
 function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled = '') {
   const contract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
-  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns subjects, relationships, poses, and object placement.'}</p></div></div><div class="neo-badge-row"><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Node: V054 active</span></div></section>`;
+  const sceneMode = sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced'));
+  const countConflicts = sceneDirectorSubjectCountConflictPreview(settings.regions || [], corePrompts.negative_prompt || settings.negative_prompt || '');
+  const conflictBlock = countConflicts.length ? `<div class="neo-warning-block neo-scene-subject-count-conflicts"><strong>⚠ Subject-count prompt check</strong>${countConflicts.map((item) => `<p>${escapeHtml(item.message)}</p>`).join('')}</div>` : '';
+  const modeHelp = sceneMode === 'basic'
+    ? 'Basic keeps regional layout, prompts, masks, and subject structure only. Character Lock, Character Traits/Pose, corrections, advanced region controls, and repair passes stay hidden and are not submitted.'
+    : 'Advanced exposes the existing Character Lock, Character Trait/Pose, correction, repair, layout, routing, and expert controls without changing their saved values or execution methods.';
+  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><label>Scene mode<select id="sceneDirectorSceneMode" ${disabled}>${sceneDirectorSceneModeOptions(sceneMode)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns regional structure and placement.'}</p><p class="neo-muted"><strong>${escapeHtml(sceneMode === 'basic' ? 'Basic' : 'Advanced')}:</strong> ${escapeHtml(modeHelp)}</p></div></div>${conflictBlock}<div class="neo-badge-row"><span class="neo-badge">Mode: ${escapeHtml(sceneMode)}</span><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Node: V054 active</span></div></section>`;
 }
+
 function sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled = '') {
   const marker = '<section class="neo-scene-subsection"><h4>Global Scene Director settings</h4>';
   const start = body.indexOf(marker);
@@ -11516,6 +12023,24 @@ function bindSceneDirectorPanel() {
   if (add) add.addEventListener('click', () => { const settings = sceneDirectorSettings(); updateSceneDirectorSettings({ enabled: true, regions: [...settings.regions, sceneDirectorDefaultRegion(settings.regions.length)] }); setWorkflowExtensionApplied(SCENE_DIRECTOR_EXTENSION_ID, true); render(); });
   const bindValue = (id, key, parser = (value) => value, eventName = 'input') => { const el = document.getElementById(id); if (el) el.addEventListener(eventName, (e) => updateSceneDirectorSettings({ [key]: parser(e.target.type === 'checkbox' ? e.target.checked : e.target.value) })); };
   bindValue('sceneDirectorPromptAuthority', 'prompt_authority', sceneDirectorPromptAuthority, 'change');
+  const sceneModeSelect = document.getElementById('sceneDirectorSceneMode');
+  if (sceneModeSelect) sceneModeSelect.addEventListener('change', (event) => {
+    const nextMode = sceneDirectorSceneMode(event.target.value);
+    const current = sceneDirectorSettings();
+    const raw = sceneDirectorRawDraftSettings();
+    const patch = { scene_mode: nextMode };
+    if (nextMode === 'basic') {
+      patch.advanced_character_lock_execution_mode = sceneDirectorCharacterLockExecutionMode(
+        current.character_lock_execution_mode || raw.advanced_character_lock_execution_mode || 'latent_attention'
+      );
+    } else {
+      patch.character_lock_execution_mode = sceneDirectorCharacterLockExecutionMode(
+        raw.advanced_character_lock_execution_mode || current.character_lock_execution_mode || 'latent_attention'
+      );
+    }
+    updateSceneDirectorSettings(patch);
+    render();
+  });
   bindValue('sceneDirectorAuthorityMode', 'authority_mode', String, 'change');
   bindValue('sceneDirectorBaseWeight', 'base_weight', Number);
   bindValue('sceneDirectorRegionGain', 'region_gain', Number);
@@ -11532,7 +12057,14 @@ function bindSceneDirectorPanel() {
   bindValue('sceneDirectorContextMode', 'region_context_mode', String, 'change');
   bindValue('sceneDirectorContextWeight', 'region_context_weight', Number);
   bindValue('sceneDirectorApplyGlobalStyleToRegionRefinement', 'apply_global_style_to_region_refinement', Boolean, 'change');
-  bindValue('sceneDirectorCharacterLockExecutionMode', 'character_lock_execution_mode', String, 'change');
+  const characterLockExecutionSelect = document.getElementById('sceneDirectorCharacterLockExecutionMode');
+  if (characterLockExecutionSelect) characterLockExecutionSelect.addEventListener('change', (event) => {
+    const mode = sceneDirectorCharacterLockExecutionMode(event.target.value);
+    updateSceneDirectorSettings({
+      character_lock_execution_mode: mode,
+      advanced_character_lock_execution_mode: mode,
+    });
+  });
   bindValue('sceneDirectorFirstPassCharacterLockEnabled', 'character_lock_first_pass_enabled', Boolean, 'change');
   bindValue('sceneDirectorFirstPassCharacterLockApplyTo', 'character_lock_first_pass_apply_to', String, 'change');
   bindValue('sceneDirectorFirstPassCharacterLockTiming', 'character_lock_first_pass_timing', String, 'change');
@@ -11545,6 +12077,8 @@ function bindSceneDirectorPanel() {
   bindValue('sceneDirectorFirstPassCharacterLockProtectOutfit', 'character_lock_first_pass_protect_outfit', Boolean, 'change');
   bindValue('sceneDirectorFirstPassCharacterLockProtectPose', 'character_lock_first_pass_protect_pose_contact', Boolean, 'change');
   bindValue('sceneDirectorCharacterLockMode', 'character_lock_mode', sceneDirectorCharacterLockMode, 'change');
+  const characterLockModeSelect = document.getElementById('sceneDirectorCharacterLockMode');
+  if (characterLockModeSelect) characterLockModeSelect.addEventListener('change', () => render());
   bindValue('sceneDirectorGenderGuardMode', 'gender_guard_mode', sceneDirectorGuardMode, 'change');
   bindValue('sceneDirectorSkinToneGuardMode', 'skin_tone_guard_mode', sceneDirectorGuardMode, 'change');
   bindValue('sceneDirectorHairGuardMode', 'hair_guard_mode', sceneDirectorGuardMode, 'change');
@@ -11991,7 +12525,7 @@ function highResLabParameterVisibility(route, settings = highResLabSettings(), r
   const tiledVaeState = highResLabOptionalCapabilityState(record, 'tiled_vae_decode');
   const ultimateState = highResLabOptionalCapabilityState(record, 'ultimate_sd_upscale');
   const family = String(route?.family || '');
-  const routeBlocksUltimate = ['flux', 'flux2_klein', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'z_image', 'z_image_turbo'].includes(family);
+  const routeBlocksUltimate = ['flux', 'flux2_klein', 'krea2', 'krea2_turbo', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'z_image', 'z_image_turbo'].includes(family);
   const routeHidesCfg = ['flux', 'flux2_klein'].includes(family);
   const providerGated = ['implementation_target', 'planned_gated', 'provider_gated'].includes(route?.route_state);
   const unsupported = route?.route_state === 'unsupported';
@@ -19848,8 +20382,7 @@ function setWorkflowExtensionApplied(extensionIdValue, applied) {
     state.imageDraft[IP_ADAPTER_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
   }
   if (extensionIdValue === SCENE_DIRECTOR_EXTENSION_ID) {
-    const settings = sceneDirectorSettings();
-    state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
+    sceneDirectorPersistDraftPatch({ enabled: Boolean(applied) }, false);
   }
   if (extensionIdValue === STYLE_STACK_EXTENSION_ID) {
     const settings = styleStackSettings();
@@ -20706,7 +21239,7 @@ function activeWorkflowExtensionMetadata() {
     // IPAdapter bindings, and regional LoRA flags can stay saved, but they
     // cannot submit an active Scene Director payload unless the main toggle is on.
     if (Boolean(sceneSettings.enabled)) {
-      state.imageDraft[SCENE_DIRECTOR_EXTENSION_ID] = { ...sceneSettings, enabled: true };
+      sceneDirectorPersistDraftPatch({ enabled: true }, false);
       const fallbackRecord = sceneRecord || {
         extension_id: SCENE_DIRECTOR_EXTENSION_ID,
         manifest: { id: SCENE_DIRECTOR_EXTENSION_ID, name: 'Image · Scene Director', version: 1, surface: 'image', workspace_apps: ['generations'], workflow_modes: ['generate', 'img2img', 'inpaint'], extension_origin: 'built_in' },
@@ -30316,7 +30849,7 @@ function restoreSceneDirectorSettingsFromReuse(reuse = {}) {
     max_subject_slots: params.max_subject_slots ?? 4,
     backend_mode: params.backend_mode || 'v054_scene_graph',
     authority_mode: params.authority_mode || params.scene_director_authority_mode || sceneDirectorSettings().authority_mode || 'balanced',
-    character_lock_mode: params.character_lock_mode || sceneDirectorSettings().character_lock_mode || 'balanced',
+    character_lock_mode: sceneDirectorCharacterLockMode(params.character_lock_mode || ((params.scene_mode === 'basic' || params.scene_director_scene_mode === 'basic' || params.basic_mode) ? 'off' : (sceneDirectorSettings().character_lock_mode || 'off'))),
     identity_strength: params.identity_strength ?? sceneDirectorSettings().identity_strength ?? 0.55,
     detail_strength: params.detail_strength ?? sceneDirectorSettings().detail_strength ?? 0.85,
     background_strength: params.background_strength ?? sceneDirectorSettings().background_strength ?? 0.65,
@@ -30333,8 +30866,8 @@ function restoreSceneDirectorSettingsFromReuse(reuse = {}) {
     region_context_weight: context.weight ?? 0.35,
     region_context_position: 'suffix',
     mask_refine_enabled: Boolean(maskRefine.enabled),
-    character_lock_execution_mode: sceneDirectorCharacterLockExecutionMode(firstPassLock.execution_mode || firstPassLock.execution || params.character_lock_execution_mode || params.scene_director_character_lock_execution_mode || 'latent_attention'),
-    character_lock_first_pass_enabled: firstPassLock.enabled !== false,
+    character_lock_execution_mode: (params.scene_mode === 'basic' || params.scene_director_scene_mode === 'basic' || params.basic_mode || sceneDirectorCharacterLockMode(params.character_lock_mode || 'off') === 'off') ? 'off' : sceneDirectorCharacterLockExecutionMode(firstPassLock.execution_mode || firstPassLock.execution || params.character_lock_execution_mode || params.scene_director_character_lock_execution_mode || 'latent_attention'),
+    character_lock_first_pass_enabled: (params.scene_mode === 'basic' || params.scene_director_scene_mode === 'basic' || params.basic_mode) ? false : firstPassLock.enabled !== false,
     character_lock_first_pass_apply_to: firstPassLock.apply_to || 'strong_strict_only',
     character_lock_first_pass_timing: firstPassLock.timing || 'before_adapters',
     character_lock_first_pass_denoise: firstPassLock.denoise ?? 0.30,
@@ -31308,6 +31841,7 @@ function imageFieldDraftKey(fieldId) {
     text_encoder_2: 'text_encoder_2',
     qwen_text_encoder: 'qwen_text_encoder',
     qwen3_text_encoder: 'qwen3_text_encoder',
+    qwen3vl_text_encoder: 'qwen3vl_text_encoder',
     qwen_mmproj: 'qwen_mmproj',
   };
   return map[fieldId] || fieldId;
@@ -31322,12 +31856,19 @@ const IMAGE_MODEL_FIELD_CATALOGS = Object.freeze({
   text_encoder_2: 'text_encoders',
   qwen_text_encoder: 'qwen_text_encoders',
   qwen3_text_encoder: 'qwen_text_encoders',
+  qwen3vl_text_encoder: 'text_encoders',
 });
 function imageModelCatalogForField(fieldId) {
   return IMAGE_MODEL_FIELD_CATALOGS[fieldId] || '';
 }
 // Regression guard: if (fieldId === 'diffusion_model') return profileModelOptions('diffusion_models');
 function imageOptionsForField(fieldId) {
+  if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family')) && fieldId === 'qwen3vl_text_encoder') {
+    return profileModelOptions('text_encoders');
+  }
+  if ((state.imageDraft.family || imageCommandValue('family')) === 'flux2_klein' && ['text_encoder_1', 'qwen3_text_encoder'].includes(fieldId)) {
+    return flux2KleinTextEncoderOptions();
+  }
   if (isImageGgufRuntimeActive()) {
     if (fieldId === 'text_encoder_1') return profileModelOptions('gguf_text_encoder_primary');
     if (fieldId === 'text_encoder_2') return profileModelOptions('gguf_text_encoder_secondary');
@@ -31346,6 +31887,7 @@ function imageOptionsForField(fieldId) {
   if (fieldId === 'text_encoder_2') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_secondary') : profileModelOptions('text_encoders');
   if (fieldId === 'qwen_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
   if (fieldId === 'qwen3_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
+  if (fieldId === 'qwen3vl_text_encoder') return profileModelOptions('text_encoders');
   if (fieldId === 'qwen_mmproj') return profileModelOptions('mmproj');
   if (fieldId === 'hidream_variant') return [
     { id: 'HiDream-I1', label: 'HiDream-I1' },
@@ -31357,7 +31899,7 @@ function imageOptionsForField(fieldId) {
     { id: 'schnell', label: 'Schnell' },
     { id: 'fill', label: 'Fill / Inpaint' },
     { id: 'kontext', label: 'Kontext' },
-    { id: 'krea', label: 'Krea' },
+    { id: 'krea_dev', label: 'Krea Dev' },
     { id: 'klein_4b', label: 'FLUX.2 Klein 4B' },
     { id: 'klein_9b', label: 'FLUX.2 Klein 9B' },
   ];
@@ -31522,8 +32064,16 @@ function imageModelComponentRouteNote() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   if (loader === 'checkpoint_aio') return family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO bundled route. Main model contains the needed AIO parts; extra encoder/VAE fields stay hidden unless Advanced Override enables them.' : 'Bundled model route. Extra encoder/VAE fields stay hidden unless Advanced Override enables them.';
-  if (loader === 'diffusion_model' || loader === 'unet') return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.'));
-  if (loader === 'gguf') return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.')); 
+  if (loader === 'diffusion_model' || loader === 'unet') {
+    if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea component route. Uses the FLUX.1 dual encoder stack (T5XXL + CLIP-L); img2img/inpaint/outpaint keep the selected Krea model and use latent source/mask workflows.';
+    if (family === 'krea2' || family === 'krea2_turbo') return `${family === 'krea2_turbo' ? 'Krea 2 Turbo' : 'Krea 2 RAW'} native route. Uses Qwen3-VL-4B through CLIPLoader(type=krea2) + Qwen Image VAE. Image-conditioned modes are experimental latent adapters.`;
+    return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.'));
+  }
+  if (loader === 'gguf') {
+    if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF route. Uses a Krea GGUF diffusion model with the FLUX.1 T5XXL + CLIP-L dual encoder stack; image modes retain Krea through the Flux GGUF latent/mask branch.';
+    if (family === 'krea2' || family === 'krea2_turbo') return 'Krea 2 GGUF route (Experimental). Quantizes the diffusion transformer only; Qwen3-VL-4B stays native/safetensors via CLIPLoader(type=krea2). Requires a Krea2-capable GGUF loader.';
+    return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.'));
+  }
   return 'Checkpoint route. Extra model components stay hidden unless this family needs them.';
 }
 
@@ -48014,15 +48564,20 @@ function bindImageDraftInputs() {
         updateDraftValue('gguf_unet', raw);
         updateDraftValue('model', raw);
       }
-      if (fieldId === 'text_encoder_1') updateDraftValue('gguf_text_encoder_1', raw);
+      const activeFamily = state.imageDraft.family || imageCommandValue('family') || '';
+      if (fieldId === 'text_encoder_1') {
+        if (activeFamily === 'flux2_klein') setFlux2KleinCanonicalEncoder(raw);
+        else updateDraftValue('gguf_text_encoder_1', raw);
+      }
       if (fieldId === 'text_encoder_2') updateDraftValue('gguf_text_encoder_2', raw);
       if (fieldId === 'qwen_text_encoder') {
         updateDraftValue('text_encoder_1', raw);
         updateDraftValue('gguf_text_encoder_1', raw);
       }
-      if (fieldId === 'qwen3_text_encoder') updateDraftValue('text_encoder_1', raw);
+      if (fieldId === 'qwen3_text_encoder') setFlux2KleinCanonicalEncoder(raw);
+      if (fieldId === 'qwen3vl_text_encoder') { updateDraftValue('text_encoder_1', raw); updateDraftValue('text_encoder_primary', raw); }
       if (fieldId === 'gguf_clip_type') {
-        if (['qwen_image', 'z_image', 'hidream', 'flux2_klein'].includes(raw)) updateDraftValue('gguf_clip_mode', 'single');
+        if (['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(raw)) updateDraftValue('gguf_clip_mode', 'single');
         if (raw === 'flux' && !state.imageDraft.gguf_clip_mode) updateDraftValue('gguf_clip_mode', 'dual');
       }
       if (fieldId === 'flux_variant' && isFluxKleinVariant(raw)) {
@@ -48030,8 +48585,17 @@ function bindImageDraftInputs() {
         if ((state.imageDraft.loader || imageCommandValue('loader')) === 'gguf') updateDraftValue('gguf_clip_type', 'flux2_klein');
       }
       if (['checkpoint', 'qwen_rapid_aio_checkpoint', 'diffusion_model', 'gguf_model'].includes(fieldId)) updateDraftValue('model', raw);
+      if ((state.imageDraft.family || imageCommandValue('family')) === 'flux2_klein' && ['diffusion_model', 'gguf_model', 'flux_variant', 'qwen3_text_encoder', 'text_encoder_1'].includes(fieldId)) {
+        syncFlux2KleinComponentState({ autoSelect: !['qwen3_text_encoder', 'text_encoder_1'].includes(fieldId), persist: false });
+      }
+      if ((state.imageDraft.family || imageCommandValue('family')) === 'flux' && ['diffusion_model', 'gguf_model', 'flux_variant'].includes(fieldId)) {
+        syncFlux1KreaState({ persist: false });
+      }
+      if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family')) && ['diffusion_model', 'gguf_model', 'qwen3vl_text_encoder', 'text_encoder_1'].includes(fieldId)) {
+        syncKrea2State({ persist: false });
+      }
       refreshGgufBundleCheck();
-      if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant'].includes(fieldId)) render();
+      if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant', 'diffusion_model', 'gguf_model'].includes(fieldId)) render();
     };
     node.addEventListener('input', sync);
     node.addEventListener('change', sync);
@@ -48056,13 +48620,17 @@ function bindImageDraftInputs() {
       if (pair.loader === 'gguf') syncGgufArchitectureForFamily(pair.family);
       if (pair.loader === 'checkpoint') updateDraftValue('model', checkpointModelValue({}));
       if (pair.loader === 'diffusion_model') updateDraftValue('model', state.imageDraft.diffusion_model || 'provider_default');
-      if (pair.family === 'flux2_klein') { updateDraftValue('flux_variant', isFluxKleinVariant(state.imageDraft.flux_variant) ? state.imageDraft.flux_variant : 'flux2_klein'); updateDraftValue('gguf_clip_mode', 'single'); updateDraftValue('gguf_clip_type', 'flux2_klein'); }
+      if (pair.family === 'flux2_klein') { updateDraftValue('gguf_clip_mode', 'single'); updateDraftValue('gguf_clip_type', 'flux2_klein'); syncFlux2KleinComponentState({ autoSelect: true }); }
+      if (pair.family === 'flux') syncFlux1KreaState({ persist: false });
+      if (['krea2', 'krea2_turbo'].includes(pair.family)) syncKrea2State({ persist: false });
     } else if (key === 'loader') {
       const pair = coerceFamilyLoaderPair(state.imageDraft.family, value);
       updateDraftValue('family', pair.family);
       updateDraftValue('loader', pair.loader);
       if (pair.loader === 'gguf') syncGgufArchitectureForFamily(pair.family);
-      if (pair.family === 'flux2_klein') { updateDraftValue('flux_variant', isFluxKleinVariant(state.imageDraft.flux_variant) ? state.imageDraft.flux_variant : 'flux2_klein'); updateDraftValue('gguf_clip_mode', 'single'); updateDraftValue('gguf_clip_type', 'flux2_klein'); }
+      if (pair.family === 'flux2_klein') { updateDraftValue('gguf_clip_mode', 'single'); updateDraftValue('gguf_clip_type', 'flux2_klein'); syncFlux2KleinComponentState({ autoSelect: true }); }
+      if (pair.family === 'flux') syncFlux1KreaState({ persist: false });
+      if (['krea2', 'krea2_turbo'].includes(pair.family)) syncKrea2State({ persist: false });
     }
     applyQwenGgufStabilityPresetIfNeeded();
     applyZImageRuntimeDefaultsIfNeeded({ force: true });
@@ -48611,12 +49179,15 @@ function parameterProfileParams() {
     const isQwenGguf = architecture === 'qwen_image';
     const isZImageGguf = architecture === 'z_image';
     const isFlux2KleinGguf = architecture === 'flux2_klein';
+    const isKrea2Gguf = architecture === 'krea2';
     const encoderA = isQwenGguf
       ? (state.imageDraft.qwen_text_encoder || state.imageDraft.text_encoder_1 || '')
-      : ((isZImageGguf || isFlux2KleinGguf)
-        ? (state.imageDraft.qwen3_text_encoder || state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
-        : (state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || ''));
-    const ggufClipTypeForPayload = isFlux2KleinGguf ? 'flux2' : (isZImageGguf ? 'lumina2' : architecture);
+      : (isKrea2Gguf
+        ? (state.imageDraft.qwen3vl_text_encoder || state.imageDraft.text_encoder_1 || '')
+        : ((isZImageGguf || isFlux2KleinGguf)
+          ? (state.imageDraft.qwen3_text_encoder || state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
+          : (state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')));
+    const ggufClipTypeForPayload = isFlux2KleinGguf ? 'flux2' : (isZImageGguf ? 'lumina2' : (isKrea2Gguf ? 'krea2' : architecture));
     const encoderB = state.imageDraft.text_encoder_2 || state.imageDraft.gguf_text_encoder_2 || '';
     Object.assign(params, {
       model: ggufModel,
@@ -48630,10 +49201,20 @@ function parameterProfileParams() {
       gguf_text_encoder_primary: encoderA,
       qwen_text_encoder: isQwenGguf ? encoderA : '',
       qwen3_text_encoder: (isZImageGguf || isFlux2KleinGguf) ? encoderA : (state.imageDraft.qwen3_text_encoder || ''),
+      qwen3vl_text_encoder: isKrea2Gguf ? encoderA : (state.imageDraft.qwen3vl_text_encoder || ''),
       qwen_mmproj: isQwenGguf ? (state.imageDraft.qwen_mmproj || '') : '',
       vae: state.imageDraft.vae || 'automatic',
       flux_guidance: Number(state.imageDraft.flux_guidance ?? 3.5),
     });
+    if (isKrea2Gguf) {
+      // Krea 2 M16 uses a GGUF transformer with a native Qwen3-VL-4B encoder.
+      // Do not mirror the native encoder into GGUF text-encoder aliases or leak
+      // Flux guidance into this architecture's payload.
+      delete params.gguf_text_encoder_1;
+      delete params.gguf_text_encoder_primary;
+      delete params.flux_guidance;
+      params.text_encoder_primary = encoderA;
+    }
     if (clipMode === 'dual') {
       Object.assign(params, {
         text_encoder_2: encoderB,
@@ -48648,6 +49229,9 @@ function parameterProfileParams() {
 function buildImageJobPayload() {
   applyZImageRuntimeDefaultsIfNeeded();
   applyQwenRapidAioRuntimeDefaultsIfNeeded();
+  if ((state.imageDraft.family || imageCommandValue('family')) === 'flux2_klein') syncFlux2KleinComponentState({ autoSelect: false, persist: false });
+  if ((state.imageDraft.family || imageCommandValue('family')) === 'flux') syncFlux1KreaState({ persist: false });
+  if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family'))) syncKrea2State({ persist: false });
   const profile = activeImageProfile();
   const draft = state.imageDraft;
   const forcedPreviewMode = String(draft._preview_action_force_workflow_mode || '').trim();
@@ -49241,8 +49825,17 @@ async function reportImageClientGenerationError(error, payload = null, stage = '
       width: state.imageDraft?.width || '',
       height: state.imageDraft?.height || '',
       gguf_model: state.imageDraft?.gguf_model || '',
+      flux_variant: state.imageDraft?.flux_variant || '',
+      flux1_krea_state: state.imageDraft?._neo_flux1_krea_state || null,
+      qwen3_text_encoder: state.imageDraft?.qwen3_text_encoder || '',
+      qwen3vl_text_encoder: state.imageDraft?.qwen3vl_text_encoder || '',
+      krea2_state: state.imageDraft?._neo_krea2_state || null,
+      text_encoder_1: state.imageDraft?.text_encoder_1 || '',
+      gguf_text_encoder_1: state.imageDraft?.gguf_text_encoder_1 || '',
+      gguf_text_encoder_primary: state.imageDraft?.gguf_text_encoder_primary || '',
       qwen_text_encoder: state.imageDraft?.qwen_text_encoder || '',
       qwen_mmproj: state.imageDraft?.qwen_mmproj || '',
+      klein_encoder_reconciliation: state.imageDraft?._neo_flux2_klein_encoder_reconciliation || null,
       vae: state.imageDraft?.vae || '',
       has_source_image: Boolean(state.imageDraft?.source_image || state.imageDraft?.source_image_url),
       has_source_image_2: Boolean(state.imageDraft?.source_image_2 || state.imageDraft?.source_image_2_url),
@@ -49262,8 +49855,18 @@ async function reportImageClientGenerationError(error, payload = null, stage = '
         cfg: payload.job?.params?.cfg,
         sampler: payload.job?.params?.sampler,
         scheduler: payload.job?.params?.scheduler,
+        flux_variant: payload.job?.params?.flux_variant,
+        flux1_krea_runtime_reconciled: payload.job?.params?._neo_flux1_krea_runtime_reconciled || false,
+        qwen3_text_encoder: payload.job?.params?.qwen3_text_encoder,
+        qwen3vl_text_encoder: payload.job?.params?.qwen3vl_text_encoder,
+        krea2_variant: payload.job?.params?.krea2_variant,
+        krea2_runtime_reconciled: payload.job?.params?._neo_krea2_runtime_reconciled || false,
+        text_encoder_1: payload.job?.params?.text_encoder_1,
+        gguf_text_encoder_1: payload.job?.params?.gguf_text_encoder_1,
+        gguf_text_encoder_primary: payload.job?.params?.gguf_text_encoder_primary,
         qwen_mmproj: payload.job?.params?.qwen_mmproj,
         qwen_text_encoder: payload.job?.params?.qwen_text_encoder,
+        klein_encoder_reconciliation: payload.job?.params?._neo_flux2_klein_encoder_reconciliation || null,
         source_image_name: payload.job?.params?.source_image_name,
         source_image_2_name: payload.job?.params?.source_image_2_name,
         source_image_3_name: payload.job?.params?.source_image_3_name,

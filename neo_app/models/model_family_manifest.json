@@ -1,5 +1,5 @@
 {
-  "registry_version": "0.2.0",
+  "registry_version": "0.2.0+M16",
   "loader_types": [
     {
       "loader_id": "checkpoint",
@@ -233,7 +233,7 @@
       ],
       "category": "image",
       "status": "base",
-      "description": "Flux 1 image family for safetensors component routes and GGUF workflows.",
+      "description": "Flux 1 image family for Dev-compatible variants including FLUX.1 Krea, with safetensors component routes and GGUF workflows.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -340,7 +340,9 @@
         "Normal Image UI exposes only Safetensors / Components (internal diffusion_model) and GGUF main model types for Flux 1.",
         "Flux 1 GGUF routes remain available for txt2img, img2img, inpaint, and outpaint through the provider-owned comfy.flux_gguf compiler after prior runtime validation.",
         "API/cloud model selection is not a normal local Flux 1 main model type in this family lock.",
-        "V25.9.20 P1 routes Flux 1 Safetensors / Components inpaint/outpaint through the internal Flux Fill workflow; Flux Fill is not a separate normal family dropdown entry."
+        "V25.9.20 P1 routes Flux 1 Safetensors / Components inpaint/outpaint through the internal Flux Fill workflow; Flux Fill is not a separate normal family dropdown entry.",
+        "Phase M15 adds FLUX.1 Krea as variant=krea_dev under canonical family=flux. Krea is Dev-compatible, uses T5XXL + CLIP-L + Flux AE/VAE, and keeps the selected Krea model for txt2img/img2img/inpaint/outpaint in both component and GGUF routes.",
+        "M15 Krea inpaint/outpaint use latent noise masks + DifferentialDiffusion; non-Krea Flux 1 component inpaint/outpaint preserve the existing internal FLUX.1 Fill route."
       ],
       "loader_mode_support": {
         "diffusion_model": {
@@ -354,6 +356,36 @@
           "img2img": "native",
           "inpaint": "native",
           "outpaint": "native"
+        }
+      },
+      "variant_contracts": {
+        "krea_dev": {
+          "display_name": "FLUX.1 Krea Dev",
+          "architecture": "flux1",
+          "family_id": "flux",
+          "aliases": [
+            "krea",
+            "krea_dev",
+            "flux1_krea",
+            "flux1_krea_dev"
+          ],
+          "model_name_markers": [
+            "krea"
+          ],
+          "supported_loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "text_encoder_policy": "one T5XXL + one CLIP-L, either loader slot order",
+          "vae_policy": "Flux 1 AE/VAE such as ae.safetensors",
+          "masked_workflow_policy": "retain selected Krea model; use VAEEncode + SetLatentNoiseMask + DifferentialDiffusion; do not silently substitute FLUX.1 Fill",
+          "gguf_policy": "Krea GGUF uses ComfyUI-GGUF FLUX.1 dual-encoder route; DualCLIPLoaderGGUF can consume GGUF or regular safetensors/bin encoder files"
         }
       }
     },
@@ -579,6 +611,272 @@
           "inpaint": "native",
           "outpaint": "native",
           "edit": "native"
+        }
+      }
+    },
+    {
+      "family_id": "krea2",
+      "display_name": "Krea 2 RAW",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Krea 2 RAW/base native image architecture using a Krea2 DiT, Qwen3-VL-4B multi-layer text conditioning, and the Qwen Image VAE.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "mode_support": {
+        "txt2img": "native",
+        "img2img": "experimental",
+        "inpaint": "experimental",
+        "outpaint": "experimental"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "krea2_native",
+        "krea2_gguf"
+      ],
+      "parameter_profiles": [
+        "krea2_native",
+        "krea2_gguf"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "diffusion_model_loader",
+            "krea2_clip_loader",
+            "qwen_image_vae",
+            "sampler"
+          ],
+          "gguf": [
+            "krea2_capable_gguf_unet_loader",
+            "krea2_clip_loader",
+            "qwen_image_vae",
+            "sampler"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "txt2img": [
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "img2img": [
+          "source_image",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "default_params": {
+        "steps": 52,
+        "cfg": 3.5,
+        "clip_skip": 1,
+        "denoise": 1.0,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "krea2_variant": "raw"
+      },
+      "required_extensions": [
+        "image.gguf_loader"
+      ],
+      "notes": [
+        "Phase M16 adds Krea 2 RAW as a separate visible family; it is not FLUX.1 Krea, FLUX.2 Klein, or Qwen Image Edit.",
+        "Native Comfy Krea2 uses UNETLoader + CLIPLoader(type=krea2) with Qwen3-VL-4B + qwen_image_vae.safetensors.",
+        "RAW defaults to 52 steps / CFG 3.5; negative conditioning remains a normal encoded negative prompt.",
+        "img2img/inpaint/outpaint are provider-owned latent adapters and are intentionally marked experimental rather than presented as an official specialized Krea 2 edit/inpaint model.",
+        "Krea 2 GGUF is experimental and requires a Krea2-capable GGUF transformer loader. M16 keeps the Qwen3-VL-4B encoder native/safetensors because generic GGUF CLIP loaders do not guarantee the Krea2 12-layer feature stack."
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "native",
+          "img2img": "experimental_source_latent",
+          "inpaint": "experimental_single_source_mask",
+          "outpaint": "experimental_single_source_canvas"
+        },
+        "gguf": {
+          "txt2img": "experimental",
+          "img2img": "experimental_source_latent",
+          "inpaint": "experimental_single_source_mask",
+          "outpaint": "experimental_single_source_canvas"
+        }
+      }
+    },
+    {
+      "family_id": "krea2_turbo",
+      "display_name": "Krea 2 Turbo",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Krea 2 Turbo distilled few-step family using the same native Krea2/Qwen3-VL-4B/Qwen Image VAE architecture with family-owned 8-step sampling semantics.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "mode_support": {
+        "txt2img": "native",
+        "img2img": "experimental",
+        "inpaint": "experimental",
+        "outpaint": "experimental"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "krea2_turbo_native",
+        "krea2_turbo_gguf"
+      ],
+      "parameter_profiles": [
+        "krea2_turbo_native",
+        "krea2_turbo_gguf"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "diffusion_model_loader",
+            "krea2_clip_loader",
+            "qwen_image_vae",
+            "sampler"
+          ],
+          "gguf": [
+            "krea2_capable_gguf_unet_loader",
+            "krea2_clip_loader",
+            "qwen_image_vae",
+            "sampler"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "txt2img": [
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "img2img": [
+          "source_image",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "model",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "default_params": {
+        "steps": 8,
+        "cfg": 1.0,
+        "clip_skip": 1,
+        "denoise": 1.0,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "krea2_variant": "turbo"
+      },
+      "required_extensions": [
+        "image.gguf_loader"
+      ],
+      "notes": [
+        "Phase M16 adds Krea 2 Turbo as a separate visible family so distilled sampling behavior cannot leak into RAW.",
+        "Official Comfy Krea2 Turbo convention is 8 steps, KSampler CFG 1.0, euler/simple, and ConditioningZeroOut for the negative lane.",
+        "The standalone Krea reference describes Turbo guidance as CFG 0; Neo follows the official Comfy graph semantics for the Comfy backend.",
+        "img2img/inpaint/outpaint are provider-owned latent adapters and remain experimental.",
+        "Krea 2 Turbo GGUF requires a Krea2-capable GGUF transformer loader while Qwen3-VL-4B stays native/safetensors in M16."
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "native",
+          "img2img": "experimental_source_latent",
+          "inpaint": "experimental_single_source_mask",
+          "outpaint": "experimental_single_source_canvas"
+        },
+        "gguf": {
+          "txt2img": "experimental",
+          "img2img": "experimental_source_latent",
+          "inpaint": "experimental_single_source_mask",
+          "outpaint": "experimental_single_source_canvas"
         }
       }
     },
@@ -836,7 +1134,7 @@
       ],
       "category": "image",
       "status": "extension_ready",
-      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1–3 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
+      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1\u20133 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -932,7 +1230,7 @@
       ],
       "notes": [
         "V25.9.20 Pass G adds Qwen Image Edit 2509 as its own visible Image family instead of overloading normal qwen_image.",
-        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1–3 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
+        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1\u20133 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
         "V25.9.20 P3 promotes Safetensors / Components img2img/edit/inpaint/outpaint routes as implemented workflows through the Qwen native edit compiler.",
         "Safetensors / Components uses the Qwen native edit compiler with max_images=3 for qwen_image_edit_2509 img2img/edit.",
         "Safetensors / Components inpaint/outpaint compile as single-source mask/canvas workflows; extra source lanes are pruned/ignored for those modes.",
@@ -1888,7 +2186,10 @@
         "text_encoder_secondary",
         "text_encoder_secondary_optional",
         "vae_or_ae",
-        "ae_or_vae"
+        "ae_or_vae",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
       ],
       "allowed_roles": [
         "diffusion_model",
@@ -1910,7 +2211,10 @@
         "hunyuan_variant",
         "text_encoder_if_required",
         "vae_if_required",
-        "hidream_variant"
+        "hidream_variant",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
       ],
       "role_definitions": {
         "diffusion_model": {
@@ -2072,6 +2376,30 @@
           "kind": "parameter",
           "required_by_default": false,
           "backend_neutral": true
+        },
+        "qwen3vl_4b_text_encoder": {
+          "role_id": "qwen3vl_4b_text_encoder",
+          "display_name": "Qwen3-VL-4B Text Encoder",
+          "description": "Krea 2 primary text encoder role. Provider must preserve Krea2 multi-layer Qwen3-VL conditioning semantics.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen_image_vae": {
+          "role_id": "qwen_image_vae",
+          "display_name": "Qwen Image VAE",
+          "description": "Qwen Image VAE role used by Krea 2 latent encoding and decoding.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "krea2_clip_loader": {
+          "role_id": "krea2_clip_loader",
+          "display_name": "Krea 2 CLIP Loader",
+          "description": "Backend capability role proving CLIPLoader advertises type=krea2.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
         }
       },
       "provider_translation_required": true,
@@ -2152,7 +2480,10 @@
         "gguf_vae_optional",
         "mmproj_optional",
         "qwen_mmproj",
-        "flux_guidance"
+        "flux_guidance",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
       ],
       "allowed_roles": [
         "gguf_unet",
@@ -2174,7 +2505,10 @@
         "hunyuan_variant",
         "text_encoder_if_required",
         "vae_if_required",
-        "hidream_variant"
+        "hidream_variant",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
       ],
       "role_definitions": {
         "gguf_unet": {
@@ -2334,6 +2668,30 @@
           "display_name": "HiDream Variant",
           "description": "HiDream variant selector.",
           "kind": "parameter",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen3vl_4b_text_encoder": {
+          "role_id": "qwen3vl_4b_text_encoder",
+          "display_name": "Qwen3-VL-4B Text Encoder",
+          "description": "Krea 2 primary text encoder role. Provider must preserve Krea2 multi-layer Qwen3-VL conditioning semantics.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen_image_vae": {
+          "role_id": "qwen_image_vae",
+          "display_name": "Qwen Image VAE",
+          "description": "Qwen Image VAE role used by Krea 2 latent encoding and decoding.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "krea2_clip_loader": {
+          "role_id": "krea2_clip_loader",
+          "display_name": "Krea 2 CLIP Loader",
+          "description": "Backend capability role proving CLIPLoader advertises type=krea2.",
+          "kind": "capability",
           "required_by_default": false,
           "backend_neutral": true
         }
@@ -2885,7 +3243,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "diffusion_model",
-          "help_text": "For inpaint/outpaint, choose flux1-fill-dev.safetensors or a compatible FLUX.1 Fill model; for txt2img/img2img choose a normal Flux 1 model."
+          "help_text": "Choose a Flux 1 diffusion model. FLUX.1 Krea models keep Krea for txt2img/img2img/inpaint/outpaint; non-Krea Flux 1 inpaint/outpaint continue to use a FLUX.1 Fill-compatible model through the internal Fill route."
         },
         {
           "field_id": "text_encoder_1",
@@ -2894,7 +3252,8 @@
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "text_encoder_primary"
+          "role_id": "text_encoder_primary",
+          "help_text": "Flux 1 dual-encoder slot A. For FLUX.1 Krea the pair must contain one T5XXL and one CLIP-L encoder (either slot order)."
         },
         {
           "field_id": "text_encoder_2",
@@ -2903,7 +3262,8 @@
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "text_encoder_secondary"
+          "role_id": "text_encoder_secondary",
+          "help_text": "Flux 1 dual-encoder slot B. For FLUX.1 Krea the pair must contain one T5XXL and one CLIP-L encoder (either slot order)."
         },
         {
           "field_id": "vae",
@@ -2932,7 +3292,7 @@
           "required": false,
           "backend_neutral": true,
           "advanced": false,
-          "help_text": "Internal route metadata only. Inpaint/outpaint resolve to Flux Fill by Workflow Mode; do not use this as a family selector."
+          "help_text": "Internal Flux 1 variant metadata. Krea model filenames resolve canonically to krea_dev; Klein belongs to the separate FLUX.2 Klein family."
         }
       ],
       "readiness_fields": [
@@ -2947,7 +3307,8 @@
       "disabled_fields": [],
       "notes": [
         "CFG is hidden because Flux routes use Flux guidance instead of SD-style CFG.",
-        "P1: Flux 1 inpaint/outpaint use this normal Flux 1 profile and resolve internally to the Flux Fill compiler; no separate visible Flux Fill family is required."
+        "P1: Flux 1 inpaint/outpaint use this normal Flux 1 profile and resolve internally to the Flux Fill compiler; no separate visible Flux Fill family is required.",
+        "M15: FLUX.1 Krea remains family=flux + loader=diffusion_model and uses this profile across txt2img/img2img/inpaint/outpaint; Krea masked modes do not route to FLUX.1 Fill."
       ]
     },
     {
@@ -3388,7 +3749,8 @@
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "gguf_unet"
+          "role_id": "gguf_unet",
+          "help_text": "Flux 1 GGUF diffusion model. FLUX.1 Krea GGUF filenames resolve to variant=krea_dev automatically."
         },
         {
           "field_id": "text_encoder_1",
@@ -3397,7 +3759,8 @@
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "gguf_text_encoder_primary"
+          "role_id": "gguf_text_encoder_primary",
+          "help_text": "Flux GGUF dual-encoder slot A. For Krea use one T5XXL + one CLIP-L across A/B; ComfyUI-GGUF supports GGUF and regular safetensors/bin encoder files."
         },
         {
           "field_id": "text_encoder_2",
@@ -3406,7 +3769,8 @@
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "gguf_text_encoder_secondary"
+          "role_id": "gguf_text_encoder_secondary",
+          "help_text": "Flux GGUF dual-encoder slot B. For Krea use one T5XXL + one CLIP-L across A/B."
         },
         {
           "field_id": "vae",
@@ -3424,7 +3788,7 @@
           "required": false,
           "backend_neutral": true,
           "advanced": false,
-          "help_text": "Use FLUX.2 Klein 4B/9B to route GGUF through the single Qwen3 flux2 encoder graph."
+          "help_text": "Internal Flux variant metadata. Krea GGUF model names resolve to krea_dev. FLUX.2 Klein uses its separate visible family and single-Qwen3 route."
         },
         {
           "field_id": "flux_guidance",
@@ -3459,7 +3823,8 @@
       "disabled_fields": [],
       "notes": [
         "Requires GGUF dual encoder readiness. Comfy node names remain provider diagnostics only.",
-        "FLUX.2 Klein GGUF variants use single Qwen3 encoder routing; legacy Flux GGUF remains dual-encoder."
+        "FLUX.2 Klein GGUF variants use single Qwen3 encoder routing; legacy Flux GGUF remains dual-encoder.",
+        "M15: Krea GGUF is an explicit FLUX.1 variant using the existing dual-encoder GGUF graph for all four image modes; it is not a FLUX.2/Klein route."
       ]
     },
     {
@@ -3661,7 +4026,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "qwen3_text_encoder",
-          "help_text": "FLUX.2 Klein uses a single Qwen3 text encoder through the Flux2 CLIP route."
+          "help_text": "FLUX.2 Klein uses a single Qwen3 text encoder through the Flux2 CLIP route. M14 compatibility: Klein 4B uses Qwen3-4B; Klein 9B uses Qwen3-8B. M14.1: this legacy profile field mirrors the canonical qwen3_text_encoder runtime state; GGUF/native aliases are synchronized automatically."
         },
         {
           "field_id": "vae",
@@ -3704,7 +4069,9 @@
         "Normal UI label: Safetensors / Components. Internal loader remains diffusion_model.",
         "V25.9.20 P4: Flux 2 Klein component txt2img/img2img/edit/inpaint/outpaint are available through comfy.flux_klein.",
         "P4: img2img/edit use Image 1 as the Flux2 latent anchor; inpaint/outpaint use source image plus mask/padding with SetLatentNoiseMask + DifferentialDiffusion.",
-        "P4: source_image_2/source_image_3 stay hidden for the component route until Neo wires an official local multi-reference conditioning node; they are not submitted for this route."
+        "P4: source_image_2/source_image_3 stay hidden for the component route until Neo wires an official local multi-reference conditioning node; they are not submitted for this route.",
+        "M14: the selected Klein model size is authoritative for Qwen3 compatibility; 4B requires Qwen3-4B and 9B requires Qwen3-8B.",
+        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission."
       ]
     },
     {
@@ -3906,7 +4273,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "gguf_text_encoder_primary",
-          "help_text": "FLUX.2 Klein GGUF uses a single Qwen3 encoder. Safetensors encoders use CLIPLoader(type=flux2); GGUF encoders use CLIPLoaderGGUF(type=flux2)."
+          "help_text": "FLUX.2 Klein GGUF uses one Qwen3 encoder. M14 compatibility: Klein 4B uses Qwen3-4B and Klein 9B uses Qwen3-8B. Safetensors encoders use CLIPLoader(type=flux2); GGUF encoders use CLIPLoaderGGUF(type=flux2). M14.1: this legacy profile field mirrors the canonical qwen3_text_encoder runtime state; GGUF/native aliases are synchronized automatically."
         },
         {
           "field_id": "vae",
@@ -3953,7 +4320,9 @@
         "Normal UI label: GGUF. Backend architecture resolves to Flux2/Klein automatically from the selected family.",
         "Single encoder only; no legacy Flux dual-encoder UI for this family.",
         "Pass K: GGUF img2img/edit/image-conditioned modes show the shared multi-source panel with up to 3 source images. Image 1 remains the latent anchor in the current local compiler; Image 2/Image 3 are optional reference lanes preserved in payload metadata.",
-        "Pass O1: img2img/edit compile through the same local Flux2 Klein GGUF Image-1 VAEEncode latent-anchor workflow. Optional extra sources are recorded only until dedicated Flux2 multi-reference conditioning is validated."
+        "Pass O1: img2img/edit compile through the same local Flux2 Klein GGUF Image-1 VAEEncode latent-anchor workflow. Optional extra sources are recorded only until dedicated Flux2 multi-reference conditioning is validated.",
+        "M14: model-driven 4B/9B canonicalization filters the Qwen3 encoder lane and blocks known incompatible Qwen2/2.5-VL/MMProj or wrong-size Qwen3 assets before queue.",
+        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission."
       ]
     },
     {
@@ -4353,7 +4722,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -4431,7 +4800,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "diffusion_model",
-          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1–3 image multi-source editing."
+          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1\u20133 image multi-source editing."
         },
         {
           "field_id": "qwen_text_encoder",
@@ -4476,7 +4845,7 @@
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1–3 source image lanes and compile through comfy.qwen_native_edit.",
+        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1\u20133 source image lanes and compile through comfy.qwen_native_edit.",
         "Normal qwen_image remains single-source; do not share this profile with qwen_image.",
         "P3: native inpaint/outpaint are implemented single-source mask/canvas workflows, not planned gates; source_image_2/source_image_3 are mode-scoped to img2img/edit only."
       ]
@@ -5205,7 +5574,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -5351,9 +5720,991 @@
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1–3 source lanes for img2img/edit.",
+        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1\u20133 source lanes for img2img/edit.",
         "MMProj remains optional for txt2img and required for image-conditioned modes.",
         "Inpaint/outpaint are available through the existing Qwen GGUF source/mask/padding graph, but multi-source behavior is scoped to img2img/edit."
+      ]
+    },
+    {
+      "profile_id": "krea2_native",
+      "display_name": "Krea 2 RAW Native Parameters",
+      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "families": [
+        "krea2"
+      ],
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "RAW uses normal encoded negative conditioning."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 52,
+          "help_text": "Family-owned Krea 2 sampling step count."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 3.5,
+          "help_text": "Turbo uses the official Comfy effective CFG 1.0 with zeroed negative; RAW defaults to 3.5."
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 0.75
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "diffusion_model",
+          "label": "Krea 2 RAW Diffusion Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "diffusion_model"
+        },
+        {
+          "field_id": "qwen3vl_text_encoder",
+          "label": "Qwen3-VL-4B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "text_encoder_primary",
+          "help_text": "Krea 2 requires Qwen3-VL-4B through CLIPLoader(type=krea2). M16 intentionally keeps this encoder native/safetensors even for a GGUF diffusion model."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae",
+          "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for Krea 2 latent-mask inpaint."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 3
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by the V2 outpaint contract."
+        }
+      ],
+      "readiness_fields": [
+        "provider_status"
+      ],
+      "hidden_fields": [
+        "flux_variant",
+        "flux_guidance",
+        "qwen_text_encoder",
+        "qwen3_text_encoder",
+        "qwen_mmproj",
+        "mmproj",
+        "mmproj_name",
+        "source_image_2",
+        "source_image_3",
+        "text_encoder_2",
+        "vision_model",
+        "turbo_mode"
+      ],
+      "disabled_fields": [
+        "clip_skip"
+      ],
+      "notes": [
+        "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
+        "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
+        "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
+        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning."
+      ],
+      "readiness_gates": [
+        "krea2_clip_loader"
+      ]
+    },
+    {
+      "profile_id": "krea2_gguf",
+      "display_name": "Krea 2 RAW GGUF Parameters",
+      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "families": [
+        "krea2"
+      ],
+      "loaders": [
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "RAW uses normal encoded negative conditioning."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 52,
+          "help_text": "Family-owned Krea 2 sampling step count."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 3.5,
+          "help_text": "Turbo uses the official Comfy effective CFG 1.0 with zeroed negative; RAW defaults to 3.5."
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 0.75
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "gguf_model",
+          "label": "Krea 2 RAW GGUF Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_unet"
+        },
+        {
+          "field_id": "qwen3vl_text_encoder",
+          "label": "Qwen3-VL-4B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "text_encoder_primary",
+          "help_text": "Krea 2 requires Qwen3-VL-4B through CLIPLoader(type=krea2). M16 intentionally keeps this encoder native/safetensors even for a GGUF diffusion model."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae",
+          "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for Krea 2 latent-mask inpaint."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 3
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by the V2 outpaint contract."
+        }
+      ],
+      "readiness_fields": [
+        "provider_status"
+      ],
+      "hidden_fields": [
+        "flux_variant",
+        "flux_guidance",
+        "qwen_text_encoder",
+        "qwen3_text_encoder",
+        "qwen_mmproj",
+        "mmproj",
+        "mmproj_name",
+        "source_image_2",
+        "source_image_3",
+        "text_encoder_2",
+        "vision_model",
+        "turbo_mode"
+      ],
+      "disabled_fields": [
+        "clip_skip"
+      ],
+      "notes": [
+        "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
+        "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
+        "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
+        "GGUF is transformer-only in M16: use a Krea2-capable GGUF loader plus native/safetensors Qwen3-VL-4B. GGUF text encoders are gated.",
+        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning."
+      ],
+      "readiness_gates": [
+        "krea2_clip_loader"
+      ]
+    },
+    {
+      "profile_id": "krea2_turbo_native",
+      "display_name": "Krea 2 Turbo Native Parameters",
+      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "families": [
+        "krea2_turbo"
+      ],
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 8,
+          "help_text": "Family-owned Krea 2 sampling step count."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Turbo uses the official Comfy effective CFG 1.0 with zeroed negative; RAW defaults to 3.5."
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 0.75
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "diffusion_model",
+          "label": "Krea 2 Turbo Diffusion Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "diffusion_model"
+        },
+        {
+          "field_id": "qwen3vl_text_encoder",
+          "label": "Qwen3-VL-4B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "text_encoder_primary",
+          "help_text": "Krea 2 requires Qwen3-VL-4B through CLIPLoader(type=krea2). M16 intentionally keeps this encoder native/safetensors even for a GGUF diffusion model."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae",
+          "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for Krea 2 latent-mask inpaint."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 3
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by the V2 outpaint contract."
+        }
+      ],
+      "readiness_fields": [
+        "provider_status"
+      ],
+      "hidden_fields": [
+        "flux_variant",
+        "flux_guidance",
+        "qwen_text_encoder",
+        "qwen3_text_encoder",
+        "qwen_mmproj",
+        "mmproj",
+        "mmproj_name",
+        "source_image_2",
+        "source_image_3",
+        "text_encoder_2",
+        "vision_model",
+        "turbo_mode",
+        "negative_prompt"
+      ],
+      "disabled_fields": [
+        "clip_skip",
+        "steps",
+        "cfg"
+      ],
+      "notes": [
+        "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
+        "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
+        "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
+        "Turbo forces 8 steps / CFG 1.0 in the Comfy backend and uses ConditioningZeroOut; stale RAW sampling values do not override it."
+      ],
+      "readiness_gates": [
+        "krea2_clip_loader"
+      ]
+    },
+    {
+      "profile_id": "krea2_turbo_gguf",
+      "display_name": "Krea 2 Turbo GGUF Parameters",
+      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "families": [
+        "krea2_turbo"
+      ],
+      "loaders": [
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 8,
+          "help_text": "Family-owned Krea 2 sampling step count."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Turbo uses the official Comfy effective CFG 1.0 with zeroed negative; RAW defaults to 3.5."
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 0.75
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "gguf_model",
+          "label": "Krea 2 Turbo GGUF Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_unet"
+        },
+        {
+          "field_id": "qwen3vl_text_encoder",
+          "label": "Qwen3-VL-4B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "text_encoder_primary",
+          "help_text": "Krea 2 requires Qwen3-VL-4B through CLIPLoader(type=krea2). M16 intentionally keeps this encoder native/safetensors even for a GGUF diffusion model."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae",
+          "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for Krea 2 latent-mask inpaint."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 3
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by the V2 outpaint contract."
+        }
+      ],
+      "readiness_fields": [
+        "provider_status"
+      ],
+      "hidden_fields": [
+        "flux_variant",
+        "flux_guidance",
+        "qwen_text_encoder",
+        "qwen3_text_encoder",
+        "qwen_mmproj",
+        "mmproj",
+        "mmproj_name",
+        "source_image_2",
+        "source_image_3",
+        "text_encoder_2",
+        "vision_model",
+        "turbo_mode",
+        "negative_prompt"
+      ],
+      "disabled_fields": [
+        "clip_skip",
+        "steps",
+        "cfg"
+      ],
+      "notes": [
+        "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
+        "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
+        "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
+        "GGUF is transformer-only in M16: use a Krea2-capable GGUF loader plus native/safetensors Qwen3-VL-4B. GGUF text encoders are gated.",
+        "Turbo forces 8 steps / CFG 1.0 in the Comfy backend and uses ConditioningZeroOut; stale RAW sampling values do not override it."
+      ],
+      "readiness_gates": [
+        "krea2_clip_loader"
       ]
     },
     {

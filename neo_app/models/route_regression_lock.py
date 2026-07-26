@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from fnmatch import fnmatch
 from typing import Any
 
-ROUTE_REGRESSION_LOCK_VERSION = "0.1.4"
+ROUTE_REGRESSION_LOCK_VERSION = "0.1.5"
 
 STABILIZATION_PHASE_ORDER: tuple[str, ...] = (
     "12.24_route_matrix_contract",
@@ -488,6 +488,31 @@ REGRESSION_TEST_GROUPS: tuple[RegressionTestGroup, ...] = (
             "neo_app/providers/comfy_provider.py",
             "neo_app/providers/comfy_workflows/flux_native.py",
             "neo_app/static/js/neo.js",
+        ],
+    ),
+    RegressionTestGroup(
+        group_id="krea2_raw_turbo_m16",
+        label="Krea 2 RAW + Turbo architecture/workflow contract",
+        phase="M16",
+        command="pytest tests/test_phase_m16_krea2_raw_turbo_support.py",
+        protects=[
+            "Krea 2 RAW and Krea 2 Turbo stay separate visible families and never route through FLUX.1 Krea or FLUX.2 Klein",
+            "Krea 2 native components use CLIPLoader(type=krea2) with Qwen3-VL-4B and Qwen Image VAE",
+            "Turbo keeps 8-step CFG-1 zeroed-negative Comfy semantics while RAW keeps its full-step profile",
+            "Krea 2 GGUF quantizes the transformer only in M16; native Qwen3-VL-4B conditioning remains mandatory",
+            "img2img/inpaint/outpaint remain explicit experimental provider-owned latent adapters",
+        ],
+        required_for_path_patterns=[
+            "neo_app/image/krea2_contract.py",
+            "neo_app/models/model_family_manifest.json",
+            "neo_app/models/readiness.py",
+            "neo_app/models/route_matrix.py",
+            "neo_app/providers/compile_router.py",
+            "neo_app/providers/comfy_provider.py",
+            "neo_app/providers/comfy_workflows/krea2.py",
+            "neo_app/providers/provider_manifest.json",
+            "neo_app/static/js/neo.js",
+            "neo_extensions/built_in/image.gguf_loader/extension_manifest.json",
         ],
     ),
     RegressionTestGroup(

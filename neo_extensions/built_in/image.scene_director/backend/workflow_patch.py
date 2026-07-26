@@ -28,7 +28,9 @@ from .extension_routing import (
 )
 from .validation import validate_and_normalize_payload
 
-PHASE = "phase_27_15_character_additional_details"
+PHASE = "phase_27_17c_occupancy_dedup_advanced_boundary_cleanup"
+# Phase 27.17A compatibility anchor: PHASE = "phase_27_17a_scene_mode_character_lock_workflow_freeze"
+# Phase 27.15 compatibility anchor: PHASE = "phase_27_15_character_additional_details"
 # Phase 27.14 compatibility anchor: PHASE = "phase_27_14_child_owned_attached_detail_roles"
 # Phase 27.1 compatibility anchor: PHASE = "phase_27_1_character_lock_pass_separation_trait_attention_restore"
 # Phase 26.9.16 compatibility anchor: PHASE = "phase_26_9_16_postpass_character_lock_gate_standalone_route_validation"
@@ -324,6 +326,347 @@ def _block_params(block: dict[str, Any]) -> dict[str, Any]:
 
 def _block_inputs(block: dict[str, Any]) -> dict[str, Any]:
     return block.get("inputs") if isinstance(block.get("inputs"), dict) else {}
+
+
+def _explicit_basic_mode_v054(params: dict[str, Any] | None) -> bool:
+    """Resolve Basic Scene Mode without reinterpreting finalized lock-on paths.
+
+    Phase 27.17A gives explicit ``scene_mode`` precedence. Missing legacy fields
+    retain the Phase 27.16 Character Lock Off fallback for replay compatibility.
+    """
+    params = params if isinstance(params, dict) else {}
+    for key in ("scene_mode", "scene_director_scene_mode"):
+        if key in params:
+            raw_mode = str(params.get(key) or "basic").strip().lower().replace("-", "_").replace(" ", "_")
+            return raw_mode not in {"advanced", "expert", "full"}
+    if params.get("basic_mode") is True or params.get("scene_director_basic_mode") is True:
+        return True
+    if params.get("basic_mode") is False or params.get("scene_director_basic_mode") is False:
+        return False
+    character_lock = params.get("character_lock") if isinstance(params.get("character_lock"), dict) else {}
+    candidates = []
+    for key in ("character_lock_mode", "lock_mode"):
+        if key in params:
+            candidates.append(params.get(key))
+    if "character" in character_lock:
+        candidates.append(character_lock.get("character"))
+    for value in candidates:
+        raw = str(value if value is not None else "").strip().lower().replace("-", "_").replace(" ", "_")
+        if raw in {"off", "none", "false", "disabled", "0"}:
+            return True
+    return False
+
+
+def _explicit_character_lock_off_v054(params: dict[str, Any] | None) -> bool:
+    """Return True only when the Character Lock parent switch is explicitly Off.
+
+    Scene Mode and Character Lock are separate Phase 27.17A controls. Advanced
+    mode may remain active while Character Lock is Off; in that state scene-level
+    repair controls stay available, but Character traits/corrections must not run.
+    Missing legacy lock fields do not count as an explicit Off request.
+    """
+    params = params if isinstance(params, dict) else {}
+    character_lock = params.get("character_lock") if isinstance(params.get("character_lock"), dict) else {}
+    candidates: list[Any] = []
+    for key in ("character_lock_mode", "scene_director_character_lock_mode", "lock_mode"):
+        if key in params:
+            candidates.append(params.get(key))
+    if "character" in character_lock:
+        candidates.append(character_lock.get("character"))
+    if not candidates:
+        return False
+    raw = str(candidates[0] if candidates[0] is not None else "").strip().lower().replace("-", "_").replace(" ", "_")
+    return raw in {"off", "none", "false", "disabled", "0"}
+
+
+def _basic_mode_fix_pass_controls_v054() -> dict[str, Any]:
+    return {
+        "schema": "neo.image.scene_director.advanced_fix_pass_controls.v25_9_13",
+        "phase": "SD-V054-27.16",
+        "dedupe_phase": "V25.9.14",
+        "mode": "basic_single_pass",
+        "first_pass_character_lock_rescue": "off",
+        "background_restore": "off",
+        "character_trait_lanes": "off",
+        "final_background_reconciliation": "off",
+        "environment_aware_character_lanes": False,
+        "layout_safety_enabled": True,
+        "layout_safety_background_safe_area_min": 12.0,
+        "layout_safety_full_height_threshold": 0.92,
+        "source": "phase_27_16_basic_mode_boundary",
+        "ui_ownership": {
+            "character_lock": "disabled_in_basic_mode",
+            "fix_pass_controls": "basic_single_pass_boundary",
+        },
+        "policy": "Basic mode is structural regional conditioning only: no Character Trait Library, Pose, Character Lock correction, latent repair, end refinement, or background repaint sampler.",
+    }
+
+
+def _enforce_basic_mode_params_v054(params: dict[str, Any], legacy: dict[str, Any]) -> dict[str, Any]:
+    """Apply the explicit Basic boundary without touching Character Lock-on paths."""
+    if not _explicit_basic_mode_v054(params):
+        return {"enabled": False, "status": "not_requested"}
+    params["scene_mode"] = "basic"
+    params["scene_director_scene_mode"] = "basic"
+    params["basic_mode"] = True
+    params["scene_director_basic_mode"] = True
+    params["character_lock_mode"] = "off"
+    params["lock_mode"] = "off"
+    params["character_lock"] = {
+        "character": "off", "gender": "off", "skin_tone": "off", "hair": "off",
+        "build": "off", "body_height": "off", "outfit": "off", "negative": "off",
+    }
+    params["character_lock_execution_mode"] = "off"
+    params["scene_director_character_lock_execution_mode"] = "off"
+    params["character_lock_pass_plan"] = "off"
+    params["character_lock_execution"] = {
+        "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v2",
+        "phase": "SD-V054-27.16",
+        "mode": "off",
+        "pass_plan": "off",
+        "requested_mode": "off",
+        "requested_pass_plan": "off",
+        "effective_mode": "off",
+        "effective_pass_plan": "off",
+        "prompt_guard_enabled": False,
+        "in_sampler_attention_enabled": False,
+        "masked_correction_enabled": False,
+        "latent_repair_enabled": False,
+        "end_refinement_enabled": False,
+        "source": "phase_27_16_basic_mode_boundary",
+    }
+    first_pass = params.get("first_pass_character_lock_authority") if isinstance(params.get("first_pass_character_lock_authority"), dict) else {}
+    params["first_pass_character_lock_authority"] = {
+        **first_pass,
+        "enabled": False,
+        "execution_mode": "off",
+        "execution": "off",
+        "source": "phase_27_16_basic_mode_boundary",
+    }
+    params["character_lock_first_pass_enabled"] = False
+    params["appearance_lock"] = {"enabled": False, "mode": "off", "gain": 0.0, "height": 0.0, "feather": int(params.get("mask_feather") or 18)}
+    params["appearance_lock_mode"] = "off"
+    params["appearance_lock_enabled"] = False
+    params["advanced_fix_pass_controls"] = _basic_mode_fix_pass_controls_v054()
+
+    legacy.update({
+        "scene_director_scene_mode": "basic",
+        "scene_director_basic_mode": True,
+        "scene_director_character_lock_mode": "off",
+        "scene_director_gender_guard_mode": "off",
+        "scene_director_skin_tone_guard_mode": "off",
+        "scene_director_hair_guard_mode": "off",
+        "scene_director_build_guard_mode": "off",
+        "scene_director_body_height_guard_mode": "off",
+        "scene_director_outfit_preservation_mode": "off",
+        "scene_director_negative_identity_guard_mode": "off",
+        "scene_director_character_lock_execution_mode": "off",
+        "scene_director_character_lock_pass_plan": "off",
+        "scene_director_character_lock_first_pass_enabled": False,
+        "scene_director_appearance_lock_enabled": False,
+        "scene_director_appearance_lock_mode": "off",
+        "scene_director_character_lock_execution": deepcopy(params["character_lock_execution"]),
+        "scene_director_first_pass_character_lock_authority": deepcopy(params["first_pass_character_lock_authority"]),
+        "scene_director_advanced_fix_pass_controls": deepcopy(params["advanced_fix_pass_controls"]),
+        "scene_director_fix_pass_mode": "basic_single_pass",
+        "scene_director_fix_pass_first_character_lock_rescue": "off",
+        "scene_director_fix_pass_background_restore": "off",
+        "scene_director_fix_pass_character_trait_lanes": "off",
+        "scene_director_fix_pass_final_background_reconciliation": "off",
+        "scene_director_fix_pass_environment_aware_character_lanes": False,
+    })
+    return {
+        "enabled": True,
+        "status": "applied",
+        "schema": "neo.image.scene_director.basic_mode_boundary.v27_16",
+        "phase": "SD-V054-27.16",
+        "policy": "Explicit Basic Scene Mode isolates regional conditioning from all finalized Character Lock-on paths while preserving their saved Advanced values.",
+    }
+
+
+def _apply_character_lock_off_scene_boundary_v054(scene_graph: dict[str, Any] | None, *, enabled: bool) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Strip stale Character-only advanced state when Advanced mode keeps the parent lock Off."""
+    graph = scene_graph if isinstance(scene_graph, dict) else None
+    if graph is None or not enabled:
+        return graph, {"enabled": False, "status": "not_requested"}
+    stripped_fields: dict[str, list[str]] = {}
+    for region in graph.get("regions") or []:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        removed: list[str] = []
+        for field in (
+            "lock", "character_traits", "trait_lock", "character_lock_correction",
+            "character_lock_correction_enabled", "character_lock_gender_family",
+            "character_lock_positive_text", "character_lock_negative_text",
+        ):
+            if field in region:
+                region.pop(field, None)
+                removed.append(field)
+        if removed:
+            stripped_fields[str(region.get("id") or region.get("label") or "character")] = removed
+    metadata = graph.setdefault("metadata", {}) if isinstance(graph.setdefault("metadata", {}), dict) else {}
+    metadata["character_lock_off_boundary"] = {
+        "schema": "neo.image.scene_director.character_lock_off_boundary.v27_17a",
+        "phase": "SD-V054-27.17A",
+        "status": "applied",
+        "stripped_fields": stripped_fields,
+        "policy": "Character Lock Off suppresses Character Trait Library and correction execution while leaving Advanced scene-level controls available.",
+    }
+    return graph, metadata["character_lock_off_boundary"]
+
+
+def _clear_stale_basic_scene_metadata_v054(scene_graph: dict[str, Any] | None, *, enabled: bool) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Remove Basic-only runtime markers before an explicit Advanced run.
+
+    Basic mode may be previewed, saved, or replayed before Advanced is selected.
+    Its execution metadata must never make the frozen V054 node classify an
+    Advanced Character/Pose lane as Basic.  Only Basic runtime markers are
+    removed here; saved Advanced settings and authored region data are kept.
+    """
+    graph = scene_graph if isinstance(scene_graph, dict) else None
+    report: dict[str, Any] = {
+        "schema": "neo.image.scene_director.advanced_scene_mode_boundary_cleanup.v27_17c",
+        "phase": "SD-V054-27.17C",
+        "enabled": bool(enabled),
+        "status": "not_requested" if not enabled else "clean",
+        "region_cleanup_count": 0,
+        "region_ids": [],
+        "graph_fields_removed": [],
+        "policy": "Advanced Scene Mode clears only stale Basic execution metadata; saved Character Lock, Trait Library, Pose, and repair selections remain untouched.",
+    }
+    if graph is None or not enabled:
+        return graph, report
+
+    cleaned_regions: list[str] = []
+    for region in graph.get("regions") or []:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        metadata = region.get("metadata") if isinstance(region.get("metadata"), dict) else {}
+        changed = False
+        for key in ("basic_mode", "basic_occupancy"):
+            if key in metadata:
+                metadata.pop(key, None)
+                changed = True
+        if changed:
+            region["metadata"] = metadata
+            cleaned_regions.append(str(region.get("id") or region.get("label") or "character"))
+
+    metadata = graph.get("metadata") if isinstance(graph.get("metadata"), dict) else {}
+    removed_graph_fields: list[str] = []
+    for key in ("basic_mode", "basic_regional_occupancy", "basic_occupancy_authority"):
+        if key in metadata:
+            metadata.pop(key, None)
+            removed_graph_fields.append(key)
+    stale_scene_mode = str(metadata.get("scene_mode") or "").strip().lower() == "basic"
+    changed = bool(cleaned_regions or removed_graph_fields or stale_scene_mode)
+    report.update({
+        "status": "applied" if changed else "clean",
+        "region_cleanup_count": len(cleaned_regions),
+        "region_ids": cleaned_regions,
+        "graph_fields_removed": removed_graph_fields,
+    })
+    if changed:
+        metadata["scene_mode"] = "advanced"
+        metadata["advanced_scene_mode_boundary_cleanup"] = deepcopy(report)
+        graph["metadata"] = metadata
+    return graph, report
+
+
+def _apply_basic_mode_scene_boundary_v054(scene_graph: dict[str, Any] | None, *, enabled: bool) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    graph = scene_graph if isinstance(scene_graph, dict) else None
+    if graph is None or not enabled:
+        return graph, {"enabled": False, "status": "not_requested"}
+    character_regions = []
+    stripped_fields: dict[str, list[str]] = {}
+    occupancy_prompt = (
+        "exactly one complete visible adult subject inside this assigned region, "
+        "this assigned character region must not be empty, separate silhouette from neighboring subjects, "
+        "no shared anatomy, no merged body"
+    )
+    for region in graph.get("regions") or []:
+        if not isinstance(region, dict) or not _role_is_character(region):
+            continue
+        rid = str(region.get("id") or "").strip()
+        removed = []
+        for field in (
+            "lock", "character_traits", "trait_lock", "character_lock_correction",
+            "character_lock_correction_enabled", "character_lock_gender_family",
+            "character_lock_positive_text", "character_lock_negative_text",
+            # Phase 27.17A: advanced per-character controls stay saved in UI state
+            # but never cross the Basic Scene Mode execution boundary.
+            "attach_to", "relationship", "target_area", "relationship_prompt",
+            "local_prompt_template", "negative_guard", "compiler_override",
+            "conflict_resolution_prompt", "conflict_negative_guard", "conflict_override",
+            "control", "detailer", "inpaint", "edit_intent", "source_image",
+            "source_region_id", "extension_routes",
+        ):
+            if field in region:
+                region.pop(field, None)
+                removed.append(field)
+        metadata = region.get("metadata") if isinstance(region.get("metadata"), dict) else {}
+        metadata["basic_mode"] = True
+        metadata["basic_occupancy"] = {
+            "schema": "neo.image.scene_director.basic_region_occupancy.v27_16",
+            "phase": "SD-V054-27.16",
+            "enabled": True,
+            "subject_required": True,
+            "exact_subject_count": 1,
+            "contract": occupancy_prompt,
+            "trait_library_applied": False,
+            "pose_authority_applied": False,
+        }
+        region["metadata"] = metadata
+        region["presence_boost"] = max(_float(region.get("presence_boost"), 1.0), 1.35)
+        region["subject_required"] = True
+        region["min_body_presence"] = max(_float(region.get("min_body_presence"), 0.85), 0.9)
+        character_regions.append(rid)
+        if removed:
+            stripped_fields[rid] = removed
+    count = len(character_regions)
+    metadata = graph.get("metadata") if isinstance(graph.get("metadata"), dict) else {}
+    metadata["scene_mode"] = "basic"
+    metadata["basic_mode"] = True
+    metadata["basic_regional_occupancy"] = {
+        "schema": "neo.image.scene_director.basic_regional_occupancy.v27_16",
+        "phase": "SD-V054-27.16",
+        "status": "applied",
+        "expected_character_regions": count,
+        "compiled_character_regions": count,
+        "character_region_ids": character_regions,
+        "count_contract": f"exact_{count}",
+        "trait_library_applied": False,
+        "trait_auto_extraction_applied": False,
+        "pose_authority_applied": False,
+        "character_lock_applied": False,
+        "latent_repair_applied": False,
+        "end_refinement_applied": False,
+        "single_sampler_required": True,
+        "stripped_fields": stripped_fields,
+        "policy": "Basic mode enforces one structural subject slot per Character region without exposing or executing Character Trait Library or Pose authority.",
+    }
+    graph["metadata"] = metadata
+    global_block = graph.get("global") if isinstance(graph.get("global"), dict) else {}
+    current_negative = _clean_text(global_block.get("negative") or "")
+    count_negative = (
+        f"single person, one-person portrait, fewer than {count} visible subjects, more than {count} visible subjects, "
+        "missing assigned character region, merged people, shared limbs, fused faces"
+        if count > 1 else "missing assigned character region, merged people, shared limbs, fused faces"
+    )
+    # Remove only the old generic structural phrase; preserve user-authored negatives.
+    current_negative = re.sub(r"(?:^|,\s*)extra people(?:\s*,|$)", ", ", current_negative, flags=re.IGNORECASE).strip(" ,")
+    global_block["negative"] = _append_unique_text(current_negative, count_negative)
+    graph["global"] = global_block
+    return graph, deepcopy(metadata["basic_regional_occupancy"])
+
+
+def _count_added_sampler_nodes_v054(workflow: dict[str, Any], original_sampler_ids: set[str]) -> tuple[int, list[str]]:
+    added = []
+    for node_id, node in (workflow or {}).items():
+        if str(node_id) in original_sampler_ids or not isinstance(node, dict):
+            continue
+        if str(node.get("class_type") or "") in {"KSampler", "KSamplerAdvanced"}:
+            added.append(str(node_id))
+    return len(added), added
 
 
 def _legacy_bbox_to_v054(value: Any) -> list[float]:
@@ -691,7 +1034,8 @@ def _node_inputs_for_scene_director(
                 global_block = scene_graph_for_node.get("global") if isinstance(scene_graph_for_node.get("global"), dict) else {}
                 global_block["prompt"] = _prepend_unique_text(prime_prompt, str(global_block.get("prompt") or ""))
                 scene_graph_for_node["global"] = global_block
-        character_lock_mode = str(params.get("character_lock_mode") or params.get("lock_mode") or "balanced").strip().lower()
+        basic_mode = _explicit_basic_mode_v054(params)
+        character_lock_mode = "off" if basic_mode else str(params.get("character_lock_mode") or params.get("lock_mode") or "balanced").strip().lower()
         identity_strength = float(params.get("identity_strength") or legacy.get("scene_director_appearance_lock_gain") or 0.55)
         # Phase 26.9.7: Character Lock Strong/Strict must restore the old
         # accidental "hair strong" authority as an intentional full-character
@@ -744,10 +1088,34 @@ def _node_inputs_for_scene_director(
         effective_values = effective_authority_values["effective"]
         inputs["base_weight"] = str(round(float(effective_values["base_weight"]), 4))
         inputs["region_gain"] = str(round(float(effective_values["region_gain"]), 4))
+        basic_occupancy_authority = {
+            "schema": "neo.image.scene_director.basic_occupancy_authority.v27_16",
+            "phase": "SD-V054-27.16",
+            "enabled": bool(basic_mode),
+            "base_weight": float(inputs["base_weight"]),
+            "region_gain": float(inputs["region_gain"]),
+            "policy": "Inactive outside explicit Character Lock Off Basic mode.",
+        }
+        if basic_mode:
+            # Basic mode is not Character Lock.  It simply gives the already
+            # declared Character boxes enough first-pass regional authority to
+            # establish one silhouette per slot against the global prompt.
+            inputs["base_weight"] = str(round(min(float(inputs["base_weight"]), 0.18), 4))
+            inputs["region_gain"] = str(round(max(float(inputs["region_gain"]), 1.05), 4))
+            basic_occupancy_authority.update({
+                "base_weight": float(inputs["base_weight"]),
+                "region_gain": float(inputs["region_gain"]),
+                "regional_layout_primary_path": "v054_regional_attention_subject_occupancy",
+                "character_lock_applied": False,
+                "trait_library_applied": False,
+                "pose_authority_applied": False,
+                "policy": "Basic-only regional occupancy weights; finalized Character Lock-on authority values are unchanged.",
+            })
         if isinstance(scene_graph_for_node, dict):
             scene_graph_for_node.setdefault("metadata", {})["effective_authority_values"] = deepcopy(effective_authority_values)
             scene_graph_for_node.setdefault("metadata", {})["background_prime_authority"] = deepcopy(background_prime_authority)
             scene_graph_for_node.setdefault("metadata", {})["character_lock_execution"] = deepcopy(character_lock_execution)
+            scene_graph_for_node.setdefault("metadata", {})["basic_occupancy_authority"] = deepcopy(basic_occupancy_authority)
         scene_graph_payload = json.dumps(scene_graph_for_node or {}, ensure_ascii=False, separators=(",", ":"))
         inputs.update({
             "scene_graph_json": scene_graph_payload,
@@ -3058,6 +3426,188 @@ def _conditioning_combine_inputs(class_name: str, base_ref: list[Any], regional_
     return {"conditioning_1": list(base_ref), "conditioning_2": list(regional_ref)}
 
 
+def _multi_subject_occupancy_anchor_prompt_v054(region: dict[str, Any], *, slot: int, count: int) -> str:
+    """Build a subject-presence-only prompt for the 3+ native mask lane.
+
+    This deliberately does not compile Character Lock traits, corrections, or
+    repair instructions.  The existing V054 Character Lock runtime continues to
+    own identity/trait preservation after the occupancy lane establishes one
+    visible subject per declared Character region.
+    """
+    structural = (
+        f"multi-subject occupancy anchor, subject slot {slot} of {count}, "
+        "exactly one complete visible adult subject occupies this assigned character region, "
+        "one coherent head and body, one continuous silhouette, coherent subject anatomy within the intended crop, "
+        "this subject slot is visibly filled, remain separate from neighboring subject slots, "
+        "no duplicated head, no secondary body, no shared limbs, do not merge bodies across regions"
+    )
+    return structural
+
+
+def _apply_multi_subject_occupancy_stabilizer_v054(
+    graph: dict[str, Any],
+    *,
+    next_id: int,
+    clip_ref: list[Any],
+    scene_node_id: str,
+    scene_graph: dict[str, Any] | None,
+    positive_ref: list[Any],
+    available_nodes: Any,
+    subject_slot_by_region: dict[str, int] | None = None,
+    workflow_mode: str = "generate",
+) -> tuple[int, list[Any], list[str], list[str], dict[str, Any]]:
+    """Phase 27.17B: add native masked positive conditioning for 3+ subjects.
+
+    The <=2 path is a hard bypass.  The stabilizer does not alter the V054
+    model patch, Character Lock strength, trait compiler, sampler settings, or
+    repair-pass selection.  It adds one Comfy native ConditioningSetMask lane
+    per Character region so early/base conditioning has explicit occupancy
+    authority in every declared subject box.
+    """
+    scene = scene_graph if isinstance(scene_graph, dict) else {}
+    slots = subject_slot_by_region or _v054_character_subject_slot_map(scene)
+    characters = [
+        region for region in (scene.get("regions") or [])
+        if isinstance(region, dict)
+        and _role_is_character(region)
+        and _legacy_truthy(region.get("enabled", True))
+    ]
+    count = len(characters)
+    mode = str(workflow_mode or "generate").strip().lower()
+    meta: dict[str, Any] = {
+        "schema": "neo.image.scene_director.multi_subject_occupancy_stabilizer.v27_17c",
+        "phase": "SD-V054-27.17C",
+        "status": "bypassed_below_threshold" if count < 3 else "not_applied",
+        "enabled": count >= 3,
+        "activation_threshold": 3,
+        "character_count": count,
+        "workflow_mode": mode,
+        "nodes_added": [],
+        "lanes": [],
+        "conditioning_scope": "character_region_masks",
+        "sampler_changes": False,
+        "character_lock_runtime_changed": False,
+        "one_two_subject_path_changed": False,
+        "policy": "3+ layout occupancy is presence-only and runs before existing regional/Character Lock behavior; it never repeats authored identity, trait, clothing, or Pose text, while one- and two-character workflows remain on the frozen path.",
+        "prompt_scope": "structural_presence_only",
+        "authored_character_prompt_repeated": False,
+    }
+    if count < 3:
+        return next_id, list(positive_ref), [], [], meta
+    if mode not in {"generate", "txt2img"}:
+        meta.update({
+            "status": "bypassed_non_txt2img_route",
+            "enabled": False,
+            "policy": "Phase 27.17B stabilizes fresh 3+ txt2img composition only; img2img/inpaint occupancy stays source-image driven and unchanged.",
+        })
+        return next_id, list(positive_ref), [], [], meta
+    if not positive_ref or not clip_ref or not scene_node_id:
+        meta.update({"status": "skipped_missing_graph_refs", "enabled": False})
+        return next_id, list(positive_ref), [], [], meta
+
+    mask_node_class = _conditioning_set_mask_node(available_nodes)
+    combine_node_class = _conditioning_combine_node(available_nodes)
+    if not mask_node_class or not combine_node_class:
+        meta.update({
+            "status": "skipped_missing_conditioning_nodes",
+            "enabled": False,
+            "warnings": ["multi_subject_occupancy_requires_conditioning_set_mask_and_combine"],
+        })
+        return next_id, list(positive_ref), [], ["Scene Director 3+ occupancy stabilizer skipped because native conditioning-mask nodes are unavailable."], meta
+
+    current_positive_ref = list(positive_ref)
+    added: list[str] = []
+    notes: list[str] = []
+    lanes: list[dict[str, Any]] = []
+    # Three equally sized subjects need a decisive structural lane, but this
+    # must remain below Character Lock Strong/Strict identity authority.
+    occupancy_strength = 1.45 if count == 3 else 1.35
+
+    for index, region in enumerate(characters, start=1):
+        region_id = str(region.get("id") or "").strip()
+        slot = _int(slots.get(region_id), index)
+        if slot < 1 or slot > 4:
+            lanes.append({
+                "region_id": region_id,
+                "label": _clean_text(region.get("label") or region_id),
+                "status": "skipped_no_subject_mask_slot",
+            })
+            continue
+        prompt = _multi_subject_occupancy_anchor_prompt_v054(region, slot=slot, count=count)
+        if not prompt:
+            lanes.append({
+                "region_id": region_id,
+                "label": _clean_text(region.get("label") or region_id),
+                "status": "skipped_empty_prompt",
+            })
+            continue
+        encode_id = str(next_id)
+        mask_id = str(next_id + 1)
+        combine_id = str(next_id + 2)
+        mask_ref = [str(scene_node_id), 5 + slot]
+        graph[encode_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": deepcopy(clip_ref), "text": prompt},
+        }
+        graph[mask_id] = {
+            "class_type": mask_node_class,
+            "inputs": _conditioning_set_mask_inputs(
+                available_nodes,
+                mask_node_class,
+                [encode_id, 0],
+                mask_ref,
+                occupancy_strength,
+            ),
+        }
+        graph[combine_id] = {
+            "class_type": combine_node_class,
+            "inputs": _conditioning_combine_inputs(
+                combine_node_class,
+                current_positive_ref,
+                [mask_id, 0],
+            ),
+        }
+        current_positive_ref = [combine_id, 0]
+        added.extend([encode_id, mask_id, combine_id])
+        lanes.append({
+            "region_id": region_id,
+            "label": _clean_text(region.get("label") or region_id),
+            "subject_slot": slot,
+            "mask_ref": mask_ref,
+            "conditioning_strength": occupancy_strength,
+            "positive_encode_node_id": encode_id,
+            "conditioning_mask_node_id": mask_id,
+            "conditioning_combine_node_id": combine_id,
+            "status": "applied",
+            "authority": "subject_presence_only",
+            "character_lock_fields_compiled": False,
+        })
+        next_id += 3
+
+    applied_count = sum(1 for lane in lanes if lane.get("status") == "applied")
+    meta.update({
+        "status": "applied" if applied_count == count else ("partial" if applied_count else "skipped_no_valid_subject_slots"),
+        "enabled": bool(applied_count),
+        "nodes_added": list(added),
+        "lanes": lanes,
+        "applied_count": applied_count,
+        "skipped_count": max(0, count - applied_count),
+        "occupancy_strength": occupancy_strength,
+        "positive_ref_before": list(positive_ref),
+        "positive_ref_after": list(current_positive_ref),
+        "native_conditioning_nodes": {
+            "mask": mask_node_class,
+            "combine": combine_node_class,
+        },
+        "runtime_path": "global_positive -> per_character_CLIP -> ConditioningSetMask(subject_slot_mask) -> ConditioningCombine -> existing_sampler",
+    })
+    if applied_count:
+        notes.append(
+            f"Scene Director Phase 27.17C added {applied_count} presence-only masked subject-occupancy conditioning lane(s) for the {count}-character txt2img scene; authored character identity/trait prompts were not repeated and Character Lock/sampler methods were not changed."
+        )
+    return next_id, current_positive_ref, added, notes, meta
+
+
 def _regional_controlnet_lanes(scene_graph: dict[str, Any] | None) -> list[dict[str, Any]]:
     lanes: list[dict[str, Any]] = []
     for index, region in enumerate((scene_graph or {}).get("regions") or [], start=1):
@@ -3971,6 +4521,58 @@ def _character_lock_execution_settings(legacy: dict[str, Any] | None) -> dict[st
     strength value alone.
     """
     legacy = legacy if isinstance(legacy, dict) else {}
+    if _legacy_truthy(legacy.get("scene_director_basic_mode") or legacy.get("basic_mode")):
+        return {
+            "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v2",
+            "phase": "SD-V054-27.16",
+            "dedupe_phase": "V25.9.14",
+            "mode": "off",
+            "pass_plan": "off",
+            "requested_mode": "off",
+            "requested_pass_plan": "off",
+            "effective_mode": "off",
+            "effective_pass_plan": "off",
+            "pass_plan_source": "phase_27_16_basic_mode_boundary",
+            "character_trait_lanes_force_on": False,
+            "promoted_from_fast_attention": False,
+            "trait_lane_gate_role": "disabled_in_basic_mode",
+            "single_sampler_legacy_route": False,
+            "prompt_guard_enabled": False,
+            "in_sampler_attention_enabled": False,
+            "masked_correction_enabled": False,
+            "latent_correction_requested": False,
+            "latent_repair_enabled": False,
+            "end_refinement_enabled": False,
+            "uses_scene_masks": False,
+            "source": "phase_27_16_basic_mode_boundary",
+            "policy": "Basic mode bypasses all Character Lock execution families without changing any Character Lock-on plan.",
+        }
+    if _explicit_character_lock_off_v054(legacy):
+        return {
+            "schema": "neo.image.scene_director.character_lock_execution.settings.v054.v2",
+            "phase": "SD-V054-27.17A",
+            "dedupe_phase": "V25.9.14",
+            "mode": "off",
+            "pass_plan": "off",
+            "requested_mode": "off",
+            "requested_pass_plan": "off",
+            "effective_mode": "off",
+            "effective_pass_plan": "off",
+            "pass_plan_source": "phase_27_17a_character_lock_parent_switch",
+            "character_trait_lanes_force_on": False,
+            "promoted_from_fast_attention": False,
+            "trait_lane_gate_role": "disabled_character_lock_off",
+            "single_sampler_legacy_route": False,
+            "prompt_guard_enabled": False,
+            "in_sampler_attention_enabled": False,
+            "masked_correction_enabled": False,
+            "latent_correction_requested": False,
+            "latent_repair_enabled": False,
+            "end_refinement_enabled": False,
+            "uses_scene_masks": False,
+            "source": "phase_27_17a_character_lock_parent_switch",
+            "policy": "Advanced Scene Mode stays active, but Character Lock Off suppresses Character Trait, correction, and Character Lock execution without changing any lock-on pass plan.",
+        }
     first_pass = legacy.get("scene_director_first_pass_character_lock_authority") if isinstance(legacy.get("scene_director_first_pass_character_lock_authority"), dict) else {}
     raw_policy = legacy.get("scene_director_character_lock_execution") if isinstance(legacy.get("scene_director_character_lock_execution"), dict) else {}
     explicit_plan = (
@@ -4098,6 +4700,8 @@ def _normalize_fix_pass_mode(value: Any, default: str = "auto") -> str:
 
 def _advanced_fix_pass_controls(legacy: dict[str, Any] | None) -> dict[str, Any]:
     legacy = legacy if isinstance(legacy, dict) else {}
+    if _legacy_truthy(legacy.get("scene_director_basic_mode") or legacy.get("basic_mode")):
+        return _basic_mode_fix_pass_controls_v054()
     raw = legacy.get("scene_director_advanced_fix_pass_controls") if isinstance(legacy.get("scene_director_advanced_fix_pass_controls"), dict) else legacy.get("advanced_fix_pass_controls") if isinstance(legacy.get("advanced_fix_pass_controls"), dict) else {}
     mode = str(raw.get("mode") or legacy.get("scene_director_fix_pass_mode") or "smart_auto").strip().lower().replace("-", "_").replace(" ", "_")
     if mode not in {"smart_auto", "minimal_fast", "manual", "force_all"}:
@@ -5336,6 +5940,22 @@ def _region_local_pose_terms_from_prompt(prompt: Any) -> list[str]:
 def _scene_character_pose_authority(scene_graph: dict[str, Any] | None) -> dict[str, Any]:
     """Report the character-local Pose fields that own text-pose conditioning."""
     graph_data = scene_graph if isinstance(scene_graph, dict) else {}
+    metadata = graph_data.get("metadata") if isinstance(graph_data.get("metadata"), dict) else {}
+    if metadata.get("basic_mode") or isinstance(metadata.get("basic_regional_occupancy"), dict) and metadata.get("basic_regional_occupancy", {}).get("status") == "applied":
+        count = len([region for region in graph_data.get("regions") or [] if isinstance(region, dict) and _role_is_character(region)])
+        return {
+            "schema": "neo.image.scene_director.character_pose_authority.v25_9_15",
+            "phase": "SD-V054-27.16",
+            "enabled": False,
+            "status": "disabled_basic_mode",
+            "source": "character_trait_library_disabled",
+            "character_count": count,
+            "active_character_count": 0,
+            "characters": [],
+            "advanced_pair_pose_execution": False,
+            "adds_attention_branch": False,
+            "policy": "Pose is part of Character Trait Library and does not execute while Character Lock is Off in Basic mode.",
+        }
     rows: list[dict[str, Any]] = []
     for region in graph_data.get("regions") if isinstance(graph_data.get("regions"), list) else []:
         if not isinstance(region, dict) or not _role_is_character(region):
@@ -8950,6 +9570,11 @@ def apply_scene_director_patch(
     original graph is returned untouched with a structured patch summary.
     """
     graph = deepcopy(workflow or {})
+    original_sampler_ids = {
+        str(node_id)
+        for node_id, node in graph.items()
+        if isinstance(node, dict) and str(node.get("class_type") or "") in {"KSampler", "KSamplerAdvanced"}
+    }
     route_data = route or {}
     sampler_key = str(sampler_node_id)
     model_output_ref = _copy_ref(model_ref, ["1", 0])
@@ -9011,6 +9636,8 @@ def apply_scene_director_patch(
             "prompt_extension_merge": (payload.get("prompt_extension_merge") if isinstance(payload, dict) and isinstance(payload.get("prompt_extension_merge"), dict) else {}),
         },
     )
+    basic_mode_boundary = _enforce_basic_mode_params_v054(v054_params, legacy)
+    basic_mode_enabled = bool(basic_mode_boundary.get("enabled"))
     prompt_authority_contract = _prompt_authority_contract_for_block(v054_block, legacy)
     prompt_authority = normalize_prompt_authority(prompt_authority_contract.get("mode"))
     if isinstance(v054_params.get("advanced_fix_pass_controls"), dict):
@@ -9044,12 +9671,27 @@ def apply_scene_director_patch(
     character_lock_bridge: dict[str, Any] = {"schema": "neo.image.scene_director.character_lock_execution_bridge.v054.v2", "phase": "SD-V054-26.8", "status": "not_applicable"}
     character_lock_positive_add = ""
     character_lock_negative_add = ""
+    basic_scene_boundary: dict[str, Any] = {"enabled": False, "status": "not_requested"}
+    advanced_scene_boundary_cleanup: dict[str, Any] = {"enabled": False, "status": "not_requested"}
+    character_lock_off_boundary: dict[str, Any] = {"enabled": False, "status": "not_requested"}
     v054_errors: list[str] = []
     v054_warnings: list[str] = []
     if scene_node_class == V054_NODE_CLASS:
         scene_graph_v054, v054_errors, v054_warnings = _scene_graph_from_block_v054(v054_block, width=width_value, height=height_value, legacy=legacy)
         if scene_graph_v054 is not None:
             scene_graph_v054 = _restore_replay_character_fields_v054(scene_graph_v054, graph)
+            scene_graph_v054, advanced_scene_boundary_cleanup = _clear_stale_basic_scene_metadata_v054(
+                scene_graph_v054,
+                enabled=not basic_mode_enabled,
+            )
+            scene_graph_v054, basic_scene_boundary = _apply_basic_mode_scene_boundary_v054(
+                scene_graph_v054,
+                enabled=basic_mode_enabled,
+            )
+            scene_graph_v054, character_lock_off_boundary = _apply_character_lock_off_scene_boundary_v054(
+                scene_graph_v054,
+                enabled=(not basic_mode_enabled and _explicit_character_lock_off_v054(v054_params)),
+            )
             scene_graph_v054 = strip_disabled_owner_routes_v054(scene_graph_v054, payload)
             persisted_fix_controls = (
                 (scene_graph_v054.get("metadata") or {}).get("advanced_fix_pass_controls")
@@ -9060,7 +9702,7 @@ def apply_scene_director_patch(
                 isinstance(v054_params.get("advanced_fix_pass_controls"), dict)
                 or isinstance(legacy.get("scene_director_advanced_fix_pass_controls"), dict)
             )
-            if isinstance(persisted_fix_controls, dict) and not has_explicit_fix_controls:
+            if isinstance(persisted_fix_controls, dict) and not has_explicit_fix_controls and not basic_mode_enabled:
                 # Replayed workflows can carry the visible Fix Pass controls in
                 # the saved scene graph even when the compact extension payload
                 # no longer contains that UI block. Restore them before plan
@@ -9633,14 +10275,39 @@ def apply_scene_director_patch(
     patched_positive_ref = [positive_encode_id, 0]
     patched_negative_ref = [negative_encode_id, 0]
 
+    multi_subject_occupancy_nodes_added: list[str] = []
+    multi_subject_occupancy_notes: list[str] = []
+    multi_subject_occupancy_stabilizer: dict[str, Any] = {
+        "schema": "neo.image.scene_director.multi_subject_occupancy_stabilizer.v27_17c",
+        "phase": "SD-V054-27.17C",
+        "status": "not_applicable",
+        "enabled": False,
+        "nodes_added": [],
+        "lanes": [],
+    }
+    occupancy_next_id = ip_next_id
+    if scene_node_class == V054_NODE_CLASS:
+        occupancy_next_id, patched_positive_ref, multi_subject_occupancy_nodes_added, multi_subject_occupancy_notes, multi_subject_occupancy_stabilizer = _apply_multi_subject_occupancy_stabilizer_v054(
+            graph,
+            next_id=ip_next_id,
+            clip_ref=clip_output_ref,
+            scene_node_id=node_id,
+            scene_graph=scene_graph_v054,
+            positive_ref=patched_positive_ref,
+            available_nodes=available_nodes,
+            subject_slot_by_region=subject_slot_by_region,
+            workflow_mode=str((validation.get("route") or {}).get("mode") or (validation.get("route") or {}).get("workflow_mode") or "generate"),
+        )
+        ip_notes.extend(multi_subject_occupancy_notes)
+
     controlnet_nodes_added: list[str] = []
     controlnet_notes: list[str] = []
     regional_controlnet_applied: list[dict[str, Any]] = []
-    controlnet_next_id = ip_next_id
+    controlnet_next_id = occupancy_next_id
     if scene_node_class == V054_NODE_CLASS:
         controlnet_next_id, patched_positive_ref, patched_negative_ref, controlnet_nodes_added, controlnet_notes, regional_controlnet_applied = _apply_scene_director_regional_controlnet_stack(
             graph,
-            next_id=ip_next_id,
+            next_id=occupancy_next_id,
             positive_ref=patched_positive_ref,
             negative_ref=patched_negative_ref,
             scene_node_id=node_id,
@@ -9947,7 +10614,7 @@ def apply_scene_director_patch(
     }
     skin_build_restore_final_latent_ref = list(background_restore_final_latent_ref)
     skin_build_restore_next_id = background_restore_next_id
-    if scene_node_class == V054_NODE_CLASS:
+    if scene_node_class == V054_NODE_CLASS and not basic_mode_enabled:
         skin_build_restore_next_id, skin_build_restore_final_latent_ref, skin_build_restore_nodes_added, skin_build_restore_notes, skin_build_contrast_authority = _apply_scene_director_skin_build_contrast_restore(
             graph,
             next_id=background_restore_next_id,
@@ -9961,6 +10628,16 @@ def apply_scene_director_patch(
             available_nodes=available_nodes,
             subject_slot_by_region=subject_slot_by_region,
         )
+    elif scene_node_class == V054_NODE_CLASS and basic_mode_enabled:
+        skin_build_contrast_authority = {
+            "schema": "neo.image.scene_director.skin_build_contrast_authority.v25_9_6_fix5a",
+            "phase": "SD-V054-27.16",
+            "status": "disabled_basic_mode",
+            "lanes": [],
+            "nodes_added": [],
+            "trait_auto_extraction_applied": False,
+            "policy": "Basic mode does not run prompt-derived Character Trait extraction or latent trait restoration.",
+        }
 
     character_latent_controller_nodes_added: list[str] = []
     character_latent_controller_notes: list[str] = []
@@ -10214,6 +10891,53 @@ def apply_scene_director_patch(
     if provider_capabilities.get("provider_profile") == "qwen_semantic_edit_adapter" and not qwen_adapter_plan:
         qwen_adapter_plan = build_qwen_adapter_plan_v054(scene_graph_v054, route=readiness.get("route") or validation.get("route") or {})
 
+    additional_sampler_count, additional_sampler_ids = _count_added_sampler_nodes_v054(graph, original_sampler_ids)
+    compiled_character_count = len(_v054_character_subject_slot_map(scene_graph_v054)) if scene_node_class == V054_NODE_CLASS else 0
+    basic_mode_runtime_proof = {
+        "schema": "neo.image.scene_director.basic_mode_runtime_proof.v27_16",
+        "phase": "SD-V054-27.16",
+        "status": "not_requested",
+        "basic_mode": False,
+        "basic_mode_single_sampler": False,
+        "regional_layout_primary_path": "not_applicable",
+        "expected_character_regions": 0,
+        "compiled_character_regions": compiled_character_count,
+        "count_contract": "not_applicable",
+        "trait_library_applied": None,
+        "trait_auto_extraction_applied": None,
+        "pose_authority_applied": None,
+        "character_lock_applied": None,
+        "latent_repair_applied": None,
+        "end_refinement_applied": None,
+        "additional_sampler_count": additional_sampler_count,
+        "additional_sampler_ids": additional_sampler_ids,
+    }
+    if basic_mode_enabled:
+        expected_count = int((basic_scene_boundary or {}).get("expected_character_regions") or compiled_character_count)
+        basic_mode_runtime_proof.update({
+            "status": "applied" if additional_sampler_count == 0 else "violation_extra_sampler_detected",
+            "basic_mode": True,
+            "basic_mode_single_sampler": additional_sampler_count == 0,
+            "regional_layout_primary_path": "v054_regional_attention_subject_occupancy",
+            "expected_character_regions": expected_count,
+            "compiled_character_regions": compiled_character_count,
+            "count_contract": f"exact_{expected_count}",
+            "trait_library_applied": False,
+            "trait_auto_extraction_applied": False,
+            "pose_authority_applied": False,
+            "character_lock_applied": False,
+            "latent_repair_applied": False,
+            "end_refinement_applied": False,
+            "additional_sampler_count": additional_sampler_count,
+            "additional_sampler_ids": additional_sampler_ids,
+            "scene_boundary": deepcopy(basic_scene_boundary),
+            "parameter_boundary": deepcopy(basic_mode_boundary),
+            "policy": "Basic mode is one first-pass regional layout route. Character Lock-on, Trait Library, Pose, latent repair, end refinement, and background repaint workflows remain untouched and inactive.",
+        })
+        notes.append(
+            f"Phase 27.16 Basic mode isolated {compiled_character_count} Character region(s) with structural occupancy and added {additional_sampler_count} extra sampler(s)."
+        )
+
     patch = {
         "extension_id": EXTENSION_ID,
         "extension_type": "built_in",
@@ -10223,8 +10947,8 @@ def apply_scene_director_patch(
         "mutated": True,
         "node": scene_node_class,
         "node_class": scene_node_class,
-        "node_classes": sorted({scene_node_class, *[str(graph[n].get("class_type")) for n in [*lora_first_pass_nodes_added, *ip_nodes_added, *controlnet_nodes_added, *identity_restore_nodes_added, *lora_nodes_added, *latent_lock_nodes_added, *final_pass_character_lock_nodes_added, *background_restore_nodes_added, *skin_build_restore_nodes_added, *character_latent_controller_nodes_added, *outfit_restore_nodes_added, *final_background_reconciliation_nodes_added, *lora_crop_nodes_added, *detailer_nodes_added] if n in graph]}),
-        "nodes_added": [node_id, positive_encode_id, negative_encode_id, *lora_first_pass_nodes_added, *ip_nodes_added, *controlnet_nodes_added, *identity_restore_nodes_added, *lora_nodes_added, *latent_lock_nodes_added, *final_pass_character_lock_nodes_added, *background_restore_nodes_added, *skin_build_restore_nodes_added, *character_latent_controller_nodes_added, *outfit_restore_nodes_added, *final_background_reconciliation_nodes_added, *lora_crop_nodes_added, *detailer_nodes_added],
+        "node_classes": sorted({scene_node_class, *[str(graph[n].get("class_type")) for n in [*lora_first_pass_nodes_added, *ip_nodes_added, *multi_subject_occupancy_nodes_added, *controlnet_nodes_added, *identity_restore_nodes_added, *lora_nodes_added, *latent_lock_nodes_added, *final_pass_character_lock_nodes_added, *background_restore_nodes_added, *skin_build_restore_nodes_added, *character_latent_controller_nodes_added, *outfit_restore_nodes_added, *final_background_reconciliation_nodes_added, *lora_crop_nodes_added, *detailer_nodes_added] if n in graph]}),
+        "nodes_added": [node_id, positive_encode_id, negative_encode_id, *lora_first_pass_nodes_added, *ip_nodes_added, *multi_subject_occupancy_nodes_added, *controlnet_nodes_added, *identity_restore_nodes_added, *lora_nodes_added, *latent_lock_nodes_added, *final_pass_character_lock_nodes_added, *background_restore_nodes_added, *skin_build_restore_nodes_added, *character_latent_controller_nodes_added, *outfit_restore_nodes_added, *final_background_reconciliation_nodes_added, *lora_crop_nodes_added, *detailer_nodes_added],
         "scene_node_id": node_id,
         "text_nodes_added": [positive_encode_id, negative_encode_id],
         "sampler_node_id": sampler_key,
@@ -10244,6 +10968,15 @@ def apply_scene_director_patch(
         "scene_director_global_prompt_excluded": prompt_authority == PROMPT_AUTHORITY_SCENE_DIRECTOR_ONLY,
         "scene_director_prompt_only_mode": False,
         "scene_director_neutral_mode": False,
+        "scene_director_basic_mode": bool(basic_mode_enabled),
+        "scene_director_basic_mode_boundary": deepcopy(basic_mode_boundary),
+        "scene_director_advanced_scene_mode_boundary_cleanup": deepcopy(advanced_scene_boundary_cleanup),
+        "scene_director_character_lock_off_boundary": deepcopy(character_lock_off_boundary),
+        "scene_director_basic_regional_occupancy": deepcopy(basic_scene_boundary),
+        "scene_director_basic_mode_runtime_proof": deepcopy(basic_mode_runtime_proof),
+        "scene_director_multi_subject_occupancy_stabilizer": deepcopy(multi_subject_occupancy_stabilizer),
+        "scene_director_multi_subject_occupancy_nodes_added": list(multi_subject_occupancy_nodes_added),
+        "scene_director_extra_samplers_added": additional_sampler_count,
         "scene_director_character_lock_execution": deepcopy(character_lock_execution),
         "scene_director_character_lock_graph_cleanup": deepcopy(stale_character_lock_cleanup),
         "scene_director_character_lock_execution_mode": character_lock_execution.get("mode"),

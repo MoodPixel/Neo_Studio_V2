@@ -169,7 +169,8 @@ _add_comfy(RouteMatrixEntry(
     notes=[
         "Flux 1 safetensors/components uses Comfy UNETLoader + DualCLIPLoader + VAELoader + FluxGuidance.",
         "Visible UI label is Safetensors / Components; internal loader remains diffusion_model.",
-        "Flux 2 Klein is promoted to visible family flux2_klein in Pass D; this Flux 1 route keeps only Flux 1 component behavior."
+        "Flux 2 Klein is promoted to visible family flux2_klein in Pass D; this Flux 1 route keeps only Flux 1 component behavior.",
+        "Phase M15: a selected FLUX.1 Krea model stays family=flux but the Comfy compile router promotes it to the variant-aware comfy.flux_krea compiler."
     ],
 ))
 _add_comfy(RouteMatrixEntry(
@@ -186,7 +187,8 @@ _add_comfy(RouteMatrixEntry(
     reason="V25.9.20 Pass C keeps Flux 1 GGUF txt2img available through the validated provider-owned GGUF compiler; Flux 2 Klein auto-detect behavior is preserved for Pass D instead of being exposed as a Flux 1 UI architecture selector.",
     notes=[
         "Flux 1 GGUF uses the GGUF runtime card with automatic route resolution, not a manual Architecture dropdown.",
-        "Legacy Flux 1 GGUF requires GGUF model, text encoders, AE/VAE, and Flux guidance."
+        "Legacy Flux 1 GGUF requires GGUF model, text encoders, AE/VAE, and Flux guidance.",
+        "Phase M15: Krea GGUF remains family=flux and is promoted at compile time to comfy.flux_gguf.krea with the T5XXL + CLIP-L compatibility contract."
     ],
 ))
 _add_comfy(RouteMatrixEntry(
@@ -204,6 +206,7 @@ _add_comfy(RouteMatrixEntry(
     notes=[
         "img2img does not imply inpaint/outpaint support for the normal Flux 1 base model.",
         "Do not fallback to Flux GGUF, SD checkpoint, Qwen, or generic image-conditioned compilers.",
+        "Phase M15 exception: a selected FLUX.1 Krea model is variant-resolved to comfy.flux_krea and keeps Krea for img2img instead of changing family.",
     ],
 ))
 _add_comfy(RouteMatrixEntry(
@@ -227,6 +230,7 @@ _add_comfy(RouteMatrixEntry(
         "Use a FLUX.1 Fill-dev/compatible fill diffusion model in the normal Flux 1 Safetensors / Components model picker.",
         "Do not fallback to Flux GGUF, SD checkpoint, Qwen, or generic inpaint compilers.",
         "Flux Fill is an internal workflow variant for Flux 1 inpaint/outpaint, not a Model Family dropdown entry.",
+        "Phase M15 exception: a selected FLUX.1 Krea model is routed by the Comfy compile router to a Krea-retaining latent-mask inpaint workflow instead of FLUX.1 Fill.",
     ],
 ))
 _add_comfy(RouteMatrixEntry(
@@ -251,6 +255,7 @@ _add_comfy(RouteMatrixEntry(
         "Use a FLUX.1 Fill-dev/compatible fill diffusion model in the normal Flux 1 Safetensors / Components model picker.",
         "Do not fallback to Flux GGUF, SD checkpoint, Qwen, or generic outpaint compilers.",
         "Flux Fill is an internal workflow variant for Flux 1 inpaint/outpaint, not a Model Family dropdown entry.",
+        "Phase M15 exception: a selected FLUX.1 Krea model is routed by the Comfy compile router to a Krea-retaining latent-mask outpaint workflow instead of FLUX.1 Fill.",
     ],
 ))
 
@@ -285,7 +290,7 @@ for _mode in ("inpaint", "outpaint"):
         ],
     ))
 for _mode in ("img2img", "inpaint", "outpaint"):
-    _requires = ["gguf_unet", "gguf_text_encoder_primary", "vae_or_ae", "source_image", "flux_guidance"]
+    _requires = ["gguf_unet", "gguf_text_encoder_primary", "gguf_text_encoder_secondary", "vae_or_ae", "source_image", "flux_guidance"]
     if _mode == "inpaint":
         _requires.append("mask_image")
     if _mode == "outpaint":
@@ -304,9 +309,64 @@ for _mode in ("img2img", "inpaint", "outpaint"):
         reason="V25.9.20 Pass C keeps Flux 1 GGUF image-conditioned routes available through the provider-owned source stack; inpaint adds latent noise mask + DifferentialDiffusion, and outpaint consumes ImagePadForOutpaint output 1 as the latent noise mask instead of preserving gray padding. Runtime validation was already recorded after Phase M14.2/M14.3.",
         notes=[
             "Flux 1 GGUF image-conditioned support stays inside comfy.flux_gguf and must not fallback across families/loaders.",
-            "ControlNet/LoRA/High-Res extensions still resolve their own route-specific support instead of inheriting base-route availability blindly."
+            "ControlNet/LoRA/High-Res extensions still resolve their own route-specific support instead of inheriting base-route availability blindly.",
+            "Phase M15: Krea GGUF uses this same source/mask branch but the compile router preserves variant=krea_dev and the selected Krea GGUF model."
         ],
     ))
+
+
+# Phase M16 — Krea 2 RAW + Turbo are their own Comfy architectures.
+# txt2img follows the official native graph; source-image modes are explicit
+# Neo latent adapters and therefore remain Experimental in the normal UI.
+for _family in ("krea2", "krea2_turbo"):
+    _family_label = "Krea 2 Turbo" if _family == "krea2_turbo" else "Krea 2 RAW"
+    _profile_prefix = "krea2_turbo" if _family == "krea2_turbo" else "krea2"
+    for _loader in ("diffusion_model", "gguf"):
+        for _mode in IMAGE_MODES:
+            _requires = ["diffusion_model" if _loader == "diffusion_model" else "gguf_unet", "qwen3vl_4b_text_encoder", "qwen_image_vae"]
+            if _mode in {"img2img", "inpaint", "outpaint"}:
+                _requires.append("source_image")
+            if _mode == "inpaint":
+                _requires.append("mask_image")
+            if _mode == "outpaint":
+                _requires.append("outpaint_padding")
+            _state: RouteState = "available" if (_loader == "diffusion_model" and _mode == "txt2img") else "experimental_available"
+            _provider_nodes = {
+                "model_loader": "UNETLoader" if _loader == "diffusion_model" else "UnetLoaderGGUF (Krea2-capable fork)",
+                "text_encoder_loader": "CLIPLoader(type=krea2)",
+                "vae_loader": "VAELoader",
+                "latent_node": "EmptyLatentImage" if _mode == "txt2img" else "LoadImage + VAEEncode",
+                "sampler": "KSampler",
+            }
+            if _mode in {"inpaint", "outpaint"}:
+                _provider_nodes.update({"latent_mask": "SetLatentNoiseMask", "sampling_patch": "DifferentialDiffusion"})
+            if _mode == "outpaint":
+                _provider_nodes["outpaint_pad"] = "ImagePadForOutpaint"
+            _add_comfy(RouteMatrixEntry(
+                family=_family,
+                loader=_loader,
+                backend="comfyui",
+                mode=_mode,
+                state=_state,
+                workflow_type=f"image.{_mode}.{_profile_prefix}_{'gguf' if _loader == 'gguf' else 'native'}",
+                compiler_id="comfy.krea2_gguf" if _loader == "gguf" else "comfy.krea2",
+                requires=_requires,
+                parameter_profile=f"{_profile_prefix}_{'gguf' if _loader == 'gguf' else 'native'}",
+                provider_nodes=_provider_nodes,
+                reason=(
+                    f"Phase M16 exposes {_family_label} through its native Comfy Krea2 architecture."
+                    if _loader == "diffusion_model" and _mode == "txt2img"
+                    else f"Phase M16 exposes {_family_label} {_loader} {_mode} as an experimental provider-owned route with no cross-family fallback."
+                ),
+                notes=[
+                    "Krea 2 is not FLUX.1 Krea, FLUX.2 Klein, or Qwen Image Edit.",
+                    "Qwen3-VL-4B is loaded with CLIPLoader(type=krea2) so Comfy can build the model's 12-layer conditioning feature stack.",
+                    "Krea 2 uses the Qwen Image VAE.",
+                    "Turbo is family-owned at 8 steps / effective Comfy CFG 1.0 with ConditioningZeroOut; RAW defaults to 52 steps / CFG 3.5.",
+                    "GGUF M16 quantizes the diffusion transformer only. The text encoder remains native/safetensors; generic GGUF text encoders are gated.",
+                    "img2img/inpaint/outpaint are Neo latent adapters, not a claim of an official specialized Krea 2 edit/inpaint model.",
+                ],
+            ))
 
 
 # V25.9.20 P4 — FLUX.2 Klein component workflow promotion.
@@ -893,7 +953,7 @@ def _forge_or_a1111_route(family: str, loader: str, mode: str, backend: str) -> 
         )
     if family in {"wan_image", "hunyuan_image"}:
         return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="provider_gated", reason=f"{family} is gated for {backend} until a provider route is selected.")
-    if family in {"flux", "flux2_klein", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "z_image_turbo", "hidream"}:
+    if family in {"flux", "flux2_klein", "krea2", "krea2_turbo", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "z_image_turbo", "hidream"}:
         return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="planned_gated", reason=f"{family}+{loader}+{mode} for {backend} is not part of the V2 base contract yet.")
     return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="unsupported", reason=f"No {backend} route contract exists for {family}+{loader}+{mode}.")
 

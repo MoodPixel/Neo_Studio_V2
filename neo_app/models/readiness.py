@@ -31,12 +31,14 @@ ASSET_ALIASES = {
     "diffusion_model": ["diffusion_model", "unet", "model", "model_name"],
     "unet": ["unet", "diffusion_model", "model"],
     "gguf_unet": ["gguf_unet", "unet", "model", "gguf_model"],
-    "text_encoder_primary": ["text_encoder_primary", "text_encoder_1", "clip", "clip_name", "qwen_text_encoder", "qwen3_text_encoder"],
+    "text_encoder_primary": ["text_encoder_primary", "text_encoder_1", "clip", "clip_name", "qwen_text_encoder", "qwen3_text_encoder", "qwen3vl_text_encoder"],
     "text_encoder_secondary": ["text_encoder_secondary", "text_encoder_2", "clip_2", "clip_name2"],
-    "gguf_text_encoder_primary": ["gguf_text_encoder_primary", "text_encoder_primary", "text_encoder_1", "qwen_text_encoder", "qwen3_text_encoder"],
+    "gguf_text_encoder_primary": ["gguf_text_encoder_primary", "text_encoder_primary", "text_encoder_1", "qwen_text_encoder", "qwen3_text_encoder", "qwen3vl_text_encoder"],
     "gguf_text_encoder_secondary": ["gguf_text_encoder_secondary", "text_encoder_secondary", "text_encoder_2"],
     "qwen_text_encoder": ["qwen_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
     "qwen3_text_encoder": ["qwen3_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
+    "qwen3vl_4b_text_encoder": ["qwen3vl_4b_text_encoder", "qwen3vl_text_encoder", "text_encoder_primary", "text_encoder_1", "clip", "clip_name"],
+    "qwen_image_vae": ["qwen_image_vae", "vae", "vae_or_ae", "ae_or_vae"],
     "text_encoder_if_required": ["text_encoder_if_required", "text_encoder_primary", "text_encoder_1", "clip", "clip_name", "qwen_text_encoder", "qwen3_text_encoder"],
     "vae_if_required": ["vae_if_required", "vae", "vae_or_ae", "ae_or_vae"],
     "vae": ["vae", "vae_or_ae", "ae_or_vae", "gguf_vae", "gguf_vae_optional"],
@@ -61,6 +63,8 @@ EXPLICIT_COMPONENT_ASSET_ROLES = {
     "text_encoder_secondary",
     "qwen_text_encoder",
     "qwen3_text_encoder",
+    "qwen3vl_4b_text_encoder",
+    "qwen_image_vae",
     "text_encoder_if_required",
     "vae_if_required",
     "vae",
@@ -197,6 +201,9 @@ def _gate_ready(gate: str, request: ReadinessValidationRequest, backend_capabili
         return _has_outpaint_padding(request), "Missing outpaint padding."
     if gate == "qwen_mmproj":
         return _role_available(backend_capabilities, loader, "qwen_mmproj", assets), "Missing Qwen mmproj."
+    if gate == "krea2_clip_loader":
+        ready = _role_available(backend_capabilities, loader, "krea2_clip_loader", assets)
+        return ready, "Connected ComfyUI does not advertise CLIPLoader(type=krea2). Update ComfyUI to a Krea 2-capable build."
     if gate == "dual_text_encoders":
         primary = _role_available(backend_capabilities, loader, "text_encoder_primary", assets) or _role_available(backend_capabilities, loader, "gguf_text_encoder_primary", assets)
         variant = str(request.params.get("flux_variant") or request.params.get("variant") or assets.get("flux_variant") or "").strip().lower().replace(" ", "_").replace("-", "_")
@@ -208,7 +215,7 @@ def _gate_ready(gate: str, request: ReadinessValidationRequest, backend_capabili
         has_value = _truthy(request.params.get("flux_guidance")) or _truthy(assets.get("flux_guidance"))
         has_backend = _role_available(backend_capabilities, loader, "flux_guidance", assets)
         return has_value and has_backend, "Missing Flux guidance value or backend support."
-    if gate in {"model", "qwen_text_encoder", "qwen3_text_encoder", "ae_or_vae", "vae_or_ae", "variant", "wan_task", "edit_instruction"}:
+    if gate in {"model", "qwen_text_encoder", "qwen3_text_encoder", "qwen3vl_4b_text_encoder", "qwen_image_vae", "ae_or_vae", "vae_or_ae", "variant", "wan_task", "edit_instruction"}:
         if gate == "model":
             if loader in {"diffusion_model", "unet"}:
                 return _has_selected_asset("diffusion_model", assets) or _has_selected_asset("unet", assets), "Select an installed diffusion model."

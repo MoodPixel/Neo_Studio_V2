@@ -6,6 +6,17 @@ from typing import Any
 from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
+from neo_app.image.flux2_klein_contract import (
+    check_flux2_klein_compatibility,
+    is_flux2_klein_variant,
+    normalize_flux2_klein_variant,
+    resolve_flux2_klein_variant,
+)
+from neo_app.image.flux1_krea_contract import (
+    check_flux1_krea_compatibility,
+    is_flux1_krea_route,
+    resolve_flux1_variant,
+)
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
@@ -157,8 +168,7 @@ def _add_optional_mask_softening(workflow: dict[str, Any], next_id: int, mask_re
 
 
 def _is_klein_variant(value: Any) -> bool:
-    normalized = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
-    return normalized in {"klein", "flux2_klein", "flux_2_klein", "klein_4b", "klein_9b", "klein_4b_distilled", "klein_9b_distilled"}
+    return is_flux2_klein_variant(value)
 
 def compile_flux_klein_txt2img(
     *,
@@ -208,6 +218,15 @@ def compile_flux_klein_txt2img(
         "Flux 2 Klein VAE / AE",
         params.get("vae"), params.get("vae_or_ae"), params.get("ae"),
     )
+    raw_variant = _param(params, "flux_variant", "variant", default="flux2_klein")
+    variant = resolve_flux2_klein_variant(raw_variant, diffusion_model) or normalize_flux2_klein_variant(raw_variant) or "klein_4b"
+    compatibility = check_flux2_klein_compatibility(variant, diffusion_model, text_encoder)
+    if compatibility.compatible is False:
+        if compatibility.message not in validation.errors:
+            validation.errors.append(compatibility.message)
+        validation.ok = False
+    elif compatibility.compatible is None and compatibility.message and compatibility.message not in validation.warnings:
+        validation.warnings.append(compatibility.message)
     flux_guidance = float(_param(params, "flux_guidance", "guidance", default=1.0))
     sampler = str(_param(params, "sampler", default="euler"))
     scheduler = str(_param(params, "scheduler", default="simple"))
@@ -235,12 +254,14 @@ def compile_flux_klein_txt2img(
         "workflow_type": route.workflow_type or f"image.{mode}.flux2_klein_native",
         "prompt_conditioning_mode": conditioning_mode,
         "clamp": conditioning_mode,
-        "flux_variant": _param(params, "flux_variant", default="klein_4b"),
+        "flux_variant": variant,
         "flux_klein_profile": {
             "family": job.family or "flux2_klein",
             "loader": "diffusion_model",
-            "variant": "flux2_klein",
+            "variant": variant,
             "compiler": "comfy.flux_klein",
+            "compatibility_contract": "phase_m14_model_encoder_size_lock",
+            "compatibility": compatibility.as_dict(),
             "enabled_modes": ["txt2img", "img2img", "edit", "inpaint", "outpaint"],
             "gated_modes": [],
             "required_comfy_nodes": [
@@ -454,6 +475,7 @@ def compile_flux_klein_txt2img(
             "phase_notes": [
                 "P4 promotes FLUX.2 [klein] Safetensors / Components img2img/edit/inpaint/outpaint through the Klein-native compiler.",
                 "FLUX.2 Klein uses a single Qwen3 text encoder via CLIPLoader(type=flux2), Flux2 VAE, FluxGuidance, and Flux2 latent branches.",
+                "Phase M14 resolves 4B/9B identity from the selected model and validates Qwen3 encoder size compatibility before Comfy queue.",
                 "Image modes encode Image 1 with VAEEncode; inpaint/outpaint apply SetLatentNoiseMask and DifferentialDiffusion instead of borrowing Flux 1 Fill.",
                 "Do not fallback to Flux 1, Flux GGUF, SD checkpoint, or Qwen compilers for Flux Klein component routes.",
                 f"Prompt conditioning mode: {conditioning_mode}.",
@@ -462,6 +484,296 @@ def compile_flux_klein_txt2img(
         },
     )
 
+
+
+def compile_flux_krea_workflow(
+    *,
+    provider_id: str,
+    base_url: str,
+    job: NeoJob,
+    validation: ProviderValidationResult,
+    route: CompileRoute,
+    capabilities: dict[str, Any],
+) -> CompiledJob:
+    """Compile Phase M15 FLUX.1 Krea safetensors/component workflows.
+
+    Krea is a FLUX.1 Dev-compatible diffusion model.  Neo keeps it inside the
+    canonical ``family=flux`` contract but gives it a variant-aware compiler so
+    inpaint/outpaint do not silently swap the selected Krea model for FLUX.1
+    Fill.  Masked workflows are latent-mask workflows: VAEEncode +
+    SetLatentNoiseMask + DifferentialDiffusion.
+    """
+
+    raw_params = job.params or {}
+    mode = str(route.mode or job.mode or "txt2img")
+    if mode == "generate":
+        mode = "txt2img"
+    params = normalize_inpaint_target_aliases(raw_params) if mode == "inpaint" else raw_params
+    defaults = FLUX_NATIVE_DEFAULTS
+    requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
+    seed = int(_param(params, "actual_seed", "seed", default=requested_seed))
+    if seed < 0:
+        seed = int(time.time() * 1000) % 2147483647
+
+    conditioning_mode = normalize_prompt_conditioning_mode(params.get("prompt_conditioning_mode", params.get("clamp", "raw")))
+    conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
+    effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
+
+    diffusion_model = require_explicit_asset_selection(
+        validation,
+        "FLUX.1 Krea diffusion model",
+        job.model,
+        params.get("diffusion_model"), params.get("model"), params.get("unet"), params.get("model_name"),
+    )
+    text_encoder_1 = require_explicit_asset_selection(
+        validation,
+        "FLUX.1 Krea text encoder A (T5XXL / CLIP-L)",
+        params.get("text_encoder_1"), params.get("text_encoder_primary"), params.get("clip_name1"),
+    )
+    text_encoder_2 = require_explicit_asset_selection(
+        validation,
+        "FLUX.1 Krea text encoder B (CLIP-L / T5XXL)",
+        params.get("text_encoder_2"), params.get("text_encoder_secondary"), params.get("clip_name2"),
+    )
+    vae = require_explicit_asset_selection(
+        validation,
+        "FLUX.1 Krea AE / VAE",
+        params.get("vae"), params.get("vae_or_ae"), params.get("ae"),
+    )
+    variant = resolve_flux1_variant(_param(params, "flux_variant", "variant", default="krea_dev"), diffusion_model)
+    compatibility = check_flux1_krea_compatibility(variant, diffusion_model, text_encoder_1, text_encoder_2)
+    if compatibility.compatible is False:
+        if compatibility.message not in validation.errors:
+            validation.errors.append(compatibility.message)
+        validation.ok = False
+    elif compatibility.compatible is None and compatibility.message and compatibility.message not in validation.warnings:
+        validation.warnings.append(compatibility.message)
+
+    flux_guidance = float(_param(params, "flux_guidance", "guidance", default=defaults.flux_guidance))
+    sampler = str(_param(params, "sampler", default=defaults.sampler))
+    scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
+    steps = int(_param(params, "steps", default=defaults.steps))
+    width = int(_param(params, "width", default=defaults.width))
+    height = int(_param(params, "height", default=defaults.height))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
+    denoise_default = 1.0 if mode == "txt2img" else 0.75
+    denoise = float(_param(params, "denoise", default=denoise_default))
+    # FLUX.1 guidance-distilled routes keep sampler CFG neutral. FluxGuidance is
+    # the user-facing guidance control.
+    cfg = 1.0
+
+    source_name = _source_image_name(params) if mode in {"img2img", "inpaint", "outpaint"} else ""
+    if mode in {"img2img", "inpaint", "outpaint"} and not source_name:
+        validation.errors.append(f"FLUX.1 Krea Safetensors / Components {mode} requires Image 1 / source image.")
+        validation.ok = False
+
+    actual_params = {
+        **params,
+        "seed": seed,
+        "actual_seed": seed,
+        "requested_seed": requested_seed,
+        "workflow_type": route.workflow_type or f"image.{mode}.flux1_krea_native",
+        "prompt_conditioning_mode": conditioning_mode,
+        "clamp": conditioning_mode,
+        "flux_variant": "krea_dev",
+        "diffusion_model": diffusion_model,
+        "text_encoder_1": text_encoder_1,
+        "text_encoder_2": text_encoder_2,
+        "vae": vae,
+        "flux_guidance": flux_guidance,
+        "denoise": denoise,
+        "cfg": cfg,
+        "requested_cfg": _param(params, "cfg", default=1.0),
+        "steps": steps,
+        "flux1_krea_profile": {
+            "family": "flux",
+            "architecture": "flux1",
+            "variant": "krea_dev",
+            "loader": "diffusion_model",
+            "compiler": "comfy.flux_krea",
+            "compatibility": compatibility.as_dict(),
+            "enabled_modes": ["txt2img", "img2img", "inpaint", "outpaint"],
+            "gated_modes": [],
+            "text_encoder_policy": "dual_t5xxl_plus_clip_l_either_order",
+            "negative_policy": "ConditioningZeroOut from positive conditioning; sampler CFG fixed at 1.0",
+            "source_policy": "txt2img uses EmptySD3LatentImage; img2img VAE-encodes Image 1; inpaint/outpaint use latent noise masks and DifferentialDiffusion while retaining the selected Krea model.",
+            "does_not_use": ["FLUX.2 Klein/Qwen3", "Qwen2.5-VL/MMProj", "silent FLUX.1 Fill model substitution"],
+        },
+        "_neo_effective_flux1_krea_native_route": True,
+        "_neo_flux1_krea_mode": mode,
+    }
+
+    workflow: dict[str, Any] = {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": diffusion_model, "weight_dtype": str(_param(params, "weight_dtype", "model_precision", default="default"))}},
+        "2": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": text_encoder_1, "clip_name2": text_encoder_2, "type": "flux"}},
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"text": effective_prompt, "clip": ["2", 0]}},
+        "6": {"class_type": "FluxGuidance", "inputs": {"conditioning": ["5", 0], "guidance": flux_guidance}},
+        "7": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["5", 0]}},
+    }
+
+    next_id = 8
+    source_ref: list[Any] | None = None
+    mask_ref: list[Any] | None = None
+    route_meta: dict[str, Any] = {"_neo_flux1_krea_source_branch": mode}
+
+    if mode == "txt2img":
+        workflow["4"] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+        latent_ref = ["4", 0]
+    elif source_name:
+        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_name, "upload": "image"}}
+        source_ref = [str(next_id), 0]
+        next_id += 1
+        route_meta.update({"source_image_name": source_name, "_neo_flux1_krea_image1_latent_anchor": True})
+
+        if mode == "outpaint":
+            outpaint_payload = normalize_outpaint_payload(params, default_width=width, default_height=height)
+            if outpaint_padding_total(outpaint_payload) <= 0:
+                validation.errors.append("FLUX.1 Krea outpaint requires padding on at least one side.")
+                validation.ok = False
+            padding = outpaint_payload["padding"]
+            mask = outpaint_payload["mask"]
+            left = int(padding.get("left", 0) or 0)
+            top = int(padding.get("top", 0) or 0)
+            right = int(padding.get("right", 0) or 0)
+            bottom = int(padding.get("bottom", 0) or 0)
+            feather = int(mask.get("feather", 16) or 16)
+            next_id, source_ref, working_width, working_height, source_scale_meta = _insert_outpaint_source_scale_node(
+                workflow, next_id, source_ref, outpaint_payload, fallback_width=width, fallback_height=height
+            )
+            workflow[str(next_id)] = {
+                "class_type": "ImagePadForOutpaint",
+                "inputs": {"image": list(source_ref), "left": left, "top": top, "right": right, "bottom": bottom, "feathering": feather},
+            }
+            source_ref = [str(next_id), 0]
+            mask_ref = [str(next_id), 1]
+            next_id += 1
+            route_meta.update({
+                "outpaint_payload": outpaint_payload,
+                "_neo_outpaint_contract": outpaint_payload,
+                "flux1_krea_outpaint_source_scale_node": source_scale_meta or {},
+                "flux1_krea_outpaint_padding": {"left": left, "top": top, "right": right, "bottom": bottom, "feather": feather, "blur": int(mask.get("blur", 8) or 8)},
+                "flux1_krea_outpaint_effective_size": {"width": max(64, working_width + left + right), "height": max(64, working_height + top + bottom)},
+                "_neo_flux1_krea_outpaint_uses_image_pad_mask": True,
+                "_neo_flux1_krea_outpaint_uses_latent_noise_mask": True,
+                "_neo_flux1_krea_outpaint_uses_differential_diffusion": True,
+            })
+
+        if mode == "inpaint":
+            mask_name = _mask_image_name(params)
+            if not mask_name:
+                validation.errors.append("FLUX.1 Krea inpaint requires a mask image.")
+                validation.ok = False
+                mask_name = ""
+            workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": mask_name, "channel": "red"}}
+            mask_ref = [str(next_id), 0]
+            next_id += 1
+            next_id, mask_ref, mask_meta = _add_optional_mask_softening(workflow, next_id, mask_ref, params)
+            route_meta.update({
+                "mask_image_name": mask_name,
+                **mask_meta,
+                "_neo_flux1_krea_inpaint_uses_latent_noise_mask": True,
+                "_neo_flux1_krea_inpaint_uses_differential_diffusion": True,
+                "_neo_flux1_krea_inpaint_final_composite": True,
+                "_neo_flux1_krea_inpaint_composite_feather": max(0, _int_param(params, "flux_inpaint_composite_feather", _int_param(params, "composite_feather", 10))),
+            })
+
+        workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+        if mode in {"inpaint", "outpaint"} and mask_ref is not None:
+            workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(latent_ref), "mask": list(mask_ref)}}
+            latent_ref = [str(next_id), 0]
+            next_id += 1
+    else:
+        workflow["4"] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+        latent_ref = ["4", 0]
+
+    sampler_model_ref: list[Any] = ["1", 0]
+    if mode in {"inpaint", "outpaint"}:
+        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
+        sampler_model_ref = [str(next_id), 0]
+        next_id += 1
+
+    sampler_id = str(next_id)
+    decode_id = str(next_id + 1)
+    preview_id = str(next_id + 2)
+    workflow[sampler_id] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler if sampler != "provider_default" else defaults.sampler,
+            "scheduler": scheduler if scheduler != "provider_default" else defaults.scheduler,
+            "denoise": denoise,
+            "model": sampler_model_ref,
+            "positive": ["6", 0],
+            "negative": ["7", 0],
+            "latent_image": latent_ref,
+        },
+    }
+    workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
+    output_ref: list[Any] = [decode_id, 0]
+    if mode == "inpaint" and source_ref and mask_ref:
+        composite_mask_ref = list(mask_ref)
+        composite_feather = int(route_meta.get("_neo_flux1_krea_inpaint_composite_feather") or 0)
+        if composite_feather > 0:
+            feather_id = preview_id
+            preview_id = str(int(preview_id) + 1)
+            workflow[feather_id] = {
+                "class_type": "GrowMaskWithBlur",
+                "inputs": {"mask": composite_mask_ref, "expand": 0, "incremental_expandrate": 0, "tapered_corners": True, "flip_input": False, "blur_radius": composite_feather, "lerp_alpha": 1, "decay_factor": 1, "fill_holes": False},
+            }
+            composite_mask_ref = [feather_id, 0]
+        composite_id = preview_id
+        preview_id = str(int(preview_id) + 1)
+        workflow[composite_id] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {"destination": list(source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": composite_mask_ref},
+        }
+        output_ref = [composite_id, 0]
+    workflow[preview_id] = {"class_type": "PreviewImage", "inputs": {"images": output_ref}}
+
+    actual_params.update(route_meta)
+    actual_params["_neo_sampler_node_id"] = sampler_id
+    actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
+        route={**route.as_dict(), "workflow_mode": "generate" if mode == "txt2img" else mode, "route_state": "available" if route.status == "available" else route.status},
+        model_ref=["1", 0],
+        clip_ref=["2", 0],
+        sampler_node_id=sampler_id,
+        sampler_model_input="model",
+        loader_node_class="LoraLoader",
+        source="comfy.flux_krea",
+        strategy="lora_loader_model_clip_consumer_rewire",
+        validated=False,
+        notes=["M15 keeps Krea on the FLUX.1 dual-encoder model/clip graph; LoRA compatibility remains matrix-gated."],
+    )
+
+    return CompiledJob(
+        provider_id=provider_id,
+        compile_status="compiled" if validation.ok else "mock_compiled",
+        backend_payload={
+            "provider_id": provider_id,
+            "backend": "comfyui",
+            "base_url": base_url,
+            "validation": model_to_dict(validation),
+            "prompt": workflow,
+            "client_id": f"neo-studio-v2-{uuid4().hex[:8]}",
+            "actual_params": actual_params,
+            "runtime_progress_source": "comfyui.websocket_and_history",
+            "compile_route": {**route.as_dict(), "compiler_id": "comfy.flux_krea", "workflow_type": route.workflow_type or f"image.{mode}.flux1_krea_native"},
+            "capabilities": capabilities,
+            "phase_notes": [
+                "Phase M15 registers FLUX.1 Krea as a FLUX.1 Dev-compatible variant rather than a new top-level family.",
+                "Krea Safetensors / Components uses UNETLoader + DualCLIPLoader(type=flux) with one T5XXL and one CLIP-L encoder plus a Flux AE/VAE.",
+                "Krea img2img keeps the selected Krea model and uses Image 1 as a VAEEncode latent anchor.",
+                "Krea inpaint/outpaint are explicit latent-mask workflows using SetLatentNoiseMask + DifferentialDiffusion; Neo does not silently substitute FLUX.1 Fill.",
+                f"Prompt conditioning mode: {conditioning_mode}.",
+            ],
+            "prompt_conditioning": conditioning,
+        },
+    )
 
 def compile_flux_native_txt2img(
     *,

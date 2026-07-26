@@ -92,6 +92,43 @@ def _role(
     )
 
 
+def _role_requiring_option(
+    role_id: str,
+    aliases: list[str],
+    object_info: dict[str, Any],
+    *,
+    option_input: str,
+    required_option: str,
+    asset_inputs: list[str] | None = None,
+    notes: list[str] | None = None,
+) -> BackendRoleCapability:
+    """Expose a role only when a live Comfy node advertises a required enum option.
+
+    Architecture-specific CLIP loader types are not interchangeable. Merely
+    detecting CLIPLoader is insufficient for Krea 2 because older Comfy builds
+    may not advertise type=krea2.
+    """
+    node_exists, node_name = _node_exists(object_info, aliases)
+    required = _node_required_inputs(object_info, node_name) if node_exists else {}
+    optional = _node_optional_inputs(object_info, node_name) if node_exists else {}
+    values = _extract_option_list(({**optional, **required}).get(option_input))
+    normalized = {str(value).strip().casefold() for value in values}
+    option_ok = str(required_option).strip().casefold() in normalized
+    assets = _extract_assets(object_info, node_name, asset_inputs or []) if node_exists else {}
+    role_notes = list(notes or [])
+    if node_exists and not option_ok:
+        role_notes.append(f"{node_name} does not advertise {option_input}={required_option}.")
+    return BackendRoleCapability(
+        role_id=role_id,
+        available=bool(node_exists and option_ok),
+        backend_key=node_name,
+        backend_node=node_name,
+        aliases=aliases,
+        assets=assets,
+        notes=role_notes,
+    )
+
+
 def _flatten_assets(roles: dict[str, BackendRoleCapability]) -> dict[str, list[str]]:
     assets: dict[str, list[str]] = {}
     for role_id, role in roles.items():
@@ -144,6 +181,9 @@ def discover_comfy_backend_capabilities(
             asset_inputs=["unet_name", "model_name", "diffusion_model_name"],
         ),
         "text_encoder_primary": _role("text_encoder_primary", ["CLIPLoader"], object_info, asset_inputs=["clip_name", "clip_name1"]),
+        "qwen3vl_4b_text_encoder": _role("qwen3vl_4b_text_encoder", ["CLIPLoader"], object_info, asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 asset lane; runtime still requires CLIPLoader type=krea2."]),
+        "qwen_image_vae": _role("qwen_image_vae", ["VAELoader"], object_info, asset_inputs=["vae_name"]),
+        "krea2_clip_loader": _role_requiring_option("krea2_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="krea2", asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 requires Comfy CLIPLoader(type=krea2)."]),
         "text_encoder_secondary": _role("text_encoder_secondary", ["DualCLIPLoader"], object_info, asset_inputs=["clip_name2"]),
         "vae_or_ae": _role("vae_or_ae", ["VAELoader"], object_info, asset_inputs=["vae_name"]),
         "flux_guidance": _role("flux_guidance", ["FluxGuidance"], object_info),
@@ -177,6 +217,9 @@ def discover_comfy_backend_capabilities(
             object_info,
             asset_inputs=["unet_name", "model_name", "gguf_name"],
         ),
+        "qwen3vl_4b_text_encoder": _role("qwen3vl_4b_text_encoder", ["CLIPLoader"], object_info, asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 GGUF keeps the Qwen3-VL-4B encoder native/safetensors."]),
+        "qwen_image_vae": _role("qwen_image_vae", ["VAELoader"], object_info, asset_inputs=["vae_name"]),
+        "krea2_clip_loader": _role_requiring_option("krea2_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="krea2", asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 GGUF uses native CLIPLoader(type=krea2), not CLIPLoaderGGUF."]),
         "gguf_text_encoder_primary": _role(
             "gguf_text_encoder_primary",
             ["CLIPLoaderGGUF", "ClipLoaderGGUF"],

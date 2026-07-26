@@ -718,6 +718,12 @@ _CHARACTER_LOCAL_POSE_PATTERN = re.compile(
 )
 
 
+def _region_basic_mode_v27_16(region: Dict) -> bool:
+    metadata = region.get("metadata") if isinstance(region.get("metadata"), dict) else {}
+    occupancy = metadata.get("basic_occupancy") if isinstance(metadata.get("basic_occupancy"), dict) else {}
+    return bool(metadata.get("basic_mode") or occupancy.get("enabled"))
+
+
 def _character_local_pose_authority_for_attention(region: Dict) -> Dict[str, Any]:
     """Return one character-owned pose contract and never read shared Pair Pose.
 
@@ -727,6 +733,23 @@ def _character_local_pose_authority_for_attention(region: Dict) -> Dict[str, Any
     own region prompt, but no scene-level pose paragraph is copied into another
     character mask.
     """
+    if _region_basic_mode_v27_16(region):
+        return {
+            "schema": "neo.image.scene_director.character_pose_authority.v25_9_15",
+            "phase": "SD-V054-27.16",
+            "enabled": False,
+            "status": "disabled_basic_mode",
+            "source": "character_trait_library_disabled",
+            "region_id": str(region.get("id") or ""),
+            "label": str(region.get("name") or region.get("label") or region.get("id") or "Character").strip(),
+            "terms": [],
+            "posture_terms": [],
+            "lock_mode": "off",
+            "routes": [],
+            "adds_attention_branch": False,
+            "held_item_term_count": 0,
+            "policy": "Pose belongs to Character Trait Library and is unavailable while Character Lock is Off in Basic mode.",
+        }
     categories = _character_trait_categories_for_attention(region)
     explicit = [str(term).strip() for term in categories.get("pose", []) if str(term).strip()]
     held_items = _character_held_item_terms_for_attention(region)
@@ -4447,6 +4470,7 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
 
     global_data = graph.get("global", {}) if isinstance(graph.get("global", {}), dict) else {}
     graph_metadata = graph.get("metadata", {}) if isinstance(graph.get("metadata", {}), dict) else {}
+    basic_mode = bool(graph_metadata.get("basic_mode") or isinstance(graph_metadata.get("basic_regional_occupancy"), dict) and graph_metadata.get("basic_regional_occupancy", {}).get("status") == "applied")
     pair_pose_authority = _v054_pair_pose_authority(graph)
     prompt_authority = str(
         global_data.get("prompt_authority")
@@ -4476,7 +4500,7 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
         role = str(region.get("role", "custom")).strip().lower()
         if str(region.get("negative", "")).strip():
             negative_parts.append(str(region.get("negative", "")).strip())
-        lock_prompt, lock_negative = _v054_character_lock_prompt(region)
+        lock_prompt, lock_negative = ("", "") if basic_mode else _v054_character_lock_prompt(region)
         if lock_negative:
             negative_parts.append(lock_negative)
 
@@ -4502,6 +4526,7 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
             "relationship": _v054_optional_field(region.get("relationship")),
             "target_area": _v054_optional_field(region.get("target_area")),
             "object_label": str(region.get("label") or region.get("name") or rid).strip() or rid,
+            "metadata": dict(region.get("metadata") or {}) if isinstance(region.get("metadata"), dict) else {},
         }
         for field in (
             "lock",
@@ -4513,7 +4538,7 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
             "character_lock_positive_text",
             "character_lock_negative_text",
         ):
-            if field in region:
+            if field in region and not basic_mode:
                 base[field] = region.get(field)
 
         parent_id = _v054_clean_optional_id(region.get("attach_to"))
@@ -4539,7 +4564,26 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
         if role == "character":
             character_count += 1
             parent_prompt_parts = [base["prompt"]]
-            if lock_prompt:
+            if basic_mode:
+                occupancy = (
+                    "exactly one complete visible adult subject inside this assigned region, "
+                    "this assigned character region must not be empty, separate silhouette from neighboring subjects, "
+                    "no shared anatomy, no merged body"
+                )
+                parent_prompt_parts.append(occupancy)
+                base["presence_boost"] = max(_safe_float(base.get("presence_boost"), 1.0), 1.35)
+                base["min_body_presence"] = max(_safe_float(region.get("min_body_presence"), 0.85), 0.90)
+                base["metadata"]["basic_mode"] = True
+                base["metadata"]["basic_occupancy"] = {
+                    "schema": "neo.image.scene_director.basic_region_occupancy.v27_16",
+                    "phase": "SD-V054-27.16",
+                    "enabled": True,
+                    "subject_required": True,
+                    "exact_subject_count": 1,
+                    "trait_library_applied": False,
+                    "pose_authority_applied": False,
+                }
+            elif lock_prompt:
                 parent_prompt_parts.append(lock_prompt)
             base["prompt"] = ", ".join([p for p in parent_prompt_parts if p])
             base["region_type"] = "character"
@@ -4676,6 +4720,8 @@ def _v054_to_v05_scene(graph: Dict[str, Any], width: int, height: int, global_pr
         "v054_inpaint_target_plan": _v054_inpaint_target_plan(graph.get("regions") or []),
         "v054_conflict_plan": conflict_plan,
         "v054_pair_pose_authority": pair_pose_authority,
+        "v054_basic_mode": basic_mode,
+        "v054_basic_regional_occupancy": dict(graph_metadata.get("basic_regional_occupancy") or {}) if basic_mode else {},
         "v054_character_pose_authority": {
             str(region.get("id") or ""): _character_local_pose_authority_for_attention(region)
             for region in v05_regions if str(region.get("region_type") or "") == "character"

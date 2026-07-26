@@ -25,9 +25,9 @@ BLOCKED_FAMILIES = {'flux', 'qwen', 'qwen_image_edit', 'zimage'}
 DEFAULT_CONTRACTS = {
     'enabled': True,
     'use_node_auto_prompts': False,
-    'count_contract': 'exactly {count} visible subjects, one subject per character region, no extra subjects',
-    'subject_contract': 'one complete subject inside this region, not merged, not duplicated',
-    'negative_contract': 'extra people, missing subject, wrong number of subjects, merged bodies, fused faces',
+    'count_contract': 'exactly {count} visible subjects, one complete subject per character region, every assigned character region occupied',
+    'subject_contract': 'exactly one complete visible subject inside this assigned region, separate from neighboring subjects',
+    'negative_contract': 'fewer than {count} visible subjects, more than {count} visible subjects, missing assigned subject region, merged subjects, shared limbs, fused faces',
     'style_merge': 'use Neo main prompt as the scene style and composition intent',
 }
 

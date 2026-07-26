@@ -24,6 +24,8 @@
   ],
   "supported_families": [
     "flux",
+    "krea2_turbo",
+    "krea2",
     "qwen_image",
     "qwen_image_edit_2509",
     "qwen_rapid_aio",
@@ -126,6 +128,154 @@
       "notes": [
         "Comfy node names are diagnostics; provider compiler selects backend nodes later.",
         "Outpaint remains experimental until Phase 12.14/12.19 routes are implemented."
+      ]
+    },
+    "krea2_gguf": {
+      "profile_id": "krea2_gguf",
+      "family": "krea2",
+      "loader": "gguf",
+      "modes": {
+        "generate": "experimental_native_encoder",
+        "img2img": "experimental_source_latent",
+        "inpaint": "experimental_single_source_mask",
+        "outpaint": "experimental_single_source_canvas"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
+      ],
+      "optional_roles": [],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "img2img": [
+          "source_image",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen3vl_text_encoder",
+        "vae",
+        "krea2_variant",
+        "route_readiness"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        }
+      },
+      "notes": [
+        "Phase M16 treats Krea 2 GGUF as experimental transformer quantization, not a generic GGUF text-encoder stack.",
+        "Krea 2 requires native CLIPLoader(type=krea2) with a Qwen3-VL-4B safetensors encoder so Comfy can build the 12-layer conditioning tensor.",
+        "A Krea2-capable GGUF transformer loader/fork is required; generic upstream GGUF support must not be assumed.",
+        "RAW keeps its 52-step/CFG-3.5 default semantics."
+      ]
+    },
+    "krea2_turbo_gguf": {
+      "profile_id": "krea2_turbo_gguf",
+      "family": "krea2_turbo",
+      "loader": "gguf",
+      "modes": {
+        "generate": "experimental_native_encoder",
+        "img2img": "experimental_source_latent",
+        "inpaint": "experimental_single_source_mask",
+        "outpaint": "experimental_single_source_canvas"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "qwen3vl_4b_text_encoder",
+        "qwen_image_vae",
+        "krea2_clip_loader"
+      ],
+      "optional_roles": [],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "img2img": [
+          "source_image",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "gguf_unet",
+          "qwen3vl_4b_text_encoder",
+          "qwen_image_vae",
+          "krea2_clip_loader"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen3vl_text_encoder",
+        "vae",
+        "krea2_variant",
+        "route_readiness"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "gguf_unet"
+          ]
+        }
+      },
+      "notes": [
+        "Phase M16 treats Krea 2 GGUF as experimental transformer quantization, not a generic GGUF text-encoder stack.",
+        "Krea 2 requires native CLIPLoader(type=krea2) with a Qwen3-VL-4B safetensors encoder so Comfy can build the 12-layer conditioning tensor.",
+        "A Krea2-capable GGUF transformer loader/fork is required; generic upstream GGUF support must not be assumed.",
+        "Turbo keeps its 8-step/CFG-1/zeroed-negative Comfy semantics."
       ]
     },
     "qwen_image_gguf": {
@@ -484,7 +634,7 @@
       {
         "id": "text_encoder_1",
         "label": "Primary Text Encoder",
-        "help_text": "Primary encoder role used by Flux/Qwen/Z-Image GGUF profiles."
+        "help_text": "Primary encoder role used by Flux/Qwen/Z-Image GGUF profiles; Krea 2 GGUF deliberately uses a native Qwen3-VL-4B safetensors encoder instead of a GGUF CLIP loader."
       },
       {
         "id": "text_encoder_2",

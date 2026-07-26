@@ -6,6 +6,20 @@ from typing import Any
 from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
+from neo_app.image.flux2_klein_contract import (
+    check_flux2_klein_compatibility,
+    default_flux2_klein_encoder,
+    default_flux2_klein_model,
+    is_flux2_klein_model_name,
+    is_flux2_klein_variant,
+    normalize_flux2_klein_variant,
+    resolve_flux2_klein_variant,
+)
+from neo_app.image.flux1_krea_contract import (
+    check_flux1_krea_compatibility,
+    is_flux1_krea_route,
+    resolve_flux1_variant,
+)
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
@@ -91,47 +105,31 @@ def _flux2_klein_clip_loader_for_encoder(text_encoder: Any, requested_loader: An
     return "CLIPLoader"
 
 
-_FLUX2_KLEIN_VARIANTS = {"klein", "flux2_klein", "flux_2_klein", "klein_4b", "klein_9b", "klein_4b_distilled", "klein_9b_distilled"}
-
-
 def _normalized_variant(value: Any) -> str:
-    return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return normalize_flux2_klein_variant(value)
 
 
 def _is_flux2_klein_variant(value: Any) -> bool:
-    return _normalized_variant(value) in _FLUX2_KLEIN_VARIANTS
+    return is_flux2_klein_variant(value)
 
 
 def _is_flux2_klein_model_name(value: Any) -> bool:
-    text = str(value or "").strip().lower().replace("_", "-")
-    return "klein" in text and ("flux-2" in text or "flux2" in text or text.startswith("klein"))
+    return is_flux2_klein_model_name(value)
 
 
 def _resolve_flux2_klein_variant(params: dict[str, Any], model_name: Any) -> str | None:
-    """Resolve Klein intent from UI variant first, then selected model name.
-
-    The Image UI can still submit legacy `flux_variant=dev` while the user has
-    selected a FLUX.2 Klein GGUF model. In that case the provider compiler must
-    not fall back to the legacy DualCLIPLoaderGGUF graph, because Klein requires
-    the single Qwen3 Flux2 path.
-    """
-    raw_variant = _param(params, "flux_variant", "variant", default="")
-    if _is_flux2_klein_variant(raw_variant):
-        return str(raw_variant)
-    if _is_flux2_klein_model_name(model_name):
-        name = str(model_name or "").lower()
-        return "klein_9b" if "9b" in name else "klein_4b"
-    return None
+    # M14: generic Klein UI aliases must not terminate size resolution before
+    # the selected model filename is inspected. The model is the tensor
+    # architecture Comfy will actually load, so its 4B/9B marker is authoritative.
+    return resolve_flux2_klein_variant(_param(params, "flux_variant", "variant", default=""), model_name)
 
 
 def _default_klein_encoder(variant: str) -> str:
-    normalized = _normalized_variant(variant)
-    return "qwen_3_8b_fp8mixed.safetensors" if "9b" in normalized else "qwen_3_4b.safetensors"
+    return default_flux2_klein_encoder(variant)
 
 
 def _default_klein_model(variant: str) -> str:
-    normalized = _normalized_variant(variant)
-    return "flux-2-klein-9b-fp8.gguf" if "9b" in normalized else "flux-2-klein-4b-fp8.gguf"
+    return default_flux2_klein_model(variant, file_format="gguf")
 
 
 def _gguf_unet_inputs(loader_class: str, model_name: str) -> dict[str, Any]:
@@ -438,7 +436,7 @@ def _compile_flux2_klein_gguf_txt2img(
     if mode == "generate":
         mode = "txt2img"
     backend_capabilities = backend_capabilities or {}
-    variant = _param(params, "flux_variant", "variant", default="klein_4b")
+    raw_variant = _param(params, "flux_variant", "variant", default="klein_4b")
     unet_loader = _normalize_gguf_unet_loader(
         _param(
             params,
@@ -457,7 +455,8 @@ def _compile_flux2_klein_gguf_txt2img(
         default=_role_backend_node(backend_capabilities, "gguf", "gguf_text_encoder_primary") or "CLIPLoaderGGUF",
     )
 
-    gguf_unet = job.model or _param(params, "gguf_unet", "gguf_model", "model", "model_name", default=_default_klein_model(str(variant)))
+    gguf_unet = job.model or _param(params, "gguf_unet", "gguf_model", "model", "model_name", default=_default_klein_model(str(raw_variant)))
+    variant = resolve_flux2_klein_variant(raw_variant, gguf_unet) or normalize_flux2_klein_variant(raw_variant) or "klein_4b"
     text_encoder = _param(
         params,
         "qwen3_text_encoder",
@@ -468,6 +467,13 @@ def _compile_flux2_klein_gguf_txt2img(
         "clip_name",
         default=_default_klein_encoder(str(variant)),
     )
+    compatibility = check_flux2_klein_compatibility(variant, gguf_unet, text_encoder)
+    if compatibility.compatible is False:
+        if compatibility.message not in validation.errors:
+            validation.errors.append(compatibility.message)
+        validation.ok = False
+    elif compatibility.compatible is None and compatibility.message and compatibility.message not in validation.warnings:
+        validation.warnings.append(compatibility.message)
     clip_loader = _flux2_klein_clip_loader_for_encoder(text_encoder, requested_clip_loader)
     text_encoder_file_type = "gguf" if _is_gguf_file(text_encoder) else "native"
     vae = _param(params, "vae", "vae_or_ae", "ae", default="flux2-vae.safetensors")
@@ -518,8 +524,10 @@ def _compile_flux2_klein_gguf_txt2img(
         "flux2_klein_gguf_profile": {
             "family": job.family or "flux2_klein",
             "loader": "gguf",
-            "variant": "flux2_klein",
+            "variant": variant,
             "compiler": "comfy.flux_gguf.klein",
+            "compatibility_contract": "phase_m14_model_encoder_size_lock",
+            "compatibility": compatibility.as_dict(),
             "enabled_modes": ["txt2img", "img2img", "edit", "inpaint", "outpaint"],
             "gated_modes": [],
             "provider_nodes": {"gguf_unet_loader": unet_loader, "single_clip_loader": clip_loader, "requested_clip_loader": requested_clip_loader, "vae_loader": vae_loader},
@@ -646,6 +654,7 @@ def _compile_flux2_klein_gguf_txt2img(
                 "Phase M11 keeps FLUX.2 [klein] GGUF as a mixed-loader route when the Qwen3 encoder is safetensors.",
                 "Klein GGUF uses a GGUF transformer loader plus CLIPLoader(type=flux2) for Qwen3 safetensors, or CLIPLoaderGGUF(type=flux2) for Qwen3 GGUF.",
                 "It does not use the legacy Flux GGUF DualCLIPLoaderGGUF path.",
+                "Phase M14 resolves generic Klein aliases through the selected 4B/9B model identity and validates Qwen3 encoder size compatibility before Comfy queue.",
                 "Klein GGUF img2img/edit/inpaint/outpaint use the same provider-owned latent source branch as Flux GGUF with Flux2 latent support; img2img/edit encode Image 1 as the latent anchor, while outpaint consumes the ImagePadForOutpaint mask instead of preserving gray padding.",
             ],
             "prompt_conditioning": conditioning,
@@ -732,6 +741,15 @@ def compile_flux_gguf_txt2img(
     text_encoder_2 = _param(params, "gguf_text_encoder_2", "gguf_text_encoder_secondary", "text_encoder_2", "text_encoder_secondary", "clip_name2", default="t5xxl-Q5_K_M.gguf")
     vae = _param(params, "vae", "vae_or_ae", "ae", default="ae.safetensors")
     vae_loader = str(_param(params, "vae_loader", "gguf_vae_loader", default=_vae_loader_for(str(vae))))
+    flux1_variant = resolve_flux1_variant(_param(params, "flux_variant", "variant", default="dev"), gguf_unet)
+    flux1_krea = is_flux1_krea_route(flux1_variant, gguf_unet)
+    krea_compatibility = check_flux1_krea_compatibility(flux1_variant, gguf_unet, text_encoder_1, text_encoder_2) if flux1_krea else None
+    if krea_compatibility and krea_compatibility.compatible is False:
+        if krea_compatibility.message not in validation.errors:
+            validation.errors.append(krea_compatibility.message)
+        validation.ok = False
+    elif krea_compatibility and krea_compatibility.compatible is None and krea_compatibility.message not in validation.warnings:
+        validation.warnings.append(krea_compatibility.message)
     flux_guidance = float(_param(params, "flux_guidance", "gguf_guidance", "guidance", default=defaults.flux_guidance))
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
@@ -755,8 +773,9 @@ def compile_flux_gguf_txt2img(
         "seed": seed,
         "actual_seed": seed,
         "requested_seed": requested_seed,
-        "workflow_type": route.workflow_type or f"image.{mode}.flux_gguf",
+        "workflow_type": route.workflow_type or (f"image.{mode}.flux1_krea_gguf" if flux1_krea else f"image.{mode}.flux_gguf"),
         "prompt_conditioning_mode": conditioning_mode,
+        "flux_variant": "krea_dev" if flux1_krea else flux1_variant,
         "clamp": conditioning_mode,
         "prompt_conditioning": {
             "mode": conditioning_mode,
@@ -769,12 +788,14 @@ def compile_flux_gguf_txt2img(
         },
         "flux_gguf_profile": {
             "family": "flux",
+            "architecture": "flux1",
+            "variant": "krea_dev" if flux1_krea else flux1_variant,
             "loader": "gguf",
             "default_width": defaults.width,
             "default_height": defaults.height,
             "default_steps": defaults.steps,
             "default_flux_guidance": defaults.flux_guidance,
-            "compiler": "comfy.flux_gguf",
+            "compiler": "comfy.flux_gguf.krea" if flux1_krea else "comfy.flux_gguf",
             "enabled_modes": ["txt2img", "img2img", "edit", "inpaint", "outpaint"],
             "gated_modes": [],
             "provider_nodes": {
@@ -785,7 +806,19 @@ def compile_flux_gguf_txt2img(
             "guidance_model": "flux_guidance_controls_prompt_conditioning",
             "sampler_cfg_policy": "force_1.0_for_flux_gguf",
             "negative_mode": flux_negative_mode,
+            "krea_compatibility": krea_compatibility.as_dict() if krea_compatibility else None,
         },
+        "flux1_krea_profile": ({
+            "family": "flux",
+            "architecture": "flux1",
+            "variant": "krea_dev",
+            "loader": "gguf",
+            "compiler": "comfy.flux_gguf.krea",
+            "compatibility": krea_compatibility.as_dict() if krea_compatibility else {},
+            "enabled_modes": ["txt2img", "img2img", "inpaint", "outpaint"],
+            "text_encoder_policy": "DualCLIPLoaderGGUF accepts one T5XXL + one CLIP-L; each may be GGUF or regular safetensors/bin as supported by ComfyUI-GGUF.",
+            "source_policy": "Provider-owned Flux GGUF VAEEncode/mask/canvas branch retains the selected Krea GGUF diffusion model.",
+        } if flux1_krea else None),
         "gguf_unet": gguf_unet,
         "gguf_text_encoder_1": text_encoder_1,
         "gguf_text_encoder_2": text_encoder_2,
@@ -900,6 +933,8 @@ def compile_flux_gguf_txt2img(
     workflow[save_id] = {"class_type": "PreviewImage", "inputs": {"images": output_image_ref}}
     actual_params.update(route_meta if isinstance(route_meta, dict) else {})
     actual_params["_neo_effective_flux_gguf_route"] = True
+    if flux1_krea:
+        actual_params["_neo_effective_flux1_krea_gguf_route"] = True
     actual_params["_neo_effective_mode"] = mode
     actual_params["_neo_sampler_node_id"] = sampler_id
     actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
@@ -932,7 +967,11 @@ def compile_flux_gguf_txt2img(
             "compile_route": route.as_dict(),
             "capabilities": capabilities,
             "backend_capabilities": backend_capabilities,
-            "phase_notes": [
+            "phase_notes": ([
+                "Phase M15 registers the selected Krea GGUF model as FLUX.1 Krea while preserving family=flux.",
+                "Krea GGUF uses the FLUX.1 dual-encoder stack: one T5XXL plus one CLIP-L; ComfyUI-GGUF may load GGUF or regular encoder files through DualCLIPLoaderGGUF.",
+                "Krea GGUF img2img/inpaint/outpaint retain the selected Krea model and reuse the provider-owned Flux GGUF VAEEncode + latent mask/canvas branch.",
+            ] if flux1_krea else []) + [
                 "Flux GGUF enables txt2img/img2img/inpaint/outpaint through a provider-owned Comfy graph.",
                 "Flux GGUF uses GGUF UNet + DualCLIPLoaderGGUF + AE/VAE + CLIPTextEncodeFlux guidance.",
                 "Flux GGUF forces KSampler CFG to 1.0; the UI Flux Guidance value controls guidance.",

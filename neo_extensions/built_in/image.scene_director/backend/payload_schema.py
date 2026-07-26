@@ -23,6 +23,24 @@ CHARACTER_LOCK_EXECUTION_MODES = {
     "latent_and_refinement",
     "off",
 }
+SCENE_MODES = {"basic", "advanced"}
+
+
+def _scene_mode(raw: dict[str, Any], character_lock: dict[str, Any] | None = None) -> str:
+    """Resolve the explicit Phase 27.17A Scene Mode with legacy-safe fallback."""
+    source = raw if isinstance(raw, dict) else {}
+    for key in ("scene_mode", "scene_director_scene_mode"):
+        if key in source:
+            value = str(source.get(key) or "basic").strip().lower().replace("-", "_").replace(" ", "_")
+            return "advanced" if value in {"advanced", "expert", "full"} else "basic"
+    if source.get("basic_mode") is True or source.get("scene_director_basic_mode") is True:
+        return "basic"
+    if source.get("basic_mode") is False or source.get("scene_director_basic_mode") is False:
+        return "advanced"
+    lock = character_lock if isinstance(character_lock, dict) else _character_lock_params(source)
+    # Legacy payloads did not have Scene Mode. Preserve the Phase 27.16 rule.
+    return "basic" if lock.get("character") == "off" else "advanced"
+
 
 
 def _character_lock_mode(value: Any, default: str = "balanced") -> str:
@@ -132,9 +150,9 @@ def _appearance_lock_params(raw: dict[str, Any], character_lock: dict[str, Any],
 DEFAULT_CONTRACTS = {
     "enabled": True,
     "use_node_auto_prompts": False,
-    "count_contract": "exactly {count} visible subjects, one subject per character region, no extra subjects",
-    "subject_contract": "one complete subject inside this region, not merged, not duplicated",
-    "negative_contract": "extra people, missing subject, wrong number of subjects, merged bodies, fused faces",
+    "count_contract": "exactly {count} visible subjects, one complete subject per character region, every assigned character region occupied",
+    "subject_contract": "exactly one complete visible subject inside this assigned region, separate from neighboring subjects",
+    "negative_contract": "fewer than {count} visible subjects, more than {count} visible subjects, missing assigned subject region, merged subjects, shared limbs, fused faces",
     "style_merge": "use Neo main prompt as the scene style and composition intent",
 }
 
@@ -523,13 +541,17 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
     identity_strength = _clamp_float(raw.get("identity_strength") if raw.get("identity_strength") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("gain") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_gain")), 0.55, 0.0, 1.0)
     mask_feather = _clamp_int(raw.get("mask_feather") if raw.get("mask_feather") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("feather") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_feather")), 18, 0, 128)
     first_pass_lock = raw.get("first_pass_character_lock_authority") if isinstance(raw.get("first_pass_character_lock_authority"), dict) else {}
-    execution_mode = _character_lock_execution_mode(
+    scene_mode = _scene_mode(raw, character_lock)
+    basic_mode = scene_mode == "basic"
+    character_lock_active = (not basic_mode) and character_lock.get("character") != "off"
+    execution_mode = "off" if not character_lock_active else _character_lock_execution_mode(
         raw.get("character_lock_execution_mode")
         or raw.get("scene_director_character_lock_execution_mode")
         or first_pass_lock.get("execution_mode")
         or first_pass_lock.get("execution")
         or "latent_attention"
     )
+    appearance_lock = {"enabled": False, "mode": "off", "gain": 0.0, "height": 0.0, "feather": mask_feather} if basic_mode else _appearance_lock_params(raw, character_lock, identity_strength, mask_feather)
     return {
         "backend_mode": _text(raw.get("backend_mode") or "v052_node"),
         "authority_mode": _text(raw.get("authority_mode") or raw.get("scene_director_authority_mode") or "balanced"),
@@ -551,19 +573,23 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
             "enabled": bool(mask_refine.get("enabled") or raw.get("mask_refine_enabled")),
             "mode": _text(mask_refine.get("mode") or raw.get("mask_refine_mode") or "auto"),
         },
+        "scene_mode": scene_mode,
+        "scene_director_scene_mode": scene_mode,
+        "basic_mode": basic_mode,
+        "scene_director_basic_mode": basic_mode,
         "character_lock": character_lock,
         "character_lock_mode": character_lock["character"],
         "identity_strength": identity_strength,
         "detail_strength": _clamp_float(raw.get("detail_strength"), 0.85, 0.0, 2.0),
         "background_strength": _clamp_float(raw.get("background_strength"), 0.65, 0.0, 2.0),
         "mask_feather": mask_feather,
-        "appearance_lock": _appearance_lock_params(raw, character_lock, identity_strength, mask_feather),
+        "appearance_lock": appearance_lock,
         "first_pass_character_lock_authority": {
             "schema": "neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v1",
             "phase": "SD-V054-26.10.8J",
             "dedupe_phase": "V25.9.14",
             "ui_owner": "fix_pass_controls",
-            "enabled": first_pass_lock.get("enabled", raw.get("character_lock_first_pass_enabled", True)),
+            "enabled": False if not character_lock_active else first_pass_lock.get("enabled", raw.get("character_lock_first_pass_enabled", True)),
             "apply_to": _text(first_pass_lock.get("apply_to") or raw.get("character_lock_first_pass_apply_to") or "strong_strict_only"),
             "timing": _text(first_pass_lock.get("timing") or raw.get("character_lock_first_pass_timing") or "before_adapters"),
             "denoise": _clamp_float(first_pass_lock.get("denoise") if first_pass_lock.get("denoise") is not None else raw.get("character_lock_first_pass_denoise"), 0.30, 0.0, 1.0),
@@ -576,7 +602,7 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
             "protect_pose_contact": first_pass_lock.get("protect_pose_contact", raw.get("character_lock_first_pass_protect_pose_contact", True)) is not False,
             "execution_mode": execution_mode,
             "execution": execution_mode,
-            "source": "fix_pass_controls_visible_fields",
+            "source": "phase_27_16_basic_mode_boundary" if basic_mode else ("character_lock_off_in_advanced_mode" if not character_lock_active else "fix_pass_controls_visible_fields"),
         },
         "character_lock_execution_mode": execution_mode,
         "character_lock_pass_plan": execution_mode,
@@ -994,20 +1020,25 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
     base["scene_director_mask_refine_enabled"] = bool(mask_refine.get("enabled"))
     character_lock = params.get("character_lock") if isinstance(params.get("character_lock"), dict) else _character_lock_params(params)
     base["scene_director_character_lock_mode"] = character_lock.get("character", params.get("character_lock_mode", "balanced"))
+    scene_mode = _scene_mode(params, character_lock)
+    basic_mode = scene_mode == "basic"
+    character_lock_active = (not basic_mode) and base["scene_director_character_lock_mode"] != "off"
+    base["scene_director_scene_mode"] = scene_mode
+    base["scene_director_basic_mode"] = basic_mode
     base["scene_director_gender_guard_mode"] = character_lock.get("gender", "off")
     base["scene_director_skin_tone_guard_mode"] = character_lock.get("skin_tone", "off")
     base["scene_director_hair_guard_mode"] = character_lock.get("hair", "off")
     base["scene_director_build_guard_mode"] = character_lock.get("build", "off")
     base["scene_director_body_height_guard_mode"] = character_lock.get("body_height", "off")
     base["scene_director_outfit_preservation_mode"] = character_lock.get("outfit", "off")
-    base["scene_director_negative_identity_guard_mode"] = character_lock.get("negative", "balanced")
+    base["scene_director_negative_identity_guard_mode"] = "off" if basic_mode else character_lock.get("negative", "balanced")
     base["scene_director_identity_strength"] = params.get("identity_strength", 0.55)
     base["scene_director_detail_strength"] = params.get("detail_strength", 0.85)
     base["scene_director_background_strength"] = params.get("background_strength", 0.65)
     base["scene_director_mask_feather"] = params.get("mask_feather", 18)
     appearance = params.get("appearance_lock") if isinstance(params.get("appearance_lock"), dict) else _character_lock_to_legacy_appearance(character_lock, float(params.get("identity_strength", 0.55)), int(params.get("mask_feather", 18)))
-    base["scene_director_appearance_lock_enabled"] = bool(appearance.get("enabled"))
-    base["scene_director_appearance_lock_mode"] = appearance.get("mode", "hair_focus_soft")
+    base["scene_director_appearance_lock_enabled"] = False if basic_mode else bool(appearance.get("enabled"))
+    base["scene_director_appearance_lock_mode"] = "off" if basic_mode else appearance.get("mode", "hair_focus_soft")
     base["scene_director_appearance_lock_gain"] = appearance.get("gain", params.get("identity_strength", 0.55))
     base["scene_director_appearance_lock_height"] = appearance.get("height", 0.42)
     base["scene_director_appearance_lock_feather"] = appearance.get("feather", params.get("mask_feather", 18))
@@ -1029,7 +1060,7 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
         "phase": "SD-V054-26.10.8J",
         "dedupe_phase": "V25.9.14",
         "ui_owner": "fix_pass_controls",
-        "enabled": first_pass_lock.get("enabled", params.get("character_lock_first_pass_enabled", True)),
+        "enabled": False if not character_lock_active else first_pass_lock.get("enabled", params.get("character_lock_first_pass_enabled", True)),
         "apply_to": first_pass_lock.get("apply_to", params.get("character_lock_first_pass_apply_to", "strong_strict_only")),
         "timing": first_pass_lock.get("timing", params.get("character_lock_first_pass_timing", "before_adapters")),
         "denoise": first_pass_lock.get("denoise", params.get("character_lock_first_pass_denoise", 0.30)),
@@ -1040,9 +1071,9 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
         "mask_feather": first_pass_lock.get("mask_feather", params.get("character_lock_first_pass_mask_feather", 24)),
         "protect_outfit": first_pass_lock.get("protect_outfit", params.get("character_lock_first_pass_protect_outfit", True)),
         "protect_pose_contact": first_pass_lock.get("protect_pose_contact", params.get("character_lock_first_pass_protect_pose_contact", True)),
-        "execution_mode": _character_lock_execution_mode(first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention"))),
-        "execution": _character_lock_execution_mode(first_pass_lock.get("execution", first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention")))),
-        "source": "fix_pass_controls_visible_fields",
+        "execution_mode": "off" if not character_lock_active else _character_lock_execution_mode(first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention"))),
+        "execution": "off" if not character_lock_active else _character_lock_execution_mode(first_pass_lock.get("execution", first_pass_lock.get("execution_mode", params.get("character_lock_execution_mode", "latent_attention")))),
+        "source": "phase_27_16_basic_mode_boundary" if basic_mode else ("character_lock_off_in_advanced_mode" if not character_lock_active else "fix_pass_controls_visible_fields"),
     }
     base["scene_director_character_lock_execution_mode"] = _character_lock_execution_mode(base["scene_director_first_pass_character_lock_authority"].get("execution_mode", "latent_attention"))
     base["scene_director_character_lock_pass_plan"] = base["scene_director_character_lock_execution_mode"]
@@ -1062,6 +1093,18 @@ def legacy_payload_from_block(block: dict[str, Any], *, base_payload: dict[str, 
     base["scene_director_character_lock_first_pass_denoise"] = base["scene_director_first_pass_character_lock_authority"].get("denoise")
     base["scene_director_character_lock_first_pass_steps"] = base["scene_director_first_pass_character_lock_authority"].get("steps")
     advanced_fix_pass_controls = params.get("advanced_fix_pass_controls") if isinstance(params.get("advanced_fix_pass_controls"), dict) else {}
+    if basic_mode:
+        advanced_fix_pass_controls = {
+            "schema": "neo.image.scene_director.advanced_fix_pass_controls.v25_9_13",
+            "phase": "SD-V054-27.16",
+            "mode": "basic_single_pass",
+            "first_pass_character_lock_rescue": "off",
+            "background_restore": "off",
+            "character_trait_lanes": "off",
+            "final_background_reconciliation": "off",
+            "environment_aware_character_lanes": False,
+            "source": "phase_27_16_basic_mode_boundary",
+        }
     base["scene_director_advanced_fix_pass_controls"] = deepcopy(advanced_fix_pass_controls)
     if advanced_fix_pass_controls:
         base["scene_director_fix_pass_mode"] = advanced_fix_pass_controls.get("mode", "smart_auto")

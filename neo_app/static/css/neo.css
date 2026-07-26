@@ -3541,7 +3541,7 @@ body.neo-modal-open {
 .neo-scene-core-prompts p { margin: 0; color: var(--neo-muted, #94a3b8); font-size: 0.86rem; line-height: 1.35; max-height: 5.2rem; overflow: auto; }
 .neo-scene-authority-choice {
   display: grid;
-  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
   align-items: end;
   margin: 0.75rem 0;
@@ -3549,6 +3549,10 @@ body.neo-modal-open {
   border: 1px solid rgba(45, 212, 191, 0.34);
   border-radius: 0.85rem;
   background: rgba(15, 23, 42, 0.32);
+}
+.neo-scene-authority-choice > div {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 .neo-scene-authority-choice p { margin: 0.3rem 0 0; }
 @media (max-width: 720px) {
@@ -12789,4 +12793,10 @@ textarea {
   flex-wrap: wrap;
   gap: .45rem;
   justify-content: flex-end;
+}
+
+/* Phase 27.17A — Basic Scene Mode hides advanced per-region controls without deleting saved values. */
+.neo-scene-director-panel[data-scene-mode="basic"] .neo-scene-region-advanced,
+.neo-scene-director-panel[data-scene-mode="basic"] .neo-scene-attached-detail {
+  display: none;
 }

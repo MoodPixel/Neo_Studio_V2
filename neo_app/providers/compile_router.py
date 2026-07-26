@@ -8,6 +8,8 @@ import json
 
 from neo_app.providers.schema import NeoJob
 from neo_app.models.route_matrix import normalize_backend, resolve_model_backend_route
+from neo_app.image.flux1_krea_contract import is_flux1_krea_route, resolve_flux1_variant
+from neo_app.image.krea2_contract import resolve_krea2_variant
 
 
 MODE_ALIASES = {
@@ -45,6 +47,22 @@ SUPPORTED_COMFY_ROUTES = {
     ("flux2_klein", "gguf", "edit"),
     ("flux2_klein", "gguf", "inpaint"),
     ("flux2_klein", "gguf", "outpaint"),
+    ("krea2", "diffusion_model", "txt2img"),
+    ("krea2", "diffusion_model", "img2img"),
+    ("krea2", "diffusion_model", "inpaint"),
+    ("krea2", "diffusion_model", "outpaint"),
+    ("krea2", "gguf", "txt2img"),
+    ("krea2", "gguf", "img2img"),
+    ("krea2", "gguf", "inpaint"),
+    ("krea2", "gguf", "outpaint"),
+    ("krea2_turbo", "diffusion_model", "txt2img"),
+    ("krea2_turbo", "diffusion_model", "img2img"),
+    ("krea2_turbo", "diffusion_model", "inpaint"),
+    ("krea2_turbo", "diffusion_model", "outpaint"),
+    ("krea2_turbo", "gguf", "txt2img"),
+    ("krea2_turbo", "gguf", "img2img"),
+    ("krea2_turbo", "gguf", "inpaint"),
+    ("krea2_turbo", "gguf", "outpaint"),
     ("qwen_image", "diffusion_model", "txt2img"),
     ("qwen_image", "diffusion_model", "img2img"),
     ("qwen_image", "diffusion_model", "inpaint"),
@@ -229,6 +247,11 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
     loader = normalize_compile_loader(job.loader)
     key = (family, loader, mode)
     supports_loader = _family_supports_loader(family, loader)
+    params = job.params or {}
+    selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or params.get("unet") or ""
+    flux1_variant = resolve_flux1_variant(params.get("flux_variant") or params.get("variant") or "dev", selected_model) if family == "flux" else ""
+    flux1_krea = family == "flux" and is_flux1_krea_route(flux1_variant, selected_model)
+    krea2_variant = resolve_krea2_variant(family, selected_model) if family in {"krea2", "krea2_turbo"} else ""
 
     if supports_loader is False:
         return CompileRoute(
@@ -254,21 +277,51 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.checkpoint_sd"
             phase = "Phase 12.19 — Outpaint Contract Unification"
             warnings.append("Checkpoint outpaint uses the V2 outpaint contract and provider-owned canvas/inpaint graph route.")
+        if family in {"krea2", "krea2_turbo"} and loader in {"diffusion_model", "gguf"}:
+            suffix = "gguf" if loader == "gguf" else "native"
+            family_token = "krea2_turbo" if krea2_variant == "turbo" else "krea2"
+            workflow_type = f"image.{mode}.{family_token}_{suffix}"
+            compiler_id = "comfy.krea2_gguf" if loader == "gguf" else "comfy.krea2"
+            phase = "Phase M16 — Krea 2 RAW + Turbo Architecture Audit & Support"
+            if loader == "gguf":
+                warnings.append("M16 Krea 2 GGUF is experimental: the main transformer uses a Krea2-capable GGUF loader while Qwen3-VL-4B remains native via CLIPLoader(type=krea2).")
+            elif mode == "txt2img":
+                warnings.append("M16 Krea 2 native txt2img uses UNETLoader + CLIPLoader(type=krea2) + Qwen Image VAE with family-owned RAW/Turbo defaults.")
+            else:
+                warnings.append("M16 Krea 2 image-conditioned modes are explicit Neo latent adapters and remain experimental; no FLUX/Qwen Image fallback is used.")
         if family == "flux" and loader == "diffusion_model" and mode == "txt2img":
-            workflow_type = "image.txt2img.flux_native"
-            compiler_id = "comfy.flux_native"
-            phase = "Phase 12.9 / V25.9.20 Pass O2 — Flux Native Workflow Foundation"
-            warnings.append("P1 Flux 1 lock: Safetensors / Components supports txt2img, img2img, and internal Flux Fill inpaint/outpaint without exposing Flux Fill as a separate family.")
+            if flux1_krea:
+                workflow_type = "image.txt2img.flux1_krea_native"
+                compiler_id = "comfy.flux_krea"
+                phase = "Phase M15 — FLUX.1 Krea Support"
+                warnings.append("M15 Krea lock: Krea is a FLUX.1 Dev-compatible variant using UNETLoader + DualCLIPLoader(T5XXL/CLIP-L) + AE/VAE + FluxGuidance.")
+            else:
+                workflow_type = "image.txt2img.flux_native"
+                compiler_id = "comfy.flux_native"
+                phase = "Phase 12.9 / V25.9.20 Pass O2 — Flux Native Workflow Foundation"
+                warnings.append("P1 Flux 1 lock: Safetensors / Components supports txt2img, img2img, and internal Flux Fill inpaint/outpaint without exposing Flux Fill as a separate family.")
         if family == "flux" and loader == "diffusion_model" and mode == "img2img":
-            workflow_type = "image.img2img.flux_native"
-            compiler_id = "comfy.flux_native"
-            phase = "V25.9.20 Pass O2 — Flux 1 Img2Img Workflow Implementation"
-            warnings.append("P1 Flux 1 lock: img2img uses Image 1 as a VAEEncode latent anchor; inpaint/outpaint use the internal Flux Fill compiler through the normal Flux 1 family.")
+            if flux1_krea:
+                workflow_type = "image.img2img.flux1_krea_native"
+                compiler_id = "comfy.flux_krea"
+                phase = "Phase M15 — FLUX.1 Krea Support"
+                warnings.append("M15 Krea lock: img2img keeps the selected Krea model and encodes Image 1 as the FLUX.1 latent anchor.")
+            else:
+                workflow_type = "image.img2img.flux_native"
+                compiler_id = "comfy.flux_native"
+                phase = "V25.9.20 Pass O2 — Flux 1 Img2Img Workflow Implementation"
+                warnings.append("P1 Flux 1 lock: img2img uses Image 1 as a VAEEncode latent anchor; inpaint/outpaint use the internal Flux Fill compiler through the normal Flux 1 family.")
         if family == "flux" and loader == "diffusion_model" and mode in {"inpaint", "outpaint"}:
-            workflow_type = f"image.{mode}.flux_fill_internal"
-            compiler_id = "comfy.flux_fill"
-            phase = "V25.9.20 P1 — Flux 1 Internal Flux Fill Route Cleanup"
-            warnings.append("P1 Flux 1 lock: inpaint/outpaint resolve through the internal FLUX.1 Fill-dev workflow while Flux Fill stays out of the normal family dropdown.")
+            if flux1_krea:
+                workflow_type = f"image.{mode}.flux1_krea_native"
+                compiler_id = "comfy.flux_krea"
+                phase = "Phase M15 — FLUX.1 Krea Support"
+                warnings.append("M15 Krea lock: masked Krea workflows keep the selected Krea model and use VAEEncode + SetLatentNoiseMask + DifferentialDiffusion instead of silently swapping to FLUX.1 Fill.")
+            else:
+                workflow_type = f"image.{mode}.flux_fill_internal"
+                compiler_id = "comfy.flux_fill"
+                phase = "V25.9.20 P1 — Flux 1 Internal Flux Fill Route Cleanup"
+                warnings.append("P1 Flux 1 lock: inpaint/outpaint resolve through the internal FLUX.1 Fill-dev workflow while Flux Fill stays out of the normal family dropdown.")
         if family == "flux1_fill" and loader == "diffusion_model" and mode in {"inpaint", "outpaint"}:
             workflow_type = f"image.{mode}.flux_fill_legacy_alias"
             compiler_id = "comfy.flux_fill"
@@ -317,17 +370,23 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             phase = "V25.9.20 Pass E / Pass N3 / P2 — Qwen Rapid AIO Checkpoint Route Cleanup"
             warnings.append("P2 Qwen Rapid AIO visible family: Safetensors / Bundled uses CheckpointLoaderSimple + Qwen edit conditioning, resolves provider_default through qwen_rapid_aio_checkpoint, and prunes external encoder/VAE/MMProj/split-model fields.")
         if family == "flux" and loader == "gguf":
-            workflow_type = f"image.{mode}.flux_gguf"
-            compiler_id = "comfy.flux_gguf"
-            phase = "Phase M14.3 — Flux GGUF Runtime Validation + Source Stack Parity" if mode in {"img2img", "inpaint", "outpaint"} else "Phase 12.10 — Flux GGUF txt2img Migration"
-            if mode == "txt2img":
-                warnings.append("Pass C Flux 1 lock: GGUF txt2img uses the established provider-owned Flux 1 GGUF route.")
-            elif mode == "inpaint":
-                warnings.append("Pass C Flux 1 lock: GGUF inpaint requires source image + mask and uses SetLatentNoiseMask + DifferentialDiffusion.")
-            elif mode == "outpaint":
-                warnings.append("Pass C Flux 1 lock: GGUF outpaint requires source image + padding and uses ImagePadForOutpaint.")
+            if flux1_krea:
+                workflow_type = f"image.{mode}.flux1_krea_gguf"
+                compiler_id = "comfy.flux_gguf.krea"
+                phase = "Phase M15 — FLUX.1 Krea Support"
+                warnings.append("M15 Krea GGUF lock: Krea remains the FLUX.1 dual-encoder architecture and reuses the provider-owned GGUF latent/mask routes with T5XXL + CLIP-L.")
             else:
-                warnings.append("Pass C Flux 1 lock: GGUF img2img requires a source image and uses source VAEEncode latent initialization.")
+                workflow_type = f"image.{mode}.flux_gguf"
+                compiler_id = "comfy.flux_gguf"
+                phase = "Phase M14.3 — Flux GGUF Runtime Validation + Source Stack Parity" if mode in {"img2img", "inpaint", "outpaint"} else "Phase 12.10 — Flux GGUF txt2img Migration"
+                if mode == "txt2img":
+                    warnings.append("Pass C Flux 1 lock: GGUF txt2img uses the established provider-owned Flux 1 GGUF route.")
+                elif mode == "inpaint":
+                    warnings.append("Pass C Flux 1 lock: GGUF inpaint requires source image + mask and uses SetLatentNoiseMask + DifferentialDiffusion.")
+                elif mode == "outpaint":
+                    warnings.append("Pass C Flux 1 lock: GGUF outpaint requires source image + padding and uses ImagePadForOutpaint.")
+                else:
+                    warnings.append("Pass C Flux 1 lock: GGUF img2img requires a source image and uses source VAEEncode latent initialization.")
         if family == "z_image" and loader in {"diffusion_model", "gguf"} and mode == "txt2img":
             workflow_type = "image.txt2img.z_image_native" if loader == "diffusion_model" else "image.txt2img.z_image_gguf"
             compiler_id = "comfy.z_image_native" if loader == "diffusion_model" else "comfy.z_image_gguf"

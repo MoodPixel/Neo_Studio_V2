@@ -39,7 +39,7 @@ tags:
   - loader aware
 priority: 126
 version: 2
-updated: 2026-07-22
+updated: 2026-07-23
 ---
 
 # Scene Director
@@ -60,6 +60,78 @@ The normal workflow has one prompt-ownership selector and a canvas with simple r
 | **Scene Director only** | Blanks Neo core prompt conditioning inside the V054 route. Local region prompts, relationships, poses, contracts, and explicit Scene Director-owned lanes remain active. | Advanced isolation/debugging when every conditioning phrase should be authored in Scene Director. |
 
 The global prompt is not copied in full into every region. This keeps regional identity/pose wording readable while preserving the main scene context. Existing saved payloads normalize through the legacy bridge and receive the default global-context mode when no explicit authority field exists.
+
+## Scene Mode — Basic vs Advanced
+
+Phase 27.17A adds an explicit **Scene Mode** selector beside **Prompt Authority**. Scene Mode owns UI complexity and execution boundaries; Character Lock remains a separate Advanced control.
+
+| Scene Mode | UI / runtime contract | Best use |
+|---|---|---|
+| **Basic** | Shows the canvas, region geometry, prompts, negatives, and core regional composition only. Character Trait Lock, Pose, Character Lock corrections, Advanced Region Control, attached-detail controls, adapter/detail routes, and Advanced Scene Controls are hidden and suppressed at submit time. Existing saved Advanced values are preserved in UI state so switching back does not destroy them. | First-pass composition and clean regional layout testing. |
+| **Advanced** | Reveals the existing Character Lock, Character Repair, Scene Repair, Layout Safety, Character Trait Library, Pose, corrections, routing, and expert controls. Selecting Advanced does **not** change any stored Character Lock strength, pass plan, or repair setting. | Identity/trait preservation and deliberate repair/routing workflows. |
+
+For new scenes, Basic is the simple default. Older saved payloads migrate safely: an explicit legacy Basic flag stays Basic; legacy Character Lock Off maps to Basic when no Scene Mode exists; legacy Character Lock-on scenes map to Advanced. Once `scene_mode` is present it is authoritative.
+
+### Advanced execution-state restore — Phase 27.17A.1
+
+Phase 27.17A.1 separates **stored Advanced values** from **effective Basic submission values**. Basic still submits Character Lock execution as `off`, but the saved Advanced Character Lock pass plan and first-pass preference are no longer rewritten to `off`/`false` by Basic renders, region edits, extension enable/disable changes, or submit-route synchronization.
+
+When Scene Mode is switched back to **Advanced**, the previously selected Character Lock execution path is restored. The visible **Character Lock pass plan** selector is also synchronized into the draft immediately before payload construction, so the on-screen Advanced value is the submission authority. This specifically protects values such as:
+
+```text
+Character Lock: Strong
+Character Lock pass plan: In-sampler latent lock (fast)
+First-pass Character Lock: enabled / safety gated
+```
+
+from being serialized as an unintended `off` execution plan. An explicitly chosen **Off** value remains valid and is not auto-promoted. The finalized Character Lock runtime and all pass-plan algorithms remain unchanged; this phase repairs UI/draft serialization only.
+
+Basic mode keeps the Phase 27.16 structural contract:
+
+- every enabled Character region receives one required subject slot and first-pass regional occupancy authority;
+- exact-count guards remain count-aware;
+- Character Trait Lock, automatic trait extraction, Character Lock correction, latent repair, end refinement, and background repaint samplers are disabled;
+- the compiled Scene Director branch adds zero extra Character Lock/repair KSamplers.
+
+Basic has **no separate Pose field or Pose compiler**. Pose remains part of the Character Trait Library and is available only in **Advanced + Character Lock enabled**. Natural posture wording can still live in the Character prompt, but it is not promoted into a Pose trait lane. Exact skeleton control remains a regional OpenPose/ControlNet responsibility.
+
+Advanced with **Character Lock = Off** is intentionally different from Basic: the Advanced scene UI remains available for scene-level tools, but Character Trait Library, Pose, Character Lock corrections, and Character Lock execution are suppressed. This prevents stale trait data from executing while keeping scene-level repair/routing settings available.
+
+The Phase 27.16 runtime proof remains `neo.image.scene_director.basic_mode_runtime_proof.v27_16`. A healthy three-character Basic run reports:
+
+```text
+basic_mode: true
+basic_mode_single_sampler: true
+expected_character_regions: 3
+compiled_character_regions: 3
+count_contract: exact_3
+trait_library_applied: false
+pose_authority_applied: false
+additional_sampler_count: 0
+```
+
+Phase 27.17A also adds a warning-only subject-count prompt check. It flags contradictions such as `third person` in a three-character scene and marks broad phrases such as `extra people` as ambiguous. It never rewrites or deletes user-authored prompt text.
+
+### 3+ Multi-Subject Occupancy Stabilizer
+
+Phase 27.17B adds a structural occupancy layer for fresh txt2img scenes with **three or more enabled Character regions** (within the current V054 four-subject slot limit). It does not replace Character Lock. Its only job is to establish one visible subject inside each declared Character box before the existing identity/trait authority continues.
+
+For every Character slot in a 3+ scene, Neo creates a compact subject-presence CLIP branch, applies it through Comfy's native `ConditioningSetMask` using that Character slot's existing V054 subject mask, and combines the masked lane with the existing positive conditioning.
+
+**Phase 27.17C de-duplicates this lane.** The occupancy CLIP text is now strictly structural: one complete visible adult subject, one coherent head/body silhouette, no duplicate head/secondary body, and separation from neighboring slots. It does **not** repeat the Character region prompt, ethnicity, skin, hair, build, clothing, Pose, Character Trait Library, or Character Lock correction text. The normal V054 regional branch owns the authored Character prompt; Advanced Character Lock owns identity/trait preservation. Occupancy strength remains `1.45` for three subjects and `1.35` for four so the live subject-count fix is not weakened while prompt ownership is cleaned up.
+
+The activation boundary is strict:
+
+- **1 Character:** exact Phase 27.17A workflow path; no occupancy nodes are added.
+- **2 Characters:** exact Phase 27.17A workflow path; no occupancy nodes are added.
+- **3–4 Characters, txt2img:** one masked occupancy lane per Character slot is added before the existing sampler conditioning.
+- **Img2Img/Inpaint:** the 3+ occupancy stabilizer does not add occupancy lanes; source-image semantics stay unchanged.
+
+No extra KSampler is created. Strong/Strict Character Lock, in-sampler attention, midpoint repair, end refinement, Trait Library, Pose, and repair-pass selection remain unchanged. Basic and Advanced Scene Mode can both use the 3+ structural occupancy layer because it is composition authority rather than Character Lock authority.
+
+Runtime proof is now reported as `neo.image.scene_director.multi_subject_occupancy_stabilizer.v27_17c`. For a healthy three-character txt2img run, check for `status: applied`, `character_count: 3`, `applied_count: 3`, `prompt_scope: structural_presence_only`, `authored_character_prompt_repeated: false`, three distinct `subject_slot` values, `sampler_changes: false`, and `character_lock_runtime_changed: false`.
+
+Phase 27.17C also cleans stale Basic-only runtime markers when **Scene Mode = Advanced**. This fixes replay/switch cases where the visible Advanced Character Lock path was active but Character-local Pose still reported `disabled_basic_mode`. The cleanup removes only `basic_mode` / `basic_occupancy` execution metadata; saved Character Lock, Trait Library, Pose, corrections, and repair settings are not rewritten. The V054 Character Lock/Pose node implementation remains frozen.
 
 ## Character Lock execution plan
 
@@ -93,7 +165,7 @@ the fast plan.
 
 ## Quick field map
 
-Scene Director's visible controls are grouped as: **Prompt authority**, **Region Canvas**, **Region Cards**, and collapsed **Advanced Scene Control**. Advanced Scene Control contains prompt rules, region context tuning, background space, fix passes, Character Lock, owner-extension routing, presets, and expert payload details. Each Character region's **Character Trait Lock → Pose** field is the sole text-pose authority. Active workflow patching expects the **NeoSceneDirectorV054** Comfy node on supported SDXL/SD1.5 checkpoint routes.
+Scene Director's visible controls are grouped as: **Prompt Authority + Scene Mode**, **Region Canvas**, **Region Cards**, and one collapsed **Advanced Scene Controls** space. In Basic, the Advanced space and per-region advanced controls are hidden and suppressed at submit time. In Advanced, the space is organized into **Character Lock**, **Character Repair**, **Scene Repair**, and **Layout Safety**, followed by expert routing/context/preset controls. When Character Lock is enabled, each Character region's **Character Trait Lock → Pose** field is the sole text-pose authority. Active workflow patching expects the **NeoSceneDirectorV054** Comfy node on supported SDXL/SD1.5 checkpoint routes.
 
 ## Route support and gating
 
@@ -151,9 +223,9 @@ The **Prompt rules** subsection adds text contracts used to keep regional genera
 |---|---|
 | **Enable prompt rules** | Enables Scene Director's count/subject/negative/style contract text. |
 | **Use node auto prompts** | Allows the node/compiler to add its own automatic prompts where supported. Leave off if you want full manual wording. |
-| **Count rule** | Tells the model how many visible subjects should exist, usually one subject per character region and no extras. |
+| **Count rule** | Tells the model the exact visible-subject count and requires one complete subject in every assigned Character region. |
 | **Subject rule** | Tells each character region to contain one complete subject, not a duplicate/merged body. |
-| **Negative rule** | Adds guard text against extra people, missing subjects, wrong count, merged bodies, and fused faces. |
+| **Negative rule** | Adds count-aware guards against fewer/more subjects than requested, empty assigned regions, merged people, shared limbs, and fused faces. |
 | **Style merge note** | Explains how the main Neo prompt should be used as scene style/composition context. |
 
 Use these when multi-person scenes drift, when one subject disappears, or when subjects merge together.
@@ -172,9 +244,7 @@ Region context suffix controls whether global/style context is appended to each 
 
 ## Character-local Pose Authority
 
-Phase 27.13 retires the separate Advanced **Pair Pose Authority** control. Each
-Character region now owns its own Pose text inside **Character Trait Lock →
-Pose**, and that Pose follows the visible Character Lock strength.
+Phase 27.13 retires the separate Advanced **Pair Pose Authority** control. When Character Lock is enabled, each Character region owns its own Pose text inside **Character Trait Lock → Pose**, and that Pose follows the visible Character Lock strength. Phase 27.16 keeps this entire Pose path unavailable in Basic mode rather than inventing a separate Basic Pose control.
 
 Describe only the selected character's body state and action. Another character
 may be named only as a contact target:
@@ -204,9 +274,11 @@ Background Space Authority creates a background lane when the scene has characte
 
 If the scene already has a proper background region card, use the region card instead of relying only on Background Space Authority.
 
-## Fix Pass Controls + Layout Safety
+## Advanced Scene Controls: Character Repair, Scene Repair, Layout Safety
 
-Fix Pass Controls are optional repair/cleanup lanes. They are not always needed. Smaller, tighter character boxes usually solve more than extra repair passes.
+Phase 27.17A combines the previously separated advanced cards into one **Advanced Scene Controls** space without merging backend ownership. **Character Repair** owns First-pass Character Lock, Mid-sampling Trait Lanes, the Character Lock execution path, and per-character corrections. **Scene Repair** owns Background Restore and Final Background Reconcile. **Layout Safety** remains scene geometry/safe-area protection. These are presentation changes only; the existing execution keys and finalized Character Lock algorithms are unchanged.
+
+These controls are optional repair/cleanup lanes and are visible only in Advanced Scene Mode. Smaller, tighter character boxes usually solve more than extra repair passes.
 
 The **Character Lock pass plan** is the parent switch for these lanes. By default, **In-sampler latent lock (fast)** skips Character Lock repair samplers, outfit fallback, background restore, and final background reconciliation. The **Mid-sampling Trait Lanes** control cannot change that selection; it only permits a midpoint lane after the midpoint plan is explicitly selected. The first-pass rescue and end/background lanes run only when **End refinement only** or **Latent lock + end refinement** is selected; the individual controls below can still turn those selected lanes off.
 
@@ -315,7 +387,7 @@ Each region card defines a local lane.
 | **Visible** | Whether the region participates visibly. | Hidden regions can preserve layout/metadata but should not be used as active prompt lanes. |
 | **Locked** | Prevents editing the region. | Use after a layout is approved. |
 | **Prompt** | Local positive prompt for that region. | Keep it focused on what belongs inside the region, not the whole scene. |
-| **Region negative prompt** | Local negative guard for that region. | Use to prevent wrong subject/background bleed, extra people, or bad local details. |
+| **Region negative prompt** | Local negative guard for that region. | Keep it character/region-specific. In multi-subject scenes avoid broad count terms such as `extra people` unless they are deliberately count-aware. |
 | **x / y / w / h** | Normalized region coordinates. | Values are 0–1 proportions. Use canvas drag/resize or exact fields. |
 | **Strength** | Local region influence. | Around `0.65` works for many background/object lanes; character lanes can vary. |
 | **Mask feather** | Softens the region mask edge. | Lower for sharp local edits, higher for smoother blending. |
@@ -432,7 +504,7 @@ Do not duplicate owner-extension controls inside Scene Director. Scene Director 
 
 ## Character Trait Lock
 
-Character Trait Lock is available on V054 Character regions. It gives explicit traits that override auto-extraction fallback.
+Character Trait Lock is available on V054 Character regions only after Character Lock is enabled. It gives explicit traits that override auto-extraction fallback. Basic mode keeps the library, including Pose, inactive and strips stale trait/correction fields from the execution scene graph.
 
 | Trait field | Purpose |
 |---|---|
@@ -670,7 +742,8 @@ cover hair that drifts beyond the box during txt2img generation.
 - Use region prompts for local subject/background/object instructions.
 - Add a background region when the background matters.
 - Use Prompt Rules for subject count and anti-merge protection.
-- For contact scenes, give each Character its own Pose and name the other Person only as the contact target.
+- In Basic mode, use clean Character-region prompts and separated boxes; do not expect a hidden Pose lane.
+- After enabling Character Lock, give each Character its own Pose and name the other Person only as the contact target.
 - Use Character Lock and Trait Lock when identity/body/gender/clothing keep drifting.
 - Test once with Style Stack/CFG Fix off if you are debugging pure Scene Director behavior.
 - Do not expect Scene Director to work on Qwen/Flux/ZImage/HiDream/Grok routes unless the UI explicitly shows a future compatible adapter route.
@@ -682,6 +755,6 @@ When answering Scene Director questions:
 1. Check the live Image snapshot for Model Family, Main Model Type, Workflow Mode, backend, Scene Director enabled state, and route state.
 2. If the route is not SDXL/SD1.5 checkpoint Generate/Img2Img/Inpaint on ComfyUI, explain the gating first.
 3. Explain fields in user terms. Do not dump raw `scene_graph_json` or metadata unless requested.
-4. For prompt help, produce a practical region setup: global prompt, region labels/roles, region prompts, character-local Pose fields, negatives, and any useful Background Space / Character Lock settings.
-5. For multi-character issues, recommend tighter boxes, one character per region, Prompt Rules, one Pose per character, Character Lock, and explicit Character Trait Lock.
+4. For prompt help, produce a practical region setup: global prompt, region labels/roles, region prompts, negatives, and any useful Background Space / Character Lock settings. Include Character-local Pose fields only when Character Lock is enabled.
+5. For Basic multi-character issues, recommend tighter separated boxes, one Character per region, exact-count Prompt Rules, and a multi-person-capable checkpoint. Recommend Pose and explicit Character Trait Lock only after Character Lock is enabled.
 6. For regional LoRA/IPAdapter/ControlNet, explain owner-extension dependency: LoRA Stack/IP Adapter/ControlNet own assets; Scene Director owns regional assignment.
