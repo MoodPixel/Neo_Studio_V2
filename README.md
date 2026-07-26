@@ -415,7 +415,7 @@ ComfyUI/custom_nodes/
 | Node | Purpose | Link |
 |---|---|---|
 | `comfyui-essentials` | Common utility nodes used by many workflows | https://github.com/comfyorg/comfyui-essentials.git |
-| `ComfyUI-GGUF` | GGUF model support for image/video model routes | https://github.com/city96/ComfyUI-GGUF.git |
+| `ComfyUI-GGUF` | GGUF model support for image/video model routes. **Note:** for **Krea 2 GGUF** support, users may need a **Krea 2–compatible GGUF fork** instead of the standard `city96` build. See **🧩 Backend Notes & Troubleshooting** for details. | https://github.com/city96/ComfyUI-GGUF.git |
 | `gguf` | Additional GGUF utility support | https://github.com/calcuis/gguf.git |
 | `ComfyUI-Impact-Pack` | Detection, detailing, masks, segmentation, and utility workflows | https://github.com/ltdrdata/ComfyUI-Impact-Pack.git |
 | `ComfyUI-Impact-Subpack` | Support package for Impact Pack | https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git |
@@ -536,8 +536,78 @@ Typical runtime data includes:
 Release/source packages should not include `neo_data/`, cache folders, generated outputs, or local user project data.
 
 ---
-
 ## 🧩 Backend Notes & Troubleshooting
+---
+
+### 🧩 Krea 2 GGUF Support
+
+Krea 2 GGUF models may require a **Krea 2-compatible `ComfyUI-GGUF` fork** instead of the standard `city96/ComfyUI-GGUF` build.
+
+If you see:
+
+```text
+Unexpected architecture type in GGUF file: 'krea2'
+```
+
+your current GGUF loader does not support the Krea 2 architecture.
+
+#### Install / Replace the GGUF Loader
+
+1. **Close ComfyUI completely.**
+
+2. Back up your current GGUF node by moving it out of `custom_nodes`.
+
+   Example:
+
+   ```text
+   ComfyUI/custom_nodes/ComfyUI-GGUF
+   →
+   ComfyUI-GGUF-backup
+   ```
+
+3. Install a **Krea 2-compatible ComfyUI-GGUF fork** into:
+
+   ```text
+   ComfyUI/custom_nodes/ComfyUI-GGUF
+   ```
+
+   A Krea 2-compatible fork currently used by Krea 2 GGUF releases is:
+
+   ```text
+   https://github.com/molbal/ComfyUI-GGUF
+   ```
+
+4. Install the node requirements using your ComfyUI Python environment.
+
+   For Windows Portable:
+
+   ```bat
+   .\python_embeded\python.exe -s -m pip install -r .\ComfyUI\custom_nodes\ComfyUI-GGUF\requirements.txt
+   ```
+
+5. Restart ComfyUI.
+
+6. Retry the Krea 2 GGUF workflow in Neo.
+
+> Keep only **one active `ComfyUI-GGUF` installation** inside `custom_nodes` to avoid duplicate-node conflicts.
+
+#### Required Krea 2 Support Files
+
+```text
+Text Encoder:
+qwen3vl_4b_fp8_scaled.safetensors
+
+VAE:
+qwen_image_vae.safetensors
+```
+
+Typical locations:
+
+```text
+ComfyUI/models/text_encoders/qwen3vl_4b_fp8_scaled.safetensors
+ComfyUI/models/vae/qwen_image_vae.safetensors
+```
+---
 
 ### 🧩 Extensions Not Showing in a Workspace
 
