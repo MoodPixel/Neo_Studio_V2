@@ -233,8 +233,14 @@ def _fingerprint(report: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _route_policy_requirements(provider_id: str, family_id: str, loader_id: str) -> dict[str, Any]:
-    adapter = get_lanpaint_family_adapter(
+def _route_policy_requirements(
+    provider_id: str,
+    family_id: str,
+    loader_id: str,
+    *,
+    family_adapter: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    adapter = deepcopy(dict(family_adapter)) if isinstance(family_adapter, Mapping) else get_lanpaint_family_adapter(
         family_id,
         loader=loader_id,
         provider_id=provider_id,
@@ -396,6 +402,28 @@ def _asset_role_config(family_id: str, loader_id: str, requirements: Mapping[str
     }
 
 
+def _expansion_profile_from_registry(
+    registry: Mapping[str, Any] | None,
+    *,
+    family_id: str,
+    loader_id: str,
+    provider_id: str,
+) -> dict[str, Any] | None:
+    if not isinstance(registry, Mapping):
+        return get_lanpaint_family_expansion_profile(family_id, loader=loader_id, provider_id=provider_id)
+    profiles = registry.get("profiles") if isinstance(registry.get("profiles"), list) else []
+    for raw in profiles:
+        profile = _mapping(raw)
+        identity = _mapping(profile.get("identity"))
+        if normalize_family_id(identity.get("family")) != family_id or normalize_loader_id(identity.get("loader")) != loader_id:
+            continue
+        providers = [normalize_provider_id(item) for item in identity.get("provider_ids", [])]
+        if provider_id and provider_id not in providers:
+            return None
+        return deepcopy(profile)
+    return None
+
+
 def evaluate_lanpaint_route_capabilities(
     backend_capabilities: Mapping[str, Any] | None,
     *,
@@ -409,6 +437,9 @@ def evaluate_lanpaint_route_capabilities(
     require_model_only_lora: bool = False,
     require_model_clip_lora: bool = False,
     physical_validation_passed: bool = False,
+    family_adapter: Mapping[str, Any] | None = None,
+    adapter_registry: Mapping[str, Any] | None = None,
+    expansion_registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the fail-closed, family-policy-driven LanPaint readiness report."""
 
@@ -418,7 +449,9 @@ def evaluate_lanpaint_route_capabilities(
     loader_id = normalize_loader_id(loader)
     mode_id = str(mode or MODE_ID).strip().lower().replace("-", "_")
     engine_id = str(engine or ENGINE_ID).strip().lower().replace("-", "_")
-    requirements = _route_policy_requirements(provider, family_id, loader_id)
+    requirements = _route_policy_requirements(
+        provider, family_id, loader_id, family_adapter=family_adapter
+    )
     supported_route = bool(
         provider in SUPPORTED_PROVIDERS
         and requirements.get("supported")
@@ -429,7 +462,9 @@ def evaluate_lanpaint_route_capabilities(
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     selected = _mapping(selected_assets)
-    expansion_profile = get_lanpaint_family_expansion_profile(family_id, loader=loader_id, provider_id=provider)
+    expansion_profile = _expansion_profile_from_registry(
+        expansion_registry, family_id=family_id, loader_id=loader_id, provider_id=provider
+    )
     expansion_summary = {}
     if expansion_profile:
         expansion_summary = {
@@ -498,7 +533,7 @@ def evaluate_lanpaint_route_capabilities(
     if not backend or not backend.get("reachable") or not backend.get("object_info_available"):
         blockers.append(_issue("backend_capability_snapshot_unavailable", "The connected ComfyUI profile has no live /object_info capability snapshot.", field="backend_capabilities"))
 
-    current_registry = lanpaint_family_adapter_registry(provider)
+    current_registry = dict(adapter_registry) if isinstance(adapter_registry, Mapping) else lanpaint_family_adapter_registry(provider)
     adapter_route_key = f"{family_id}:{loader_id}:{mode_id}:{engine_id}"
     snapshot_freshness = lanpaint_snapshot_freshness(
         backend,

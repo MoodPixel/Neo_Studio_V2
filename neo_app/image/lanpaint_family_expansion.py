@@ -286,8 +286,8 @@ def get_lanpaint_family_expansion_profile(
     return None
 
 
-def lanpaint_family_expansion_summary() -> dict[str, Any]:
-    registry = lanpaint_family_expansion_registry()
+def lanpaint_family_expansion_summary(registry: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    registry = dict(registry) if isinstance(registry, Mapping) else lanpaint_family_expansion_registry()
     return {
         "schema_id": registry["schema_id"],
         "schema_version": registry["schema_version"],

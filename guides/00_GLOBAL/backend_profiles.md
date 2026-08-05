@@ -22,8 +22,8 @@ tags:
   - forge
   - connection
 priority: 85
-version: 8
-updated: 2026-07-30
+version: 9
+updated: 2026-08-05
 ---
 
 # Backend Profiles and Connection State
@@ -121,6 +121,17 @@ For Grok:
 1. Configure/test **Grok Imagine** under Image.
 2. Select/test **Grok Imagine Video** under Video.
 3. The Video profile may reuse the Image profile's manual key or `XAI_API_KEY`.
+
+
+## Comfy Connect performance and snapshot reuse
+
+A manual **Connect** or **Test** action owns one current Comfy `/system_stats` probe and one current `/object_info` snapshot. The same `/object_info` payload must feed model discovery, LanPaint capability discovery, route diagnostics, and the returned live profile. The response-shaping step must reuse the runtime produced by that button action rather than probing the same profile again.
+
+LanPaint route evaluation may use a provider-scoped adapter registry and expansion registry built once for the capability matrix. It must not rebuild both registries independently for every route. This optimization does not relax stale-snapshot, missing-node, missing-model, selected-asset, or exact-route fail-closed checks.
+
+Comfy model-folder and conventional filesystem scans are fallbacks. When `/object_info` already publishes the requested catalog, especially `UpscaleModelLoader.model_name`, Neo skips the slower fallback probes.
+
+See `guides/00_GLOBAL/backend_connect_dropzone_recovery_bcr1.md` for the BCR-1 incident and verification steps.
 
 ## Connection state
 

@@ -18,8 +18,8 @@ tags:
   - outpaint
   - provider routing
 priority: 114
-version: 1
-updated: 2026-08-02
+version: 2
+updated: 2026-08-05
 ---
 
 # Preview Source Actions
@@ -56,6 +56,13 @@ URL-only live previews are copied through Neo's validated source upload endpoint
 | **Outpaint** | Stages the selected image, clears previous mask/canvas/padding state, switches to Outpaint, and opens the outpaint editor. |
 
 Prompt and reference settings are preserved unless the user explicitly selected a saved-result replay source. Replay may restore recipe data, but the selected backend profile is restored immediately afterward.
+
+
+## Manual source upload and drag/drop lifecycle
+
+Img2Img, Inpaint, Outpaint, Qwen reference lanes, and Qwen Stitch use the shared `data-neo-image-dropzone` contract. Drop handling is delegated once at the document boundary before Image panels render. This keeps newly replaced dropzones interactive while backend capability overlays, model catalogs, or mode changes rebuild the Image DOM.
+
+Do not move image drops back to one-time listeners attached to individual preview nodes. A panel render can replace those nodes and silently remove their listeners. File pickers and dropped files still enter the same validated source/reference upload functions; the change is lifecycle ownership, not upload or provider semantics.
 
 ## Backend validation
 

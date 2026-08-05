@@ -468,7 +468,7 @@ const state = {
     wildcards: { enabled: true, root: '', selected_token: '', target: 'positive_prompt', auto_resolve: true, use_seed: true, preview_count: 3, queue_count: 3, variant_offset: 0, max_passes: 24, search: '', editor: { token: '', values_text: '', extension: '.txt' }, library: { entries: [], values: [], status: '', loading: false, loaded: false, count: 0, root: '' }, payload_version: 1, last_preview_results: [], last_payload_preview: null, releaseStage: 'ready' },
     'image.layerdiffuse': { enabled: false, mode: 'transparent_asset', source_type: 'prompt', decode_mode: 'rgba', output_policy: 'new_run', save_rgba: true, save_rgb: false, save_alpha: true, save_metadata: true, compatibility_mode: 'auto', sd_version: 'auto', workflow_variant: 'auto', layerdiffuse_weight: 1.0, blend_strength: 0.35, sub_batch_size: 16 },
   },
-  sceneDirectorLibrary: { identityProfiles: [], scenePresets: [], regionLayoutPresets: [], status: '' },
+  sceneDirectorLibrary: { identityProfiles: [], scenePresets: [], regionLayoutPresets: [], status: '', loading: false, loaded: false, attempted: false },
   imageResults: [],
   activeResultIndex: 0,
   imageSavedResults: [],
@@ -12224,24 +12224,60 @@ async function sceneDirectorApi(path, options = {}) {
   if (!response.ok || data.ok === false) throw new Error(data.detail || data.error || data.message || `Scene Director API failed: ${path}`);
   return data;
 }
-async function refreshSceneDirectorLibraries() {
+let sceneDirectorLibrariesInFlight = null;
+async function refreshSceneDirectorLibraries({ force = false } = {}) {
+  // BCR-1: library hydration is single-flight. Backend connection can trigger
+  // several Image renders while capability/catalog refreshes settle; without an
+  // in-flight guard each render started four more Scene Director requests and
+  // every completion rendered again, producing an unbounded request/render loop.
+  if (sceneDirectorLibrariesInFlight) return sceneDirectorLibrariesInFlight;
+
+  const previous = state.sceneDirectorLibrary || {};
+  state.sceneDirectorLibrary = {
+    ...previous,
+    loading: true,
+    loaded: Boolean(previous.loaded),
+    attempted: Boolean(previous.attempted),
+    status: force ? 'Refreshing Scene Director libraries…' : (previous.status || 'Loading Scene Director libraries…'),
+  };
+
+  const request = (async () => {
+    try {
+      const [profiles, presets, layouts, traitLibraries] = await Promise.all([
+        sceneDirectorApi('identity-profiles'),
+        sceneDirectorApi('scene-presets'),
+        sceneDirectorApi('region-layout-presets'),
+        sceneDirectorApi('trait-libraries'),
+      ]);
+      state.sceneDirectorLibrary = {
+        identityProfiles: profiles.items || profiles.profiles || [],
+        scenePresets: presets.items || presets.presets || [],
+        regionLayoutPresets: layouts.items || [],
+        traitLibraries: traitLibraries.categories || {},
+        traitLibraryOrder: traitLibraries.category_order || SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES,
+        status: 'Scene Director libraries refreshed.',
+        loading: false,
+        loaded: true,
+        attempted: true,
+      };
+      return state.sceneDirectorLibrary;
+    } catch (error) {
+      state.sceneDirectorLibrary = {
+        ...(state.sceneDirectorLibrary || previous),
+        status: error?.message || String(error),
+        loading: false,
+        loaded: false,
+        attempted: true,
+      };
+      return state.sceneDirectorLibrary;
+    }
+  })();
+
+  sceneDirectorLibrariesInFlight = request;
   try {
-    const [profiles, presets, layouts, traitLibraries] = await Promise.all([
-      sceneDirectorApi('identity-profiles'),
-      sceneDirectorApi('scene-presets'),
-      sceneDirectorApi('region-layout-presets'),
-      sceneDirectorApi('trait-libraries'),
-    ]);
-    state.sceneDirectorLibrary = {
-      identityProfiles: profiles.items || profiles.profiles || [],
-      scenePresets: presets.items || presets.presets || [],
-      regionLayoutPresets: layouts.items || [],
-      traitLibraries: traitLibraries.categories || {},
-      traitLibraryOrder: traitLibraries.category_order || SCENE_DIRECTOR_CHARACTER_TRAIT_CATEGORIES,
-      status: 'Scene Director libraries refreshed.',
-    };
-  } catch (error) {
-    state.sceneDirectorLibrary = { ...(state.sceneDirectorLibrary || {}), status: error?.message || String(error) };
+    return await request;
+  } finally {
+    if (sceneDirectorLibrariesInFlight === request) sceneDirectorLibrariesInFlight = null;
   }
 }
 function sceneDirectorSelectedRegionIndex() {
@@ -13087,7 +13123,7 @@ function bindSceneDirectorPanel() {
   const autoFitAll = document.querySelector('[data-scene-director-autofit-all-characters]');
   if (autoFitAll) autoFitAll.addEventListener('click', () => sceneDirectorAutoFitCharacterRegions('all'));
   const refreshLibraries = document.querySelector('[data-scene-director-refresh-libraries]');
-  if (refreshLibraries) refreshLibraries.addEventListener('click', async () => { await refreshSceneDirectorLibraries(); render(); });
+  if (refreshLibraries) refreshLibraries.addEventListener('click', async () => { await refreshSceneDirectorLibraries({ force: true }); render(); });
   const saveIdentity = document.querySelector('[data-scene-director-save-identity-profile]');
   if (saveIdentity) saveIdentity.addEventListener('click', () => saveSceneDirectorIdentityProfile().catch((error) => { state.sceneDirectorLibrary.status = error?.message || String(error); render(); }));
   const applyIdentity = document.querySelector('[data-scene-director-apply-identity-profile]');
@@ -13100,8 +13136,9 @@ function bindSceneDirectorPanel() {
   if (saveLayoutPreset) saveLayoutPreset.addEventListener('click', () => saveSceneDirectorLayoutPreset().catch((error) => { state.sceneDirectorLibrary.status = error?.message || String(error); render(); }));
   const loadLayoutPreset = document.querySelector('[data-scene-director-load-layout-preset]');
   if (loadLayoutPreset) loadLayoutPreset.addEventListener('click', () => loadSceneDirectorLayoutPreset().catch((error) => { state.sceneDirectorLibrary.status = error?.message || String(error); render(); }));
-  if (!(state.sceneDirectorLibrary?.identityProfiles || []).length && !(state.sceneDirectorLibrary?.scenePresets || []).length && !state.sceneDirectorLibrary?.status) {
-    refreshSceneDirectorLibraries().then(() => render()).catch(() => {});
+  const sceneLibrary = state.sceneDirectorLibrary || {};
+  if (!sceneLibrary.attempted && !sceneLibrary.loading && !sceneDirectorLibrariesInFlight) {
+    void refreshSceneDirectorLibraries().then(() => render()).catch(() => {});
   }
   document.querySelectorAll('[data-scene-region-remove]').forEach((btn) => btn.addEventListener('click', () => { const idx = Number(btn.getAttribute('data-scene-region-remove')); const settings = sceneDirectorSettings(); updateSceneDirectorSettings({ regions: settings.regions.filter((_, i) => i !== idx) }); render(); }));
   document.querySelectorAll('[data-scene-region-duplicate]').forEach((btn) => btn.addEventListener('click', () => { const idx = Number(btn.getAttribute('data-scene-region-duplicate')); const settings = sceneDirectorSettings(); const regions = [...settings.regions]; const clone = { ...sceneDirectorNormalizeRegion(regions[idx] || sceneDirectorDefaultRegion(idx), idx), id: `scene_region_${Date.now()}_${idx + 1}_copy`, label: `${regions[idx]?.label || `Region ${idx + 1}`} Copy` }; const box = clone.bbox || { x: 0.1, y: 0.1, w: 0.3, h: 0.7 }; clone.bbox = { x: Math.min(1, Number(box.x ?? 0.1) + 0.03), y: Math.min(1, Number(box.y ?? 0.1) + 0.03), w: Number(box.w ?? 0.3), h: Number(box.h ?? 0.7) }; regions.splice(idx + 1, 0, clone); updateSceneDirectorSettings({ regions }); render(); }));
@@ -49455,55 +49492,90 @@ function neoImageUploadUnsupportedDropMessage(dataTransfer) {
   return `Unsupported image file format: ${names}. Supported formats: PNG, JPG, WEBP, BMP.`;
 }
 
+let neoImageDropzoneDelegationBound = false;
+
+function neoImageDropzoneFromEvent(event) {
+  const target = event?.target;
+  if (!target?.closest) return null;
+  return target.closest('[data-neo-image-dropzone]');
+}
+
+function neoImageDropzoneInput(zone) {
+  const inputId = zone?.getAttribute?.('data-neo-image-input') || '';
+  return inputId ? document.getElementById(inputId) : null;
+}
+
+async function uploadNeoImageDropzoneFile(zone, file) {
+  if (!zone || !file) return;
+  const kind = zone.getAttribute('data-neo-image-kind') || 'source';
+  const lane = Number(zone.getAttribute('data-neo-image-lane') || 1);
+  if (kind === 'qwen-stitch') {
+    await uploadQwenStitchImageFile(
+      zone.getAttribute('data-qwen-stitch-group') || '',
+      zone.getAttribute('data-qwen-stitch-side') || 'image_a',
+      file,
+    );
+    return;
+  }
+  if (kind === 'reference' || lane > 1) await uploadQwenReferenceSourceFile(lane, file);
+  else await uploadImageSourceLaneFile(1, file);
+}
+
 function bindNeoImageDropzones(root = document) {
-  // Global image dropzone binder used by the Image surface source/reference previews.
-  // This must always exist because bindImageDraftInputs() calls it during render.
-  // If it is missing, the whole frontend render lifecycle aborts and other surfaces
-  // such as Prompt & Captioning lose their click bindings.
-  root.querySelectorAll?.('[data-neo-image-dropzone]').forEach((zone) => {
-    if (zone.dataset.neoImageDropzoneBound === 'true') return;
-    zone.dataset.neoImageDropzoneBound = 'true';
-    const inputId = zone.getAttribute('data-neo-image-input') || '';
-    const kind = zone.getAttribute('data-neo-image-kind') || 'source';
-    const lane = Number(zone.getAttribute('data-neo-image-lane') || 1);
-    const input = inputId ? document.getElementById(inputId) : null;
-    const upload = async (file) => {
-      if (!file) return;
-      if (kind === 'qwen-stitch') {
-        await uploadQwenStitchImageFile(zone.getAttribute('data-qwen-stitch-group') || '', zone.getAttribute('data-qwen-stitch-side') || 'image_a', file);
-        return;
-      }
-      if (kind === 'reference' || lane > 1) await uploadQwenReferenceSourceFile(lane, file);
-      else await uploadImageSourceLaneFile(1, file);
-    };
-    zone.addEventListener('click', (event) => {
-      if (event.target?.closest?.('button, input, select, textarea, a')) return;
-      if (input) input.click();
+  // BCR-1: bind once at the document level so source/reference dropzones remain
+  // interactive when backend capability refreshes replace Image panel DOM nodes.
+  // Keep this public binder because bindImageDraftInputs() and boot-lock tests rely
+  // on the contract, but never attach lifecycle-fragile handlers to individual zones.
+  if (!neoImageDropzoneDelegationBound) {
+    neoImageDropzoneDelegationBound = true;
+
+    document.addEventListener('click', (event) => {
+      const zone = neoImageDropzoneFromEvent(event);
+      if (!zone || event.target?.closest?.('button, input, select, textarea, a')) return;
+      neoImageDropzoneInput(zone)?.click();
     });
-    zone.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
+
+    document.addEventListener('keydown', (event) => {
+      const zone = neoImageDropzoneFromEvent(event);
+      if (!zone || (event.key !== 'Enter' && event.key !== ' ')) return;
       event.preventDefault();
-      if (input) input.click();
+      neoImageDropzoneInput(zone)?.click();
     });
-    ['dragenter', 'dragover'].forEach((type) => zone.addEventListener(type, (event) => {
+
+    ['dragenter', 'dragover'].forEach((type) => document.addEventListener(type, (event) => {
+      const zone = neoImageDropzoneFromEvent(event);
+      if (!zone) return;
       event.preventDefault();
       zone.classList.add('is-dragover');
     }));
-    ['dragleave', 'drop'].forEach((type) => zone.addEventListener(type, (event) => {
+
+    document.addEventListener('dragleave', (event) => {
+      const zone = neoImageDropzoneFromEvent(event);
+      if (!zone) return;
+      event.preventDefault();
+      if (event.relatedTarget instanceof Node && zone.contains(event.relatedTarget)) return;
+      zone.classList.remove('is-dragover');
+    });
+
+    document.addEventListener('drop', (event) => {
+      const zone = neoImageDropzoneFromEvent(event);
+      if (!zone) return;
       event.preventDefault();
       zone.classList.remove('is-dragover');
-    }));
-    zone.addEventListener('drop', (event) => {
       const file = neoImageUploadCandidateFromDataTransfer(event.dataTransfer);
       if (!file) {
         window.alert(neoImageUploadUnsupportedDropMessage(event.dataTransfer));
         return;
       }
-      upload(file).catch((error) => {
+      uploadNeoImageDropzoneFile(zone, file).catch((error) => {
         window.alert(error?.message || 'Image upload failed.');
         render();
       });
     });
+  }
+
+  root.querySelectorAll?.('[data-neo-image-dropzone]').forEach((zone) => {
+    zone.dataset.neoImageDropzoneBound = 'delegated';
   });
 }
 
@@ -55562,6 +55634,9 @@ function render() {
   document.body.dataset.detailMode = state.detailMode || 'guided';
   const surface = activeSurface();
   if (!surface) return;
+  // Establish render-independent image drop handling before any panel builder or
+  // capability-gated binder can fail or replace the current Image DOM.
+  bindNeoImageDropzones(document);
   ensureSurfaceRuntime(surface.surface_id);
   if (surface.surface_id === 'video') {
     setSurfaceWorkspaceAppId('video', getSurfaceWorkspaceAppId('video'));

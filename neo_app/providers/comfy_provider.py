@@ -58,7 +58,7 @@ from neo_app.image.lanpaint_capability_discovery import (
     build_lanpaint_capability_snapshot_metadata,
     build_lanpaint_discovery_contract,
 )
-from neo_app.image.lanpaint_family_expansion import lanpaint_family_expansion_summary
+from neo_app.image.lanpaint_family_expansion import lanpaint_family_expansion_registry, lanpaint_family_expansion_summary
 from neo_app.image.lanpaint_family_adapter import lanpaint_family_adapter_registry
 from neo_app.providers.comfy_workflows.image_stitch_route import (
     extract_image_stitch_payload,
@@ -542,7 +542,12 @@ class ComfyProvider(BaseProvider):
             "all": sorted({str(key) for key in required.keys()} | {str(key) for key in optional.keys()}),
         }
 
-    def discover_backend_capabilities(self) -> dict[str, Any]:
+    def discover_backend_capabilities(
+        self,
+        *,
+        object_info: dict[str, Any] | None = None,
+        discovery_error: str = "",
+    ) -> dict[str, Any]:
         adapter_registry = lanpaint_family_adapter_registry(self.manifest.provider_id)
         active_adapters = [
             item for item in adapter_registry.get("adapters", [])
@@ -555,40 +560,57 @@ class ComfyProvider(BaseProvider):
             )
             for item in active_adapters
         ]
+        adapters_by_route = {
+            (
+                str((item.get("identity") or {}).get("family") or ""),
+                str((item.get("identity") or {}).get("loader") or ""),
+            ): item
+            for item in active_adapters
+        }
+        expansion_registry = lanpaint_family_expansion_registry()
+        expansion_summary = lanpaint_family_expansion_summary(expansion_registry)
         discovery_contract = build_lanpaint_discovery_contract(
             adapter_registry,
             base_node_classes=LANPAINT_BASE_OBJECT_INFO_NODE_CLASSES,
         )
         object_info_scope = tuple(discovery_contract["required_node_classes"])
+
+        def evaluate_route(capabilities: dict[str, Any], family: str, loader: str) -> dict[str, Any]:
+            return evaluate_lanpaint_route_capabilities(
+                capabilities,
+                provider_id=self.manifest.provider_id,
+                family=family,
+                loader=loader,
+                mode="inpaint",
+                engine="lanpaint",
+                family_adapter=adapters_by_route.get((family, loader)),
+                adapter_registry=adapter_registry,
+                expansion_registry=expansion_registry,
+            )
+
         try:
-            info = self._get_json("/object_info")
+            if discovery_error:
+                raise RuntimeError(discovery_error)
+            info = object_info if object_info is not None else self._get_json("/object_info")
         except Exception as exc:  # noqa: BLE001 - discovery must not crash provider payloads.
+            error_message = str(exc) if discovery_error else f"ComfyUI object_info discovery failed: {exc}"
             result = discover_comfy_backend_capabilities(
                 {},
                 provider_id=self.manifest.provider_id,
                 reachable=False,
-                error=f"ComfyUI object_info discovery failed: {exc}",
+                error=error_message,
             )
             payload = discovery_result_to_dict(result)
             payload["object_info_node_inputs"] = {}
-            payload["lanpaint_family_expansion"] = lanpaint_family_expansion_summary()
+            payload["lanpaint_family_expansion"] = deepcopy(expansion_summary)
             payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
             payload["lanpaint_capability_discovery_contract"] = deepcopy(discovery_contract)
             payload["lanpaint_capability_snapshot"] = build_lanpaint_capability_snapshot_metadata(
                 discovery_contract, discovered_node_classes=(), object_info_available=False
             )
-            payload["lanpaint_route_capabilities"] = evaluate_lanpaint_route_capabilities(
-                payload,
-                provider_id=self.manifest.provider_id,
-                family="krea2_turbo",
-                loader="gguf",
-                mode="inpaint",
-                engine="lanpaint",
-            )
+            payload["lanpaint_route_capabilities"] = evaluate_route(payload, "krea2_turbo", "gguf")
             payload["lanpaint_route_capability_matrix"] = {
-                f"{family}:{loader}:inpaint:lanpaint": evaluate_lanpaint_route_capabilities(
-                    payload, provider_id=self.manifest.provider_id, family=family, loader=loader, mode="inpaint", engine="lanpaint"
-                )
+                f"{family}:{loader}:inpaint:lanpaint": evaluate_route(payload, family, loader)
                 for family, loader in active_routes
             }
             payload["lanpaint_node_diagnostics"] = {
@@ -639,7 +661,7 @@ class ComfyProvider(BaseProvider):
             ]
             if isinstance(info.get(node_name), dict)
         }
-        payload["lanpaint_family_expansion"] = lanpaint_family_expansion_summary()
+        payload["lanpaint_family_expansion"] = deepcopy(expansion_summary)
         payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
         payload["lanpaint_capability_discovery_contract"] = deepcopy(discovery_contract)
         payload["lanpaint_capability_snapshot"] = build_lanpaint_capability_snapshot_metadata(
@@ -674,18 +696,9 @@ class ComfyProvider(BaseProvider):
             ],
             "note": "Phase 22.1 derives object_info discovery from every selectable family adapter; missing classes now reflect the exact selected route rather than a static Krea-era whitelist.",
         }
-        payload["lanpaint_route_capabilities"] = evaluate_lanpaint_route_capabilities(
-            payload,
-            provider_id=self.manifest.provider_id,
-            family="krea2_turbo",
-            loader="gguf",
-            mode="inpaint",
-            engine="lanpaint",
-        )
+        payload["lanpaint_route_capabilities"] = evaluate_route(payload, "krea2_turbo", "gguf")
         payload["lanpaint_route_capability_matrix"] = {
-            f"{family}:{loader}:inpaint:lanpaint": evaluate_lanpaint_route_capabilities(
-                payload, provider_id=self.manifest.provider_id, family=family, loader=loader, mode="inpaint", engine="lanpaint"
-            )
+            f"{family}:{loader}:inpaint:lanpaint": evaluate_route(payload, family, loader)
             for family, loader in active_routes
         }
         payload["lanpaint_node_diagnostics"]["route_status"] = payload["lanpaint_route_capabilities"]["status"]

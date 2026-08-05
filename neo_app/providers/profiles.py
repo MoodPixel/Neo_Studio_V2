@@ -1420,11 +1420,20 @@ def _append_unique(bucket: list[dict[str, Any]], kind: str, names: list[str], *,
         bucket.append(_record(kind, str(name), source=source))
 
 
-def _discover_comfy_models(base_url: str, timeout: float = 3.0, backend_details: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
-    try:
-        info = _http_get_json(base_url, "/object_info", timeout=timeout)
-    except Exception:
-        return _empty_models()
+def _discover_comfy_models(
+    base_url: str,
+    timeout: float = 3.0,
+    backend_details: dict[str, Any] | None = None,
+    *,
+    object_info: dict[str, Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    if object_info is None:
+        try:
+            info = _http_get_json(base_url, "/object_info", timeout=timeout)
+        except Exception:
+            return _empty_models()
+    else:
+        info = object_info
 
     buckets = _empty_models()
     checkpoint_inputs = (((info.get("CheckpointLoaderSimple") or {}).get("input") or {}).get("required") or {})
@@ -1496,8 +1505,10 @@ def _discover_comfy_models(base_url: str, timeout: float = 3.0, backend_details:
     # object_info choices until the model folder endpoint is queried directly.
     # Use V1-compatible folder keys before falling back to conventional portable
     # model folders. Missing lists should never hide the High-Res Lab selector.
-    upscale_names.extend(_discover_comfy_model_folder_names(base_url, ["upscale_models", "upscalers", "ESRGAN", "esrgan"], timeout=timeout))
-    upscale_names.extend(_scan_conventional_comfy_upscale_model_folders(backend_details))
+    if not upscale_names:
+        upscale_names = _discover_comfy_model_folder_names(base_url, ["upscale_models", "upscalers", "ESRGAN", "esrgan"], timeout=timeout)
+    if not upscale_names:
+        upscale_names = _scan_conventional_comfy_upscale_model_folders(backend_details)
     _append_unique(buckets["upscalers"], "upscaler", upscale_names)
 
     # Phase 12.10D: migrate the V1 GGUF catalog method. GGUF assets are pulled
@@ -1840,7 +1851,18 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
             }
         try:
             stats = _http_get_json(base_url, "/system_stats", timeout=timeout)
-            models = _discover_comfy_models(base_url, timeout=timeout, backend_details={"portable_path": connection.get("portable_path") or "", "profile_id": profile.get("profile_id") or ""})
+            object_info_error = ""
+            try:
+                object_info = _http_get_json(base_url, "/object_info", timeout=timeout)
+            except Exception as exc:  # noqa: BLE001 - keep a reachable Comfy profile connected with fail-closed capabilities.
+                object_info = {}
+                object_info_error = f"ComfyUI object_info discovery failed: {exc}"
+            models = _discover_comfy_models(
+                base_url,
+                timeout=timeout,
+                backend_details={"portable_path": connection.get("portable_path") or "", "profile_id": profile.get("profile_id") or ""},
+                object_info=object_info,
+            )
             # Capability discovery must be bound to the selected profile's URL.
             # The generic provider registry instance uses manifest defaults and is
             # therefore not authoritative for multi-profile Comfy installations.
@@ -1854,7 +1876,17 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
                     base_url=base_url,
                     timeout=timeout,
                 )
-                backend_capabilities = profile_provider.discover_backend_capabilities()
+                try:
+                    backend_capabilities = profile_provider.discover_backend_capabilities(
+                        object_info=object_info,
+                        discovery_error=object_info_error,
+                    )
+                except TypeError as exc:
+                    # Compatibility for provider subclasses/tests that still expose
+                    # the pre-IR-6.3 no-argument capability discovery signature.
+                    if "unexpected keyword argument" not in str(exc):
+                        raise
+                    backend_capabilities = profile_provider.discover_backend_capabilities()
             return {
                 "status": "connected",
                 "reachable": True,
@@ -1896,7 +1928,12 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = False) -> dict[str, Any]:
+def _enrich_profile(
+    profile: dict[str, Any],
+    *,
+    allow_manual_runtime: bool = False,
+    live_runtime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     provider = get_provider(profile.get("provider_id", ""), profile=profile)
     connection = profile.get("connection", {}) or {}
     runtime = profile.get("runtime") or {}
@@ -1921,17 +1958,17 @@ def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = Fal
     # previously connected, do one lightweight live probe before showing Connected.
     # Profiles that were never manually connected remain passive and show
     # Disconnected while auto_connect is off.
-    live_runtime = None
+    resolved_live_runtime = dict(live_runtime) if isinstance(live_runtime, dict) else None
     should_validate_saved_runtime = auto_connect or allow_manual_runtime
-    if should_validate_saved_runtime:
+    if resolved_live_runtime is None and should_validate_saved_runtime:
         try:
-            live_runtime = _probe_profile(profile)
+            resolved_live_runtime = _probe_profile(profile)
         except Exception:  # noqa: BLE001 - profile listing must stay resilient.
-            live_runtime = None
+            resolved_live_runtime = None
 
-    if live_runtime:
+    if resolved_live_runtime:
         runtime_payload = _decorate_connection_test_result(profile, {
-            **live_runtime,
+            **resolved_live_runtime,
             "activation": runtime.get("activation") or ("auto_connect" if auto_connect else "manual_connect"),
         }, operation="auto_connect" if auto_connect else "manual_connect")
         runtime_status = runtime_payload.get("status") or "missing_config"
@@ -2309,7 +2346,10 @@ def connect_backend_profile(profile_id: str) -> dict[str, Any]:
                 "ok": runtime.get("reachable", False),
                 "profile_id": profile_id,
                 "runtime": runtime,
-                "profile": _enrich_profile(profile, allow_manual_runtime=True),
+                # The runtime above is the live result of this exact button action.
+                # Reuse it while shaping the response; probing again doubled every
+                # Comfy object_info/capability discovery cost.
+                "profile": _enrich_profile(profile, allow_manual_runtime=True, live_runtime=runtime),
             }
     return {"ok": False, "errors": [f"Unknown backend profile: {profile_id}"]}
 
@@ -2353,7 +2393,10 @@ def test_backend_profile(profile_id: str) -> dict[str, Any]:
                 "models": runtime.get("models", _empty_models()),
                 "message": runtime.get("message"),
                 "diagnostic": runtime.get("diagnostic") or {},
-                "profile": _enrich_profile(profile, allow_manual_runtime=True),
+                # The runtime above is the live result of this exact button action.
+                # Reuse it while shaping the response; probing again doubled every
+                # Comfy object_info/capability discovery cost.
+                "profile": _enrich_profile(profile, allow_manual_runtime=True, live_runtime=runtime),
             }
     return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
 
