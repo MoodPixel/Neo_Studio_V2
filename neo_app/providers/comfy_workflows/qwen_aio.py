@@ -645,7 +645,7 @@ def compile_qwen_native_edit(
     """Compile Qwen Image Edit split diffusion-model image-conditioned routes.
 
     P3 promotes the earlier Qwen audit into implemented local workflows for
-    normal Qwen Image Edit and Qwen Image Edit 2509 safetensors/components
+    normal Qwen Image Edit and Qwen Image Edit 2509/2511 safetensors/components
     routes: single-source normal Qwen img2img/edit, 2509 1-3 source
     img2img/edit, mask-based inpaint, and canvas outpaint. 2509 inpaint and
     outpaint intentionally prune to single-source mask/canvas routes.
@@ -720,7 +720,7 @@ def compile_qwen_native_edit(
 
     route_notes: list[str] = []
     route_meta: dict[str, Any] = {}
-    max_source_images = 3 if visible_family == "qwen_image_edit_2509" and mode == "img2img" else 1
+    max_source_images = 3 if visible_family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and mode == "img2img" else 1
     next_id, qwen_inputs, notes, image_meta = _load_qwen_source_images(workflow, params, start_id=20, max_images=max_source_images)
     route_notes.extend(notes)
     route_meta.update(image_meta)
@@ -857,7 +857,7 @@ def compile_qwen_native_edit(
             "compiler": "comfy.qwen_native_edit",
             "enabled_modes": ["img2img", "edit", "inpaint", "outpaint"],
             "source_image_limit": effective_source_limit,
-            "source_image_limit_policy": "2509 allows 1-3 sources for img2img/edit only; inpaint/outpaint are single-source mask/canvas workflows.",
+            "source_image_limit_policy": "2509/2511 allow 1-3 sources for img2img/edit only; inpaint/outpaint are single-source mask/canvas workflows.",
             "status": "available",
             "provider_nodes": {"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": route_meta.get("qwen_edit_node_compatibility", {}).get("selected_node", "TextEncodeQwenImageEditPlus"), "sampling_patch": defaults.sampling_node, "vae_loader": "VAELoader"},
         },

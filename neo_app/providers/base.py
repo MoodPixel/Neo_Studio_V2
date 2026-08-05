@@ -95,6 +95,20 @@ class BaseProvider(ABC):
         if self.manifest.status in {"disabled", "missing_config", "error"}:
             warnings.append(f"Provider status is {self.manifest.status}; run may not be available yet.")
 
+        # IP-3: Empty · Clean Slate is an authoring template, not permission for
+        # provider compilers to silently restore defaults. The NeoJob boundary
+        # records preset completeness; every provider honors the same blocker.
+        if str(job.surface or "").strip().casefold() == "image":
+            preset_validation = (job.params or {}).get("sampling_preset_validation")
+            if isinstance(preset_validation, dict) and preset_validation.get("blocks_generation"):
+                errors.append(str(preset_validation.get("message") or "Sampling settings are incomplete."))
+            release_lock = (job.params or {}).get("sampling_preset_release_lock")
+            if isinstance(release_lock, dict) and release_lock.get("blocks_generation"):
+                for failure in release_lock.get("failures") or []:
+                    message = str((failure or {}).get("message") or "Sampling preset release lock failed.")
+                    if message not in errors:
+                        errors.append(message)
+
         return ProviderValidationResult(
             ok=not errors,
             provider_id=self.manifest.provider_id,

@@ -1,0 +1,205 @@
+.neo-region-canvas-wrap {
+  box-sizing: border-box;
+  inline-size: 100%;
+  width: 100%;
+  max-inline-size: 100%;
+  max-width: 100%;
+  min-inline-size: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  padding: 14px;
+  overflow: visible;
+  contain: inline-size;
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.30);
+}
+.neo-region-canvas {
+  position: relative;
+  box-sizing: border-box;
+  justify-self: center;
+  flex: 0 0 auto;
+  inline-size: var(--neo-region-fitted-inline, 100%);
+  block-size: var(--neo-region-fitted-block, auto);
+  width: var(--neo-region-fitted-inline, 100%);
+  height: var(--neo-region-fitted-block, auto);
+  max-inline-size: var(--neo-region-frame-max-inline, 760px);
+  max-width: var(--neo-region-frame-max-inline, 760px);
+  min-inline-size: 0;
+  min-width: 0;
+  aspect-ratio: var(--neo-region-aspect, 1);
+  overflow: visible;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 16px;
+  background-color: rgba(2, 6, 23, 0.76);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.025);
+  touch-action: none;
+  user-select: none;
+  isolation: isolate;
+}
+.neo-region-canvas[data-neo-region-fit-state="ready"] {
+  max-inline-size: none;
+  max-width: none;
+  aspect-ratio: auto;
+}
+.neo-region-canvas[data-neo-region-fit-state="waiting"],
+.neo-region-canvas-wrap[data-neo-region-fit-state="waiting"] .neo-region-canvas {
+  visibility: hidden;
+}
+.neo-region-canvas__grid {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, .12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, .12) 1px, transparent 1px);
+  background-size: 10% 10%;
+}
+.neo-region-canvas__region {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 3px;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 8px;
+  overflow: visible;
+  border: 2px solid hsl(calc(var(--neo-region-index, 0) * 67deg) 82% 64%);
+  border-radius: 8px;
+  color: var(--neo-text-main, #e5eefc);
+  background: color-mix(in srgb, hsl(calc(var(--neo-region-index, 0) * 67deg) 80% 56%) 16%, rgba(15,23,42,.65));
+  cursor: move;
+  text-align: left;
+  appearance: none;
+}
+.neo-region-canvas__region:hover:not(:disabled) { filter: brightness(1.08); }
+.neo-region-canvas__region:active:not(:disabled) { cursor: grabbing; }
+.neo-region-canvas__region.selected {
+  z-index: 5;
+  outline: 3px solid rgba(250, 204, 21, .92);
+  outline-offset: 2px;
+  box-shadow: 0 16px 34px rgba(0,0,0,.34);
+}
+.neo-region-canvas__region.character { border-color: rgba(96,165,250,.95); background: rgba(37,99,235,.18); }
+.neo-region-canvas__region.object { border-color: rgba(52,211,153,.95); background: rgba(5,150,105,.18); }
+.neo-region-canvas__region.background { border-color: rgba(168,85,247,.95); background: rgba(126,34,206,.16); }
+.neo-region-canvas__region.style { border-color: rgba(244,114,182,.95); background: rgba(219,39,119,.16); }
+.neo-region-canvas__region.mask { background: rgba(250,204,21,.12); }
+.neo-region-canvas__region.hidden-region { opacity: .42; border-style: dashed; }
+.neo-region-canvas__region.locked-region,
+.neo-region-canvas__region:disabled { cursor: not-allowed; }
+.neo-region-canvas__label {
+  position: relative;
+  z-index: 2;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: .82rem;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.neo-region-canvas__region em,
+.neo-region-canvas__region small {
+  position: relative;
+  z-index: 2;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: .68rem;
+  font-style: normal;
+  line-height: 1.2;
+  opacity: .88;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.neo-region-canvas__region small { margin-top: auto; }
+.neo-region-canvas__region-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: .28;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+.neo-region-canvas__mask-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: .18;
+  pointer-events: none;
+  image-rendering: pixelated;
+  mix-blend-mode: screen;
+  border-radius: inherit;
+}
+.neo-region-canvas__resize {
+  position: absolute;
+  z-index: 8;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,.94);
+  border-radius: 50%;
+  background: #facc15;
+  box-shadow: 0 0 0 1px rgba(15,23,42,.9);
+}
+.neo-region-canvas__resize.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.neo-region-canvas__resize.n { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.neo-region-canvas__resize.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.neo-region-canvas__resize.e { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.neo-region-canvas__resize.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.neo-region-canvas__resize.s { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.neo-region-canvas__resize.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.neo-region-canvas__resize.w { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.neo-region-canvas__region.locked-region .neo-region-canvas__resize,
+.neo-region-canvas__region.hidden-region .neo-region-canvas__resize,
+.neo-region-canvas__region:disabled .neo-region-canvas__resize { display: none; }
+.neo-region-canvas__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+}
+.neo-region-canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.neo-region-canvas-toolbar .neo-btn { min-height: 36px; }
+@media (max-width: 720px) {
+  .neo-region-canvas-wrap { padding: 10px; }
+  .neo-region-canvas { inline-size: var(--neo-region-fitted-inline, 100%); width: var(--neo-region-fitted-inline, 100%); }
+  .neo-region-canvas__region { padding: 6px; }
+}
+
+/* RC2-D Mask overlays use the same per-region image layer as Advanced boxes. */
+.neo-region-canvas__region-image--mask {
+  opacity: .52;
+  object-fit: fill;
+  border-radius: 6px;
+  mix-blend-mode: screen;
+  filter: sepia(1) saturate(7);
+}
+.neo-region-canvas__region.selected .neo-region-canvas__region-image--mask {
+  opacity: .68;
+}

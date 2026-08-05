@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_comfy_compiler_plan.v1",
+  "title": "Neo Studio LanPaint Comfy Compiler Plan",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "route_family_id",
+    "identity",
+    "compiler",
+    "stage_bindings",
+    "capability_evaluation",
+    "execution",
+    "validation",
+    "plan_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {"const": "neo.image.lanpaint_comfy_compiler_plan.v1"},
+    "schema_version": {"const": 1},
+    "authority": {"const": "neo_app.providers.comfy_workflows.lanpaint"},
+    "route_family_id": {"const": "image.inpaint.lanpaint"},
+    "identity": {
+      "type": "object",
+      "required": ["provider_id", "family", "loader", "mode", "engine", "route_key"],
+      "properties": {
+        "provider_id": {"enum": ["comfyui", "comfyui_portable"]},
+        "mode": {"const": "inpaint"},
+        "engine": {"const": "lanpaint"}
+      },
+      "additionalProperties": true
+    },
+    "compiler": {
+      "type": "object",
+      "required": ["compiler_id", "workflow_type", "state", "graph_emitted", "backend_prompt", "provider_dispatch_registered", "ui_route_registered"],
+      "properties": {
+        "compiler_id": {"const": "comfy.lanpaint.family_aware.v1"},
+        "workflow_type": {"const": "image.inpaint.lanpaint"},
+        "state": {"const": "binding_only"},
+        "graph_emitted": {"const": false},
+        "backend_prompt": {"type": "null"},
+        "provider_dispatch_registered": {"const": false},
+        "ui_route_registered": {"const": false}
+      },
+      "additionalProperties": true
+    },
+    "stage_bindings": {"type": "array"},
+    "capability_evaluation": {"type": "object"},
+    "execution": {
+      "type": "object",
+      "required": ["enabled", "selectable", "execution_ready", "state"],
+      "properties": {
+        "enabled": {"const": false},
+        "selectable": {"const": false},
+        "execution_ready": {"const": false},
+        "state": {"const": "binding_only"}
+      },
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": ["ok", "execution_ready"],
+      "properties": {
+        "execution_ready": {"const": false}
+      },
+      "additionalProperties": true
+    },
+    "plan_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

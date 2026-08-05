@@ -13,6 +13,10 @@ from neo_app.providers.comfy_workflows.checkpoint_sd import (
     sd_checkpoint_workflow_type,
 )
 from neo_app.providers.comfy_workflows.krea2 import compile_krea2_workflow
+from neo_app.providers.comfy_workflows.lanpaint import (
+    build_lanpaint_comfy_compile_plan,
+    validate_lanpaint_comfy_compile_plan,
+)
 from neo_app.providers.comfy_workflows.flux_native import (
     FLUX_NATIVE_DEFAULTS,
     FluxNativeDefaults,
@@ -27,6 +31,8 @@ from neo_app.providers.comfy_workflows.flux_gguf import (
 
 __all__ = [
     "compile_krea2_workflow",
+    "build_lanpaint_comfy_compile_plan",
+    "validate_lanpaint_comfy_compile_plan",
     "CompileRoute",
     "select_comfy_compile_route",
     "SDCheckpointDefaults",

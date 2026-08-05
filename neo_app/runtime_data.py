@@ -201,6 +201,7 @@ RUNTIME_DIRECTORIES: Final[tuple[str, ...]] = (
     "logs",
     *SURFACE_RUNTIME_LOG_DIRECTORIES,
     "cache",
+    "provider_cache",
     "tmp",
     "runtime",
     "runtime/jobs",
@@ -287,6 +288,17 @@ def backend_profile_runtime_path(root_dir: Path | str | None = None) -> Path:
 def backend_api_key_secret_runtime_path(root_dir: Path | str | None = None) -> Path:
     root = Path(root_dir).resolve() if root_dir is not None else ROOT_DIR
     return root / BACKEND_API_KEY_SECRET_RUNTIME_RELATIVE_PATH
+
+
+def provider_cache_root(root_dir: Path | str | None = None) -> Path:
+    root = Path(root_dir).resolve() if root_dir is not None else ROOT_DIR
+    return root / "neo_data" / "provider_cache"
+
+
+def provider_capability_cache_path(profile_id: str, filename: str = "capabilities.json", root_dir: Path | str | None = None) -> Path:
+    safe_profile_id = "".join(ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in str(profile_id or "backend_profile").strip()).strip("_") or "backend_profile"
+    safe_filename = Path(str(filename or "capabilities.json")).name
+    return provider_cache_root(root_dir) / safe_profile_id / safe_filename
 
 
 def default_backend_api_key_secret_payload() -> dict[str, Any]:

@@ -4497,23 +4497,20 @@ body.neo-modal-open {
 }
 .neo-preview-actions {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: 10px;
+  bottom: 10px;
   z-index: 5;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: min(92%, 520px);
-  padding: 8px;
+  max-width: min(calc(100% - 20px), 230px);
+  padding: 6px;
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 18px;
-  background: rgba(8, 10, 18, 0.72);
-  box-shadow: 0 12px 34px rgba(0,0,0,0.32);
+  border-radius: 15px;
+  background: rgba(8, 10, 18, 0.76);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.3);
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(5px);
   pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
-  backdrop-filter: blur(14px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  backdrop-filter: blur(12px);
 }
 .neo-preview-action-wrap:hover .neo-preview-actions,
 .neo-output-inspector-media:hover .neo-preview-actions,
@@ -4525,32 +4522,33 @@ body.neo-modal-open {
 .neo-preview-actions-inner {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-end;
+  gap: 5px;
+  align-items: center;
   justify-content: flex-end;
 }
 .neo-preview-action-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-end;
+  display: contents;
 }
-.neo-preview-action-group-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.62);
-}
-.neo-preview-action-cluster {
-  display: flex;
-  flex-wrap: wrap;
+.neo-preview-action-group[data-preview-action-group="finish"] {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
   gap: 5px;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: end;
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 143px;
+}
+.neo-preview-action-tooltip-host {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
 }
 .neo-preview-action-btn {
-  min-width: 34px;
-  height: 34px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid rgba(255,255,255,0.16);
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
@@ -4558,45 +4556,160 @@ body.neo-modal-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 9px;
   cursor: pointer;
+}
+.neo-preview-action-btn:hover:not(:disabled),
+.neo-preview-action-btn:focus-visible:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.5);
+  background: rgba(14, 165, 233, 0.18);
+  outline: none;
 }
 .neo-preview-action-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.58;
+  opacity: 0.42;
 }
 .neo-preview-action-icon {
   font-size: 15px;
   line-height: 1;
 }
-.neo-preview-action-name {
-  display: none;
-  font-size: 11px;
-  font-weight: 700;
-}
-.neo-preview-action-debug {
-  margin: 2px 0 0;
-  max-width: 460px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.68);
-  text-align: right;
+.neo-preview-action-btn.is-ready {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(16, 185, 129, 0.12);
 }
 .neo-output-inspector-media .neo-preview-actions {
-  right: 10px;
-  bottom: 10px;
+  right: 8px;
+  bottom: 8px;
 }
+
+.neo-preview-action-provider {
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.14);
+  color: #bae6fd;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+.neo-preview-action-context-note,
+.neo-image-revalidation-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.48);
+  color: rgba(255,255,255,0.75);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.neo-image-revalidation-notice {
+  border-color: rgba(251, 191, 36, 0.32);
+  background: rgba(120, 53, 15, 0.12);
+}
+.neo-image-revalidation-notice:not(.is-compact) {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.neo-output-action-diagnostics {
+  margin-top: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.32);
+  overflow: hidden;
+}
+.neo-output-action-diagnostics > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+.neo-output-action-diagnostics > summary::-webkit-details-marker {
+  display: none;
+}
+.neo-output-action-diagnostics-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+.neo-output-action-diagnostics-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(255,255,255,0.65);
+  font-size: 11px;
+}
+.neo-output-action-diagnostics-context > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.neo-output-action-diagnostics-context strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.neo-output-action-diagnostics-list {
+  display: grid;
+  gap: 6px;
+}
+.neo-output-action-diagnostic-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 8px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  font-size: 11px;
+}
+.neo-output-action-diagnostic-row > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.neo-output-action-diagnostic-row > span,
+.neo-output-action-diagnostic-row > small {
+  color: rgba(255,255,255,0.64);
+  overflow-wrap: anywhere;
+}
+.neo-output-action-diagnostic-row > small {
+  grid-column: 2;
+}
+.neo-output-action-diagnostic-row.is-ready {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(16, 185, 129, 0.06);
+}
+.neo-output-action-diagnostic-row.is-blocked {
+  border-color: rgba(248, 113, 113, 0.18);
+  background: rgba(127, 29, 29, 0.06);
+}
+
 @media (max-width: 760px) {
   .neo-preview-actions {
-    position: static;
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-    margin-top: 8px;
-    max-width: 100%;
+    right: 8px;
+    bottom: 8px;
+    max-width: min(calc(100% - 16px), 210px);
   }
-  .neo-preview-action-wrap {
+  .neo-output-action-diagnostics-context,
+  .neo-output-action-diagnostics > summary {
+    align-items: flex-start;
     flex-direction: column;
+  }
+  .neo-output-action-diagnostic-row {
+    grid-template-columns: 1fr;
+  }
+  .neo-output-action-diagnostic-row > small {
+    grid-column: 1;
   }
 }
 
@@ -10495,6 +10608,7 @@ textarea {
 }
 
 
+/* Admin Layout Repair Phase B2 — Backends Smart Split */
 .neo-admin-backends-shell,
 .neo-admin-backends-overview-left,
 .neo-admin-backends-surface,
@@ -11696,6 +11810,85 @@ textarea {
 .neo-output-replay-check[data-replay-check-state="not_needed"] {
   opacity: 0.72;
 }
+
+.neo-output-provider-replay.is-active {
+  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(6, 78, 59, 0.08);
+}
+.neo-output-provider-replay-summary {
+  margin: 0;
+  color: var(--neo-text, #e5e7eb);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.neo-output-lineage-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 14px;
+  background: rgba(14, 116, 144, 0.06);
+  display: grid;
+  gap: 10px;
+}
+.neo-output-lineage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.neo-output-lineage-head > div {
+  display: grid;
+  gap: 2px;
+}
+.neo-output-lineage-panel > p {
+  margin: 0;
+  color: var(--neo-muted, #94a3b8);
+  font-size: 0.82rem;
+}
+.neo-output-lineage-chain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+.neo-output-lineage-node {
+  min-width: 110px;
+  padding: 7px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.26);
+}
+.neo-output-lineage-node.is-current {
+  border-color: rgba(52, 211, 153, 0.36);
+  background: rgba(6, 78, 59, 0.12);
+}
+.neo-output-lineage-node small,
+.neo-output-lineage-node strong {
+  display: block;
+}
+.neo-output-lineage-node small {
+  color: var(--neo-muted, #94a3b8);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.neo-output-lineage-node strong {
+  margin-top: 3px;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.neo-output-lineage-arrow {
+  color: rgba(125, 211, 252, 0.7);
+  font-weight: 900;
+}
+.neo-output-lineage-meta {
+  margin-top: 0;
+}
+.neo-output-chip.is-warning {
+  border-color: rgba(251, 191, 36, 0.38);
+  background: rgba(120, 53, 15, 0.16);
+}
+
 .neo-output-provider-policy {
   display: grid;
   gap: 4px;
@@ -12799,4 +12992,291 @@ textarea {
 .neo-scene-director-panel[data-scene-mode="basic"] .neo-scene-region-advanced,
 .neo-scene-director-panel[data-scene-mode="basic"] .neo-scene-attached-detail {
   display: none;
+}
+
+/* Forge Neo Admin integration — Phase 2 */
+.neo-forge-admin-panel {
+  display: grid;
+  gap: .9rem;
+  margin: .85rem 0;
+  padding: .9rem;
+  border: 1px solid rgba(96, 165, 250, .28);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, .44);
+}
+.neo-forge-admin-panel.success { border-color: rgba(34, 197, 94, .34); }
+.neo-forge-admin-panel.warning { border-color: rgba(245, 158, 11, .38); }
+.neo-forge-admin-panel.danger { border-color: rgba(239, 68, 68, .38); }
+.neo-forge-settings,
+.neo-forge-settings-expert,
+.neo-forge-endpoints,
+.neo-forge-execution-gate {
+  display: grid;
+  gap: .65rem;
+  padding: .75rem;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, .24);
+}
+.neo-forge-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: .7rem;
+}
+.neo-forge-setting {
+  display: grid;
+  gap: .38rem;
+  align-content: start;
+  min-width: 0;
+  padding: .65rem;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, .34);
+}
+.neo-forge-setting.readonly { opacity: .82; }
+.neo-forge-setting-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.neo-forge-setting code,
+.neo-forge-setting small { overflow-wrap: anywhere; }
+.neo-forge-settings-expert > summary,
+.neo-forge-endpoints > summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+.neo-forge-execution-gate {
+  border-color: rgba(245, 158, 11, .28);
+  background: rgba(245, 158, 11, .07);
+}
+.neo-forge-execution-gate p { margin: 0; }
+@media (max-width: 760px) {
+  .neo-forge-settings-grid { grid-template-columns: 1fr; }
+}
+
+/* Forge Neo Phase 4 — Image capability overlays */
+.neo-image-capability-overlay,
+.neo-forge-route-controls {
+  display: grid;
+  gap: .75rem;
+  padding: .85rem;
+  border: 1px solid rgba(148, 163, 184, .2);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, .42);
+}
+.neo-image-capability-overlay.ready { border-color: rgba(34, 197, 94, .3); }
+.neo-image-capability-overlay.warning { border-color: rgba(245, 158, 11, .34); }
+.neo-image-capability-overlay.blocked { border-color: rgba(239, 68, 68, .28); }
+.neo-capability-overlay-head,
+.neo-forge-route-controls-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .8rem;
+}
+.neo-capability-overlay-head > div,
+.neo-forge-route-controls-head > div { display: grid; gap: .2rem; }
+.neo-capability-overlay-head p { margin: 0; }
+.neo-capability-count-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: .5rem;
+}
+.neo-capability-count-grid > div {
+  display: grid;
+  gap: .15rem;
+  padding: .55rem .65rem;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, .25);
+}
+.neo-capability-count-grid span { font-size: .78rem; opacity: .74; }
+.neo-capability-count-grid strong { font-size: 1.08rem; }
+.neo-capability-warning-list summary { cursor: pointer; font-weight: 700; }
+.neo-capability-warning-list ul { margin: .55rem 0 0; padding-left: 1.2rem; }
+.neo-forge-common-controls,
+.neo-forge-inpaint-controls { align-items: end; }
+.neo-checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: .45rem;
+  min-height: 2.5rem;
+}
+.neo-checkbox-label input { width: auto; }
+.neo-resolution-policy-note { margin: -.2rem 0 .15rem; }
+@media (max-width: 760px) {
+  .neo-capability-overlay-head,
+  .neo-forge-route-controls-head { flex-direction: column; }
+}
+
+.neo-forge-bridge-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--neo-border, rgba(255, 255, 255, 0.12));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--neo-panel, #17191f) 94%, transparent);
+}
+
+.neo-forge-bridge-card.connected {
+  border-color: color-mix(in srgb, var(--neo-success, #4fc47a) 45%, transparent);
+}
+
+.neo-forge-bridge-card.authentication_required,
+.neo-forge-bridge-card.protocol_incompatible,
+.neo-forge-bridge-card.unavailable {
+  border-color: color-mix(in srgb, var(--neo-warning, #e8b04e) 55%, transparent);
+}
+
+/* Forge Neo Phase 5 — strict selected-profile route gating */
+.neo-forge-route-empty-state {
+  display: grid;
+  gap: .35rem;
+  width: 100%;
+  padding: .85rem 1rem;
+  border: 1px solid rgba(245, 158, 11, .34);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, .08);
+}
+.neo-forge-route-empty-state strong { color: var(--neo-text, #f5f7fb); }
+.neo-forge-route-empty-state span { color: var(--neo-muted, #9aa4b2); line-height: 1.45; }
+.neo-forge-route-empty-state.compact { padding: .7rem .8rem; }
+
+/* Phase 8: selected-provider LoRA picker and compile-time provider syntax preview. */
+.neo-lora-picker {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 14px;
+  background: rgba(14, 116, 144, 0.08);
+  min-width: 0;
+}
+.neo-lora-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.neo-lora-picker-head > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+.neo-lora-picker-grid {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.65fr) minmax(14rem, 1fr) minmax(6rem, 0.3fr);
+  gap: 0.65rem;
+  align-items: end;
+  min-width: 0;
+}
+.neo-lora-provider-syntax {
+  align-self: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+@media (max-width: 1100px) {
+  .neo-lora-picker-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* LanPaint Phase 7 — route-aware inpaint controls */
+.neo-lanpaint-panel {
+  border: 1px solid color-mix(in srgb, var(--neo-border-soft) 72%, #7c3aed 28%);
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(68, 43, 122, 0.16), rgba(7, 13, 26, 0.38));
+  display: grid;
+  gap: 14px;
+}
+.neo-lanpaint-panel-head,
+.neo-lanpaint-panel-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.neo-lanpaint-panel-head p { margin: 4px 0 0; }
+.neo-lanpaint-route-badges { justify-content: flex-end; }
+.neo-lanpaint-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.neo-lanpaint-control-group {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--neo-border-soft);
+  border-radius: 13px;
+  background: rgba(5, 12, 24, 0.32);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.neo-lanpaint-control-group legend {
+  padding: 0 6px;
+  color: var(--neo-text-main);
+  font-weight: 700;
+}
+.neo-lanpaint-control-group label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.neo-lanpaint-control-group input,
+.neo-lanpaint-control-group select { min-width: 0; width: 100%; }
+.neo-lanpaint-control-group p,
+.neo-lanpaint-family-lock { grid-column: 1 / -1; }
+.neo-lanpaint-family-lock,
+.neo-lanpaint-panel-foot {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+@media (max-width: 980px) {
+  .neo-lanpaint-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .neo-lanpaint-control-group { grid-template-columns: 1fr; }
+}
+
+/* LanPaint Phase 8 — capability gating and diagnostics */
+.neo-lanpaint-diagnostics {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--neo-border, rgba(148, 163, 184, 0.28));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--neo-panel, #111827) 92%, transparent);
+}
+.neo-lanpaint-diagnostics.success { border-color: color-mix(in srgb, #22c55e 45%, transparent); }
+.neo-lanpaint-diagnostics.warning { border-color: color-mix(in srgb, #f59e0b 50%, transparent); }
+.neo-lanpaint-diagnostics.danger { border-color: color-mix(in srgb, #ef4444 55%, transparent); }
+.neo-lanpaint-diagnostics-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.neo-lanpaint-diagnostics-head p { margin: 4px 0 0; }
+.neo-lanpaint-diagnostic-list,
+.neo-lanpaint-remediation-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+.neo-lanpaint-diagnostic-list li,
+.neo-lanpaint-remediation-list li { line-height: 1.4; }
+.neo-lanpaint-diagnostics details summary { cursor: pointer; font-weight: 650; }
+@media (max-width: 720px) {
+  .neo-lanpaint-diagnostics-head { flex-direction: column; }
 }

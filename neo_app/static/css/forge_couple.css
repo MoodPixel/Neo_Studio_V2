@@ -1,0 +1,152 @@
+.neo-forge-couple-panel{display:grid;gap:14px;min-width:0}.neo-forge-couple-panel__header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.neo-forge-couple-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.neo-forge-couple-preview{display:grid;gap:8px;padding:12px;border:1px solid var(--border-color,rgba(148,163,184,.25));border-radius:14px;background:rgba(15,23,42,.32)}.neo-forge-couple-regions{display:flex;min-height:110px;border:1px solid rgba(148,163,184,.24);border-radius:12px;overflow:hidden}.neo-forge-couple-regions.vertical{flex-direction:column}.neo-forge-couple-region{flex:1;min-width:0;padding:10px;border-right:1px solid rgba(148,163,184,.22);background:rgba(59,130,246,.08)}.neo-forge-couple-regions.vertical .neo-forge-couple-region{border-right:0;border-bottom:1px solid rgba(148,163,184,.22)}.neo-forge-couple-region:last-child{border:0}.neo-forge-couple-region strong{display:block;font-size:.78rem;margin-bottom:5px}.neo-forge-couple-region p{margin:0;font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}.neo-forge-couple-global{outline:2px solid rgba(168,85,247,.45);outline-offset:-2px}.neo-forge-couple-status{padding:10px 12px;border-radius:10px;background:rgba(15,23,42,.28)}
+.neo-forge-couple-advanced-editor{display:grid;gap:12px;min-width:0;padding:12px;border:1px solid var(--border-color,rgba(148,163,184,.25));border-radius:14px;background:rgba(15,23,42,.28)}
+.neo-forge-couple-advanced-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.neo-forge-couple-advanced-toolbar p{margin:.25rem 0 0}.neo-forge-couple-advanced-tools,.neo-forge-couple-background-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.neo-forge-couple-advanced-tools select,.neo-forge-couple-advanced-tools input{min-width:150px;flex:1 1 160px}.neo-forge-couple-background-tools .neo-muted{font-size:.78rem}
+.neo-forge-couple-advanced-canvas{position:relative;width:100%;aspect-ratio:var(--fc-aspect,1/1);min-height:260px;max-height:620px;border:1px solid rgba(148,163,184,.35);border-radius:14px;overflow:hidden;background-color:rgba(2,6,23,.72);background-size:contain;background-position:center;background-repeat:no-repeat;touch-action:none;user-select:none}
+.neo-forge-couple-advanced-canvas::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(148,163,184,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.1) 1px,transparent 1px);background-size:10% 10%}
+.neo-forge-couple-advanced-region{position:absolute;box-sizing:border-box;border:2px solid hsl(calc(var(--fc-index,0)*67deg) 78% 62%);background:rgba(59,130,246,.14);cursor:move;min-width:14px;min-height:14px;z-index:1}.neo-forge-couple-advanced-region:nth-child(7n+1){border-color:#f87171;background:rgba(248,113,113,.14)}.neo-forge-couple-advanced-region:nth-child(7n+2){border-color:#fb923c;background:rgba(251,146,60,.14)}.neo-forge-couple-advanced-region:nth-child(7n+3){border-color:#facc15;background:rgba(250,204,21,.12)}.neo-forge-couple-advanced-region:nth-child(7n+4){border-color:#4ade80;background:rgba(74,222,128,.12)}.neo-forge-couple-advanced-region:nth-child(7n+5){border-color:#60a5fa;background:rgba(96,165,250,.14)}.neo-forge-couple-advanced-region:nth-child(7n+6){border-color:#a78bfa;background:rgba(167,139,250,.14)}.neo-forge-couple-advanced-region:nth-child(7n){border-color:#f472b6;background:rgba(244,114,182,.14)}.neo-forge-couple-advanced-region.selected{z-index:4;box-shadow:0 0 0 3px rgba(255,255,255,.2),0 12px 28px rgba(0,0,0,.35)}
+.neo-forge-couple-advanced-region__label{position:absolute;left:4px;top:4px;max-width:calc(100% - 8px);padding:3px 6px;border-radius:6px;background:rgba(2,6,23,.82);font-size:.7rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.neo-forge-couple-advanced-region__weight{position:absolute;right:4px;bottom:4px;padding:2px 5px;border-radius:5px;background:rgba(2,6,23,.82);font-size:.68rem}
+.neo-forge-couple-region-handle{position:absolute;width:12px;height:12px;padding:0;border:2px solid rgba(255,255,255,.9);border-radius:50%;background:#0f172a;z-index:6}.neo-forge-couple-region-handle.nw{left:-7px;top:-7px;cursor:nwse-resize}.neo-forge-couple-region-handle.ne{right:-7px;top:-7px;cursor:nesw-resize}.neo-forge-couple-region-handle.sw{left:-7px;bottom:-7px;cursor:nesw-resize}.neo-forge-couple-region-handle.se{right:-7px;bottom:-7px;cursor:nwse-resize}
+.neo-forge-couple-coverage{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:9px 11px;border-radius:10px;border:1px solid rgba(148,163,184,.25);font-size:.78rem}.neo-forge-couple-coverage.success{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.08)}.neo-forge-couple-coverage.warning{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.08)}
+.neo-forge-couple-advanced-table{display:grid;gap:8px}.neo-forge-couple-advanced-row{display:grid;grid-template-columns:42px minmax(170px,1.4fr) repeat(5,minmax(72px,.55fr)) minmax(210px,auto);gap:8px;align-items:end;padding:9px;border:1px solid rgba(148,163,184,.2);border-radius:11px;background:rgba(15,23,42,.32)}.neo-forge-couple-advanced-row.selected{border-color:rgba(96,165,250,.65);background:rgba(59,130,246,.09)}.neo-forge-couple-row-select{align-self:stretch;border:0;border-radius:8px;background:rgba(59,130,246,.14);color:inherit;font-weight:700;cursor:pointer}.neo-forge-couple-row-prompt{min-width:0;align-self:center}.neo-forge-couple-row-prompt p{margin:3px 0 0;font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.neo-forge-couple-advanced-row label{font-size:.7rem}.neo-forge-couple-coordinate{width:100%;min-width:0}.neo-forge-couple-row-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+@media(max-width:1100px){.neo-forge-couple-advanced-row{grid-template-columns:38px minmax(180px,1fr) repeat(3,minmax(74px,.6fr))}.neo-forge-couple-row-actions{grid-column:2/-1}.neo-forge-couple-advanced-row label:nth-of-type(4),.neo-forge-couple-advanced-row label:nth-of-type(5){grid-column:auto}}
+@media(max-width:720px){.neo-forge-couple-panel__header,.neo-forge-couple-advanced-toolbar,.neo-forge-couple-coverage{flex-direction:column}.neo-forge-couple-advanced-row{grid-template-columns:36px repeat(2,minmax(0,1fr))}.neo-forge-couple-row-prompt{grid-column:2/-1}.neo-forge-couple-row-actions{grid-column:1/-1}.neo-forge-couple-advanced-canvas{min-height:220px}}
+.neo-forge-couple-mask-editor,.neo-forge-couple-tile-editor{display:grid;gap:12px;min-width:0;padding:12px;border:1px solid var(--border-color,rgba(148,163,184,.25));border-radius:14px;background:rgba(15,23,42,.28)}
+.neo-forge-couple-mask-tools,.neo-forge-couple-mask-actions,.neo-forge-couple-tile-calc{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.neo-forge-couple-mask-tools label{display:grid;gap:4px;min-width:130px}.neo-forge-couple-mask-paint-wrap{box-sizing:border-box;min-inline-size:0;min-width:0;max-inline-size:100%;max-width:100%;contain:inline-size}.neo-forge-couple-mask-canvas-wrap{position:relative;justify-self:center;overflow:hidden}.neo-forge-couple-mask-canvas-wrap canvas{position:absolute;inset:0;z-index:3;display:block;inline-size:100%;block-size:100%;width:100%;height:100%;cursor:crosshair;touch-action:none}
+.neo-forge-couple-mask-layers{display:grid;gap:8px}.neo-forge-couple-mask-layer{display:grid;grid-template-columns:94px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px;border:1px solid rgba(148,163,184,.2);border-radius:11px;background:rgba(15,23,42,.32)}.neo-forge-couple-mask-layer.selected{border-color:rgba(96,165,250,.65);background:rgba(59,130,246,.09)}.neo-forge-couple-mask-thumb{width:94px;aspect-ratio:1/1;padding:0;border:1px solid rgba(148,163,184,.28);border-radius:8px;overflow:hidden;background:#000;cursor:pointer}.neo-forge-couple-mask-thumb img{display:block;width:100%;height:100%;object-fit:contain;image-rendering:auto}.neo-forge-couple-mask-layer__body{min-width:0}.neo-forge-couple-mask-layer__body p{margin:.25rem 0 .5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.neo-forge-couple-mask-layer__body label{max-width:150px}
+.neo-forge-couple-tile-editor textarea{width:100%}.neo-forge-couple-tile-calc{padding:9px 11px;border-radius:10px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.28)}
+@media(max-width:720px){.neo-forge-couple-mask-layer{grid-template-columns:72px 1fr}.neo-forge-couple-mask-layer .neo-forge-couple-row-actions{grid-column:1/-1}.neo-forge-couple-mask-thumb{width:72px}}
+
+/* RC1 guaranteed runtime refinements. */
+.neo-forge-couple-advanced-tools,
+.neo-forge-couple-background-tools,
+.neo-forge-couple-mask-tools,
+.neo-forge-couple-mask-actions,
+.neo-forge-couple-tile-calc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.neo-forge-couple-advanced-tools > input,
+.neo-forge-couple-advanced-tools > select { flex: 1 1 180px; min-width: 150px; }
+.neo-forge-couple-row-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.neo-forge-couple-row-actions .neo-btn.tiny { min-height: 34px; padding: 6px 9px; }
+.neo-forge-couple-mask-region-shell { display: grid; gap: 10px; }
+.neo-forge-couple-mask-paint-shell { display: grid; gap: 8px; }
+.neo-forge-couple-mask-canvas-wrap { position: relative; }
+.neo-forge-couple-mask-canvas-wrap canvas { z-index: 2; }
+.neo-forge-couple-mask-region-help { margin: 0; }
+
+/* RC2-B Advanced canvas containment and post-layout fitting. */
+.neo-forge-couple-panel,
+.neo-forge-couple-advanced-editor,
+.neo-forge-couple-region-canvas-wrap {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  min-width: 0;
+  max-inline-size: 100%;
+  max-width: 100%;
+}
+.neo-forge-couple-advanced-editor {
+  grid-template-columns: minmax(0, 1fr);
+  overflow: visible;
+}
+.neo-forge-couple-region-canvas-wrap {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  overflow: visible;
+  contain: inline-size;
+}
+.neo-forge-couple-region-canvas {
+  justify-self: center;
+}
+
+
+/* RC2-C Mask painter uses the same measured shared frame as saved masks and Advanced. */
+.neo-forge-couple-mask-paint-wrap,.neo-forge-couple-mask-region-shell .neo-forge-couple-region-canvas-wrap{grid-template-columns:minmax(0,1fr);justify-items:center;overflow:visible;contain:inline-size}
+.neo-forge-couple-mask-paint-wrap .neo-forge-couple-mask-canvas-wrap{max-inline-size:none;max-width:none;aspect-ratio:auto}
+.neo-forge-couple-mask-canvas-wrap .neo-region-canvas__grid{z-index:1}
+
+/* RC2-D: mask imagery is rendered inside the shared Advanced-style boxes. */
+.neo-forge-couple-mask-region-canvas .neo-region-canvas__region.mask {
+  overflow: visible;
+}
+.neo-forge-couple-mask-region-canvas .neo-region-canvas__region-image--mask {
+  pointer-events: none;
+}
+
+/* RC2-F: responsive Advanced region cards, explicit selected-region removal, and Tile runtime clarity. */
+.neo-forge-couple-advanced-table {
+  min-inline-size: 0;
+  min-width: 0;
+  max-inline-size: 100%;
+  max-width: 100%;
+  container-type: inline-size;
+}
+.neo-forge-couple-advanced-row {
+  box-sizing: border-box;
+  width: 100%;
+  min-inline-size: 0;
+  min-width: 0;
+  max-inline-size: 100%;
+  max-width: 100%;
+  grid-template-columns: 42px minmax(130px, 1.4fr) repeat(5, minmax(0, .7fr));
+  grid-template-areas:
+    "select prompt x1 x2 y1 y2 weight"
+    "select actions actions actions actions actions actions";
+  align-items: end;
+}
+.neo-forge-couple-advanced-row > * {
+  min-inline-size: 0;
+  min-width: 0;
+  max-inline-size: 100%;
+  max-width: 100%;
+}
+.neo-forge-couple-row-select { grid-area: select; }
+.neo-forge-couple-row-prompt { grid-area: prompt; }
+.neo-forge-couple-advanced-row label:nth-of-type(1) { grid-area: x1; }
+.neo-forge-couple-advanced-row label:nth-of-type(2) { grid-area: x2; }
+.neo-forge-couple-advanced-row label:nth-of-type(3) { grid-area: y1; }
+.neo-forge-couple-advanced-row label:nth-of-type(4) { grid-area: y2; }
+.neo-forge-couple-advanced-row label:nth-of-type(5) { grid-area: weight; }
+.neo-forge-couple-advanced-row .neo-forge-couple-row-actions {
+  grid-area: actions;
+  padding-top: 2px;
+}
+.neo-forge-couple-advanced-row label,
+.neo-forge-couple-advanced-row input,
+.neo-forge-couple-advanced-row button {
+  min-inline-size: 0;
+  min-width: 0;
+}
+.neo-forge-couple-tile-runtime { align-items: center; }
+
+@container (max-width: 720px) {
+  .neo-forge-couple-advanced-row {
+    grid-template-columns: 42px repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "select prompt prompt"
+      "select x1 x2"
+      "select y1 y2"
+      "select weight weight"
+      "actions actions actions";
+    align-items: end;
+  }
+  .neo-forge-couple-advanced-row .neo-forge-couple-row-actions {
+    padding-top: 4px;
+  }
+}
+
+@container (max-width: 430px) {
+  .neo-forge-couple-advanced-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-areas:
+      "select prompt"
+      "select x1"
+      "select x2"
+      "select y1"
+      "select y2"
+      "select weight"
+      "actions actions";
+  }
+}

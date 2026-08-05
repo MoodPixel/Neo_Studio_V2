@@ -530,7 +530,7 @@ def _build_qwen_image_conditioning_and_latent(
     # Pass F: normal qwen_image is single-source. Multi-source Qwen editing is
     # intentionally reserved for a separate qwen_image_edit_2509 family pass.
     qwen_inputs: dict[str, list[Any]] = {"image1": qwen_image_ref} if qwen_image_ref else {}
-    multi_source_allowed = str(family or "qwen_image") in {"qwen_rapid_aio", "qwen_image_edit_2509"}
+    multi_source_allowed = str(family or "qwen_image") in {"qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"}
     if mode == "img2img" and multi_source_allowed:
         _base_name, ref2_name, image3_name, ref_meta = _qwen_img2img_reference_image_names(params, source_name)
         if ref2_name:

@@ -10,12 +10,27 @@ from neo_app.providers.schema import NeoJob
 from neo_app.models.route_matrix import normalize_backend, resolve_model_backend_route
 from neo_app.image.flux1_krea_contract import is_flux1_krea_route, resolve_flux1_variant
 from neo_app.image.krea2_contract import resolve_krea2_variant
+from neo_app.image.lanpaint_family_adapter import PHASE14_STATE, PHASE15_STATE, PHASE16_STATE, PHASE17_STATE, get_lanpaint_family_adapter
+
+# Phase 15 keeps the shared compiler contract while onboarding the SD family through exact adapters.
+# Shared compiler ID: comfy.lanpaint.family_aware.v1
 
 
 MODE_ALIASES = {
     "generate": "txt2img",
     "text_to_image": "txt2img",
     "image_to_image": "img2img",
+}
+
+
+INPAINT_ENGINE_ALIASES = {
+    "": "native",
+    "default": "native",
+    "native": "native",
+    "standard": "native",
+    "normal": "native",
+    "lan_paint": "lanpaint",
+    "lanpaint": "lanpaint",
 }
 
 SUPPORTED_COMFY_ROUTES = {
@@ -82,6 +97,16 @@ SUPPORTED_COMFY_ROUTES = {
     ("qwen_image_edit_2509", "gguf", "inpaint"),
     ("qwen_image_edit_2509", "gguf", "outpaint"),
     ("qwen_image_edit_2509", "gguf", "edit"),
+    ("qwen_image_edit_2511", "diffusion_model", "txt2img"),
+    ("qwen_image_edit_2511", "diffusion_model", "img2img"),
+    ("qwen_image_edit_2511", "diffusion_model", "inpaint"),
+    ("qwen_image_edit_2511", "diffusion_model", "outpaint"),
+    ("qwen_image_edit_2511", "diffusion_model", "edit"),
+    ("qwen_image_edit_2511", "gguf", "txt2img"),
+    ("qwen_image_edit_2511", "gguf", "img2img"),
+    ("qwen_image_edit_2511", "gguf", "inpaint"),
+    ("qwen_image_edit_2511", "gguf", "outpaint"),
+    ("qwen_image_edit_2511", "gguf", "edit"),
     ("qwen_rapid_aio", "checkpoint_aio", "txt2img"),
     ("qwen_rapid_aio", "checkpoint_aio", "img2img"),
     ("qwen_rapid_aio", "checkpoint_aio", "inpaint"),
@@ -110,6 +135,18 @@ SUPPORTED_COMFY_ROUTES = {
     ("z_image_turbo", "gguf", "outpaint"),
     ("hidream", "diffusion_model", "txt2img"),
     ("hidream", "gguf", "txt2img"),
+    ("hidream", "diffusion_model", "inpaint"),
+    ("hidream", "gguf", "inpaint"),
+    ("anima", "diffusion_model", "txt2img"),
+    ("anima", "gguf", "txt2img"),
+    ("anima", "diffusion_model", "img2img"),
+    ("anima", "gguf", "img2img"),
+    ("anima", "diffusion_model", "inpaint"),
+    ("anima", "gguf", "inpaint"),
+    ("ideogram4", "diffusion_model", "txt2img"),
+    ("ideogram4", "gguf", "txt2img"),
+    ("ideogram4", "diffusion_model", "inpaint"),
+    ("ideogram4", "gguf", "inpaint"),
 }
 
 PLANNED_COMFY_ROUTES = {}
@@ -150,6 +187,7 @@ class CompileRoute:
     mode: str
     requested_mode: str
     status: str
+    engine: str = "native"
     compiler_id: str | None = None
     workflow_type: str | None = None
     phase: str | None = None
@@ -169,6 +207,7 @@ class CompileRoute:
             "mode": self.mode,
             "requested_mode": self.requested_mode,
             "status": self.status,
+            "engine": self.engine,
             "compiler_id": self.compiler_id,
             "workflow_type": self.workflow_type,
             "phase": self.phase,
@@ -194,6 +233,11 @@ def normalize_compile_loader(loader: str | None) -> str:
     return str(loader or "checkpoint").strip() or "checkpoint"
 
 
+def normalize_inpaint_engine(value: Any) -> str:
+    normalized = str(value or "native").strip().lower().replace("-", "_").replace(" ", "_")
+    return INPAINT_ENGINE_ALIASES.get(normalized, normalized or "native")
+
+
 def _route_state_to_compile_status(state: str) -> str:
     return {
         "available": "available",
@@ -208,9 +252,9 @@ def _route_state_to_compile_status(state: str) -> str:
 def select_backend_compile_route(job: NeoJob) -> CompileRoute:
     """Backend plug-in compile decision.
 
-    Comfy remains the only fully implemented image provider compiler in the V2
-    base. Other backends resolve against the route matrix and return gated
-    CompileRoute objects until their adapters are implemented and validated.
+    Each backend resolves independently against the route matrix. Comfy and the
+    validated Forge Neo checkpoint routes own separate compilers; other backends
+    return gated CompileRoute objects until their adapters are implemented.
     """
 
     backend = normalize_backend(job.provider_id)
@@ -234,7 +278,7 @@ def select_backend_compile_route(job: NeoJob) -> CompileRoute:
         status=status,
         compiler_id=route.compiler_id,
         workflow_type=route.workflow_type,
-        phase="Phase 12.31 — Backend Plug-in Contract",
+        phase="Forge Neo Phase 3 — Image Job Lifecycle" if backend == "forge" and status == "available" else "Phase 12.31 — Backend Plug-in Contract",
         blockers=[] if route.selectable and route.compiler_id else [blocker],
         warnings=["Backend route contract resolved without borrowing Comfy compiler support."] if backend in {"forge", "a1111"} else [],
     )
@@ -248,10 +292,106 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
     key = (family, loader, mode)
     supports_loader = _family_supports_loader(family, loader)
     params = job.params or {}
+    inpaint_engine = normalize_inpaint_engine(
+        (params.get("inpaint_engine") or params.get("engine")) if mode == "inpaint" else "native"
+    )
     selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or params.get("unet") or ""
     flux1_variant = resolve_flux1_variant(params.get("flux_variant") or params.get("variant") or "dev", selected_model) if family == "flux" else ""
     flux1_krea = family == "flux" and is_flux1_krea_route(flux1_variant, selected_model)
     krea2_variant = resolve_krea2_variant(family, selected_model) if family in {"krea2", "krea2_turbo"} else ""
+
+    if mode == "inpaint" and inpaint_engine != "native":
+        if inpaint_engine != "lanpaint":
+            return CompileRoute(
+                provider_id=job.provider_id,
+                backend="comfyui",
+                family=family,
+                loader=loader,
+                mode=mode,
+                requested_mode=requested_mode,
+                status="unsupported",
+                engine=inpaint_engine,
+                blockers=[f"Unknown inpaint engine {inpaint_engine!r}. Supported engines are native and lanpaint."],
+            )
+        adapter = get_lanpaint_family_adapter(
+            family,
+            loader=loader,
+            provider_id=job.provider_id,
+            mode=mode,
+            engine="lanpaint",
+        )
+        binding = adapter.get("binding") or {}
+        stabilization = adapter.get("stabilization") or {}
+        if binding.get("selectable") and binding.get("compiler_id"):
+            graph_profile = str(binding.get("graph_profile") or "")
+            is_krea = graph_profile == "krea2_differential_crop_stitch_v1"
+            newly_bound = bool(stabilization.get("new_binding_activated"))
+            phase15_new = bool(stabilization.get("new_binding_activated_phase15"))
+            phase16_new = bool(stabilization.get("new_binding_activated_phase16"))
+            phase17_new = bool(stabilization.get("new_binding_activated_phase17"))
+            phase18_new = bool(stabilization.get("new_binding_activated_phase18"))
+            phase20_new = bool(stabilization.get("new_binding_activated_phase20"))
+            phase21_new = bool(stabilization.get("new_binding_activated_phase21"))
+            parity_note = (
+                "Phase 21 onboards HiDream-I1 full/dev/fast through a four-encoder ModelSamplingSD3 LanPaint contract; Hunyuan remains held."
+                if phase21_new
+                else (
+                "Phase 20 completes independent Z-Image Base/Turbo LanPaint contracts."
+                if phase20_new
+                else (
+                "Phase 18 onboards Qwen Image Edit 2509/2511 variant contracts."
+                if phase18_new
+                else (
+                "Phase 17 onboards Flux.2 Dev/Klein through separate encoder and variant contracts."
+                if phase17_new
+                else (
+                "Phase 16 onboards Flux.1 Dev/Schnell through shared architecture compatibility and variant-specific defaults."
+                if phase16_new
+                else (
+                    "Phase 15 onboards this SD family/loader through its dedicated adapter and compiler-owned graph anchors."
+                    if phase15_new
+                    else (
+                    "Phase 14 activates Krea 2 Turbo safetensors through the same Differential Diffusion crop/stitch topology as the existing GGUF route."
+                    if newly_bound
+                    else "Existing LanPaint binding remains parity-stabilized without changing its family graph semantics."
+                    )
+                )
+                )
+                )
+                )
+                )
+            )
+            return CompileRoute(
+                provider_id=job.provider_id,
+                backend="comfyui",
+                family=family,
+                loader=loader,
+                mode=mode,
+                requested_mode=requested_mode,
+                status="available",
+                engine="lanpaint",
+                compiler_id=str(binding.get("compiler_id")),
+                workflow_type=str(binding.get("workflow_type") or "image.inpaint.lanpaint"),
+                phase=str(binding.get("phase") or "LanPaint Route Family Phase 17 — Flux.2 Dev and Klein onboarding"),
+                warnings=[
+                    ("Krea 2 Turbo keeps the approved DifferentialDiffusionAdvanced crop/stitch graph." if is_krea else "The universal family adapter selects the family-owned transform, conditioning and loader contracts."),
+                    parity_note,
+                    "The route remains experimental until physical ComfyUI generation validation passes.",
+                ],
+            )
+        return CompileRoute(
+            provider_id=job.provider_id,
+            backend="comfyui",
+            family=family,
+            loader=loader,
+            mode=mode,
+            requested_mode=requested_mode,
+            status="implementation_target",
+            engine="lanpaint",
+            blockers=[
+                f"No exact LanPaint compiler binding exists for this family/loader. Adapter state: {binding.get('state') or 'unresolved'}; Phase 21 does not activate unrelated scaffold routes."
+            ],
+        )
 
     if supports_loader is False:
         return CompileRoute(
@@ -364,6 +504,16 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.qwen_native_edit"
             phase = "V25.9.20 P3 — Qwen Image Edit 2509 Workflow Promotion"
             warnings.append("P3 Qwen Image Edit 2509 lock: img2img/edit can consume Image 1 plus optional Image 2/Image 3; inpaint/outpaint are implemented single-source mask/canvas workflows.")
+        if family == "qwen_image_edit_2511" and loader == "diffusion_model" and mode == "txt2img":
+            workflow_type = "image.txt2img.qwen_image_edit_2511_native"
+            compiler_id = "comfy.qwen_native"
+            phase = "Phase 18 — Qwen Image Edit 2511 Family Onboarding"
+            warnings.append("Phase 18 2511 txt2img is an experimental no-source compatibility route; plain qwen_image remains recommended for text-to-image.")
+        if family == "qwen_image_edit_2511" and loader == "diffusion_model" and mode in {"img2img", "edit", "inpaint", "outpaint"}:
+            workflow_type = f"image.{mode}.qwen_image_edit_2511"
+            compiler_id = "comfy.qwen_native_edit"
+            phase = "Phase 18 — Qwen Image Edit 2511 Family Onboarding"
+            warnings.append("Phase 18 Qwen Image Edit 2511: img2img/edit support Image 1 plus optional Image 2/Image 3; inpaint/outpaint are single-canvas workflows.")
         if family == "qwen_rapid_aio" and loader == "checkpoint_aio":
             workflow_type = f"image.{mode}.qwen_rapid_aio"
             compiler_id = "comfy.qwen_rapid_aio_checkpoint"
@@ -432,6 +582,27 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.hidream_native" if loader == "diffusion_model" else "comfy.hidream_gguf"
             phase = "Phase 12.16 — HiDream Registry + First Workflow"
             warnings.append("HiDream txt2img requires discovered model, text encoder, VAE/AE, and sampler nodes before graph compile; image-conditioned modes remain variant-gated.")
+        if family == "hidream" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+            workflow_type = "image.inpaint.lanpaint"
+            compiler_id = "comfy.lanpaint.family_aware.v1"
+            phase = "Phase 21 — HiDream-I1 LanPaint Onboarding + Hunyuan Video Hold"
+            warnings.append("Phase 21 enables HiDream-I1 LanPaint inpainting with four text encoders and ModelSamplingSD3. E1/E1.1 and O1 remain variant-gated; HunyuanVideo remains held for Video.")
+        if family == "anima" and loader in {"diffusion_model", "gguf"} and mode in {"txt2img", "img2img"}:
+            workflow_type = f"image.{mode}.anima_native" if loader == "diffusion_model" else f"image.{mode}.anima_gguf"
+            compiler_id = "comfy.anima_native" if loader == "diffusion_model" else "comfy.anima_gguf"
+            phase = "Phase 22 — Anima Model Family + Image Workflows"
+            warnings.append("Phase 22 Anima uses Qwen3 0.6B conditioning and Qwen Image VAE; img2img is a source VAEEncode latent route.")
+        if family == "anima" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+            workflow_type = "image.inpaint.lanpaint"; compiler_id = "comfy.lanpaint.family_aware.v1"; phase = "Phase 22 — Anima LanPaint"
+            warnings.append("Phase 22 enables Anima through the basic LanPaint KSampler crop/stitch adapter.")
+        if family == "ideogram4" and loader in {"diffusion_model", "gguf"} and mode == "txt2img":
+            workflow_type = "image.txt2img.ideogram4_native" if loader == "diffusion_model" else "image.txt2img.ideogram4_gguf"
+            compiler_id = "comfy.ideogram4_native" if loader == "diffusion_model" else "comfy.ideogram4_gguf"
+            phase = "Phase 22 — Ideogram 4 Model Family + txt2img"
+            warnings.append("Ideogram 4 requires paired main/unconditional models and the advanced dual-model sampler graph.")
+        if family == "ideogram4" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+            workflow_type = "image.inpaint.lanpaint"; compiler_id = "comfy.lanpaint.family_aware.v1"; phase = "Phase 22 — Ideogram 4 LanPaint Advanced"
+            warnings.append("Ideogram 4 LanPaint uses LanPaint_SamplerCustomAdvanced; the basic KSampler path is forbidden.")
         if family == "qwen_image" and loader == "gguf":
             workflow_type = f"image.{mode}.qwen_gguf"
             compiler_id = "comfy.qwen_gguf"
@@ -460,6 +631,16 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
                 warnings.append("Pass G Qwen Image Edit 2509 GGUF image edit can consume Image 1 plus optional Image 2/Image 3 and requires Qwen MMProj.")
             else:
                 warnings.append("Pass G Qwen Image Edit 2509 GGUF inpaint/outpaint uses the existing single-source source/mask/padding graph and requires Qwen MMProj.")
+        if family == "qwen_image_edit_2511" and loader == "gguf":
+            workflow_type = f"image.{mode}.qwen_image_edit_2511_gguf"
+            compiler_id = "comfy.qwen_gguf"
+            phase = "Phase 18 — Qwen Image Edit 2511 Family Onboarding"
+            if mode == "txt2img":
+                warnings.append("Phase 18 2511 GGUF txt2img is an experimental no-source compatibility route and does not require MMProj.")
+            elif mode in {"img2img", "edit"}:
+                warnings.append("Phase 18 2511 GGUF multi-source edit requires a matching Qwen2.5-VL MMProj sidecar and supports Image 1 plus optional Image 2/Image 3.")
+            else:
+                warnings.append("Phase 18 2511 GGUF inpaint/outpaint uses Image 1 as the canvas and requires the matching Qwen2.5-VL MMProj sidecar.")
         return CompileRoute(
             provider_id=job.provider_id,
             backend="comfyui",

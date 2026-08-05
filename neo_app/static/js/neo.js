@@ -1,5 +1,8 @@
+window.__NEO_STATIC_ASSET_REVISION__ = 'lanpaint_anima_ideogram4_phase22_20260805';
+window.__NEO_LANPAINT_RELEASE_REVISIONS__ = Object.freeze(['lanpaint_ui_state_20260804', 'lanpaint_capabilities_20260804', 'lanpaint_qwen_zimage_20260804', 'lanpaint_replay_lineage_20260804', 'lanpaint_capability_transport_hotfix_20260804', 'lanpaint_lora_independence_hotfix_20260804', 'global_lora_engine_decoupling_20260805', 'lanpaint_family_adapter_v2_20260805', 'lanpaint_route_parity_phase14_20260805', 'lanpaint_sd_family_phase15_20260805', 'lanpaint_flux1_family_phase16_20260805', 'lanpaint_flux2_family_phase17_20260805', 'lanpaint_qwen_edit_variants_phase18_20260805', 'lanpaint_z_image_phase20_20260805', 'lanpaint_hidream_phase21_20260805', 'lanpaint_anima_ideogram4_phase22_20260805']);
 let promptCaptioningBatchPollTimer = null;
 const backendProfileSelectionRequestEpochBySurface = {};
+let imagePreviewActionEvaluationRefreshTimer = null;
 let ipAdapterNodeStatusRequestEpoch = 0;
 let controlNetMapStatusRequestEpoch = 0;
 
@@ -10,6 +13,10 @@ const state = {
   backendProfiles: null,
   backendProfileSelection: null,
   backendProviderOptions: null,
+  forgeAdmin: {},
+  forgeBridgeHistory: {},
+  imageCapabilityOverlays: {},
+  imageCapabilityOverlayLoading: {},
   adminBackendCreateDraft: { surface: "", provider_id: "", display_name: "", profile_id: "", active_tab: "" },
   extensions: null,
   imageNodeManager: null,
@@ -74,6 +81,9 @@ const state = {
   toolRegistry: { registry: null, profiles: null, lastSave: null },
   projectWorkspace: { status: null, list: null, active: null, context: null, assetTray: null, timeline: null, activityIntelligence: null, smartBrief: null, briefs: null, briefVersions: null, briefCompare: null, deliverableTracker: null, lastMilestoneSave: null, lastDeliverableSave: null, lastBriefRestore: null, lastBriefFinalize: null, lastBriefSave: null, lastBriefExport: null, lastSave: null, lastIndex: null, lastHandoff: null, surfaceTrayOpen: true, lastSurfaceHandoff: null, surfaceActions: null, lastSurfaceAction: null, reviewQueue: null, approvalWorkflow: null, packageBuilder: null, lastPackageBuild: null, qa: null, lastQaRepair: null },
   imageBase: null,
+  imagePreviewActionRegistry: null,
+  imagePreviewActionEvaluations: {},
+  imagePreviewActionEvaluationLoading: {},
   videoLastGenerate: null,
   videoLastInterpolation: null,
   videoLastUpscale: null,
@@ -374,6 +384,8 @@ const state = {
     vae: 'automatic',
     sampler: 'provider_default',
     scheduler: 'provider_default',
+    sampling_preset_id: '',
+    output_intent: 'none',
     positive_prompt: '',
     negative_prompt: '',
     width: 1024,
@@ -386,6 +398,12 @@ const state = {
     latent_capture_mode: 'off',
     denoise: 1.0,
     clip_skip: 1,
+    forge_restore_faces: false,
+    forge_tiling: false,
+    forge_inpainting_fill: 1,
+    forge_inpaint_full_res: true,
+    forge_inpaint_full_res_padding: 32,
+    forge_inpainting_mask_invert: 0,
     clamp: 'off',
     source_image: '',
     source_image_url: '',
@@ -409,7 +427,25 @@ const state = {
     mask_brush_size: 26,
     mask_mode: 'paint',
     inpaint_selection_target: 'masked_area',
+    inpaint_engine: 'native',
     inpaint_context_mode: 'masked_region_focus',
+    lanpaint_ui_state_version: 1,
+    lanpaint_crop_padding: 152,
+    lanpaint_processing_width: 768,
+    lanpaint_processing_height: 768,
+    lanpaint_resize_method: 'lanczos',
+    lanpaint_sampling_mask_expand: 45,
+    lanpaint_sampling_mask_blur: 31,
+    lanpaint_stitch_mask_expand: 50,
+    lanpaint_stitch_mask_blur: 9.1,
+    lanpaint_steps: 8,
+    lanpaint_cfg: 1,
+    lanpaint_sampler: 'euler',
+    lanpaint_scheduler: 'simple',
+    lanpaint_denoise: 1,
+    lanpaint_thinking_steps: 10,
+    lanpaint_prompt_mode: 'image_first',
+    lanpaint_stitch_resize_method: 'lanczos',
     context_latent_enabled: false,
     context_latent_source: 'source_image',
     context_latent_expand: 5,
@@ -467,6 +503,9 @@ const state = {
   imageProgressWatchdog: null,
   lastImageRecovery: null,
   imageLivePreviewFrameCount: 0,
+  imageLivePreviewPollInFlight: false,
+  imageLivePreviewLastPollAt: 0,
+  imageLivePreviewLastSignature: '',
   imageZoomModal: { open: false, src: '', label: '', scale: 1, offsetX: 0, offsetY: 0, dragging: false, dragStartX: 0, dragStartY: 0 },
   imageDeleteModal: { open: false, loading: false, deleting: false, error: '', preview: null, resultId: '', filename: '' },
   imageMaskEditor: { open: false, drawing: false, lastX: 0, lastY: 0, initializedFor: '', cursorVisible: false, cursorX: 0, cursorY: 0 },
@@ -475,6 +514,8 @@ const state = {
   activeUiPresetIds: {},
   uiPresetDefaultsLoadedBySurface: {},
   uiPresetStatus: '',
+  imageUnifiedPresetSelection: 'builtin:manual',
+  imagePresetAuthority: { source: 'manual', preset_id: '', application_mode: 'manual', route_key: '', applied_values: [], unset_fields: [] },
   extensionWorkflowApplications: {},
   openCollapsiblePanels: {},
   closedCollapsiblePanels: {},
@@ -816,6 +857,11 @@ function imageUiPresetLatentCheckpointFromDraft(imageDraft = {}) {
 
 function serializeImageDraftForUiPreset(imageDraft = {}) {
   const serialized = { ...(imageDraft || {}) };
+  // IR-2: workspace presets capture resolved/manual field values, never a hidden
+  // built-in sampling authority. Loading a user preset must not cause Balanced,
+  // Provider Defaults, or Clean Slate to silently reapply on the next route change.
+  serialized.sampling_preset_id = '';
+  IMAGE_SAMPLING_PRESET_METADATA_FIELDS.forEach((key) => delete serialized[key]);
   const checkpoint = imageUiPresetLatentCheckpointFromDraft(serialized);
   if (checkpoint) serialized._preset_latent_checkpoint = checkpoint;
   else delete serialized._preset_latent_checkpoint;
@@ -943,13 +989,293 @@ async function saveUiStateNow() {
 async function loadUiState() {
   // Legacy auto-recall disabled. Default UI preset is loaded explicitly in boot().
 }
+const IMAGE_UNIFIED_PRESET_MANUAL = 'builtin:manual';
+const IMAGE_UNIFIED_PRESET_PREFIX = 'builtin:';
+const IMAGE_UNIFIED_USER_PREFIX = 'user:';
+const IMAGE_SAMPLING_PRESET_METADATA_FIELDS = Object.freeze([
+  'sampling_preset_entry_id', 'sampling_preset_source', 'sampling_preset_application_mode',
+  'sampling_preset_read_only', 'sampling_preset_authoring_template', 'sampling_preset_context',
+  'sampling_preset_applied_values', 'sampling_preset_validation', 'sampling_preset_inheritance',
+  'sampling_preset_resolution_policy', 'sampling_preset_denoise_policy',
+]);
+
+function imageUnifiedPresetSelectionMeta(value = state.imageUnifiedPresetSelection) {
+  const raw = String(value || IMAGE_UNIFIED_PRESET_MANUAL);
+  if (raw.startsWith(IMAGE_UNIFIED_USER_PREFIX)) return { source: 'user', id: raw.slice(IMAGE_UNIFIED_USER_PREFIX.length), value: raw };
+  if (raw.startsWith(IMAGE_UNIFIED_PRESET_PREFIX)) return { source: 'builtin', id: raw.slice(IMAGE_UNIFIED_PRESET_PREFIX.length), value: raw };
+  return { source: 'builtin', id: 'manual', value: IMAGE_UNIFIED_PRESET_MANUAL };
+}
+
+function imageSamplingPresetManagedFields() {
+  const fields = state.imageBase?.sampling_presets?.managed_fields;
+  return Array.isArray(fields) ? fields.map((item) => String(item || '').trim()).filter(Boolean) : [];
+}
+
+function imageSamplingPresetRuntimeMode() {
+  const mode = String(getImageWorkflowMode?.() || state.activeSubtabId || 'generate').trim().toLowerCase();
+  return mode === 'generate' ? 'txt2img' : mode;
+}
+
+function imageSamplingPresetContextFromState() {
+  const family = String(state.imageDraft?.family || imageCommandValue?.('family') || 'sdxl').trim().toLowerCase();
+  const loader = String(state.imageDraft?.loader || imageCommandValue?.('loader') || defaultLoaderForFamily?.(family) || '').trim().toLowerCase();
+  const modelName = String(activeImagePrimaryModelValue?.() || state.imageDraft?.model || state.imageDraft?.diffusion_model || state.imageDraft?.gguf_model || state.imageDraft?.gguf_unet || '').trim();
+  let variant = String(state.imageDraft?.variant || state.imageDraft?.flux_variant || state.imageDraft?.krea2_variant || '').trim().toLowerCase();
+  if (family === 'flux2_klein' && typeof canonicalFlux2KleinVariant === 'function') variant = canonicalFlux2KleinVariant(variant, modelName);
+  return {
+    family,
+    loader,
+    mode: imageSamplingPresetRuntimeMode(),
+    variant: variant || '*',
+    model_name: modelName,
+    intent: String(state.imageDraft?.output_intent || 'none').trim().toLowerCase() || 'none',
+  };
+}
+
+function imageSamplingPresetRouteKey(context = imageSamplingPresetContextFromState()) {
+  return [context.family, context.variant, context.loader, context.mode, context.model_name].join('|');
+}
+
+function clearImageSamplingPresetMetadata() {
+  IMAGE_SAMPLING_PRESET_METADATA_FIELDS.forEach((key) => delete state.imageDraft[key]);
+}
+
+function setImagePresetAuthority(source, presetId = '', applicationMode = 'manual', record = null, reason = '') {
+  const managed = new Set(imageSamplingPresetManagedFields());
+  const appliedValues = Object.keys(record?.values || {}).filter((key) => managed.has(key));
+  const unsetFields = [...managed].filter((key) => !Object.prototype.hasOwnProperty.call(state.imageDraft, key));
+  state.imagePresetAuthority = {
+    source,
+    preset_id: presetId || '',
+    application_mode: applicationMode || 'manual',
+    route_key: imageSamplingPresetRouteKey(),
+    applied_values: appliedValues,
+    unset_fields: unsetFields,
+    reason: reason || '',
+  };
+}
+
+function releaseImageSamplingPresetAuthorityToManual(reason = 'manual_selection') {
+  state.imageDraft.sampling_preset_id = '';
+  clearImageSamplingPresetMetadata();
+  setImagePresetAuthority('manual', '', 'manual', null, reason);
+  return state.imagePresetAuthority;
+}
+
+function adoptImageWorkspacePresetAuthority(presetId = '', reason = 'user_preset') {
+  // Workspace presets own the captured field values. They never carry a hidden
+  // built-in sampling preset that can silently reapply after route changes.
+  state.imageDraft.sampling_preset_id = '';
+  clearImageSamplingPresetMetadata();
+  setImagePresetAuthority('user', presetId, 'workspace_snapshot', null, reason);
+  return state.imagePresetAuthority;
+}
+
+function resolveImageBuiltInSamplingPreset(presetId) {
+  if (!presetId || presetId === 'manual') return null;
+  const api = window.NeoImageSamplingPresets;
+  if (typeof api?.setBaseContract === 'function') api.setBaseContract(state.imageBase);
+  const resolver = api?.resolveBuiltInPreset;
+  if (typeof resolver !== 'function') return null;
+  try {
+    const resolved = resolver(presetId, imageSamplingPresetContextFromState());
+    state.imageSamplingPresetResolutionError = '';
+    return resolved;
+  } catch (error) {
+    // Image-tab recovery boundary: a malformed/legacy preset contract must never
+    // abort the entire Image workspace render. Fail closed to Manual / No Preset.
+    const message = String(error?.message || error || 'Unknown sampling preset resolution error');
+    state.imageSamplingPresetResolutionError = message;
+    console.error('[Neo][Image] Sampling preset resolution failed; using Manual / No Preset.', error);
+    return null;
+  }
+}
+
+function applyImageBuiltInSamplingPresetAuthority(presetId, { reason = 'selection', fallbackToManual = true } = {}) {
+  const id = String(presetId || '').trim();
+  if (!id || id === 'manual') return releaseImageSamplingPresetAuthorityToManual(reason);
+  const record = resolveImageBuiltInSamplingPreset(id);
+  if (!record) {
+    if (fallbackToManual) {
+      state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL;
+      state.activeUiPresetIds.image = '';
+      releaseImageSamplingPresetAuthorityToManual('unavailable_route_fallback');
+      state.uiPresetStatus = `${imageUnifiedBuiltInPresetOptions().find((item) => item.id === id)?.label || id} is unavailable for this route · switched to Manual / No Preset`;
+    }
+    return null;
+  }
+  const applicationMode = String(record.application_mode || 'replace_sampling_fields');
+  imageSamplingPresetManagedFields().forEach((key) => delete state.imageDraft[key]);
+  if (applicationMode === 'replace_sampling_fields') {
+    Object.entries(record.values || {}).forEach(([key, value]) => { state.imageDraft[key] = value; });
+  }
+  state.imageDraft.sampling_preset_id = id;
+  clearImageSamplingPresetMetadata();
+  setImagePresetAuthority('builtin', id, applicationMode, record, reason);
+  const label = String(record.label || imageUnifiedBuiltInPresetOptions().find((item) => item.id === id)?.label || id);
+  const suffix = applicationMode === 'delegate_provider'
+    ? ' · provider/compiler owns sampling'
+    : applicationMode === 'clean_slate'
+      ? ' · managed sampling cleared for manual authoring'
+      : ' · route-balanced sampling applied';
+  state.uiPresetStatus = `${label}${suffix}`;
+  document.dispatchEvent(new CustomEvent('neo:image-sampling-preset-authority-changed', { detail: { phase: 'IR-2', preset_id: id, application_mode: applicationMode, reason, context: imageSamplingPresetContextFromState(), values: { ...(record.values || {}) } } }));
+  return record;
+}
+
+function reapplyActiveImageBuiltInPresetForRoute(reason = 'route_change') {
+  const meta = imageUnifiedPresetSelectionMeta();
+  if (meta.source !== 'builtin' || meta.id === 'manual') return null;
+  return applyImageBuiltInSamplingPresetAuthority(meta.id, { reason, fallbackToManual: true });
+}
+
+function imageSamplingPresetAuthorityState() {
+  return state.imagePresetAuthority || { source: 'manual', preset_id: '', application_mode: 'manual', unset_fields: [] };
+}
+
+function imageSamplingPresetSubmissionState(draft = state.imageDraft || {}) {
+  const selection = imageUnifiedPresetSelectionMeta();
+  const authority = imageSamplingPresetAuthorityState();
+  const outputIntent = String(draft.output_intent || 'none').trim().toLowerCase() || 'none';
+  let presetId = '';
+  if (selection.source === 'builtin' && selection.id !== 'manual') presetId = String(selection.id || '').trim();
+  return {
+    schema: 'neo.image.sampling_preset_submission.ir3.v1',
+    phase: 'IR-3',
+    selector_source: selection.source,
+    selector_value: selection.value,
+    preset_id: presetId,
+    application_mode: presetId ? String(authority.application_mode || '') : 'manual',
+    output_intent: outputIntent,
+    manual_no_preset: !presetId,
+  };
+}
+
+function applyImageSamplingPresetSubmissionToParams(params = {}, draft = state.imageDraft || {}) {
+  const submission = imageSamplingPresetSubmissionState(draft);
+  // Output Intent is separate from preset selection. IR-3 carries the neutral
+  // metadata value even though there is intentionally no additional UI control yet.
+  params.output_intent = submission.output_intent;
+  if (submission.preset_id) params.sampling_preset_id = submission.preset_id;
+  else delete params.sampling_preset_id;
+
+  // Clean Slate is an authoring template. buildImageJobPayload historically
+  // fabricated fallback width/height/steps/etc. for missing DOM values; strip
+  // those fallbacks unless the user actually authored the field in imageDraft.
+  if (submission.preset_id === 'empty_clean_slate') {
+    imageSamplingPresetManagedFields().forEach((key) => {
+      const authored = Object.prototype.hasOwnProperty.call(draft, key) && draft[key] !== '' && draft[key] !== null && draft[key] !== undefined;
+      if (!authored) delete params[key];
+    });
+  }
+
+  params._neo_sampling_preset_submission = submission;
+  return params;
+}
+
+function imageSamplingFieldIsUnset(fieldId) {
+  return (imageSamplingPresetAuthorityState().unset_fields || []).includes(fieldId);
+}
+
+function imageSamplingDisplayValue(fieldId, resolvedValue, fallback = '') {
+  if (imageSamplingFieldIsUnset(fieldId)) {
+    const authority = imageSamplingPresetAuthorityState();
+    if (authority.application_mode === 'delegate_provider' && ['sampler', 'scheduler'].includes(fieldId)) return 'provider_default';
+    return '';
+  }
+  return resolvedValue === undefined || resolvedValue === null ? fallback : resolvedValue;
+}
+
+function imageSamplingSelectOptions(fieldId, options = []) {
+  if (!imageSamplingFieldIsUnset(fieldId)) return options;
+  const authority = imageSamplingPresetAuthorityState();
+  if (authority.application_mode !== 'clean_slate') return options;
+  return [{ id: '', label: 'Unset · manual value required' }, ...(Array.isArray(options) ? options : [])];
+}
+
+function noteImageManagedSamplingFieldEdit(fieldId, rawValue = undefined) {
+  if (!imageSamplingPresetManagedFields().includes(fieldId)) return false;
+  const authority = imageSamplingPresetAuthorityState();
+  if (authority.source !== 'builtin') return false;
+  if (authority.application_mode === 'clean_slate') {
+    const isUnset = rawValue === '' || rawValue === null || rawValue === undefined;
+    if (isUnset) {
+      delete state.imageDraft[fieldId];
+      authority.unset_fields = [...new Set([...(authority.unset_fields || []), fieldId])];
+      state.uiPresetStatus = `Empty · Clean Slate · ${fieldId.replaceAll('_', ' ')} remains unset`;
+    } else {
+      authority.unset_fields = (authority.unset_fields || []).filter((item) => item !== fieldId);
+      state.uiPresetStatus = `Empty · Clean Slate · ${fieldId.replaceAll('_', ' ')} authored manually`;
+    }
+    authority.reason = 'clean_slate_manual_authoring';
+    state.imagePresetAuthority = authority;
+    return false;
+  }
+  if (!['replace_sampling_fields', 'delegate_provider'].includes(authority.application_mode)) return false;
+  state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL;
+  state.activeUiPresetIds.image = '';
+  releaseImageSamplingPresetAuthorityToManual('managed_sampling_field_edit');
+  state.uiPresetStatus = `Manual / No Preset · ${fieldId.replaceAll('_', ' ')} changed manually`;
+  const select = document.getElementById('workspaceUiPreset');
+  if (select) select.value = IMAGE_UNIFIED_PRESET_MANUAL;
+  const status = document.querySelector('.neo-preset-status');
+  if (status) status.textContent = state.uiPresetStatus;
+  return true;
+}
+
+function imageUnifiedBuiltInPresetOptions() {
+  const entries = Array.isArray(state.imageBase?.sampling_presets?.built_in_presets)
+    ? state.imageBase.sampling_presets.built_in_presets
+    : [];
+  const labels = new Map();
+  entries.forEach((entry) => {
+    const id = String(entry?.preset_id || '').trim();
+    if (id && !labels.has(id)) labels.set(id, String(entry?.label || id));
+  });
+  return [
+    { id: 'manual', label: 'Manual / No Preset', title: 'Do not load a built-in sampling preset or a saved workspace preset.', available: true },
+    { id: 'provider_defaults', label: labels.get('provider_defaults') || 'Provider Defaults', available: true },
+    { id: 'default_balanced', label: labels.get('default_balanced') || 'Default · Balanced', available: Boolean(resolveImageBuiltInSamplingPreset('default_balanced')) },
+    { id: 'empty_clean_slate', label: labels.get('empty_clean_slate') || 'Empty · Clean Slate', available: true },
+  ];
+}
+
+function renderImageUnifiedPresetSelect(userPresets = []) {
+  const selected = String(state.imageUnifiedPresetSelection || IMAGE_UNIFIED_PRESET_MANUAL);
+  const defaults = imageUnifiedBuiltInPresetOptions();
+  const defaultOptions = defaults.map((preset) => {
+    const value = `${IMAGE_UNIFIED_PRESET_PREFIX}${preset.id}`;
+    return `<option value="${escapeAttr(value)}" ${value === selected ? 'selected' : ''} ${preset.available === false ? 'disabled' : ''} ${preset.title ? `title="${escapeAttr(preset.title)}"` : ''}>${escapeHtml(preset.label)}</option>`;
+  }).join('');
+  const userOptions = userPresets.map((preset) => {
+    const value = `${IMAGE_UNIFIED_USER_PREFIX}${preset.preset_id}`;
+    return `<option value="${escapeAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(`${preset.name}${preset.is_default ? ' ★' : ''}`)}</option>`;
+  }).join('');
+  return `<select id="workspaceUiPreset" data-preset-ui="unified-image"><optgroup label="Defaults">${defaultOptions}</optgroup>${userOptions ? `<optgroup label="User Presets">${userOptions}</optgroup>` : ''}</select>`;
+}
+
 async function loadUiPresets(surfaceId) {
   const payload = await loadJson(`/api/ui-presets/${encodeURIComponent(surfaceId)}`, { presets: [], default_preset_id: '' });
   state.uiPresetsBySurface[surfaceId] = payload;
-  state.activeUiPresetIds[surfaceId] = state.activeUiPresetIds[surfaceId] || payload.default_preset_id || '';
+  if (surfaceId === 'image') {
+    // IR-1: Image boots in Manual / No Preset even when a saved user workspace preset is starred as default.
+    state.activeUiPresetIds[surfaceId] = '';
+    state.imageUnifiedPresetSelection = state.imageUnifiedPresetSelection || IMAGE_UNIFIED_PRESET_MANUAL;
+  } else {
+    state.activeUiPresetIds[surfaceId] = state.activeUiPresetIds[surfaceId] || payload.default_preset_id || '';
+  }
   return payload;
 }
 async function loadDefaultUiPreset(surfaceId) {
+  if (surfaceId === 'image') {
+    state.activeUiPresetIds.image = '';
+    state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL;
+    releaseImageSamplingPresetAuthorityToManual('image_boot');
+    state.uiPresetDefaultsLoadedBySurface = state.uiPresetDefaultsLoadedBySurface || {};
+    state.uiPresetDefaultsLoadedBySurface.image = true;
+    state.uiPresetStatus = 'Manual / No Preset · no preset loaded';
+    return;
+  }
   const payload = await loadJson(`/api/ui-presets/${encodeURIComponent(surfaceId)}/default`, { preset: null });
   if (payload?.preset?.snapshot) {
     applyUiState(payload.preset.snapshot);
@@ -965,6 +1291,10 @@ async function applySelectedUiPreset(surfaceId, presetId) {
   if (!preset?.snapshot) return;
   applyUiState(preset.snapshot);
   state.activeUiPresetIds[surfaceId] = presetId;
+  if (surfaceId === 'image') {
+    state.imageUnifiedPresetSelection = `${IMAGE_UNIFIED_USER_PREFIX}${presetId}`;
+    adoptImageWorkspacePresetAuthority(presetId, 'user_preset_load');
+  }
   state.uiPresetDefaultsLoadedBySurface = state.uiPresetDefaultsLoadedBySurface || {};
   state.uiPresetDefaultsLoadedBySurface[surfaceId] = true;
   state.uiPresetStatus = `Loaded preset: ${preset.name}${imageUiPresetLatentCheckpoint() ? ' · latent checkpoint available but inactive' : ''}`;
@@ -982,6 +1312,10 @@ async function createUiPresetFromCurrent(surfaceId) {
   if (!response.ok) throw new Error(preset.detail || 'Could not save UI preset');
   await loadUiPresets(surfaceId);
   state.activeUiPresetIds[surfaceId] = preset.preset_id;
+  if (surfaceId === 'image') {
+    state.imageUnifiedPresetSelection = `${IMAGE_UNIFIED_USER_PREFIX}${preset.preset_id}`;
+    adoptImageWorkspacePresetAuthority(preset.preset_id, 'user_preset_saved');
+  }
   state.uiPresetStatus = `Saved preset: ${preset.name}`;
   render();
 }
@@ -1001,7 +1335,8 @@ async function updateSelectedUiPreset(surfaceId) {
 }
 async function removeSelectedUiPreset(surfaceId) {
   state.activeUiPresetIds[surfaceId] = '';
-  state.uiPresetStatus = 'Preset removed from current UI selection';
+  if (surfaceId === 'image') { state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL; releaseImageSamplingPresetAuthorityToManual('user_preset_removed'); }
+  state.uiPresetStatus = surfaceId === 'image' ? 'Manual / No Preset · no preset loaded' : 'Preset removed from current UI selection';
   render();
 }
 async function deleteSelectedUiPreset(surfaceId) {
@@ -1014,7 +1349,8 @@ async function deleteSelectedUiPreset(surfaceId) {
   if (!response.ok || payload.ok === false) throw new Error(payload.detail || 'Could not delete UI preset');
   await loadUiPresets(surfaceId);
   state.activeUiPresetIds[surfaceId] = '';
-  state.uiPresetStatus = 'Deleted UI preset';
+  if (surfaceId === 'image') { state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL; releaseImageSamplingPresetAuthorityToManual('user_preset_deleted'); }
+  state.uiPresetStatus = surfaceId === 'image' ? 'Deleted user preset · Manual / No Preset selected' : 'Deleted UI preset';
   render();
 }
 async function makeSelectedUiPresetDefault(surfaceId) {
@@ -1226,7 +1562,12 @@ async function guardImageResultsIntegrity({ selectedResultId = '' } = {}) {
     console.warn('Results integrity guard skipped', error);
   }
 }
-function updateDraftValue(key, value) { state.imageDraft[key] = value; saveUiState(); }
+function updateDraftValue(key, value) {
+  state.imageDraft[key] = value;
+  if (['family', 'loader', 'workflow_mode'].includes(key) && typeof imageLanpaintSyncRouteState === 'function') imageLanpaintSyncRouteState({}, { persist: false });
+  saveUiState();
+  if (['family', 'loader', 'workflow_mode'].includes(key)) scheduleImagePreviewActionEvaluationRefresh();
+}
 const IMAGE_WORKFLOW_MODES = [
   { id: 'generate', label: 'Generate' },
   { id: 'img2img', label: 'Img2Img' },
@@ -1257,11 +1598,106 @@ function activeRouteBackend() {
   return normalizeRouteBackend(profile?.provider_id || profile?.backend || profile?.profile_id || 'comfyui');
 }
 function routeMatrixRows() { return state.modelFamilies?.route_matrix || []; }
+function imageUsesStrictForgeRouteGating() { return activeRouteBackend() === 'forge'; }
+function activeImageUxGatingPolicy() {
+  if (!imageUsesStrictForgeRouteGating()) return null;
+  const overlay = activeImageCapabilityOverlay();
+  return overlay?.ux_gating && typeof overlay.ux_gating === 'object' ? overlay.ux_gating : null;
+}
+function activeImageExecutableRouteRows() {
+  if (imageUsesStrictForgeRouteGating()) {
+    const policy = activeImageUxGatingPolicy();
+    return Array.isArray(policy?.executable_routes) ? policy.executable_routes : [];
+  }
+  const backend = activeRouteBackend();
+  const policy = state.modelFamilies?.route_state_ui_policy || {};
+  return routeMatrixRows().filter((row) => {
+    if (normalizeRouteBackend(row?.backend) !== backend) return false;
+    const uiPolicy = row?.ui_policy || policy[row?.state] || {};
+    return uiPolicy.selectable !== false && uiPolicy.visible_in_normal_ui !== false && ['available', 'experimental_available'].includes(row?.state);
+  });
+}
+function imageRouteSelectionKey(family = '', loader = '', mode = '') {
+  return `${String(family || '').trim()}::${String(loader || '').trim()}::${String(mode || '').trim()}`;
+}
+function activeForgeExecutableRoute(familyId = '', loaderId = '', uiMode = '') {
+  if (!imageUsesStrictForgeRouteGating()) return null;
+  const family = familyId || state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = loaderId || state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = uiModeToRouteMode(uiMode || getImageWorkflowMode() || 'generate');
+  return activeImageExecutableRouteRows().find((row) => row.family === family && row.loader === loader && row.mode === mode) || null;
+}
+function activeForgeRoutePrimaryModelNames() {
+  const route = activeForgeExecutableRoute();
+  if (!route) return [];
+  return [...new Set([...(route.exact_models || []), ...(route.ambiguous_models || [])].map((item) => String(item || '').trim()).filter(Boolean))];
+}
+function activeForgeRouteRequiredModuleRoles() {
+  const route = activeForgeExecutableRoute();
+  return Array.isArray(route?.required_module_roles) ? route.required_module_roles : [];
+}
+function activeForgeRouteOptionalModuleRoles() {
+  const route = activeForgeExecutableRoute();
+  return Array.isArray(route?.optional_module_roles) ? route.optional_module_roles : [];
+}
+function activeForgeRoutePrimaryModelOptions() {
+  return activeForgeRoutePrimaryModelNames().map((name) => ({ id: name, label: name }));
+}
+function ensureActiveForgePrimaryModelSelectable(route = activeForgeExecutableRoute()) {
+  if (!imageUsesStrictForgeRouteGating() || !route) return;
+  const names = [...new Set([...(route.exact_models || []), ...(route.ambiguous_models || [])].map((item) => String(item || '').trim()).filter(Boolean))];
+  if (!names.length) return;
+  const loader = route.loader || state.imageDraft.loader || '';
+  const current = loader === 'checkpoint'
+    ? String(state.imageDraft.checkpoint || state.imageDraft.model || '')
+    : loader === 'diffusion_model'
+      ? String(state.imageDraft.diffusion_model || state.imageDraft.model || '')
+      : loader === 'gguf'
+        ? String(state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.model || '')
+        : String(state.imageDraft.model || '');
+  const next = names.includes(current) ? current : names[0];
+  state.imageDraft.model = next;
+  if (loader === 'checkpoint') state.imageDraft.checkpoint = next;
+  if (loader === 'diffusion_model') state.imageDraft.diffusion_model = next;
+  if (loader === 'gguf') { state.imageDraft.gguf_model = next; state.imageDraft.gguf_unet = next; }
+}
+function activeImageRouteControlPolicy() {
+  if (!imageUsesStrictForgeRouteGating()) return {};
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = uiModeToRouteMode(getImageWorkflowMode() || 'generate');
+  const policy = activeImageUxGatingPolicy();
+  const routePolicy = policy?.route_policies?.[imageRouteSelectionKey(family, loader, mode)] || null;
+  if (routePolicy?.control_policy) return routePolicy.control_policy;
+  const route = activeImageExecutableRouteRows().find((item) => item.family === family && item.loader === loader && item.mode === mode);
+  return route?.control_policy || {};
+}
+function activeImageRouteFieldPolicy() {
+  if (!imageUsesStrictForgeRouteGating()) return {};
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = uiModeToRouteMode(getImageWorkflowMode() || 'generate');
+  const policy = activeImageUxGatingPolicy();
+  const routePolicy = policy?.route_policies?.[imageRouteSelectionKey(family, loader, mode)] || null;
+  if (routePolicy?.field_policy) return routePolicy.field_policy;
+  const route = activeImageExecutableRouteRows().find((item) => item.family === family && item.loader === loader && item.mode === mode);
+  return route?.field_policy || {};
+}
+function imageRouteControlVisible(controlId = '', fallback = true) {
+  const policy = activeImageRouteControlPolicy();
+  return Object.prototype.hasOwnProperty.call(policy, controlId) ? policy[controlId] !== false : fallback;
+}
 function routeEntryForSelection(familyId, loaderId, uiMode, backendId = activeRouteBackend()) {
   const family = familyId || state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = loaderId || state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const mode = uiModeToRouteMode(uiMode || getImageWorkflowMode() || 'generate');
   const backend = normalizeRouteBackend(backendId);
+  if (backend === 'forge') {
+    const live = activeImageExecutableRouteRows().find((row) => row.family === family && row.loader === loader && row.mode === mode) || null;
+    if (!live) return null;
+    const authority = routeMatrixRows().find((row) => row.family === family && row.loader === loader && row.mode === mode && normalizeRouteBackend(row.backend) === backend) || {};
+    return { ...authority, ...live, backend };
+  }
   return routeMatrixRows().find((row) => row.family === family && row.loader === loader && row.mode === mode && normalizeRouteBackend(row.backend) === backend) || null;
 }
 function imageWorkflowModeOptionsForRoute({ includeDiagnostics = false } = {}) {
@@ -1278,6 +1714,19 @@ function imageWorkflowModeOptionsForRoute({ includeDiagnostics = false } = {}) {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const backend = activeRouteBackend();
+  if (backend === 'forge') {
+    const rows = activeImageExecutableRouteRows().filter((row) => row.family === family && row.loader === loader);
+    const labels = Object.fromEntries(IMAGE_WORKFLOW_MODES.map((mode) => [mode.id, mode.label]));
+    return IMAGE_WORKFLOW_MODES
+      .map((mode) => {
+        const routeMode = uiModeToRouteMode(mode.id);
+        const row = rows.find((item) => item.mode === routeMode);
+        if (!row) return null;
+        const badge = row.state === 'experimental_available' ? 'Experimental' : '';
+        return { id: mode.id, label: `${labels[mode.id]}${badge ? ` · ${badge}` : ''}`, disabled: false, title: row.reason || '' };
+      })
+      .filter(Boolean);
+  }
   const policy = state.modelFamilies?.route_state_ui_policy || {};
   const rows = routeMatrixRows().filter((row) => row.family === family && row.loader === loader && normalizeRouteBackend(row.backend) === backend);
   if (!rows.length) return imageWorkflowModeOptions();
@@ -1296,19 +1745,40 @@ function imageWorkflowModeOptionsForRoute({ includeDiagnostics = false } = {}) {
     const label = `${labels[uiMode] || humanize(uiMode)}${badge ? ` · ${badge}` : ''}`;
     options.push({ id: uiMode, label, disabled, title: row.reason || '' });
   }
-  return IMAGE_WORKFLOW_MODES
-    .map((mode) => options.find((option) => option.id === mode.id))
-    .filter(Boolean);
+  return IMAGE_WORKFLOW_MODES.map((mode) => options.find((option) => option.id === mode.id)).filter(Boolean);
 }
 function selectableImageWorkflowModeOptions() { return imageWorkflowModeOptionsForRoute({ includeDiagnostics: false }).filter((option) => !option.disabled); }
 function normalizedSelectableImageWorkflowMode(mode) {
   const normalized = normalizeImageWorkflowMode(mode);
   const options = selectableImageWorkflowModeOptions();
-  if (!options.length) return normalized;
+  if (!options.length) return imageUsesStrictForgeRouteGating() ? '' : normalized;
   return options.some((option) => option.id === normalized) ? normalized : options[0].id;
+}
+function coerceExecutableImageRoute(familyId = '', loaderId = '', uiMode = '') {
+  const rows = activeImageExecutableRouteRows();
+  if (!rows.length) return null;
+  const family = familyId || state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = loaderId || state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = uiModeToRouteMode(uiMode || getImageWorkflowMode() || 'generate');
+  const selected = rows.find((row) => row.family === family && row.loader === loader && row.mode === mode)
+    || rows.find((row) => row.family === family && row.loader === loader)
+    || rows.find((row) => row.family === family && row.mode === mode)
+    || rows.find((row) => row.family === family)
+    || rows.find((row) => row.mode === mode)
+    || rows[0];
+  return selected ? { family: selected.family, loader: selected.loader, mode: routeModeToUiMode(selected.mode) } : null;
 }
 function ensureActiveImageMainModelTypeSelectable() {
   if (state.activeSurfaceId !== 'image') return;
+  if (imageUsesStrictForgeRouteGating()) {
+    const route = coerceExecutableImageRoute(state.imageDraft.family, state.imageDraft.loader, getImageWorkflowMode());
+    if (!route) return;
+    state.imageDraft.family = route.family;
+    state.imageDraft.loader = route.loader;
+    if (route.loader === 'gguf') syncGgufArchitectureForFamily(route.family);
+    ensureActiveForgePrimaryModelSelectable(activeForgeExecutableRoute(route.family, route.loader, route.mode));
+    return;
+  }
   const pair = coerceFamilyLoaderPair(state.imageDraft.family || imageCommandValue('family') || 'sdxl', state.imageDraft.loader || imageCommandValue('loader') || '');
   if (pair.family !== state.imageDraft.family) state.imageDraft.family = pair.family;
   if (pair.loader !== state.imageDraft.loader) {
@@ -1318,12 +1788,20 @@ function ensureActiveImageMainModelTypeSelectable() {
 }
 function ensureActiveImageModeSelectable() {
   if (state.activeSurfaceId !== 'image') return;
+  if (imageUsesStrictForgeRouteGating()) {
+    const route = coerceExecutableImageRoute(state.imageDraft.family, state.imageDraft.loader, getImageWorkflowMode());
+    if (!route) return;
+    state.imageDraft.family = route.family;
+    state.imageDraft.loader = route.loader;
+    const current = normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate');
+    if (route.mode !== current) setImageWorkflowMode(route.mode);
+    ensureActiveForgePrimaryModelSelectable(activeForgeExecutableRoute(route.family, route.loader, route.mode));
+    return;
+  }
   ensureActiveImageMainModelTypeSelectable();
   const current = normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate');
   const next = normalizedSelectableImageWorkflowMode(current);
-  if (next !== current) {
-    setImageWorkflowMode(next);
-  }
+  if (next && next !== current) setImageWorkflowMode(next);
 }
 function activeRouteRequirementBadges() {
   const profile = activeImageProfile();
@@ -1365,7 +1843,7 @@ function imageClearStaleAdetailerSourceOwnership(draft = state.imageDraft || {})
   if (!draft || typeof draft !== 'object') return [];
   const extensionKey = 'image.adetailer';
   const settings = draft[extensionKey] && typeof draft[extensionKey] === 'object' ? draft[extensionKey] : null;
-  const previewAction = draft._preview_action && typeof draft._preview_action === 'object' ? draft._preview_action : null;
+  const previewAction = draft._neo_derived_action && typeof draft._neo_derived_action === 'object' ? draft._neo_derived_action : (draft._preview_action && typeof draft._preview_action === 'object' ? draft._preview_action : null);
   const adetailerAction = String(previewAction?.action_id || '') === 'extension.adetailer'
     || String(draft._preview_action_finish_pass || '') === 'extension.adetailer';
   const stagedByAdetailer = Boolean(
@@ -1395,7 +1873,7 @@ function imageClearStaleAdetailerSourceOwnership(draft = state.imageDraft || {})
     cleared.push(`${extensionKey}.staged_source_ownership`);
   }
   [
-    '_preview_action', '_preview_action_finish_pass', '_preview_action_force_workflow_mode', '_preview_action_source',
+    '_neo_derived_action', '_preview_action', '_preview_action_finish_pass', '_preview_action_force_workflow_mode', '_preview_action_source',
     'source_image', 'source_image_path', 'source_image_url', 'source_image_name',
     'source_image_width', 'source_image_height', 'comfy_source_image_name', 'source_image_uploaded_to_comfy'
   ].forEach(clearDraftField);
@@ -1407,7 +1885,9 @@ function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runti
   const uiMode = normalizeImageWorkflowMode(routeModeToUiMode(mode || runtimeMode || 'generate'));
   const runMode = uiModeToRouteMode(uiMode);
   const sourceWorkflowActive = imageWorkflowUsesSourceMode(uiMode) || imageWorkflowUsesSourceMode(runMode);
-  const previewActionPresent = Boolean(draft?._preview_action || cleanParams._neo_preview_action || cleanParams._neo_derived_action_type || cleanParams._neo_source_output_id);
+  const previewActionPresent = Boolean(draft?._neo_derived_action || draft?._preview_action || cleanParams._neo_derived_action || cleanParams._neo_preview_action || cleanParams._neo_derived_action_type || cleanParams._neo_source_output_id);
+  const derivedContract = cleanParams._neo_derived_action || cleanParams._neo_preview_action || draft?._neo_derived_action || draft?._preview_action || null;
+  const nativeForgeHiresActive = String(derivedContract?.dispatch_type || '') === 'run_forge_native_hires' && String(derivedContract?.action_id || '') === 'extension.high_res_lab';
   const clearedFields = [];
   const warnings = [];
   const clearField = (key) => {
@@ -1416,13 +1896,13 @@ function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runti
       clearedFields.push(key);
     }
   };
-  if (!sourceWorkflowActive) {
+  if (!sourceWorkflowActive && !nativeForgeHiresActive) {
     const staleAdetailerFields = imageClearStaleAdetailerSourceOwnership(draft);
     staleAdetailerFields.forEach((key) => {
       if (!clearedFields.includes(key)) clearedFields.push(key);
     });
     [
-      '_neo_preview_action', '_neo_derived_action_type', '_neo_source_output_id', '_neo_source_job_id', '_neo_parent_output_id',
+      '_neo_derived_action', '_neo_derived_action_validation', '_neo_preview_action', '_neo_derived_action_type', '_neo_source_output_id', '_neo_source_job_id', '_neo_parent_output_id',
       '_neo_preview_action_source', 'source_image', 'source_image_path', 'source_image_url', 'source_image_name',
       'comfy_source_image_name', 'source_image_uploaded_to_comfy', 'mask_image', 'mask_image_path', 'mask_image_url',
       'mask_image_name', 'comfy_mask_image_name', 'mask_image_preview_url'
@@ -1432,6 +1912,13 @@ function imageCleanGenerationStateBoundary(params = {}, mode = 'generate', runti
       if (staleAdetailerFields.length) warnings.push('clean_txt2img_adetailer_source_ownership_cleared');
       if (Object.prototype.hasOwnProperty.call(cleanParams, 'save_mode_override') && cleanParams.save_mode_override === 'append_derived') clearField('save_mode_override');
     }
+  } else if (nativeForgeHiresActive) {
+    [
+      'source_image', 'source_image_path', 'source_image_url', 'source_image_name',
+      'comfy_source_image_name', 'source_image_uploaded_to_comfy', 'mask_image', 'mask_image_path', 'mask_image_url',
+      'mask_image_name', 'comfy_mask_image_name', 'mask_image_preview_url'
+    ].forEach(clearField);
+    warnings.push('forge_native_hires_source_bound_to_derived_contract');
   } else if (String(cleanParams._neo_derived_action_type || '').toLowerCase() === 'img2img' && !imageDraftHasSourceImage(draft) && !cleanParams.source_image && !cleanParams.comfy_source_image_name) {
     warnings.push('source_workflow_preview_action_missing_source_image');
   }
@@ -1456,17 +1943,26 @@ function routeUsesParameterField(fieldId) { return activeImageParameterFieldIds(
 function imageNeedsSourcePanel(mode = state.activeSubtabId) {
   const current = normalizeImageWorkflowMode(mode || getImageWorkflowMode() || 'generate');
   if (isCloudImageProfile()) return current === 'img2img' || current === 'inpaint' || current === 'outpaint';
+  if (imageUsesStrictForgeRouteGating() && current === normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) {
+    return imageRouteControlVisible('source_panel', false);
+  }
   if (current !== normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) return imageSourceModes().has(current);
   return routeUsesParameterField('source_image');
 }
 function imageNeedsMaskPanel(mode = state.activeSubtabId) {
   const current = normalizeImageWorkflowMode(mode || getImageWorkflowMode() || 'generate');
   if (isCloudImageProfile()) return imageProfileSupportsCapability('mask_edit') && current === 'inpaint';
+  if (imageUsesStrictForgeRouteGating() && current === normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) {
+    return imageRouteControlVisible('mask_panel', false);
+  }
   if (current !== normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) return current === 'inpaint';
   return routeUsesParameterField('mask') || routeUsesParameterField('mask_grow') || routeUsesParameterField('mask_blur');
 }
 function imageNeedsOutpaintCanvas(mode = state.activeSubtabId) {
   const current = normalizeImageWorkflowMode(mode || getImageWorkflowMode() || 'generate');
+  if (imageUsesStrictForgeRouteGating() && current === normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) {
+    return imageRouteControlVisible('outpaint_canvas_controls', false);
+  }
   if (current !== normalizeImageWorkflowMode(getImageWorkflowMode() || 'generate')) return current === 'outpaint';
   return routeUsesParameterField('outpaint_padding');
 }
@@ -1603,7 +2099,7 @@ function qwenGgufMultiReferenceActive() {
   const loader = state.imageDraft.loader;
   const mode = activeImageMode();
   const rapidAioMultiSource = family === 'qwen_rapid_aio' && ['checkpoint_aio', 'gguf'].includes(loader);
-  const edit2509MultiSource = family === 'qwen_image_edit_2509' && ['diffusion_model', 'gguf'].includes(loader);
+  const edit2509MultiSource = ['qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family) && ['diffusion_model', 'gguf'].includes(loader);
   return (rapidAioMultiSource || edit2509MultiSource) && mode === 'img2img';
 }
 function fluxGgufSourceStackActive() {
@@ -1619,6 +2115,7 @@ function cloudMultiImageEditActive(profile = activeImageProfile()) {
   return isCloudImageProfile(profile) && activeImageMode() === 'img2img' && imageProfileSupportsCapability('multi_image_edit', profile);
 }
 function imageMultiReferenceActive(profile = activeImageProfile()) {
+  if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('multi_source_panel', false)) return false;
   return qwenGgufMultiReferenceActive() || fluxGgufSourceStackActive() || cloudMultiImageEditActive(profile);
 }
 function imageMultiReferenceLabel(profile = activeImageProfile()) {
@@ -1643,17 +2140,21 @@ function qwenVisibleSourceSlotCount() {
   return count;
 }
 function qwenStitchRouteActive(mode = activeImageMode()) {
+  if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('stitch_images', false)) return false;
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
   const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
   const runtimeMode = String(mode || '').trim().toLowerCase();
   if (!['img2img', 'edit', 'inpaint', 'outpaint'].includes(runtimeMode)) return false;
   if (['sdxl', 'sd15'].includes(family)) return loader === 'checkpoint';
   if (family === 'flux1_fill') return loader === 'diffusion_model' && ['inpaint', 'outpaint'].includes(runtimeMode);
-  if (['flux', 'flux2_klein'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
-  if (['qwen_image', 'qwen_image_edit_2509'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
+  if (['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev') return ['diffusion_model', 'gguf'].includes(loader);
+  if (['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
   if (family === 'qwen_rapid_aio') return ['checkpoint_aio', 'gguf'].includes(loader);
   if (['z_image', 'z_image_turbo'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
   return false;
+}
+function qwenStitchUsesForgeIntegrated() {
+  return String(activeImageProfile()?.provider_id || '').trim() === 'forge' && imageRouteControlVisible('stitch_images', false);
 }
 function qwenStitchUsesImageLanes() {
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
@@ -1685,6 +2186,7 @@ function qwenStitchImageLaneLimit(profile = activeImageProfile()) {
   return Math.max(1, Math.min(4, Math.max(...lanes)));
 }
 function qwenStitchNodeAvailable(profile = activeImageProfile()) {
+  if (qwenStitchUsesForgeIntegrated()) return imageRouteControlVisible('stitch_images', false);
   const nodeMap = qwenStitchBackendCapabilities(profile)?.object_info_node_inputs;
   if (!nodeMap || !Object.keys(nodeMap).length) return true;
   return Boolean(nodeMap.ImageStitch || nodeMap.AILab_ImageStitch);
@@ -1842,6 +2344,7 @@ function renderQwenStitchSection() {
   const draft = qwenStitchDraft();
   const limit = qwenStitchImageLaneLimit();
   const usesLanes = qwenStitchUsesImageLanes();
+  const forgeIntegrated = qwenStitchUsesForgeIntegrated();
   const maxGroups = usesLanes ? Math.max(0, limit - 1) : 1;
   const nodeAvailable = qwenStitchNodeAvailable();
   const groupCount = draft.groups.length;
@@ -1859,34 +2362,38 @@ function renderQwenStitchSection() {
     return `<article class="neo-qwen-stitch-group" data-testid="qwen-stitch-group-${domId}">
       <div class="neo-qwen-stitch-group-head"><div><strong>Stitch Group ${index + 1}</strong><span class="neo-badge ${ready ? 'success' : 'warning'}">${ready ? 'Ready' : 'Needs 2 images'}</span></div><button class="neo-btn ghost" type="button" data-qwen-stitch-remove="true" data-qwen-stitch-group="${escapeAttr(groupId)}">Remove</button></div>
       <div class="neo-qwen-stitch-input-grid">${renderQwenStitchInput(group, 'image_a', 'Image A')}${renderQwenStitchInput(group, 'image_b', 'Image B')}</div>
-      <div class="neo-qwen-stitch-settings">
+      ${forgeIntegrated ? '<div class="neo-qwen-stitch-settings"><span class="neo-muted">Forge treats these as reference images; direction, spacing, and composite sizing do not apply.</span></div>' : `<div class="neo-qwen-stitch-settings">
         ${usesLanes ? `<label>Output lane<select data-qwen-stitch-field="output_lane" data-qwen-stitch-group="${escapeAttr(groupId)}">${laneOptions}</select></label>` : ''}
         <label>Direction<select data-qwen-stitch-field="direction" data-qwen-stitch-group="${escapeAttr(groupId)}"><option value="right" ${settings.direction === 'right' || !settings.direction ? 'selected' : ''}>Left → right</option><option value="left" ${settings.direction === 'left' ? 'selected' : ''}>Right → left</option><option value="down" ${settings.direction === 'down' ? 'selected' : ''}>Top → bottom</option><option value="up" ${settings.direction === 'up' ? 'selected' : ''}>Bottom → top</option></select></label>
         <label>Spacing<input type="number" min="0" max="4096" step="1" value="${Number(settings.spacing_width || 0)}" data-qwen-stitch-field="spacing_width" data-qwen-stitch-group="${escapeAttr(groupId)}"></label>
         <label>Spacing color<input type="text" value="${escapeAttr(settings.spacing_color || 'black')}" data-qwen-stitch-field="spacing_color" data-qwen-stitch-group="${escapeAttr(groupId)}"></label>
         <label class="neo-checkbox-label"><input type="checkbox" ${settings.match_image_size === false ? '' : 'checked'} data-qwen-stitch-field="match_image_size" data-qwen-stitch-group="${escapeAttr(groupId)}"> Match image size</label>
-      </div>
+      </div>`}
     </article>`;
   }).join('');
   const canAdd = groupCount < maxGroups && qwenStitchAvailableOutputLanes().length > 0;
   return `<details class="neo-source-qwen-stitch" data-testid="qwen-stitch-section" data-qwen-stitch-details="true" ${draft.ui_open ? 'open' : ''}>
-    <summary><span><strong>Stitch Images</strong><small>${usesLanes ? 'Pair source images into optional Qwen image lanes' : 'Create one composite source image for this route'}</small></span><span class="neo-badge">${groupCount}/${maxGroups} groups</span></summary>
+    <summary><span><strong>Stitch Images</strong><small>${forgeIntegrated ? 'Add Forge ImageStitch reference images' : (usesLanes ? 'Pair source images into optional Qwen image lanes' : 'Create one composite source image for this route')}</small></span><span class="neo-badge">${groupCount}/${maxGroups} groups</span></summary>
     <div class="neo-source-qwen-stitch-body">
-      <div class="neo-source-stack-header"><div><strong>ComfyUI ImageStitch</strong><p class="neo-muted">${usesLanes ? 'Image 1 remains the base source. Each group consumes two raw images and writes one free optional Qwen lane.' : 'The completed group becomes the route source image and is passed into the family-specific latent/source branch.'}</p></div><span class="neo-badge ${nodeAvailable ? 'success' : 'warning'}">${nodeAvailable ? 'Node available' : 'Node not detected'}</span></div>
+      <div class="neo-source-stack-header"><div><strong>${forgeIntegrated ? 'Forge ImageStitch Integrated' : 'ComfyUI ImageStitch'}</strong><p class="neo-muted">${forgeIntegrated ? 'Image 1 stays the main img2img source. The images below are passed as model reference inputs through Forge; Forge does not physically stitch them into one bitmap.' : (usesLanes ? 'Image 1 remains the base source. Each group consumes two raw images and writes one free optional Qwen lane.' : 'The completed group becomes the route source image and is passed into the family-specific latent/source branch.')}</p></div><span class="neo-badge ${nodeAvailable ? 'success' : 'warning'}">${nodeAvailable ? (forgeIntegrated ? 'API contract verified' : 'Node available') : (forgeIntegrated ? 'API contract unavailable' : 'Node not detected')}</span></div>
       <label class="neo-checkbox-label"><input id="imageQwenStitchEnabled" type="checkbox" ${draft.enabled ? 'checked' : ''}> Enable Stitch Images</label>
       <div class="neo-source-meta"><span class="neo-badge">${usesLanes ? `Qwen lanes: ${limit}` : 'Composite source: 1'}</span><span class="neo-badge">Ready groups: ${readyCount}</span><span class="neo-badge">Raw inputs: ${readyCount * 2}</span></div>
       ${groupCards || '<p class="neo-muted">Add a Stitch Group to combine two uploaded source images.</p>'}
       <button class="neo-btn secondary" id="imageQwenAddStitchGroupBtn" type="button" ${canAdd ? '' : 'disabled'}>+ Add Stitch Group</button>
-      <p class="neo-muted">${usesLanes ? 'Direct Image 2/Image 3 sources occupy their own lanes. Choose a free output lane; Neo will report any collision before queueing.' : 'For this family, the stitched result replaces the direct Image 1 source. Inpaint still requires a compatible mask, and Outpaint still requires padding.'}</p>
+      <p class="neo-muted">${forgeIntegrated ? 'Keep a main Image 1 source. Neo flattens each ready pair into Forge reference inputs and submits them through the verified ImageStitch Integrated always-on script.' : (usesLanes ? 'Direct Image 2/Image 3 sources occupy their own lanes. Choose a free output lane; Neo will report any collision before queueing.' : 'For this family, the stitched result replaces the direct Image 1 source. Inpaint still requires a compatible mask, and Outpaint still requires padding.')}</p>
     </div>
   </details>`;
 }
 function maskImageLabel() { return state.imageDraft.mask_image_name || basename(state.imageDraft.mask_image || '') || 'No mask selected'; }
 function resetImageMaskDraft() {
   state.imageDraft.mask_image = '';
+  state.imageDraft.mask_image_path = '';
   state.imageDraft.mask_image_url = '';
   state.imageDraft.mask_image_preview_url = '';
   state.imageDraft.mask_image_name = '';
+  state.imageDraft.inpaint_mask = '';
+  delete state.imageDraft.comfy_mask_image_name;
+  delete state.imageDraft.forge_mask_image_b64;
   state.imageMaskEditor.initializedFor = '';
 }
 function valueOf(id) { const node = document.getElementById(id); return node ? node.value : ''; }
@@ -1928,6 +2435,8 @@ function applyImageSizePreset(presetId, { renderAfter = true } = {}) {
   if (dims) {
     state.imageDraft.width = dims[0];
     state.imageDraft.height = dims[1];
+    noteImageManagedSamplingFieldEdit('width', dims[0]);
+    noteImageManagedSamplingFieldEdit('height', dims[1]);
   }
   saveUiState();
   if (renderAfter) render();
@@ -1950,11 +2459,17 @@ async function saveCurrentImageSizePreset() {
 }
 function modelFamilyMeta(familyId) { return state.modelFamilies?.families?.find((family) => family.family_id === familyId); }
 function imageFamilyHasVisibleRoute(familyId) {
-  const rows = state.modelFamilies?.route_matrix || [];
-  return rows.some((row) => row?.family === familyId && row?.ui_policy?.visible_in_normal_ui && ['available', 'experimental_available'].includes(row?.state));
+  return activeImageExecutableRouteRows().some((row) => row?.family === familyId);
 }
 function familyOptionList(surfaceId) {
   let families = state.modelFamilies?.families?.filter((family) => !surfaceId || family.surfaces?.includes(surfaceId)) || [];
+  if (surfaceId === 'image' && imageUsesStrictForgeRouteGating()) {
+    const familyIds = [...new Set(activeImageExecutableRouteRows().map((row) => String(row?.family || '').trim()).filter(Boolean))];
+    return familyIds.map((familyId) => {
+      const family = families.find((item) => item.family_id === familyId) || modelFamilyMeta(familyId);
+      return { id: familyId, label: family?.display_name || humanize(familyId) };
+    });
+  }
   if (surfaceId === 'image') families = families.filter((family) => imageFamilyHasVisibleRoute(family.family_id));
   return families.length ? families.map((family) => ({ id: family.family_id, label: family.display_name })) : (state.imageBase?.model_families || []);
 }
@@ -1972,6 +2487,9 @@ function imageMainModelTypeLabel(loaderId = '', fallback = '') {
 }
 function imageSelectableLoaderIdsForFamily(familyId = '', { includeDiagnostics = false } = {}) {
   const family = familyId || state.imageDraft.family || imageCommandValue('family') || 'sdxl';
+  if (imageUsesStrictForgeRouteGating()) {
+    return new Set(activeImageExecutableRouteRows().filter((row) => row.family === family).map((row) => row.loader));
+  }
   const backend = activeRouteBackend();
   const policy = state.modelFamilies?.route_state_ui_policy || {};
   const selectable = new Set();
@@ -1989,9 +2507,16 @@ function loaderOptionList(familyId = '') {
   const allLoaders = state.modelFamilies?.loader_types || [];
   const baseLoaders = allLoaders.length ? allLoaders.map((loader) => ({ id: loader.loader_id, label: loader.display_name, description: loader.description || '' })) : (state.imageBase?.loader_types || []);
   const family = modelFamilyMeta(familyId || state.imageDraft.family || imageCommandValue('family') || 'sdxl');
+  const selectableLoaders = imageSelectableLoaderIdsForFamily(family?.family_id || familyId, { includeDiagnostics });
+  if (imageUsesStrictForgeRouteGating()) {
+    const loaderMeta = new Map(baseLoaders.map((loader) => [loader.id, loader]));
+    return [...selectableLoaders].map((loaderId) => {
+      const loader = loaderMeta.get(loaderId) || { id: loaderId, label: humanize(loaderId), description: '' };
+      return { ...loader, label: imageMainModelTypeLabel(loader.id, loader.label) };
+    });
+  }
   const supported = family?.supported_loaders || family?.loaders || [];
   const supportedBaseLoaders = supported.length ? baseLoaders.filter((loader) => supported.includes(loader.id)) : baseLoaders;
-  const selectableLoaders = imageSelectableLoaderIdsForFamily(family?.family_id || familyId, { includeDiagnostics });
   const normalFilteredLoaders = includeDiagnostics
     ? supportedBaseLoaders
     : supportedBaseLoaders.filter((loader) => IMAGE_NORMAL_UI_LOADER_IDS.has(loader.id));
@@ -2004,9 +2529,13 @@ function loaderOptionList(familyId = '') {
 function defaultLoaderForFamily(familyId) {
   const family = modelFamilyMeta(familyId);
   const available = loaderOptionList(familyId).map((loader) => loader.id);
-  return (family?.default_loader && available.includes(family.default_loader)) ? family.default_loader : (available[0] || 'checkpoint');
+  return (family?.default_loader && available.includes(family.default_loader)) ? family.default_loader : (available[0] || (imageUsesStrictForgeRouteGating() ? '' : 'checkpoint'));
 }
 function coerceFamilyLoaderPair(nextFamily = state.imageDraft.family, nextLoader = state.imageDraft.loader) {
+  if (imageUsesStrictForgeRouteGating()) {
+    const route = coerceExecutableImageRoute(nextFamily, nextLoader, getImageWorkflowMode());
+    return route ? { family: route.family, loader: route.loader } : { family: '', loader: '' };
+  }
   const family = nextFamily || 'sdxl';
   const available = loaderOptionList(family).map((loader) => loader.id);
   const loader = available.includes(nextLoader) ? nextLoader : defaultLoaderForFamily(family);
@@ -2015,20 +2544,24 @@ function coerceFamilyLoaderPair(nextFamily = state.imageDraft.family, nextLoader
 function syncGgufArchitectureForFamily(familyId) {
   const architectureMap = {
     flux: 'flux',
+    flux2_dev: 'flux2_dev',
     flux2_klein: 'flux2_klein',
     krea2: 'krea2',
     krea2_turbo: 'krea2',
     qwen_image: 'qwen_image',
     qwen_rapid_aio: 'qwen_image',
     qwen_image_edit_2509: 'qwen_image',
+    qwen_image_edit_2511: 'qwen_image',
     z_image: 'z_image',
     z_image_turbo: 'z_image',
     wan_image: 'wan_image',
     hunyuan_image: 'hunyuan_image',
     hidream: 'hidream',
+    anima: 'anima',
+    ideogram4: 'ideogram4',
   };
   if (architectureMap[familyId]) state.imageDraft.gguf_clip_type = architectureMap[familyId];
-  if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'flux2_klein', 'krea2', 'krea2_turbo'].includes(familyId)) state.imageDraft.gguf_clip_mode = 'single';
+  if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511', 'flux2_klein', 'krea2', 'krea2_turbo'].includes(familyId)) state.imageDraft.gguf_clip_mode = 'single';
   if (familyId === 'flux2_klein') {
     const modelName = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || state.imageDraft.diffusion_model || state.imageDraft.model || '';
     state.imageDraft.flux_variant = canonicalFlux2KleinVariant(state.imageDraft.flux_variant || 'flux2_klein', modelName);
@@ -2057,10 +2590,19 @@ function selectedBackendProfileIdForSurface(surfaceId) {
   const activeSurfaceSelected = surfaceId === state.activeSurfaceId ? state.activeBackendProfileId : '';
   return domSelected || surfaceSelected || activeSurfaceSelected || '';
 }
-function setSelectedBackendProfileForSurface(surfaceId, profileId) {
+function setSelectedBackendProfileForSurface(surfaceId, profileId, options = {}) {
   if (!surfaceId || !profileId) return;
+  const previousProfileId = String(state.activeBackendProfileIdsBySurface?.[surfaceId] || '').trim();
   state.activeBackendProfileIdsBySurface = { ...(state.activeBackendProfileIdsBySurface || {}), [surfaceId]: profileId };
   state.activeBackendProfileId = profileId;
+  if (surfaceId === 'image' && previousProfileId && previousProfileId !== profileId && options.preserveActionState !== true) {
+    imageFinalizeActionLifecycle('provider_profile_changed', {
+      clearProviderCaches: true,
+      disablePendingRevalidation: true,
+      preserveCanonicalSource: true,
+      preserveReplayContext: true,
+    });
+  }
 }
 function applyBackendProfileSelectionPayload(payload = {}) {
   const selection = payload.selection || payload || {};
@@ -2147,43 +2689,35 @@ function imageProfileSupportsCapability(capability, profile = activeImageProfile
   return true;
 }
 
-function imagePostOutputBridgeCapabilityForAction(actionId = '') {
-  if (actionId === 'extension.high_res_lab') return 'highres_inline';
-  if (actionId === 'extension.adetailer') return 'adetailer_inline';
-  if (actionId === 'extension.image_upscale') return 'image_upscale';
-  if (actionId === 'extension.identity_rescue') return 'ip_adapter';
-  return '';
-}
-
-function imagePostOutputComfyBridgeProfile(actionId = '') {
-  const profiles = backendProfilesForSurface('image').filter((profile) => profile && profile.enabled !== false);
-  const current = activeImageProfile();
-  const capability = imagePostOutputBridgeCapabilityForAction(actionId);
-  const localProfiles = profiles.filter((profile) => !isCloudImageProfile(profile));
-  const comfyProfiles = localProfiles.filter((profile) => ['comfyui', 'comfyui_portable'].includes(String(profile.provider_id || '').toLowerCase()));
-  const supports = (profile) => {
-    if (!profile) return false;
-    if (!capability) return true;
-    if (capability === 'image_upscale') return true;
-    return imageProfileSupportsCapability(capability, profile);
+function previewFinishSourceProviderBinding(sourceContext = {}) {
+  const metadata = sourceContext?.metadata && typeof sourceContext.metadata === 'object' ? sourceContext.metadata : {};
+  const providerBinding = metadata.provider_binding && typeof metadata.provider_binding === 'object' ? metadata.provider_binding : {};
+  const job = metadata.job && typeof metadata.job === 'object' ? metadata.job : {};
+  return {
+    providerId: String(providerBinding.provider_id || job.provider_id || metadata.provider_id || '').trim().toLowerCase(),
+    profileId: String(providerBinding.backend_profile_id || providerBinding.profile_id || job.backend_profile_id || metadata.backend_profile_id || '').trim(),
   };
-  if (current && !isCloudImageProfile(current) && supports(current)) return { profile: current, switched: false, reason: 'active_local_profile' };
-  const preferred = comfyProfiles.find(supports) || localProfiles.find(supports) || comfyProfiles[0] || localProfiles[0] || null;
-  return { profile: preferred, switched: Boolean(preferred && (!current || preferred.profile_id !== current.profile_id)), reason: preferred ? 'bridge_profile_selected' : 'no_local_bridge_profile' };
 }
 
-function imagePostOutputBridgeLabel(profile = null) {
-  return profile ? `${profile.display_name || profile.profile_id || 'Local image backend'} · ${profile.provider_id || 'local'}` : 'No local Comfy image backend';
+function previewFinishDispatchEvaluation(actionId = '', sourceContext = {}) {
+  const action = imagePreviewActionById(actionId) || {};
+  const evaluated = evaluatePreviewActionForToolbar(action, sourceContext);
+  if (!evaluated.enabled) throw new Error(evaluated.disabledReason || `${action.label || actionId} is unavailable for the selected backend profile.`);
+  if (String(action.actionClass || action.action_class || '') !== 'post_process') throw new Error('The selected preview action is not a Finish action.');
+  const selectedProfileId = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const evaluatedProfileId = String(evaluated.profileId || evaluated.profile_id || '').trim();
+  if (!selectedProfileId) throw new Error('Select an Image backend profile before running a Finish action.');
+  if (evaluatedProfileId && evaluatedProfileId !== selectedProfileId) throw new Error('The Finish action evaluation is stale for the selected Image backend profile. Refresh and try again.');
+  const profile = activeImageProfile();
+  const providerId = String(evaluated.providerId || evaluated.provider_id || profile?.provider_id || profile?.backend || '').trim().toLowerCase();
+  const dispatchType = String(evaluated.dispatchType || evaluated.dispatch_type || '').trim();
+  if (!dispatchType) throw new Error('The selected provider did not publish a Finish dispatcher for this action.');
+  return { ...evaluated, action, profile, profileId: selectedProfileId, providerId, dispatchType, executionMode: String(evaluated.executionMode || evaluated.execution_mode || '').trim() };
 }
 
-function imagePostOutputBridgeNotice(actionId = '', sourceContext = {}) {
-  const active = activeImageProfile();
-  const bridge = imagePostOutputComfyBridgeProfile(actionId);
-  const sourceProvider = sourceContext?.metadata?.provider_binding?.provider_id || sourceContext?.metadata?.job?.provider_id || sourceContext?.metadata?.provider_id || '';
-  if (!isCloudImageProfile(active) && sourceProvider !== 'xai_grok') return '';
-  const actionLabel = outputPostFixActionLabel(actionId);
-  if (!bridge.profile) return `${actionLabel} needs a local Comfy image backend profile. Create/enable one in Admin > Backends.`;
-  return `${actionLabel} will use ${imagePostOutputBridgeLabel(bridge.profile)} as a post-output bridge. The cloud output remains the source; Grok is not rerun.`;
+function previewFinishDispatchLabel(evaluation = {}) {
+  const profile = evaluation.profile || activeImageProfile();
+  return `${profile?.display_name || profile?.profile_id || 'Selected image backend'} · ${evaluation.providerId || profile?.provider_id || 'provider'}`;
 }
 
 function imageProfileUnsupportedReason(capability, profile = activeImageProfile()) {
@@ -2241,7 +2775,7 @@ function renderCloudImageParameterRows(p = {}) {
     <p class="neo-muted">Cloud API mode hides local SD/Comfy controls like checkpoint, VAE, sampler, scheduler, steps, CFG, seed, LoRA, ControlNet, ADetailer, and High-Res Lab.</p>
   </div>`;
 }
-const PROVIDER_NEUTRAL_IMAGE_EXTENSIONS = new Set(['image.wildcards', 'image.style_stack']);
+const PROVIDER_NEUTRAL_IMAGE_EXTENSIONS = new Set(['wildcards', 'style_stack', 'image.wildcards', 'image.style_stack']);
 function imageExtensionProviderCapability(extensionIdValue, profile = activeImageProfile()) {
   const map = {
     [CONTROLNET_EXTENSION_ID]: 'controlnet',
@@ -2257,18 +2791,34 @@ function imageExtensionProviderCapability(extensionIdValue, profile = activeImag
 }
 function imageExtensionAllowedForActiveProfile(record, profile = activeImageProfile()) {
   const extId = extensionId(record);
-  if (!isCloudImageProfile(profile)) return { allowed: true, reason: '' };
   if (PROVIDER_NEUTRAL_IMAGE_EXTENSIONS.has(extId)) return { allowed: true, reason: 'Provider-neutral prompt extension.' };
+  const backend = normalizeRouteBackend(profile?.provider_id || profile?.backend || profile?.profile_id || 'comfyui');
+  const manifest = record?.manifest || {};
+  const declared = Array.isArray(manifest.supported_backends) ? manifest.supported_backends.map(normalizeRouteBackend) : [];
+  if (declared.length && !declared.includes(backend)) {
+    return { allowed: false, reason: `${manifest.name || extId || 'This extension'} does not declare support for ${profile?.display_name || backend}.` };
+  }
+  if (backend === 'forge') {
+    const overlayPolicy = activeImageCapabilityOverlay()?.extension_policy?.[extId];
+    if (overlayPolicy) return { allowed: overlayPolicy.allowed !== false, reason: overlayPolicy.reason || '' };
+    return { allowed: false, reason: `${manifest.name || extId || 'This extension'} has no verified Forge compiler or API mapping.` };
+  }
+  if (!isCloudImageProfile(profile)) return { allowed: true, reason: '' };
   const cap = imageExtensionProviderCapability(extId, profile);
   if (cap && imageProfileSupportsCapability(cap, profile)) return { allowed: true, reason: '' };
   return { allowed: false, reason: cap ? imageProfileUnsupportedReason(cap, profile) : `${profile?.display_name || 'Cloud image backend'} does not support this inline image extension.` };
 }
 function renderProviderGatedExtensionPanel(record, reason = '') {
   const manifest = record?.manifest || {};
+  const profile = activeImageProfile();
+  const providerLabel = profile?.provider_label || profile?.display_name || humanize(profile?.provider_id || 'Backend');
+  const followup = isCloudImageProfile(profile)
+    ? 'Run this as a post-output Comfy action later, or switch to a compatible local backend profile.'
+    : 'Switch to a compatible backend profile or wait until a verified provider mapping is available.';
   return panel(manifest.name || extensionId(record) || 'Image Extension', `<section class="neo-provider-gated-extension" data-extension-id="${escapeAttr(extensionId(record))}">
-    <div class="neo-extension-status-line"><span class="neo-state-pill warning">Provider gated</span><span class="neo-badge">Cloud API</span></div>
+    <div class="neo-extension-status-line"><span class="neo-state-pill warning">Provider gated</span><span class="neo-badge">${escapeHtml(providerLabel)}</span></div>
     <p class="neo-muted">${escapeHtml(reason || 'This extension is hidden for the selected backend profile.')}</p>
-    <p class="neo-muted">Run this as a post-output Comfy action later, or switch to a compatible local backend profile.</p>
+    <p class="neo-muted">${escapeHtml(followup)}</p>
   </section>`, false, 'Provider gated');
 }
 function imageProfileProviderLabel(profile) {
@@ -2282,7 +2832,8 @@ function profileModelSources(profile) {
   const normalizedModelSource = modelBlock && Array.isArray(modelBlock.available_models)
     ? { models: modelBlock.available_models.map((model) => ({ id: String(model), name: String(model), kind: 'image_model' })) }
     : null;
-  return [profile?.models, normalizedModelSource, profile?.runtime?.models, profile?.runtime?.capabilities?.models].filter(Boolean);
+  const overlayCatalogs = imageOverlayCatalogsForProfile(profile);
+  return [overlayCatalogs, profile?.models, normalizedModelSource, profile?.runtime?.models, profile?.runtime?.capabilities?.models].filter(Boolean);
 }
 function modelRecordsForKind(profile, kind) {
   for (const source of profileModelSources(profile)) {
@@ -2302,7 +2853,7 @@ function profilesForModelKind(surfaceId, kind) {
     if (profile && !ordered.some((item) => item.profile_id === profile.profile_id)) ordered.push(profile);
   };
   push(activeProfile);
-  profiles.filter((profile) => backendProfileStatus(profile) === 'connected' && profileHasModelKind(profile, kind)).forEach(push);
+  profiles.filter((profile) => ['connected', 'connected_with_warnings'].includes(String(backendProfileStatus(profile) || '').toLowerCase()) && profileHasModelKind(profile, kind)).forEach(push);
   profiles.filter((profile) => profileHasModelKind(profile, kind)).forEach(push);
   profiles.forEach(push);
   return ordered;
@@ -2316,7 +2867,7 @@ function backendProfileConnectedForRuntime(profile) {
   const status = String(backendProfileStatus(profile) || '').toLowerCase();
   const runtime = profile.runtime || {};
   const reachable = runtime.reachable !== false;
-  return ['connected', 'online', 'ready', 'available'].includes(status) && reachable;
+  return ['connected', 'connected_with_warnings', 'online', 'ready', 'available'].includes(status) && reachable;
 }
 function backendProfileBlockedMessage(profile, surfaceLabel = 'this workflow') {
   if (!profile || profile.profile_id === 'not_configured') return `No backend profile is configured for ${surfaceLabel}.`;
@@ -2364,9 +2915,11 @@ const BACKEND_MODEL_FALLBACK_OPTIONS = {
 };
 
 function profileModelOptionsForSurface(surfaceId = 'image', kind = 'models') {
-  const records = profilesForModelKind(surfaceId, kind)
-    .map((profile) => modelRecordsForKind(profile, kind))
-    .find((items) => items.length) || [];
+  const activeProfile = surfaceId === 'image' ? activeImageProfile() : defaultBackendProfile(surfaceId);
+  const overlay = surfaceId === 'image' ? imageCapabilityOverlayForProfile(activeProfile) : null;
+  const records = overlay?.catalog_scope === 'selected_profile'
+    ? modelRecordsForKind(activeProfile, kind)
+    : (profilesForModelKind(surfaceId, kind).map((profile) => modelRecordsForKind(profile, kind)).find((items) => items.length) || []);
   const fallbackMap = BACKEND_MODEL_FALLBACK_OPTIONS;
   if (!records.length) return fallbackMap[kind] || fallbackMap.models;
   const prefix = kind === 'vaes' || kind === 'gguf_vaes'
@@ -2489,14 +3042,14 @@ function activeImageParameterFields() {
   if (!profile) return [];
   const fields = [...(profile.shared_fields || []), ...(profile.family_fields || []), ...(profile.fields || [])];
   const mode = activeImageMode();
-  return fields.filter((field) => !Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode));
+  return fields.filter((field) => (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode)) && imageOverlayFieldVisible(field.field_id));
 }
 function imageParameterFieldsForMode(modeOverride = '') {
   const profile = activeImageParameterProfile();
   if (!profile) return [];
   const fields = [...(profile.shared_fields || []), ...(profile.family_fields || []), ...(profile.fields || [])];
   const mode = normalizeImageWorkflowMode(modeOverride || activeImageMode());
-  return fields.filter((field) => !Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode));
+  return fields.filter((field) => (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode)) && imageOverlayFieldVisible(field.field_id));
 }
 
 const GGUF_RUNTIME_FIELD_IDS = new Set(['gguf_model', 'gguf_loader_status', 'flux_guidance', 'text_encoder_1', 'text_encoder_2', 'qwen_text_encoder', 'qwen3_text_encoder', 'qwen3vl_text_encoder', 'qwen_mmproj', 'vae']);
@@ -2767,12 +3320,15 @@ function syncFlux2KleinComponentState({ autoSelect = true, persist = true } = {}
 function activeGgufArchitecture() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   if (family === 'qwen_image' || family === 'qwen_rapid_aio' || family === 'qwen_image_edit_2509') return 'qwen_image';
+  if (family === 'flux2_dev') return 'flux2_dev';
   if (family === 'flux2_klein') return 'flux2_klein';
   if (family === 'krea2' || family === 'krea2_turbo') return 'krea2';
   if (family === 'z_image' || family === 'z_image_turbo') return 'z_image';
   if (family === 'wan_image') return 'wan_image';
   if (family === 'hunyuan_image') return 'hunyuan_image';
   if (family === 'hidream') return 'hidream';
+  if (family === 'anima') return 'anima';
+  if (family === 'ideogram4') return 'ideogram4';
   const fluxVariant = state.imageDraft.flux_variant || valueOf('imageParam_flux_variant') || '';
   if (family === 'flux' && isFluxKleinVariant(fluxVariant)) return 'flux2_klein';
   if (family === 'flux') return 'flux';
@@ -2783,7 +3339,7 @@ function ggufRouteRequiresDualEncoders(architecture = activeGgufArchitecture(), 
 }
 function activeGgufClipMode() {
   const architecture = activeGgufArchitecture();
-  if (['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(architecture)) return 'single';
+  if (['qwen_image', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_dev', 'flux2_klein', 'krea2'].includes(architecture)) return 'single';
   if (ggufRouteRequiresDualEncoders(architecture)) return 'dual';
   return state.imageDraft.gguf_clip_mode || 'dual';
 }
@@ -2795,6 +3351,9 @@ function ggufRuntimeLabel() {
   if (architecture === 'wan_image') return 'Wan Image GGUF Runtime';
   if (architecture === 'hunyuan_image') return 'Hunyuan GGUF Runtime';
   if (architecture === 'hidream') return 'HiDream GGUF Runtime';
+  if (architecture === 'anima') return 'Anima GGUF Runtime';
+  if (architecture === 'ideogram4') return 'Ideogram 4 Dual-Model GGUF Runtime';
+  if (architecture === 'flux2_dev') return 'FLUX.2 Dev GGUF Runtime';
   if (architecture === 'flux2_klein') return 'FLUX.2 Klein GGUF Runtime';
   if (flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF Runtime';
   return 'Flux GGUF Runtime';
@@ -2852,8 +3411,9 @@ function isMeaningfulGgufSelection(value) {
 }
 function ggufBundleItem(label, value, roleId = '', { optional = false } = {}) {
   const hasValue = isMeaningfulGgufSelection(value);
-  const role = roleId ? ggufRoleStatus(roleId) : { available: true, hasDiagnostics: false, label: '' };
-  const roleBlocks = roleId && role.hasDiagnostics && !role.available;
+  const forgeBundle = imageUsesStrictForgeRouteGating();
+  const role = roleId && !forgeBundle ? ggufRoleStatus(roleId) : { available: true, hasDiagnostics: false, label: '' };
+  const roleBlocks = roleId && !forgeBundle && role.hasDiagnostics && !role.available;
   const ok = optional ? (!hasValue || !roleBlocks) : (hasValue && !roleBlocks);
   const detail = hasValue ? value : (optional ? 'Optional / not selected' : 'Not selected');
   const roleText = roleId && role.hasDiagnostics ? ` · ${role.label}` : '';
@@ -2861,12 +3421,16 @@ function ggufBundleItem(label, value, roleId = '', { optional = false } = {}) {
 }
 function buildGgufBundleItems() {
   const architecture = activeGgufArchitecture();
-  const clipMode = ggufRouteRequiresDualEncoders(architecture, activeImageMode()) ? 'dual' : selectedGgufRuntimeValue('gguf_clip_mode', activeGgufClipMode());
+  const forgeBundle = imageUsesStrictForgeRouteGating();
+  const requiredModuleRoles = activeForgeRouteRequiredModuleRoles();
+  const clipMode = forgeBundle
+    ? (requiredModuleRoles.includes('text_encoder_secondary') ? 'dual' : 'single')
+    : (ggufRouteRequiresDualEncoders(architecture, activeImageMode()) ? 'dual' : selectedGgufRuntimeValue('gguf_clip_mode', activeGgufClipMode()));
   const isQwen = architecture === 'qwen_image';
   const isKrea2 = architecture === 'krea2';
-  const isFlux = architecture === 'flux' || architecture === 'flux2_klein';
+  const isFlux = ['flux', 'flux2_dev', 'flux2_klein'].includes(architecture);
   const mode = activeImageMode();
-  const mmprojRequired = isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
+  const mmprojRequired = !forgeBundle && isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
   const modelValue = selectedGgufRuntimeValue('gguf_model', state.imageDraft.gguf_unet || state.imageDraft.model || 'provider_default');
   const encoderA = isQwen
     ? selectedGgufRuntimeValue('qwen_text_encoder', state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
@@ -2899,11 +3463,16 @@ function renderGgufRuntimeCard(p) {
   if (!isImageGgufRuntimeActive()) return '';
   const family = state.imageDraft.family || imageCommandValue('family') || 'flux';
   const architecture = activeGgufArchitecture();
-  const clipMode = activeGgufClipMode();
+  const forgeBundle = imageUsesStrictForgeRouteGating();
+  const requiredModuleRoles = activeForgeRouteRequiredModuleRoles();
+  const optionalModuleRoles = activeForgeRouteOptionalModuleRoles();
+  const clipMode = forgeBundle
+    ? (requiredModuleRoles.includes('text_encoder_secondary') ? 'dual' : 'single')
+    : activeGgufClipMode();
   // Legacy guardrail string: const clipMode = selectedGgufRuntimeValue('gguf_clip_mode', activeGgufClipMode());
   const isQwen = architecture === 'qwen_image';
   const isKrea2 = architecture === 'krea2';
-  const isFlux = architecture === 'flux' || architecture === 'flux2_klein';
+  const isFlux = ['flux', 'flux2_dev', 'flux2_klein'].includes(architecture);
   const modelValue = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || p.gguf_model || p.model || 'provider_default';
   const encoderA = isQwen
     ? (state.imageDraft.qwen_text_encoder || state.imageDraft.text_encoder_1 || '')
@@ -2917,9 +3486,9 @@ function renderGgufRuntimeCard(p) {
   const mmproj = state.imageDraft.qwen_mmproj || '';
   const guidance = Number(state.imageDraft.flux_guidance ?? p.flux_guidance ?? 3.5);
   const mode = activeImageMode();
-  const mmprojRequired = isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
+  const mmprojRequired = !forgeBundle && isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
   const cards = buildGgufBundleItems();
-  const singleEncoderOnly = ['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(architecture);
+  const singleEncoderOnly = ['qwen_image', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_dev', 'flux2_klein', 'krea2'].includes(architecture);
   const routeRequiresDual = ggufRouteRequiresDualEncoders(architecture, mode);
   const modeOptions = singleEncoderOnly
     ? [{ id: 'single', label: 'Single encoder' }]
@@ -2927,31 +3496,41 @@ function renderGgufRuntimeCard(p) {
       ? [{ id: 'dual', label: 'Dual encoder' }]
       : [{ id: 'dual', label: 'Dual encoder' }, { id: 'single', label: 'Single encoder' }];
   const resolvedRouteLabel = ggufRuntimeLabel().replace(' Runtime', '');
+  const moduleSummary = `${requiredModuleRoles.length} required${optionalModuleRoles.length ? ` · ${optionalModuleRoles.length} optional` : ''}`;
   const expertDiagnostics = state.detailMode === 'expert'
-    ? `<div class="neo-gguf-runtime-diagnostics" data-testid="gguf-runtime-diagnostics"><strong>Expert route diagnostics</strong><span>Internal architecture: <code>${escapeHtml(architecture)}</code></span><span>Internal loader: <code>gguf</code></span></div>`
+    ? `<div class="neo-gguf-runtime-diagnostics" data-testid="gguf-runtime-diagnostics"><strong>Expert route diagnostics</strong><span>Internal architecture: <code>${escapeHtml(architecture)}</code></span><span>Provider loader: <code>${forgeBundle ? 'forge_model_bundle' : 'gguf'}</code></span></div>`
     : '';
+  const runtimeDescription = forgeBundle
+    ? 'Forge GGUF model bundle. The GGUF file is the primary model; required encoders and AE/VAE files are native Forge modules owned by the executable route.'
+    : 'GGUF main model route. Neo resolves the backend route from the selected family and model type; extra component fields appear only when required.';
+  const runtimeBadges = forgeBundle
+    ? ['GGUF', 'Forge model bundle', `Modules: ${moduleSummary}`]
+    : ['GGUF', `Resolved: ${resolvedRouteLabel}`, `Layout: ${clipMode}`];
+  const layoutField = forgeBundle
+    ? `<label class="neo-param-field neo-param-status"><span>Module layout</span><span class="neo-badge">Route-owned</span><small class="neo-muted">Neo follows the selected Forge route; Comfy GGUF encoder-layout controls are hidden.</small></label>`
+    : `<label>Encoder layout${optionSelect('imageParam_gguf_clip_mode', modeOptions, clipMode)}</label>`;
   return `<div class="neo-gguf-runtime-card" data-testid="gguf-runtime-card" data-family="${escapeAttr(family)}" data-architecture="${escapeAttr(architecture)}">
     <div class="neo-gguf-runtime-head">
-      <div><h4>${escapeHtml(ggufRuntimeLabel())}</h4><p class="neo-muted">GGUF main model route. Neo resolves the backend route from the selected family and model type; extra component fields appear only when required.</p></div>
-      <div class="neo-gguf-runtime-badges">${badgeRow(['GGUF', `Resolved: ${resolvedRouteLabel}`, `Layout: ${clipMode}`])}</div>
+      <div><h4>${escapeHtml(ggufRuntimeLabel())}</h4><p class="neo-muted">${escapeHtml(runtimeDescription)}</p></div>
+      <div class="neo-gguf-runtime-badges">${badgeRow(runtimeBadges)}</div>
     </div>
     <div class="neo-gguf-runtime-grid two">
       <label>GGUF model${optionSelect('imageParam_gguf_model', imageOptionsForField('gguf_model'), modelValue)}</label>
-      <label>Encoder layout${optionSelect('imageParam_gguf_clip_mode', modeOptions, clipMode)}</label>
+      ${layoutField}
     </div>
     <div class="neo-gguf-runtime-grid three">
       <label class="neo-param-field neo-param-status"><span>Resolved route</span><span class="neo-badge">${escapeHtml(resolvedRouteLabel)}</span><small class="neo-muted">Backend architecture is automatic for the selected family.</small></label>
       <label>${isQwen ? 'Qwen text encoder' : (isKrea2 ? 'Qwen3-VL-4B text encoder' : (architecture === 'flux2_klein' ? 'Qwen3 text encoder' : 'Encoder A'))}${optionSelect(isQwen ? 'imageParam_qwen_text_encoder' : (isKrea2 ? 'imageParam_qwen3vl_text_encoder' : (architecture === 'flux2_klein' ? 'imageParam_qwen3_text_encoder' : 'imageParam_text_encoder_1')), imageOptionsForField(isQwen ? 'qwen_text_encoder' : (isKrea2 ? 'qwen3vl_text_encoder' : (architecture === 'flux2_klein' ? 'qwen3_text_encoder' : 'text_encoder_1'))), encoderA)}</label>
-      ${clipMode === 'dual' ? `<label>Encoder B${optionSelect('imageParam_text_encoder_2', imageOptionsForField('text_encoder_2'), encoderB)}</label>` : `<label class="neo-param-field neo-param-status"><span>Encoder B</span><span class="neo-badge">Hidden for single encoder</span></label>`}
+      ${clipMode === 'dual' ? `<label>Encoder B${optionSelect('imageParam_text_encoder_2', imageOptionsForField('text_encoder_2'), encoderB)}</label>` : `<label class="neo-param-field neo-param-status"><span>Encoder B</span><span class="neo-badge">Not used by route</span></label>`}
     </div>
     ${expertDiagnostics}
     <div class="neo-gguf-runtime-grid ${isQwen ? 'three' : 'two'}">
       <label>${isKrea2 ? 'Qwen Image VAE' : 'AE / VAE'}${optionSelect('imageParam_vae', imageOptionsForField('vae'), vae)}</label>
       ${isFlux ? `<label>Flux guidance<div class="neo-slider-pair"><input id="imageParam_flux_guidance" type="number" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance"><input id="imageFluxGuidanceRange" type="range" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance slider"></div></label>` : ''}
-      ${isQwen ? `<label>MMProj${optionSelect('imageParam_qwen_mmproj', imageOptionsForField('qwen_mmproj'), mmproj)}</label><label class="neo-param-field neo-param-status"><span>Route readiness</span><span class="neo-badge ${mmprojRequired && !mmproj ? 'warning' : ''}">${mmprojRequired ? 'MMProj required' : 'MMProj optional for txt2img'}</span></label>` : ''}
+      ${isQwen ? `<label>MMProj${optionSelect('imageParam_qwen_mmproj', imageOptionsForField('qwen_mmproj'), mmproj)}</label><label class="neo-param-field neo-param-status"><span>Route readiness</span><span class="neo-badge ${mmprojRequired && !mmproj ? 'warning' : ''}">${mmprojRequired ? 'MMProj required' : 'MMProj optional module'}</span></label>` : ''}
     </div>
     ${renderGgufRouteRequirementNotice()}
-    <div class="neo-gguf-bundle-check" id="imageGgufBundleCheck"><strong>GGUF bundle check</strong><ul>${cards.join('')}</ul></div>
+    <div class="neo-gguf-bundle-check" id="imageGgufBundleCheck"><strong>${forgeBundle ? 'Forge model bundle check' : 'GGUF bundle check'}</strong><ul>${cards.join('')}</ul></div>
   </div>`;
 }
 function imagePrimaryModelFieldId() {
@@ -3444,6 +4023,7 @@ function setImageWorkflowMode(mode = 'generate') {
   state.imageDraft.workflow_mode = runtime.workflow_mode;
   state.surfaceRuntime.image = runtime;
   syncLegacySurfaceState('image', runtime);
+  scheduleImagePreviewActionEvaluationRefresh();
   return runtime.workflow_mode;
 }
 
@@ -5702,6 +6282,14 @@ function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = 
       ? (profile?.runtime?.message || profile?.connection?.api_key_status_message || `Provider status: ${runtimeStatus || 'unknown'}. Configure and test this API profile in Admin > Backends.`)
       : backendProfileBlockedMessage(profile, 'Image generation');
   push('provider_status', 'Provider status', connected ? 'ready' : 'blocked', providerMessage, !connected);
+  if (imageUsesStrictForgeRouteGating()) {
+    const selectedRoute = routeEntryForSelection(state.imageDraft.family, state.imageDraft.loader, mode);
+    const routeReady = Boolean(selectedRoute);
+    const routeMessage = routeReady
+      ? `${humanize(selectedRoute.family)} · ${imageMainModelTypeLabel(selectedRoute.loader, selectedRoute.loader)} · ${humanize(selectedRoute.mode)} is executable for the selected Forge profile.`
+      : 'The selected Forge profile has no executable route for the current family, loader, and workflow. Refresh Forge discovery or choose an available route.';
+    push('forge_executable_route', 'Forge executable route', routeReady ? 'ready' : 'blocked', routeMessage, !routeReady);
+  }
   push('prompt', 'Prompt', promptText ? 'ready' : 'warning', promptText ? 'Positive prompt is present.' : 'Prompt is empty. You can still run, but output quality may be unpredictable.', false);
   const latePassContinuation = activeImageLatePassContinuation();
   if (latePassContinuation) {
@@ -5760,8 +6348,8 @@ function surfaceUsesBackendHeader(surface) {
 function statusClass(status) {
   const value = String(status || '').toLowerCase();
   if (['online', 'connected', 'enabled', 'active', 'ready', 'available', 'applied'].includes(value)) return 'success';
-  if (['planned', 'partial', 'warning', 'mock', 'missing_key', 'auth_failed', 'missing_env_name'].includes(value)) return 'warning';
-  if (['offline', 'disabled', 'unavailable', 'error', 'missing', 'missing_config', 'unsupported', 'disconnected', 'not applied'].includes(value)) return 'danger';
+  if (['planned', 'partial', 'warning', 'mock', 'missing_key', 'auth_failed', 'authentication_required', 'api_disabled', 'connected_with_warnings', 'missing_env_name'].includes(value)) return 'warning';
+  if (['offline', 'disabled', 'unavailable', 'error', 'missing', 'missing_config', 'unsupported', 'disconnected', 'version_incompatible', 'not applied'].includes(value)) return 'danger';
   return 'muted';
 }
 
@@ -5912,17 +6500,24 @@ function renderUiPresetControls(surface) {
   const payload = state.uiPresetsBySurface?.[surfaceId] || { presets: [], default_preset_id: '' };
   const presets = payload.presets || [];
   const activeId = state.activeUiPresetIds?.[surfaceId] || '';
-  const options = [{ id: '', label: 'Manual UI preset…' }, ...presets.map((preset) => ({ id: preset.preset_id, label: `${preset.name}${preset.is_default ? ' ★' : ''}` }))];
-  const status = state.uiPresetStatus ? `<small class="neo-preset-status">${escapeHtml(state.uiPresetStatus)}</small>` : '<small class="neo-preset-status">Manual save enabled · autosave disabled</small>';
-  return `<div class="neo-ui-preset-bar">
-    <label>UI Preset${optionSelect('workspaceUiPreset', options, activeId)}</label>
-    <div class="neo-ui-preset-actions" aria-label="UI preset actions">
-      <button class="neo-icon-btn success" id="uiPresetSaveBtn" type="button" title="Save new UI preset" aria-label="Save new UI preset" data-tooltip="Save new UI preset">💾</button>
-      <button class="neo-icon-btn primary" id="uiPresetUpdateBtn" type="button" title="Update selected UI preset" aria-label="Update selected UI preset" data-tooltip="Update selected UI preset">🔄</button>
-      <button class="neo-icon-btn secondary" id="uiPresetRenameBtn" type="button" title="Rename selected UI preset" aria-label="Rename selected UI preset" data-tooltip="Rename selected UI preset">✏️</button>
-      <button class="neo-icon-btn secondary" id="uiPresetRemoveBtn" type="button" title="Remove preset from current selection" aria-label="Remove preset from current selection" data-tooltip="Remove preset from current selection">🧹</button>
-      <button class="neo-icon-btn danger" id="uiPresetDeleteBtn" type="button" title="Delete selected UI preset file" aria-label="Delete selected UI preset file" data-tooltip="Delete selected UI preset file">🗑️</button>
-      <button class="neo-icon-btn warning" id="uiPresetDefaultBtn" type="button" title="Make selected UI preset default" aria-label="Make selected UI preset default" data-tooltip="Make selected UI preset default">⭐</button>
+  const imageMeta = surfaceId === 'image' ? imageUnifiedPresetSelectionMeta() : null;
+  const userActionsEnabled = surfaceId !== 'image' || imageMeta?.source === 'user';
+  const selectHtml = surfaceId === 'image'
+    ? renderImageUnifiedPresetSelect(presets)
+    : optionSelect('workspaceUiPreset', [{ id: '', label: 'Manual UI preset…' }, ...presets.map((preset) => ({ id: preset.preset_id, label: `${preset.name}${preset.is_default ? ' ★' : ''}` }))], activeId);
+  const status = state.uiPresetStatus
+    ? `<small class="neo-preset-status">${escapeHtml(state.uiPresetStatus)}</small>`
+    : `<small class="neo-preset-status">${surfaceId === 'image' ? 'Manual / No Preset · Defaults and User Presets share this selector' : 'Manual save enabled · autosave disabled'}</small>`;
+  const userOnlyDisabled = userActionsEnabled ? '' : 'disabled';
+  return `<div class="neo-ui-preset-bar" data-preset-foundation="${surfaceId === 'image' ? 'IR-1' : 'legacy'}">
+    <label>${surfaceId === 'image' ? 'Preset' : 'UI Preset'}${selectHtml}</label>
+    <div class="neo-ui-preset-actions" aria-label="${surfaceId === 'image' ? 'User preset actions' : 'UI preset actions'}">
+      <button class="neo-icon-btn success" id="uiPresetSaveBtn" type="button" title="Save current workspace as a new user preset" aria-label="Save new UI preset" data-tooltip="Save current workspace as a new user preset">💾</button>
+      <button class="neo-icon-btn primary" id="uiPresetUpdateBtn" type="button" ${userOnlyDisabled} title="Update selected user preset" aria-label="Update selected UI preset" data-tooltip="Update selected user preset">🔄</button>
+      <button class="neo-icon-btn secondary" id="uiPresetRenameBtn" type="button" ${userOnlyDisabled} title="Rename selected user preset" aria-label="Rename selected UI preset" data-tooltip="Rename selected user preset">✏️</button>
+      <button class="neo-icon-btn secondary" id="uiPresetRemoveBtn" type="button" ${userOnlyDisabled} title="Return to Manual / No Preset" aria-label="Remove preset from current selection" data-tooltip="Return to Manual / No Preset">🧹</button>
+      <button class="neo-icon-btn danger" id="uiPresetDeleteBtn" type="button" ${userOnlyDisabled} title="Delete selected user preset file" aria-label="Delete selected UI preset file" data-tooltip="Delete selected user preset file">🗑️</button>
+      <button class="neo-icon-btn warning" id="uiPresetDefaultBtn" type="button" ${userOnlyDisabled} title="Make selected user preset the saved user default" aria-label="Make selected UI preset default" data-tooltip="Make selected user preset the saved user default">⭐</button>
     </div>
     ${status}
   </div>`;
@@ -5932,6 +6527,21 @@ function bindUiPresetControls(surface) {
   const surfaceId = surface?.surface_id || 'image';
   const select = document.getElementById('workspaceUiPreset');
   if (select) select.addEventListener('change', async (event) => {
+    if (surfaceId === 'image') {
+      const selected = String(event.target.value || IMAGE_UNIFIED_PRESET_MANUAL);
+      const meta = imageUnifiedPresetSelectionMeta(selected);
+      state.imageUnifiedPresetSelection = meta.value;
+      if (meta.source === 'user') {
+        state.activeUiPresetIds.image = meta.id;
+        await applySelectedUiPreset('image', meta.id);
+      } else {
+        state.activeUiPresetIds.image = '';
+        applyImageBuiltInSamplingPresetAuthority(meta.id, { reason: 'selector_change', fallbackToManual: true });
+        if (meta.id === 'manual') state.uiPresetStatus = 'Manual / No Preset · preset authority released; current values remain editable';
+        render();
+      }
+      return;
+    }
     state.activeUiPresetIds[surfaceId] = event.target.value || '';
     await applySelectedUiPreset(surfaceId, state.activeUiPresetIds[surfaceId]);
     render();
@@ -5953,6 +6563,14 @@ async function loadSurfaceDefaultUiPresetOnce(surfaceId) {
   if (!id) return false;
   state.uiPresetDefaultsLoadedBySurface = state.uiPresetDefaultsLoadedBySurface || {};
   if (state.uiPresetDefaultsLoadedBySurface[id]) return false;
+  if (id === 'image') {
+    state.uiPresetDefaultsLoadedBySurface.image = true;
+    state.activeUiPresetIds.image = '';
+    state.imageUnifiedPresetSelection = IMAGE_UNIFIED_PRESET_MANUAL;
+    releaseImageSamplingPresetAuthorityToManual('image_surface_open');
+    state.uiPresetStatus = 'Manual / No Preset · no preset loaded';
+    return false;
+  }
   const presetId = state.activeUiPresetIds?.[id] || state.uiPresetsBySurface?.[id]?.default_preset_id || '';
   if (!presetId) {
     state.uiPresetDefaultsLoadedBySurface[id] = true;
@@ -5984,12 +6602,18 @@ function renderImageCommandStrip(ctx = {}) {
   const selectedImageMode = ctx.selectedImageMode || normalizedSelectableImageWorkflowMode(subtab?.subtab_id || getImageWorkflowMode() || 'generate');
   const routeBadgeLine = (ctx.routeBadges || activeRouteRequirementBadges()).length ? `<div class="neo-route-mode-badges" data-testid="workflow-route-badges">${badgeRow(ctx.routeBadges || activeRouteRequirementBadges())}</div>` : '';
   const recovery = imageRecoveryActionState();
+  const strictRouteUnavailable = !imageCloudMode && imageUsesStrictForgeRouteGating() && !activeImageExecutableRouteRows().length;
+  const emptyRoute = activeImageUxGatingPolicy()?.empty_state || {};
   const configHtml = imageCloudMode ? `
       <div class="neo-workspace-row compact-row neo-cloud-workspace-mode-row" data-command-role="image-route">
         <label>Workflow Mode <span class="neo-field-hint">cloud generation type</span>${optionSelect('imageWorkflowMode', modeOptions, selectedImageMode)}</label>
         <span class="neo-muted neo-cloud-mode-note">Model, aspect ratio, resolution, and image count are controlled by the selected API profile/defaults.</span>
       </div>
-      ${routeBadgeLine}` : `
+      ${routeBadgeLine}` : strictRouteUnavailable ? `
+      <div class="neo-forge-route-empty-state" data-testid="forge-route-empty-state" data-command-role="image-route">
+        <strong>${escapeHtml(emptyRoute.title || 'No executable Forge image route')}</strong>
+        <span>${escapeHtml(emptyRoute.message || 'Refresh the selected Forge profile after installing a supported model and required modules.')}</span>
+      </div>` : `
       <div class="neo-workspace-row compact-row" data-command-role="image-route">
         <label>Model Family${optionSelect('imageWorkspaceFamily', familyOptionList('image'), state.imageDraft.family || 'sdxl')}</label>
         <label>Main Model Type <span class="neo-field-hint">main file route</span>${optionSelect('imageWorkspaceLoader', loaderOptionList(state.imageDraft.family || 'sdxl'), state.imageDraft.loader || defaultLoaderForFamily(state.imageDraft.family || 'sdxl'))}</label>
@@ -6129,7 +6753,7 @@ function renderWorkspaceHeader(surface, subtab) {
   const surfaceStatus = titleCaseStatus(surface.status || 'planned');
   const runtimeStatus = backendProfileStatus(activeProfile);
   const runtimeStatusLabel = humanize(runtimeStatus || 'not_checked');
-  const backendConnected = ['connected', 'online', 'ready'].includes(String(runtimeStatus || '').toLowerCase());
+  const backendConnected = ['connected', 'connected_with_warnings', 'online', 'ready', 'available'].includes(String(runtimeStatus || '').toLowerCase());
   const backendDisabled = ['disabled', 'missing_config', 'unsupported'].includes(String(runtimeStatus || '').toLowerCase());
   const runtime = activeProfile?.runtime || {};
   const modelCount = activeProfile?.models?.models?.length || 0;
@@ -6228,6 +6852,7 @@ function renderWorkspaceHeader(surface, subtab) {
         render();
       }
       await selectionRequest;
+      if (surface.surface_id === 'image') await refreshImageCapabilityOverlay(profileId).catch(() => null);
       if (surface.surface_id === 'image' && imageReferenceCatalogProfileId() === profileId) {
         void backgroundRemovalRefreshModelCatalog({ silent: true });
         void refreshImageReferenceModelCatalogsForSelectedProfile({ profileId, reset: false });
@@ -6267,6 +6892,7 @@ function renderWorkspaceHeader(surface, subtab) {
         alert(`Backend check failed. ${error?.message || 'Please confirm the backend is running and try again.'}`);
       } finally {
         if (!profileUpdated) await refreshBackendProfiles().catch(() => {});
+        if (surface.surface_id === 'image') await refreshImageCapabilityOverlay(activeProfile.profile_id).catch(() => null);
         render();
       }
     });
@@ -6445,6 +7071,7 @@ function renderWorkspaceHeader(surface, subtab) {
         state.imageOutpaintEditor.autoOpenedFor = '';
         state.imageOutpaintEditor.dismissedFor = '';
         applyQwenGgufStabilityPresetIfNeeded();
+        reapplyActiveImageBuiltInPresetForRoute('workflow_change');
       }
       saveUiState();
       render();
@@ -6841,6 +7468,162 @@ function backendProfileCapabilitySummary(profile, isTextProfile) {
   return badgeRow([...(active.length ? active.map((item) => `✓ ${item}`) : ['No active capabilities declared']), ...(blocked.length ? blocked.map((item) => `× ${item}`) : [])]);
 }
 
+function forgeAdminSnapshot(profile) {
+  const runtime = profile?.runtime || {};
+  return runtime.forge_admin || state.forgeAdmin?.[profile?.profile_id] || null;
+}
+
+function forgeAdminSettingControl(setting) {
+  const key = String(setting?.key || '');
+  const label = setting?.label || key;
+  const description = setting?.description || setting?.blocked_reason || '';
+  const current = setting?.current_value;
+  const type = String(setting?.type || 'string');
+  const restart = setting?.requires_restart ? '<span class="neo-state-pill warning">restart</span>' : '';
+  const level = setting?.level ? `<span class="neo-state-pill muted">${escapeHtml(setting.level)}</span>` : '';
+  if (!setting?.editable) {
+    const display = typeof current === 'object' ? JSON.stringify(current) : String(current ?? '');
+    return `<div class="neo-forge-setting readonly"><div class="neo-forge-setting-head"><strong>${escapeHtml(label)}</strong>${level}${restart}</div><code>${escapeHtml(display)}</code>${description ? `<small>${escapeHtml(description)}</small>` : ''}</div>`;
+  }
+  const attrs = `data-forge-setting-key="${escapeAttr(key)}" data-forge-setting-type="${escapeAttr(type)}"`;
+  let control = '';
+  if (Array.isArray(setting.enum) && setting.enum.length) {
+    control = `<select ${attrs}>${setting.enum.map((item) => `<option value="${escapeAttr(item)}" ${String(item) === String(current) ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select>`;
+  } else if (type === 'boolean') {
+    control = `<select ${attrs}><option value="false" ${!Boolean(current) ? 'selected' : ''}>false</option><option value="true" ${Boolean(current) ? 'selected' : ''}>true</option></select>`;
+  } else if (type === 'integer' || type === 'number') {
+    control = `<input type="number" value="${escapeAttr(current ?? 0)}" step="${type === 'integer' ? '1' : 'any'}" ${attrs}>`;
+  } else {
+    const value = type === 'array' || type === 'object' ? JSON.stringify(current ?? (type === 'array' ? [] : {})) : String(current ?? '');
+    control = `<input type="text" value="${escapeAttr(value)}" ${attrs}>`;
+  }
+  return `<label class="neo-forge-setting"><span class="neo-forge-setting-head"><strong>${escapeHtml(label)}</strong>${level}${restart}</span>${control}${description ? `<small>${escapeHtml(description)}</small>` : ''}</label>`;
+}
+
+function forgeAdminSettingsHtml(snapshot) {
+  const catalog = snapshot?.settings_catalog || {};
+  const settings = Array.isArray(catalog.settings) ? catalog.settings : [];
+  const guided = settings.filter((item) => item.level === 'guided');
+  const advanced = settings.filter((item) => item.level !== 'guided');
+  const guidedHtml = guided.length ? `<div class="neo-forge-settings-grid">${guided.map(forgeAdminSettingControl).join('')}</div>` : NeoUI.emptyState('No guided Forge settings were discovered from this backend.');
+  const advancedHtml = state.detailMode === 'expert'
+    ? `<details class="neo-forge-settings-expert"><summary>Advanced / raw settings (${advanced.length})</summary><div class="neo-forge-settings-grid">${advanced.map(forgeAdminSettingControl).join('')}</div></details>`
+    : `<p class="neo-muted">Switch Admin detail mode to Expert to inspect and edit advanced API-exposed Forge settings. Path, credential, and server-startup options remain read-only.</p>`;
+  const summary = catalog.summary || {};
+  return `<div class="neo-forge-settings"><div class="neo-ui-section-head admin-engine-row-between"><div><strong>Forge Settings</strong><p>Dynamic values come from /sdapi/v1/options. Neo does not duplicate settings that are not exposed by the API.</p></div>${badgeRow([`Total ${summary.total || 0}`, `Guided ${summary.guided || 0}`, `Advanced ${summary.advanced || 0}`, `Read-only ${summary.readonly || 0}`])}</div>${guidedHtml}${advancedHtml}</div>`;
+}
+
+
+function forgeAdminExtensionsHtml(snapshot) {
+  const bridge = snapshot?.generic_extension_bridge || {};
+  const extensions = Array.isArray(bridge.extensions) ? bridge.extensions : (Array.isArray(snapshot?.extensions) ? snapshot.extensions : []);
+  const scripts = Array.isArray(bridge.scripts) ? bridge.scripts : [];
+  const unresolved = Array.isArray(bridge.unresolved_scripts) ? bridge.unresolved_scripts : [];
+  const summary = bridge.summary || {};
+  const extensionCards = extensions.map((item) => `<article class="neo-admin-extension-card"><div class="neo-admin-extension-head"><div><strong>${escapeHtml(item.name || 'Forge extension')}</strong><p>${escapeHtml(item.version || item.branch || 'version unknown')}</p></div><span class="neo-state-pill ${item.enabled !== false ? 'success' : 'muted'}">${item.enabled !== false ? 'enabled' : 'disabled'}</span></div><p class="neo-muted">Installed and owned by Forge. Manage installation, updates, disable/remove operations in Forge's native Extension Manager.</p></article>`).join('');
+  const scriptRows = [...scripts, ...unresolved].map((item) => {
+    const status = String(item.status || 'adapter_required');
+    const tone = status === 'generic_bridge_ready' ? 'success' : status === 'neo_mapped' ? 'info' : 'warning';
+    const source = item.source_extension || (item.source === 'external_extension' ? 'external extension' : 'built-in / unknown source');
+    return `<article class="neo-admin-extension-card"><div class="neo-admin-extension-head"><div><strong>${escapeHtml(item.name || 'Forge script')}</strong><p>${escapeHtml(item.mode || 'mode unknown')} · ${escapeHtml(item.invocation || 'API shape unavailable')} · ${escapeHtml(source)}</p></div><span class="neo-state-pill ${tone}">${escapeHtml(status.replaceAll('_', ' '))}</span></div><p>${escapeHtml(item.reason || '')}</p>${item.schema_fingerprint ? `<p class="neo-muted">Schema fingerprint: <code>${escapeHtml(item.schema_fingerprint)}</code></p>` : ''}${state.detailMode === 'expert' && Array.isArray(item.blockers) && item.blockers.length ? `<details><summary>Bridge blockers</summary>${NeoUI.metaList(item.blockers)}</details>` : ''}</article>`;
+  }).join('');
+  return `<div class="neo-forge-settings neo-forge-extension-bridge-admin"><div class="neo-ui-section-head admin-engine-row-between"><div><strong>Forge Extensions & Script Bridge</strong><p>Forge owns installation. Neo discovers installed extensions and API-visible scripts, then bridges only primitive schemas that are safe to compile generically.</p></div>${badgeRow([`Installed ${summary.installed_extensions || extensions.length || 0}`, `Bridge-safe ${summary.generic_bridge_ready || 0}`, `Adapter required ${summary.adapter_required || 0}`, `Neo-mapped ${summary.neo_mapped || 0}`])}</div><details open><summary>Installed Forge extensions (${extensions.length})</summary>${extensionCards || NeoUI.emptyState('Forge returned no external Git-backed extensions. Built-ins may still appear through script discovery.')}</details><details><summary>Discovered Forge scripts (${scripts.length + unresolved.length})</summary>${scriptRows || NeoUI.emptyState('No Forge script API schemas were discovered.')}</details><p class="neo-muted">Generic bridge execution is intentionally limited to SD 1.5/SDXL in E3. Complex scripts remain visible here as adapter-required rather than being guessed.</p></div>`;
+}
+
+function backendProfileForgeAdminPanel(profile) {
+  if (profile?.provider_id !== 'forge') return '';
+  const snapshot = forgeAdminSnapshot(profile);
+  const enabled = profile.enabled !== false;
+  const baseUrl = profile?.connection?.base_url || snapshot?.base_url || '';
+  if (!snapshot) {
+    return `<div class="neo-forge-admin-panel warning" data-forge-admin-panel><div class="neo-ui-section-head admin-engine-row-between"><div><strong>Forge Neo Admin</strong><p>Enable the profile, launch Forge with <code>--api</code>, then refresh capability discovery.</p></div><span class="neo-state-pill warning">not checked</span></div><div class="neo-backend-profile-actions"><button class="neo-btn secondary" type="button" data-backend-profile-action="forge-refresh" ${enabled ? '' : 'disabled'}>Refresh Forge Admin</button><button class="neo-btn" type="button" data-backend-profile-action="forge-open" ${baseUrl ? '' : 'disabled'}>Open Native Forge UI</button></div></div>`;
+  }
+  const summary = snapshot.summary || {};
+  const identity = snapshot.identity || {};
+  const capabilities = snapshot.capabilities || {};
+  const endpointRows = Object.entries(snapshot.endpoint_status || {}).map(([name, item]) => `${name}: ${item.available ? 'available' : 'unavailable'}${item.http_status ? ` · HTTP ${item.http_status}` : ''}`);
+  const scriptCount = summary.scripts || 0;
+  const memory = snapshot.memory || {};
+  const memoryText = Object.keys(memory).length ? JSON.stringify(memory) : 'Memory endpoint unavailable';
+  const executionGate = snapshot.execution_gate || {};
+  const sharedModelPaths = snapshot.shared_model_paths || {};
+  const sharedAdetailer = sharedModelPaths.adetailer || {};
+  const bridge = snapshot.bridge || {};
+  const bridgeCapabilities = bridge.capabilities || {};
+  const bridgeHistory = state.forgeBridgeHistory?.[profile.profile_id] || null;
+  return `<div class="neo-forge-admin-panel ${statusClass(snapshot.status)}" data-forge-admin-panel>
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Forge Neo Admin</strong><p>${escapeHtml(snapshot.message || 'Forge Admin capability snapshot.')}</p></div><span class="neo-state-pill ${statusClass(snapshot.status)}">${escapeHtml(snapshot.status || 'not_checked')}</span></div>
+    ${badgeRow([
+      identity.variant || 'identity unknown',
+      `confidence ${identity.confidence || 'low'}`,
+      `endpoints ${summary.available_endpoints || 0}/${summary.total_endpoints || 0}`,
+      `models ${summary.models || 0}`,
+      `modules ${summary.modules || 0}`,
+      `samplers ${summary.samplers || 0}`,
+      `schedulers ${summary.schedulers || 0}`,
+      `upscalers ${summary.upscalers || 0}`,
+      `scripts ${scriptCount}`,
+      `extensions ${summary.extensions || 0}`,
+      `Neo execution ${capabilities.neo_execution_adapter ? 'enabled' : 'gated'}`,
+    ])}
+    <div class="neo-ui-grid two">
+      <div>${NeoUI.card({ title: 'Capabilities', description: 'Live API-discovered Admin capabilities.', body: NeoUI.metaList(Object.entries(capabilities).map(([key, value]) => `${humanize(key)}: ${value ? 'yes' : 'no'}`)) })}</div>
+      <div>${NeoUI.card({ title: 'Runtime & memory', description: 'Sanitized Forge memory snapshot. Backend filesystem paths are not cached.', body: NeoUI.codeBlock(memoryText, `forge-memory-${profile.profile_id}`) })}</div>
+    </div>
+    ${NeoUI.card({
+      title: 'Shared Comfy model paths',
+      description: 'Forge Neo can natively reference the same Comfy extra_model_paths.yaml. Neo stores no duplicate Forge copy of the central model library.',
+      badge: NeoUI.statusBadge(sharedModelPaths.status || 'not checked'),
+      body: `${NeoUI.badgeRow([
+        `YAML ${sharedModelPaths.shared_yaml_configured ? 'configured' : 'missing'}`,
+        `Forge reference ${sharedModelPaths.forge_yaml_reference_matches ? 'matched' : (sharedModelPaths.forge_yaml_reference_active ? 'different' : 'inactive')}`,
+        `ADetailer shared models ${sharedAdetailer.shared_model_count || 0}`,
+        `ADetailer dirs ${sharedAdetailer.extra_model_dirs_ready ? 'ready' : 'not ready'}`,
+      ])}${NeoUI.metaList([
+        sharedModelPaths.reason || 'Configure Admin → Models → Shared extra_model_paths.yaml.',
+        sharedAdetailer.reason || '',
+        'Forge launch flag: --forge-ref-comfy-yaml <same YAML path>. Launch-argument changes require a Forge restart.',
+      ].filter(Boolean), { code: false })}`,
+    })}
+    <div class="neo-forge-bridge-card ${statusClass(bridge.status || 'not_installed')}">
+      <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Optional Forge Bridge</strong><p>${escapeHtml(bridge.message || 'The Bridge is optional and standard SDAPI remains the fallback.')}</p></div><span class="neo-state-pill ${statusClass(bridge.status || 'not_installed')}">${escapeHtml(bridge.status || 'not_installed')}</span></div>
+      ${badgeRow([
+        `mode ${bridge.mode || 'auto'}`,
+        `selected ${bridge.selected ? 'yes' : 'no'}`,
+        `protocol ${bridge.protocol_version || '—'}`,
+        `version ${bridge.bridge_version || '—'}`,
+        `durable jobs ${bridgeCapabilities.durable_jobs ? 'yes' : 'no'}`,
+        `job progress ${bridgeCapabilities.job_specific_progress ? 'yes' : 'no'}`,
+        `history ${bridgeCapabilities.history ? 'yes' : 'no'}`,
+      ])}
+      ${bridgeHistory ? `<details class="neo-forge-endpoints" open><summary>Bridge history (${bridgeHistory.count || bridgeHistory.jobs?.length || 0})</summary>${NeoUI.codeBlock(bridgeHistory, `forge-bridge-history-${profile.profile_id}`)}</details>` : ''}
+    </div>
+    <details class="neo-forge-endpoints"><summary>Endpoint diagnostics (${endpointRows.length})</summary>${endpointRows.length ? NeoUI.metaList(endpointRows) : NeoUI.emptyState('No endpoint diagnostics cached.')}</details>
+    ${Array.isArray(snapshot.warnings) && snapshot.warnings.length ? NeoUI.card({ title: 'Warnings', description: 'Optional capability or identity warnings.', badge: NeoUI.statusBadge('warning'), body: NeoUI.metaList(snapshot.warnings) }) : ''}
+    ${forgeAdminSettingsHtml(snapshot)}
+    ${forgeAdminExtensionsHtml(snapshot)}
+    <div class="neo-forge-execution-gate"><strong>Execution adapter</strong><span class="neo-state-pill ${statusClass(executionGate.status || 'provider_gated')}">${escapeHtml(executionGate.status || 'provider_gated')}</span><p>${escapeHtml(executionGate.message || 'Forge Image execution requires a successful API lifecycle probe.')}</p></div>
+    <div class="neo-backend-profile-actions">
+      <button class="neo-btn secondary" type="button" data-backend-profile-action="forge-refresh" ${enabled ? '' : 'disabled'}>Refresh Forge Admin</button>
+      <button class="neo-btn secondary" type="button" data-backend-profile-action="forge-refresh-models" ${snapshot.api_enabled && enabled ? '' : 'disabled'}>Refresh Models</button>
+      <button class="neo-btn primary" type="button" data-backend-profile-action="forge-save-settings" ${snapshot.api_enabled && enabled ? '' : 'disabled'}>Save Forge Settings</button>
+      <button class="neo-btn secondary" type="button" data-backend-profile-action="forge-bridge-history" ${bridge.available && enabled ? '' : 'disabled'}>Bridge History</button>
+      <button class="neo-btn" type="button" data-backend-profile-action="forge-open" ${baseUrl ? '' : 'disabled'}>Open Native Forge UI</button>
+    </div>
+    ${state.detailMode === 'expert' ? NeoUI.codeBlock(snapshot, `forge-admin-raw-${profile.profile_id}`) : ''}
+  </div>`;
+}
+
+function collectForgeSettings(card) {
+  const changes = {};
+  card.querySelectorAll('[data-forge-setting-key]').forEach((input) => {
+    const key = input.getAttribute('data-forge-setting-key') || '';
+    if (!key) return;
+    changes[key] = input.value;
+  });
+  return changes;
+}
+
 function backendProfileCard(profile) {
   const connection = profile.connection || {};
   const flags = profile.capability_flags || {};
@@ -6962,6 +7745,7 @@ function backendProfileCard(profile) {
     </div>
     ${backendProfileCapabilitySummary(profile, isTextProfile)}
     ${backendProfileConnectionDiagnostic(profile)}
+    ${backendProfileForgeAdminPanel(profile)}
     ${sections}
     <div class="neo-backend-profile-actions">
       <button class="neo-btn secondary" type="button" data-backend-profile-action="test">Test Connection</button>
@@ -7196,6 +7980,47 @@ function bindBackendProfileAdminControls() {
         state.lastBackendTestResult = result;
         await refreshBackendProfiles();
       }
+      else if (action === 'forge-refresh') {
+        const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/forge-admin/refresh`, { method: 'POST' });
+        const result = await response.json().catch(() => ({}));
+        state.lastBackendTestResult = result;
+        state.forgeAdmin = { ...(state.forgeAdmin || {}), [profileId]: result.forge_admin || {} };
+        await refreshBackendProfiles();
+        if (!result.status && !result.ok) throw new Error((result.errors || [result.message || 'Forge Admin refresh failed']).join('\n'));
+      }
+      else if (action === 'forge-refresh-models') {
+        const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/forge-admin/refresh-models`, { method: 'POST' });
+        const result = await response.json().catch(() => ({}));
+        if (!result.ok && result.status !== 'partial') throw new Error((result.errors || [result.message || 'Forge model refresh failed']).join('\n'));
+        state.forgeAdmin = { ...(state.forgeAdmin || {}), [profileId]: result.forge_admin || {} };
+        await refreshBackendProfiles();
+      }
+      else if (action === 'forge-save-settings') {
+        const changes = collectForgeSettings(card);
+        const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/forge-admin/settings`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ changes, expert_confirmed: state.detailMode === 'expert' }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!result.ok) throw new Error((result.errors || [result.message || 'Forge settings update failed']).join('\n'));
+        if (Array.isArray(result.rejected) && result.rejected.length) window.alert(`Some Forge settings were not changed:\n${result.rejected.map((item) => `${item.key}: ${item.reason}`).join('\n')}`);
+        state.forgeAdmin = { ...(state.forgeAdmin || {}), [profileId]: result.forge_admin || {} };
+        await refreshBackendProfiles();
+      }
+      else if (action === 'forge-bridge-history') {
+        const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/forge-admin/bridge/history?limit=50`);
+        const result = await response.json().catch(() => ({}));
+        if (!result.ok) throw new Error((result.errors || [result.message || 'Forge Bridge history failed']).join('\n'));
+        state.forgeBridgeHistory = { ...(state.forgeBridgeHistory || {}), [profileId]: result.bridge_history || {} };
+      }
+      else if (action === 'forge-open') {
+        const urlInput = card.querySelector('[data-backend-profile-field="connection.base_url"]');
+        const url = String(urlInput?.value || '').trim();
+        if (!url) throw new Error('Forge base URL is empty.');
+        const parsedUrl = new URL(url);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error('Forge base URL must be credential-free HTTP or HTTPS.');
+        window.open(parsedUrl.toString(), '_blank', 'noopener,noreferrer');
+      }
       else if (action === 'clear-key') {
         const ok = window.confirm('Clear the saved local API key for this backend profile? The full key cannot be recovered from Neo after clearing.');
         if (!ok) return;
@@ -7329,29 +8154,50 @@ function extensionManifestRouteState(manifest = {}, route = {}) {
   const family = route.family || state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = route.loader || state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const mode = route.workflow_mode || currentGenerationWorkflowMode();
+  const engine = String(route.engine || route.inpaint_engine || '').trim().toLowerCase();
+  const engineIndependent = manifest?.compatibility_dimensions?.engine === false
+    || manifest?.support_matrix_contract?.compatibility_dimensions?.engine === false;
   const workspace = normalizeWorkspaceAppId(route.workspace_app || manifest.workspace_apps?.[0] || activeWorkspaceApp().id || 'generations');
   const backends = extensionBackendAliases(route.backend);
   const families = [...new Set([family, '*'].filter(Boolean))];
   const loaders = [...new Set([loader, '*'].filter(Boolean))];
   const modes = [...new Set([...extensionRouteModeAliases(mode), '*'])];
   const workspaces = [...new Set([workspace, '*'].filter(Boolean))];
-  const candidates = [];
+  const engineCandidates = [];
+  const legacyCandidates = [];
+  const allowLegacyRouteFallback = engineIndependent || !engine || engine === 'native';
   for (const backend of backends) {
     for (const fam of families) {
       for (const load of loaders) {
         for (const routeMode of modes) {
-          candidates.push(`${backend}:${fam}:${load}:${routeMode}`);
-          for (const app of workspaces) if (app !== '*') candidates.push(`${backend}:${fam}:${load}:${routeMode}:${app}`);
+          if (engine && !engineIndependent) {
+            engineCandidates.push(`${backend}:${fam}:${load}:${routeMode}:${engine}`);
+            for (const app of workspaces) if (app !== '*') engineCandidates.push(`${backend}:${fam}:${load}:${routeMode}:${engine}:${app}`);
+          }
+          if (allowLegacyRouteFallback) {
+            legacyCandidates.push(`${backend}:${fam}:${load}:${routeMode}`);
+            for (const app of workspaces) if (app !== '*') legacyCandidates.push(`${backend}:${fam}:${load}:${routeMode}:${app}`);
+          }
         }
       }
     }
   }
-  for (const fam of families) for (const load of loaders) for (const routeMode of modes) candidates.push(`${fam}:${load}:${routeMode}`);
-  modes.forEach((routeMode) => candidates.push(routeMode));
-  workspaces.forEach((app) => { if (app !== '*') candidates.push(app); });
-  candidates.push('*');
-  const key = [...new Set(candidates)].find((item) => Object.prototype.hasOwnProperty.call(routeStates, item));
-  return { state: key ? routeStates[key] : 'planned_gated', key: key || '', route_states_count: Object.keys(routeStates).length };
+  for (const fam of families) {
+    for (const load of loaders) {
+      for (const routeMode of modes) {
+        if (engine && !engineIndependent) engineCandidates.push(`${fam}:${load}:${routeMode}:${engine}`);
+        if (allowLegacyRouteFallback) legacyCandidates.push(`${fam}:${load}:${routeMode}`);
+      }
+    }
+  }
+  if (allowLegacyRouteFallback) {
+    modes.forEach((routeMode) => legacyCandidates.push(routeMode));
+    workspaces.forEach((app) => { if (app !== '*') legacyCandidates.push(app); });
+    legacyCandidates.push('*');
+  }
+  const candidates = [...new Set([...engineCandidates, ...legacyCandidates])];
+  const key = candidates.find((item) => Object.prototype.hasOwnProperty.call(routeStates, item));
+  return { state: key ? routeStates[key] : 'planned_gated', key: key || '', engine, engine_independent: engineIndependent, route_states_count: Object.keys(routeStates).length };
 }
 function extensionActiveRouteSnapshot(record = null) {
   const manifest = record?.manifest || {};
@@ -7721,7 +8567,7 @@ function cfgFixPayloadPreview(record) {
     extensions: {
       [CFG_FIX_EXTENSION_ID]: {
         enabled: true,
-        version: 1,
+        version: 2,
         inputs: {},
         params: {
           preset: settings.preset,
@@ -7774,6 +8620,7 @@ function cfgFixOptionSelect(id, options, selected, disabled = false) {
 function cfgFixPanel(record) {
   const route = cfgFixActiveRoute(record);
   if (!cfgFixRouteVisible(route)) return null;
+  const provider = ipAdapterProviderContext(route);
   const settings = cfgFixSettings();
   const applied = extensionWorkflowApplied(record);
   const controlsEnabled = cfgFixRouteControlsEnabled(route);
@@ -7815,13 +8662,13 @@ function cfgFixPanel(record) {
     </div>
   ` : '';
   const body = `
-    <section class="neo-cfg-fix-panel" data-extension-id="${CFG_FIX_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
+    <section class="neo-cfg-fix-panel" data-extension-id="${CFG_FIX_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-profile-id="${escapeAttr(provider.profile_id)}" data-selected-profile-only="true" data-display-mode="${escapeAttr(state.detailMode)}">
       <header class="neo-cfg-fix-panel__header">
         <div><strong>CFG Fix / Dynamic Thresholding</strong>${!compact ? '<span class="neo-muted">Built-in Generations extension</span>' : ''}</div>
         <div class="neo-extension-status-line neo-cfg-fix-status-line">
           ${extensionEnableStateChip(applied)}
           <span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span>
-          <span class="neo-badge">${escapeHtml(routeBadge)}</span>
+          <span class="neo-badge">${escapeHtml(provider.provider_label)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span>
         </div>
       </header>
       ${details}
@@ -7862,6 +8709,47 @@ function manifestRouteState(record = {}, route = {}) {
   const support = manifest.support || manifest.support_matrix || manifest.route_support || {};
   const direct = support.route_state || support.state || manifest.route_state;
   if (direct) return direct;
+
+  // IR-5: exact manifest route tables are a first-class synchronous UI contract.
+  // Resolve most-specific keys before wildcard declarations so an extension may
+  // support a modern GGUF route even when a broad legacy GGUF guard is present.
+  const routeStates = manifest.route_states || support.route_states || {};
+  if (routeStates && typeof routeStates === 'object' && !Array.isArray(routeStates)) {
+    const rawBackend = String(route.backend || route.provider_id || '').trim().toLowerCase();
+    const backendAliases = rawBackend === 'comfyui_portable' || rawBackend === 'comfy_portable'
+      ? [rawBackend, 'comfyui']
+      : (rawBackend === 'comfy' ? [rawBackend, 'comfyui'] : [rawBackend]);
+    const family = String(route.family || '').trim().toLowerCase();
+    const loader = String(route.loader || '').trim().toLowerCase();
+    const rawMode = String(route.workflow_mode || route.mode || '').trim().toLowerCase();
+    const modes = rawMode === 'txt2img' ? ['txt2img', 'generate'] : (rawMode === 'generate' ? ['generate', 'txt2img'] : [rawMode]);
+    const backends = [...new Set(backendAliases.filter(Boolean).concat('*'))];
+    const families = [...new Set([family, '*'].filter(Boolean))];
+    const loaders = [...new Set([loader, '*'].filter(Boolean))];
+    const modeValues = [...new Set(modes.filter(Boolean).concat('*'))];
+    const candidates = [];
+    // Specific family/loader/mode wins. Wildcard family guards are intentionally later.
+    for (const backend of backends) {
+      for (const fam of families) {
+        for (const load of loaders) {
+          for (const mode of modeValues) candidates.push(`${backend}:${fam}:${load}:${mode}`);
+        }
+      }
+    }
+    for (const fam of families) {
+      for (const load of loaders) {
+        for (const mode of modeValues) candidates.push(`${fam}:${load}:${mode}`);
+      }
+    }
+    for (const mode of modeValues) candidates.push(mode);
+    candidates.push('*');
+    for (const key of [...new Set(candidates)]) {
+      const stateValue = routeStates[key];
+      if (typeof stateValue === 'string' && stateValue) return stateValue;
+      if (stateValue && typeof stateValue === 'object' && typeof stateValue.state === 'string') return stateValue.state;
+    }
+  }
+
   const family = String(route.family || '').toLowerCase();
   const loader = String(route.loader || '').toLowerCase();
   const mode = String(route.workflow_mode || '').toLowerCase();
@@ -8182,31 +9070,95 @@ function sceneDirectorPromptPreview(value = '', fallback = 'Empty') {
   const text = String(value || '').trim();
   return text ? (text.length > 220 ? `${text.slice(0, 220)}…` : text) : fallback;
 }
-function sceneDirectorActiveRoute(record) {
-  const route = extensionRouteSnapshot(record);
-  const family = String(route.family || state.imageDraft.family || 'sdxl').toLowerCase();
-  const loader = String(route.loader || state.imageDraft.loader || 'checkpoint').toLowerCase();
-  const workflowMode = String(route.workflow_mode || state.imageDraft.workflow_mode || getImageWorkflowMode() || 'generate').toLowerCase();
-  const workspace = String(route.workspace_app || getSurfaceWorkspaceAppId('image') || state.activeSurfaceId || 'image').toLowerCase();
-  const subtab = String(route.subtab || getImageWorkflowMode() || 'generations').toLowerCase();
-  const backend = String(route.backend || 'comfyui').toLowerCase();
-  const generationModes = ['generations', 'generate', 'txt2img', 'img2img', 'inpaint'];
-  const isGenerationWorkflow = generationModes.includes(workflowMode) || generationModes.includes(subtab);
-  let routeState = route.route_state || manifestRouteState(record, route) || 'available';
+function sceneDirectorUiRouteAuthority(record = {}) {
+  const manifest = record?.manifest || {};
+  const contract = manifest.ui_schema?.route_authority || manifest.ui_route_authority || {};
+  return contract && typeof contract === 'object' ? contract : {};
+}
+function sceneDirectorRouteToken(value = '', fallback = '') {
+  const raw = String(value || fallback || '').trim().toLowerCase();
+  return raw.replace(/[-\s/]+/g, '_').replace(/_+/g, '_');
+}
+function sceneDirectorNormalizeAlias(value, aliases = {}, fallback = '') {
+  const token = sceneDirectorRouteToken(value, fallback);
+  return String(aliases?.[token] || token || fallback || '');
+}
+function sceneDirectorEngineProfile(contract = {}, family = '', loader = '') {
+  const engines = Array.isArray(contract.engines) ? contract.engines : [];
+  return engines.find((engine) =>
+    Array.isArray(engine?.families) && engine.families.includes(family) &&
+    Array.isArray(engine?.loaders) && engine.loaders.includes(loader)
+  ) || null;
+}
+function sceneDirectorNormalizeContractRoute(record = {}, route = {}) {
+  const contract = sceneDirectorUiRouteAuthority(record);
+  const family = sceneDirectorNormalizeAlias(route.family || state.imageDraft.family || 'sdxl', contract.family_aliases || {}, 'sdxl');
+  let backend = sceneDirectorNormalizeAlias(route.backend || 'comfyui', contract.backend_aliases || {}, 'comfyui');
+  let mode = sceneDirectorNormalizeAlias(route.workflow_mode || route.mode || state.imageDraft.workflow_mode || getImageWorkflowMode() || 'generate', contract.mode_aliases || {}, 'generate');
+  let loaderToken = sceneDirectorRouteToken(route.loader || state.imageDraft.loader || '');
+  const familyEngine = (Array.isArray(contract.engines) ? contract.engines : []).find((engine) => Array.isArray(engine?.families) && engine.families.includes(family)) || null;
+  const familyAware = contract.family_aware_loader_aliases?.[loaderToken];
+  if (familyAware && typeof familyAware === 'object') {
+    loaderToken = familyEngine?.id === 'lightweight_regional'
+      ? String(familyAware.lightweight_regional || loaderToken)
+      : String(familyAware.classic || loaderToken);
+  }
+  const loader = sceneDirectorNormalizeAlias(loaderToken || familyEngine?.loaders?.[0] || 'checkpoint', contract.loader_aliases || {}, familyEngine?.loaders?.[0] || 'checkpoint');
+  if (backend === 'comfy' || backend === 'comfyui_portable' || backend === 'comfy_portable') backend = 'comfyui';
+  if (mode === 'txt2img') mode = 'generate';
+  return { ...route, backend, family, loader, workflow_mode: mode, mode };
+}
+function sceneDirectorActiveRoute(record, routeOverride = null) {
+  const rawRoute = { ...extensionRouteSnapshot(record), ...(routeOverride && typeof routeOverride === 'object' ? routeOverride : {}) };
+  const route = sceneDirectorNormalizeContractRoute(record, rawRoute);
+  const contract = sceneDirectorUiRouteAuthority(record);
+  const workspace = String(rawRoute.workspace_app || getSurfaceWorkspaceAppId('image') || state.activeSurfaceId || 'image').toLowerCase();
+  const subtab = String(rawRoute.subtab || getImageWorkflowMode() || 'generations').toLowerCase();
+  const engineProfile = sceneDirectorEngineProfile(contract, route.family, route.loader);
+  let routeState = '';
   let reason = '';
-  // Cross-workspace stacking: Scene Director is configured in Image → Generations,
-  // but generation can be submitted while the user is on Image → Finish for
-  // High-Res Lab. Do not gate the Scene Director payload just because the active
-  // workspace is `finish`; validate against the real generation workflow route.
-  if (!isGenerationWorkflow) { routeState = 'unsupported'; reason = 'Scene Director controls are only valid for generate/img2img/inpaint workflows.'; }
-  else if (!['comfy', 'comfyui', 'comfyui_portable'].includes(backend)) { routeState = 'provider_gated'; reason = 'Scene Director workflow patching is Comfy-node based.'; }
-  else if (loader !== 'checkpoint') { routeState = 'unsupported'; reason = 'Scene Director is checkpoint-only; GGUF/diffusion-model routes cannot fallback.'; }
-  else if (['flux', 'qwen', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit', 'z_image', 'z_image_turbo', 'zimage', 'zimage_turbo', 'krea2', 'krea2_turbo', 'hidream', 'wan_image', 'wan', 'hunyuan', 'hunyuan_image'].includes(family)) { routeState = 'unsupported'; reason = `${family} does not consume Scene Director V054 SD checkpoint scene-graph conditioning.`; }
-  else if (workflowMode === 'outpaint') { routeState = 'planned_gated'; reason = 'Outpaint is canvas-owned and Scene Director stays blocked there.'; }
-  else if (['sd', 'sd15', 'sd1.5', 'sd_1_5', 'sd1_5'].includes(family)) { routeState = 'experimental_available'; reason = 'SD 1.5 checkpoint support is available, but this route is still experimental.'; }
-  else if (['sdxl', 'sdxl_sd'].includes(family)) { routeState = 'available'; reason = 'SDXL checkpoint Scene Director route is available.'; }
-  else { routeState = 'unsupported'; reason = 'Unsupported Scene Director family/loader route.'; }
-  return { ...route, backend, route_state: routeState, reason, family, loader, workflow_mode: workflowMode, workspace_app: workspace, subtab };
+
+  if (route.backend !== 'comfyui') {
+    routeState = 'provider_gated';
+    reason = contract.provider_gated_reason || 'Scene Director execution requires a validated ComfyUI backend.';
+  } else {
+    routeState = manifestRouteState(record, route) || '';
+    if (!routeState) routeState = 'unsupported';
+    if (routeState === 'planned_gated') reason = contract.planned_reason || 'Scene Director outpaint remains planned-gated.';
+    else if (routeState === 'provider_gated') reason = contract.provider_gated_reason || 'Scene Director execution requires a validated ComfyUI backend.';
+    else if (routeState === 'unsupported') reason = contract.unsupported_reason || 'No Scene Director engine exists for this route.';
+    else if (routeState === 'experimental_available') reason = `${engineProfile?.label || 'Scene Director'} route is available as an experimental execution path.`;
+    else if (routeState === 'available') reason = `${engineProfile?.label || 'Scene Director'} route is available.`;
+  }
+
+  // Fail closed if a manifest route accidentally claims availability without a matching engine.
+  if (['available', 'experimental_available'].includes(routeState) && !engineProfile) {
+    routeState = 'unsupported';
+    reason = contract.unsupported_reason || 'Scene Director route state has no matching execution engine.';
+  }
+  return {
+    ...rawRoute, ...route,
+    workspace_app: workspace, subtab, route_state: routeState, reason,
+    engine: engineProfile?.id || 'unsupported',
+    engine_label: engineProfile?.label || 'Unsupported',
+    node_label: engineProfile?.node_label || 'No Scene Director runtime',
+    node_policy: engineProfile?.node_policy || 'none',
+    regional_prompt_mode: engineProfile?.regional_prompt || 'off',
+    regional_lora_mode: engineProfile?.regional_lora || 'off',
+    route_authority_schema: contract.schema || '',
+    route_authority_phase: contract.phase || '',
+  };
+}
+function sceneDirectorResolveLiveRouteAuthority(routeOverride = {}) {
+  const record = extensionRecordById(SCENE_DIRECTOR_EXTENSION_ID) || imageWorkflowExtensionRecordById?.(SCENE_DIRECTOR_EXTENSION_ID) || {};
+  return sceneDirectorActiveRoute(record, routeOverride);
+}
+if (typeof window !== 'undefined') {
+  window.NeoSceneDirectorRouteAuthority = {
+    phase: 'IR-5',
+    schema: 'neo.image.scene_director.live_route_authority.v1',
+    resolve: sceneDirectorResolveLiveRouteAuthority,
+  };
 }
 function sceneDirectorRouteControlsEnabled(route) { return ['available', 'experimental_available'].includes(route.route_state); }
 function sceneDirectorStateLabel(route) {
@@ -11869,6 +12821,7 @@ function sceneDirectorCanvasSizeSnapshot() {
 }
 
 function sceneDirectorClampCanvasBox(box = {}) {
+  if (window.NeoRegionCanvas?.clampBox) return window.NeoRegionCanvas.clampBox(box, 0.03);
   const minSize = 0.03;
   const w = Math.max(minSize, Math.min(1, Number(box.w ?? 0.28)));
   const h = Math.max(minSize, Math.min(1, Number(box.h ?? 0.70)));
@@ -11880,29 +12833,38 @@ function sceneDirectorClampCanvasBox(box = {}) {
 function sceneDirectorRegionCanvas(regions = [], disabled = '', selectedIndex = 0) {
   const normalized = (Array.isArray(regions) ? regions : []).map(sceneDirectorNormalizeRegion);
   const size = sceneDirectorCanvasSizeSnapshot();
-  const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-  const boxes = normalized.map((region, index) => {
-    const box = sceneDirectorClampCanvasBox(region.bbox || { x: 0.08, y: 0.14, w: 0.28, h: 0.70 });
-    const tone = region.type === 'character' ? 'character' : (region.type === 'object' ? 'object' : (region.type === 'background' ? 'background' : 'style'));
-    const selected = index === Number(selectedIndex || 0) ? ' selected' : '';
-    const hidden = region.visible === false ? ' hidden-region' : '';
-    const locked = region.locked ? ' locked-region' : '';
+  const canvasRegions = normalized.map((region, index) => {
     const active = region.enabled !== false && region.visible !== false && (region.prompt.trim() || sceneDirectorRegionHasReference(region));
-    const resizeHandles = disabled || region.locked ? '' : handles.map((handle) => `<span class="neo-scene-canvas-resize ${handle}" data-scene-canvas-resize="${handle}" aria-hidden="true"></span>`).join('');
-    return `<button type="button" class="neo-scene-canvas-region ${tone}${selected}${hidden}${locked}" data-scene-canvas-region="${index}" ${disabled} style="left:${box.x * 100}%;top:${box.y * 100}%;width:${box.w * 100}%;height:${box.h * 100}%;" title="${escapeAttr(region.label || `Region ${index + 1}`)}">
-      <span>${escapeHtml(region.label || `Region ${index + 1}`)}</span>
-      <em>${escapeHtml(region.type)}${active ? ' · active' : ''}${region.locked ? ' · locked' : ''}</em>
-      ${resizeHandles}
-    </button>`;
-  }).join('');
+    return {
+      id: region.id || `scene_region_${index + 1}`,
+      box: sceneDirectorClampCanvasBox(region.bbox || { x: 0.08, y: 0.14, w: 0.28, h: 0.70 }),
+      label: region.label || `Region ${index + 1}`,
+      subtitle: `${region.type}${active ? ' · active' : ''}${region.locked ? ' · locked' : ''}`,
+      tone: region.type === 'character' ? 'character' : (region.type === 'object' ? 'object' : (region.type === 'background' ? 'background' : 'style')),
+      hidden: region.visible === false,
+      locked: Boolean(region.locked),
+      disabled: Boolean(disabled),
+      draggable: !region.locked,
+      resizable: !region.locked,
+    };
+  });
+  const canvas = window.NeoRegionCanvas?.render
+    ? window.NeoRegionCanvas.render({
+        id: 'sceneDirectorRegionCanvas',
+        ariaLabel: 'Scene Director region canvas',
+        width: size.width,
+        height: size.height,
+        regions: canvasRegions,
+        selectedIndex,
+        disabled: Boolean(disabled),
+        emptyText: 'Add a region to draw on the canvas.',
+        wrapClass: 'neo-scene-canvas-wrap-shared',
+        className: 'neo-scene-canvas-shared',
+      })
+    : '<p class="neo-muted">Shared Region Canvas failed to load.</p>';
   return `<section class="neo-scene-subsection neo-scene-canvas-section">
-    <div class="neo-card-head"><h4>Region Canvas</h4><span class="neo-muted">Drag boxes, resize from the handles, or edit exact x/y/w/h below.</span></div>
-    <div class="neo-scene-canvas-wrap ${escapeAttr(size.orientation)}">
-      <div class="neo-scene-canvas" data-scene-canvas="1" aria-label="Scene Director region canvas" style="--neo-scene-aspect:${size.aspect};">
-        <div class="neo-scene-canvas-grid"></div>
-        ${boxes || '<p class="neo-muted neo-scene-canvas-empty">Add a region to draw on the canvas.</p>'}
-      </div>
-    </div>
+    <div class="neo-card-head"><h4>Region Canvas</h4><span class="neo-muted">Drag boxes, resize from all eight handles, or edit exact x/y/w/h below.</span></div>
+    ${canvas}
     <div class="neo-badge-row"><span class="neo-badge">Canvas · ${size.width}×${size.height}</span><span class="neo-badge">${escapeHtml(size.orientation)} orientation</span><span class="neo-badge">Normalized 0–1 coordinates</span></div>
   </section>`;
 }
@@ -11978,9 +12940,9 @@ function sceneDirectorPanel(record) {
   const identityProfilesBlock = '';   const presetsBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-presets-combined"><summary><span>🎛️ Presets</span><small>scene presets and region layout presets</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-preset-group"><h4>🎬 Scene Presets</h4><p class="neo-muted">Save/load the full Scene Director state: regions, prompt rules, routing, Character Lock, and mask settings.</p><div class="neo-scene-region-row"><label>Scene preset<select id="sceneDirectorScenePresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.scenePresets, settings.selected_scene_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-scene-preset="1" ${disabled}>Load</button><button class="neo-btn secondary" type="button" data-scene-director-save-scene-preset="1" ${disabled}>Save Current</button></div></div><div class="neo-scene-preset-group"><h4>🧩 Region Layout Presets</h4><p class="neo-muted">Save/load only region rectangles, labels, types, visible/locked state. Prompts, identity profile data, and external LoRA/IPAdapter routing stay intact where possible.</p><div class="neo-scene-region-row"><label>Layout preset<select id="sceneDirectorLayoutPresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.regionLayoutPresets, settings.selected_region_layout_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-layout-preset="1" ${disabled}>Load Layout</button><button class="neo-btn secondary" type="button" data-scene-director-save-layout-preset="1" ${disabled}>Save Layout</button></div></div>${lib.status ? `<p class="neo-muted">${escapeHtml(lib.status)}</p>` : ''}</div></details>`;
   const advancedCoreControls = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-core-controls"><summary><span>⚙️ Expert execution controls</span><small>weights, slots, masks, legacy authority compatibility</small></summary><div class="neo-scene-nested-body"><div class="neo-parameter-row neo-scene-balance-row"><label>Legacy authority mode<select id="sceneDirectorAuthorityMode" ${disabled}><option value="neutral_planning" ${String(settings.authority_mode || 'balanced') === 'neutral_planning' ? 'selected' : ''}>Neutral / planning only</option><option value="layout_only" ${String(settings.authority_mode || 'balanced') === 'layout_only' ? 'selected' : ''}>Layout only</option><option value="soft_regional_guide" ${String(settings.authority_mode || 'balanced') === 'soft_regional_guide' ? 'selected' : ''}>Soft regional guide</option><option value="anime_safe_prompt" ${String(settings.authority_mode || 'balanced') === 'anime_safe_prompt' ? 'selected' : ''}>Anime safe / prompt append only</option><option value="balanced" ${String(settings.authority_mode || 'balanced') === 'balanced' ? 'selected' : ''}>Balanced</option><option value="strong_correction" ${String(settings.authority_mode || 'balanced') === 'strong_correction' ? 'selected' : ''}>Strong regional correction</option><option value="debug_aggressive" ${String(settings.authority_mode || 'balanced') === 'debug_aggressive' ? 'selected' : ''}>Debug / aggressive</option></select></label><label>Base weight<input id="sceneDirectorBaseWeight" type="number" min="0" max="1" step="0.01" value="${settings.base_weight}" ${disabled}></label><label>Region gain<input id="sceneDirectorRegionGain" type="number" min="0" max="1" step="0.01" value="${settings.region_gain}" ${disabled}></label><label>Max subject slots<input id="sceneDirectorMaxSubjectSlots" type="number" min="1" max="8" step="1" value="${settings.max_subject_slots}" ${disabled}></label></div><p class="neo-muted">These fields stay available for expert tuning and legacy payload replay. Prompt ownership is controlled above.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorNormalizeMasks', 'Normalize masks', settings.normalize_masks, disabled)}${sceneDirectorBoolControl('sceneDirectorMaskRefine', 'Character mask refinement metadata', settings.mask_refine_enabled, disabled)}</div></div></details>`;
   const advancedSceneControlBlock = sceneDirectorBasicMode(settings) ? '' : `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Controls</span><small>Character Lock, repair, layout, contracts, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${characterLockBlock}${characterRepairBlock}${sceneRepairBlock}${layoutSafetyBlock}${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
-  const expertBlock = expert ? `<section class="neo-scene-subsection neo-scene-expert"><h4>Expert payload preview</h4><div class="neo-badge-row"><span class="neo-badge">Route: ${escapeHtml(route.backend)}:${escapeHtml(route.family)}:${escapeHtml(route.loader)}:${escapeHtml(route.workflow_mode)}</span><span class="neo-badge">Node: V054 preferred / V053-V052 fallback</span><span class="neo-badge">State: ${escapeHtml(route.route_state)}</span></div><pre>${escapeHtml(JSON.stringify(sceneDirectorPayloadPreview(record).extensions[SCENE_DIRECTOR_EXTENSION_ID], null, 2))}</pre></section>` : '';
+  const expertBlock = expert ? `<section class="neo-scene-subsection neo-scene-expert"><h4>Expert payload preview</h4><div class="neo-badge-row"><span class="neo-badge">Route: ${escapeHtml(route.backend)}:${escapeHtml(route.family)}:${escapeHtml(route.loader)}:${escapeHtml(route.workflow_mode)}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label)}</span><span class="neo-badge">Runtime: ${escapeHtml(route.node_label)}</span><span class="neo-badge">State: ${escapeHtml(route.route_state)}</span></div><pre>${escapeHtml(JSON.stringify(sceneDirectorPayloadPreview(record).extensions[SCENE_DIRECTOR_EXTENSION_ID], null, 2))}</pre></section>` : '';
   const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}" data-scene-mode="${escapeAttr(sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')))}">
-    <header class="neo-scene-header"><div><strong>Scene Director</strong>${!compact ? '<span class="neo-muted">Built-in regional scene planner</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-workflow-chip ${settings.enabled ? 'enabled' : 'disabled'}">${settings.enabled ? 'Enabled' : 'Disabled'}</span><span class="neo-state-pill ${routeTone}">${escapeHtml(sceneDirectorStateLabel(route))}</span><span class="neo-badge">Node readiness: V054 preferred</span></div></header>
+    <header class="neo-scene-header"><div><strong>Scene Director</strong>${!compact ? '<span class="neo-muted">Built-in regional scene planner</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-workflow-chip ${settings.enabled ? 'enabled' : 'disabled'}">${settings.enabled ? 'Enabled' : 'Disabled'}</span><span class="neo-state-pill ${routeTone}">${escapeHtml(sceneDirectorStateLabel(route))}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label)}</span><span class="neo-badge">Runtime: ${escapeHtml(route.node_label)}</span></div></header>
     <div class="neo-extension-card-actions"><button class="neo-btn ${settings.enabled ? 'secondary' : 'primary'}" type="button" data-scene-director-toggle="1" ${disabled}>${settings.enabled ? 'Disable for workflow' : 'Enable for workflow'}</button><button class="neo-btn secondary" type="button" data-scene-director-add-region="1" ${disabled}>➕ Add Region</button></div>
     <div class="neo-badge-row"><span class="neo-badge ${routeTone}">${escapeHtml(status)}</span><span class="neo-badge">Active regions: ${activeCount}</span><span class="neo-badge">Subjects: ${subjectCount}</span><span class="neo-badge">${escapeHtml(route.family)} / ${escapeHtml(route.loader)}</span></div>
     ${supportWarning}
@@ -11992,9 +12954,9 @@ function sceneDirectorPanel(record) {
     <section class="neo-scene-subsection"><div class="neo-card-head"><h4>Region Cards</h4><span class="neo-muted">Active rule: enabled + visible + prompt or identity/reference.</span></div><div class="neo-scene-region-grid">${regionCards || '<p class="neo-muted">No regions yet.</p>'}</div></section>
     ${expertBlock}
   </section>`;
-  return panel('Scene Director', sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled), false, extensionWorkflowChip(record));
+  return panel('Scene Director', sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled, route), false, extensionWorkflowChip(record));
 }
-function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled = '') {
+function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled = '', route = {}) {
   const contract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const sceneMode = sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced'));
   const countConflicts = sceneDirectorSubjectCountConflictPreview(settings.regions || [], corePrompts.negative_prompt || settings.negative_prompt || '');
@@ -12002,19 +12964,17 @@ function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled 
   const modeHelp = sceneMode === 'basic'
     ? 'Basic keeps regional layout, prompts, masks, and subject structure only. Character Lock, Character Traits/Pose, corrections, advanced region controls, and repair passes stay hidden and are not submitted.'
     : 'Advanced exposes the existing Character Lock, Character Trait/Pose, correction, repair, layout, routing, and expert controls without changing their saved values or execution methods.';
-  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><label>Scene mode<select id="sceneDirectorSceneMode" ${disabled}>${sceneDirectorSceneModeOptions(sceneMode)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns regional structure and placement.'}</p><p class="neo-muted"><strong>${escapeHtml(sceneMode === 'basic' ? 'Basic' : 'Advanced')}:</strong> ${escapeHtml(modeHelp)}</p></div></div>${conflictBlock}<div class="neo-badge-row"><span class="neo-badge">Mode: ${escapeHtml(sceneMode)}</span><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Node: V054 active</span></div></section>`;
+  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><label>Scene mode<select id="sceneDirectorSceneMode" ${disabled}>${sceneDirectorSceneModeOptions(sceneMode)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns regional structure and placement.'}</p><p class="neo-muted"><strong>${escapeHtml(sceneMode === 'basic' ? 'Basic' : 'Advanced')}:</strong> ${escapeHtml(modeHelp)}</p></div></div>${conflictBlock}<div class="neo-badge-row"><span class="neo-badge">Mode: ${escapeHtml(sceneMode)}</span><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label || 'Scene Director')}</span><span class="neo-badge">Regional prompt: ${escapeHtml(route.regional_prompt_mode || 'off')}</span><span class="neo-badge">Regional LoRA: ${escapeHtml(route.regional_lora_mode || 'off')}</span></div></section>`;
 }
 
-function sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled = '') {
+function sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled = '', route = {}) {
   const marker = '<section class="neo-scene-subsection"><h4>Global Scene Director settings</h4>';
   const start = body.indexOf(marker);
   if (start < 0) return body;
   const end = body.indexOf('</section>', start);
   if (end < 0) return body;
-  const simplified = `${body.slice(0, start)}${sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled)}${body.slice(end + '</section>'.length)}`;
-  return simplified
-    .replaceAll('V054 preferred / V053-V052 fallback', 'V054 active')
-    .replaceAll('Node readiness: V054 preferred', 'Node readiness: V054 active');
+  const simplified = `${body.slice(0, start)}${sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled, route)}${body.slice(end + '</section>'.length)}`;
+  return simplified;
 }
 function bindSceneDirectorPanel() {
   const toggle = document.querySelector('[data-scene-director-toggle]');
@@ -12146,85 +13106,34 @@ function bindSceneDirectorPanel() {
   document.querySelectorAll('[data-scene-region-remove]').forEach((btn) => btn.addEventListener('click', () => { const idx = Number(btn.getAttribute('data-scene-region-remove')); const settings = sceneDirectorSettings(); updateSceneDirectorSettings({ regions: settings.regions.filter((_, i) => i !== idx) }); render(); }));
   document.querySelectorAll('[data-scene-region-duplicate]').forEach((btn) => btn.addEventListener('click', () => { const idx = Number(btn.getAttribute('data-scene-region-duplicate')); const settings = sceneDirectorSettings(); const regions = [...settings.regions]; const clone = { ...sceneDirectorNormalizeRegion(regions[idx] || sceneDirectorDefaultRegion(idx), idx), id: `scene_region_${Date.now()}_${idx + 1}_copy`, label: `${regions[idx]?.label || `Region ${idx + 1}`} Copy` }; const box = clone.bbox || { x: 0.1, y: 0.1, w: 0.3, h: 0.7 }; clone.bbox = { x: Math.min(1, Number(box.x ?? 0.1) + 0.03), y: Math.min(1, Number(box.y ?? 0.1) + 0.03), w: Number(box.w ?? 0.3), h: Number(box.h ?? 0.7) }; regions.splice(idx + 1, 0, clone); updateSceneDirectorSettings({ regions }); render(); }));
   document.querySelectorAll('[data-scene-region-move]').forEach((btn) => btn.addEventListener('click', () => { const idx = Number(btn.getAttribute('data-scene-region-index')); const direction = btn.getAttribute('data-scene-region-move'); const settings = sceneDirectorSettings(); const regions = [...(settings.regions || [])]; const target = direction === 'up' ? idx - 1 : idx + 1; if (idx < 0 || target < 0 || idx >= regions.length || target >= regions.length) return; [regions[idx], regions[target]] = [regions[target], regions[idx]]; updateSceneDirectorSettings({ regions, selected_region_index: target }); render(); }));
-  document.querySelectorAll('[data-scene-canvas-region]').forEach((box) => {
-    box.addEventListener('click', () => {
-      if (box.dataset.sceneCanvasMoved === '1') {
-        box.dataset.sceneCanvasMoved = '0';
-        return;
-      }
-      updateSceneDirectorSettings({ selected_region_index: Number(box.getAttribute('data-scene-canvas-region') || 0) });
-      render();
-    });
-    box.addEventListener('pointerdown', (event) => {
-      if (box.disabled || event.button !== 0) return;
-      const idx = Number(box.getAttribute('data-scene-canvas-region') || 0);
-      const resizeHandle = event.target?.closest?.('[data-scene-canvas-resize]')?.getAttribute('data-scene-canvas-resize') || '';
-      const settings = sceneDirectorSettings();
-      const region = sceneDirectorNormalizeRegion(settings.regions[idx] || sceneDirectorDefaultRegion(idx), idx);
-      if (region.locked) return;
-      const canvas = box.closest('[data-scene-canvas]');
-      const rect = canvas?.getBoundingClientRect();
-      if (!rect) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const startBox = sceneDirectorClampCanvasBox(region.bbox || {});
-      const minSize = 0.03;
-      let didMove = false;
-      box.setPointerCapture?.(event.pointerId);
-      const move = (moveEvent) => {
-        const dx = (moveEvent.clientX - startX) / rect.width;
-        const dy = (moveEvent.clientY - startY) / rect.height;
-        didMove = true;
-        let nextBox;
-        if (resizeHandle) {
-          let x = startBox.x;
-          let y = startBox.y;
-          let w = startBox.w;
-          let h = startBox.h;
-          if (resizeHandle.includes('w')) {
-            x = Math.max(0, Math.min(startBox.x + startBox.w - minSize, startBox.x + dx));
-            w = startBox.x + startBox.w - x;
-          }
-          if (resizeHandle.includes('e')) {
-            w = Math.max(minSize, Math.min(1 - startBox.x, startBox.w + dx));
-          }
-          if (resizeHandle.includes('n')) {
-            y = Math.max(0, Math.min(startBox.y + startBox.h - minSize, startBox.y + dy));
-            h = startBox.y + startBox.h - y;
-          }
-          if (resizeHandle.includes('s')) {
-            h = Math.max(minSize, Math.min(1 - startBox.y, startBox.h + dy));
-          }
-          nextBox = sceneDirectorClampCanvasBox({ x, y, w, h });
-        } else {
-          nextBox = sceneDirectorClampCanvasBox({
-            x: Math.max(0, Math.min(1 - startBox.w, startBox.x + dx)),
-            y: Math.max(0, Math.min(1 - startBox.h, startBox.y + dy)),
-            w: startBox.w,
-            h: startBox.h,
-          });
-        }
-        const nextSettings = sceneDirectorSettings();
-        const regions = [...nextSettings.regions];
-        regions[idx] = { ...(regions[idx] || sceneDirectorDefaultRegion(idx)), bbox: nextBox };
-        updateSceneDirectorSettings({ regions, selected_region_index: idx });
-        box.style.left = `${nextBox.x * 100}%`;
-        box.style.top = `${nextBox.y * 100}%`;
-        box.style.width = `${nextBox.w * 100}%`;
-        box.style.height = `${nextBox.h * 100}%`;
-      };
-      const up = () => {
-        if (didMove) box.dataset.sceneCanvasMoved = '1';
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
+  if (window.NeoRegionCanvas?.bind) {
+    window.NeoRegionCanvas.bind({
+      root: '#sceneDirectorRegionCanvas',
+      minSize: 0.03,
+      getBox: (index) => {
+        const settings = sceneDirectorSettings();
+        const region = sceneDirectorNormalizeRegion(settings.regions[index] || sceneDirectorDefaultRegion(index), index);
+        return sceneDirectorClampCanvasBox(region.bbox || {});
+      },
+      onSelect: (index) => {
+        updateSceneDirectorSettings({ selected_region_index: Number(index || 0) });
         render();
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up, { once: true });
+      },
+      onPreview: (index, nextBox) => {
+        ['x', 'y', 'w', 'h'].forEach((field) => {
+          const input = document.querySelector(`[data-scene-region-bbox="${['x','y','w','h'].indexOf(field)}"][data-scene-region-index="${index}"]`);
+          if (input) input.value = Number(nextBox[field]).toFixed(3);
+        });
+      },
+      onCommit: (index, nextBox) => {
+        const settings = sceneDirectorSettings();
+        const regions = [...(settings.regions || [])];
+        regions[index] = { ...(regions[index] || sceneDirectorDefaultRegion(index)), bbox: sceneDirectorClampCanvasBox(nextBox) };
+        updateSceneDirectorSettings({ regions, selected_region_index: index });
+        render();
+      },
     });
-  });
+  }
   document.querySelectorAll('[data-scene-region-field]').forEach((input) => {
     const handler = (e) => {
       const idx = Number(input.getAttribute('data-scene-region-index'));
@@ -12422,16 +13331,21 @@ const SCENE_DIRECTOR_EXTENSION_ID = 'image.scene_director';
 const HIGH_RES_LAB_EXTENSION_ID = 'image.high_res_lab';
 const IMAGE_UPSCALE_EXTENSION_ID = 'image.image_upscale';
 const ADETAILER_EXTENSION_ID = 'image.adetailer';
+const PID_INTEGRATED_EXTENSION_ID = 'image.pid_integrated';
+const SPECTRUM_EXTENSION_ID = 'image.spectrum';
+const MULTIDIFFUSION_EXTENSION_ID = 'image.multidiffusion';
+const FORGE_COUPLE_EXTENSION_ID = 'image.forge_couple';
+const FORGE_SCRIPT_BRIDGE_EXTENSION_ID = 'image.forge_script_bridge';
 
 const HIGH_RES_LAB_PROFILE_PRESETS = {
-  gentle_polish: { label: 'Gentle polish', enabled: true, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.35, steps: 12, denoise: 0.22, cfg: 5.0, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
-  balanced_finish: { label: 'Balanced finish', enabled: true, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.5, steps: 16, denoise: 0.28, cfg: 5.0, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
-  detail_push: { label: 'Detail push', enabled: true, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.75, steps: 22, denoise: 0.36, cfg: 4.8, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
-  bigger_finish: { label: 'Bigger finish', enabled: true, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 2.0, steps: 24, denoise: 0.34, cfg: 4.8, sampler: '', scheduler: '', tiled_vae: true, tile_size: 640, tile_overlap: 64, upscaler: '' },
-  latent_rebuild: { label: 'Latent rebuild', enabled: true, mode: 'latent', strategy: 'standard', resize_method: 'lanczos', scale: 1.5, steps: 22, denoise: 0.5, cfg: 5.2, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
-  upscale_only: { label: 'Upscale only', enabled: true, mode: 'image_upscale', strategy: 'upscale_only', resize_method: 'lanczos', scale: 2.0, steps: 4, denoise: 0.05, cfg: 1.0, sampler: '', scheduler: '', tiled_vae: false, tile_size: 512, tile_overlap: 64, upscaler: '' },
+  gentle_polish: { label: 'Gentle polish', enabled: false, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.35, steps: 12, denoise: 0.22, cfg: 5.0, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
+  balanced_finish: { label: 'Balanced finish', enabled: false, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.5, steps: 16, denoise: 0.28, cfg: 5.0, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
+  detail_push: { label: 'Detail push', enabled: false, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 1.75, steps: 22, denoise: 0.36, cfg: 4.8, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
+  bigger_finish: { label: 'Bigger finish', enabled: false, mode: 'image_upscale', strategy: 'forge_pixel_refine', resize_method: 'lanczos', scale: 2.0, steps: 24, denoise: 0.34, cfg: 4.8, sampler: '', scheduler: '', tiled_vae: true, tile_size: 640, tile_overlap: 64, upscaler: '' },
+  latent_rebuild: { label: 'Latent rebuild', enabled: false, mode: 'latent', strategy: 'standard', resize_method: 'lanczos', scale: 1.5, steps: 22, denoise: 0.5, cfg: 5.2, sampler: '', scheduler: '', tiled_vae: true, tile_size: 512, tile_overlap: 64, upscaler: '' },
+  upscale_only: { label: 'Upscale only', enabled: false, mode: 'image_upscale', strategy: 'upscale_only', resize_method: 'lanczos', scale: 2.0, steps: 4, denoise: 0.05, cfg: 1.0, sampler: '', scheduler: '', tiled_vae: false, tile_size: 512, tile_overlap: 64, upscaler: '' },
 };
-const HIGH_RES_LAB_DEFAULTS = { profile: 'balanced_finish', ...HIGH_RES_LAB_PROFILE_PRESETS.balanced_finish };
+const HIGH_RES_LAB_DEFAULTS = { profile: 'balanced_finish', ...HIGH_RES_LAB_PROFILE_PRESETS.balanced_finish, enabled: false, enable_origin: '' };
 const HIGH_RES_LAB_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
 const HIGH_RES_LAB_ROUTE_PROFILE_STAGE = 'public_preview';
 const HIGH_RES_LAB_UI_POLICY = {
@@ -12447,7 +13361,12 @@ const HIGH_RES_LAB_UI_POLICY = {
 };
 function highResLabSettings() {
   const raw = state.imageDraft?.[HIGH_RES_LAB_EXTENSION_ID] || {};
-  return { ...HIGH_RES_LAB_DEFAULTS, ...raw };
+  const merged = { ...HIGH_RES_LAB_DEFAULTS, ...raw };
+  // E1.2 guard: older Forge remap builds defaulted High-Res Lab to enabled.
+  // If the user never explicitly toggled the extension, do not auto-submit
+  // Hires payloads into Forge after a reload/profile switch.
+  if (merged.enabled === true && !['user', 'preview_action'].includes(String(merged.enable_origin || '').trim())) merged.enabled = false;
+  return merged;
 }
 function updateHighResLabSettings(patch = {}) {
   const next = { ...highResLabSettings(), ...patch };
@@ -12456,11 +13375,12 @@ function updateHighResLabSettings(patch = {}) {
 }
 function highResLabApplyProfile(profileId) {
   const id = String(profileId || 'custom');
+  const current = highResLabSettings();
   if (id === 'custom' || !HIGH_RES_LAB_PROFILE_PRESETS[id]) {
-    updateHighResLabSettings({ profile: 'custom' });
+    updateHighResLabSettings({ profile: 'custom', enabled: Boolean(current.enabled), enable_origin: current.enable_origin || '' });
     return;
   }
-  updateHighResLabSettings({ profile: id, ...HIGH_RES_LAB_PROFILE_PRESETS[id] });
+  updateHighResLabSettings({ profile: id, ...HIGH_RES_LAB_PROFILE_PRESETS[id], enabled: Boolean(current.enabled), enable_origin: current.enable_origin || '' });
 }
 function highResLabWorkflowMode() {
   // Finish is a workspace app, not a generation workflow route. Resolve the actual
@@ -12525,8 +13445,8 @@ function highResLabParameterVisibility(route, settings = highResLabSettings(), r
   const tiledVaeState = highResLabOptionalCapabilityState(record, 'tiled_vae_decode');
   const ultimateState = highResLabOptionalCapabilityState(record, 'ultimate_sd_upscale');
   const family = String(route?.family || '');
-  const routeBlocksUltimate = ['flux', 'flux2_klein', 'krea2', 'krea2_turbo', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'z_image', 'z_image_turbo'].includes(family);
-  const routeHidesCfg = ['flux', 'flux2_klein'].includes(family);
+  const routeBlocksUltimate = ['flux', 'flux2_klein', 'krea2', 'krea2_turbo', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'z_image', 'z_image_turbo'].includes(family) || family === 'flux2_dev';
+  const routeHidesCfg = ['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev';
   const providerGated = ['implementation_target', 'planned_gated', 'provider_gated'].includes(route?.route_state);
   const unsupported = route?.route_state === 'unsupported';
   // Provider/planned-gated routes still render the controls in disabled form so
@@ -12646,7 +13566,7 @@ function highResLabPayloadPreview(record, appliedOverride = null) {
     extensions: {
       [HIGH_RES_LAB_EXTENSION_ID]: {
         enabled: true,
-        version: 1,
+        version: 2,
         inputs: {
           canvas_snapshot: adetailerCanvasSnapshot(),
           detection_snapshot: settings.detection_snapshot || null,
@@ -12716,7 +13636,8 @@ function highResLabUiPreview(record) {
 
 function highResLabActiveBackendProfilesForUpscalers() {
   const profiles = backendProfilesForSurface('image');
-  const activeProfile = defaultBackendProfile('image');
+  const activeProfile = activeImageProfile() || defaultBackendProfile('image');
+  if (normalizeRouteBackend(activeProfile?.provider_id || '') === 'forge') return activeProfile ? [activeProfile] : [];
   const ordered = [];
   const push = (profile) => {
     if (profile && !ordered.some((item) => item.profile_id === profile.profile_id)) ordered.push(profile);
@@ -12767,7 +13688,7 @@ function highResLabUpscalerOptions(selected = '') {
   const current = String(selected || '').trim();
   const currentKey = current.toLowerCase();
   if (current && !seen.has(currentKey)) options.push({ id: current, label: `${current} (selected)` });
-  if (options.length === 1) options.push({ id: 'select_upscaler_later', label: 'Connect Comfy backend to load upscale models' });
+  if (options.length === 1) options.push({ id: 'select_upscaler_later', label: 'Connect the selected backend to load upscale models' });
   return options;
 }
 function highResLabUpscalerSummary() {
@@ -12783,7 +13704,7 @@ const IMAGE_UPSCALE_PROFILE_PRESETS = {
   preserve_4x: { label: 'Preserve 4×', profile: 'preserve_4x', scale: 4.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'off' },
   portrait_restore_2x: { label: 'Portrait restore 2×', profile: 'portrait_restore_2x', scale: 2.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'codeformer', restore_fidelity: 0.65, restore_detection: 'retinaface_resnet50' },
 };
-const IMAGE_UPSCALE_DEFAULTS = { enabled: true, profile: 'preserve_2x', upscale_engine: 'basic', scale: 2.0, resize_method: 'lanczos', upscale_model: '', restore_assist: 'off', restore_model: '', restore_fidelity: 0.65, restore_detection: 'retinaface_resnet50', source_mode: 'selected_result_or_upload', seedvr2_dit_model: 'seedvr2_ema_3b-Q4_K_M.gguf', seedvr2_vae_model: 'ema_vae_fp16.safetensors', seedvr2_sizing_mode: 'scale_factor', seedvr2_resolution: 1080, seedvr2_max_resolution: 0, seedvr2_source_width: 0, seedvr2_source_height: 0, seedvr2_output_width: 0, seedvr2_output_height: 0, seedvr2_batch_size: 1, seedvr2_seed: 42, seedvr2_device: 'cuda:0', seedvr2_offload_device: 'cpu', seedvr2_blocks_to_swap: 32, seedvr2_swap_io_components: true, seedvr2_cache_models: false, seedvr2_encode_tiled: true, seedvr2_decode_tiled: true, seedvr2_tile_size: 1024, seedvr2_tile_overlap: 128, seedvr2_attention_mode: 'sdpa', seedvr2_color_correction: 'lab', seedvr2_input_noise_scale: 0, seedvr2_latent_noise_scale: 0, seedvr2_enable_debug: false, seedvr2_alpha_mode: 'auto', seedvr2_source_alpha_status: 'unverified', seedvr2_source_has_alpha: false, seedvr2_source_has_transparency: false, seedvr2_source_image_mode: '', seedvr2_source_format: '', seedvr2_alpha_min: 255, seedvr2_alpha_max: 255, _ui_status: '' };
+const IMAGE_UPSCALE_DEFAULTS = { enabled: true, profile: 'preserve_2x', upscale_engine: 'basic', scale: 2.0, resize_method: 'lanczos', upscale_model: '', forge_resize_mode: 'scale', target_width: 2048, target_height: 2048, upscaling_crop: false, secondary_upscale_model: 'None', secondary_visibility: 0, upscale_first: false, restore_assist: 'off', restore_model: '', restore_fidelity: 0.65, restore_visibility: 1.0, restore_detection: 'retinaface_resnet50', source_mode: 'selected_result_or_upload', seedvr2_dit_model: 'seedvr2_ema_3b-Q4_K_M.gguf', seedvr2_vae_model: 'ema_vae_fp16.safetensors', seedvr2_sizing_mode: 'scale_factor', seedvr2_resolution: 1080, seedvr2_max_resolution: 0, seedvr2_source_width: 0, seedvr2_source_height: 0, seedvr2_output_width: 0, seedvr2_output_height: 0, seedvr2_batch_size: 1, seedvr2_seed: 42, seedvr2_device: 'cuda:0', seedvr2_offload_device: 'cpu', seedvr2_blocks_to_swap: 32, seedvr2_swap_io_components: true, seedvr2_cache_models: false, seedvr2_encode_tiled: true, seedvr2_decode_tiled: true, seedvr2_tile_size: 1024, seedvr2_tile_overlap: 128, seedvr2_attention_mode: 'sdpa', seedvr2_color_correction: 'lab', seedvr2_input_noise_scale: 0, seedvr2_latent_noise_scale: 0, seedvr2_enable_debug: false, seedvr2_alpha_mode: 'auto', seedvr2_source_alpha_status: 'unverified', seedvr2_source_has_alpha: false, seedvr2_source_has_transparency: false, seedvr2_source_image_mode: '', seedvr2_source_format: '', seedvr2_alpha_min: 255, seedvr2_alpha_max: 255, _ui_status: '' };
 let imageUpscaleStagedFiles = [];
 let imageUpscaleStagedPreviewSource = null;
 const IMAGE_UPSCALE_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
@@ -12814,37 +13735,47 @@ function imageUpscaleIsComfyProfile(profile) {
   const providerId = String(profile?.provider_id || '').trim();
   return providerId === 'comfyui' || providerId === 'comfyui_portable';
 }
+function imageUpscaleIsForgeProfile(profile) {
+  return String(profile?.provider_id || '').trim() === 'forge';
+}
+function imageUpscaleIsSupportedProfile(profile) {
+  return imageUpscaleIsComfyProfile(profile) || imageUpscaleIsForgeProfile(profile);
+}
 function imageUpscaleProfileRuntimeStatus(profile) {
   return String(profile?.runtime_status || profile?.runtime?.status || '').trim().toLowerCase();
 }
-function imageUpscaleComfyBackendProfile() {
-  const profiles = backendProfilesForSurface('image').filter((profile) => imageUpscaleIsComfyProfile(profile));
+function imageUpscaleBackendProfile() {
   const active = defaultBackendProfile('image');
-  if (imageUpscaleIsComfyProfile(active) && imageUpscaleProfileRuntimeStatus(active) === 'connected') return active;
-  return profiles.find((profile) => imageUpscaleProfileRuntimeStatus(profile) === 'connected')
-    || (imageUpscaleIsComfyProfile(active) ? active : null)
-    || profiles.find((profile) => profile.enabled !== false)
-    || profiles[0]
-    || active
-    || null;
+  return imageUpscaleIsSupportedProfile(active) ? active : null;
 }
-function imageUpscaleComfyBackendLabel(profile = imageUpscaleComfyBackendProfile()) {
-  if (!profile) return 'No Comfy backend profile';
+function imageUpscaleComfyBackendProfile() { return imageUpscaleBackendProfile(); }
+function imageUpscaleBackendLabel(profile = imageUpscaleBackendProfile()) {
+  if (!profile) return 'No Image Upscale backend profile';
   const status = imageUpscaleProfileRuntimeStatus(profile) || 'not checked';
-  return `${profile.display_name || profile.profile_id || 'Comfy backend'} · ${status}`;
+  const provider = imageUpscaleIsForgeProfile(profile) ? 'Forge Neo' : 'Comfy';
+  return `${profile.display_name || profile.profile_id || provider} · ${status}`;
+}
+function imageUpscaleComfyBackendLabel(profile = imageUpscaleBackendProfile()) { return imageUpscaleBackendLabel(profile); }
+function imageUpscaleForgeCapability(profile = imageUpscaleBackendProfile()) {
+  if (!imageUpscaleIsForgeProfile(profile)) return null;
+  const overlay = imageCapabilityOverlayForProfile(profile);
+  return overlay?.extension_policy?.[IMAGE_UPSCALE_EXTENSION_ID] || null;
 }
 function imageUpscaleActiveRoute(record) {
   const manifest = record?.manifest || {};
-  const upscaleProfile = imageUpscaleComfyBackendProfile();
+  const upscaleProfile = imageUpscaleBackendProfile();
   const backend = normalizeRouteBackend(upscaleProfile?.provider_id || activeRouteBackend());
   const family = state.imageDraft.family || imageCommandValue('family') || 'any';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || 'any';
   const routeKey = `${backend}:${family}:${loader}:image_upscale:finish`;
-  let routeState = backend === 'comfyui' || backend === 'comfyui_portable' ? 'available' : 'provider_gated';
+  const forgeCapability = backend === 'forge' ? imageUpscaleForgeCapability(upscaleProfile) : null;
+  let routeState = backend === 'comfyui' || backend === 'comfyui_portable' ? 'available' : (backend === 'forge' && forgeCapability?.allowed ? 'available' : 'provider_gated');
   const manifestState = manifest.route_states?.[`${backend}:*:*:*:finish`] || manifest.route_states?.[routeKey] || manifest.route_states?.['*'];
-  if (manifestState && manifestState !== 'provider_gated') routeState = manifestState;
+  // Forge permission is live-profile owned. Static manifest states may describe product support,
+  // but they must never grant execution when the selected Forge profile failed discovery.
+  if (backend !== 'forge' && manifestState && manifestState !== 'provider_gated') routeState = manifestState;
   let reason = '';
-  if (routeState === 'provider_gated') reason = 'Image Upscale needs a Comfy-compatible backend with the upload + utility graph queue bridge.';
+  if (routeState === 'provider_gated') reason = backend === 'forge' ? (forgeCapability?.reason || 'Forge Extras/upscaler discovery is unavailable for this profile.') : 'Image Upscale needs a Comfy-compatible backend with the upload + utility graph queue bridge.';
   if (routeState === 'planned_gated') reason = 'This provider route is planned for Image Upscale but not active yet.';
   if (routeState === 'unsupported') reason = 'Image Upscale only mounts in Image → Finish.';
   return { backend, family, loader, workflow_mode: 'image_upscale', workspace_app: 'finish', route_key: `${backend}:${family}:${loader}:image_upscale`, route_state: routeState, reason };
@@ -13039,10 +13970,16 @@ function imageUpscaleApplySourcePropertyHint(properties, { renderPanel = false }
 
 function imageUpscaleCleanParams(settings = imageUpscaleSettings()) {
   const resizeMethods = new Set(['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact']);
-  const engine = settings.upscale_engine === 'seedvr2' ? 'seedvr2' : 'basic';
+  const profile = imageUpscaleBackendProfile();
+  const forgeUpscale = imageUpscaleIsForgeProfile(profile);
+  const engine = !forgeUpscale && settings.upscale_engine === 'seedvr2' ? 'seedvr2' : 'basic';
   const alphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
-  const requestedRestoreAssist = settings.restore_assist === 'codeformer' ? 'codeformer' : 'off';
-  const restoreAssist = requestedRestoreAssist;
+  const supportedForgeRestore = new Set(['off']);
+  if (imageUpscaleModelCatalogState.supports_codeformer) supportedForgeRestore.add('codeformer');
+  if (imageUpscaleModelCatalogState.supports_gfpgan) supportedForgeRestore.add('gfpgan');
+  let restoreAssist = String(settings.restore_assist || 'off').toLowerCase();
+  if (forgeUpscale && !supportedForgeRestore.has(restoreAssist)) restoreAssist = 'off';
+  if (!forgeUpscale && restoreAssist !== 'codeformer') restoreAssist = 'off';
   const params = {
     profile: settings.profile || 'custom',
     upscale_engine: engine,
@@ -13051,6 +13988,15 @@ function imageUpscaleCleanParams(settings = imageUpscaleSettings()) {
     upscale_model: engine === 'basic' ? String(settings.upscale_model || '').trim() : '',
     restore_assist: restoreAssist,
   };
+  if (forgeUpscale) {
+    params.forge_resize_mode = String(settings.forge_resize_mode || 'scale') === 'exact' ? 'exact' : 'scale';
+    params.target_width = Math.round(imageUpscaleClampNumber(settings.target_width, 2048, 1, 16384));
+    params.target_height = Math.round(imageUpscaleClampNumber(settings.target_height, 2048, 1, 16384));
+    params.upscaling_crop = Boolean(settings.upscaling_crop);
+    params.secondary_upscale_model = String(settings.secondary_upscale_model || 'None').trim() || 'None';
+    params.secondary_visibility = imageUpscaleClampNumber(settings.secondary_visibility, 0, 0, 1);
+    params.upscale_first = Boolean(settings.upscale_first) && Boolean(imageUpscaleModelCatalogState.supports_upscale_first);
+  }
   if (engine === 'seedvr2') {
     params.seedvr2_alpha_mode = alphaMode;
     params.seedvr2_dit_model = String(settings.seedvr2_dit_model || IMAGE_UPSCALE_DEFAULTS.seedvr2_dit_model || '').trim();
@@ -13080,10 +14026,13 @@ function imageUpscaleCleanParams(settings = imageUpscaleSettings()) {
     params.seedvr2_latent_noise_scale = imageUpscaleClampNumber(settings.seedvr2_latent_noise_scale, 0, 0, 1);
     params.seedvr2_enable_debug = Boolean(settings.seedvr2_enable_debug);
   }
-  if (restoreAssist === 'codeformer') {
-    params.restore_model = String(settings.restore_model || '').trim();
+  if (restoreAssist === 'codeformer' || restoreAssist === 'gfpgan') {
+    if (!forgeUpscale && restoreAssist === 'codeformer') {
+      params.restore_model = String(settings.restore_model || '').trim();
+      params.restore_detection = String(settings.restore_detection || 'retinaface_resnet50').trim() || 'retinaface_resnet50';
+    }
     params.restore_fidelity = imageUpscaleClampNumber(settings.restore_fidelity, 0.65, 0, 1);
-    params.restore_detection = String(settings.restore_detection || 'retinaface_resnet50').trim() || 'retinaface_resnet50';
+    params.restore_visibility = imageUpscaleClampNumber(settings.restore_visibility, 1.0, 0, 1);
   }
   return params;
 }
@@ -13102,9 +14051,13 @@ function imageUpscaleValidationPreview(record) {
   const route = imageUpscaleActiveRoute(record);
   const items = [];
   if (!IMAGE_UPSCALE_ACTIVE_ROUTE_STATES.includes(route.route_state)) items.push({ level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
-  if (settings.restore_assist === 'codeformer' && !settings.restore_model) items.push({ level: 'warning', field: 'restore_model', message: 'Choose a CodeFormer model. Place it in ComfyUI/models/facerestore_models/.' });
+  const forgeUpscale = imageUpscaleIsForgeProfile(imageUpscaleBackendProfile());
+  if (settings.restore_assist === 'codeformer' && !forgeUpscale && !settings.restore_model) items.push({ level: 'warning', field: 'restore_model', message: 'Choose a CodeFormer model. Place it in ComfyUI/models/facerestore_models/.' });
+  if (forgeUpscale && settings.restore_assist === 'codeformer' && !imageUpscaleModelCatalogState.supports_codeformer) items.push({ level: 'warning', field: 'restore_assist', message: 'The selected Forge profile did not report CodeFormer.' });
+  if (forgeUpscale && settings.restore_assist === 'gfpgan' && !imageUpscaleModelCatalogState.supports_gfpgan) items.push({ level: 'warning', field: 'restore_assist', message: 'The selected Forge profile did not report GFPGAN.' });
+  if (forgeUpscale && settings.forge_resize_mode === 'exact' && (!Number(settings.target_width) || !Number(settings.target_height))) items.push({ level: 'warning', field: 'target_width', message: 'Exact dimensions require positive width and height.' });
   if (settings.upscale_engine === 'seedvr2') {
-    items.push({ level: 'warning', field: 'upscale_engine', message: 'SeedVR2 is experimental: install ComfyUI-SeedVR2_VideoUpscaler and keep models in ComfyUI/models/SEEDVR2/.' });
+    items.push({ level: 'warning', field: 'upscale_engine', message: forgeUpscale ? 'SeedVR2 is Comfy-only and will not run through Forge Extras.' : 'SeedVR2 is experimental: install ComfyUI-SeedVR2_VideoUpscaler and keep models in ComfyUI/models/SEEDVR2/.' });
     if (!settings.seedvr2_dit_model) items.push({ level: 'warning', field: 'seedvr2_dit_model', message: 'Choose a SeedVR2 DiT model.' });
     if (!settings.seedvr2_vae_model) items.push({ level: 'warning', field: 'seedvr2_vae_model', message: 'Choose a SeedVR2 VAE model.' });
     const alphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
@@ -13119,7 +14072,7 @@ const IMAGE_UPSCALE_SEEDVR2_DIT_OPTIONS = ['seedvr2_ema_3b-Q8_0.gguf', 'seedvr2_
 const IMAGE_UPSCALE_SEEDVR2_VAE_OPTIONS = ['ema_vae_fp16.safetensors'];
 const IMAGE_UPSCALE_SEEDVR2_ATTENTION_OPTIONS = ['sdpa', 'flash_attn_2', 'flash_attn_3', 'sageattn_2', 'sageattn_3'];
 const IMAGE_UPSCALE_SEEDVR2_COLOR_OPTIONS = ['lab', 'wavelet', 'wavelet_adaptive', 'hsv', 'adain', 'none'];
-let imageUpscaleModelCatalogState = { loading: false, loaded: false, error: '', seedvr2_dit_models: [], seedvr2_vae_models: [], codeformer_models: [], sources: [], warnings: [], roots_checked: [], profile_id: '' };
+let imageUpscaleModelCatalogState = { loading: false, loaded: false, error: '', provider_id: '', upscalers: [], face_restorers: [], supports_codeformer: false, supports_gfpgan: false, supports_face_restoration: false, supports_exact_dimensions: false, supports_secondary_upscaler: false, supports_upscale_first: false, supports_crop_to_fit: false, selected_profile_only: true, automatic_provider_fallback: false, seedvr2_dit_models: [], seedvr2_vae_models: [], codeformer_models: [], sources: [], warnings: [], roots_checked: [], profile_id: '' };
 function imageUpscaleCatalogList(key, fallback = [], selected = '', emptyLabel = 'Refresh models to load…') {
   const catalog = Array.isArray(imageUpscaleModelCatalogState[key]) ? imageUpscaleModelCatalogState[key] : [];
   // After a catalog scan, never mix fake/static examples into model dropdowns.
@@ -13138,14 +14091,16 @@ function imageUpscaleCatalogList(key, fallback = [], selected = '', emptyLabel =
   return imageUpscaleStaticOptions([], selected, emptyLabel);
 }
 function imageUpscaleCatalogSummary() {
-  if (imageUpscaleModelCatalogState.loading) return 'Scanning Comfy model catalogs…';
+  const forge = imageUpscaleModelCatalogState.provider_id === 'forge';
+  if (imageUpscaleModelCatalogState.loading) return forge ? 'Refreshing Forge upscaler catalog…' : 'Scanning Comfy model catalogs…';
   if (imageUpscaleModelCatalogState.error) return `Model scan failed: ${imageUpscaleModelCatalogState.error}`;
   if (!imageUpscaleModelCatalogState.loaded) return 'Model catalog not scanned yet.';
+  const sources = imageUpscaleModelCatalogState.sources?.length ? ` · ${imageUpscaleModelCatalogState.sources.join(', ')}` : '';
+  const warning = imageUpscaleModelCatalogState.warnings?.length ? ` · ${imageUpscaleModelCatalogState.warnings[0]}` : '';
+  if (forge) { const restorers = imageUpscaleModelCatalogState.face_restorers?.length ? ` · face restore: ${imageUpscaleModelCatalogState.face_restorers.join(', ')}` : ' · face restore: not reported'; return `Forge upscalers: ${imageUpscaleModelCatalogState.upscalers?.length || 0}${restorers}${sources}${warning}`; }
   const dit = imageUpscaleModelCatalogState.seedvr2_dit_models?.length || 0;
   const vae = imageUpscaleModelCatalogState.seedvr2_vae_models?.length || 0;
   const cf = imageUpscaleModelCatalogState.codeformer_models?.length || 0;
-  const sources = imageUpscaleModelCatalogState.sources?.length ? ` · ${imageUpscaleModelCatalogState.sources.join(', ')}` : '';
-  const warning = imageUpscaleModelCatalogState.warnings?.length ? ` · ${imageUpscaleModelCatalogState.warnings[0]}` : '';
   return `Real models: SeedVR2 DiT ${dit}, VAE ${vae}, CodeFormer ${cf}${sources}${warning}`;
 }
 async function imageUpscaleLoadModelCatalog(profileId) {
@@ -13162,17 +14117,29 @@ async function imageUpscaleLoadModelCatalog(profileId) {
   return payload;
 }
 async function imageUpscaleRefreshModelCatalog({ silent = false } = {}) {
-  const profile = imageUpscaleComfyBackendProfile();
+  const profile = imageUpscaleBackendProfile();
   const profileId = profile?.profile_id || state.activeImageProfileId || '';
   if (!profileId || imageUpscaleModelCatalogState.loading) return imageUpscaleModelCatalogState;
   imageUpscaleModelCatalogState = { ...imageUpscaleModelCatalogState, loading: true, error: '', profile_id: profileId };
-  if (!silent) setWorkspaceStatus(`Scanning Image Upscale model folders via ${imageUpscaleComfyBackendLabel(profile)}…`, 'info');
+  if (!silent) setWorkspaceStatus(`Refreshing Image Upscale catalog via ${imageUpscaleBackendLabel(profile)}…`, 'info');
   try {
     const payload = await imageUpscaleLoadModelCatalog(profileId);
     imageUpscaleModelCatalogState = {
       loading: false,
       loaded: true,
       error: payload.ok === false ? (payload.detail || payload.message || 'Model catalog scan failed.') : '',
+      provider_id: payload.provider_id || profile?.provider_id || '',
+      upscalers: payload.upscalers || [],
+      face_restorers: payload.face_restorers || [],
+      supports_codeformer: Boolean(payload.supports_codeformer),
+      supports_gfpgan: Boolean(payload.supports_gfpgan),
+      supports_face_restoration: Boolean(payload.supports_face_restoration),
+      supports_exact_dimensions: Boolean(payload.supports_exact_dimensions),
+      supports_secondary_upscaler: Boolean(payload.supports_secondary_upscaler),
+      supports_upscale_first: Boolean(payload.supports_upscale_first),
+      supports_crop_to_fit: Boolean(payload.supports_crop_to_fit),
+      selected_profile_only: payload.selected_profile_only !== false,
+      automatic_provider_fallback: Boolean(payload.automatic_provider_fallback),
       seedvr2_dit_models: payload.seedvr2_dit_models || [],
       seedvr2_vae_models: payload.seedvr2_vae_models || [],
       codeformer_models: payload.codeformer_models || [],
@@ -13191,6 +14158,16 @@ async function imageUpscaleRefreshModelCatalog({ silent = false } = {}) {
       if (!imageUpscaleModelCatalogState.seedvr2_vae_models.length && current.seedvr2_vae_model) patch.seedvr2_vae_model = '';
     }
     if (payload.ok !== false && current.restore_assist === 'codeformer' && imageUpscaleModelCatalogState.codeformer_models.length && !imageUpscaleModelCatalogState.codeformer_models.includes(current.restore_model)) patch.restore_model = imageUpscaleModelCatalogState.codeformer_models[0];
+    if (imageUpscaleIsForgeProfile(profile)) {
+      if (current.upscale_engine === 'seedvr2') patch.upscale_engine = 'basic';
+      if (imageUpscaleModelCatalogState.upscalers.length && !imageUpscaleModelCatalogState.upscalers.some((item) => String(item).toLowerCase() === String(current.upscale_model || '').toLowerCase())) {
+        patch.upscale_model = imageUpscaleModelCatalogState.upscalers.find((item) => String(item).toLowerCase() === 'lanczos') || imageUpscaleModelCatalogState.upscalers[0];
+      }
+      patch.restore_model = '';
+      if (current.secondary_upscale_model && String(current.secondary_upscale_model).toLowerCase() !== 'none' && !imageUpscaleModelCatalogState.upscalers.some((item) => String(item).toLowerCase() === String(current.secondary_upscale_model).toLowerCase())) patch.secondary_upscale_model = 'None';
+      if (current.restore_assist === 'codeformer' && !imageUpscaleModelCatalogState.supports_codeformer) patch.restore_assist = 'off';
+      if (current.restore_assist === 'gfpgan' && !imageUpscaleModelCatalogState.supports_gfpgan) patch.restore_assist = 'off';
+    }
     if (Object.keys(patch).length) updateImageUpscaleSettings({ ...patch, profile: 'custom' });
     if (!silent) setWorkspaceStatus(imageUpscaleCatalogSummary(), imageUpscaleModelCatalogState.error ? 'warning' : 'success');
     render();
@@ -13345,11 +14322,135 @@ function previewActionSourceReference(source = {}) {
   return String(source.path || source.saved_path || source.url || source.view_url || source.filename || source.saved_filename || source.file_id || source.output_id || '').trim();
 }
 
+const PREVIEW_REFERENCE_HANDOFF_SCHEMA = 'neo.image.preview_reference_handoff.v1';
+
+function previewReferenceActionEvaluation(action = {}, source = {}) {
+  const evaluated = evaluatePreviewActionForToolbar(action, source);
+  if (!evaluated.enabled) throw new Error(evaluated.disabledReason || 'This reference action is unavailable for the selected backend profile.');
+  const selectedProfileId = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const evaluatedProfileId = String(evaluated.profile_id || '').trim();
+  if (!selectedProfileId) throw new Error('Select an Image backend profile before staging this reference.');
+  if (evaluatedProfileId && evaluatedProfileId !== selectedProfileId) {
+    throw new Error('The preview action evaluation is stale for the selected Image backend profile. Refresh and try again.');
+  }
+  if (String(evaluated.dispatchType || evaluated.dispatch_type || '') !== 'stage_reference') {
+    throw new Error('The selected provider did not publish a reference-stage dispatcher for this action.');
+  }
+  if (String(action.actionClass || action.action_class || '') !== 'reference_stage') {
+    throw new Error('The selected preview action is not a provider-aware reference action.');
+  }
+  return {
+    ...evaluated,
+    profileId: selectedProfileId,
+    providerId: String(evaluated.provider_id || activeImageProfile()?.provider_id || activeImageProfile()?.backend || '').trim().toLowerCase(),
+    targetExtension: String(action.targetPanel || action.target_panel || action.requiresExtension || action.requires_extension || '').trim(),
+  };
+}
+
+function buildPreviewReferenceHandoffContract(action = {}, evaluation = {}, source = {}, target = {}) {
+  return {
+    schema: action.referenceContractSchema || action.reference_contract_schema || PREVIEW_REFERENCE_HANDOFF_SCHEMA,
+    action_id: action.id || '',
+    action_class: 'reference_stage',
+    target_extension: target.extensionId || evaluation.targetExtension || action.targetPanel || action.target_panel || '',
+    target_kind: target.kind || 'reference_unit',
+    target_unit_id: target.unitId || '',
+    target_unit_index: Math.max(0, Number(target.unitIndex || 0) || 0),
+    profile_id: evaluation.profileId || evaluation.profile_id || selectedBackendProfileIdForSurface('image') || '',
+    provider_id: evaluation.providerId || evaluation.provider_id || '',
+    dispatch_type: evaluation.dispatchType || evaluation.dispatch_type || 'stage_reference',
+    execution_mode: evaluation.executionMode || evaluation.execution_mode || '',
+    provider_policy: action.profilePolicy || action.profile_policy || 'selected_profile_only',
+    catalog_policy: action.catalogPolicy || action.catalog_policy || 'selected_profile_live_catalog',
+    automatic_provider_fallback: false,
+    overwrite_existing: false,
+    auto_run: false,
+    stage_policy: action.stagePolicy || action.stage_policy || 'first_empty_slot_no_overwrite',
+    created_at: new Date().toISOString(),
+    source: previewActionSourceRecord(source),
+  };
+}
+
+async function ensurePreviewReferenceCatalogs(profileId = '') {
+  const selectedProfileId = String(profileId || selectedBackendProfileIdForSurface('image') || '').trim();
+  if (!selectedProfileId || selectedProfileId !== imageReferenceCatalogProfileId()) {
+    throw new Error('The selected Image backend profile changed before the reference catalog could be loaded.');
+  }
+  const controlProfile = String(controlNetSettings().map_status?.profile_id || '').trim();
+  const ipProfile = String(ipAdapterNodeStatus().profile_id || '').trim();
+  if (controlProfile !== selectedProfileId || ipProfile !== selectedProfileId) {
+    await refreshImageReferenceModelCatalogsForSelectedProfile({ profileId: selectedProfileId, reset: false });
+  }
+  if (String(selectedBackendProfileIdForSurface('image') || '').trim() !== selectedProfileId) {
+    throw new Error('The selected Image backend profile changed while loading reference models.');
+  }
+  const refreshedControlStatus = controlNetSettings().map_status?.node_status || {};
+  const refreshedIpStatus = ipAdapterNodeStatus();
+  const refreshedControlProfile = String(controlNetSettings().map_status?.profile_id || refreshedControlStatus.profile_id || '').trim();
+  const refreshedIpProfile = String(refreshedIpStatus.profile_id || '').trim();
+  if (refreshedControlProfile !== selectedProfileId || refreshedIpProfile !== selectedProfileId) {
+    throw new Error('Reference model catalogs are not current for the selected Image backend profile. Refresh the provider and try again.');
+  }
+  const selectedProvider = normalizeRouteBackend(activeImageProfile()?.provider_id || activeImageProfile()?.backend || '');
+  const controlProvider = normalizeRouteBackend(refreshedControlStatus.provider_id || '');
+  const ipProvider = normalizeRouteBackend(refreshedIpStatus.provider_id || '');
+  if ((controlProvider && selectedProvider && controlProvider !== selectedProvider) || (ipProvider && selectedProvider && ipProvider !== selectedProvider)) {
+    throw new Error('Reference model catalogs belong to a different Image provider. Refresh the selected provider and try again.');
+  }
+}
+
+function previewReferenceUnitHasControlSource(unit = {}) {
+  return Boolean(String(unit.control_image || unit.source_image || unit.image || unit.input_image || unit.control_image_url || unit.source_image_url || '').trim() || controlNetAssetRefValue(unit.generated_map));
+}
+
+function previewReferenceUnitHasIpSource(unit = {}) {
+  const assets = ipAdapterUnitAssetRecords(unit || {});
+  const names = Array.isArray(unit?.image_names) ? unit.image_names.filter(Boolean) : [];
+  return Boolean(assets.length || names.length || String(unit?.image_name || '').trim());
+}
+
+function previewReferenceForgeSharedCapacity(providerId = '') {
+  if (normalizeRouteBackend(providerId || activeImageProfile()?.provider_id || '') !== 'forge') return 0;
+  const mode = ['generate', 'txt2img'].includes(String(getImageWorkflowMode() || 'generate')) ? 'txt2img' : 'img2img';
+  const controlStatus = controlNetSettings().map_status?.node_status || {};
+  const ipStatus = ipAdapterNodeStatus();
+  const controlSlots = controlStatus.unit_slots_by_mode || {};
+  const ipSlots = ipStatus.unit_slots_by_mode || {};
+  return Math.max(
+    Number(controlSlots[mode] || controlStatus.max_units || 0) || 0,
+    Number(ipSlots[mode] || ipStatus.max_units || 0) || 0,
+    Number(controlNetForgePolicy()?.max_units || 0) || 0,
+  );
+}
+
+function previewReferenceForgeOccupiedUnitCount() {
+  const controlCount = (controlNetSettings().units || []).filter(previewReferenceUnitHasControlSource).length;
+  const ipCount = (ipAdapterSettings().units || []).filter(previewReferenceUnitHasIpSource).length;
+  return controlCount + ipCount;
+}
+
+function assertPreviewReferenceUnitCapacity(evaluation = {}) {
+  if (normalizeRouteBackend(evaluation.providerId || evaluation.provider_id || '') !== 'forge') return;
+  const maxUnits = previewReferenceForgeSharedCapacity(evaluation.providerId || evaluation.provider_id || '');
+  if (maxUnits > 0 && previewReferenceForgeOccupiedUnitCount() >= maxUnits) {
+    throw new Error(`Forge ControlNet and IP-Adapter share ${maxUnits} reference unit slot${maxUnits === 1 ? '' : 's'} for this mode. Free an occupied unit before adding another reference.`);
+  }
+}
+
+function openPreviewReferencePanel(extensionId = '') {
+  requestAnimationFrame(() => {
+    const selector = `[data-extension-id="${String(extensionId || '').replace(/"/g, '')}"]`;
+    const panel = document.querySelector(selector)
+      || (extensionId === CONTROLNET_EXTENSION_ID ? document.getElementById('controlNetEnabled')?.closest('.neo-extension-card') : null)
+      || (extensionId === IP_ADAPTER_EXTENSION_ID ? document.getElementById('ipAdapterEnabled')?.closest('.neo-extension-card') : null);
+    panel?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function controlNetPreviewActionSourceReference(source = {}) {
-  // ControlNet's UI/source box is user-facing, so prefer a readable Neo URL
-  // for preview-action handoff. Keep path/filename fallbacks for saved-output
-  // records that only expose storage refs.
-  return String(source.url || source.view_url || source.preview_url || source.path || source.saved_path || source.filename || source.saved_filename || source.file_id || source.output_id || '').trim();
+  // Use the Neo-owned/materialized path as execution authority. A browser URL
+  // remains preview-only so backend validation can prove source/asset identity.
+  return previewActionSourceReference(source);
 }
 
 function controlNetPreviewActionUnitPatch(source = {}) {
@@ -13359,7 +14460,7 @@ function controlNetPreviewActionUnitPatch(source = {}) {
   const previewUrl = controlNetPreviewUrl(preview) || controlNetPreviewUrl(ref) || preview;
   const asset = {
     ref,
-    asset_id: source.file_id || source.output_id || source.result_id || '',
+    asset_id: source.file_id || source.output_id || source.result_id || source.source_id || '',
     filename,
     stored_filename: source.saved_filename || source.filename || '',
     path: source.path || source.saved_path || '',
@@ -13383,36 +14484,19 @@ function controlNetPreviewActionUnitPatch(source = {}) {
     image_name: filename,
     input_image: ref,
     input_image_url: previewUrl || preview || ref,
-    preview_action_source: {
-      schema_version: 1,
-      action_id: 'extension.controlnet',
-      action_type: 'controlnet_reference',
-      source_output_id: source.output_id || source.file_id || '',
-      source_file_id: source.file_id || '',
-      source_job_id: source.job_id || '',
-      source_filename: filename,
-      source_url: source.url || source.view_url || '',
-      parent_output_id: source.parent_output_id || '',
-      parent_job_id: source.parent_job_id || '',
-      preserve_prompt_context: false,
-      preserve_reference_context: false,
-      created_at: new Date().toISOString(),
-    },
   };
 }
 
 function controlNetFirstEmptySourceUnitIndex(units = []) {
-  return units.findIndex((unit) => {
-    const hasSource = String(
-      unit.control_image || unit.source_image || unit.image || unit.input_image || unit.control_image_url || unit.source_image_url || ''
-    ).trim();
-    return !hasSource && !String(unit.generated_map || '').trim();
-  });
+  return units.findIndex((unit) => !previewReferenceUnitHasControlSource(unit));
 }
 
-function previewActionStageControlNetSource(source = {}, { renderPanel = true } = {}) {
-  if (!previewActionHasSource(source)) throw new Error(source.missing_reason || 'No preview output is selected yet.');
-  const ref = previewActionSourceReference(source);
+async function previewActionStageControlNetSource(source = {}, { action = null, evaluation = null, renderPanel = true } = {}) {
+  const canonicalAction = action || imagePreviewActionById('extension.controlnet') || {};
+  const providerEvaluation = evaluation || previewReferenceActionEvaluation(canonicalAction, source);
+  const materializedSource = await materializePreviewActionSource(source);
+  await ensurePreviewReferenceCatalogs(providerEvaluation.profileId);
+  const ref = previewActionSourceReference(materializedSource);
   if (!ref) throw new Error('Could not resolve a safe source reference for ControlNet.');
   const settings = controlNetSettings();
   const baseUnits = Array.isArray(settings.units) && settings.units.length ? settings.units.map((unit) => ({ ...unit })) : [{ ...CONTROLNET_DEFAULT_UNIT }];
@@ -13423,23 +14507,36 @@ function previewActionStageControlNetSource(source = {}, { renderPanel = true } 
     createdUnit = true;
     baseUnits.push({ ...CONTROLNET_DEFAULT_UNIT, uid: `unit_${targetIndex + 1}` });
   }
-  const patch = controlNetPreviewActionUnitPatch(source);
-  const nextUnits = baseUnits.map((unit, index) => index === targetIndex ? { ...unit, ...patch } : unit);
+  assertPreviewReferenceUnitCapacity(providerEvaluation);
+  const targetUnit = baseUnits[targetIndex] || {};
+  const targetUnitId = String(targetUnit.uid || `unit_${targetIndex + 1}`);
+  const handoff = buildPreviewReferenceHandoffContract(canonicalAction, providerEvaluation, materializedSource, {
+    extensionId: CONTROLNET_EXTENSION_ID,
+    kind: 'controlnet_unit',
+    unitId: targetUnitId,
+    unitIndex: targetIndex,
+  });
+  const patch = controlNetPreviewActionUnitPatch(materializedSource);
+  const nextUnits = baseUnits.map((unit, index) => index === targetIndex ? { ...unit, ...patch, uid: targetUnitId } : unit);
   state.imageDraft[CONTROLNET_EXTENSION_ID] = {
     ...settings,
     enabled: true,
     units: nextUnits,
-    preview_action_last_source: patch.preview_action_source,
+    preview_reference_handoff: handoff,
+    preview_action_last_source: handoff.source,
     preview_action_last_unit_index: targetIndex,
   };
   setSurfaceWorkspaceAppId('image', 'reference');
   saveUiState();
   setWorkflowExtensionApplied(CONTROLNET_EXTENSION_ID, true);
-  const message = `${previewActionSourceName(source)} sent to ControlNet unit ${targetIndex + 1}${createdUnit ? ' (new unit)' : ''}. Confirm model/preprocessor/strength next.`;
+  const message = `${previewActionSourceName(materializedSource)} sent to ControlNet unit ${targetIndex + 1}${createdUnit ? ' (new unit)' : ''} for ${providerEvaluation.providerId || 'the selected provider'}. Confirm model, preprocessor, and strength next.`;
   setWorkspaceProgress(message, 100, { allowBackwards: true });
   setWorkspaceStatus(message, 'success');
-  if (renderPanel) render();
-  return { unit_index: targetIndex, created_unit: createdUnit, source_ref: ref };
+  if (renderPanel) {
+    render();
+    openPreviewReferencePanel(CONTROLNET_EXTENSION_ID);
+  }
+  return { unit_index: targetIndex, unit_id: targetUnitId, created_unit: createdUnit, source_ref: ref, handoff };
 }
 
 function ipAdapterPreviewActionAsset(source = {}) {
@@ -13448,28 +14545,13 @@ function ipAdapterPreviewActionAsset(source = {}) {
   const filename = previewActionSourceName(source);
   return {
     ref,
-    asset_id: source.file_id || source.output_id || source.result_id || '',
+    asset_id: source.file_id || source.output_id || source.result_id || source.source_id || '',
     filename,
     stored_filename: source.saved_filename || source.filename || '',
     path: source.path || source.saved_path || '',
     url: source.url || source.view_url || '',
     preview_url: ipAdapterPreviewUrl(preview) || ipAdapterPreviewUrl(ref) || preview,
     storage: ref.startsWith('/api/') || preview.startsWith('/api/') ? 'neo_data' : 'preview_action_source',
-    preview_action_source: {
-      schema_version: 1,
-      action_id: 'extension.ip_adapter',
-      action_type: 'ip_adapter_reference',
-      source_output_id: source.output_id || source.file_id || '',
-      source_file_id: source.file_id || '',
-      source_job_id: source.job_id || '',
-      source_filename: filename,
-      source_url: source.url || source.view_url || '',
-      parent_output_id: source.parent_output_id || '',
-      parent_job_id: source.parent_job_id || '',
-      preserve_prompt_context: false,
-      preserve_reference_context: false,
-      created_at: new Date().toISOString(),
-    },
   };
 }
 
@@ -13485,21 +14567,19 @@ function ipAdapterPreviewActionUnitPatch(source = {}) {
     image_names: imageNames,
     image_name: imageNames[0] || '',
     image_preview: asset.preview_url || ipAdapterPreviewUrl(imageNames[0] || '') || '',
-    preview_action_source: asset.preview_action_source,
   };
 }
 
 function ipAdapterFirstEmptyReferenceUnitIndex(units = []) {
-  return units.findIndex((unit) => {
-    const assets = ipAdapterUnitAssetRecords(unit || {});
-    const names = Array.isArray(unit?.image_names) ? unit.image_names.filter(Boolean) : [];
-    return !assets.length && !names.length && !String(unit?.image_name || '').trim();
-  });
+  return units.findIndex((unit) => !previewReferenceUnitHasIpSource(unit));
 }
 
-function previewActionStageIpAdapterSource(source = {}, { renderPanel = true } = {}) {
-  if (!previewActionHasSource(source)) throw new Error(source.missing_reason || 'No preview output is selected yet.');
-  const ref = previewActionSourceReference(source);
+async function previewActionStageIpAdapterSource(source = {}, { action = null, evaluation = null, renderPanel = true } = {}) {
+  const canonicalAction = action || imagePreviewActionById('extension.ip_adapter') || {};
+  const providerEvaluation = evaluation || previewReferenceActionEvaluation(canonicalAction, source);
+  const materializedSource = await materializePreviewActionSource(source);
+  await ensurePreviewReferenceCatalogs(providerEvaluation.profileId);
+  const ref = previewActionSourceReference(materializedSource);
   if (!ref) throw new Error('Could not resolve a safe source reference for IPAdapter.');
   const settings = ipAdapterSettings();
   const baseUnits = Array.isArray(settings.units) && settings.units.length ? settings.units.map((unit, index) => ipAdapterCloneUnit(unit, index)) : [{ ...IP_ADAPTER_DEFAULT_UNIT }];
@@ -13510,23 +14590,36 @@ function previewActionStageIpAdapterSource(source = {}, { renderPanel = true } =
     createdUnit = true;
     baseUnits.push(ipAdapterCloneUnit({ ...IP_ADAPTER_DEFAULT_UNIT, uid: ipAdapterNextUid(baseUnits), enabled: true }, targetIndex));
   }
-  const patch = ipAdapterPreviewActionUnitPatch(source);
-  const nextUnits = baseUnits.map((unit, index) => index === targetIndex ? ipAdapterCloneUnit({ ...unit, ...patch }, index) : unit);
+  assertPreviewReferenceUnitCapacity(providerEvaluation);
+  const targetUnit = baseUnits[targetIndex] || {};
+  const targetUnitId = String(targetUnit.uid || ipAdapterNextUid(baseUnits.slice(0, targetIndex)));
+  const handoff = buildPreviewReferenceHandoffContract(canonicalAction, providerEvaluation, materializedSource, {
+    extensionId: IP_ADAPTER_EXTENSION_ID,
+    kind: 'ip_adapter_unit',
+    unitId: targetUnitId,
+    unitIndex: targetIndex,
+  });
+  const patch = ipAdapterPreviewActionUnitPatch(materializedSource);
+  const nextUnits = baseUnits.map((unit, index) => index === targetIndex ? ipAdapterCloneUnit({ ...unit, ...patch, uid: targetUnitId }, index) : unit);
   state.imageDraft[IP_ADAPTER_EXTENSION_ID] = {
     ...settings,
     enabled: true,
     units: ipAdapterNormalizeUiUnits(nextUnits),
-    preview_action_last_source: patch.preview_action_source,
+    preview_reference_handoff: handoff,
+    preview_action_last_source: handoff.source,
     preview_action_last_unit_index: targetIndex,
   };
   setSurfaceWorkspaceAppId('image', 'reference');
   saveUiState();
   setWorkflowExtensionApplied(IP_ADAPTER_EXTENSION_ID, true);
-  const message = `${previewActionSourceName(source)} sent to IPAdapter unit ${targetIndex + 1}${createdUnit ? ' (new unit)' : ''}. Confirm mode/model/CLIP Vision next.`;
+  const message = `${previewActionSourceName(materializedSource)} sent to IPAdapter unit ${targetIndex + 1}${createdUnit ? ' (new unit)' : ''} for ${providerEvaluation.providerId || 'the selected provider'}. Confirm mode and model next.`;
   setWorkspaceProgress(message, 100, { allowBackwards: true });
   setWorkspaceStatus(message, 'success');
-  if (renderPanel) render();
-  return { unit_index: targetIndex, created_unit: createdUnit, source_ref: ref };
+  if (renderPanel) {
+    render();
+    openPreviewReferencePanel(IP_ADAPTER_EXTENSION_ID);
+  }
+  return { unit_index: targetIndex, unit_id: targetUnitId, created_unit: createdUnit, source_ref: ref, handoff };
 }
 
 
@@ -13727,6 +14820,18 @@ function identityRescuePreviewActionSourcePayload(source = {}) {
 function identityRescueUnitPatch(source = {}) {
   const asset = ipAdapterPreviewActionAsset(source);
   if (!asset.ref) throw new Error('Could not resolve a safe source reference for Identity Rescue.');
+  const readiness = ipAdapterNodeStatus();
+  if (activeRouteBackend() === 'forge' && readiness.faceid_available !== true) {
+    throw new Error(readiness.summary || 'Forge Identity Rescue requires a live-verified FaceID model and InsightFace preprocessor pair.');
+  }
+  const routeFamily = String(ipAdapterActiveRoute().family || '').toLowerCase();
+  const faceIdRecord = ipAdapterCatalogModelRecords('faceid')
+    .map((record) => ({ record, model: ipAdapterClassifyFaceIdModel(record?.name ?? record?.id ?? record?.value ?? record) }))
+    .find((item) => item.model?.name && (!routeFamily || !item.model.family || item.model.family === routeFamily));
+  const faceIdModel = String(faceIdRecord?.model?.name || '').trim();
+  if (!faceIdModel) throw new Error(`No compatible FaceID model is available for the active ${routeFamily ? routeFamily.toUpperCase() : 'image'} route.`);
+  const variant = String(faceIdRecord?.model?.variant || '').toLowerCase();
+  const preset = variant === 'faceid' ? 'FACEID' : (variant === 'faceid_portrait_unnorm' ? 'FACEID PORTRAIT UNNORM' : 'FACEID PLUS V2');
   const previewActionSource = identityRescuePreviewActionSourcePayload(source);
   return {
     enabled: true,
@@ -13735,7 +14840,8 @@ function identityRescueUnitPatch(source = {}) {
     image_names: [asset.ref],
     image_name: asset.ref,
     image_preview: asset.preview_url || ipAdapterPreviewUrl(asset.ref) || '',
-    faceid_preset: 'FACEID PLUS V2',
+    faceid_model: faceIdModel,
+    faceid_preset: preset,
     faceid_provider: 'CUDA',
     faceid_lora_strength: 0.75,
     weight: 1.0,
@@ -13853,7 +14959,7 @@ async function imageUpscaleFileFromUrl(url, label = 'selected-output.png') {
   const safeName = String(label || 'selected-output.png').split('/').pop().replace(/[^a-z0-9_.-]/gi, '_') || 'selected-output.png';
   return new File([blob], safeName.includes('.') ? safeName : `${safeName}.png`, { type: blob.type || 'image/png' });
 }
-async function imageUpscaleQueueFiles(files = [], sourceLabel = 'uploaded batch') {
+async function imageUpscaleQueueFiles(files = [], sourceLabel = 'uploaded batch', derivedAction = null) {
   const route = imageUpscaleActiveRoute(null);
   let settings = imageUpscaleSettings();
   if (!IMAGE_UPSCALE_ACTIVE_ROUTE_STATES.includes(route.route_state)) throw new Error(route.reason || 'Image Upscale is gated for this provider.');
@@ -13868,9 +14974,15 @@ async function imageUpscaleQueueFiles(files = [], sourceLabel = 'uploaded batch'
     }
   }
   const clean = imageUpscaleCleanParams(settings);
-  if (clean.restore_assist === 'codeformer' && !clean.restore_model) throw new Error('Choose a CodeFormer restore model before queueing.');
-  const profile = imageUpscaleComfyBackendProfile();
-  if (!imageUpscaleIsComfyProfile(profile)) throw new Error('Image Upscale needs a ComfyUI or ComfyUI Portable backend profile. Select/connect one in Admin > Backends.');
+  const profile = imageUpscaleBackendProfile();
+  const selectedProfileId = String(profile?.profile_id || '');
+  const selectedProviderId = String(profile?.provider_id || '');
+  const forgeUpscale = imageUpscaleIsForgeProfile(profile);
+  if (clean.restore_assist === 'codeformer' && !forgeUpscale && !clean.restore_model) throw new Error('Choose a CodeFormer restore model before queueing.');
+  if (!imageUpscaleIsSupportedProfile(profile)) throw new Error('Image Upscale needs a selected ComfyUI or Forge Neo backend profile. Select/connect one in Admin > Backends.');
+  if (!['connected', 'connected_with_warnings'].includes(imageUpscaleProfileRuntimeStatus(profile))) throw new Error(`The selected Image profile is not connected: ${imageUpscaleBackendLabel(profile)}.`);
+  if (imageUpscaleModelCatalogState.loaded && imageUpscaleModelCatalogState.profile_id && imageUpscaleModelCatalogState.profile_id !== selectedProfileId) throw new Error('Image Upscale catalog is stale for another backend profile. Refresh the selected profile catalog.');
+  if (forgeUpscale && clean.upscale_engine === 'seedvr2') throw new Error('SeedVR2 is Comfy-only. Choose the Basic / Forge Extras engine for this Forge profile.');
   const form = new FormData();
   form.append('profile_id', profile?.profile_id || '');
   form.append('settings_json', JSON.stringify({
@@ -13888,18 +15000,27 @@ async function imageUpscaleQueueFiles(files = [], sourceLabel = 'uploaded batch'
     image_upscale_restore_fidelity: clean.restore_fidelity ?? '',
     image_upscale_restore_detection: clean.restore_detection || '',
     source_mode: sourceLabel,
+    ...(derivedAction && typeof derivedAction === 'object' ? {
+      _neo_derived_action: derivedAction,
+      _neo_source_output_id: derivedAction.source_output_id || '',
+      _neo_parent_output_id: derivedAction.parent_output_id || '',
+    } : {}),
   }));
   list.forEach((file) => form.append('image_files', file, file.name || 'image.png'));
+  const currentProfileBeforeQueue = imageUpscaleBackendProfile();
+  if (String(currentProfileBeforeQueue?.profile_id || '') !== selectedProfileId || String(currentProfileBeforeQueue?.provider_id || '') !== selectedProviderId) throw new Error('Selected Image provider changed before Image Upscale submission. Review the settings and run again.');
   imageUpscaleStatus(`Queueing ${list.length} Image Upscale job(s)…`);
   const response = await fetch('/api/extensions/image-upscale/queue', { method: 'POST', body: form });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || payload.error || 'Image Upscale queue failed.');
+  const currentProfileAfterQueue = imageUpscaleBackendProfile();
+  if (String(currentProfileAfterQueue?.profile_id || '') !== selectedProfileId || String(currentProfileAfterQueue?.provider_id || '') !== selectedProviderId) throw new Error('Selected Image provider changed while Image Upscale was queueing. Neo rejected the cross-provider result handoff.');
   const queued = Number(payload.queued_count ?? payload.jobs?.length ?? list.length);
   const failed = Number(payload.failed_count ?? payload.failed?.length ?? 0);
   imageUpscaleStatus(failed ? `Queued ${queued}, failed ${failed}. Starting poll for first completed item…` : `Queued ${queued} Image Upscale job(s). Running…`);
   recordMemoryEvent('image.image_upscale.queued', 'image', { extension_id: IMAGE_UPSCALE_EXTENSION_ID, queued_count: queued, failed_count: failed, source: sourceLabel });
   const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-  await imageUpscaleActivateQueuedJobs(jobs, profile, payload);
+  await imageUpscaleActivateQueuedJobs(jobs, profile, { ...payload, derived_action: derivedAction });
   return payload;
 }
 async function imageUpscaleActivateQueuedJobs(jobs = [], profile, payload = {}) {
@@ -13920,7 +15041,7 @@ async function imageUpscaleActivateQueuedJobs(jobs = [], profile, payload = {}) 
     const job = runnable[index];
     try {
       const result = await imageUpscaleActivateQueuedJob(job, profile, payload, { index: index + 1, total: runnable.length });
-      addOutputs(result?.outputs || state.imageResults || []);
+      addOutputs(imageOutputsWithLineage(result?.outputs || state.imageResults || [], payload.derived_action || null, result || job));
       state.imageGenerationProgress = { ...(state.imageGenerationProgress || {}), batchTotal: runnable.length, batchDone: index + 1 };
       setWorkspaceProgress(`Image Upscale batch progress: ${index + 1}/${runnable.length}`, Math.min(95, Math.round(((index + 1) / runnable.length) * 100)), { batchTotal: runnable.length, batchDone: index + 1, allowBackwards: true });
     } catch (error) {
@@ -13968,7 +15089,7 @@ async function imageUpscaleActivateQueuedJob(job, profile, payload = {}, batch =
   if (batchTotal <= 1) imageUpscaleStatus('Image Upscale completed. Output added to Results.');
   return result || null;
 }
-async function imageUpscaleQueueSelectedResult() {
+async function imageUpscaleQueueSelectedResult(derivedAction = null) {
   const uploaded = imageUpscaleStagedFileList();
   // V1 parity safety + user-intent lock: once a source file is staged, do not
   // silently grab the current preview/live result. The preview may now be the
@@ -13976,7 +15097,7 @@ async function imageUpscaleQueueSelectedResult() {
   // image and leave the newly uploaded file unused.
   if (uploaded.length === 1) {
     imageUpscaleStatus('Using the staged source image, not the current preview.');
-    return imageUpscaleQueueFiles(uploaded, 'single-upload-staged-source');
+    return imageUpscaleQueueFiles(uploaded, 'single-upload-staged-source', derivedAction);
   }
   if (uploaded.length > 1) throw new Error('Multiple source images are staged. Use Run uploaded batch so each uploaded file is queued.');
   if (imageUpscaleStagedPreviewSource) {
@@ -13984,14 +15105,14 @@ async function imageUpscaleQueueSelectedResult() {
     if (!stagedUrl) throw new Error('The staged preview source has no readable URL. Clear it and stage the output again.');
     imageUpscaleStatus(`Using staged preview source: ${imageUpscaleStagedPreviewSourceLabel()}.`);
     const file = await imageUpscaleFileFromUrl(stagedUrl, imageUpscaleStagedPreviewSourceLabel() || 'selected-output.png');
-    return imageUpscaleQueueFiles([file], 'preview-action-staged-output');
+    return imageUpscaleQueueFiles([file], 'preview-action-staged-output', derivedAction);
   }
 
   const candidate = imageUpscaleCurrentOutputCandidate();
   if (!candidate.url) throw new Error('No selected result found. Generate first or upload an image.');
   try {
     const file = await imageUpscaleFileFromUrl(candidate.url, candidate.label || 'selected-output.png');
-    return imageUpscaleQueueFiles([file], 'selected-result');
+    return imageUpscaleQueueFiles([file], 'selected-result', derivedAction);
   } catch (error) {
     throw error;
   }
@@ -14003,6 +15124,8 @@ function imageUpscalePanel(record) {
   const route = imageUpscaleActiveRoute(record);
   if (!imageUpscaleRouteVisible(route)) return null;
   const settings = imageUpscaleSettings();
+  const upscaleProfile = imageUpscaleBackendProfile();
+  const forgeUpscale = imageUpscaleIsForgeProfile(upscaleProfile);
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
   const controlsEnabled = imageUpscaleControlsEnabled(route);
@@ -14011,28 +15134,40 @@ function imageUpscalePanel(record) {
   const status = locked ? policy.badge : (settings.enabled ? 'Enabled' : 'Disabled');
   const profileOptions = [{ id: 'custom', label: 'Custom' }, ...Object.entries(IMAGE_UPSCALE_PROFILE_PRESETS).map(([id, preset]) => ({ id, label: preset.label }))];
   const resizeOptions = ['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact'].map((id) => ({ id, label: id }));
-  const engineOptions = [{ id: 'basic', label: 'Basic / ESRGAN / interpolation' }, { id: 'seedvr2', label: 'SeedVR2 experimental' }];
-  const restoreOptions = [{ id: 'off', label: 'Off' }, { id: 'codeformer', label: 'CodeFormer restore' }];
-  const seedvr2Active = settings.upscale_engine === 'seedvr2';
+  const engineOptions = forgeUpscale ? [{ id: 'basic', label: 'Forge Extras upscale' }] : [{ id: 'basic', label: 'Basic / ESRGAN / interpolation' }, { id: 'seedvr2', label: 'SeedVR2 experimental' }];
+  const restoreOptions = [{ id: 'off', label: 'Off' }];
+  if (forgeUpscale) {
+    if (imageUpscaleModelCatalogState.supports_codeformer) restoreOptions.push({ id: 'codeformer', label: 'Forge CodeFormer' });
+    if (imageUpscaleModelCatalogState.supports_gfpgan) restoreOptions.push({ id: 'gfpgan', label: 'Forge GFPGAN' });
+  } else {
+    restoreOptions.push({ id: 'codeformer', label: 'CodeFormer restore' });
+  }
+  const seedvr2Active = !forgeUpscale && settings.upscale_engine === 'seedvr2';
   const seedvr2AlphaMode = imageUpscaleNormalizeSeedVR2AlphaMode(settings.seedvr2_alpha_mode);
   const seedvr2AlphaStatus = imageUpscaleSeedVR2AlphaStatus(settings);
   const seedvr2AlphaRouteExpected = seedvr2Active && (seedvr2AlphaMode === 'preserve' || (seedvr2AlphaMode === 'auto' && Boolean(settings.seedvr2_source_has_transparency)));
   const effectiveRestoreAssist = seedvr2AlphaRouteExpected ? 'off' : settings.restore_assist;
-  const restoreActive = effectiveRestoreAssist === 'codeformer';
+  const restoreActive = effectiveRestoreAssist === 'codeformer' || effectiveRestoreAssist === 'gfpgan';
   const seedvr2AutoCodeFormerNotice = seedvr2Active && seedvr2AlphaMode === 'auto' && settings.restore_assist === 'codeformer' && !seedvr2AlphaRouteExpected;
-  if (!imageUpscaleModelCatalogState.loaded && !imageUpscaleModelCatalogState.loading) setTimeout(() => imageUpscaleRefreshModelCatalog({ silent: true }), 0);
-  const details = compact ? '' : `<p class="neo-muted">Standalone finish utility: upload or reuse an existing output, then queue a Comfy image upscale graph. No prompt context, no KSampler, no diffusion refine pass.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
+  if ((!imageUpscaleModelCatalogState.loaded || imageUpscaleModelCatalogState.profile_id !== String(upscaleProfile?.profile_id || '')) && !imageUpscaleModelCatalogState.loading) setTimeout(() => imageUpscaleRefreshModelCatalog({ silent: true }), 0);
+  const details = compact ? '' : `<p class="neo-muted">Standalone finish utility: upload or reuse an existing output, then ${forgeUpscale ? 'run Forge Extras' : 'queue a Comfy image upscale graph'}. No prompt context or diffusion generation route is required.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
   const compactControls = compact ? ' image-upscale-compact' : '';
   const stagedCount = imageUpscaleStagedFiles.length;
   const stagedPreviewLabel = imageUpscaleStagedPreviewSourceLabel();
   const sourceHelp = stagedCount ? `${stagedCount} source image(s) staged` : (stagedPreviewLabel ? `Preview source staged: ${stagedPreviewLabel}` : 'Drag image(s) here or click to choose files');
   const seedvr2Size = imageUpscaleComputedSeedVR2Sizing(settings);
   const seedvr2SizePreview = seedvr2Active ? `<div class="neo-image-upscale-size-preview"><strong>Computed output</strong><span>${escapeHtml(imageUpscaleSeedVR2SizingLabel(settings))}</span>${seedvr2Size.warning ? `<small>⚠️ ${escapeHtml(seedvr2Size.warning)}</small>` : ''}</div>` : '';
-  const summary = settings._ui_status || (seedvr2Active ? imageUpscaleSeedVR2SizingLabel(settings) : (settings.upscale_model ? `${settings.upscale_model} · ${settings.scale}×` : `Interpolation only · ${settings.scale}×`));
+  const summary = settings._ui_status || (seedvr2Active
+    ? imageUpscaleSeedVR2SizingLabel(settings)
+    : (forgeUpscale && settings.forge_resize_mode === 'exact'
+      ? `${settings.upscale_model || 'Forge upscaler'} · ${settings.target_width}×${settings.target_height}`
+      : (settings.upscale_model ? `${settings.upscale_model} · ${settings.scale}×` : `Interpolation only · ${settings.scale}×`)));
   const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `State: ${route.route_state}`, 'Mount: image.finish.image_upscale', 'Endpoint: /api/extensions/image-upscale/queue', 'UI controls: ready'])}</div><pre>${escapeHtml(JSON.stringify(imageUpscaleUiPreview(record), null, 2))}</pre></div>` : '';
-  const upscaleCatalogProfile = imageUpscaleComfyBackendProfile();
-  const upscaleCatalogBackend = imageUpscaleComfyBackendLabel(upscaleCatalogProfile);
-  const codeFormerHelp = restoreActive ? `<div class="neo-help-card neo-image-upscale-help"><strong>CodeFormer model folder</strong><span>Scanning via ${escapeHtml(upscaleCatalogBackend)}. Put CodeFormer models in <code>ComfyUI/models/facerestore_models/</code>. ${escapeHtml(imageUpscaleCatalogSummary())}</span><button class="btn btn-small secondary" id="imageUpscaleRefreshModels" type="button" ${locked ? 'disabled' : ''}>Refresh models</button></div>` : '';
+  const upscaleCatalogProfile = imageUpscaleBackendProfile();
+  const upscaleCatalogBackend = imageUpscaleBackendLabel(upscaleCatalogProfile);
+  const codeFormerHelp = restoreActive ? (forgeUpscale
+    ? `<div class="neo-help-card neo-image-upscale-help"><strong>Forge face restoration</strong><span>${escapeHtml(effectiveRestoreAssist === 'gfpgan' ? 'GFPGAN' : 'CodeFormer')} was reported by this selected Forge profile. Neo maps visibility through Forge Extras; no Comfy restore model is used.</span></div>`
+    : `<div class="neo-help-card neo-image-upscale-help"><strong>CodeFormer model folder</strong><span>Scanning via ${escapeHtml(upscaleCatalogBackend)}. Put CodeFormer models in <code>ComfyUI/models/facerestore_models/</code>. ${escapeHtml(imageUpscaleCatalogSummary())}</span><button class="btn btn-small secondary" id="imageUpscaleRefreshModels" type="button" ${locked ? 'disabled' : ''}>Refresh models</button></div>`) : '';
   const seedvr2Controls = seedvr2Active ? `
     <label>Transparency handling${imageUpscaleOptionSelect('imageUpscaleSeedVR2AlphaMode', imageUpscaleSeedVR2Options('alpha', seedvr2AlphaMode), seedvr2AlphaMode, locked)}</label>
     <div class="neo-image-upscale-alpha-status ${escapeAttr(seedvr2AlphaStatus.tone || '')}"><span class="neo-image-upscale-alpha-checker" aria-hidden="true"></span><div><strong>${escapeHtml(seedvr2AlphaStatus.label)}</strong><small>${escapeHtml(seedvr2AlphaStatus.detail)}</small></div></div>
@@ -14059,10 +15194,19 @@ function imageUpscalePanel(record) {
     <label class="neo-toggle-row"><input id="imageUpscaleSeedVR2Debug" type="checkbox" ${settings.seedvr2_enable_debug ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Debug logs</span></label>
     <div class="neo-help-card neo-image-upscale-help"><strong>SeedVR2 model folder</strong><span>Scanning via ${escapeHtml(upscaleCatalogBackend)}. Install <code>ComfyUI-SeedVR2_VideoUpscaler</code>. Models go in <code>ComfyUI/models/SEEDVR2/</code>. ${escapeHtml(imageUpscaleCatalogSummary())}</span><button class="btn btn-small secondary" id="imageUpscaleRefreshModels" type="button" ${locked ? 'disabled' : ''}>Refresh models</button></div>
   ` : '';
-  const basicControls = !seedvr2Active ? `
+  const forgeResizeModeOptions = [{ id: 'scale', label: 'Scale factor' }, { id: 'exact', label: 'Exact dimensions' }];
+  const forgeSecondaryOptions = [{ id: 'None', label: 'None' }, ...imageUpscaleCatalogList('upscalers', [], settings.secondary_upscale_model, 'Refresh Forge upscalers…').filter((item) => item.id && String(item.id).toLowerCase() !== String(settings.upscale_model || '').toLowerCase())];
+  const forgeControls = forgeUpscale ? `
+    <label>Resize mode${imageUpscaleOptionSelect('imageUpscaleForgeResizeMode', forgeResizeModeOptions, settings.forge_resize_mode === 'exact' ? 'exact' : 'scale', locked)}</label>
+    <label>Primary upscaler${imageUpscaleOptionSelect('imageUpscaleModel', imageUpscaleCatalogList('upscalers', [], settings.upscale_model, 'Refresh Forge upscalers…'), settings.upscale_model || '', locked)}</label>
+    ${imageUpscaleModelCatalogState.supports_secondary_upscaler ? `<label>Secondary upscaler${imageUpscaleOptionSelect('imageUpscaleSecondaryModel', forgeSecondaryOptions, settings.secondary_upscale_model || 'None', locked)}</label><label>Secondary visibility<input id="imageUpscaleSecondaryVisibility" type="number" min="0" max="1" step="0.05" value="${escapeAttr(settings.secondary_visibility)}" ${locked ? 'disabled' : ''}></label>` : ''}
+    ${settings.forge_resize_mode === 'exact' ? `<label>Target width<input id="imageUpscaleTargetWidth" type="number" min="1" max="16384" step="1" value="${escapeAttr(settings.target_width)}" ${locked ? 'disabled' : ''}></label><label>Target height<input id="imageUpscaleTargetHeight" type="number" min="1" max="16384" step="1" value="${escapeAttr(settings.target_height)}" ${locked ? 'disabled' : ''}></label>${imageUpscaleModelCatalogState.supports_crop_to_fit ? `<label class="neo-toggle-row"><input id="imageUpscaleCropToFit" type="checkbox" ${settings.upscaling_crop ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Crop to exact size</span></label>` : ''}` : ''}
+    <div class="neo-help-card neo-image-upscale-help"><strong>Forge Extras</strong><span>${escapeHtml(imageUpscaleCatalogSummary())}. This is a pixel upscaler and is separate from Forge native High-Res Fix.</span><button class="btn btn-small secondary" id="imageUpscaleRefreshModels" type="button" ${locked ? 'disabled' : ''}>Refresh Forge catalog</button></div>
+  ` : '';
+  const basicControls = !seedvr2Active ? (forgeUpscale ? forgeControls : `
     <label>Upscale model${imageUpscaleOptionSelect('imageUpscaleModel', highResLabUpscalerOptions(settings.upscale_model), settings.upscale_model || '', locked)}</label>
     <label>Resize method${imageUpscaleOptionSelect('imageUpscaleResizeMethod', resizeOptions, settings.resize_method, locked)}</label>
-  ` : '';
+  `) : '';
   const advancedControls = compact ? '' : `
     <label>Upscale engine${imageUpscaleOptionSelect('imageUpscaleEngine', engineOptions, settings.upscale_engine || 'basic', locked)}</label>
     ${basicControls}
@@ -14070,7 +15214,7 @@ function imageUpscalePanel(record) {
     <label>Restore assist${imageUpscaleOptionSelect('imageUpscaleRestoreAssist', restoreOptions, effectiveRestoreAssist, locked || seedvr2AlphaRouteExpected)}</label>
     ${seedvr2AlphaRouteExpected ? `<div class="neo-help-card neo-image-upscale-help neo-image-upscale-alpha-warning"><strong>Restore Assist paused for transparency</strong><span>CodeFormer is disabled for this RGBA job because the current restore route is RGB-only. Choose <em>Discard transparency</em> only when an opaque result is intentional.</span></div>` : ''}
     ${seedvr2AutoCodeFormerNotice ? `<div class="neo-help-card neo-image-upscale-help"><strong>Per-image restore safety</strong><span>Auto Preserve keeps CodeFormer for opaque sources and skips it only for files where the backend detects real transparency.</span></div>` : ''}
-    ${restoreActive ? `<label>CodeFormer model${imageUpscaleOptionSelect('imageUpscaleRestoreModel', imageUpscaleFaceRestoreOptions(settings.restore_model), settings.restore_model || '', locked)}</label><label>CodeFormer fidelity<input id="imageUpscaleRestoreFidelity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_fidelity)}" ${locked ? 'disabled' : ''}></label><label>Face detection${imageUpscaleOptionSelect('imageUpscaleRestoreDetection', imageUpscaleFaceDetectionOptions(settings.restore_detection || 'retinaface_resnet50'), settings.restore_detection || 'retinaface_resnet50', locked)}</label>${codeFormerHelp}` : ''}
+    ${restoreActive ? `${forgeUpscale ? '' : `<label>CodeFormer model${imageUpscaleOptionSelect('imageUpscaleRestoreModel', imageUpscaleFaceRestoreOptions(settings.restore_model), settings.restore_model || '', locked)}</label>`}${effectiveRestoreAssist === 'codeformer' ? `<label>CodeFormer fidelity<input id="imageUpscaleRestoreFidelity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_fidelity)}" ${locked ? 'disabled' : ''}></label>` : ''}<label>Restore visibility<input id="imageUpscaleRestoreVisibility" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_visibility)}" ${locked ? 'disabled' : ''}></label>${forgeUpscale ? (imageUpscaleModelCatalogState.supports_upscale_first ? `<label class="neo-toggle-row"><input id="imageUpscaleUpscaleFirst" type="checkbox" ${settings.upscale_first ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Upscale before face restoration</span></label>` : '') : `<label>Face detection${imageUpscaleOptionSelect('imageUpscaleRestoreDetection', imageUpscaleFaceDetectionOptions(settings.restore_detection || 'retinaface_resnet50'), settings.restore_detection || 'retinaface_resnet50', locked)}</label>`}${codeFormerHelp}` : ''}
   `;
   const body = `<section class="neo-image-upscale-panel" data-extension-id="${IMAGE_UPSCALE_EXTENSION_ID}" data-stage="J6" data-runtime-active="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-cfg-fix-panel__header"><div><strong>Image Upscale</strong>${!compact ? '<span class="neo-muted">Built-in Finish extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled && controlsEnabled)}<span class="neo-state-pill ${policy.tone || ''}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(policy.badge)}</span></div></header>
@@ -14087,7 +15231,7 @@ function imageUpscalePanel(record) {
     </div>
     <div class="neo-cfg-fix-control-grid neo-image-upscale-grid${compactControls}">
       <label>Preset${imageUpscaleOptionSelect('imageUpscaleProfile', profileOptions, settings.profile, locked)}</label>
-      <label>Target scale<input id="imageUpscaleScale" type="number" min="0.25" max="8" step="0.05" value="${escapeAttr(settings.scale)}" ${locked ? 'disabled' : ''}></label>
+      ${(!forgeUpscale || settings.forge_resize_mode !== 'exact') ? `<label>Target scale<input id="imageUpscaleScale" type="number" min="0.25" max="8" step="0.05" value="${escapeAttr(settings.scale)}" ${locked ? 'disabled' : ''}></label>` : ''}
       ${advancedControls}
     </div>
     <div class="neo-actions neo-image-upscale-actions"><button class="btn" id="imageUpscaleSelectedResult" type="button" ${locked ? 'disabled' : ''}>⬆️ Upscale selected result</button><button class="btn secondary" id="imageUpscaleRunBatch" type="button" ${locked ? 'disabled' : ''}>🗂️ Run uploaded batch</button></div>
@@ -16537,6 +17681,30 @@ function ipAdapterActiveRoute(record) {
   }
   return { backend, family, loader, workflow_mode: normalizedMode, route_key: routeKey, route_state: routeState, reason };
 }
+function ipAdapterSelectedProfile() {
+  const selectedId = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const profiles = backendProfilesForSurface('image');
+  if (selectedId) return profiles.find((profile) => String(profile?.profile_id || '') === selectedId) || null;
+  return activeImageProfile();
+}
+function ipAdapterProviderContext(route = {}) {
+  const profile = ipAdapterSelectedProfile();
+  const routeBackend = String(route?.backend || '').trim().toLowerCase();
+  const providerId = String(profile?.provider_id || routeBackend || '').trim().toLowerCase();
+  const providerLabel = providerId === 'forge' || routeBackend === 'forge'
+    ? 'Forge Neo'
+    : (['comfyui', 'comfyui_portable', 'comfy'].includes(providerId) || ['comfyui', 'comfyui_portable', 'comfy'].includes(routeBackend)
+      ? 'ComfyUI'
+      : (profile?.provider_label || profile?.display_name || humanize(providerId || routeBackend || 'Image provider')));
+  return {
+    profile,
+    profile_id: String(profile?.profile_id || selectedBackendProfileIdForSurface('image') || '').trim(),
+    provider_id: providerId || routeBackend,
+    provider_label: providerLabel,
+    selected_profile_only: true,
+    automatic_provider_fallback: false,
+  };
+}
 function ipAdapterRouteUiPolicy(route) {
   return IP_ADAPTER_ROUTE_UI_POLICY[route?.route_state] || IP_ADAPTER_ROUTE_UI_POLICY.planned_gated;
 }
@@ -16625,16 +17793,27 @@ function ipAdapterNodeReadiness(settings = ipAdapterSettings(), route = ipAdapte
   if (!hasChecked) stateId = 'unchecked';
   else if (route.route_state && !IP_ADAPTER_ACTIVE_STATES.includes(route.route_state)) stateId = route.route_state;
   else if (standardBlocked || faceidBlocked || readiness === 'provider_gated') {
-    stateId = 'provider_gated';
-    const missing = [...(standardBlocked ? standardMissing : []), ...(faceidBlocked ? faceidMissing : [])];
-    summary = missing.length ? `Missing Comfy nodes: ${missing.join(', ')}` : (summary || 'Required IP Adapter nodes are missing.');
+    if (faceidBlocked && !standardBlocked && status.standard_available !== false) {
+      stateId = 'partial';
+      summary = status.provider_id === 'forge'
+        ? 'Standard Forge IP-Adapter is ready. FaceID units are unavailable; switch them to Standard or disable them.'
+        : 'Standard IP Adapter is ready. FaceID nodes are unavailable; switch or disable FaceID units.';
+    } else {
+      stateId = 'provider_gated';
+      const missing = [...(standardBlocked ? standardMissing : []), ...(faceidBlocked ? faceidMissing : [])];
+      const providerLabel = status.provider_id === 'forge' ? 'Forge IP-Adapter requirements' : 'Comfy nodes';
+      summary = missing.length ? `Missing ${providerLabel}: ${missing.join(', ')}` : (summary || 'Required IP Adapter backend capability is missing.');
+    }
   } else if (readiness === 'partial') summary = summary || 'Some IP Adapter node paths are available; unavailable modes are disabled.';
-  else if (readiness === 'ready') summary = 'IP Adapter nodes are ready.';
+  else if (readiness === 'ready') summary = status.provider_id === 'forge' ? (status.summary || 'Forge IP-Adapter is ready.') : 'IP Adapter nodes are ready.';
+  const recoverableModeBlock = Boolean(faceidBlocked && !standardBlocked && status.standard_available !== false);
   return {
     ...status,
     readiness_state: stateId,
     summary,
-    blocks_active_mode: stateId === 'provider_gated',
+    blocks_active_mode: Boolean(standardBlocked || faceidBlocked),
+    locks_panel: stateId === 'provider_gated' && !recoverableModeBlock,
+    recoverable_mode_block: recoverableModeBlock,
     needs_standard: needsStandard,
     needs_faceid: needsFaceId,
     node_status_loading: Boolean(settings.node_status_loading),
@@ -16642,9 +17821,10 @@ function ipAdapterNodeReadiness(settings = ipAdapterSettings(), route = ipAdapte
 }
 function ipAdapterNodeStatusLabel(readiness = {}) {
   const stateId = readiness.readiness_state || 'unchecked';
-  if (stateId === 'ready') return 'Nodes ready';
-  if (stateId === 'partial') return 'Partial nodes';
-  if (stateId === 'provider_gated') return 'Missing nodes';
+  const forge = readiness.provider_id === 'forge';
+  if (stateId === 'ready') return forge ? 'Forge ready' : 'Nodes ready';
+  if (stateId === 'partial') return forge ? 'Partial Forge support' : 'Partial nodes';
+  if (stateId === 'provider_gated') return forge ? 'Forge capability missing' : 'Missing nodes';
   if (stateId === 'planned_gated') return 'Planned route';
   if (stateId === 'unsupported') return 'Unsupported route';
   return 'Check nodes';
@@ -16665,7 +17845,8 @@ function ipAdapterNodeReadinessPanel(readiness = {}, locked = false) {
     { label: 'FaceID', ok: readiness.faceid_available !== false, missing: missingFaceId },
     { label: 'ImageBatch', ok: readiness.image_batch_available !== false, missing: missingOptional },
   ];
-  const diagnostics = !expert ? '' : `<details class="neo-ip-adapter-node-details" open><summary>Detected Comfy node details</summary>
+  const providerLabel = readiness.provider_id === 'forge' ? 'Forge IP-Adapter capability' : 'Comfy node';
+  const diagnostics = !expert ? '' : `<details class="neo-ip-adapter-node-details" open><summary>Detected ${escapeHtml(providerLabel)} details</summary>
     <div class="neo-ip-adapter-node-grid">
       ${rows.map((row) => `<div class="neo-ip-adapter-node-row ${row.ok ? 'ready' : 'missing'}"><strong>${escapeHtml(row.label)}</strong><span>${escapeHtml(row.ok ? 'available' : `missing: ${row.missing.join(', ') || 'unknown'}`)}</span></div>`).join('')}
     </div>
@@ -16673,7 +17854,7 @@ function ipAdapterNodeReadinessPanel(readiness = {}, locked = false) {
   </details>`;
   return `<div class="neo-ip-adapter-node-readiness" data-node-readiness="${escapeAttr(readiness.readiness_state || 'unchecked')}">
     <div class="neo-extension-status-line"><span class="neo-state-pill ${escapeAttr(ipAdapterNodeStatusTone(readiness))}">${escapeHtml(ipAdapterNodeStatusLabel(readiness))}</span><span class="neo-muted">${escapeHtml(readiness.summary || 'Node status has not been checked yet.')}</span></div>
-    <button class="neo-btn secondary" type="button" id="ipAdapterCheckNodes" ${locked ? 'disabled' : ''}>${readiness.node_status_loading ? 'Checking…' : 'Check nodes / refresh dropdowns'}</button>
+    <button class="neo-btn secondary" type="button" id="ipAdapterCheckNodes" ${locked ? 'disabled' : ''}>${readiness.node_status_loading ? 'Checking…' : (readiness.provider_id === 'forge' ? 'Refresh Forge IP-Adapter catalog' : 'Check nodes / refresh dropdowns')}</button>
     <span class="neo-ip-adapter-catalog-hint">${escapeHtml(ipAdapterCatalogSummary())}</span>
     ${diagnostics}
   </div>`;
@@ -16722,7 +17903,7 @@ async function refreshIpAdapterNodeStatus(options = {}) {
     return { ok: false, profile_id: profileId, error: error.message };
   }
 }
-function ipAdapterDisplayModeProfile() {
+function ipAdapterDisplayModeProfile(route = {}) {
   const mode = state.detailMode === 'expert' ? 'expert' : (state.detailMode === 'compact' ? 'compact' : 'guided');
   return {
     mode,
@@ -16730,18 +17911,18 @@ function ipAdapterDisplayModeProfile() {
     guided: mode === 'guided',
     expert: mode === 'expert',
     show_help: mode === 'guided' || mode === 'expert',
-    show_identity: true,
+    show_identity: route.backend !== 'forge',
     show_node_readiness: true,
-    show_clip_vision: true,
+    show_clip_vision: route.backend !== 'forge',
     show_timing: true,
-    show_advanced_adapter: true,
-    show_faceid_details: true,
+    show_advanced_adapter: route.backend !== 'forge',
+    show_faceid_details: route.backend !== 'forge',
     show_route_debug: mode === 'expert',
     show_payload_debug: mode === 'expert',
   };
 }
 function ipAdapterUnitParameterProfile(unit = {}, route = {}) {
-  const display = ipAdapterDisplayModeProfile();
+  const display = ipAdapterDisplayModeProfile(route);
   const mode = unit.mode === 'faceid' ? 'faceid' : 'standard';
   const activeRoute = ipAdapterRouteControlsEnabled(route);
   return {
@@ -16767,21 +17948,22 @@ function ipAdapterOptionSelect(id, options, selected, disabled = false, attrs = 
   return `<select id="${escapeAttr(id)}" ${attrs} ${disabled ? 'disabled' : ''}>${[...injected, ...options].map((option) => `<option value="${escapeAttr(option.id)}" ${option.id === selectedValue ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`;
 }
 function ipAdapterDropdownKindConfig(kind = 'model') {
+  const forge = activeRouteBackend() === 'forge';
   if (kind === 'clip_vision') {
     return {
       inputKey: 'clip_vision',
       label: 'CLIP Vision model',
       prefix: 'Select CLIP Vision model',
-      missing: 'No CLIP Vision models found. Check ComfyUI/models/clip_vision, then Connect/Check nodes.',
+      missing: forge ? 'Forge IP-Adapter preprocessors were not discovered. Refresh the Forge profile.' : 'No CLIP Vision models found. Check ComfyUI/models/clip_vision, then Connect/Check nodes.',
       keys: ['clip_vision_models', 'clip_vision', 'clip_visions', 'clipvision', 'clip_vision_model'],
     };
   }
   if (kind === 'faceid') {
     return {
-      inputKey: 'faceid',
+      inputKey: 'ip_adapter_faceid',
       label: 'FaceID model',
       prefix: 'Select FaceID model',
-      missing: 'No FaceID models found. Check ComfyUI IPAdapter FaceID model folders, then Connect/Check nodes.',
+      missing: forge ? 'No live-compatible Forge FaceID/InstantID model and InsightFace preprocessor pair was discovered.' : 'No FaceID models found. Check ComfyUI IPAdapter FaceID model folders, then Connect/Check nodes.',
       keys: ['ip_adapter_faceid_models', 'ipadapter_faceid', 'ip_adapter_faceid', 'faceid_models'],
     };
   }
@@ -16789,7 +17971,7 @@ function ipAdapterDropdownKindConfig(kind = 'model') {
     inputKey: 'ip_adapter',
     label: 'IP Adapter model',
     prefix: 'Select IP Adapter model',
-    missing: 'No IP Adapter models found. Check ComfyUI/models/ipadapter, then Connect/Check nodes.',
+    missing: forge ? 'No compatible Forge IP-Adapter models were discovered in the ControlNet catalog.' : 'No IP Adapter models found. Check ComfyUI/models/ipadapter, then Connect/Check nodes.',
     keys: ['ip_adapter_models', 'ipadapter_models', 'ip_adapter', 'ipadapter', 'ip_adapter_model'],
   };
 }
@@ -16854,7 +18036,7 @@ function ipAdapterCatalogModelRecords(kind = 'model') {
   const catalogProfileId = String(settings.node_status?.profile_id || '').trim();
   const nodeInputs = catalogProfileId && catalogProfileId === activeProfileId ? (settings.node_status?.model_inputs || {}) : {};
   const direct = Array.isArray(nodeInputs[config.inputKey]) ? nodeInputs[config.inputKey] : [];
-  const records = direct.map((name) => ({ name, source: 'comfy_object_info_live' }));
+  const records = direct.map((name) => ({ name, source: activeRouteBackend() === 'forge' ? 'forge_controlnet_catalog_live' : 'comfy_object_info_live' }));
   if (kind === 'faceid' && Array.isArray(nodeInputs.ip_adapter)) {
     nodeInputs.ip_adapter
       .filter((name) => ipAdapterLooksLikeFaceIdModelFile(name))
@@ -17126,6 +18308,7 @@ function ipAdapterPayloadPreview(record) {
           loader: route.loader,
           workflow_mode: route.workflow_mode,
           reason: active ? '' : ipAdapterStatusLabel(route, applied, settings.units),
+          preview_reference_handoff: settings.preview_reference_handoff || null,
           ui_phase: 'I-payload-hidden-field-cleanup', // previous ui_phase: 'F-asset-picker-reference-images'; legacy markers: ui_phase: 'D-route-aware-visibility', ui_phase: 'C-multi-unit-support'
         },
       },
@@ -17148,9 +18331,11 @@ function ipAdapterValidationPreview(record) {
   cleanUnits.forEach((unit, index) => {
     if (!unit.model && unit.mode === 'standard') items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: 'IP Adapter model is not selected yet.' });
     if (!unit.faceid_model && unit.mode === 'faceid') items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].faceid_model`, message: 'FaceID model is not selected yet.' });
-    if (!unit.clip_vision) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].clip_vision`, message: 'CLIP Vision model is not selected yet.' });
+    if (route.backend !== 'forge' && !unit.clip_vision) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].clip_vision`, message: 'CLIP Vision model is not selected yet.' });
     if (!unit.image_names?.length) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'info', field: `assets.reference_images.${unit.uid}`, message: 'Attach at least one reference image before queueing.' });
-    if (unit.mode === 'faceid') {
+    if (route.backend === 'forge' && unit.image_names?.length > 1) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'error', field: `assets.reference_images.${unit.uid}`, message: 'Forge accepts one reference image per IP-Adapter unit. Add another unit for another reference.' });
+    if (route.backend === 'forge' && unit.mode === 'faceid' && ipAdapterNodeStatus(settings).faceid_available !== true) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'error', field: `inputs.units[${index}].mode`, message: 'Forge FaceID requires a live-compatible FaceID/InstantID model and InsightFace preprocessor pair.' });
+    if (unit.mode === 'faceid' && route.backend !== 'forge') {
       const contract = ipAdapterFaceIdExecutionContract(unit, route.family);
       if (!contract.ok) items.push({ extension_id: IP_ADAPTER_EXTENSION_ID, level: 'error', field: `inputs.units[${index}].faceid_execution_contract`, message: contract.message });
     }
@@ -17186,10 +18371,12 @@ function ipAdapterUnitSummary(unit) {
   const modelHint = unit.mode === 'faceid' && unit.faceid_model ? ` · ${basename(unit.faceid_model)}` : '';
   return `${unit.mode === 'faceid' ? 'FaceID' : 'Standard'} · ${count} image${count === 1 ? '' : 's'} · weight ${unit.weight ?? 1}${modelHint}`;
 }
-function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}) {
+function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}, readiness = {}) {
   const unit = { ...IP_ADAPTER_DEFAULT_UNIT, ...(row || {}) };
   const profile = ipAdapterUnitParameterProfile(unit, route);
   const mode = profile.mode;
+  const faceIdUnavailable = route.backend === 'forge' && mode === 'faceid' && readiness.faceid_available === false;
+  const fieldLocked = locked || faceIdUnavailable;
   const expert = profile.show_expert;
   const title = index === 0 ? 'Primary unit' : `Extra unit ${index + 1}`;
   const totalUnits = ipAdapterSettings().units.length;
@@ -17207,20 +18394,20 @@ function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}) {
         </div>
       </div>
     </div>
-    ${profile.show_help ? `<p class="neo-muted neo-ip-adapter-mode-help">${mode === 'faceid' ? 'FaceID locks identity using InsightFace and FaceID IP Adapter models.' : 'Standard mode transfers identity, composition, or style from reference images.'}</p>` : ''}
+    ${profile.show_help ? `<p class="neo-muted neo-ip-adapter-mode-help">${mode === 'faceid' ? 'FaceID locks identity using InsightFace and FaceID IP Adapter models.' : 'Standard mode transfers identity, composition, or style from reference images.'}</p>` : ''}${faceIdUnavailable ? `<div class="neo-extension-route-gate" data-ip-adapter-unit-recovery="faceid-to-standard"><strong>FaceID unavailable on Forge</strong><p>Switch this unit's Mode to Standard or disable the unit. Standard Forge IP-Adapter remains available.</p></div>` : ''}
     <div class="neo-ip-adapter-config-row neo-ip-adapter-config-row--primary" data-parameter-profile="${escapeAttr(mode)}">
-      <label>Mode${ipAdapterOptionSelect(`ipAdapterMode${index}`, IP_ADAPTER_MODE_OPTIONS, mode, locked, `data-ip-adapter-unit-field="mode" data-ip-adapter-unit-index="${index}"`)}</label>
-      ${profile.show_standard_model ? `<label data-ip-adapter-param="standard_model">IP Adapter model${ipAdapterOptionSelect(`ipAdapterModel${index}`, ipAdapterModelOptions('model', unit.model), unit.model || '', locked, `data-ip-adapter-unit-field="model" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
-      ${profile.show_faceid_model ? `<label data-ip-adapter-param="faceid_model">FaceID model${ipAdapterOptionSelect(`ipAdapterFaceModel${index}`, ipAdapterModelOptions('faceid', unit.faceid_model), unit.faceid_model || '', locked, `data-ip-adapter-unit-field="faceid_model" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
-      ${profile.show_faceid_preset_compact ? `<label data-ip-adapter-param="faceid_preset_compact">FaceID preset${ipAdapterOptionSelect(`ipAdapterFacePresetCompact${index}`, IP_ADAPTER_FACEID_PRESET_OPTIONS, unit.faceid_preset || 'FACEID PLUS V2', locked, `data-ip-adapter-unit-field="faceid_preset" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
-      ${profile.show_clip_vision ? `<label>CLIP Vision${ipAdapterOptionSelect(`ipAdapterClip${index}`, ipAdapterModelOptions('clip_vision', unit.clip_vision), unit.clip_vision || '', locked, `data-ip-adapter-unit-field="clip_vision" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
+      <label>Mode${ipAdapterOptionSelect(`ipAdapterMode${index}`, route.backend === 'forge' ? IP_ADAPTER_MODE_OPTIONS.filter((option) => option.id === 'standard' || readiness.faceid_available === true) : IP_ADAPTER_MODE_OPTIONS, mode, locked, `data-ip-adapter-unit-field="mode" data-ip-adapter-unit-index="${index}"`)}</label>
+      ${profile.show_standard_model ? `<label data-ip-adapter-param="standard_model">IP Adapter model${ipAdapterOptionSelect(`ipAdapterModel${index}`, ipAdapterModelOptions('model', unit.model), unit.model || '', fieldLocked, `data-ip-adapter-unit-field="model" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
+      ${profile.show_faceid_model ? `<label data-ip-adapter-param="faceid_model">FaceID model${ipAdapterOptionSelect(`ipAdapterFaceModel${index}`, ipAdapterModelOptions('faceid', unit.faceid_model), unit.faceid_model || '', fieldLocked, `data-ip-adapter-unit-field="faceid_model" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
+      ${profile.show_faceid_preset_compact ? `<label data-ip-adapter-param="faceid_preset_compact">FaceID preset${ipAdapterOptionSelect(`ipAdapterFacePresetCompact${index}`, IP_ADAPTER_FACEID_PRESET_OPTIONS, unit.faceid_preset || 'FACEID PLUS V2', fieldLocked, `data-ip-adapter-unit-field="faceid_preset" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
+      ${profile.show_clip_vision ? `<label>CLIP Vision${ipAdapterOptionSelect(`ipAdapterClip${index}`, ipAdapterModelOptions('clip_vision', unit.clip_vision), unit.clip_vision || '', fieldLocked, `data-ip-adapter-unit-field="clip_vision" data-ip-adapter-unit-index="${index}"`)}</label>` : ''}
     </div>
     ${faceIdContract ? `<p class="neo-muted neo-ip-adapter-faceid-contract" data-contract-state="${faceIdContract.ok ? 'valid' : 'blocked'}"><strong>${faceIdContract.ok ? 'Unified loader contract' : 'FaceID contract blocked'}:</strong> ${escapeHtml(faceIdContract.message)}</p>` : ''}
-    ${ipAdapterImageBox(unit, index, locked)}
+    ${ipAdapterImageBox(unit, index, fieldLocked)}
     <div class="neo-ip-adapter-config-row compact-grid">
-      <label>Weight<input type="number" min="-1" max="5" step="0.05" data-ip-adapter-unit-field="weight" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.weight ?? 1)}" ${locked ? 'disabled' : ''}></label>
-      ${profile.show_timing ? `<label>Start at<input type="number" min="0" max="1" step="0.01" data-ip-adapter-unit-field="start_at" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.start_at ?? 0)}" ${locked ? 'disabled' : ''}></label>` : ''}
-      ${profile.show_timing ? `<label>End at<input type="number" min="0" max="1" step="0.01" data-ip-adapter-unit-field="end_at" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.end_at ?? 1)}" ${locked ? 'disabled' : ''}></label>` : ''}
+      <label>Weight<input type="number" min="-1" max="5" step="0.05" data-ip-adapter-unit-field="weight" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.weight ?? 1)}" ${fieldLocked ? 'disabled' : ''}></label>
+      ${profile.show_timing ? `<label>Start at<input type="number" min="0" max="1" step="0.01" data-ip-adapter-unit-field="start_at" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.start_at ?? 0)}" ${fieldLocked ? 'disabled' : ''}></label>` : ''}
+      ${profile.show_timing ? `<label>End at<input type="number" min="0" max="1" step="0.01" data-ip-adapter-unit-field="end_at" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.end_at ?? 1)}" ${fieldLocked ? 'disabled' : ''}></label>` : ''}
     </div>
     ${!profile.show_advanced_adapter ? '' : `<div class="neo-ip-adapter-config-row" data-ip-adapter-param="adapter_advanced">
       <div class="neo-ip-adapter-row-title">Advanced IP Adapter settings</div>
@@ -17229,10 +18416,10 @@ function ipAdapterUnitHtml(row, index, locked, compact = false, route = {}) {
       <label>Embeds scaling${ipAdapterOptionSelect(`ipAdapterScaling${index}`, IP_ADAPTER_EMBEDS_SCALING_OPTIONS, unit.embeds_scaling || 'V only', locked, `data-ip-adapter-unit-field="embeds_scaling" data-ip-adapter-unit-index="${index}"`)}</label>
     </div>`}
     ${profile.show_faceid_details ? `<div class="neo-ip-adapter-faceid-row" data-ip-adapter-param="faceid">
-      <label>FaceID preset${ipAdapterOptionSelect(`ipAdapterFacePreset${index}`, IP_ADAPTER_FACEID_PRESET_OPTIONS, unit.faceid_preset || 'FACEID PLUS V2', locked, `data-ip-adapter-unit-field="faceid_preset" data-ip-adapter-unit-index="${index}"`)}</label>
+      <label>FaceID preset${ipAdapterOptionSelect(`ipAdapterFacePreset${index}`, IP_ADAPTER_FACEID_PRESET_OPTIONS, unit.faceid_preset || 'FACEID PLUS V2', fieldLocked, `data-ip-adapter-unit-field="faceid_preset" data-ip-adapter-unit-index="${index}"`)}</label>
       <label>InsightFace provider${ipAdapterOptionSelect(`ipAdapterFaceProvider${index}`, IP_ADAPTER_PROVIDER_OPTIONS, unit.faceid_provider || 'CUDA', locked, `data-ip-adapter-unit-field="faceid_provider" data-ip-adapter-unit-index="${index}"`)}</label>
-      <label>FaceID v2 weight<input type="number" min="-1" max="5" step="0.05" data-ip-adapter-unit-field="weight_faceidv2" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.weight_faceidv2 ?? unit.weight ?? 1)}" ${locked ? 'disabled' : ''}></label>
-      <label>FaceID LoRA strength<input type="number" min="0" max="2" step="0.05" data-ip-adapter-unit-field="faceid_lora_strength" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.faceid_lora_strength ?? 0.75)}" ${locked ? 'disabled' : ''}></label>
+      <label>FaceID v2 weight<input type="number" min="-1" max="5" step="0.05" data-ip-adapter-unit-field="weight_faceidv2" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.weight_faceidv2 ?? unit.weight ?? 1)}" ${fieldLocked ? 'disabled' : ''}></label>
+      <label>FaceID LoRA strength<input type="number" min="0" max="2" step="0.05" data-ip-adapter-unit-field="faceid_lora_strength" data-ip-adapter-unit-index="${index}" value="${escapeAttr(unit.faceid_lora_strength ?? 0.75)}" ${fieldLocked ? 'disabled' : ''}></label>
     </div>` : ''}
     ${expert ? `<div class="neo-extension-expert-block"><pre>${escapeHtml(JSON.stringify(ipAdapterNormalizeUnit(unit, index), null, 2))}</pre></div>` : ''}
   </div>`;
@@ -17281,24 +18468,27 @@ function ipAdapterIdentityProfileManagerHtml(settings = ipAdapterSettings(), loc
 function ipAdapterPanel(record) {
   const route = ipAdapterActiveRoute(record);
   if (!ipAdapterRouteVisible(route)) return null;
+  const provider = ipAdapterProviderContext(route);
   const settings = ipAdapterSettings();
   const applied = Boolean(settings.enabled);
   const controlsEnabled = ipAdapterRouteControlsEnabled(route);
-  const display = ipAdapterDisplayModeProfile();
+  const display = ipAdapterDisplayModeProfile(route);
   const compact = display.compact;
   const expert = display.expert;
   const units = ipAdapterNormalizeUiUnits(settings.units);
   const nodeReadiness = ipAdapterNodeReadiness(settings, route);
-  const nodeLocked = applied && nodeReadiness.blocks_active_mode === true;
-  const locked = !controlsEnabled || nodeLocked;   const status = nodeLocked ? 'Provider gated' : ipAdapterStatusLabel(route, applied, units);
-  const routeBadge = nodeLocked ? 'Provider gated' : ipAdapterRouteBadge(route);
-  const routePolicy = nodeLocked ? { tone: 'danger' } : ipAdapterRouteUiPolicy(route);
+  const nodeLocked = applied && nodeReadiness.locks_panel === true;
+  const locked = !controlsEnabled || nodeLocked;
+  const recoverableModeBlock = applied && nodeReadiness.recoverable_mode_block === true;
+  const status = nodeLocked ? 'Provider gated' : (recoverableModeBlock ? 'Partial Forge support' : ipAdapterStatusLabel(route, applied, units));
+  const routeBadge = nodeLocked ? 'Provider gated' : (recoverableModeBlock ? 'Switch FaceID unit' : ipAdapterRouteBadge(route));
+  const routePolicy = nodeLocked ? { tone: 'danger' } : (recoverableModeBlock ? { tone: 'warning' } : ipAdapterRouteUiPolicy(route));
   const identity = settings.identity || IP_ADAPTER_DEFAULT_SETTINGS.identity;
   const sharedFaceIdConflict = ipAdapterSharedFaceIdContractConflict(ipAdapterCleanUnits(units), route);
-  const body = `<section class="neo-ip-adapter-panel" data-extension-id="${IP_ADAPTER_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(display.mode)}">
-    <header class="neo-ip-adapter-panel__header"><div><strong>IP Adapter / FaceID</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${routePolicy.tone || (status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${display.show_help ? `<p class="neo-muted">Guided layout: attach identity, face, character, or style references with sequential IP Adapter units. Hidden mode-specific fields are stripped before payload emission.</p>` : ''}${display.show_route_debug ? `<p class="neo-muted">Expert layout exposes route IDs, payload keys, node names, and compiler/debug data.</p>` : ''}${ipAdapterRouteNotice(route, !controlsEnabled)}${ipAdapterNodeReadinessPanel(nodeReadiness, !controlsEnabled)}${sharedFaceIdConflict ? `<div class="neo-extension-route-gate" data-faceid-shared-contract="blocked"><strong>FaceID shared-loader contract blocked</strong><p>${escapeHtml(sharedFaceIdConflict)}</p></div>` : ''}
-    <div class="neo-ip-adapter-toolbar"><label class="neo-toggle-row"><input id="ipAdapterEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply IP Adapter</span></label><button class="neo-btn secondary" type="button" id="ipAdapterAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="ipAdapterPrepIdentity" ${locked ? 'disabled' : ''}>Prep Identity</button><span class="neo-badge">${ipAdapterCleanUnits(units).length} active</span></div>${ipAdapterIdentityProfileManagerHtml(settings, locked)}
+  const body = `<section class="neo-ip-adapter-panel" data-extension-id="${IP_ADAPTER_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-profile-id="${escapeAttr(provider.profile_id)}" data-selected-profile-only="true" data-display-mode="${escapeAttr(display.mode)}">
+    <header class="neo-ip-adapter-panel__header"><div><strong>IP Adapter / FaceID</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${routePolicy.tone || (status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(provider.provider_label)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
+    ${display.show_help ? `<p class="neo-muted">${route.backend === 'forge' ? 'Forge layout: Neo reuses this IP Adapter surface and maps Standard IP-Adapter and live-verified FaceID units into Forge Integrated ControlNet. Comfy-only loader controls are normalized before Forge execution.' : 'Guided layout: attach identity, face, character, or style references with sequential IP Adapter units. Hidden mode-specific fields are stripped before payload emission.'}</p>` : ''}${display.show_route_debug ? `<p class="neo-muted">Expert layout exposes route IDs, payload keys, node names, and compiler/debug data.</p>` : ''}${ipAdapterRouteNotice(route, !controlsEnabled)}${ipAdapterNodeReadinessPanel(nodeReadiness, !controlsEnabled)}${sharedFaceIdConflict ? `<div class="neo-extension-route-gate" data-faceid-shared-contract="blocked"><strong>FaceID shared-loader contract blocked</strong><p>${escapeHtml(sharedFaceIdConflict)}</p></div>` : ''}
+    <div class="neo-ip-adapter-toolbar"><label class="neo-toggle-row"><input id="ipAdapterEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply IP Adapter</span></label><button class="neo-btn secondary" type="button" id="ipAdapterAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button>${route.backend === 'forge' ? '' : `<button class="neo-btn secondary" type="button" id="ipAdapterPrepIdentity" ${locked ? 'disabled' : ''}>Prep Identity</button>`}<span class="neo-badge">${ipAdapterCleanUnits(units).length} active</span></div>${route.backend === 'forge' ? '' : ipAdapterIdentityProfileManagerHtml(settings, locked)}
     ${display.show_identity ? `<div class="neo-ip-adapter-identity" data-display-section="guided-identity">
       <strong>Identity presets</strong>
       <div class="neo-ip-adapter-config-row">
@@ -17311,7 +18501,7 @@ function ipAdapterPanel(record) {
       </div>
       <label>Identity notes<textarea rows="2" data-ip-adapter-identity-field="notes" ${locked ? 'disabled' : ''}>${escapeHtml(identity.notes || '')}</textarea></label>
     </div>` : ''}
-    <div class="neo-ip-adapter-units">${units.map((unit, index) => ipAdapterUnitHtml(unit, index, locked, compact, route)).join('')}</div>
+    <div class="neo-ip-adapter-units">${units.map((unit, index) => ipAdapterUnitHtml(unit, index, locked, compact, route, nodeReadiness)).join('')}</div>
     ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `State: ${route.route_state}`, `Node readiness: ${nodeReadiness.readiness_state}`, 'Patch: image.ip_adapter'])}</div><pre>${escapeHtml(JSON.stringify({ payload: ipAdapterPayloadPreview(record), node_status: nodeReadiness }, null, 2))}</pre></div>` : ''}
   </section>`;
   return panel('IP Adapter / FaceID', body, false, status);
@@ -17591,6 +18781,11 @@ function controlNetNormalizeTask(value, workflowMode = null) {
   const task = CONTROLNET_TASK_OPTIONS.includes(value) ? value : 'map_control';
   return controlNetTaskAllowedForMode(task, workflowMode) ? task : 'map_control';
 }
+function controlNetNormalizeTaskForRoute(route, value) {
+  const normalized = controlNetNormalizeTask(value, route?.workflow_mode);
+  if (normalizeRouteBackend(route?.backend) === 'forge') return 'map_control';
+  return normalized;
+}
 function controlNetTaskLabel(task) {
   return CONTROLNET_TASK_LABELS[controlNetNormalizeTask(task)] || CONTROLNET_TASK_LABELS.map_control;
 }
@@ -17608,15 +18803,18 @@ function controlNetNormalizeFluxAdapter(value) {
 }
 function controlNetQwenAdapterAllowed(route, task) {
   const mode = controlNetWorkflowMode(route?.workflow_mode);
-  return ['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '') && ['inpaint_control', 'outpaint_control'].includes(task) && ['inpaint', 'outpaint'].includes(mode);
+  if (normalizeRouteBackend(route?.backend) === 'forge') return false;
+  return ['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '') && ['inpaint_control', 'outpaint_control'].includes(task) && ['inpaint', 'outpaint'].includes(mode);
 }
 function controlNetFluxAdapterAllowed(route, task) {
   const mode = controlNetWorkflowMode(route?.workflow_mode);
+  if (normalizeRouteBackend(route?.backend) === 'forge') return false;
   return ['flux', 'flux2_klein'].includes(route?.family) && route?.loader === 'gguf' && ['inpaint_control', 'outpaint_control'].includes(task) && ['inpaint', 'outpaint'].includes(mode);
 }
 function controlNetTaskOptionsForRoute(route) {
   const mode = controlNetWorkflowMode(route?.workflow_mode);
   const options = [{ id: 'map_control', label: CONTROLNET_TASK_LABELS.map_control, help: CONTROLNET_TASK_HELP.map_control }];
+  if (normalizeRouteBackend(route?.backend) === 'forge') return options;
   if (mode === 'inpaint') options.push({ id: 'inpaint_control', label: CONTROLNET_TASK_LABELS.inpaint_control, help: CONTROLNET_TASK_HELP.inpaint_control });
   if (mode === 'outpaint') options.push({ id: 'outpaint_control', label: CONTROLNET_TASK_LABELS.outpaint_control, help: CONTROLNET_TASK_HELP.outpaint_control });
   return options;
@@ -17689,7 +18887,9 @@ function controlNetDomUnits() {
   // generation submit path cannot lose visible ControlNet UI values when a
   // Reference-tab draft/state sync is stale.
   const units = [];
+  const draftUnits = Array.isArray(state.imageDraft?.[CONTROLNET_EXTENSION_ID]?.units) ? state.imageDraft[CONTROLNET_EXTENSION_ID].units : [];
   document.querySelectorAll('.neo-controlnet-unit').forEach((root, index) => {
+    const draftUnit = draftUnits[index] || {};
     const unit = { ...CONTROLNET_DEFAULT_UNIT, uid: `unit_${index + 1}` };
     root.querySelectorAll('[data-controlnet-unit-field]').forEach((node) => {
       const field = node.getAttribute('data-controlnet-unit-field');
@@ -17705,7 +18905,13 @@ function controlNetDomUnits() {
     root.querySelectorAll('[data-controlnet-image-box]').forEach((box) => {
       const field = box.getAttribute('data-controlnet-image-box');
       const img = box.querySelector('img.neo-controlnet-image-preview');
-      if (field && img?.src) unit[`${field}_preview`] = img.src;
+      if (!field) return;
+      if (img?.src) unit[`${field}_preview`] = img.src;
+      unit[field] = controlNetRestoreStructuredAsset(field, unit[field], draftUnit, unit[`${field}_preview`] || draftUnit?.[`${field}_preview`] || '');
+      if (field === 'control_image') {
+        if (draftUnit?.control_image_asset) unit.control_image_asset = draftUnit.control_image_asset;
+        if (Array.isArray(draftUnit?.control_image_assets)) unit.control_image_assets = draftUnit.control_image_assets;
+      }
     });
     units.push(unit);
   });
@@ -17769,7 +18975,7 @@ function controlNetTaskRouteReason(task, state, route) {
     if (mode !== 'inpaint') return 'ControlNet inpaint control is only valid while Image workflow mode is Inpaint.';
     if (route?.family === 'sdxl' && route?.loader === 'checkpoint') return 'SDXL checkpoint inpaint ControlNet uses the Image Tab source image and painted mask through the SD checkpoint adapter.';
     if (route?.family === 'sd15' && route?.loader === 'checkpoint') return 'SD 1.5 checkpoint inpaint ControlNet is enabled as experimental through the SD checkpoint adapter.';
-    if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '')) return 'Qwen inpaint ControlNet is experimental. Choose DiffSynth model patch or InstantX Qwen ControlNet below.';
+    if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '')) return 'Qwen inpaint ControlNet is experimental. Choose DiffSynth model patch or InstantX Qwen ControlNet below.';
     if (['flux', 'flux2_klein'].includes(route?.family) && route?.loader === 'gguf') return 'Flux GGUF inpaint ControlNet is experimental using the Flux inpaint ControlNet adapter and the Image Tab source/mask.';
     return 'ControlNet inpaint mask/canvas adapters are not validated yet for this family/loader. Neo can save this task selection, but workflow patching stays blocked until that adapter is available.';
   }
@@ -17777,14 +18983,14 @@ function controlNetTaskRouteReason(task, state, route) {
     if (mode !== 'outpaint') return 'ControlNet outpaint control is only valid while Image workflow mode is Outpaint.';
     if (route?.family === 'sdxl' && route?.loader === 'checkpoint') return 'SDXL checkpoint outpaint ControlNet uses the padded ImagePadForOutpaint canvas through the SD checkpoint adapter.';
     if (route?.family === 'sd15' && route?.loader === 'checkpoint') return 'SD 1.5 checkpoint outpaint ControlNet is experimental through the SD checkpoint adapter.';
-    if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '')) return 'Qwen outpaint ControlNet is experimental. Neo reuses the outpaint padded canvas / mask policy from the Image Tab.';
+    if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(route?.family) && ['gguf', 'checkpoint_aio'].includes(route?.loader || '')) return 'Qwen outpaint ControlNet is experimental. Neo reuses the outpaint padded canvas / mask policy from the Image Tab.';
     if (['flux', 'flux2_klein'].includes(route?.family) && route?.loader === 'gguf') return 'Flux GGUF outpaint ControlNet is experimental and reuses the source-resolution + padded canvas policy.';
     return 'ControlNet outpaint mask/canvas adapters are not validated yet for this family/loader. Neo can save this task selection, but workflow patching stays blocked until that adapter is available.';
   }
   return route?.reason || `ControlNet route state: ${state}.`;
 }
 function controlNetRouteForTask(route, task = 'map_control') {
-  const selectedTask = controlNetNormalizeTask(task, route?.workflow_mode);
+  const selectedTask = controlNetNormalizeTaskForRoute(route, task);
   const baseState = route?.base_route_state || route?.route_state || 'planned_gated';
   let taskState = baseState;
   if (selectedTask !== 'map_control') {
@@ -17796,8 +19002,8 @@ function controlNetRouteForTask(route, task = 'map_control') {
     else if (family === 'sdxl' && loader === 'checkpoint' && selectedTask === 'outpaint_control' && mode === 'outpaint') taskState = 'available';
     else if (family === 'sd15' && loader === 'checkpoint' && selectedTask === 'inpaint_control' && mode === 'inpaint') taskState = 'experimental_available';
     else if (family === 'sd15' && loader === 'checkpoint' && selectedTask === 'outpaint_control' && mode === 'outpaint') taskState = 'experimental_available';
-    else if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509'].includes(family) && ['gguf', 'checkpoint_aio'].includes(loader) && selectedTask === 'inpaint_control' && mode === 'inpaint') taskState = 'experimental_available';
-    else if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509'].includes(family) && ['gguf', 'checkpoint_aio'].includes(loader) && selectedTask === 'outpaint_control' && mode === 'outpaint') taskState = 'experimental_available';
+    else if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family) && ['gguf', 'checkpoint_aio'].includes(loader) && selectedTask === 'inpaint_control' && mode === 'inpaint') taskState = 'experimental_available';
+    else if (['qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family) && ['gguf', 'checkpoint_aio'].includes(loader) && selectedTask === 'outpaint_control' && mode === 'outpaint') taskState = 'experimental_available';
     else if (['flux', 'flux2_klein'].includes(family) && loader === 'gguf' && selectedTask === 'inpaint_control' && mode === 'inpaint') taskState = 'experimental_available';
     else if (['flux', 'flux2_klein'].includes(family) && loader === 'gguf' && selectedTask === 'outpaint_control' && mode === 'outpaint') taskState = 'experimental_available';
     else if (['provider_gated', 'unsupported'].includes(baseState)) taskState = baseState;
@@ -17815,7 +19021,7 @@ function controlNetRouteForTask(route, task = 'map_control') {
 function controlNetStatusLabel(route, applied, units = []) {
   if (!applied && controlNetRouteControlsEnabled(route)) return 'Disabled';
   if (!controlNetRouteControlsEnabled(route)) return controlNetRouteBadge(route);
-  const activeCount = controlNetCleanUnits(units).length;
+  const activeCount = controlNetCleanUnits(units, route).length;
   if (!activeCount) return 'No active units';
   if (route.route_state === 'experimental_available') return 'Experimental';
   return 'Ready';
@@ -17838,7 +19044,7 @@ function controlNetRouteExplanation(route, applied = false) {
 function controlNetTaskSelector(route, settings) {
   const options = controlNetTaskOptionsForRoute(route);
   if (options.length <= 1) return '';
-  const selected = controlNetNormalizeTask(settings.controlnet_task || 'map_control', route?.workflow_mode);
+  const selected = controlNetNormalizeTaskForRoute(route, settings.controlnet_task || 'map_control');
   return `<div class="neo-controlnet-task-card" data-testid="controlnet-task-selector">
     <div><strong>ControlNet Usage</strong><p class="neo-muted">Choose how ControlNet should attach to this ${escapeHtml(controlNetWorkflowMode(route?.workflow_mode))} workflow.</p></div>
     <div class="neo-controlnet-task-options">
@@ -17879,14 +19085,18 @@ function controlNetFluxAdapterSelector(route, settings, selectedTask) {
 function controlNetOptionSelect(id, options, selected, disabled = false, attrs = '') {
   return `<select id="${escapeAttr(id)}" ${attrs} ${disabled ? 'disabled' : ''}>${options.map((option) => `<option value="${escapeAttr(option.id)}" ${option.id === selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`;
 }
+function controlNetForgePolicy() {
+  return activeImageCapabilityOverlay()?.extension_policy?.[CONTROLNET_EXTENSION_ID] || {};
+}
 function controlNetModelOptions(selected = '') {
   const settings = controlNetSettings();
   const activeProfileId = imageReferenceCatalogProfileId();
   const catalogProfileId = String(settings.map_status?.profile_id || '').trim();
   const modelInputs = catalogProfileId && catalogProfileId === activeProfileId ? (settings.map_status?.node_status?.model_inputs || {}) : {};
+  const forgeModels = normalizeRouteBackend(activeImageProfile()?.provider_id || '') === 'forge' ? (controlNetForgePolicy().models || []) : [];
   const seen = new Set();
   const options = [{ id: '', label: 'Select ControlNet model' }];
-  Object.values(modelInputs).forEach((values) => {
+  [...Object.values(modelInputs), forgeModels].forEach((values) => {
     (Array.isArray(values) ? values : []).forEach((value) => {
       const id = String(value || '').trim();
       if (!id || seen.has(id)) return;
@@ -17896,7 +19106,22 @@ function controlNetModelOptions(selected = '') {
   });
   const current = String(selected || '').trim();
   if (current && !seen.has(current)) options.push({ id: current, label: `${current} (selected · not in current profile catalog)` });
-  if (options.length === 1) options.push({ id: 'select_controlnet_model_later', label: 'Refresh nodes to load models' });
+  if (options.length === 1) options.push({ id: 'select_controlnet_model_later', label: 'Refresh backend capabilities to load models' });
+  return options;
+}
+function controlNetPreprocessorOptions(selected = '') {
+  const forgeModules = normalizeRouteBackend(activeImageProfile()?.provider_id || '') === 'forge' ? (controlNetForgePolicy().modules || []) : [];
+  if (!forgeModules.length) return CONTROLNET_PREPROCESSOR_OPTIONS;
+  const seen = new Set();
+  const options = [{ id: 'None', label: 'None / use image directly' }];
+  forgeModules.forEach((value) => {
+    const id = String(value || '').trim();
+    if (!id || seen.has(id.toLowerCase())) return;
+    seen.add(id.toLowerCase());
+    options.push({ id, label: id });
+  });
+  const current = String(selected || '').trim();
+  if (current && !options.some((item) => item.id === current)) options.push({ id: current, label: `${current} (selected)` });
   return options;
 }
 function controlNetPreviewUrl(value) {
@@ -17907,9 +19132,42 @@ function controlNetPreviewUrl(value) {
   if (/^file:\/\//i.test(ref) && /\.(png|jpe?g|webp|gif|bmp)(\?.*)?$/i.test(ref)) return ref;
   return '';
 }
+function controlNetAssetRefValue(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object') {
+    const candidate = value.ref || value.path || value.stored_path || value.source_path || value.file || value.value || value.image_name || value.comfy_image_name || value.filename || value.map_id || value.asset_id || value.url || '';
+    return String(candidate || '').trim();
+  }
+  return String(value || '').trim();
+}
+
+function controlNetAssetPreviewValue(value, fallback = '') {
+  const direct = controlNetPreviewUrl(fallback);
+  if (direct) return direct;
+  if (value && typeof value === 'object') {
+    return controlNetPreviewUrl(value.preview_data_url || value.preview_url || value.url || controlNetAssetRefValue(value));
+  }
+  return controlNetPreviewUrl(controlNetAssetRefValue(value));
+}
+
+function controlNetRestoreStructuredAsset(field, value, draftUnit = {}, previewValue = '') {
+  const currentRef = controlNetAssetRefValue(value);
+  const currentPreview = controlNetPreviewUrl(previewValue);
+  const candidates = [draftUnit?.[field]];
+  if (field === 'control_image' && draftUnit?.control_image_asset) candidates.push(draftUnit.control_image_asset);
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const candidateRef = controlNetAssetRefValue(candidate);
+    const candidatePreview = controlNetAssetPreviewValue(candidate, draftUnit?.[`${field}_preview`] || '');
+    if ((candidateRef && candidateRef === currentRef) || (!currentRef && candidateRef) || (currentPreview && candidatePreview && currentPreview === candidatePreview)) return candidate;
+  }
+  return value;
+}
+
 function controlNetImageBox(field, index, value, label, placeholder, locked = false, previewValue = '') {
-  const safeValue = String(value || '').trim();
-  const previewUrl = controlNetPreviewUrl(previewValue) || controlNetPreviewUrl(safeValue);
+  const safeValue = controlNetAssetRefValue(value);
+  const previewUrl = controlNetAssetPreviewValue(value, previewValue);
   const hasValue = Boolean(safeValue);
   const preview = previewUrl
     ? `<img class="neo-controlnet-image-preview" src="${escapeAttr(previewUrl)}" alt="${escapeAttr(label)} preview" loading="lazy" onerror="this.closest('.neo-controlnet-image-box')?.classList.add('preview-error'); this.remove();">`
@@ -17919,10 +19177,10 @@ function controlNetImageBox(field, index, value, label, placeholder, locked = fa
     : `<span class="neo-controlnet-image-ref is-empty">No ${escapeHtml(label).toLowerCase()} selected</span>`;
   return `<label class="neo-controlnet-image-field" data-controlnet-drop-target="${escapeAttr(field)}" data-controlnet-unit-index="${index}"><span>${escapeHtml(label)}</span><div class="neo-controlnet-image-box ${hasValue ? 'has-value' : ''} ${previewUrl ? 'has-preview' : ''}" role="button" tabindex="${locked ? '-1' : '0'}" data-controlnet-image-box="${escapeAttr(field)}" data-controlnet-unit-index="${index}" aria-label="${escapeAttr(label)} image drop zone">${preview}<input type="hidden" data-controlnet-unit-field="${escapeAttr(field)}" data-controlnet-unit-index="${index}" value="${escapeAttr(safeValue)}" ${locked ? 'disabled' : ''}>${valueLine}</div></label>`;
 }
-function controlNetNormalizeUnit(raw = {}, index = 0) {
+function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
   const data = { ...CONTROLNET_DEFAULT_UNIT, ...(raw || {}) };
   const unitValues = CONTROLNET_UNIT_OPTIONS.map((item) => item.id);
-  const prepValues = CONTROLNET_PREPROCESSOR_OPTIONS.map((item) => item.id);
+  const prepValues = controlNetPreprocessorOptions(data.preprocessor).map((item) => item.id);
   const unit = unitValues.includes(data.unit) ? data.unit : 'canny';
   const defaultPreprocessor = unit === 'auto' ? 'none' : unit;
   const preprocessor = prepValues.includes(data.preprocessor) ? data.preprocessor : defaultPreprocessor;
@@ -17961,7 +19219,7 @@ function controlNetNormalizeUnit(raw = {}, index = 0) {
   if (Array.isArray(data.control_image_assets)) clean.control_image_assets = data.control_image_assets;
   if (data.control_image_preview || data.source_image_url || data.control_image_url) clean.control_image_preview = String(data.control_image_preview || data.source_image_url || data.control_image_url).trim();
   if (data.preview_action_source) clean.preview_action_source = data.preview_action_source;
-  if (data.generated_map) clean.generated_map = String(data.generated_map).trim();
+  if (data.generated_map) clean.generated_map = typeof data.generated_map === 'object' ? data.generated_map : String(data.generated_map).trim();
   if (data.control_mask) clean.control_mask = String(data.control_mask).trim();
   if (unit === 'canny' || preprocessor === 'canny') {
     clean.canny_low = Math.max(0, Math.min(255, Number(data.canny_low ?? 100) || 100));
@@ -17972,11 +19230,26 @@ function controlNetNormalizeUnit(raw = {}, index = 0) {
     clean.openpose_hand = Boolean(data.openpose_hand);
     clean.openpose_face = Boolean(data.openpose_face);
   }
+  if (normalizeRouteBackend(route?.backend) === 'forge') {
+    clean.advanced_enabled = false;
+    clean.advanced_engine = 'auto';
+    clean.strength_schedule = 'flat';
+    if (!['balanced', 'prompt_strong', 'control_strong'].includes(clean.weight_preset)) clean.weight_preset = 'balanced';
+    clean.batch_mode = 'auto';
+    clean.sliding_context = false;
+    clean.invert_map = false;
+    if (clean.mask_mode === 'inpaint_mask') clean.mask_mode = 'none';
+    if (unit === 'openpose' || ['openpose', 'dwpose'].includes(preprocessor)) {
+      clean.openpose_body = true;
+      clean.openpose_hand = false;
+      clean.openpose_face = false;
+    }
+  }
   return clean;
 }
-function controlNetCleanUnits(units = []) {
+function controlNetCleanUnits(units = [], route = null) {
   const seen = new Set();
-  return (Array.isArray(units) ? units : []).map((unit, index) => controlNetNormalizeUnit(unit, index)).filter((unit, index) => {
+  return (Array.isArray(units) ? units : []).map((unit, index) => controlNetNormalizeUnit(unit, index, route)).filter((unit, index) => {
     if (!unit.enabled) return false;
     const uid = unit.uid || `unit_${index + 1}`;
     if (seen.has(uid)) unit.uid = `${uid}_${index + 1}`;
@@ -17990,9 +19263,9 @@ function controlNetAssetsForUnits(units = [], settings = controlNetSettings()) {
   const generatedMaps = {};
   units.forEach((unit, index) => {
     const source = (settings.units || [])[index] || {};
-    if (source.control_image || source.control_image_name || source.source_image) controlImages[unit.uid] = String(source.control_image || source.control_image_name || source.source_image);
-    if (source.generated_map || unit.generated_map) generatedMaps[unit.uid] = String(source.generated_map || unit.generated_map);
-    if (unit.mask_mode === 'control_mask' && source.control_mask) controlMasks[unit.uid] = String(source.control_mask);
+    if (source.control_image || source.control_image_name || source.source_image) controlImages[unit.uid] = source.control_image_asset || source.control_image || source.control_image_name || source.source_image;
+    if (source.generated_map || unit.generated_map) generatedMaps[unit.uid] = source.generated_map || unit.generated_map;
+    if (unit.mask_mode === 'control_mask' && source.control_mask) controlMasks[unit.uid] = source.control_mask;
   });
   const assets = {};
   if (Object.keys(controlImages).length) assets.control_images = controlImages;
@@ -18004,9 +19277,9 @@ function controlNetPayloadPreview(record) {
   const appliedOverride = arguments.length > 1 ? arguments[1] : null;
   const settings = controlNetEffectiveSettings();
   const baseRoute = controlNetActiveRoute(record);
-  const selectedTask = controlNetNormalizeTask(settings.controlnet_task || 'map_control', baseRoute.workflow_mode);
+  const selectedTask = controlNetNormalizeTaskForRoute(baseRoute, settings.controlnet_task || 'map_control');
   const route = controlNetRouteForTask(baseRoute, selectedTask);
-  const cleanUnits = controlNetCleanUnits(settings.units);
+  const cleanUnits = controlNetCleanUnits(settings.units, route);
   // Master-gate rule: unit data may remain checked/saved, but the parent
   // ControlNet checkbox is the only source allowed to activate payload/workflow effects.
   const applied = appliedOverride === null ? Boolean(settings.enabled) : Boolean(appliedOverride);
@@ -18031,6 +19304,7 @@ function controlNetPayloadPreview(record) {
           workflow_mode: route.workflow_mode,
           reason: active ? '' : controlNetStatusLabel(route, applied, settings.units),
           controlnet_task: selectedTask,
+          preview_reference_handoff: settings.preview_reference_handoff || null,
           ui_phase: 'M-task-selector-ui',
         },
       },
@@ -18041,10 +19315,10 @@ function controlNetValidationPreview(record) {
   const appliedOverride = arguments.length > 1 ? arguments[1] : null;
   const settings = controlNetEffectiveSettings();
   const baseRoute = controlNetActiveRoute(record);
-  const selectedTask = controlNetNormalizeTask(settings.controlnet_task || 'map_control', baseRoute.workflow_mode);
+  const selectedTask = controlNetNormalizeTaskForRoute(baseRoute, settings.controlnet_task || 'map_control');
   const route = controlNetRouteForTask(baseRoute, selectedTask);
   const applied = appliedOverride === null ? extensionWorkflowApplied(record) : Boolean(appliedOverride);
-  const cleanUnits = controlNetCleanUnits(settings.units);
+  const cleanUnits = controlNetCleanUnits(settings.units, route);
   const items = [];
   if (!applied) {
     items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'enabled', message: 'ControlNet is disabled for this workflow.' });
@@ -18055,16 +19329,17 @@ function controlNetValidationPreview(record) {
   cleanUnits.forEach((unit, index) => {
     const source = (settings.units || [])[index] || {};
     if (!unit.model) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: 'ControlNet model is not selected yet.' });
-    if (!source.control_image && !source.generated_map) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: `assets.control_images.${unit.uid}`, message: 'Attach a control image or build a generated map before queueing.' });
+    if (!source.control_image && !controlNetAssetRefValue(source.generated_map)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: `assets.control_images.${unit.uid}`, message: 'Attach a control image or build a generated map before queueing.' });
   });
   return items;
 }
-function controlNetUnitHtml(row, index, locked, compact = false) {
+function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
   const unit = { ...CONTROLNET_DEFAULT_UNIT, ...(row || {}) };
   const showCanny = unit.unit === 'canny' || unit.preprocessor === 'canny';
   const showOpenPose = unit.unit === 'openpose' || ['openpose', 'dwpose'].includes(unit.preprocessor);
   const expert = state.detailMode === 'expert';
-  const prepOptions = CONTROLNET_PREPROCESSOR_OPTIONS;
+  const forgeRoute = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
+  const prepOptions = controlNetPreprocessorOptions(unit.preprocessor);
   return `<div class="neo-controlnet-unit" data-controlnet-unit-index="${index}">
     <div class="neo-controlnet-unit-header">
       <label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="enabled" data-controlnet-unit-index="${index}" ${unit.enabled !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use unit ${index + 1}</span></label>
@@ -18100,14 +19375,17 @@ function controlNetUnitHtml(row, index, locked, compact = false) {
       <label>Canny high<input type="number" min="0" max="255" data-controlnet-unit-field="canny_high" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.canny_high ?? 200)}" ${locked ? 'disabled' : ''}></label>
     </div>`}
     ${showCanny ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="detect-resolution"><label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label></div>`}
-    ${!showOpenPose ? '' : `<div class="neo-controlnet-unit-conditional" data-controlnet-visible-for="openpose"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_body" data-controlnet-unit-index="${index}" ${unit.openpose_body !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Body</span></label><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_hand" data-controlnet-unit-index="${index}" ${unit.openpose_hand ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Hands</span></label><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_face" data-controlnet-unit-index="${index}" ${unit.openpose_face ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Face</span></label></div>`}
-    ${expert ? `<div class="neo-controlnet-unit-expert"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="advanced_enabled" data-controlnet-unit-index="${index}" ${unit.advanced_enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Advanced ControlNet</span></label><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}, {id:'inpaint_mask',label:'Inpaint mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}</div>` : ''}
+    ${!showOpenPose ? '' : `<div class="neo-controlnet-unit-conditional" data-controlnet-visible-for="openpose"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_body" data-controlnet-unit-index="${index}" ${unit.openpose_body !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Body</span></label>${forgeRoute ? '' : `<label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_hand" data-controlnet-unit-index="${index}" ${unit.openpose_hand ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Hands</span></label><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_face" data-controlnet-unit-index="${index}" ${unit.openpose_face ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Face</span></label>`}</div>`}
+    ${expert ? (forgeRoute
+      ? `<div class="neo-controlnet-unit-expert"><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}<p class="neo-muted">Forge exposes the standard ControlNet unit contract only, so experimental advanced toggles stay hidden here.</p></div>`
+      : `<div class="neo-controlnet-unit-expert"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="advanced_enabled" data-controlnet-unit-index="${index}" ${unit.advanced_enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Advanced ControlNet</span></label><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}, {id:'inpaint_mask',label:'Inpaint mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}</div>`)
+      : ''}
   </div>`;
 }
 function controlNetPanel(record) {
   const baseRoute = controlNetActiveRoute(record);
   const settings = controlNetSettings();
-  const selectedTask = controlNetNormalizeTask(settings.controlnet_task || 'map_control', baseRoute.workflow_mode);
+  const selectedTask = controlNetNormalizeTaskForRoute(baseRoute, settings.controlnet_task || 'map_control');
   const route = controlNetRouteForTask(baseRoute, selectedTask);
   if (!controlNetRouteVisible(route)) return null;
   const applied = Boolean(settings.enabled);
@@ -18125,10 +19403,10 @@ function controlNetPanel(record) {
   const explanation = controlsEnabled ? '' : controlNetRouteExplanation(route, applied);
   const controlsHtml = !controlsEnabled && !expert ? '' : `
     <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply ControlNet</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
-    <div class="neo-controlnet-units">${units.map((unit, index) => controlNetUnitHtml(unit, index, locked, compact)).join('')}</div>`;
+    <div class="neo-controlnet-units">${units.map((unit, index) => controlNetUnitHtml(unit, index, locked, compact, route)).join('')}</div>`;
   const body = `<section class="neo-controlnet-panel" data-extension-id="${CONTROLNET_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-controls-enabled="${controlsEnabled ? 'true' : 'false'}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-controlnet-panel__header"><div><strong>ControlNet</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${compact ? '' : `<p class="neo-muted">Guide generation with canny, depth, pose, lineart, softedge, tile, or other structural maps. Hidden unit-specific fields are stripped before payload emission.</p>`}
+    ${compact ? '' : `<p class="neo-muted">Guide generation with canny, depth, pose, lineart, softedge, tile, or other structural maps. Hidden unit-specific fields are stripped before payload emission.${normalizeRouteBackend(route.backend) === 'forge' ? ' Forge routes show only the verified standard unit controls and preserve generated-map assets across the backend remap.' : ''}</p>`}
     ${taskSelector}
     ${qwenAdapterSelector}
     ${fluxAdapterSelector}
@@ -18217,7 +19495,7 @@ async function controlNetBuildMap(index) {
     const output = payload.output || {};
     const mapSource = output.comfy_image_name || output.image_name || output.filename || output.map_id || output.url || '';
     const mapPreview = payload.preview_data_url || output.preview_data_url || output.preview_url || output.url || '';
-    if (mapSource) updateControlNetUnit(index, { generated_map: mapSource, generated_map_preview: mapPreview });
+    if (mapSource) updateControlNetUnit(index, { generated_map: output, generated_map_preview: mapPreview });
     updateControlNetSettings({ map_preview: payload, map_error: '' });
   } catch (error) {
     updateControlNetSettings({ map_error: `ControlNet map build failed: ${error?.message || error}` });
@@ -18239,7 +19517,7 @@ async function controlNetBatchBuildMaps() {
       const output = generated[unit.uid];
       const mapSource = output?.comfy_image_name || output?.image_name || output?.filename || output?.map_id || output?.url || '';
       const mapPreview = output?.preview_data_url || output?.preview_url || output?.url || '';
-      return mapSource ? { ...unit, generated_map: mapSource, generated_map_preview: mapPreview } : unit;
+      return mapSource ? { ...unit, generated_map: output, generated_map_preview: mapPreview } : unit;
     });
     updateControlNetSettings({ units: nextUnits, batch_manifest: payload.manifest, map_preview: payload, map_error: '' });
   } catch (error) {
@@ -18266,7 +19544,7 @@ function bindControlNetControls() {
   document.querySelectorAll('[data-controlnet-task]').forEach((node) => {
     node.addEventListener('change', (event) => {
       const baseRoute = controlNetActiveRoute(null);
-      const task = controlNetNormalizeTask(event.target.value, baseRoute.workflow_mode);
+      const task = controlNetNormalizeTaskForRoute(baseRoute, event.target.value);
       updateControlNetSettings({ controlnet_task: task });
       render();
     });
@@ -18389,17 +19667,40 @@ const LORA_STACK_DEFAULT_LIBRARY = {
   records: [],
   current_record: null,
   status: '',
+  picker_open: false,
+  picker_query: '',
+  pending_strength: 0.8,
+  backend_loaded: false,
+  backend_loading: false,
+  catalog_count: 0,
+  available_count: 0,
+  backend_loaded_profile_id: '',
+  backend_provider_id: '',
+  backend_provider_label: '',
+  catalog_source: '',
 };
+const LORA_STACK_EXECUTION_INTENT_VERSION = 2;
 const LORA_STACK_DEFAULT_STATE = {
+  enabled: false,
+  execution_enabled: false,
+  execution_intent_version: LORA_STACK_EXECUTION_INTENT_VERSION,
   rows: [],
   selected_row_index: 0,
   library: { ...LORA_STACK_DEFAULT_LIBRARY },
 };
 function loraStackSettings() {
   const raw = state.imageDraft?.[LORA_STACK_EXTENSION_ID] || {};
+  // Legacy builds could persist enabled=true merely because the extension was
+  // mounted or rows existed. Do not migrate that ambiguous state into execution.
+  // The user must explicitly opt in through the v2 LoRA master switch.
+  const executionEnabled = raw.execution_intent_version === LORA_STACK_EXECUTION_INTENT_VERSION
+    && raw.execution_enabled === true;
   return {
     ...LORA_STACK_DEFAULT_STATE,
     ...raw,
+    enabled: executionEnabled,
+    execution_enabled: executionEnabled,
+    execution_intent_version: LORA_STACK_EXECUTION_INTENT_VERSION,
     rows: Array.isArray(raw.rows) ? raw.rows : [],
     selected_row_index: Number.isFinite(Number(raw.selected_row_index)) ? Number(raw.selected_row_index) : 0,
     library: { ...LORA_STACK_DEFAULT_LIBRARY, ...(raw.library || {}) },
@@ -18407,9 +19708,17 @@ function loraStackSettings() {
 }
 function updateLoraStackSettings(patch = {}) {
   const current = loraStackSettings();
+  const hasEnabledPatch = Object.prototype.hasOwnProperty.call(patch, 'enabled')
+    || Object.prototype.hasOwnProperty.call(patch, 'execution_enabled');
+  const requestedEnabled = Object.prototype.hasOwnProperty.call(patch, 'execution_enabled')
+    ? Boolean(patch.execution_enabled)
+    : (Object.prototype.hasOwnProperty.call(patch, 'enabled') ? Boolean(patch.enabled) : current.execution_enabled);
   const next = {
     ...current,
     ...patch,
+    enabled: hasEnabledPatch ? requestedEnabled : current.execution_enabled,
+    execution_enabled: hasEnabledPatch ? requestedEnabled : current.execution_enabled,
+    execution_intent_version: LORA_STACK_EXECUTION_INTENT_VERSION,
     library: { ...current.library, ...(patch.library || {}) },
   };
   state.imageDraft[LORA_STACK_EXTENSION_ID] = next;
@@ -18424,10 +19733,13 @@ function loraStackActiveRoute(record) {
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const workflowMode = loraStackWorkflowMode();
   const backend = activeRouteBackend();
+  const engine = workflowMode === 'inpaint' && String(state.imageDraft.inpaint_engine || 'native').toLowerCase() === 'lanpaint' ? 'lanpaint' : 'native';
   const workspaceApp = normalizeWorkspaceAppId(activeWorkspaceApp().id || canonicalExtensionWorkspaceApp(record) || 'assets');
-  const routeKey = `${family}:${loader}:${workflowMode}`;
+  const compatibilityRouteKey = `${family}:${loader}:${workflowMode}`;
+  const workflowRouteKey = compatibilityRouteKey + (engine === 'lanpaint' ? ':lanpaint' : '');
   const entry = routeEntryForSelection(family, loader, workflowMode, backend);
-  const declared = extensionManifestRouteState(manifest, { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp });
+  const declared = extensionManifestRouteState(manifest, { backend, family, loader, workflow_mode: workflowMode, engine, workspace_app: workspaceApp });
+  const routePolicy = manifest.route_policies?.[declared.key] || {};
   const workspaceState = manifest.route_states?.[workspaceApp] || (workspaceApp === 'results' ? 'unsupported' : 'available');
   const baseState = entry?.state || 'planned_gated';
   const candidates = [baseState, declared.state, workspaceState].filter(Boolean);
@@ -18442,8 +19754,24 @@ function loraStackActiveRoute(record) {
     if (routeState === 'provider_gated') reason = 'The provider route is gated before LoRA Stack can safely patch it.';
     if (routeState === 'unsupported') reason = 'This selected route cannot execute LoRA Stack workflow changes.';
   }
-  return { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp, route_key: routeKey, route_state: routeState, base_route_state: baseState, manifest_route_state: declared.state, manifest_route_key: declared.key, workspace_state: workspaceState, reason };
+  return {
+    backend, family, loader, workflow_mode: workflowMode, engine, workflow_engine: engine,
+    compatibility_engine_independent: true, workspace_app: workspaceApp,
+    route_key: compatibilityRouteKey, compatibility_route_key: compatibilityRouteKey, workflow_route_key: workflowRouteKey,
+    route_state: routeState, base_route_state: baseState, manifest_route_state: declared.state,
+    manifest_route_key: declared.key, workspace_state: workspaceState, reason,
+    lora_mode: routePolicy.lora_mode || (['krea2', 'krea2_turbo'].includes(family) ? 'model_only' : 'model_and_clip'),
+    loader_node_class: routePolicy.loader_node_class || '',
+    graph_patch: routePolicy.graph_patch || '',
+  };
 }
+function loraStackCompatibilityMode(route = {}) {
+  return route.lora_mode || (['krea2', 'krea2_turbo'].includes(String(route.family || '')) ? 'model_only' : 'model_and_clip');
+}
+function loraStackCompatibilityModeLabel(route = {}) {
+  return loraStackCompatibilityMode(route) === 'model_only' ? 'Model-only' : 'Model + CLIP';
+}
+
 function loraStackRouteVisible(route) {
   const workspace = normalizeWorkspaceAppId(route?.workspace_app || activeWorkspaceApp().id || '');
   return ['assets', 'generations', 'reference', 'finish'].includes(workspace);
@@ -18464,20 +19792,24 @@ function loraStackNormalizeApplyTo(value) {
   if (text === 'global') return 'global';
   return /^scene_region_[A-Za-z0-9_-]+$/.test(text) ? text : 'global';
 }
+function loraIdentityKey(value) {
+  return loraForgeName(value).trim().toLowerCase();
+}
 function loraStackCleanRows(rows = []) {
   const seen = new Set();
   return (Array.isArray(rows) ? rows : []).filter((row) => row && row.enabled !== false && String(row.name || '').trim()).map((row, index) => {
+    const portableName = loraPortableName(row.name);
     const clean = {
       uid: String(row.uid || `lora_${index + 1}`),
       enabled: row.enabled !== false,
-      name: String(row.name || '').trim(),
+      name: portableName,
       strength: Math.max(-4, Math.min(4, Number(row.strength ?? 0.8))),
       target: ['both', 'base', 'finish'].includes(row.target) ? row.target : 'both',
       apply_to: loraStackNormalizeApplyTo(row.apply_to),
     };
     if (row.source_record_id) clean.source_record_id = String(row.source_record_id);
-    const key = `${clean.name}|${clean.strength}|${clean.target}|${clean.apply_to}`;
-    if (seen.has(key)) return null;
+    const key = `${loraIdentityKey(clean.name)}|${clean.strength}|${clean.target}|${clean.apply_to}`;
+    if (!loraIdentityKey(clean.name) || seen.has(key)) return null;
     seen.add(key);
     return clean;
   }).filter(Boolean);
@@ -18495,6 +19827,13 @@ function loraStackTargetSummary(rows = []) {
   });
   return summary;
 }
+function loraStackBaseGraphRows(rows = []) {
+  return loraStackCleanRows(rows).filter((row) => loraStackNormalizeApplyTo(row.apply_to) === 'global'
+    && ['both', 'base'].includes(row.target || 'both'));
+}
+function loraStackExecutionRequested(settings = loraStackSettings()) {
+  return Boolean(settings.execution_enabled && loraStackBaseGraphRows(settings.rows).length);
+}
 function loraStackApplyToLabel(value) {
   const applyTo = loraStackNormalizeApplyTo(value);
   if (applyTo === 'global') return 'global';
@@ -18504,7 +19843,7 @@ function loraStackPayloadPreview(record) {
   const appliedOverride = arguments.length > 1 ? arguments[1] : null;
   const settings = loraStackSettings();
   const route = loraStackActiveRoute(record);
-  const applied = appliedOverride === null ? extensionWorkflowApplied(record) : Boolean(appliedOverride);
+  const applied = appliedOverride === null ? Boolean(settings.execution_enabled) : Boolean(appliedOverride && settings.execution_enabled);
   const cleanRows = loraStackCleanRows(settings.rows);
     // masked finish passes even when the LoRA Stack direct/global graph route is
   // gated. Keep owner rows in the payload when the user applied/enabled LoRA
@@ -18513,14 +19852,17 @@ function loraStackPayloadPreview(record) {
   const routeExecutable = active && loraStackRouteControlsEnabled(route);
   const libraryRecords = Array.isArray(settings.library.records) ? settings.library.records : [];
   const targetSummary = loraStackTargetSummary(cleanRows);
+  const providerContext = loraProviderContext();
   const assets = cleanRows.map((row) => {
     const source = libraryRecords.find((item) => item.id && item.id === row.source_record_id) || {};
+    const catalogName = loraPortableName(source.catalog_name || source.name || row.name);
     return {
       name: row.name,
+      catalog_name: catalogName,
       record_id: row.source_record_id || '',
-      file: source.file || '',
       hash: source.hash || '',
       preview_image: source.preview_image || '',
+      provider_rendering: loraProviderSyntaxPreview(row.name, row.strength, providerContext.provider_id),
     };
   });
   return {
@@ -18540,8 +19882,25 @@ function loraStackPayloadPreview(record) {
           family: route.family,
           loader: route.loader,
           workflow_mode: route.workflow_mode,
+          engine: route.engine,
+          workflow_engine: route.workflow_engine || route.engine,
+          compatibility_engine_independent: true,
+          route_key: route.compatibility_route_key || route.route_key,
+          compatibility_route_key: route.compatibility_route_key || route.route_key,
+          workflow_route_key: route.workflow_route_key || route.route_key,
+          lora_mode: loraStackCompatibilityMode(route),
           reason: active ? (routeExecutable ? '' : `Rows available for Scene Director regional routing; direct LoRA Stack route is ${route.route_state}.`) : loraStackStatusLabel(route, applied, settings.rows),
           target_summary: targetSummary,
+          provider_binding: {
+            profile_id: providerContext.profile_id,
+            provider_id: providerContext.provider_id,
+            provider_label: providerContext.provider_label,
+            catalog_source: providerContext.catalog_source,
+            selected_profile_only: true,
+            automatic_provider_fallback: false,
+            serialization: providerContext.provider_id === 'forge' ? 'positive_prompt_compile_time' : 'workflow_loader',
+            visible_prompt_mutation: false,
+          },
           regional_target_preservation: {
             enabled: Boolean(targetSummary.regional || targetSummary.finish_only),
             regional_rows: targetSummary.regional,
@@ -18568,30 +19927,75 @@ function loraStackValidationPreview(record) {
   if (!loraStackCleanRows(settings.rows).length) items.push({ extension_id: LORA_STACK_EXTENSION_ID, level: 'info', field: 'loras', message: 'No active LoRA rows selected.' });
   return items;
 }
-function loraCatalogOptions() {
-  const fromProvider = profileModelOptions('loras');
-  const usable = fromProvider.filter((item) => item.id && !item.id.startsWith('select_') && item.id !== 'provider_default');
-  if (usable.length) return [{ id: '', label: 'Select LoRA' }, ...usable];
-  return [{ id: '', label: 'Connect Comfy backend to load LoRAs from LoraLoader' }];
+function loraLibraryProfile() {
+  const selectedId = selectedBackendProfileIdForSurface('image') || '';
+  const profiles = backendProfilesForSurface('image');
+  return profiles.find((profile) => profile.profile_id === selectedId) || null;
 }
-function loraComfyLoaderRecords() {
-  return loraCatalogOptions()
+function loraProviderContext() {
+  const profile = loraLibraryProfile();
+  const providerId = String(profile?.provider_id || '').toLowerCase();
+  const providerLabel = providerId === 'forge' ? 'Forge Neo' : (['comfyui', 'comfyui_portable'].includes(providerId) ? 'ComfyUI' : (profile?.name || providerId || 'Image provider'));
+  return {
+    profile_id: profile?.profile_id || selectedBackendProfileIdForSurface('image') || '',
+    provider_id: providerId,
+    provider_label: providerLabel,
+    catalog_source: providerId === 'forge' ? 'forge:extra_network_lora' : (['comfyui', 'comfyui_portable'].includes(providerId) ? 'comfy:LoraLoader.lora_name' : `${providerId || 'provider'}:lora_catalog`),
+  };
+}
+function loraPortableName(value) {
+  let text = String(value || '').replace(/\\/g, '/').trim().replace(/^<lora:([^:>]+)(?::[^>]*)?>$/i, '$1');
+  if (/^[A-Za-z]:\//.test(text) || text.startsWith('/')) text = text.split('/').filter(Boolean).pop() || '';
+  while (text.startsWith('./')) text = text.slice(2);
+  return text;
+}
+function loraForgeName(value) {
+  const portable = loraPortableName(value);
+  const file = portable.split('/').pop() || portable;
+  return file.replace(/\.(safetensors|ckpt|pt|pth|bin)$/i, '');
+}
+function loraProviderSyntaxPreview(name, strength = 0.8, providerId = loraProviderContext().provider_id) {
+  const clean = loraPortableName(name);
+  const amount = Number.isFinite(Number(strength)) ? Number(strength) : 0.8;
+  if (providerId === 'forge') return `<lora:${loraForgeName(clean)}:${Number(amount.toFixed(4))}>`;
+  if (['comfyui', 'comfyui_portable'].includes(providerId)) return `Workflow LoRA loader · ${clean || 'Select LoRA'} · model/clip ${Number(amount.toFixed(4))}`;
+  return clean || 'Unsupported provider';
+}
+function loraProviderCatalogRecords() {
+  const context = loraProviderContext();
+  return profileModelOptions('loras')
     .filter((item) => item.id && !item.id.startsWith('select_') && item.id !== 'provider_default')
     .map((item) => ({
       id: item.id,
       name: item.id,
-      file: item.id,
-      source: 'comfy_lora_loader',
+      catalog_name: item.id,
+      file: '',
+      provider_id: context.provider_id,
+      provider_label: context.provider_label,
+      catalog_source: context.catalog_source,
+      source: context.provider_id === 'forge' ? 'forge_lora_catalog' : 'comfy_lora_loader',
       base_model: 'Base unknown',
-      category: 'from Comfy',
+      category: `from ${context.provider_label}`,
       default_strength: 0.8,
       triggers: [],
       keywords: [],
       preview_images: [],
       example_prompt: '',
       civitai_url: '',
-      notes: 'Loaded from Comfy LoraLoader.lora_name. Use CivitAI Pull to enrich triggers, prompts, and previews.',
+      notes: `Loaded from the selected ${context.provider_label} LoRA catalog. Use CivitAI Pull to enrich triggers, prompts, and previews.`,
     }));
+}
+function loraCatalogOptions(currentValue = '') {
+  const records = loraStackLibraryRecords();
+  const options = records
+    .filter((record) => record.catalog_available !== false)
+    .map((record) => ({ id: record.catalog_name || record.name || record.file || record.id || '', label: record.name || record.file || record.id || 'Unnamed LoRA' }))
+    .filter((item) => item.id);
+  const seen = new Set();
+  const unique = options.filter((item) => { const key = loraPortableName(item.id).toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  const current = String(currentValue || '').trim();
+  if (current && !unique.some((item) => loraPortableName(item.id).toLowerCase() === loraPortableName(current).toLowerCase())) unique.unshift({ id: current, label: `Missing from selected provider · ${current}` });
+  return [{ id: '', label: 'Select LoRA' }, ...unique];
 }
 function loraApplyTargetOptions() {
   const regions = Array.isArray(state.imageDraft?.scene_director_regions) ? state.imageDraft.scene_director_regions : [];
@@ -18601,19 +20005,23 @@ function loraApplyTargetOptions() {
 function loraTargetOptions() {
   return [{ id: 'both', label: 'Both passes' }, { id: 'base', label: 'Base pass' }, { id: 'finish', label: 'Finish pass' }];
 }
-function loraStackLibraryRecords() {
+function loraAllLibraryRecords() {
   const library = loraStackSettings().library;
   const saved = Array.isArray(library.records) ? library.records : [];
-  const savedKeys = new Set(saved.map((record) => String(record.name || record.file || record.id || '').toLowerCase()));
-  const comfyRecords = loraComfyLoaderRecords().filter((record) => !savedKeys.has(String(record.name || record.file || record.id || '').toLowerCase()));
-  const allRecords = [...saved, ...comfyRecords];
+  const savedKeys = new Set(saved.map((record) => loraPortableName(record.catalog_name || record.name || record.file || record.id || '').toLowerCase()));
+  const providerRecords = loraProviderCatalogRecords().filter((record) => !savedKeys.has(loraPortableName(record.catalog_name || record.name || record.file || record.id || '').toLowerCase()));
+  return [...saved, ...providerRecords];
+}
+function loraStackLibraryRecords() {
+  const library = loraStackSettings().library;
+  const allRecords = loraAllLibraryRecords();
   const query = String(library.search || '').trim().toLowerCase();
   if (!query) return allRecords;
-  return allRecords.filter((record) => [record.name, record.file, record.category, record.base_model].some((value) => String(value || '').toLowerCase().includes(query)));
+  return allRecords.filter((record) => [record.name, record.catalog_name, record.file, record.category, record.base_model].some((value) => String(value || '').toLowerCase().includes(query)));
 }
 
 function loraLibraryApiProfileId() {
-  return defaultBackendProfile('image')?.profile_id || selectedBackendProfileIdForSurface('image') || '';
+  return selectedBackendProfileIdForSurface('image') || defaultBackendProfile('image')?.profile_id || '';
 }
 async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
   const library = loraStackSettings().library;
@@ -18627,8 +20035,24 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
     const q = query === null ? library.search : query;
     if (q) url.searchParams.set('q', q);
     const result = await loadJson(url.pathname + url.search, { ok: false, records: [] });
+    if (loraLibraryApiProfileId() !== profileId) {
+      updateLoraStackSettings({ library: { backend_loaded: false, backend_loading: false, status: 'Provider changed · refreshing LoRA catalog…' } });
+      render();
+      return;
+    }
     const records = Array.isArray(result.records) ? result.records : [];
-    updateLoraStackSettings({ library: { records, backend_loaded: true, backend_loading: false, backend_loaded_profile_id: profileId || '', catalog_count: result.catalog_count || records.length, available_count: result.available_count || 0, status: result.ok ? 'Ready' : 'Library unavailable' } });
+    updateLoraStackSettings({ library: {
+      records,
+      backend_loaded: true,
+      backend_loading: false,
+      backend_loaded_profile_id: profileId || '',
+      backend_provider_id: result.provider_id || loraProviderContext().provider_id,
+      backend_provider_label: result.provider_label || loraProviderContext().provider_label,
+      catalog_source: result.catalog_source || loraProviderContext().catalog_source,
+      catalog_count: result.catalog_count || records.length,
+      available_count: result.available_count || 0,
+      status: result.ok ? 'Ready' : 'Library unavailable',
+    } });
     render();
   } catch (error) {
     updateLoraStackSettings({ library: { backend_loading: false, status: `Library error: ${error.message || error}` } });
@@ -18739,6 +20163,7 @@ async function loraLibraryFetchRecord(recordId) {
     const profileId = loraLibraryApiProfileId();
     if (profileId) url.searchParams.set('profile_id', profileId);
     const result = await loadJson(url.pathname + url.search, { ok: false });
+    if (loraLibraryApiProfileId() !== profileId) return;
     if (result.ok && result.record) {
       loraLibraryMergeRecord(result.record);
       updateLoraStackSettings({ library: { current_record: result.record, selected_record_id: result.record.id || id, selected_preview_index: 0 } });
@@ -18821,8 +20246,9 @@ function loraRowHtml(row, index, locked, selectedIndex = 0) {
     <div class="neo-lora-row-main">
       <button class="neo-lora-row-select" type="button" data-lora-row-select="${index}" aria-pressed="${selected ? 'true' : 'false'}" title="Show this LoRA in the library details">${selected ? '●' : '○'} Focus</button>
       <label class="neo-toggle-row"><input type="checkbox" data-lora-row-field="enabled" data-lora-row-index="${index}" ${row.enabled !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use</span></label>
-      <label class="neo-lora-field neo-lora-field-name">LoRA${select('name', loraCatalogOptions(), row.name || '')}</label>
+      <label class="neo-lora-field neo-lora-field-name">LoRA${select('name', loraCatalogOptions(row.name || ''), row.name || '')}</label>
       <label class="neo-lora-field neo-lora-field-strength">Strength<input type="number" min="-4" max="4" step="0.05" value="${escapeAttr(row.strength ?? 0.8)}" data-lora-row-field="strength" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}></label>
+      <span class="neo-badge neo-lora-provider-syntax" title="Provider rendering is applied only during submission">${escapeHtml(loraProviderSyntaxPreview(row.name || '', row.strength ?? 0.8))}</span>
       <div class="neo-lora-row-actions">
         <button class="neo-icon-btn" type="button" data-lora-row-action="up" data-lora-row-index="${index}" ${index === 0 || locked ? 'disabled' : ''}>↑</button>
         <button class="neo-icon-btn" type="button" data-lora-row-action="down" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}>↓</button>
@@ -18833,11 +20259,30 @@ function loraRowHtml(row, index, locked, selectedIndex = 0) {
     ${compact ? '' : `<p class="neo-muted neo-lora-row-summary">${escapeHtml(row.name || 'No LoRA selected')} · ${escapeHtml(row.target || 'both')} · ${escapeHtml(loraStackApplyToLabel(row.apply_to))} target preserved</p>`}
   </div>`;
 }
+function loraPickerRecords(settings = loraStackSettings()) {
+  const query = String(settings.library?.picker_query || '').trim().toLowerCase();
+  const records = loraAllLibraryRecords().filter((record) => record.catalog_available !== false);
+  if (!query) return records;
+  return records.filter((record) => [
+    record.name,
+    record.catalog_name,
+    record.file,
+    record.category,
+    record.base_model,
+  ].some((value) => String(value || '').toLowerCase().includes(query)));
+}
+function loraPickerSelectedRecord(settings = loraStackSettings()) {
+  const records = loraPickerRecords(settings);
+  const selectedId = String(settings.library?.selected_record_id || '');
+  return records.find((record) => String(record.id || '') === selectedId) || records[0] || null;
+}
 function loraStackPanel(record) {
   const route = loraStackActiveRoute(record);
   if (!loraStackRouteVisible(route)) return null;
   const settings = loraStackSettings();
-  const applied = extensionWorkflowApplied(record);
+  const library = settings.library;
+  const provider = loraProviderContext();
+  const applied = Boolean(settings.execution_enabled);
   const controlsEnabled = loraStackRouteControlsEnabled(route);
   const locked = !controlsEnabled;
   const status = loraStackStatusLabel(route, applied, settings.rows);
@@ -18847,20 +20292,37 @@ function loraStackPanel(record) {
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
   const routeBadge = route.route_state === 'experimental_available' ? 'Experimental' : (route.route_state === 'available' ? 'Available' : 'Route gated');
-  const body = `<section class="neo-lora-stack-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
+  const loraModeBadge = loraStackCompatibilityModeLabel(route);
+  const pickerRecords = loraPickerRecords(settings);
+  const pickerSelected = loraPickerSelectedRecord(settings);
+  const pickerName = pickerSelected?.catalog_name || pickerSelected?.name || pickerSelected?.file || '';
+  const pickerStrength = Number(library.pending_strength ?? pickerSelected?.default_strength ?? 0.8);
+  const pickerOptions = pickerRecords.map((item) => `<option value="${escapeAttr(item.id || '')}" ${(item.id || '') === (pickerSelected?.id || '') ? 'selected' : ''}>${escapeHtml(item.name || item.catalog_name || item.file || item.id || 'Unnamed LoRA')}</option>`).join('');
+  const picker = library.picker_open ? `<div class="neo-lora-picker" data-provider-id="${escapeAttr(provider.provider_id)}">
+    <div class="neo-lora-picker-head"><div><strong>Add LoRA</strong><span class="neo-muted">${escapeHtml(provider.provider_label)} catalog · selected profile only</span></div><span class="neo-badge">${pickerRecords.length} available</span></div>
+    <div class="neo-lora-picker-grid">
+      <label>Search<input id="loraStackPickerSearch" type="search" value="${escapeAttr(library.picker_query || '')}" placeholder="Search selected-provider LoRAs"></label>
+      <label>LoRA<select id="loraStackPickerSelect">${pickerOptions || '<option value="">No LoRAs reported by selected provider</option>'}</select></label>
+      <label>Strength<input id="loraStackPickerStrength" type="number" min="-4" max="4" step="0.05" value="${escapeAttr(pickerStrength)}"></label>
+    </div>
+    <div class="neo-chipline"><span class="neo-badge">${escapeHtml(loraProviderSyntaxPreview(pickerName, pickerStrength, provider.provider_id))}</span><span class="neo-muted">${provider.provider_id === 'forge' ? 'Compiled into the submitted positive prompt only.' : 'Applied through the provider workflow loader.'}</span></div>
+    <div class="neo-lora-library-actions"><button class="neo-btn primary" type="button" id="loraStackPickerAdd" ${pickerSelected && !locked ? '' : 'disabled'}>Add selected LoRA</button><button class="neo-btn secondary" type="button" id="loraStackPickerCancel">Cancel</button></div>
+  </div>` : '';
+  const body = `<section class="neo-lora-stack-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-lora-panel-header">
       <div><strong>LoRA Stack</strong>${!compact ? '<span class="neo-muted">Built-in global Image extension · canonical owner: Assets</span>' : ''}</div>
-      <div class="neo-extension-status-line neo-cfg-fix-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div>
+      <div class="neo-extension-status-line neo-cfg-fix-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span><span class="neo-badge">LoRA mode: ${escapeHtml(loraModeBadge)}</span><span class="neo-badge">${escapeHtml(provider.provider_label)}</span></div>
     </header>
-    ${compact ? '' : `<p class="neo-muted">Build one shared LoRA chain from Assets, Generation, Reference, or Finish. Graph execution still follows the selected family/loader route gate.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`}
+    ${compact ? '' : `<p class="neo-muted">LoRA is optional and its compatibility is independent from Native Inpaint or LanPaint. The selected engine changes graph anchors only. Plain LanPaint runs without any LoRA. Native Inpaint also runs without any LoRA. ${provider.provider_id === 'forge' ? 'Forge renders tags such as <code>&lt;lora:name:0.8&gt;</code> only at submission; the visible prompt stays clean.' : 'Comfy applies enabled rows through the route-compatible LoRA loader only when this switch is on.'}</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`}
     <div class="neo-lora-stack-toolbar">
-      <label class="neo-toggle-row"><input id="loraStackEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply LoRA Stack</span></label>
-      <button class="neo-btn secondary" type="button" id="loraStackAddRow" ${locked ? 'disabled' : ''}>+ Add LoRA Row</button>
+      <label class="neo-toggle-row"><input id="loraStackEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply LoRA Stack (optional)</span></label>
+      <button class="neo-btn secondary" type="button" id="loraStackAddRow" ${locked ? 'disabled' : ''}>+ Add LoRA</button>
       <button class="neo-btn secondary" type="button" id="loraStackClearEmpty" ${locked ? 'disabled' : ''}>Clean Empty/Disabled</button>
       <span class="neo-badge">${cleanCount} active</span>
     </div>
-    <div class="neo-lora-stack-rows">${rows.length ? rows.map((row, index) => loraRowHtml(row, index, locked, selectedRowIndex)).join('') : '<p class="neo-muted">No LoRA rows yet. Add a row or pick one from the library below.</p>'}</div>
-    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Workspace: ${route.workspace_app}`, `State: ${route.route_state}`, 'Global workspace mount: L1', 'Regional targets: L3 preserved'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
+    ${picker}
+    <div class="neo-lora-stack-rows">${rows.length ? rows.map((row, index) => loraRowHtml(row, index, locked, selectedRowIndex)).join('') : '<p class="neo-muted">No LoRAs selected. Use Add LoRA to choose from the active provider catalog.</p>'}</div>
+    ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Compatibility: ${route.compatibility_route_key || route.route_key}`, `Workflow: ${route.workflow_route_key || route.route_key}`, `Backend: ${route.backend}`, `Engine: ${route.engine} (graph only)`, `LoRA mode: ${loraModeBadge}`, `Provider: ${provider.provider_id}`, `Profile: ${provider.profile_id}`, `Catalog: ${provider.catalog_source}`, `State: ${route.route_state}`, 'Visible prompt mutation: false'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
   </section>`;
   return panel('LoRA Stack', body, false, status);
 }
@@ -18878,6 +20340,7 @@ function loraLibraryPanel(record) {
   if (!loraStackRouteVisible(route)) return null;
   const settings = loraStackSettings();
   const library = settings.library;
+  const provider = loraProviderContext();
   const records = loraStackLibraryRecords();
   const selected = loraSelectedLibraryRecord();
   const compact = state.detailMode === 'compact';
@@ -18897,21 +20360,21 @@ function loraLibraryPanel(record) {
   const tokenEditor = (id, label, items = [], promptField = 'positive_prompt') => editMode
     ? `<label class="neo-lora-token-editor">${label}<textarea id="${id}" rows="3" placeholder="Comma or line separated">${escapeHtml((items || []).join(', '))}</textarea></label>`
     : `<div class="neo-lora-token-section ${promptField === 'negative_prompt' ? 'negative' : 'positive'}"><strong>${label}</strong><div>${chipList(items || [], label.toLowerCase().startsWith('trigger') ? 'trigger' : 'keyword', promptField)}</div></div>`;
-  const body = `<section class="neo-lora-library-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-lora-panel-header"><div><strong>LoRA Library</strong>${!compact ? '<span class="neo-muted">Selected stack card details, enrichable with CivitAI</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-badge">${records.length} records</span><span class="neo-badge">${library.catalog_count || records.length} catalog</span><span class="neo-state-pill ${library.backend_loading ? '' : 'success'}">${escapeHtml(library.backend_loading ? 'Syncing' : (library.status || 'Ready'))}</span></div></header>
+  const body = `<section class="neo-lora-library-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-display-mode="${escapeAttr(state.detailMode)}">
+    <header class="neo-lora-panel-header"><div><strong>LoRA Library</strong>${!compact ? '<span class="neo-muted">Selected stack card details, enrichable with CivitAI</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-badge">${escapeHtml(provider.provider_label)}</span><span class="neo-badge">${records.length} records</span><span class="neo-badge">${library.catalog_count || records.length} catalog</span><span class="neo-state-pill ${library.backend_loading ? '' : 'success'}">${escapeHtml(library.backend_loading ? 'Syncing' : (library.status || 'Ready'))}</span></div></header>
     <div class="neo-lora-library-tools">
       <div class="neo-lora-library-tool-row neo-lora-library-source-row">
-        <label>Search Comfy LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Search LoraLoader records"></label>
-        <label>Comfy LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No Comfy LoraLoader records yet</option>'}</select></label>
+        <label>Search ${escapeHtml(provider.provider_label)} LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Search selected-provider LoRAs"></label>
+        <label>${escapeHtml(provider.provider_label)} LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No selected-provider LoRAs yet</option>'}</select></label>
       </div>
-      ${compact ? '' : `<p class="neo-muted">LoRAs are pulled from the connected Comfy backend's <code>LoraLoader.lora_name</code> choices. Selecting a LoRA card above focuses its metadata here.</p>`}
+      ${compact ? '' : `<p class="neo-muted">LoRAs are loaded only from the selected Image profile. Forge uses its Extra Networks catalog; Comfy uses <code>LoraLoader.lora_name</code>. No default-profile fallback is performed.</p>`}
     </div>
     <div class="neo-lora-library-grid">
       <div class="neo-lora-preview-column">${preview}<div class="neo-lora-preview-actions"><button class="neo-btn secondary neo-lora-preview-nav" type="button" id="loraPreviewPrev" aria-label="Previous LoRA preview" ${previewImages.length < 2 ? 'disabled' : ''}>⬅️</button><span class="neo-muted">${previewImages.length ? `${previewIndex + 1}/${previewImages.length}` : '0/0'}</span><button class="neo-btn secondary neo-lora-preview-nav" type="button" id="loraPreviewNext" aria-label="Next LoRA preview" ${previewImages.length < 2 ? 'disabled' : ''}>➡️</button></div></div>
       <div class="neo-lora-record-summary">
-        <div class="neo-chipline"><span class="neo-badge">${escapeHtml(selected?.base_model || 'Base unknown')}</span><span class="neo-badge">${escapeHtml(selected?.category || 'uncategorized')}</span><span class="neo-badge">Strength ${escapeHtml(selected?.default_strength ?? 0.8)}</span><span class="neo-badge">${selected?.catalog_available === false ? 'Missing from Comfy' : 'In Comfy catalog'}</span><span class="neo-badge">${escapeHtml(selected?.metadata_status || 'metadata pending')}</span></div>
-        <h4>${escapeHtml(selected?.name || 'No LoRA selected')}</h4>
-        ${compact ? '' : `<p class="neo-muted">${escapeHtml(selected?.notes || 'Selected from Comfy LoraLoader. Add a CivitAI link, then pull to fill triggers, prompts, and previews.')}</p>`}
+        <div class="neo-chipline"><span class="neo-badge">${escapeHtml(selected?.base_model || 'Base unknown')}</span><span class="neo-badge">${escapeHtml(selected?.category || 'uncategorized')}</span><span class="neo-badge">Strength ${escapeHtml(selected?.default_strength ?? 0.8)}</span><span class="neo-badge">${selected?.catalog_available === false ? 'Missing from selected provider' : `In ${provider.provider_label} catalog`}</span><span class="neo-badge">${escapeHtml(selected?.metadata_status || 'metadata pending')}</span></div>
+        <h4>${escapeHtml(selected?.name || 'No LoRA selected')}</h4><div class="neo-chipline"><span class="neo-badge" title="Provider rendering is applied only at submission">${escapeHtml(loraProviderSyntaxPreview(selected?.catalog_name || selected?.name || '', selected?.default_strength ?? 0.8, provider.provider_id))}</span><span class="neo-muted">Visible prompt mutation: none</span></div>
+        ${compact ? '' : `<p class="neo-muted">${escapeHtml(selected?.notes || 'Selected from the active provider catalog. Add a CivitAI link, then pull to enrich triggers, prompts, and previews.')}</p>`}
       </div>
       <div class="neo-lora-record-details">
         ${tokenEditor('loraTriggerWordsInput', 'Positive triggers', selected?.triggers || [], 'positive_prompt')}
@@ -18955,11 +20418,16 @@ const EMBEDDINGS_TI_DEFAULT_STATE = {
   merge_mode: 'fill_missing',
   backend_loaded: false,
   backend_loading: false,
+  backend_loaded_profile_id: '',
+  backend_provider_id: '',
+  backend_provider_label: '',
+  catalog_source: '',
   catalog_count: 0,
 };
 const EMBEDDINGS_TI_TARGETS = [
   { id: 'positive_prompt', label: 'Positive prompt', expert: false },
   { id: 'negative_prompt', label: 'Negative prompt', expert: false },
+  { id: 'both', label: 'Positive + negative', expert: false },
   { id: 'finish_positive', label: 'Finish positive', expert: true },
   { id: 'finish_negative', label: 'Finish negative', expert: true },
 ];
@@ -18985,7 +20453,7 @@ function embeddingsTiActiveRoute(record = null) {
   const family = state.imageDraft.family || 'sdxl';
   const loader = state.imageDraft.loader || 'checkpoint';
   const workflowMode = getImageWorkflowMode() || 'generate';
-  const backend = defaultBackendProfile('image')?.provider_id || 'comfyui';
+  const backend = embeddingsTiProviderContext().provider_id || 'comfyui';
   const routeKey = `${family}:${loader}:${workflowMode}`;
   const routeState = manifest.route_states?.[routeKey] || manifest.route_states?.['*'] || 'planned_gated';
   let reason = '';
@@ -19008,46 +20476,82 @@ function embeddingsTiStatusLabel(route, applied, settings = embeddingsTiSettings
   if (route.route_state === 'experimental_available') return 'Experimental';
   return 'Ready';
 }
-function normalizeEmbeddingToken(value) {
-  const text = String(value || '').trim();
+function embeddingsTiProfile() {
+  const selectedId = selectedBackendProfileIdForSurface('image') || '';
+  return backendProfilesForSurface('image').find((profile) => profile.profile_id === selectedId) || null;
+}
+function embeddingsTiProviderContext() {
+  const profile = embeddingsTiProfile();
+  const providerId = String(profile?.provider_id || '').trim().toLowerCase();
+  const providerLabel = providerId === 'forge' ? 'Forge Neo' : (['comfyui', 'comfyui_portable'].includes(providerId) ? 'ComfyUI' : (profile?.name || providerId || 'Image provider'));
+  return {
+    profile_id: profile?.profile_id || selectedBackendProfileIdForSurface('image') || '',
+    provider_id: providerId,
+    provider_label: providerLabel,
+    catalog_source: providerId === 'forge' ? 'forge:sdapi_embeddings' : (['comfyui', 'comfyui_portable'].includes(providerId) ? 'comfy:embeddings' : `${providerId || 'provider'}:embedding_catalog`),
+  };
+}
+function embeddingsTiPortableCatalogName(value) {
+  let text = String(value || '').trim().replace(/\\/g, '/');
   if (!text) return '';
-  if (text.startsWith('embedding:')) return text;
-  const file = text.replace(/\\/g, '/').split('/').pop() || text;
-  const stem = file.replace(/\.(pt|safetensors|bin)$/i, '');
-  return `embedding:${stem}`;
+  const weighted = text.match(/^\(\s*(.*?)\s*:\s*[-+]?\d+(?:\.\d+)?\s*\)$/);
+  if (weighted) text = weighted[1].trim();
+  text = text.replace(/^embedding\s*:\s*/i, '').trim();
+  if (/^[A-Za-z]:\//.test(text) || text.startsWith('/')) text = text.split('/').filter(Boolean).pop() || '';
+  while (text.startsWith('./')) text = text.slice(2);
+  return text.trim();
+}
+function normalizeEmbeddingToken(value) {
+  const text = embeddingsTiPortableCatalogName(value);
+  if (!text) return '';
+  const file = text.split('/').pop() || text;
+  return file.replace(/\.(pt|safetensors|bin)$/i, '').trim();
+}
+function embeddingsTiIdentityKey(value) {
+  return normalizeEmbeddingToken(value).toLowerCase();
+}
+function embeddingsTiProviderSyntax(token, strength = 1, providerId = embeddingsTiProviderContext().provider_id) {
+  const clean = normalizeEmbeddingToken(token);
+  if (!clean) return '';
+  const amount = Number(strength ?? 1);
+  const base = providerId === 'forge' ? clean : `embedding:${clean}`;
+  if (Math.abs(amount - 1) < 0.001) return base;
+  return `(${base}:${Number(amount.toFixed(3))})`;
 }
 function embeddingsTiTokenLabel(token, strength = 1) {
-  const clean = normalizeEmbeddingToken(token);
-  const weight = Number(strength ?? 1);
-  if (!clean) return '';
-  if (Math.abs(weight - 1) < 0.001) return clean;
-  return `(${clean}:${Number(weight.toFixed(3))})`;
+  return embeddingsTiProviderSyntax(token, strength);
 }
 function embeddingsTiCatalogOptions() {
   const fromProvider = profileModelOptions('embeddings');
   const usable = fromProvider.filter((item) => item.id && !item.id.startsWith('select_') && item.id !== 'provider_default');
   if (usable.length) return [{ id: '', label: 'Select embedding' }, ...usable];
-  return [{ id: '', label: 'Manual token / scan folder later' }];
+  return [{ id: '', label: 'Manual trigger / scan folder later' }];
 }
 function embeddingsTiProviderRecords() {
+  const provider = embeddingsTiProviderContext();
   return embeddingsTiCatalogOptions()
     .filter((item) => item.id && !item.id.startsWith('select_') && item.id !== 'provider_default')
     .map((item) => ({
       id: item.id,
-      name: item.label || item.id,
+      name: normalizeEmbeddingToken(item.label || item.id),
+      catalog_name: item.id,
       token: normalizeEmbeddingToken(item.id),
-      file: item.id,
+      asset_name: normalizeEmbeddingToken(item.id),
+      file: '',
       source: 'provider_embedding_catalog',
+      provider_id: provider.provider_id,
+      provider_label: provider.provider_label,
+      catalog_source: provider.catalog_source,
       base_model: 'Base unknown',
       keywords: [],
-      notes: 'Loaded from provider embedding catalog when available.',
+      notes: `Loaded from the selected ${provider.provider_label} embedding catalog.`,
       example_prompt: normalizeEmbeddingToken(item.id),
       preview_image: '',
     }));
 }
 
 function embeddingsTiLibraryApiProfileId() {
-  return defaultBackendProfile('image')?.profile_id || selectedBackendProfileIdForSurface('image') || '';
+  return selectedBackendProfileIdForSurface('image') || defaultBackendProfile('image')?.profile_id || '';
 }
 function embeddingsTiMergeRecords(records = [], patch = {}) {
   const normalized = Array.isArray(records) ? records : [];
@@ -19060,6 +20564,10 @@ function embeddingsTiMergeRecords(records = [], patch = {}) {
     backend_loaded: true,
     backend_loading: false,
     catalog_count: patch.catalog_count ?? normalized.length,
+    backend_loaded_profile_id: patch.backend_loaded_profile_id ?? embeddingsTiSettings().backend_loaded_profile_id,
+    backend_provider_id: patch.backend_provider_id ?? embeddingsTiSettings().backend_provider_id,
+    backend_provider_label: patch.backend_provider_label ?? embeddingsTiSettings().backend_provider_label,
+    catalog_source: patch.catalog_source ?? embeddingsTiSettings().catalog_source,
   });
 }
 async function embeddingsTiFetchBrowser({ query = null, force = false } = {}) {
@@ -19074,8 +20582,20 @@ async function embeddingsTiFetchBrowser({ query = null, force = false } = {}) {
     const profileId = embeddingsTiLibraryApiProfileId();
     if (profileId) url.searchParams.set('profile_id', profileId);
     const result = await loadJson(url.pathname + url.search, { ok: false, records: [] });
+    if (embeddingsTiLibraryApiProfileId() !== profileId) {
+      updateEmbeddingsTiSettings({ backend_loaded: false, backend_loading: false, library_status: 'Provider changed · refreshing Embeddings/TI catalog…' });
+      render();
+      return;
+    }
     const records = Array.isArray(result.records) ? result.records : [];
-    embeddingsTiMergeRecords(records, { catalog_count: result.catalog_count || records.length, library_status: result.ok ? 'Ready' : 'Embeddings/TI library unavailable' });
+    embeddingsTiMergeRecords(records, {
+      catalog_count: result.catalog_count || records.length,
+      library_status: result.ok ? 'Ready' : 'Embeddings/TI library unavailable',
+      backend_loaded_profile_id: profileId || '',
+      backend_provider_id: result.provider_id || embeddingsTiProviderContext().provider_id,
+      backend_provider_label: result.provider_label || embeddingsTiProviderContext().provider_label,
+      catalog_source: result.catalog_source || embeddingsTiProviderContext().catalog_source,
+    });
     render();
   } catch (error) {
     updateEmbeddingsTiSettings({ backend_loading: false, library_status: `Embeddings/TI library error: ${error.message || error}` });
@@ -19110,6 +20630,7 @@ function embeddingsTiPreviewSrc(path) {
 }
 async function embeddingsTiCivitaiPull() {
   const settings = embeddingsTiSettings();
+  const provider = embeddingsTiProviderContext();
   const selected = embeddingsTiSelectedRecord(settings);
   const url = document.getElementById('embeddingsTiCivitaiUrl')?.value || settings.civitai_url || '';
   if (!url.trim()) {
@@ -19144,17 +20665,15 @@ async function embeddingsTiCivitaiPull() {
   }
 }
 
-function embeddingsTiPromptFieldForTarget(target) {
-  if (target === 'negative_prompt') return 'negative_prompt';
-  if (target === 'positive_prompt') return 'positive_prompt';
-  return '';
+function embeddingsTiPromptFieldsForTarget(target) {
+  if (target === 'both') return ['positive_prompt', 'negative_prompt'];
+  if (target === 'negative_prompt') return ['negative_prompt'];
+  if (target === 'positive_prompt') return ['positive_prompt'];
+  return [];
 }
-function embeddingsTiApplyItemToPrompt(item) {
-  const field = embeddingsTiPromptFieldForTarget(item?.target);
-  if (!field) return false;
-  const text = embeddingsTiTokenLabel(item.token, item.strength);
-  if (!promptHasToken(text, field)) appendToPromptField(text, field);
-  return true;
+function embeddingsTiPromptPresence(item) {
+  const fields = embeddingsTiPromptFieldsForTarget(item?.target);
+  return fields.reduce((result, field) => ({ ...result, [field]: promptHasToken(normalizeEmbeddingToken(item?.token), field) || promptHasToken(`embedding:${normalizeEmbeddingToken(item?.token)}`, field) }), {});
 }
 function embeddingsTiLibraryRecords() {
   const settings = embeddingsTiSettings();
@@ -19177,17 +20696,20 @@ function embeddingsTiCleanItems(items = []) {
   const seen = new Set();
   if (!Array.isArray(items)) return [];
   return items.map((item) => {
-    const token = normalizeEmbeddingToken(item?.token || item?.name || '');
+    const token = normalizeEmbeddingToken(item?.asset_name || item?.token || item?.catalog_name || item?.name || '');
     if (!token) return null;
     const strength = Math.max(0, Math.min(2, Number(item?.strength ?? 1) || 1));
     const target = EMBEDDINGS_TI_TARGETS.some((entry) => entry.id === item?.target) ? item.target : 'negative_prompt';
-    const name = String(item?.name || token.replace(/^embedding:/, '')).trim();
-    const key = `${token.toLowerCase()}|${strength}|${target}`;
+    const name = String(item?.name || token).trim();
+    const catalogName = embeddingsTiPortableCatalogName(item?.catalog_name || item?.file || token) || token;
+    const key = `${embeddingsTiIdentityKey(token)}|${target}`;
     if (seen.has(key)) return null;
     seen.add(key);
     return {
       uid: item?.uid || `ti_${token.replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}`,
       token,
+      asset_name: token,
+      catalog_name: catalogName || token,
       name,
       strength,
       target,
@@ -19210,19 +20732,20 @@ function embeddingsTiPayloadPreview(record) {
     extensions: {
       [EMBEDDINGS_TI_EXTENSION_ID]: {
         enabled: Boolean(active),
-        version: 1,
+        version: 2,
         inputs: {},
         params: active ? { items } : {},
         assets: active ? {
           selected_embedding: selected ? {
             id: selected.id || '',
             name: selected.name || '',
-            token: normalizeEmbeddingToken(selected.token || selected.name || ''),
-            file: selected.file || '',
+            token: normalizeEmbeddingToken(selected.asset_name || selected.token || selected.name || ''),
+            asset_name: normalizeEmbeddingToken(selected.asset_name || selected.token || selected.name || ''),
+            catalog_name: embeddingsTiPortableCatalogName(selected.catalog_name || selected.file || selected.name || ''),
             base_model: selected.base_model || '',
             preview_image: selected.preview_image || '',
           } : {},
-          selected_embeddings: items.map((item) => ({ token: item.token, name: item.name, target: item.target, strength: item.strength, source_record_id: item.source_record_id || '' })),
+          selected_embeddings: items.map((item) => ({ token: item.token, asset_name: item.asset_name, catalog_name: item.catalog_name, name: item.name, target: item.target, strength: item.strength, source_record_id: item.source_record_id || '' })),
         } : {},
         metadata: {
           source: 'image.assets.embeddings_ti',
@@ -19232,7 +20755,17 @@ function embeddingsTiPayloadPreview(record) {
           loader: route.loader,
           workflow_mode: route.workflow_mode,
           reason: active ? '' : embeddingsTiStatusLabel(route, applied, settings),
-          ui_phase: 'H-backend-library',
+          provider_binding: {
+            profile_id: embeddingsTiProviderContext().profile_id,
+            provider_id: embeddingsTiProviderContext().provider_id,
+            provider_label: embeddingsTiProviderContext().provider_label,
+            catalog_source: embeddingsTiProviderContext().catalog_source,
+            selected_profile_only: true,
+            automatic_provider_fallback: false,
+            serialization: embeddingsTiProviderContext().provider_id === 'forge' ? 'plain_trigger_compile_time' : 'comfy_embedding_prefix_compile_time',
+            visible_prompt_mutation: false,
+          },
+          ui_phase: '9-provider-formatting',
         },
       },
     },
@@ -19257,19 +20790,32 @@ function embeddingsTiAddChip() {
   const settings = embeddingsTiSettings();
   const record = embeddingsTiSelectedRecord(settings);
   const manual = document.getElementById('embeddingsTiManualToken')?.value || settings.manual_token || '';
-  const token = normalizeEmbeddingToken(manual || record?.token || record?.name || '');
+  const token = normalizeEmbeddingToken(manual || record?.asset_name || record?.token || record?.name || '');
   if (!token) return;
+  const target = document.getElementById('embeddingsTiTarget')?.value || settings.pending_target || 'negative_prompt';
+  const strength = Number(document.getElementById('embeddingsTiStrength')?.value || settings.pending_strength || 1);
+  const key = `${embeddingsTiIdentityKey(token)}|${target}`;
+  const existingIndex = settings.items.findIndex((item) => `${embeddingsTiIdentityKey(item.token)}|${item.target}` === key);
   const item = {
-    uid: `ti_${Date.now()}`,
+    uid: existingIndex >= 0 ? settings.items[existingIndex].uid : `ti_${Date.now()}`,
     token,
-    name: record?.name || token.replace(/^embedding:/, ''),
-    strength: Number(document.getElementById('embeddingsTiStrength')?.value || settings.pending_strength || 1),
-    target: document.getElementById('embeddingsTiTarget')?.value || settings.pending_target || 'negative_prompt',
+    asset_name: token,
+    catalog_name: embeddingsTiPortableCatalogName(record?.catalog_name || record?.file || token) || token,
+    name: record?.name || token,
+    strength,
+    target,
     source_record_id: record?.id || '',
   };
-  const promptUpdated = embeddingsTiApplyItemToPrompt(item);
-  const status = promptUpdated ? `Embedding chip added and sent to ${embeddingsTiTargetLabel(item.target)}.` : 'Embedding chip added. Prompt patch will apply during generation.';
-  updateEmbeddingsTiSettings({ items: [...settings.items, item], manual_token: token, library_status: status });
+  const items = existingIndex >= 0
+    ? settings.items.map((entry, index) => index === existingIndex ? item : entry)
+    : [...settings.items, item];
+  updateEmbeddingsTiSettings({
+    items,
+    manual_token: token,
+    library_status: existingIndex >= 0
+      ? `Updated ${token}. Provider syntax is applied only during generation.`
+      : `Added ${token}. Provider syntax is applied only during generation.`,
+  });
   setWorkflowExtensionApplied(EMBEDDINGS_TI_EXTENSION_ID, true);
   render();
 }
@@ -19281,6 +20827,7 @@ function embeddingsTiPanel(record) {
   const route = embeddingsTiActiveRoute(record);
   if (!embeddingsTiRouteVisible(route)) return null;
   const settings = embeddingsTiSettings();
+  const provider = embeddingsTiProviderContext();
   const selected = embeddingsTiSelectedRecord(settings);
   const locked = !embeddingsTiRouteControlsEnabled(route);
   const compact = state.detailMode === 'compact';
@@ -19289,16 +20836,16 @@ function embeddingsTiPanel(record) {
   const status = embeddingsTiStatusLabel(route, applied, settings);
   const routeBadge = route.route_state === 'available' ? 'Available' : route.route_state;
   const records = embeddingsTiLibraryRecords();
-  const token = normalizeEmbeddingToken(settings.manual_token || selected?.token || selected?.name || '');
+  const token = normalizeEmbeddingToken(settings.manual_token || selected?.asset_name || selected?.token || selected?.name || '');
   const recordOptions = records.map((entry) => `<option value="${escapeAttr(entry.id || entry.token || entry.name)}" ${(entry.id || entry.token || entry.name) === settings.selected_record_id ? 'selected' : ''}>${escapeHtml(entry.name || entry.token || entry.file || 'Embedding')}</option>`).join('');
   const targetOptions = EMBEDDINGS_TI_TARGETS.filter((target) => expert || !target.expert).map((target) => `<option value="${target.id}" ${target.id === settings.pending_target ? 'selected' : ''}>${target.label}</option>`).join('');
-  const chips = settings.items.length ? settings.items.map((item) => `<span class="neo-embedding-chip" data-target="${escapeAttr(item.target)}"><span>${escapeHtml(embeddingsTiTokenLabel(item.token, item.strength))}</span><small>${escapeHtml(embeddingsTiTargetLabel(item.target))}</small><button type="button" data-embeddings-ti-remove="${escapeAttr(item.uid)}" aria-label="Remove ${escapeAttr(item.name)}">×</button></span>`).join('') : '<span class="neo-muted">No embedding chips yet.</span>';
+  const chips = settings.items.length ? settings.items.map((item) => `<span class="neo-embedding-chip" data-target="${escapeAttr(item.target)}"><span>${escapeHtml(embeddingsTiProviderSyntax(item.token, item.strength, provider.provider_id))}</span><small>${escapeHtml(embeddingsTiTargetLabel(item.target))}</small><button type="button" data-embeddings-ti-remove="${escapeAttr(item.uid)}" aria-label="Remove ${escapeAttr(item.name)}">×</button></span>`).join('') : '<span class="neo-muted">No embedding chips yet.</span>';
   const previewSrc = embeddingsTiPreviewSrc(selected?.preview_image || '');
   const preview = previewSrc ? `<div class="neo-embedding-preview"><img src="${escapeAttr(previewSrc)}" alt="${escapeAttr(selected.name || 'Embedding preview')}"></div>` : `<div class="neo-embedding-preview">No preview</div>`;
-  const tokenPresence = token ? badgeRow([promptHasToken(token, 'positive_prompt') ? 'In positive prompt' : 'Not in positive prompt', promptHasToken(token, 'negative_prompt') ? 'In negative prompt' : 'Not in negative prompt']) : '';
-  const details = compact ? '' : `<p class="neo-muted">Embeddings/TI is a prompt-token asset. Pick an embedding, choose positive or negative prompt, set strength if needed, then add it as a chip. No loader node is required.</p>`;
+  const tokenPresence = token ? badgeRow([promptHasToken(token, 'positive_prompt') || promptHasToken(`embedding:${token}`, 'positive_prompt') ? 'Manually present in positive prompt' : 'Not manually present in positive prompt', promptHasToken(token, 'negative_prompt') || promptHasToken(`embedding:${token}`, 'negative_prompt') ? 'Manually present in negative prompt' : 'Not manually present in negative prompt']) : '';
+  const details = compact ? '' : `<p class="neo-muted">Embeddings/TI is a prompt-token asset. Pick an embedding from the selected provider, choose positive, negative, or both, then add a canonical chip. Forge uses the plain trigger; Comfy adds the embedding: prefix only during compilation.</p>`;
   const civitai = `<div class="neo-embeddings-ti-civitai-row"><label>CivitAI link<input id="embeddingsTiCivitaiUrl" type="url" value="${escapeAttr(settings.civitai_url || selected?.civitai_url || selected?.remote_source?.url || '')}" placeholder="https://civitai.com/models/... or /model-versions/..."></label><select id="embeddingsTiCivitaiMergeMode"><option value="fill_missing" ${settings.merge_mode === 'fill_missing' ? 'selected' : ''}>fill missing</option><option value="smart_merge" ${settings.merge_mode === 'smart_merge' ? 'selected' : ''}>smart merge</option><option value="overwrite_selected" ${settings.merge_mode === 'overwrite_selected' ? 'selected' : ''}>overwrite selected</option><option value="previews_only" ${settings.merge_mode === 'previews_only' ? 'selected' : ''}>previews only</option></select><button class="neo-btn secondary" type="button" id="embeddingsTiCivitaiPull" ${locked || settings.civitai_loading ? 'disabled' : ''}>${settings.civitai_loading ? 'Pulling…' : 'Pull from CivitAI'}</button></div>`;
-  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `State: ${route.route_state}`, 'Workflow patch: queued'])}</div><pre>${escapeHtml(JSON.stringify(embeddingsTiPayloadPreview(record), null, 2))}</pre></div>` : '';
+  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Provider: ${provider.provider_label}`, `State: ${route.route_state}`, `Serialization: ${provider.provider_id === 'forge' ? 'plain trigger' : 'embedding: prefix'}`])}</div><pre>${escapeHtml(JSON.stringify(embeddingsTiPayloadPreview(record), null, 2))}</pre></div>` : '';
   const body = `<section class="neo-embeddings-ti-panel" data-extension-id="${EMBEDDINGS_TI_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-embeddings-ti-header"><div><strong>Embeddings / Textual Inversion</strong>${!compact ? '<span class="neo-muted">Built-in Assets extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
     ${details}
@@ -19309,19 +20856,19 @@ function embeddingsTiPanel(record) {
       <span class="neo-badge">${records.length} records</span>
     </div>
     <div class="neo-embeddings-ti-search-row">
-      <label>Embeddings folder<input id="embeddingsTiFolder" type="text" value="${escapeAttr(settings.folder_path || '')}" placeholder="Path to ComfyUI/models/embeddings" ${locked ? 'disabled' : ''}></label>
-      <label>Search<input id="embeddingsTiSearch" type="search" value="${escapeAttr(settings.search || '')}" placeholder="Search embeddings" ${locked ? 'disabled' : ''}></label>
+      <label>Embeddings folder<input id="embeddingsTiFolder" type="text" value="${escapeAttr(settings.folder_path || '')}" placeholder="Optional local embeddings folder" ${locked ? 'disabled' : ''}></label>
+      <label>Search<input id="embeddingsTiSearch" type="search" value="${escapeAttr(settings.search || '')}" placeholder="Search selected-provider embeddings" ${locked ? 'disabled' : ''}></label>
       <label>Embedding<select id="embeddingsTiRecordSelect" ${locked ? 'disabled' : ''}>${recordOptions || '<option value="">No embeddings yet</option>'}</select></label>
     </div>
     <div class="neo-embeddings-ti-add-row">
-      <label>Prompt token<input id="embeddingsTiManualToken" value="${escapeAttr(token)}" placeholder="embedding:name" ${locked ? 'disabled' : ''}></label>
+      <label>Canonical trigger<input id="embeddingsTiManualToken" value="${escapeAttr(token)}" placeholder="EasyNegative" ${locked ? 'disabled' : ''}></label>
       <label>Target<select id="embeddingsTiTarget" ${locked ? 'disabled' : ''}>${targetOptions}</select></label>
       <label>Strength<input id="embeddingsTiStrength" type="number" min="0" max="2" step="0.05" value="${escapeAttr(settings.pending_strength ?? 1)}" ${locked ? 'disabled' : ''}></label>
       <button class="neo-btn primary" type="button" id="embeddingsTiAddChip" ${locked || !token ? 'disabled' : ''}>+ Add Embedding</button>
     </div>
     <div class="neo-embeddings-ti-grid">
       <div class="neo-embeddings-ti-preview-column">${preview}</div>
-      <div class="neo-embedding-record-summary"><strong>${escapeHtml(selected?.name || 'No embedding selected')}</strong><p class="neo-muted">${escapeHtml(selected?.file || selected?.source || 'Manual/provider token')}</p><div class="neo-output-chip-row"><span class="neo-output-chip">${escapeHtml(token || 'No token')}</span>${selected?.base_model ? `<span class="neo-output-chip">${escapeHtml(selected.base_model)}</span>` : ''}</div>${tokenPresence}</div>
+      <div class="neo-embedding-record-summary"><strong>${escapeHtml(selected?.name || 'No embedding selected')}</strong><p class="neo-muted">${escapeHtml(selected?.catalog_name || selected?.source || 'Manual/provider token')}</p><div class="neo-output-chip-row"><span class="neo-output-chip">${escapeHtml(embeddingsTiProviderSyntax(token, settings.pending_strength ?? 1, provider.provider_id) || 'No trigger')}</span><span class="neo-muted">Visible prompt mutation: none</span>${selected?.base_model ? `<span class="neo-output-chip">${escapeHtml(selected.base_model)}</span>` : ''}</div>${tokenPresence}</div>
     </div>
     ${civitai}
     <div class="neo-embeddings-ti-chip-zone"><strong>Applied Embeddings</strong><div class="neo-embeddings-ti-chips">${chips}</div></div>
@@ -19338,7 +20885,7 @@ function bindEmbeddingsTiControls() {
   const search = document.getElementById('embeddingsTiSearch');
   if (search) search.addEventListener('input', (event) => { updateEmbeddingsTiSettings({ search: event.target.value, backend_loaded: false }); embeddingsTiFetchBrowser({ query: event.target.value, force: true }); });
   const select = document.getElementById('embeddingsTiRecordSelect');
-  if (select) select.addEventListener('change', (event) => { const records = embeddingsTiLibraryRecords(); const next = records.find((entry) => (entry.id || entry.token || entry.name) === event.target.value) || null; updateEmbeddingsTiSettings({ selected_record_id: event.target.value, current_record: next, manual_token: next?.token || next?.name || '' }); render(); });
+  if (select) select.addEventListener('change', (event) => { const records = embeddingsTiLibraryRecords(); const next = records.find((entry) => (entry.id || entry.token || entry.name) === event.target.value) || null; updateEmbeddingsTiSettings({ selected_record_id: event.target.value, current_record: next, manual_token: next?.asset_name || next?.token || next?.name || '' }); render(); });
   const manual = document.getElementById('embeddingsTiManualToken');
   if (manual) manual.addEventListener('input', (event) => updateEmbeddingsTiSettings({ manual_token: event.target.value }));
   const target = document.getElementById('embeddingsTiTarget');
@@ -19361,17 +20908,53 @@ function bindEmbeddingsTiControls() {
 }
 function addLoraStackRow(source = {}) {
   const settings = loraStackSettings();
+  const portableName = loraPortableName(source.name || source.catalog_name || source.file || '');
+  const identity = loraIdentityKey(portableName);
+  if (!identity) return false;
+  const existingIndex = settings.rows.findIndex((row) => loraIdentityKey(row.name) === identity);
+  const strength = Math.max(-4, Math.min(4, Number(source.strength ?? source.default_strength ?? 0.8)));
+  const sourceRecordId = source.source_record_id || source.id || loraRecordIdForName(portableName);
+  if (existingIndex >= 0) {
+    const existing = settings.rows[existingIndex];
+    const rows = settings.rows.map((row, index) => index === existingIndex ? {
+      ...row,
+      enabled: true,
+      name: portableName,
+      strength,
+      source_record_id: sourceRecordId || existing.source_record_id || '',
+    } : row);
+    updateLoraStackSettings({
+      rows,
+      selected_row_index: existingIndex,
+      library: {
+        selected_record_id: sourceRecordId || settings.library.selected_record_id,
+        selected_preview_index: 0,
+        picker_open: false,
+      },
+    });
+    setWorkflowExtensionApplied(LORA_STACK_EXTENSION_ID, true);
+    return false;
+  }
   const row = {
     uid: source.uid || `lora_${Date.now()}`,
     enabled: source.enabled !== false,
-    name: source.name || '',
-    strength: Number(source.strength ?? source.default_strength ?? 0.8),
+    name: portableName,
+    strength,
     target: source.target || 'both',
     apply_to: loraStackNormalizeApplyTo(source.apply_to),
   };
-  if (source.source_record_id || source.id) row.source_record_id = source.source_record_id || source.id;
-  updateLoraStackSettings({ rows: [...settings.rows, row], selected_row_index: settings.rows.length, library: { selected_record_id: loraRecordIdForName(row.name), selected_preview_index: 0 } });
+  if (sourceRecordId) row.source_record_id = sourceRecordId;
+  updateLoraStackSettings({
+    rows: [...settings.rows, row],
+    selected_row_index: settings.rows.length,
+    library: {
+      selected_record_id: sourceRecordId || '',
+      selected_preview_index: 0,
+      picker_open: false,
+    },
+  });
   setWorkflowExtensionApplied(LORA_STACK_EXTENSION_ID, true);
+  return true;
 }
 function updateLoraStackRow(index, patch = {}) {
   const settings = loraStackSettings();
@@ -19397,9 +20980,66 @@ function appendToPositivePrompt(text, replace = false) {
 }
 function bindLoraStackControls() {
   const enabled = document.getElementById('loraStackEnabled');
-  if (enabled) enabled.addEventListener('change', (event) => setWorkflowExtensionApplied(LORA_STACK_EXTENSION_ID, Boolean(event.target.checked)));
+  if (enabled) enabled.addEventListener('change', (event) => {
+    const checked = Boolean(event.target.checked);
+    updateLoraStackSettings({ enabled: checked, execution_enabled: checked });
+    setWorkflowExtensionApplied(LORA_STACK_EXTENSION_ID, checked);
+  });
   const add = document.getElementById('loraStackAddRow');
-  if (add) add.addEventListener('click', () => addLoraStackRow());
+  if (add) add.addEventListener('click', () => {
+    const settings = loraStackSettings();
+    const first = loraPickerRecords(settings)[0] || null;
+    updateLoraStackSettings({
+      library: {
+        picker_open: !settings.library.picker_open,
+        selected_record_id: settings.library.selected_record_id || first?.id || '',
+        pending_strength: Number(settings.library.pending_strength ?? first?.default_strength ?? 0.8),
+      },
+    });
+    render();
+  });
+  const pickerSearch = document.getElementById('loraStackPickerSearch');
+  if (pickerSearch) pickerSearch.addEventListener('input', (event) => {
+    const query = event.target.value;
+    const matching = loraPickerRecords({ ...loraStackSettings(), library: { ...loraStackSettings().library, picker_query: query } })[0] || null;
+    updateLoraStackSettings({ library: { picker_query: query, selected_record_id: matching?.id || '' } });
+    render();
+  });
+  const pickerSelect = document.getElementById('loraStackPickerSelect');
+  if (pickerSelect) pickerSelect.addEventListener('change', (event) => {
+    const recordId = event.target.value;
+    const selectedRecord = loraAllLibraryRecords().find((item) => String(item.id || '') === String(recordId || '')) || null;
+    updateLoraStackSettings({ library: {
+      selected_record_id: recordId,
+      current_record: null,
+      selected_preview_index: 0,
+      pending_strength: Number(selectedRecord?.default_strength ?? loraStackSettings().library.pending_strength ?? 0.8),
+    } });
+    if (recordId) loraLibraryFetchRecord(recordId);
+    render();
+  });
+  const pickerStrength = document.getElementById('loraStackPickerStrength');
+  if (pickerStrength) pickerStrength.addEventListener('input', (event) => {
+    updateLoraStackSettings({ library: { pending_strength: Math.max(-4, Math.min(4, Number(event.target.value || 0.8))) } });
+    render();
+  });
+  const pickerAdd = document.getElementById('loraStackPickerAdd');
+  if (pickerAdd) pickerAdd.addEventListener('click', () => {
+    const settings = loraStackSettings();
+    const selectedRecord = loraPickerSelectedRecord(settings);
+    if (!selectedRecord) return;
+    addLoraStackRow({
+      name: selectedRecord.catalog_name || selectedRecord.name || selectedRecord.file || '',
+      strength: settings.library.pending_strength ?? selectedRecord.default_strength ?? 0.8,
+      source_record_id: selectedRecord.id || '',
+    });
+    render();
+  });
+  const pickerCancel = document.getElementById('loraStackPickerCancel');
+  if (pickerCancel) pickerCancel.addEventListener('click', () => {
+    updateLoraStackSettings({ library: { picker_open: false, picker_query: '' } });
+    render();
+  });
   const clean = document.getElementById('loraStackClearEmpty');
   if (clean) clean.addEventListener('click', () => { updateLoraStackSettings({ rows: loraStackCleanRows(loraStackSettings().rows) }); render(); });
   document.querySelectorAll('[data-lora-row-select]').forEach((button) => button.addEventListener('click', () => { selectLoraStackRow(Number(button.getAttribute('data-lora-row-select'))); render(); }));
@@ -19407,13 +21047,14 @@ function bindLoraStackControls() {
     node.addEventListener('change', (event) => {
       const index = Number(node.getAttribute('data-lora-row-index'));
       const field = node.getAttribute('data-lora-row-field');
-      const value = field === 'enabled' ? Boolean(event.target.checked) : (field === 'strength' ? Number(event.target.value) : event.target.value);
+      const rawValue = field === 'enabled' ? Boolean(event.target.checked) : (field === 'strength' ? Number(event.target.value) : event.target.value);
+      const value = field === 'name' ? loraPortableName(rawValue) : rawValue;
       updateLoraStackRow(index, { [field]: value });
       if (field === 'name') {
         const recordId = loraRecordIdForName(value);
         updateLoraStackRow(index, { source_record_id: recordId });
         updateLoraStackSettings({ selected_row_index: index, library: { selected_record_id: recordId, current_record: null, selected_preview_index: 0 } });
-        loraLibraryFetchRecord(recordId);
+        if (recordId) loraLibraryFetchRecord(recordId);
       } else {
         updateLoraStackSettings({ selected_row_index: index });
       }
@@ -19437,8 +21078,8 @@ function bindLoraStackControls() {
   if (addSelected) addSelected.addEventListener('click', () => {
     if (!record) return;
     const name = record.catalog_name || record.name || record.file || record.id || '';
-    const exists = loraStackSettings().rows.some((row) => loraRecordMatchesName(record, row.name) && row.source_record_id === record.id);
-    if (!exists) addLoraStackRow({ name, strength: record.default_strength ?? 0.8, source_record_id: record.id });
+    addLoraStackRow({ name, strength: record.default_strength ?? 0.8, source_record_id: record.id });
+    render();
   });
   document.querySelectorAll('[data-lora-token]').forEach((button) => button.addEventListener('click', () => toggleLoraTokenInPrompt(button.getAttribute('data-lora-token') || '', button.getAttribute('data-lora-prompt-field') || 'positive_prompt')));
   const sample = document.getElementById('loraSamplePrompt');
@@ -19461,7 +21102,7 @@ function bindLoraStackControls() {
   const pull = document.getElementById('loraCivitaiPull');
   if (pull) pull.addEventListener('click', () => loraLibraryPullCivitai());
   { const lib = loraStackSettings().library; const pid = loraLibraryApiProfileId(); if ((!lib.backend_loaded || lib.backend_loaded_profile_id !== pid) && !lib.backend_loading) loraLibraryFetchBrowser({ force: true }); }
-  { const ti = embeddingsTiSettings(); if ((!ti.backend_loaded) && !ti.backend_loading) embeddingsTiFetchBrowser({ force: true }); }
+  { const ti = embeddingsTiSettings(); const pid = embeddingsTiLibraryApiProfileId(); if ((!ti.backend_loaded || ti.backend_loaded_profile_id !== pid) && !ti.backend_loading) embeddingsTiFetchBrowser({ force: true }); }
 }
 
 
@@ -20394,11 +22035,20 @@ function setWorkflowExtensionApplied(extensionIdValue, applied) {
   }
   if (extensionIdValue === LORA_STACK_EXTENSION_ID) {
     const settings = loraStackSettings();
-    state.imageDraft[LORA_STACK_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
+    state.imageDraft[LORA_STACK_EXTENSION_ID] = {
+      ...settings,
+      enabled: Boolean(applied),
+      execution_enabled: Boolean(applied),
+      execution_intent_version: LORA_STACK_EXECUTION_INTENT_VERSION,
+    };
   }
   if (extensionIdValue === ADETAILER_EXTENSION_ID) {
     const settings = adetailerSettings();
     state.imageDraft[ADETAILER_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
+  }
+  if (extensionIdValue === FORGE_COUPLE_EXTENSION_ID) {
+    const settings = forgeCoupleSettings();
+    state.imageDraft[FORGE_COUPLE_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
   }
   if (extensionIdValue === LAYERDIFFUSE_EXTENSION_ID) {
     const settings = layerDiffuseSettings();
@@ -20966,7 +22616,84 @@ function imageExtensionSubmitRouteGate(extensionIdValue, record = null) {
     reason: allowed ? '' : (route?.reason || `Extension route gated: ${route?.route_state || 'planned_gated'}`),
   };
 }
-function imageExtensionSubmitStateSnapshot() {
+
+let sceneDirectorExtensionEditorSubmitBridgeState = null;
+function sceneDirectorCloneCanonicalSubmitValue(value) {
+  try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value && typeof value === 'object' ? { ...value } : value; }
+}
+function sceneDirectorCaptureExtensionEditorSubmitBridge(event) {
+  const detail = event?.detail;
+  if (!detail || detail.extension_id !== SCENE_DIRECTOR_EXTENSION_ID || !detail.block) return;
+  sceneDirectorExtensionEditorSubmitBridgeState = {
+    owner: String(detail.editor_owner || detail.source || detail.block?.metadata?.editor_owner || ''),
+    block: sceneDirectorCloneCanonicalSubmitValue(detail.block),
+    scene_graph_json: sceneDirectorCloneCanonicalSubmitValue(detail.scene_graph_json || null),
+    captured_at: Date.now(),
+  };
+}
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('neo:extension-state-changed', sceneDirectorCaptureExtensionEditorSubmitBridge);
+function sceneDirectorExtensionEditorCanonicalBlock() {
+  if (typeof document === 'undefined') return null;
+  const root = document.querySelector?.('[data-scene-director-editor-root]');
+  const owns = Boolean(root && (root.dataset?.sceneDirectorEditorOwner === 'extension_bundle' || root.dataset?.sd289Bound === 'true'));
+  if (!owns) return null;
+  let block = null;
+  try { block = window.NeoSceneDirectorEditor?.getBlock?.() || null; } catch (_) { block = null; }
+  block = block || sceneDirectorExtensionEditorSubmitBridgeState?.block || null;
+  if (!block || typeof block !== 'object') return null;
+  return sceneDirectorCloneCanonicalSubmitValue(block);
+}
+function sceneDirectorCanonicalBlockHasIntent(block = {}) {
+  const inputs = block.inputs && typeof block.inputs === 'object' ? block.inputs : {};
+  const assets = block.assets && typeof block.assets === 'object' ? block.assets : {};
+  const regions = Array.isArray(inputs.regions) ? inputs.regions : [];
+  const regionIntent = regions.some((region) => {
+    if (!region || region.enabled === false || region.visible === false) return false;
+    const routes = region.extension_routes && typeof region.extension_routes === 'object' ? region.extension_routes : {};
+    return Boolean(
+      String(region.prompt || region.text || '').trim() || sceneDirectorRegionHasReference(region) ||
+      sceneDirectorV054ExtensionRoutesHaveSelection(routes) ||
+      region.lora?.source || region.ipadapter?.source || region.control?.enabled || region.detailer?.enabled ||
+      region.inpaint?.enabled || (region.edit_intent && Object.keys(region.edit_intent).length)
+    );
+  });
+  return Boolean(regionIntent || (assets.lora_bindings || []).length || (assets.ipadapter_bindings || []).length || (assets.identity_units || []).length);
+}
+function sceneDirectorCanonicalRouteAssignments(block = {}, legacySettings = null) {
+  const base = sceneDirectorRegionExtensionAssignmentMap(legacySettings || sceneDirectorSettings());
+  const assets = block.assets && typeof block.assets === 'object' ? block.assets : {};
+  (Array.isArray(assets.lora_bindings) ? assets.lora_bindings : []).forEach((binding) => {
+    const rowId = String(binding?.lora_row_id || binding?.row_id || binding?.uid || '').trim();
+    const regionId = String(binding?.region_id || '').trim();
+    if (!rowId) return;
+    base.loraRowIds.add(rowId);
+    if (regionId && !base.loraRowToRegion[rowId]) base.loraRowToRegion[rowId] = regionId;
+  });
+  return base;
+}
+function sceneDirectorCanonicalSubmitSnapshot(record = null) {
+  const fallbackRecord = record || imageWorkflowExtensionRecordById(SCENE_DIRECTOR_EXTENSION_ID) || {
+    extension_id: SCENE_DIRECTOR_EXTENSION_ID,
+    manifest: { id: SCENE_DIRECTOR_EXTENSION_ID, name: 'Image · Scene Director', version: 1, surface: 'image', workspace_apps: ['generations'], workflow_modes: ['generate', 'img2img', 'inpaint'], extension_origin: 'built_in' },
+  };
+  const legacySettings = sceneDirectorSyncExtensionRoutesFromDomToDraft();
+  const editorBlock = sceneDirectorExtensionEditorCanonicalBlock();
+  const legacyBlock = sceneDirectorPayloadPreview(fallbackRecord, true).extensions[SCENE_DIRECTOR_EXTENSION_ID];
+  const source = editorBlock ? 'extension_editor' : 'legacy_image_panel';
+  const block = sceneDirectorCloneCanonicalSubmitValue(editorBlock || legacyBlock || { enabled: false, inputs: {}, params: {}, assets: {}, metadata: {} });
+  const routeGate = imageExtensionSubmitRouteGate(SCENE_DIRECTOR_EXTENSION_ID, fallbackRecord);
+  const masterEnabled = editorBlock ? Boolean(block.enabled) : Boolean(legacySettings.enabled);
+  const submitIntent = sceneDirectorCanonicalBlockHasIntent(block) || sceneDirectorSubmitIntentExists(legacySettings);
+  const enabled = Boolean(masterEnabled && submitIntent && routeGate.allowed);
+  block.enabled = enabled;
+  block.metadata = { ...(block.metadata || {}), workflow_patch_requested: enabled, workflow_patch_allowed: enabled, canonical_submit_bridge: { schema: 'neo.image.scene_director.canonical_submit_bridge.v1', phase: 'IR-6.3/SD-28.10A', source, master_enabled: masterEnabled, submit_intent: submitIntent, route_allowed: Boolean(routeGate.allowed) } };
+  if (enabled && editorBlock && window.NeoSceneDirectorEditor?.getSceneGraph) {
+    const graph = sceneDirectorCloneCanonicalSubmitValue(window.NeoSceneDirectorEditor.getSceneGraph());
+    block.inputs = { ...(block.inputs || {}), scene_graph_json: graph, scene_graph: graph };
+  }
+  return { phase: 'IR-6.3/SD-28.10A', source, enabled, submit_intent: submitIntent, route_gate: routeGate, record: fallbackRecord, block, legacy_settings: legacySettings, route_assignments: sceneDirectorCanonicalRouteAssignments(block, legacySettings) };
+}
+function imageExtensionSubmitStateSnapshot(sceneDirectorSnapshotOverride = null) {
   const stateFor = (extensionIdValue, requested, extra = {}) => {
     const gate = imageExtensionSubmitRouteGate(extensionIdValue);
     const workflowRequested = Boolean(extensionWorkflowAppliedById(extensionIdValue));
@@ -20983,6 +22710,7 @@ function imageExtensionSubmitStateSnapshot() {
       ...extra,
     };
   };
+  const sceneDirectorSnapshot = sceneDirectorSnapshotOverride || sceneDirectorCanonicalSubmitSnapshot();
   return {
     schema: 'neo.image.extension_submit_state.v1',
     captured_at: new Date().toISOString(),
@@ -20992,29 +22720,41 @@ function imageExtensionSubmitStateSnapshot() {
         ui_enabled: Boolean(layerDiffuseSettings().enabled),
         mode: layerDiffuseSettings().mode || 'transparent_asset',
       }),
-      [SCENE_DIRECTOR_EXTENSION_ID]: stateFor(SCENE_DIRECTOR_EXTENSION_ID, Boolean(sceneDirectorSettings().enabled)),
+      [SCENE_DIRECTOR_EXTENSION_ID]: { extension_id: SCENE_DIRECTOR_EXTENSION_ID, enabled: Boolean(sceneDirectorSnapshot.enabled), workflow_applied: Boolean(sceneDirectorSnapshot.enabled), source: 'scene_director_canonical_submit_bridge', route_state: sceneDirectorSnapshot.route_gate?.route?.route_state || 'available', route_gated: Boolean(sceneDirectorSnapshot.submit_intent && !sceneDirectorSnapshot.route_gate?.allowed), gated_reason: sceneDirectorSnapshot.route_gate?.reason || '', sanitizer_phase: 'IR-6.3/SD-28.10A' },
       [IP_ADAPTER_EXTENSION_ID]: stateFor(IP_ADAPTER_EXTENSION_ID, Boolean(ipAdapterSettings().enabled)),
       [CONTROLNET_EXTENSION_ID]: stateFor(CONTROLNET_EXTENSION_ID, Boolean(controlNetSettings().enabled)),
-      [LORA_STACK_EXTENSION_ID]: stateFor(LORA_STACK_EXTENSION_ID, Boolean(loraStackSettings().enabled || loraStackCleanRows(loraStackSettings().rows).length), {
+      [LORA_STACK_EXTENSION_ID]: stateFor(LORA_STACK_EXTENSION_ID, Boolean(loraStackSettings().execution_enabled), {
+        ui_enabled: Boolean(loraStackSettings().execution_enabled),
+        execution_requested: loraStackExecutionRequested(),
         row_count: loraStackCleanRows(loraStackSettings().rows).length,
+        base_graph_row_count: loraStackBaseGraphRows(loraStackSettings().rows).length,
+        independence_policy: 'lanpaint_and_lora_are_independent_optional_features',
       }),
       [CFG_FIX_EXTENSION_ID]: stateFor(CFG_FIX_EXTENSION_ID, Boolean(cfgFixSettings().preset && cfgFixSettings().preset !== 'off'), {
         preset: cfgFixSettings().preset || 'off',
       }),
       [HIGH_RES_LAB_EXTENSION_ID]: stateFor(HIGH_RES_LAB_EXTENSION_ID, Boolean(highResLabSettings().enabled)),
       [ADETAILER_EXTENSION_ID]: stateFor(ADETAILER_EXTENSION_ID, Boolean(adetailerSettings().enabled)),
+      [PID_INTEGRATED_EXTENSION_ID]: stateFor(PID_INTEGRATED_EXTENSION_ID, extensionWorkflowAppliedById(PID_INTEGRATED_EXTENSION_ID)),
+      [SPECTRUM_EXTENSION_ID]: stateFor(SPECTRUM_EXTENSION_ID, extensionWorkflowAppliedById(SPECTRUM_EXTENSION_ID)),
+      [MULTIDIFFUSION_EXTENSION_ID]: stateFor(MULTIDIFFUSION_EXTENSION_ID, extensionWorkflowAppliedById(MULTIDIFFUSION_EXTENSION_ID)),
+      [FORGE_COUPLE_EXTENSION_ID]: stateFor(FORGE_COUPLE_EXTENSION_ID, extensionWorkflowAppliedById(FORGE_COUPLE_EXTENSION_ID), {
+        mode: forgeCoupleSettings().mode || 'Basic',
+        direction: forgeCoupleSettings().direction || 'Horizontal',
+      }),
     },
   };
 }
 
-function activeWorkflowExtensionMetadata() {
+function activeWorkflowExtensionMetadata(sceneDirectorSnapshotOverride = null, submitStateOverride = null) {
   syncControlNetDomToDraft();
-  const sceneDirectorSyncedSettings = sceneDirectorSyncExtensionRoutesFromDomToDraft();
-  const sceneDirectorRouteAssignments = sceneDirectorRegionExtensionAssignmentMap(sceneDirectorSyncedSettings);
+  const sceneDirectorSubmitSnapshot = sceneDirectorSnapshotOverride || sceneDirectorCanonicalSubmitSnapshot();
+  const sceneDirectorSyncedSettings = sceneDirectorSubmitSnapshot.legacy_settings;
+  const sceneDirectorRouteAssignments = sceneDirectorSubmitSnapshot.route_assignments;
   const used = [];
   const payloads = {};
   const validation = [];
-  const submitState = imageExtensionSubmitStateSnapshot();
+  const submitState = submitStateOverride || imageExtensionSubmitStateSnapshot(sceneDirectorSubmitSnapshot);
   const records = allImageWorkflowExtensionRecords();
   records.forEach((record) => {
         // and Generations CFG Fix can compile together. Legacy invariant kept for tests:
@@ -21033,11 +22773,15 @@ function activeWorkflowExtensionMetadata() {
             ? Boolean(styleStackSettings().enabled && styleStackHasSubmitIntent())
             : (extId === WILDCARDS_EXTENSION_ID
               ? Boolean(wildcardsSettings().enabled && wildcardsHasSubmitIntent())
-              : (extId === LAYERDIFFUSE_EXTENSION_ID
-                ? Boolean(layerDiffuseSettings().enabled && extensionWorkflowAppliedById(LAYERDIFFUSE_EXTENSION_ID))
-                : (extId === SCENE_DIRECTOR_EXTENSION_ID
-                  ? Boolean(sceneDirectorSettings().enabled)
-                  : extensionWorkflowAppliedAnyContext(record))))))));
+              : (extId === LORA_STACK_EXTENSION_ID
+                ? Boolean(loraStackSettings().execution_enabled)
+                : (extId === LAYERDIFFUSE_EXTENSION_ID
+                  ? Boolean(layerDiffuseSettings().enabled && extensionWorkflowAppliedById(LAYERDIFFUSE_EXTENSION_ID))
+                  : (extId === FORGE_COUPLE_EXTENSION_ID
+                    ? Boolean(extensionWorkflowApplied(record))
+                    : (extId === SCENE_DIRECTOR_EXTENSION_ID
+                      ? Boolean(sceneDirectorSubmitSnapshot.enabled)
+                      : extensionWorkflowAppliedAnyContext(record))))))))));
     if (!appliedForPayload) return;
     const providerGate = imageExtensionAllowedForActiveProfile(record);
     if (!providerGate.allowed) {
@@ -21085,13 +22829,12 @@ function activeWorkflowExtensionMetadata() {
       return;
     }
     if (extId === SCENE_DIRECTOR_EXTENSION_ID) {
-      const preview = sceneDirectorPayloadPreview(record, true).extensions[SCENE_DIRECTOR_EXTENSION_ID];
-      payloads[extId] = preview;
+      payloads[extId] = sceneDirectorCloneCanonicalSubmitValue(sceneDirectorSubmitSnapshot.block);
       validation.push(...sceneDirectorValidationPreview(record, true));
       return;
     }
     if (extId === LORA_STACK_EXTENSION_ID) {
-      const preview = loraStackPayloadPreview(record, true).extensions[LORA_STACK_EXTENSION_ID];
+      const preview = loraStackPayloadPreview(record, loraStackSettings().execution_enabled).extensions[LORA_STACK_EXTENSION_ID];
       if (sceneDirectorRouteAssignments.loraRowIds.size) {
         const markRegional = (row) => {
           if (!row || !sceneDirectorRouteAssignments.loraRowIds.has(String(row.uid || ''))) return row;
@@ -21102,7 +22845,7 @@ function activeWorkflowExtensionMetadata() {
         preview.metadata = { ...(preview.metadata || {}), scene_director_region_assignment: true, suppressed_global_row_ids: Array.from(sceneDirectorRouteAssignments.loraRowIds), region_row_map: { ...sceneDirectorRouteAssignments.loraRowToRegion }, regional_target_preservation: { ...((preview.metadata || {}).regional_target_preservation || {}), enabled: true, source: 'scene_director_extension_routes', assigned_row_ids: Array.from(sceneDirectorRouteAssignments.loraRowIds), policy: 'preserve_payload_intent_without_unvalidated_graph_patch' } };
       }
       payloads[extId] = preview;
-      validation.push(...loraStackValidationPreview(record, true)); // compat: validation.push(...loraStackValidationPreview(record));
+      validation.push(...loraStackValidationPreview(record, loraStackSettings().execution_enabled)); // compat: validation.push(...loraStackValidationPreview(record));
       if (sceneDirectorRouteAssignments.loraRowIds.size) validation.push({ extension_id: LORA_STACK_EXTENSION_ID, level: 'info', field: 'params.loras[].apply_to', message: 'Assigned LoRA rows are marked as Scene Director regional rows so LoRA Stack does not apply them globally.' });
       return;
     }
@@ -21142,6 +22885,24 @@ function activeWorkflowExtensionMetadata() {
       validation.push(...adetailerValidationPreview(record, true));
       return;
     }
+    if (extId === FORGE_COUPLE_EXTENSION_ID) {
+      const preview = forgeCouplePayloadPreview(record, true).extensions[FORGE_COUPLE_EXTENSION_ID];
+      payloads[extId] = preview;
+      validation.push(...forgeCoupleValidationPreview(record, true));
+      return;
+    }
+    if ([PID_INTEGRATED_EXTENSION_ID, SPECTRUM_EXTENSION_ID, MULTIDIFFUSION_EXTENSION_ID].includes(extId)) {
+      const preview = forgeE2PayloadPreview(record, true).extensions[extId];
+      payloads[extId] = preview;
+      validation.push(...forgeE2ValidationPreview(record, true));
+      return;
+    }
+    if (extId === FORGE_SCRIPT_BRIDGE_EXTENSION_ID) {
+      const preview = forgeE3BridgePayloadPreview(record, true).extensions[FORGE_SCRIPT_BRIDGE_EXTENSION_ID];
+      payloads[extId] = preview;
+      validation.push(...forgeE3BridgeValidationPreview(record, true));
+      return;
+    }
     payloads[extId] = {
       enabled: true,
       version: manifest.version || 1,
@@ -21168,7 +22929,7 @@ function activeWorkflowExtensionMetadata() {
     const cleanUnits = controlNetCleanUnits(settings.units);
     const hasRunnableControlNetUnit = cleanUnits.some((unit, index) => {
       const source = (settings.units || [])[index] || {};
-      return Boolean(unit.enabled !== false && unit.model && (source.generated_map || source.control_image || unit.generated_map));
+      return Boolean(unit.enabled !== false && unit.model && (controlNetAssetRefValue(source.generated_map) || source.control_image || controlNetAssetRefValue(unit.generated_map)));
     });
     if (controlNetRecord && Boolean(settings.enabled)) {
       const routeGate = imageExtensionSubmitRouteGate(CONTROLNET_EXTENSION_ID, controlNetRecord);
@@ -21233,12 +22994,12 @@ function activeWorkflowExtensionMetadata() {
   // Director from emitting any active workflow data.
   if (!payloads[SCENE_DIRECTOR_EXTENSION_ID]) {
     const sceneRecord = records.find((record) => extensionId(record) === SCENE_DIRECTOR_EXTENSION_ID);
-    const sceneSettings = sceneDirectorSettings();
-    const sceneSubmitIntent = sceneDirectorSubmitIntentExists(sceneSettings);
+    const sceneSettings = sceneDirectorSubmitSnapshot.legacy_settings;
+    const sceneSubmitIntent = sceneDirectorSubmitSnapshot.submit_intent;
     // Parent extension gate is authoritative. Child regions, identity units,
     // IPAdapter bindings, and regional LoRA flags can stay saved, but they
     // cannot submit an active Scene Director payload unless the main toggle is on.
-    if (Boolean(sceneSettings.enabled)) {
+    if (Boolean(sceneDirectorSubmitSnapshot.enabled)) {
       sceneDirectorPersistDraftPatch({ enabled: true }, false);
       const fallbackRecord = sceneRecord || {
         extension_id: SCENE_DIRECTOR_EXTENSION_ID,
@@ -21258,8 +23019,7 @@ function activeWorkflowExtensionMetadata() {
         workflow_mode: context.workflow_mode || getImageWorkflowMode() || 'generate',
         status: 'enabled',
       });
-      const preview = sceneDirectorPayloadPreview(fallbackRecord, true).extensions[SCENE_DIRECTOR_EXTENSION_ID];
-      payloads[SCENE_DIRECTOR_EXTENSION_ID] = preview;
+      payloads[SCENE_DIRECTOR_EXTENSION_ID] = sceneDirectorCloneCanonicalSubmitValue(sceneDirectorSubmitSnapshot.block);
       validation.push(...sceneDirectorValidationPreview(fallbackRecord, true));
       }
     }
@@ -21290,7 +23050,14 @@ function activeWorkflowExtensionMetadata() {
     }
   }
 
-  return { used, payloads, workflow_patches: [], validation }; 
+  if (sceneDirectorSubmitSnapshot.enabled) {
+    payloads[SCENE_DIRECTOR_EXTENSION_ID] = sceneDirectorCloneCanonicalSubmitValue(sceneDirectorSubmitSnapshot.block);
+    if (!used.some((item) => item?.extension_id === SCENE_DIRECTOR_EXTENSION_ID)) {
+      const context = currentExtensionWorkflowContext(sceneDirectorSubmitSnapshot.record);
+      used.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, name: sceneDirectorSubmitSnapshot.record?.manifest?.name || 'Image · Scene Director', version: sceneDirectorSubmitSnapshot.record?.manifest?.version || 1, origin: extensionOrigin(sceneDirectorSubmitSnapshot.record) || 'built_in', workspace_app: context.workspace_app || 'generations', workflow_mode: context.workflow_mode || getImageWorkflowMode() || 'generate', status: 'enabled' });
+    }
+  }
+  return { used, payloads, workflow_patches: [], validation, submit_state: submitState }; 
 }
 function highResLabPanel(record) {
   const route = highResLabActiveRoute(record);
@@ -21818,9 +23585,14 @@ function adetailerValidationPreview(record, appliedOverride = null) {
     const catalog = adetailerCatalogPayloadForProfile();
     const selectedModel = String(pass.detector_model || '').trim();
     if (catalogRuntime.loaded && selectedModel && !adetailerCatalogCanonicalModel(catalog, pass.detector_type, selectedModel)) {
-      const recovery = adetailerDetectorModelRecovery(pass, catalog);
-      const recoveryHint = recovery.matches.length ? ` Switch to ${recovery.matches.map((item) => item.label).join(' or ')}.` : ' Refresh models or select a discovered model.';
-      items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: `params.detailer_passes[${index}].detector_model`, message: `${pass.label || `Pass ${index + 1}`}: the saved detector is inactive for ${adetailerDetectorTypeLabel(pass.detector_type)}.${recoveryHint}` });
+      const isForgeManual = String(activeImageProfile()?.provider_id || '') === 'forge';
+      if (!isForgeManual) {
+        const recovery = adetailerDetectorModelRecovery(pass, catalog);
+        const recoveryHint = recovery.matches.length ? ` Switch to ${recovery.matches.map((item) => item.label).join(' or ')}.` : ' Refresh models or select a discovered model.';
+        items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: `params.detailer_passes[${index}].detector_model`, message: `${pass.label || `Pass ${index + 1}`}: the saved detector is inactive for ${adetailerDetectorTypeLabel(pass.detector_type)}.${recoveryHint}` });
+      } else {
+        items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'info', field: `params.detailer_passes[${index}].detector_model`, message: `${pass.label || `Pass ${index + 1}`}: using an exact Forge-local detector name not present in Neo's shared suggestions.` });
+      }
     }
     const dependency = adetailerReferenceLockDependency(pass);
     if (!dependency.ready) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: `params.detailer_passes[${index}].reference_lock`, message: `${pass.label || `Pass ${index + 1}`}: ${dependency.message} The pass will run without that lock.` });
@@ -21944,10 +23716,34 @@ function adetailerEnsureModelCatalog() {
   return adetailerModelCatalogState(profileId);
 }
 
-function adetailerDetectorModelsForPass(settings = adetailerSettings(), pass = {}) {
-  const catalog = adetailerCatalogPayloadForProfile();
+function adetailerDetailTargetTokens(mode = 'custom') {
+  const target = String(mode || 'custom').toLowerCase();
+  if (target === 'face') return ['face', 'head', 'eye', 'eyes', 'mouth', 'facial'];
+  if (target === 'hands') return ['hand', 'hands', 'finger', 'fingers'];
+  if (target === 'person') return ['person', 'people', 'human', 'body', 'fullbody', 'pose'];
+  return [];
+}
+function adetailerModelMatchesDetailTarget(modelName = '', mode = 'custom') {
+  const tokens = adetailerDetailTargetTokens(mode);
+  if (!tokens.length) return true;
+  const compact = basename(String(modelName || '')).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return tokens.some((token) => compact.includes(String(token).replace(/[^a-z0-9]+/g, '')));
+}
+function adetailerDetectorModelsForPass(settings = adetailerSettings(), pass = {}, payload = adetailerCatalogPayloadForProfile()) {
   const type = String(pass.detector_type || 'bbox').toLowerCase();
-  return adetailerCatalogListForType(catalog, type);
+  const models = adetailerCatalogListForType(payload, type);
+  const target = String(pass.mode || 'custom').toLowerCase();
+  if (target === 'custom') return models;
+  const targeted = models.filter((name) => adetailerModelMatchesDetailTarget(name, target));
+  return targeted.length ? targeted : models;
+}
+function adetailerPreferredDetectorForPass(payload = {}, pass = {}) {
+  const models = adetailerDetectorModelsForPass(adetailerSettings(), pass, payload);
+  const current = adetailerCatalogCanonicalModel(payload, pass.detector_type, pass.detector_model);
+  if (current && (String(pass.mode || 'custom').toLowerCase() === 'custom' || adetailerModelMatchesDetailTarget(current, pass.mode))) return current;
+  const typedDefault = adetailerDefaultDetectorForType(payload, pass.detector_type);
+  if (typedDefault && models.includes(typedDefault)) return typedDefault;
+  return models[0] || typedDefault || '';
 }
 function adetailerDefaultDetectorForType(payload = {}, detectorType = 'bbox') {
   const type = String(detectorType || 'bbox').toLowerCase();
@@ -22036,6 +23832,21 @@ function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, com
   const catalogRuntime = adetailerModelCatalogState();
   const models = adetailerDetectorModelsForPass(adetailerSettings(), pass);
   const current = String(pass.detector_model || '');
+  const isForge = String(activeImageProfile()?.provider_id || '') === 'forge';
+  if (isForge) {
+    const canonicalCurrent = adetailerCatalogCanonicalModel(catalog, pass.detector_type, current);
+    const pendingCurrent = current && !canonicalCurrent
+      ? `<option value="${escapeAttr(current)}" selected>${escapeHtml(`${basename(current)} (Forge-local/manual)`)}</option>`
+      : '';
+    const placeholder = models.length ? 'Choose discovered detector…' : 'No shared detector suggestions';
+    const options = [
+      `<option value="" ${current ? '' : 'selected'}>${escapeHtml(placeholder)}</option>`,
+      pendingCurrent,
+      ...models.map((name) => `<option value="${escapeAttr(name)}" ${name === canonicalCurrent ? 'selected' : ''}>${escapeHtml(basename(name))}</option>`),
+      `<option value="__neo_manual__">Type exact Forge-local name…</option>`,
+    ].filter(Boolean).join('');
+    return `<select id="${prefix}DetectorModel" ${commonAttrs} data-adetailer-pass-field="detector_model" data-adetailer-forge-model-picker="1" ${disabled ? 'disabled' : ''}>${options}</select>`;
+  }
   const canonicalCurrent = adetailerCatalogCanonicalModel(catalog, pass.detector_type, current);
   const placeholder = models.length ? 'Pick detector model…' : adetailerCatalogPlaceholder(pass.detector_type);
   const basenameCounts = models.reduce((counts, name) => {
@@ -22059,6 +23870,21 @@ function adetailerDetectorModelSelect(prefix, pass, index, disabled = false, com
 function adetailerDetectorModelRecoveryMarkup(pass, index, disabled = false) {
   const runtime = adetailerModelCatalogState();
   const catalog = adetailerCatalogPayloadForProfile();
+  if (String(activeImageProfile()?.provider_id || '') === 'forge') {
+    const shared = catalog?.diagnostics?.forge_shared_model_paths || {};
+    const sharedModels = adetailerDetectorModelsForPass(adetailerSettings(), pass);
+    const allSharedModels = [...new Set([
+      ...adetailerCatalogListForType(catalog, 'bbox'),
+      ...adetailerCatalogListForType(catalog, 'segm'),
+      ...adetailerCatalogListForType(catalog, 'onnx_bbox'),
+    ])];
+    const ready = Boolean(shared.extra_model_dirs_ready);
+    if (!allSharedModels.length) {
+      return `<div class="neo-adetailer-model-recovery" role="status" data-adetailer-model-recovery-state="forge-manual"><div><strong>Forge detector name</strong><p>Forge's standard API does not expose its complete ADetailer model map. Enter an exact Forge detector name. Shared detector suggestions appear here after Admin → Models points to the common extra_model_paths.yaml and Forge ADetailer is configured for those detector folders.</p></div></div>`;
+    }
+    const targetNote = sharedModels.length !== allSharedModels.length ? ` ${sharedModels.length} match the selected ${String(pass.mode || 'custom')} target.` : '';
+    return `<div class="neo-adetailer-model-recovery ${ready ? '' : 'neo-adetailer-model-recovery--warning'}" role="status" data-adetailer-model-recovery-state="forge-shared"><div><strong>${ready ? 'Shared Forge detectors ready' : 'Shared detectors found · Forge path setup incomplete'}</strong><p>${allSharedModels.length} shared detector model${allSharedModels.length === 1 ? '' : 's'} discovered.${targetNote} Choose from the selector or use “Type exact Forge-local name…” for a model outside the shared catalog.${ready ? '' : ' Configure ADetailer extra model directories in Forge, restart Forge, then refresh Forge Admin before generation.'}</p></div></div>`;
+  }
   const recovery = adetailerDetectorModelRecovery(pass, catalog);
   const countBadges = `<div class="neo-adetailer-model-pool-counts" aria-label="Detector model scan counts"><span>BBox ${recovery.counts.bbox}</span><span>Segm ${recovery.counts.segm}</span><span>ONNX ${recovery.counts.onnx}</span></div>`;
   if (!runtime.loaded || runtime.loading) return countBadges;
@@ -22222,6 +24048,1566 @@ function adetailerPanel(record) {
   return panel('ADetailer', body, false, status);
 }
 
+
+const FORGE_COUPLE_DEFAULT_MAPPING = [
+  [0.0, 0.5, 0.0, 1.0, 1.0],
+  [0.5, 1.0, 0.0, 1.0, 1.0],
+];
+const FORGE_COUPLE_DEFAULTS = {
+  enabled: false,
+  mode: 'Basic',
+  disable_hr: true,
+  separator: '',
+  direction: 'Horizontal',
+  background: 'None',
+  background_weight: 0.5,
+  advanced_mapping: FORGE_COUPLE_DEFAULT_MAPPING,
+  mask_mapping: [],
+  tile_enabled: false,
+  tile_columns: 2,
+  tile_rows: 2,
+  tile_threshold: 0.75,
+  tile_subject_replacement: '',
+  tile_debug: false,
+  tile_upscaler: 'None',
+  tile_save_to_extras: false,
+  tile_scale_factor: 2.0,
+  tile_overlap: 64,
+  tile_final_width: -1,
+  tile_final_height: -1,
+  common_parser: '{ }',
+  common_debug: false,
+  def_in_prompt: true,
+};
+const FORGE_COUPLE_PRESET_STORAGE_KEY = 'neo.forge_couple.advanced_presets.v1';
+const FORGE_COUPLE_BUILTIN_PRESETS = {
+  two_columns: { label: 'Two columns', mapping: [[0, 0.5, 0, 1, 1], [0.5, 1, 0, 1, 1]] },
+  three_columns: { label: 'Three columns', mapping: [[0, 1 / 3, 0, 1, 1], [1 / 3, 2 / 3, 0, 1, 1], [2 / 3, 1, 0, 1, 1]] },
+  two_rows: { label: 'Two rows', mapping: [[0, 1, 0, 0.5, 1], [0, 1, 0.5, 1, 1]] },
+  four_grid: { label: 'Four-grid', mapping: [[0, 0.5, 0, 0.5, 1], [0.5, 1, 0, 0.5, 1], [0, 0.5, 0.5, 1, 1], [0.5, 1, 0.5, 1, 1]] },
+  foreground_background: { label: 'Background + foreground', mapping: [[0, 1, 0, 1, 0.45], [0.18, 0.82, 0.08, 0.96, 1]] },
+};
+let forgeCoupleAdvancedSelectedIndex = 0;
+let forgeCoupleAdvancedBackgroundUrl = '';
+let forgeCoupleAdvancedDrag = null;
+let forgeCoupleMaskLayers = [];
+let forgeCoupleMaskSelectedIndex = -1;
+let forgeCoupleMaskBackgroundUrl = '';
+let forgeCoupleMaskCoverageRatio = null;
+let forgeCoupleMaskDrawing = null;
+
+function forgeCoupleClamp(value, minimum, maximum) {
+  const number = Number(value);
+  return Math.max(minimum, Math.min(maximum, Number.isFinite(number) ? number : minimum));
+}
+
+function forgeCoupleNormalizeMapping(raw) {
+  const source = Array.isArray(raw) ? raw : FORGE_COUPLE_DEFAULT_MAPPING;
+  const normalized = source.slice(0, 32).map((item) => {
+    const values = Array.isArray(item) ? item : [];
+    let x1 = forgeCoupleClamp(values[0], 0, 1);
+    let x2 = forgeCoupleClamp(values[1], 0, 1);
+    let y1 = forgeCoupleClamp(values[2], 0, 1);
+    let y2 = forgeCoupleClamp(values[3], 0, 1);
+    const weight = forgeCoupleClamp(values[4] ?? 1, 0, 5);
+    if (x2 < x1) [x1, x2] = [x2, x1];
+    if (y2 < y1) [y1, y2] = [y2, y1];
+    return [x1, x2, y1, y2, weight];
+  });
+  return normalized.length ? normalized : FORGE_COUPLE_DEFAULT_MAPPING.map((item) => [...item]);
+}
+
+function forgeCoupleMappingErrors(mapping) {
+  const errors = [];
+  if (!Array.isArray(mapping) || !mapping.length) return ['Advanced mode requires at least one region.'];
+  mapping.forEach((item, index) => {
+    if (!Array.isArray(item) || item.length !== 5 || item.some((value) => !Number.isFinite(Number(value)))) {
+      errors.push(`Region ${index + 1} has an invalid coordinate or weight.`);
+      return;
+    }
+    const [x1, x2, y1, y2, weight] = item.map(Number);
+    if ([x1, x2, y1, y2].some((value) => value < 0 || value > 1)) errors.push(`Region ${index + 1} coordinates must stay between 0.0 and 1.0.`);
+    if (x2 <= x1 || y2 <= y1) errors.push(`Region ${index + 1} needs positive width and height.`);
+    if (weight < 0 || weight > 5) errors.push(`Region ${index + 1} weight must stay between 0.0 and 5.0.`);
+  });
+  return errors;
+}
+
+function forgeCoupleMappingCoversCanvas(mapping) {
+  if (forgeCoupleMappingErrors(mapping).length) return false;
+  const epsilon = 1e-7;
+  const rectangles = mapping.map((item) => item.map(Number));
+  const edges = [...new Set([0, 1, ...rectangles.flatMap((item) => [item[0], item[1]])])].sort((a, b) => a - b);
+  for (let edgeIndex = 0; edgeIndex < edges.length - 1; edgeIndex += 1) {
+    const left = edges[edgeIndex];
+    const right = edges[edgeIndex + 1];
+    if (right - left <= epsilon) continue;
+    const midpoint = (left + right) / 2;
+    const intervals = rectangles
+      .filter((item) => item[0] <= midpoint + epsilon && item[1] >= midpoint - epsilon)
+      .map((item) => [Math.max(0, item[2]), Math.min(1, item[3])])
+      .filter((item) => item[1] - item[0] > epsilon)
+      .sort((a, b) => a[0] - b[0]);
+    if (!intervals.length || intervals[0][0] > epsilon) return false;
+    let cursor = 0;
+    for (const [start, end] of intervals) {
+      if (start > cursor + epsilon) return false;
+      cursor = Math.max(cursor, end);
+    }
+    if (cursor < 1 - epsilon) return false;
+  }
+  return true;
+}
+
+function forgeCoupleAutoLayout(count, kind = 'columns') {
+  const total = Math.max(1, Math.min(32, Number(count) || 1));
+  if (kind === 'rows') {
+    return Array.from({ length: total }, (_, index) => [0, 1, index / total, (index + 1) / total, 1]);
+  }
+  if (kind === 'grid') {
+    const rows = Math.max(1, Math.floor(Math.sqrt(total)));
+    const basePerRow = Math.floor(total / rows);
+    const extraRows = total % rows;
+    const mapping = [];
+    let cursor = 0;
+    for (let row = 0; row < rows; row += 1) {
+      const columnsInRow = basePerRow + (row < extraRows ? 1 : 0);
+      for (let column = 0; column < columnsInRow; column += 1) {
+        mapping.push([column / columnsInRow, (column + 1) / columnsInRow, row / rows, (row + 1) / rows, 1]);
+        cursor += 1;
+      }
+    }
+    return mapping.slice(0, total);
+  }
+  return Array.from({ length: total }, (_, index) => [index / total, (index + 1) / total, 0, 1, 1]);
+}
+
+function forgeCouplePolicy() {
+  return activeImageCapabilityOverlay()?.extension_policy?.[FORGE_COUPLE_EXTENSION_ID] || {};
+}
+
+function forgeCoupleSettings() {
+  const raw = state.imageDraft?.[FORGE_COUPLE_EXTENSION_ID] || {};
+  const mode = ['Basic', 'Advanced', 'Mask'].includes(raw.mode) ? raw.mode : FORGE_COUPLE_DEFAULTS.mode;
+  const direction = ['Horizontal', 'Vertical'].includes(raw.direction) ? raw.direction : FORGE_COUPLE_DEFAULTS.direction;
+  const background = ['None', 'First Line', 'Last Line'].includes(raw.background) ? raw.background : FORGE_COUPLE_DEFAULTS.background;
+  const commonParser = ['off', '{ }', '< >'].includes(raw.common_parser) ? raw.common_parser : FORGE_COUPLE_DEFAULTS.common_parser;
+  const backgroundWeight = Math.max(0.1, Math.min(1.0, Number(raw.background_weight ?? FORGE_COUPLE_DEFAULTS.background_weight)));
+  return {
+    ...FORGE_COUPLE_DEFAULTS,
+    ...raw,
+    enabled: Boolean(raw.enabled),
+    mode,
+    disable_hr: raw.disable_hr !== false,
+    separator: String(raw.separator || ''),
+    direction,
+    background,
+    background_weight: Number.isFinite(backgroundWeight) ? backgroundWeight : FORGE_COUPLE_DEFAULTS.background_weight,
+    advanced_mapping: forgeCoupleNormalizeMapping(raw.advanced_mapping),
+    mask_mapping: forgeCoupleMaskLayers.map((item) => ({ mask: item.mask, weight: Number(item.weight ?? 1) })),
+    tile_enabled: Boolean(raw.tile_enabled),
+    tile_columns: Math.max(1, Math.min(64, Number(raw.tile_columns ?? 2) || 2)),
+    tile_rows: Math.max(1, Math.min(64, Number(raw.tile_rows ?? 2) || 2)),
+    tile_threshold: forgeCoupleClamp(raw.tile_threshold ?? 0.75, 0, 1),
+    tile_subject_replacement: String(raw.tile_subject_replacement || ''),
+    tile_debug: Boolean(raw.tile_debug),
+    tile_upscaler: String(raw.tile_upscaler || 'None'),
+    tile_save_to_extras: Boolean(raw.tile_save_to_extras),
+    tile_scale_factor: forgeCoupleClamp(raw.tile_scale_factor ?? 2, 1, 8),
+    tile_overlap: Math.max(0, Math.min(2048, Number(raw.tile_overlap ?? 64) || 0)),
+    tile_final_width: Number(raw.tile_final_width ?? -1),
+    tile_final_height: Number(raw.tile_final_height ?? -1),
+    common_parser: commonParser,
+    common_debug: Boolean(raw.common_debug),
+    def_in_prompt: raw.def_in_prompt !== false,
+  };
+}
+
+function updateForgeCoupleSettings(patch = {}) {
+  const current = forgeCoupleSettings();
+  // Binary masks live only in forgeCoupleMaskLayers for the current browser session.
+  // Never persist them through state.imageDraft / saveUiState.
+  state.imageDraft[FORGE_COUPLE_EXTENSION_ID] = { ...current, ...patch, mask_mapping: [] };
+  saveUiState();
+}
+
+function forgeCouplePromptText() {
+  return String(typeof promptTextForField === 'function'
+    ? promptTextForField('positive_prompt')
+    : (state.imageDraft?.positive_prompt || valueOf('imagePositivePrompt') || ''));
+}
+
+function forgeCoupleSeparatorToken(settings = forgeCoupleSettings()) {
+  const configured = String(settings.separator || '').replace(/\\n/g, '\n').replace(/\\t/g, ' ');
+  return configured.trim() ? configured : '\n';
+}
+
+function forgeCoupleRegions(settings = forgeCoupleSettings()) {
+  const prompt = forgeCouplePromptText();
+  const separator = forgeCoupleSeparatorToken(settings);
+  return prompt.split(separator).map((chunk) => String(chunk || '').trim());
+}
+
+function forgeCoupleRequiredRegionCount(settings = forgeCoupleSettings()) {
+  if (settings.mode === 'Advanced') return settings.advanced_mapping.length;
+  if (settings.mode === 'Mask') return settings.mask_mapping.length + (settings.background === 'None' ? 0 : 1);
+  return settings.background === 'None' ? 2 : 3;
+}
+
+function forgeCoupleRecord() {
+  return allImageWorkflowExtensionRecords().find((record) => extensionId(record) === FORGE_COUPLE_EXTENSION_ID) || null;
+}
+
+function forgeCouplePayloadPreview(record, forSubmit = false) {
+  const settings = forgeCoupleSettings();
+  const policy = forgeCouplePolicy();
+  const enabled = forSubmit ? true : extensionWorkflowApplied(record);
+  const regions = forgeCoupleRegions(settings);
+  const advanced = settings.mode === 'Advanced';
+  const maskMode = settings.mode === 'Mask';
+  return {
+    extensions: {
+      [FORGE_COUPLE_EXTENSION_ID]: {
+        enabled,
+        version: record?.manifest?.version || '0.3.0',
+        inputs: {},
+        params: {
+          mode: settings.mode,
+          disable_hr: settings.disable_hr,
+          separator: settings.separator,
+          direction: settings.direction,
+          background: settings.background,
+          background_weight: settings.background_weight,
+          advanced_mapping: settings.advanced_mapping.map((item) => [...item]),
+          mask_mapping: maskMode ? settings.mask_mapping.map((item) => ({ mask: forSubmit ? item.mask : '<session-mask>', weight: Number(item.weight ?? 1) })) : [],
+          tile_enabled: settings.tile_enabled,
+          tile_columns: settings.tile_columns,
+          tile_rows: settings.tile_rows,
+          tile_threshold: settings.tile_threshold,
+          tile_subject_replacement: settings.tile_subject_replacement,
+          tile_debug: settings.tile_debug,
+          tile_upscaler: settings.tile_upscaler,
+          tile_save_to_extras: settings.tile_save_to_extras,
+          tile_scale_factor: settings.tile_scale_factor,
+          tile_overlap: settings.tile_overlap,
+          tile_final_width: settings.tile_final_width,
+          tile_final_height: settings.tile_final_height,
+          common_parser: settings.common_parser,
+          common_debug: settings.common_debug,
+          def_in_prompt: settings.def_in_prompt,
+        },
+        assets: {},
+        metadata: {
+          provider: 'forge',
+          phase: 'FC3',
+          contract: policy.contract || 'haoming02.forge_couple.basic_advanced_mask_tile.api.v1',
+          script_name: policy.script_name || 'Forge Couple',
+          applied_to_workflow: enabled,
+          prompt_authority: 'neo_core_positive_prompt',
+          region_count: regions.length,
+          required_region_count: forgeCoupleRequiredRegionCount(settings),
+          mapping_count: advanced ? settings.advanced_mapping.length : 0,
+          mapping_covers_canvas: advanced ? forgeCoupleMappingCoversCanvas(settings.advanced_mapping) : null,
+          mask_count: maskMode ? settings.mask_mapping.length : 0,
+          mask_coverage_ratio: maskMode ? forgeCoupleMaskCoverageRatio : null,
+          tile_enabled: settings.tile_enabled,
+          tile_count: settings.tile_enabled ? settings.tile_columns * settings.tile_rows : 0,
+          native_runtime_required: true,
+          mask_tile: 'implemented',
+        },
+      },
+    },
+  };
+}
+
+function forgeCoupleValidationPreview(record, forSubmit = false) {
+  const issues = [];
+  const applied = forSubmit ? true : extensionWorkflowApplied(record);
+  if (!applied) return issues;
+  const settings = forgeCoupleSettings();
+  const policy = forgeCouplePolicy();
+  const route = extensionActiveRouteSnapshot(record);
+  const family = String(route?.family || state.imageDraft?.family || imageCommandValue('family') || '');
+  const regions = forgeCoupleRegions(settings);
+  const required = forgeCoupleRequiredRegionCount(settings);
+  if (policy.allowed === false || policy.available === false) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'provider_capability', message: policy.reason || 'The native ForgeCouple always-on script contract is unavailable.' });
+  }
+  if (!['sd15', 'sdxl'].includes(family)) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'family', message: `ForgeCouple Phase 3 supports SD 1.5 and SDXL checkpoint routes only; ${family || 'the selected family'} is gated.` });
+  }
+  if (!['Basic', 'Advanced', 'Mask'].includes(settings.mode)) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mode', message: 'Phase 3 supports Basic, Advanced, and Mask modes.' });
+  }
+  if (regions.some((region) => !region)) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'positive_prompt', message: 'Prompt regions cannot be empty. Remove trailing or repeated separators.' });
+  }
+  if (settings.mode === 'Advanced') {
+    forgeCoupleMappingErrors(settings.advanced_mapping).forEach((message) => issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.advanced_mapping', message }));
+    if (regions.length !== settings.advanced_mapping.length) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'positive_prompt', message: `Advanced mode requires one prompt line per mapped region; found ${regions.length} prompt lines and ${settings.advanced_mapping.length} regions.` });
+    }
+    if (!forgeCoupleMappingErrors(settings.advanced_mapping).length && !forgeCoupleMappingCoversCanvas(settings.advanced_mapping)) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.advanced_mapping', message: 'Advanced regions must cover the entire canvas. Overlap is allowed; uncovered gaps are not.' });
+    }
+    if (settings.advanced_mapping.some((item) => Number(item[4]) === 0)) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'warning', field: 'params.advanced_mapping', message: 'A region has zero weight and may contribute no conditioning.' });
+    }
+  } else if (settings.mode === 'Mask') {
+    if (!settings.mask_mapping.length) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mask_mapping', message: 'Mask mode requires at least one saved binary mask layer.' });
+    }
+    if (regions.length !== required) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'positive_prompt', message: `Mask mode requires exactly ${required} prompt line(s) for ${settings.mask_mapping.length} mask layer(s)${settings.background === 'None' ? '' : ' plus the Global Effect line'}; found ${regions.length}.` });
+    }
+    if (settings.mask_mapping.some((item) => Number(item.weight) < 0 || Number(item.weight) > 5)) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mask_mapping', message: 'Mask layer weights must stay between 0.0 and 5.0.' });
+    }
+    if (settings.background === 'None' && forgeCoupleMaskCoverageRatio !== null && forgeCoupleMaskCoverageRatio < 0.999) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mask_mapping', message: `Mask layers cover ${(forgeCoupleMaskCoverageRatio * 100).toFixed(1)}% of the canvas. Cover the full canvas or enable a Global Effect line.` });
+    }
+    if (settings.background === 'None' && forgeCoupleMaskCoverageRatio === null && settings.mask_mapping.length) {
+      issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'info', field: 'params.mask_mapping', message: 'Mask coverage is being verified from the saved layers.' });
+    }
+  } else if (regions.length < required) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'positive_prompt', message: `Basic mode needs at least ${required} prompt regions with the current Global Effect setting; found ${regions.length}.` });
+  }
+  if (settings.tile_enabled) {
+    const routeMode = String(typeof activeImageMode === 'function' ? activeImageMode() : (state.imageDraft?.workflow_mode || 'txt2img'));
+    if (routeMode !== 'img2img') issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_enabled', message: 'ForgeCouple Tile Mode is available only on the Img2Img route.' });
+    const tileRegionModes = Array.isArray(policy.tile_supported_region_modes) && policy.tile_supported_region_modes.length ? policy.tile_supported_region_modes.map(String) : ['Basic', 'Advanced'];
+    if (!tileRegionModes.includes(settings.mode)) issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_enabled', message: 'ForgeCouple Mask + Tile is not API-verified in FC3. Use Basic or Advanced regions for Tile Mode.' });
+    if (settings.tile_columns * settings.tile_rows < 2) issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_columns', message: 'Tile Mode requires at least two total tiles.' });
+    String(settings.tile_subject_replacement || '').split(/\r?\n/).forEach((line, index) => {
+      if (line.trim() && !line.includes(':')) issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_subject_replacement', message: `Subject replacement line ${index + 1} must use replacement: source, source.` });
+    });
+    if (!policy.tile_runtime_available) issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_enabled', message: policy.tile_reason || 'Forge selectable SD Upscale is unavailable for Tile Mode.' });
+    const upscalers = Array.isArray(policy.tile_upscalers) ? policy.tile_upscalers.map(String) : [];
+    if (upscalers.length && !upscalers.includes(settings.tile_upscaler)) issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.tile_upscaler', message: `Tile upscaler ${settings.tile_upscaler} is not present in the live SD Upscale catalog.` });
+  }
+  if (extensionWorkflowAppliedById(MULTIDIFFUSION_EXTENSION_ID)) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'conflict', message: 'Forge Couple and MultiDiffusion are both regional conditioning engines. Disable one.' });
+  }
+  const sceneDirectorActive = Boolean(sceneDirectorSettings()?.enabled || extensionWorkflowAppliedById(SCENE_DIRECTOR_EXTENSION_ID));
+  if (sceneDirectorActive) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'conflict', message: 'Forge Couple and Scene Director cannot run together on the same generation.' });
+  }
+  if (settings.disable_hr && Boolean(highResLabSettings()?.enabled)) {
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'info', field: 'params.disable_hr', message: 'Forge Couple will affect the base pass only; High-Res Lab / Hires Fix will refine the established composition.' });
+  }
+  return issues;
+}
+
+function forgeCoupleBasicPreviewMarkup(settings = forgeCoupleSettings()) {
+  const regions = forgeCoupleRegions(settings);
+  let globalRegion = null;
+  let contentRegions = regions.map((text, index) => ({ text, sourceIndex: index }));
+  if (settings.background === 'First Line' && contentRegions.length) globalRegion = contentRegions.shift();
+  if (settings.background === 'Last Line' && contentRegions.length) globalRegion = contentRegions.pop();
+  const directionClass = settings.direction === 'Vertical' ? 'vertical' : 'horizontal';
+  const regionCards = contentRegions.length
+    ? contentRegions.map((region, index) => `<article class="neo-forge-couple-region" data-forge-couple-region="${index}"><strong>Region ${index + 1} · Prompt line ${region.sourceIndex + 1}</strong><p>${escapeHtml(region.text || 'Empty region')}</p></article>`).join('')
+    : '<article class="neo-forge-couple-region"><strong>No content regions</strong><p>Add prompt lines in the main positive prompt.</p></article>';
+  const globalMarkup = globalRegion
+    ? `<article class="neo-forge-couple-region neo-forge-couple-global"><strong>Global Effect · Prompt line ${globalRegion.sourceIndex + 1} · Weight ${Number(settings.background_weight).toFixed(1)}</strong><p>${escapeHtml(globalRegion.text || 'Empty global line')}</p></article>`
+    : '';
+  const separatorLabel = settings.separator ? `Custom separator: ${settings.separator}` : 'Separator: newline';
+  return `<div class="neo-forge-couple-preview-meta">${badgeRow([`${regions.length} prompt line${regions.length === 1 ? '' : 's'}`, `${contentRegions.length} content region${contentRegions.length === 1 ? '' : 's'}`, settings.direction, separatorLabel])}</div>${globalMarkup}<div class="neo-forge-couple-regions ${directionClass}">${regionCards}</div>`;
+}
+
+function forgeCoupleAdvancedCanvasMarkup(settings = forgeCoupleSettings()) {
+  const prompts = forgeCoupleRegions(settings);
+  const width = Math.max(64, Number(state.imageDraft?.width || numberValue('imageWidth', 1024) || 1024));
+  const height = Math.max(64, Number(state.imageDraft?.height || numberValue('imageHeight', 1024) || 1024));
+  const selected = Math.max(0, Math.min(settings.advanced_mapping.length - 1, forgeCoupleAdvancedSelectedIndex));
+  const regions = settings.advanced_mapping.map((item, index) => {
+    const [x1, x2, y1, y2, weight] = item.map(Number);
+    const prompt = prompts[index] || `Prompt line ${index + 1}`;
+    return {
+      box: { x: x1, y: y1, w: x2 - x1, h: y2 - y1 },
+      label: `Region ${index + 1}`,
+      subtitle: prompt.slice(0, 64),
+      footer: `Prompt ${index + 1} · weight ${Number(weight).toFixed(2)}`,
+      tone: index % 2 ? 'object' : 'character',
+      draggable: true,
+      resizable: true,
+    };
+  });
+  if (!window.NeoRegionCanvas?.render) return '<p class="neo-muted">Shared Region Canvas failed to load.</p>';
+  return window.NeoRegionCanvas.render({
+    id: 'forgeCoupleAdvancedCanvas',
+    ariaLabel: 'ForgeCouple Advanced region canvas',
+    width,
+    height,
+    regions,
+    selectedIndex: selected,
+    backgroundUrl: forgeCoupleAdvancedBackgroundUrl,
+    emptyText: 'Add a region to begin.',
+    wrapClass: 'neo-forge-couple-region-canvas-wrap',
+    className: 'neo-forge-couple-region-canvas',
+    minSize: 0.02,
+  });
+}
+
+function forgeCoupleAdvancedTableMarkup(settings = forgeCoupleSettings()) {
+  const regions = forgeCoupleRegions(settings);
+  const selected = Math.max(0, Math.min(settings.advanced_mapping.length - 1, forgeCoupleAdvancedSelectedIndex));
+  return settings.advanced_mapping.map((item, index) => {
+    const [x1, x2, y1, y2, weight] = item;
+    const prompt = regions[index] || '';
+    const coordinate = (name, value, max = 1, step = 0.01) => `<input class="neo-forge-couple-coordinate" data-fc-coordinate="${name}" data-fc-index="${index}" type="number" min="0" max="${max}" step="${step}" value="${Number(value).toFixed(3)}">`;
+    return `<article class="neo-forge-couple-advanced-row ${index === selected ? 'selected' : ''}" data-fc-row-index="${index}"><button class="neo-forge-couple-row-select" type="button" data-fc-select="${index}" aria-label="Select region ${index + 1}"><span>${index + 1}</span></button><div class="neo-forge-couple-row-prompt"><strong>Prompt line ${index + 1}</strong><p>${escapeHtml(prompt || 'No matching prompt line')}</p></div><label>x1${coordinate('x1', x1)}</label><label>x2${coordinate('x2', x2)}</label><label>y1${coordinate('y1', y1)}</label><label>y2${coordinate('y2', y2)}</label><label>Weight${coordinate('weight', weight, 5, 0.05)}</label><div class="neo-forge-couple-row-actions"><button type="button" class="neo-icon-btn" data-fc-move="up" data-fc-index="${index}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-icon-btn" data-fc-move="down" data-fc-index="${index}" ${index === settings.advanced_mapping.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="neo-btn secondary tiny" data-fc-duplicate="${index}">Duplicate</button><button type="button" class="neo-btn danger tiny" data-fc-delete="${index}" ${settings.advanced_mapping.length <= 1 ? 'disabled' : ''}>Delete</button></div></article>`;
+  }).join('');
+}
+
+function forgeCoupleLoadCustomPresets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FORGE_COUPLE_PRESET_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).map(([name, mapping]) => [name, forgeCoupleNormalizeMapping(mapping)]));
+  } catch (_error) {
+    return {};
+  }
+}
+
+function forgeCoupleSaveCustomPresets(presets) {
+  try {
+    localStorage.setItem(FORGE_COUPLE_PRESET_STORAGE_KEY, JSON.stringify(presets || {}));
+  } catch (_error) {
+    // Browser storage is optional. The active mapping remains usable.
+  }
+}
+
+function forgeCouplePresetOptions() {
+  const custom = forgeCoupleLoadCustomPresets();
+  const builtins = Object.entries(FORGE_COUPLE_BUILTIN_PRESETS).map(([id, preset]) => `<option value="builtin:${escapeAttr(id)}">${escapeHtml(preset.label)}</option>`).join('');
+  const customOptions = Object.keys(custom).sort((a, b) => a.localeCompare(b)).map((name) => `<option value="custom:${escapeAttr(name)}">Custom · ${escapeHtml(name)}</option>`).join('');
+  return `<option value="">Choose layout…</option>${builtins}${customOptions}`;
+}
+
+function forgeCoupleAdvancedEditorMarkup(settings = forgeCoupleSettings()) {
+  const regions = forgeCoupleRegions(settings);
+  const coverage = forgeCoupleMappingCoversCanvas(settings.advanced_mapping);
+  const countMatch = regions.length === settings.advanced_mapping.length;
+  return `<section class="neo-forge-couple-advanced-editor"><header class="neo-forge-couple-advanced-toolbar"><div><strong>Advanced region editor</strong><p class="neo-muted">Drag regions to move them. Use all eight handles to resize. Region order maps directly to Positive Prompt lines.</p></div><div class="neo-badge-row">${badgeRow([`${settings.advanced_mapping.length} mapped`, `${regions.length} prompt lines`, coverage ? 'Full coverage' : 'Coverage gap', countMatch ? 'Count matched' : 'Count mismatch'])}</div></header><div class="neo-forge-couple-advanced-tools"><select id="forgeCoupleAdvancedPreset">${forgeCouplePresetOptions()}</select><button id="forgeCoupleAdvancedApplyPreset" type="button" class="neo-btn secondary">Apply layout</button><input id="forgeCoupleAdvancedPresetName" type="text" placeholder="Custom preset name"><button id="forgeCoupleAdvancedSavePreset" type="button" class="neo-btn secondary">Save preset</button><button id="forgeCoupleAdvancedDeletePreset" type="button" class="neo-btn secondary">Delete preset</button><button id="forgeCoupleAdvancedSync" type="button" class="neo-btn secondary">Sync regions to prompt</button><button id="forgeCoupleAdvancedAdd" type="button" class="neo-btn secondary">＋ Add region</button><button id="forgeCoupleAdvancedRemoveSelected" type="button" class="neo-btn danger" ${settings.advanced_mapping.length <= 1 ? 'disabled' : ''}>− Remove selected region</button><button id="forgeCoupleAdvancedReset" type="button" class="neo-btn secondary">Reset</button></div><div class="neo-forge-couple-background-tools"><label class="neo-btn secondary">Load reference background<input id="forgeCoupleAdvancedBackground" type="file" accept="image/*" hidden></label><button id="forgeCoupleAdvancedClearBackground" type="button" class="neo-btn secondary" ${forgeCoupleAdvancedBackgroundUrl ? '' : 'disabled'}>Clear background</button><span class="neo-muted">Reference only; it is never sent to Forge.</span></div>${forgeCoupleAdvancedCanvasMarkup(settings)}<div class="neo-forge-couple-coverage ${coverage ? 'success' : 'warning'}"><strong>${coverage ? 'Full-canvas coverage verified' : 'Coverage gap detected'}</strong><span>${coverage ? 'Every pixel belongs to at least one mapped region. Overlap is allowed.' : 'Resize or add regions until the entire canvas is covered.'}</span></div><div class="neo-forge-couple-advanced-table" id="forgeCoupleAdvancedTable">${forgeCoupleAdvancedTableMarkup(settings)}</div></section>`;
+}
+
+
+function forgeCoupleMaskCanvasDimensions() {
+  // ForgeCouple conditions the final generation canvas. The mask frame must
+  // therefore follow the same Width/Height authority used by Advanced mode,
+  // not the uploaded source image's native aspect ratio. Forge will resize the
+  // source image to this target before applying the submitted regional mask.
+  const liveWidth = Number(document.getElementById('imageWidth')?.value || 0);
+  const liveHeight = Number(document.getElementById('imageHeight')?.value || 0);
+  const rawWidth = Math.max(64, Number(liveWidth || state.imageDraft?.width || 1024));
+  const rawHeight = Math.max(64, Number(liveHeight || state.imageDraft?.height || 1024));
+  const scale = Math.min(1, Math.sqrt((768 * 768) / Math.max(1, rawWidth * rawHeight)));
+  const width = Math.max(64, Math.round(rawWidth * scale));
+  const height = Math.max(64, Math.round(rawHeight * scale));
+  const size = window.NeoRegionCanvas?.sizeSnapshot
+    ? window.NeoRegionCanvas.sizeSnapshot(rawWidth, rawHeight)
+    : { width: Math.round(rawWidth), height: Math.round(rawHeight), aspect: rawWidth / rawHeight, orientation: rawWidth > rawHeight ? 'landscape' : (rawHeight > rawWidth ? 'portrait' : 'square') };
+  return {
+    width,
+    height,
+    sourceWidth: size.width,
+    sourceHeight: size.height,
+    aspect: size.aspect,
+    orientation: size.orientation,
+    source: 'generation target',
+  };
+}
+
+async function forgeCoupleMaskBoundsFromDataUrl(url) {
+  try {
+    const image = await forgeCoupleLoadImage(url);
+    const width = Math.max(1, Number(image.naturalWidth || image.width || 1));
+    const height = Math.max(1, Number(image.naturalHeight || image.height || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0, width, height);
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 4;
+        const active = pixels[offset + 3] > 20 && (pixels[offset] + pixels[offset + 1] + pixels[offset + 2]) >= 600;
+        if (!active) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (maxX < minX || maxY < minY) return { x: 0, y: 0, w: 1, h: 1 };
+    return window.NeoRegionCanvas?.clampBox
+      ? window.NeoRegionCanvas.clampBox({ x: minX / width, y: minY / height, w: (maxX - minX + 1) / width, h: (maxY - minY + 1) / height }, 0.01)
+      : { x: minX / width, y: minY / height, w: (maxX - minX + 1) / width, h: (maxY - minY + 1) / height };
+  } catch (_error) {
+    return { x: 0, y: 0, w: 1, h: 1 };
+  }
+}
+
+async function forgeCoupleMaskPreviewFromDataUrl(url, bounds) {
+  const image = await forgeCoupleLoadImage(url);
+  const width = Math.max(1, Number(image.naturalWidth || image.width || 1));
+  const height = Math.max(1, Number(image.naturalHeight || image.height || 1));
+  const safe = window.NeoRegionCanvas?.clampBox
+    ? window.NeoRegionCanvas.clampBox(bounds || { x: 0, y: 0, w: 1, h: 1 }, 0.01)
+    : (bounds || { x: 0, y: 0, w: 1, h: 1 });
+  const sx = Math.max(0, Math.min(width - 1, Math.floor(safe.x * width)));
+  const sy = Math.max(0, Math.min(height - 1, Math.floor(safe.y * height)));
+  const sw = Math.max(1, Math.min(width - sx, Math.ceil(safe.w * width)));
+  const sh = Math.max(1, Math.min(height - sy, Math.ceil(safe.h * height)));
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+  const pixels = ctx.getImageData(0, 0, sw, sh);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    const active = pixels.data[index + 3] > 20
+      && (pixels.data[index] + pixels.data[index + 1] + pixels.data[index + 2]) >= 600;
+    pixels.data[index] = 255;
+    pixels.data[index + 1] = 255;
+    pixels.data[index + 2] = 255;
+    pixels.data[index + 3] = active ? 255 : 0;
+  }
+  ctx.clearRect(0, 0, sw, sh);
+  ctx.putImageData(pixels, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+function forgeCoupleBoxSnapshot(box = {}) {
+  const safe = window.NeoRegionCanvas?.clampBox
+    ? window.NeoRegionCanvas.clampBox(box, 0.01)
+    : box;
+  return {
+    x: Number(safe?.x || 0),
+    y: Number(safe?.y || 0),
+    w: Number(safe?.w || 1),
+    h: Number(safe?.h || 1),
+  };
+}
+
+function forgeCoupleMaskSetTransformSource(layer) {
+  if (!layer?.mask) return;
+  layer.transform_source = {
+    mask: layer.mask,
+    bounds: forgeCoupleBoxSnapshot(layer.bounds || { x: 0, y: 0, w: 1, h: 1 }),
+  };
+  layer.last_transform = 'paint';
+}
+
+function forgeCoupleMaskEnsureTransformSource(layer) {
+  if (!layer?.mask) return null;
+  if (!layer.transform_source?.mask) forgeCoupleMaskSetTransformSource(layer);
+  return layer.transform_source;
+}
+
+function forgeCoupleMaskLayerHasTransform(layer) {
+  return Boolean(layer?.transform_source?.mask && layer.mask !== layer.transform_source.mask);
+}
+
+async function forgeCoupleBinaryMaskPixels(url) {
+  const image = await forgeCoupleLoadImage(url);
+  const width = Math.max(1, Number(image.naturalWidth || image.width || 1));
+  const height = Math.max(1, Number(image.naturalHeight || image.height || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(image, 0, 0, width, height);
+  const pixels = ctx.getImageData(0, 0, width, height);
+  const binary = new Uint8Array(width * height);
+  for (let pixel = 0, offset = 0; pixel < binary.length; pixel += 1, offset += 4) {
+    binary[pixel] = pixels.data[offset + 3] > 20
+      && (pixels.data[offset] + pixels.data[offset + 1] + pixels.data[offset + 2]) >= 600
+      ? 1
+      : 0;
+  }
+  return { width, height, binary };
+}
+
+function forgeCoupleBinaryPixelsDataUrl(width, height, binary) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const pixels = ctx.createImageData(width, height);
+  for (let pixel = 0, offset = 0; pixel < binary.length; pixel += 1, offset += 4) {
+    const value = binary[pixel] ? 255 : 0;
+    pixels.data[offset] = value;
+    pixels.data[offset + 1] = value;
+    pixels.data[offset + 2] = value;
+    pixels.data[offset + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+async function forgeCoupleTranslateBinaryMask(url, deltaX, deltaY) {
+  const source = await forgeCoupleBinaryMaskPixels(url);
+  const output = new Uint8Array(source.binary.length);
+  const shiftX = Math.round(Number(deltaX || 0));
+  const shiftY = Math.round(Number(deltaY || 0));
+  for (let y = 0; y < source.height; y += 1) {
+    const targetY = y + shiftY;
+    if (targetY < 0 || targetY >= source.height) continue;
+    for (let x = 0; x < source.width; x += 1) {
+      if (!source.binary[y * source.width + x]) continue;
+      const targetX = x + shiftX;
+      if (targetX < 0 || targetX >= source.width) continue;
+      output[targetY * source.width + targetX] = 1;
+    }
+  }
+  return forgeCoupleBinaryPixelsDataUrl(source.width, source.height, output);
+}
+
+async function forgeCoupleResizeBinaryMaskFromSource(url, sourceBounds, targetBounds) {
+  const source = await forgeCoupleBinaryMaskPixels(url);
+  const from = forgeCoupleBoxSnapshot(sourceBounds);
+  const to = forgeCoupleBoxSnapshot(targetBounds);
+  const sx = Math.max(0, Math.min(source.width - 1, Math.floor(from.x * source.width)));
+  const sy = Math.max(0, Math.min(source.height - 1, Math.floor(from.y * source.height)));
+  const sw = Math.max(1, Math.min(source.width - sx, Math.ceil(from.w * source.width)));
+  const sh = Math.max(1, Math.min(source.height - sy, Math.ceil(from.h * source.height)));
+  const dx = Math.max(0, Math.min(source.width - 1, Math.floor(to.x * source.width)));
+  const dy = Math.max(0, Math.min(source.height - 1, Math.floor(to.y * source.height)));
+  const dw = Math.max(1, Math.min(source.width - dx, Math.ceil(to.w * source.width)));
+  const dh = Math.max(1, Math.min(source.height - dy, Math.ceil(to.h * source.height)));
+  const output = new Uint8Array(source.binary.length);
+  for (let y = 0; y < dh; y += 1) {
+    const sourceY = sy + Math.min(sh - 1, Math.floor(((y + 0.5) * sh) / dh));
+    for (let x = 0; x < dw; x += 1) {
+      const sourceX = sx + Math.min(sw - 1, Math.floor(((x + 0.5) * sw) / dw));
+      if (source.binary[sourceY * source.width + sourceX]) {
+        output[(dy + y) * source.width + (dx + x)] = 1;
+      }
+    }
+  }
+  return forgeCoupleBinaryPixelsDataUrl(source.width, source.height, output);
+}
+
+async function forgeCoupleRefreshMaskLayerDerivedState(layer) {
+  layer.bounds = await forgeCoupleMaskBoundsFromDataUrl(layer.mask);
+  layer.preview = await forgeCoupleMaskPreviewFromDataUrl(layer.mask, layer.bounds);
+}
+
+async function forgeCoupleResetMaskLayerTransform(index) {
+  const layer = forgeCoupleMaskLayers[index];
+  const source = forgeCoupleMaskEnsureTransformSource(layer);
+  if (!layer || !source?.mask) return;
+  layer.mask = source.mask;
+  layer.bounds = forgeCoupleBoxSnapshot(source.bounds);
+  layer.last_transform = 'reset';
+  await forgeCoupleRefreshMaskLayerDerivedState(layer);
+  await forgeCoupleRecomputeMaskCoverage();
+}
+
+function forgeCoupleEnsureMaskBounds() {
+  forgeCoupleMaskLayers.forEach((layer) => {
+    if ((layer.bounds && layer.preview) || layer.bounds_loading) return;
+    layer.bounds_loading = true;
+    Promise.resolve(layer.bounds || forgeCoupleMaskBoundsFromDataUrl(layer.mask))
+      .then(async (bounds) => {
+        layer.bounds = bounds;
+        layer.preview = await forgeCoupleMaskPreviewFromDataUrl(layer.mask, bounds);
+        forgeCoupleMaskEnsureTransformSource(layer);
+        delete layer.bounds_loading;
+        render();
+      })
+      .catch(() => { delete layer.bounds_loading; });
+  });
+}
+
+function forgeCoupleMaskRegionCanvasMarkup(settings = forgeCoupleSettings()) {
+  const dims = forgeCoupleMaskCanvasDimensions();
+  const prompts = forgeCoupleRegions(settings);
+  const promptOffset = settings.background === 'First Line' ? 1 : 0;
+  const regions = forgeCoupleMaskLayers.map((layer, index) => {
+    const promptIndex = settings.background === 'Last Line' ? index : index + promptOffset;
+    return {
+      box: layer.bounds || { x: 0, y: 0, w: 1, h: 1 },
+      label: `Mask ${index + 1}`,
+      subtitle: (prompts[promptIndex] || `Prompt line ${promptIndex + 1}`).slice(0, 64),
+      footer: `Prompt ${promptIndex + 1} · weight ${Number(layer.weight ?? 1).toFixed(2)}`,
+      tone: 'mask',
+      image: layer.preview || '',
+      imageClass: 'neo-region-canvas__region-image--mask',
+      draggable: true,
+      resizable: true,
+    };
+  });
+  if (!window.NeoRegionCanvas?.render) return '<p class="neo-muted">Shared Region Canvas failed to load.</p>';
+  return `<section class="neo-forge-couple-mask-region-shell"><div class="neo-card-head"><div><strong>Saved mask regions</strong><p class="neo-muted neo-forge-couple-mask-region-help">All saved masks are visible together. Select a box to load its layer; drag or resize to transform the binary mask.</p></div></div>${window.NeoRegionCanvas.render({
+    id: 'forgeCoupleMaskRegionCanvas',
+    ariaLabel: 'ForgeCouple saved mask regions',
+    width: dims.sourceWidth,
+    height: dims.sourceHeight,
+    regions,
+    selectedIndex: forgeCoupleMaskSelectedIndex,
+    backgroundUrl: forgeCoupleMaskBackgroundUrl,
+    emptyText: 'Save a mask layer to visualize its region.',
+    wrapClass: 'neo-forge-couple-region-canvas-wrap',
+    className: 'neo-forge-couple-region-canvas neo-forge-couple-mask-region-canvas',
+    fitGroup: 'forge-couple-mask-fitted-frame',
+    minSize: 0.01,
+  })}<div class="neo-badge-row"><span class="neo-badge">Canvas · ${dims.sourceWidth}×${dims.sourceHeight}</span><span class="neo-badge">${escapeHtml(dims.orientation)} orientation</span><span class="neo-badge">${forgeCoupleMaskLayers.length} saved layer${forgeCoupleMaskLayers.length === 1 ? '' : 's'}</span><span class="neo-badge">Move = exact pixels · resize = source-based nearest-neighbour</span></div></section>`;
+}
+
+async function forgeCoupleTransformMaskLayer(index, nextBox, interaction = {}) {
+  const layer = forgeCoupleMaskLayers[index];
+  if (!layer?.mask) return;
+  const source = forgeCoupleMaskEnsureTransformSource(layer);
+  const currentBounds = forgeCoupleBoxSnapshot(interaction.startBox || layer.bounds || await forgeCoupleMaskBoundsFromDataUrl(layer.mask));
+  const safeNext = forgeCoupleBoxSnapshot(nextBox);
+  const currentPixels = await forgeCoupleBinaryMaskPixels(layer.mask);
+  const kind = interaction.kind === 'resize' ? 'resize' : 'translate';
+
+  if (kind === 'translate') {
+    const deltaX = (safeNext.x - currentBounds.x) * currentPixels.width;
+    const deltaY = (safeNext.y - currentBounds.y) * currentPixels.height;
+    layer.mask = await forgeCoupleTranslateBinaryMask(layer.mask, deltaX, deltaY);
+    layer.last_transform = 'translate';
+  } else {
+    layer.mask = await forgeCoupleResizeBinaryMaskFromSource(source.mask, source.bounds, safeNext);
+    layer.last_transform = `resize:${interaction.handle || 'unknown'}`;
+  }
+
+  await forgeCoupleRefreshMaskLayerDerivedState(layer);
+  await forgeCoupleRecomputeMaskCoverage();
+}
+
+function forgeCoupleSyncRegionBoxSelection(rootSelector, selectedIndex) {
+  document.querySelectorAll(`${rootSelector} [data-neo-region-index]`).forEach((node, nodeIndex) => {
+    node.classList.toggle('selected', nodeIndex === Number(selectedIndex));
+  });
+}
+
+function forgeCoupleBindRegionBoxEditor(config = {}) {
+  if (!window.NeoRegionCanvas?.bind) return false;
+  window.NeoRegionCanvas.bind(config);
+  return true;
+}
+
+function forgeCoupleBindMaskRegionCanvas(paintCanvas) {
+  forgeCoupleBindRegionBoxEditor({
+    root: '#forgeCoupleMaskRegionCanvas',
+    minSize: 0.01,
+    getBox: (index) => forgeCoupleMaskLayers[index]?.bounds || { x: 0, y: 0, w: 1, h: 1 },
+    onSelect: async (index) => {
+      if (!forgeCoupleMaskLayers[index]) return;
+      forgeCoupleMaskSelectedIndex = index;
+      forgeCoupleSyncRegionBoxSelection('#forgeCoupleMaskRegionCanvas', index);
+      document.querySelectorAll('.neo-forge-couple-mask-layer').forEach((row, rowIndex) => row.classList.toggle('selected', rowIndex === index));
+      document.getElementById('forgeCoupleMaskOverride')?.removeAttribute('disabled');
+      if (paintCanvas) await forgeCoupleLoadMaskIntoCanvas(forgeCoupleMaskLayers[index].mask, paintCanvas);
+    },
+    onPreview: (index, nextBox, node) => {
+      node.dataset.neoMaskPreviewX = Number(nextBox.x).toFixed(4);
+      node.dataset.neoMaskPreviewY = Number(nextBox.y).toFixed(4);
+      node.dataset.neoMaskPreviewW = Number(nextBox.w).toFixed(4);
+      node.dataset.neoMaskPreviewH = Number(nextBox.h).toFixed(4);
+    },
+    onCommit: async (index, nextBox, interaction) => {
+      forgeCoupleMaskSelectedIndex = index;
+      await forgeCoupleTransformMaskLayer(index, nextBox, interaction);
+      render();
+    },
+  });
+}
+
+function forgeCoupleMaskLayerMarkup(settings = forgeCoupleSettings()) {
+  const regions = forgeCoupleRegions(settings);
+  if (!forgeCoupleMaskLayers.length) return '<p class="neo-muted">No saved mask layers yet. Paint or upload a mask, then save it as a layer.</p>';
+  return forgeCoupleMaskLayers.map((layer, index) => {
+    const selected = index === forgeCoupleMaskSelectedIndex;
+    const promptOffset = settings.background === 'First Line' ? 1 : 0;
+    const promptIndex = settings.background === 'Last Line' ? index : index + promptOffset;
+    const prompt = regions[promptIndex] || `Prompt line ${promptIndex + 1}`;
+    return `<article class="neo-forge-couple-mask-layer ${selected ? 'selected' : ''}" data-fc-mask-select="${index}"><button type="button" class="neo-forge-couple-mask-thumb" data-fc-mask-load="${index}" title="Load layer into canvas"><img src="${escapeAttr(layer.mask)}" alt="Mask layer ${index + 1}"></button><div class="neo-forge-couple-mask-layer__body"><strong>Mask ${index + 1} · Prompt line ${promptIndex + 1}</strong><p class="neo-muted">${escapeHtml(prompt.slice(0, 90))}</p><label>Weight<input type="number" min="0" max="5" step="0.05" value="${escapeAttr(layer.weight ?? 1)}" data-fc-mask-weight="${index}"></label></div><div class="neo-forge-couple-row-actions"><button type="button" class="neo-icon-btn" data-fc-mask-move="up" data-fc-mask-index="${index}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-icon-btn" data-fc-mask-move="down" data-fc-mask-index="${index}" ${index === forgeCoupleMaskLayers.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="neo-btn danger tiny" data-fc-mask-delete="${index}">Delete</button></div></article>`;
+  }).join('');
+}
+
+function forgeCoupleMaskEditorMarkup(settings = forgeCoupleSettings()) {
+  const dims = forgeCoupleMaskCanvasDimensions();
+  const maskCount = forgeCoupleMaskLayers.length;
+  const regions = forgeCoupleRegions(settings);
+  const required = maskCount + (settings.background === 'None' ? 0 : 1);
+  const coverageLabel = forgeCoupleMaskCoverageRatio === null ? 'Coverage pending' : `${(forgeCoupleMaskCoverageRatio * 100).toFixed(1)}% covered`;
+  const painterMarkup = window.NeoRegionCanvas?.renderSurface
+    ? window.NeoRegionCanvas.renderSurface({
+      id: 'forgeCoupleMaskPaintSurface',
+      ariaLabel: 'ForgeCouple active binary mask painter',
+      width: dims.sourceWidth,
+      height: dims.sourceHeight,
+      backgroundUrl: forgeCoupleMaskBackgroundUrl,
+      layersMarkup: `<canvas id="forgeCoupleMaskCanvas" width="${dims.width}" height="${dims.height}" data-mask-source-width="${dims.sourceWidth}" data-mask-source-height="${dims.sourceHeight}" aria-label="ForgeCouple binary mask canvas"></canvas>`,
+      wrapClass: 'neo-forge-couple-region-canvas-wrap neo-forge-couple-mask-paint-wrap',
+      className: 'neo-forge-couple-region-canvas neo-forge-couple-mask-canvas-wrap',
+      fitGroup: 'forge-couple-mask-fitted-frame',
+    })
+    : '<p class="neo-muted">Shared Region Canvas failed to load.</p>';
+  return `<section class="neo-forge-couple-mask-editor"><header class="neo-forge-couple-advanced-toolbar"><div><strong>Mask region editor</strong><p class="neo-muted">Paint pure-white conditioning areas. Black/transparent pixels are inactive. Save one layer for each regional prompt.</p></div><div class="neo-badge-row">${badgeRow([`${maskCount} masks`, `${regions.length} prompt lines`, coverageLabel, regions.length === required ? 'Count matched' : 'Count mismatch'])}</div></header>${forgeCoupleMaskRegionCanvasMarkup(settings)}<section class="neo-forge-couple-mask-paint-shell"><div class="neo-card-head"><div><strong>Active mask painter</strong><p class="neo-muted">Paint or edit the selected layer, then save as a new layer or override the current one.</p></div></div><div class="neo-forge-couple-mask-tools neo-region-canvas-toolbar"><label>Tool<select id="forgeCoupleMaskTool"><option value="paint">Paint white</option><option value="erase">Erase</option></select></label><label>Brush<input id="forgeCoupleMaskBrush" type="range" min="2" max="120" step="1" value="28"></label><button id="forgeCoupleMaskClearCanvas" type="button" class="neo-btn secondary">Clear canvas</button><label class="neo-btn secondary">Upload mask<input id="forgeCoupleMaskUpload" type="file" accept="image/*" hidden></label><label class="neo-btn secondary">Reference background<input id="forgeCoupleMaskBackground" type="file" accept="image/*" hidden></label><button id="forgeCoupleMaskClearBackground" type="button" class="neo-btn secondary" ${forgeCoupleMaskBackgroundUrl ? '' : 'disabled'}>Clear background</button></div>${painterMarkup}<div class="neo-badge-row"><span class="neo-badge">${escapeHtml(dims.source)} · ${dims.sourceWidth}×${dims.sourceHeight}</span><span class="neo-badge">${escapeHtml(dims.orientation)} orientation</span><span class="neo-badge">Shared fitted frame · ${dims.width}×${dims.height} working mask</span></div><div class="neo-forge-couple-mask-actions neo-region-canvas-toolbar"><button id="forgeCoupleMaskSave" type="button" class="neo-btn primary">Save as new layer</button><button id="forgeCoupleMaskOverride" type="button" class="neo-btn secondary" ${forgeCoupleMaskSelectedIndex < 0 ? 'disabled' : ''}>Override selected</button><button id="forgeCoupleMaskResetTransform" type="button" class="neo-btn secondary" ${forgeCoupleMaskSelectedIndex >= 0 && forgeCoupleMaskLayerHasTransform(forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex]) ? '' : 'disabled'}>Reset selected transform</button><button id="forgeCoupleMaskReset" type="button" class="neo-btn danger" ${maskCount ? '' : 'disabled'}>Reset all layers</button><span class="neo-muted">Masks are session-only and are embedded only in the submitted Forge payload.</span></div></section><div id="forgeCoupleMaskLayers" class="neo-forge-couple-mask-layers">${forgeCoupleMaskLayerMarkup(settings)}</div></section>`;
+}
+
+function forgeCoupleLoadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = url;
+  });
+}
+
+function forgeCoupleBinaryMaskDataUrl(canvas) {
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const outCtx = out.getContext('2d', { willReadFrequently: true });
+  outCtx.fillStyle = '#000';
+  outCtx.fillRect(0, 0, out.width, out.height);
+  const sourceCtx = canvas.getContext('2d', { willReadFrequently: true });
+  const source = sourceCtx.getImageData(0, 0, canvas.width, canvas.height);
+  const target = outCtx.getImageData(0, 0, out.width, out.height);
+  for (let index = 0; index < source.data.length; index += 4) {
+    const active = source.data[index + 3] > 20 && (source.data[index] + source.data[index + 1] + source.data[index + 2]) >= 600;
+    const value = active ? 255 : 0;
+    target.data[index] = value;
+    target.data[index + 1] = value;
+    target.data[index + 2] = value;
+    target.data[index + 3] = 255;
+  }
+  outCtx.putImageData(target, 0, 0);
+  return out.toDataURL('image/png');
+}
+
+async function forgeCoupleLoadMaskIntoCanvas(url, canvas) {
+  const image = await forgeCoupleLoadImage(url);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const temp = document.createElement('canvas');
+  temp.width = canvas.width;
+  temp.height = canvas.height;
+  const tempCtx = temp.getContext('2d', { willReadFrequently: true });
+  tempCtx.drawImage(image, 0, 0, temp.width, temp.height);
+  const pixels = tempCtx.getImageData(0, 0, temp.width, temp.height);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    const active = (pixels.data[index] + pixels.data[index + 1] + pixels.data[index + 2]) >= 600 && pixels.data[index + 3] > 20;
+    pixels.data[index] = 255;
+    pixels.data[index + 1] = 255;
+    pixels.data[index + 2] = 255;
+    pixels.data[index + 3] = active ? 255 : 0;
+  }
+  ctx.putImageData(pixels, 0, 0);
+}
+
+async function forgeCoupleRecomputeMaskCoverage() {
+  if (!forgeCoupleMaskLayers.length) {
+    forgeCoupleMaskCoverageRatio = null;
+    return;
+  }
+  const size = 192;
+  const union = new Uint8Array(size * size);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  for (const layer of forgeCoupleMaskLayers) {
+    try {
+      const image = await forgeCoupleLoadImage(layer.mask);
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(image, 0, 0, size, size);
+      const pixels = ctx.getImageData(0, 0, size, size).data;
+      for (let pixel = 0, index = 0; pixel < union.length; pixel += 1, index += 4) {
+        if ((pixels[index] + pixels[index + 1] + pixels[index + 2]) >= 600 && pixels[index + 3] > 20) union[pixel] = 1;
+      }
+    } catch (_) {}
+  }
+  let active = 0;
+  union.forEach((value) => { active += value; });
+  forgeCoupleMaskCoverageRatio = active / union.length;
+}
+
+function forgeCoupleTileRouteMode() {
+  return String(typeof activeImageMode === 'function' ? activeImageMode() : (state.imageDraft?.workflow_mode || 'txt2img'));
+}
+
+function forgeCoupleTileMarkup(settings = forgeCoupleSettings()) {
+  const policy = forgeCouplePolicy();
+  const eligible = forgeCoupleTileRouteMode() === 'img2img';
+  const runtimeReady = policy.tile_runtime_available === true;
+  const supportedRegionModes = Array.isArray(policy.tile_supported_region_modes) && policy.tile_supported_region_modes.length ? policy.tile_supported_region_modes.map(String) : ['Basic', 'Advanced'];
+  const regionEligible = supportedRegionModes.includes(settings.mode);
+  const disabled = eligible && runtimeReady && regionEligible ? '' : 'disabled';
+  const toggleDisabled = settings.tile_enabled ? '' : disabled;
+  const finalSize = settings.tile_final_width > 0 && settings.tile_final_height > 0 ? `${settings.tile_final_width} × ${settings.tile_final_height}` : 'Not calculated';
+  const upscalers = Array.isArray(policy.tile_upscalers) && policy.tile_upscalers.length ? policy.tile_upscalers.map(String) : ['None'];
+  const upscalerOptions = [...new Set(upscalers)].map((name) => `<option value="${escapeAttr(name)}" ${settings.tile_upscaler === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('');
+  const runtimeMessage = runtimeReady
+    ? `<div class="neo-badge-row neo-forge-couple-tile-runtime"><span class="neo-state-pill success">${escapeHtml(policy.tile_script_name || 'SD Upscale')} ready</span><span class="neo-badge">Separate Forge selectable script</span></div>`
+    : `<p class="neo-warn">${escapeHtml(policy.tile_reason || 'Forge selectable SD Upscale is not available. Refresh Forge Admin after confirming the built-in script is enabled.')}</p>`;
+  return `<section class="neo-forge-couple-tile-editor"><header class="neo-forge-couple-advanced-toolbar"><div><strong>Tile Mode · Img2Img experimental</strong><p class="neo-muted"><strong>ForgeCouple only assigns regional prompts.</strong> Forge's separate selectable SD Upscale script performs the upscale and tile loop; Neo stages both in the same Img2Img request. FC3 verifies Tile with Basic and Advanced regions.</p></div><label class="neo-toggle-row"><input id="forgeCoupleTileEnabled" type="checkbox" ${settings.tile_enabled ? 'checked' : ''} ${toggleDisabled}><span>Enable Tile Mode</span></label></header>${runtimeMessage}${eligible ? '' : '<p class="neo-warn">Switch the main workflow to Img2Img to configure Tile Mode.</p>'}${regionEligible ? '' : '<p class="neo-warn">Mask + Tile is not API-verified in FC3. Switch Region Assignment to Basic or Advanced.</p>'}<div class="neo-forge-couple-grid"><label>Forge SD Upscale upscaler · separate script<select id="forgeCoupleTileUpscaler" ${disabled}>${upscalerOptions}</select></label><label>Scale factor<input id="forgeCoupleTileScale" type="number" min="1" max="8" step="0.05" value="${escapeAttr(settings.tile_scale_factor)}" ${disabled}></label><label>Tile overlap<input id="forgeCoupleTileOverlap" type="number" min="0" max="256" step="16" value="${escapeAttr(settings.tile_overlap)}" ${disabled}></label><label>Columns<input id="forgeCoupleTileColumns" type="number" min="1" max="64" step="1" value="${escapeAttr(settings.tile_columns)}" ${disabled}></label><label>Rows<input id="forgeCoupleTileRows" type="number" min="1" max="64" step="1" value="${escapeAttr(settings.tile_rows)}" ${disabled}></label><label>Inclusion threshold<input id="forgeCoupleTileThreshold" type="number" min="0" max="1" step="0.05" value="${escapeAttr(settings.tile_threshold)}" ${disabled}></label></div><div class="neo-forge-couple-tile-calc"><button id="forgeCoupleTileCalculate" type="button" class="neo-btn secondary" ${disabled}>Calculate from Img2Img dimensions</button><span class="neo-badge">Final ${escapeHtml(finalSize)}</span><span class="neo-badge">${settings.tile_columns} × ${settings.tile_rows} tiles</span></div><label>Subject replacement<textarea id="forgeCoupleTileReplacement" rows="3" ${disabled} placeholder="1boy: 2boys, multiple boys&#10;1girl: 2girls, multiple girls">${escapeHtml(settings.tile_subject_replacement)}</textarea></label><div class="neo-forge-couple-grid"><label class="neo-toggle-row"><input id="forgeCoupleTileDebug" type="checkbox" ${settings.tile_debug ? 'checked' : ''} ${disabled}><span>Debug tile prompt assignment in Forge console</span></label><label class="neo-toggle-row"><input id="forgeCoupleTileSaveExtras" type="checkbox" ${settings.tile_save_to_extras ? 'checked' : ''} ${disabled}><span>Save combined result to Forge Extras folder instead</span></label></div></section>`;
+}
+
+function forgeCoupleCalculateTileSettings() {
+  const settings = forgeCoupleSettings();
+  const tileWidth = Math.max(1, Number(state.imageDraft?.width || numberValue('imageWidth', 1024) || 1024));
+  const tileHeight = Math.max(1, Number(state.imageDraft?.height || numberValue('imageHeight', 1024) || 1024));
+  const sourceWidth = Math.max(1, Number(state.imageDraft?.source_image_width || tileWidth));
+  const sourceHeight = Math.max(1, Number(state.imageDraft?.source_image_height || tileHeight));
+  const overlap = Math.max(0, Number(settings.tile_overlap || 0));
+  const strideX = tileWidth - overlap;
+  const strideY = tileHeight - overlap;
+  if (strideX <= 0 || strideY <= 0) {
+    updateForgeCoupleSettings({ tile_columns: 1, tile_rows: 1, tile_final_width: -1, tile_final_height: -1 });
+    return;
+  }
+  const finalWidth = Math.round(sourceWidth * settings.tile_scale_factor);
+  const finalHeight = Math.round(sourceHeight * settings.tile_scale_factor);
+  const columns = Math.max(1, Math.ceil((finalWidth - overlap) / strideX));
+  const rows = Math.max(1, Math.ceil((finalHeight - overlap) / strideY));
+  updateForgeCoupleSettings({ tile_columns: columns, tile_rows: rows, tile_final_width: finalWidth, tile_final_height: finalHeight });
+}
+
+function forgeCoupleBindMaskPaintSurface() {
+  const surface = document.getElementById('forgeCoupleMaskPaintSurface');
+  if (!surface || !window.NeoRegionCanvas?.observeFit) return;
+  window.NeoRegionCanvas.observeFit(surface, {
+    width: Number(surface.dataset.neoRegionSourceWidth || 1024),
+    height: Number(surface.dataset.neoRegionSourceHeight || 1024),
+  });
+}
+
+function bindForgeCoupleMaskControls() {
+  const canvas = document.getElementById('forgeCoupleMaskCanvas');
+  if (!canvas) return;
+  forgeCoupleBindMaskPaintSurface();
+  forgeCoupleEnsureMaskBounds();
+  forgeCoupleBindMaskRegionCanvas(canvas);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const point = (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    return { x: (event.clientX - bounds.left) * canvas.width / bounds.width, y: (event.clientY - bounds.top) * canvas.height / bounds.height };
+  };
+  canvas.addEventListener('pointerdown', (event) => {
+    canvas.setPointerCapture(event.pointerId);
+    const start = point(event);
+    forgeCoupleMaskDrawing = { pointerId: event.pointerId, last: start };
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!forgeCoupleMaskDrawing || forgeCoupleMaskDrawing.pointerId !== event.pointerId) return;
+    const next = point(event);
+    const brush = Number(document.getElementById('forgeCoupleMaskBrush')?.value || 28);
+    const tool = document.getElementById('forgeCoupleMaskTool')?.value || 'paint';
+    ctx.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = brush * canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
+    ctx.lineTo(next.x, next.y);
+    ctx.stroke();
+    forgeCoupleMaskDrawing.last = next;
+  });
+  const end = (event) => {
+    if (forgeCoupleMaskDrawing?.pointerId === event.pointerId) forgeCoupleMaskDrawing = null;
+    ctx.globalCompositeOperation = 'source-over';
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  document.getElementById('forgeCoupleMaskClearCanvas')?.addEventListener('click', () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+  document.getElementById('forgeCoupleMaskUpload')?.addEventListener('change', async (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) return;
+    await forgeCoupleLoadMaskIntoCanvas(URL.createObjectURL(file), canvas);
+  });
+  document.getElementById('forgeCoupleMaskBackground')?.addEventListener('change', (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) return;
+    if (forgeCoupleMaskBackgroundUrl) URL.revokeObjectURL(forgeCoupleMaskBackgroundUrl);
+    forgeCoupleMaskBackgroundUrl = URL.createObjectURL(file);
+    render();
+  });
+  document.getElementById('forgeCoupleMaskClearBackground')?.addEventListener('click', () => {
+    if (forgeCoupleMaskBackgroundUrl) URL.revokeObjectURL(forgeCoupleMaskBackgroundUrl);
+    forgeCoupleMaskBackgroundUrl = '';
+    render();
+  });
+  document.getElementById('forgeCoupleMaskSave')?.addEventListener('click', async () => {
+    const mask = forgeCoupleBinaryMaskDataUrl(canvas);
+    const bounds = await forgeCoupleMaskBoundsFromDataUrl(mask);
+    const preview = await forgeCoupleMaskPreviewFromDataUrl(mask, bounds);
+    const layer = { mask, weight: 1, bounds, preview };
+    forgeCoupleMaskSetTransformSource(layer);
+    forgeCoupleMaskLayers.push(layer);
+    forgeCoupleMaskSelectedIndex = forgeCoupleMaskLayers.length - 1;
+    await forgeCoupleRecomputeMaskCoverage();
+    render();
+  });
+  document.getElementById('forgeCoupleMaskOverride')?.addEventListener('click', async () => {
+    if (forgeCoupleMaskSelectedIndex < 0 || !forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex]) return;
+    const mask = forgeCoupleBinaryMaskDataUrl(canvas);
+    forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex].mask = mask;
+    forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex].bounds = await forgeCoupleMaskBoundsFromDataUrl(mask);
+    forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex].preview = await forgeCoupleMaskPreviewFromDataUrl(
+      mask,
+      forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex].bounds,
+    );
+    forgeCoupleMaskSetTransformSource(forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex]);
+    await forgeCoupleRecomputeMaskCoverage();
+    render();
+  });
+  document.getElementById('forgeCoupleMaskResetTransform')?.addEventListener('click', async () => {
+    if (forgeCoupleMaskSelectedIndex < 0) return;
+    await forgeCoupleResetMaskLayerTransform(forgeCoupleMaskSelectedIndex);
+    const layer = forgeCoupleMaskLayers[forgeCoupleMaskSelectedIndex];
+    if (layer) await forgeCoupleLoadMaskIntoCanvas(layer.mask, canvas);
+    render();
+  });
+  document.getElementById('forgeCoupleMaskReset')?.addEventListener('click', () => {
+    forgeCoupleMaskLayers = [];
+    forgeCoupleMaskSelectedIndex = -1;
+    forgeCoupleMaskCoverageRatio = null;
+    render();
+  });
+  document.querySelectorAll('[data-fc-mask-load]').forEach((node) => node.addEventListener('click', async () => {
+    const index = Number(node.dataset.fcMaskLoad);
+    if (!forgeCoupleMaskLayers[index]) return;
+    forgeCoupleMaskSelectedIndex = index;
+    await forgeCoupleLoadMaskIntoCanvas(forgeCoupleMaskLayers[index].mask, canvas);
+    forgeCoupleSyncRegionBoxSelection('#forgeCoupleMaskRegionCanvas', index);
+    document.querySelectorAll('.neo-forge-couple-mask-layer').forEach((row, rowIndex) => row.classList.toggle('selected', rowIndex === index));
+    document.getElementById('forgeCoupleMaskOverride')?.removeAttribute('disabled');
+  }));
+  document.querySelectorAll('[data-fc-mask-weight]').forEach((node) => node.addEventListener('change', () => {
+    const index = Number(node.dataset.fcMaskWeight);
+    if (!forgeCoupleMaskLayers[index]) return;
+    forgeCoupleMaskLayers[index].weight = forgeCoupleClamp(node.value, 0, 5);
+    saveUiState();
+    forgeCoupleRefreshMaskDom();
+  }));
+  document.querySelectorAll('[data-fc-mask-move]').forEach((node) => node.addEventListener('click', () => {
+    const index = Number(node.dataset.fcMaskIndex);
+    const target = node.dataset.fcMaskMove === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= forgeCoupleMaskLayers.length) return;
+    [forgeCoupleMaskLayers[index], forgeCoupleMaskLayers[target]] = [forgeCoupleMaskLayers[target], forgeCoupleMaskLayers[index]];
+    forgeCoupleMaskSelectedIndex = target;
+    render();
+  }));
+  document.querySelectorAll('[data-fc-mask-delete]').forEach((node) => node.addEventListener('click', async () => {
+    const index = Number(node.dataset.fcMaskDelete);
+    forgeCoupleMaskLayers.splice(index, 1);
+    forgeCoupleMaskSelectedIndex = Math.min(forgeCoupleMaskLayers.length - 1, forgeCoupleMaskSelectedIndex);
+    await forgeCoupleRecomputeMaskCoverage();
+    render();
+  }));
+}
+
+function bindForgeCoupleTileControls() {
+  const checkbox = document.getElementById('forgeCoupleTileEnabled');
+  checkbox?.addEventListener('change', () => { updateForgeCoupleSettings({ tile_enabled: checkbox.checked }); render(); });
+  const numberFields = [
+    ['forgeCoupleTileScale', 'tile_scale_factor'], ['forgeCoupleTileOverlap', 'tile_overlap'],
+    ['forgeCoupleTileColumns', 'tile_columns'], ['forgeCoupleTileRows', 'tile_rows'], ['forgeCoupleTileThreshold', 'tile_threshold'],
+  ];
+  numberFields.forEach(([id, field]) => document.getElementById(id)?.addEventListener('change', (event) => {
+    updateForgeCoupleSettings({ [field]: Number(event.target.value) });
+    forgeCoupleRefreshPreviewDom();
+  }));
+  document.getElementById('forgeCoupleTileUpscaler')?.addEventListener('change', (event) => updateForgeCoupleSettings({ tile_upscaler: event.target.value }));
+  document.getElementById('forgeCoupleTileReplacement')?.addEventListener('input', (event) => updateForgeCoupleSettings({ tile_subject_replacement: event.target.value }));
+  document.getElementById('forgeCoupleTileDebug')?.addEventListener('change', (event) => updateForgeCoupleSettings({ tile_debug: event.target.checked }));
+  document.getElementById('forgeCoupleTileSaveExtras')?.addEventListener('change', (event) => updateForgeCoupleSettings({ tile_save_to_extras: event.target.checked }));
+  document.getElementById('forgeCoupleTileCalculate')?.addEventListener('click', () => { forgeCoupleCalculateTileSettings(); render(); });
+}
+
+function forgeCoupleIssueMarkup(record) {
+  return forgeCoupleValidationPreview(record).map((item) => {
+    const klass = item.level === 'error' ? 'neo-error' : item.level === 'warning' ? 'neo-warn' : 'neo-muted';
+    return `<p class="${klass}">${escapeHtml(item.message)}</p>`;
+  }).join('');
+}
+
+function forgeCoupleStatusLabel(record) {
+  const policy = forgeCouplePolicy();
+  if (policy.allowed === false || policy.available === false) return 'Provider gated';
+  if (!extensionWorkflowApplied(record)) return 'Ready';
+  return forgeCoupleValidationPreview(record).some((item) => item.level === 'error') ? 'Needs attention' : 'Enabled';
+}
+
+function forgeCouplePanel(record) {
+  const settings = forgeCoupleSettings();
+  const policy = forgeCouplePolicy();
+  const route = extensionActiveRouteSnapshot(record);
+  const routeActive = extensionRouteStateActive(route.route_state) && policy.allowed !== false && policy.available !== false;
+  const disabled = routeActive ? '' : 'disabled';
+  const status = forgeCoupleStatusLabel(record);
+  const applied = extensionWorkflowApplied(record);
+  const expert = state.detailMode === 'expert';
+  const compact = state.detailMode === 'compact';
+  const apply = extensionApplyToggle(record);
+  const capabilityReason = policy.reason ? `<p class="neo-muted">${escapeHtml(policy.reason)}</p>` : '';
+  const expertBlock = expert ? `<details class="neo-extension-expert-block"><summary>FC3 payload preview · mask bytes redacted</summary><pre>${escapeHtml(JSON.stringify(forgeCouplePayloadPreview(record), null, 2))}</pre></details>` : '';
+  const debugControl = expert ? `<label class="neo-toggle-row"><input id="forgeCoupleCommonDebug" type="checkbox" ${settings.common_debug ? 'checked' : ''} ${disabled}><span>Common prompt debug logging</span></label>` : '';
+  const globalControls = ['Basic', 'Mask'].includes(settings.mode) ? `<div class="neo-forge-couple-grid">${settings.mode === 'Basic' ? `<label>Tile direction<select id="forgeCoupleDirection" ${disabled}><option value="Horizontal" ${settings.direction === 'Horizontal' ? 'selected' : ''}>Horizontal · left to right</option><option value="Vertical" ${settings.direction === 'Vertical' ? 'selected' : ''}>Vertical · top to bottom</option></select></label>` : ''}<label>Global Effect<select id="forgeCoupleBackground" ${disabled}><option value="None" ${settings.background === 'None' ? 'selected' : ''}>None</option><option value="First Line" ${settings.background === 'First Line' ? 'selected' : ''}>First prompt line</option><option value="Last Line" ${settings.background === 'Last Line' ? 'selected' : ''}>Last prompt line</option></select></label><label>Global Effect weight<input id="forgeCoupleBackgroundWeight" type="number" min="0.1" max="1.5" step="0.1" value="${escapeAttr(settings.background_weight)}" ${disabled || settings.background === 'None' ? 'disabled' : ''}></label></div>` : '';
+  let modeBody = `<section class="neo-forge-couple-preview" aria-live="polite"><div><strong>Prompt-to-region preview</strong><p class="neo-muted">Edit the main Positive Prompt above; this preview does not create a second prompt copy.</p></div><div id="forgeCouplePromptPreview">${forgeCoupleBasicPreviewMarkup(settings)}</div></section>`;
+  if (settings.mode === 'Advanced') modeBody = forgeCoupleAdvancedEditorMarkup(settings);
+  if (settings.mode === 'Mask') modeBody = forgeCoupleMaskEditorMarkup(settings);
+  const tileBody = forgeCoupleTileMarkup(settings);
+  const body = `<section class="neo-forge-couple-panel" data-extension-id="${FORGE_COUPLE_EXTENSION_ID}" data-phase="FC3" data-route-state="${escapeAttr(route.route_state)}"><header class="neo-forge-couple-panel__header"><div><strong>Forge Couple</strong>${compact ? '' : `<span class="neo-muted">Native Forge regional conditioning · ${escapeHtml(settings.mode)} mode</span>`}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Enabled' ? 'success' : status === 'Needs attention' ? 'warning' : ''}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(policy.contract || 'FC3')}</span></div></header><div class="neo-extension-card-actions">${apply}</div>${compact ? '' : '<p class="neo-muted">The main Positive Prompt is the single prompt authority. Basic, Advanced, and Mask region order follows prompt-line order.</p>'}<div class="neo-forge-couple-grid"><label>Region assignment<select id="forgeCoupleMode" ${disabled}><option value="Basic" ${settings.mode === 'Basic' ? 'selected' : ''}>Basic</option><option value="Advanced" ${settings.mode === 'Advanced' ? 'selected' : ''}>Advanced</option><option value="Mask" ${settings.mode === 'Mask' ? 'selected' : ''}>Mask</option></select></label><label>Couple separator<input id="forgeCoupleSeparator" type="text" value="${escapeAttr(settings.separator)}" placeholder="\\n (default)" ${disabled}></label><label>Common prompt syntax<select id="forgeCoupleCommonParser" ${disabled}><option value="off" ${settings.common_parser === 'off' ? 'selected' : ''}>Off</option><option value="{ }" ${settings.common_parser === '{ }' ? 'selected' : ''}>{ }</option><option value="< >" ${settings.common_parser === '< >' ? 'selected' : ''}>&lt; &gt;</option></select></label></div>${globalControls}<div class="neo-forge-couple-grid"><label class="neo-toggle-row"><input id="forgeCoupleDisableHr" type="checkbox" ${settings.disable_hr ? 'checked' : ''} ${disabled}><span>Base pass only during Hires Fix · recommended</span></label><label class="neo-toggle-row"><input id="forgeCoupleDefInPrompt" type="checkbox" ${settings.def_in_prompt ? 'checked' : ''} ${disabled || settings.common_parser === 'off' ? 'disabled' : ''}><span>Include common-prompt definitions in resolved prompt</span></label>${debugControl}</div>${modeBody}${tileBody}<div id="forgeCoupleValidation" class="neo-forge-couple-status" role="status" aria-live="polite">${forgeCoupleIssueMarkup(record) || `<p class="neo-muted">${settings.mode} regional prompt contract is ready.</p>`}</div>${capabilityReason}<p class="neo-muted">Mask images stay session-only. Tile Mode uses ForgeCouple's native region-to-tile arguments plus the verified built-in SD Upscale selectable runtime.</p>${expertBlock}</section>`;
+  return panel(record?.manifest?.name || 'Forge Couple', body, false, status);
+}
+
+function forgeCoupleRefreshPreviewDom() {
+  const record = forgeCoupleRecord();
+  const preview = document.getElementById('forgeCouplePromptPreview');
+  const validation = document.getElementById('forgeCoupleValidation');
+  if (preview) preview.innerHTML = forgeCoupleBasicPreviewMarkup(forgeCoupleSettings());
+  if (validation && record) validation.innerHTML = forgeCoupleIssueMarkup(record) || `<p class="neo-muted">${forgeCoupleSettings().mode} regional prompt contract is ready.</p>`;
+}
+
+function forgeCoupleRefreshAdvancedDom() {
+  const record = forgeCoupleRecord();
+  const editor = document.querySelector('.neo-forge-couple-advanced-editor');
+  const validation = document.getElementById('forgeCoupleValidation');
+  if (editor) {
+    editor.outerHTML = forgeCoupleAdvancedEditorMarkup(forgeCoupleSettings());
+    bindForgeCoupleAdvancedControls();
+  }
+  if (validation && record) validation.innerHTML = forgeCoupleIssueMarkup(record) || '<p class="neo-muted">Advanced regional prompt contract is ready.</p>';
+}
+
+function forgeCoupleRefreshMaskDom() {
+  const record = forgeCoupleRecord();
+  const settings = forgeCoupleSettings();
+  const layers = document.getElementById('forgeCoupleMaskLayers');
+  const regionShell = document.querySelector('.neo-forge-couple-mask-region-shell');
+  const validation = document.getElementById('forgeCoupleValidation');
+  if (layers) layers.innerHTML = forgeCoupleMaskLayerMarkup(settings);
+  if (regionShell) regionShell.outerHTML = forgeCoupleMaskRegionCanvasMarkup(settings);
+  forgeCoupleBindMaskPaintSurface();
+  forgeCoupleBindMaskRegionCanvas(document.getElementById('forgeCoupleMaskCanvas'));
+  if (validation && record) validation.innerHTML = forgeCoupleIssueMarkup(record) || '<p class="neo-muted">Mask regional prompt contract is ready.</p>';
+}
+
+function forgeCoupleReplaceMapping(mapping, selectedIndex = 0) {
+  const normalized = forgeCoupleNormalizeMapping(mapping);
+  forgeCoupleAdvancedSelectedIndex = Math.max(0, Math.min(normalized.length - 1, selectedIndex));
+  updateForgeCoupleSettings({ advanced_mapping: normalized });
+  render();
+}
+
+function forgeCoupleBindAdvancedDrag() {
+  forgeCoupleBindRegionBoxEditor({
+    root: '#forgeCoupleAdvancedCanvas',
+    minSize: 0.02,
+    getBox: (index) => {
+      const item = forgeCoupleSettings().advanced_mapping[index] || [0, 1, 0, 1, 1];
+      return { x: Number(item[0]), y: Number(item[2]), w: Number(item[1]) - Number(item[0]), h: Number(item[3]) - Number(item[2]) };
+    },
+    onSelect: (index) => {
+      forgeCoupleAdvancedSelectedIndex = Number(index || 0);
+      render();
+    },
+    onPreview: (index, box) => {
+      const values = { x1: box.x, x2: box.x + box.w, y1: box.y, y2: box.y + box.h };
+      Object.entries(values).forEach(([name, value]) => {
+        const input = document.querySelector(`[data-fc-coordinate="${name}"][data-fc-index="${index}"]`);
+        if (input) input.value = Number(value).toFixed(3);
+      });
+    },
+    onCommit: (index, box) => {
+      const mapping = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+      const weight = Number(mapping[index]?.[4] ?? 1);
+      mapping[index] = [box.x, box.x + box.w, box.y, box.y + box.h, weight];
+      forgeCoupleAdvancedSelectedIndex = index;
+      updateForgeCoupleSettings({ advanced_mapping: forgeCoupleNormalizeMapping(mapping) });
+      render();
+    },
+  });
+}
+
+function forgeCoupleRemoveAdvancedRegion(index = forgeCoupleAdvancedSelectedIndex) {
+  const mapping = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+  if (mapping.length <= 1) return false;
+  const resolvedIndex = Math.max(0, Math.min(mapping.length - 1, Number(index || 0)));
+  mapping.splice(resolvedIndex, 1);
+  forgeCoupleReplaceMapping(mapping, Math.min(resolvedIndex, mapping.length - 1));
+  return true;
+}
+
+function bindForgeCoupleAdvancedControls() {
+  const settings = forgeCoupleSettings();
+  document.querySelectorAll('[data-fc-select]').forEach((node) => node.addEventListener('click', () => {
+    forgeCoupleAdvancedSelectedIndex = Number(node.dataset.fcSelect || 0);
+    render();
+  }));
+  document.querySelectorAll('[data-fc-coordinate]').forEach((node) => node.addEventListener('change', () => {
+    const index = Number(node.dataset.fcIndex);
+    const key = node.dataset.fcCoordinate;
+    const keyIndex = { x1: 0, x2: 1, y1: 2, y2: 3, weight: 4 }[key];
+    if (!Number.isInteger(index) || keyIndex === undefined) return;
+    const mapping = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+    mapping[index][keyIndex] = Number(node.value);
+    forgeCoupleReplaceMapping(mapping, index);
+  }));
+  document.querySelectorAll('[data-fc-move]').forEach((node) => node.addEventListener('click', () => {
+    const index = Number(node.dataset.fcIndex);
+    const target = node.dataset.fcMove === 'up' ? index - 1 : index + 1;
+    const mapping = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+    if (target < 0 || target >= mapping.length) return;
+    [mapping[index], mapping[target]] = [mapping[target], mapping[index]];
+    forgeCoupleReplaceMapping(mapping, target);
+  }));
+  document.querySelectorAll('[data-fc-duplicate]').forEach((node) => node.addEventListener('click', () => {
+    const index = Number(node.dataset.fcDuplicate);
+    const mapping = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+    const duplicate = mapping[index] ? [...mapping[index]] : [0, 1, 0, 1, 1];
+    duplicate[0] = forgeCoupleClamp(duplicate[0] + 0.03, 0, 0.98);
+    duplicate[1] = forgeCoupleClamp(duplicate[1] + 0.03, duplicate[0] + 0.02, 1);
+    duplicate[2] = forgeCoupleClamp(duplicate[2] + 0.03, 0, 0.98);
+    duplicate[3] = forgeCoupleClamp(duplicate[3] + 0.03, duplicate[2] + 0.02, 1);
+    mapping.splice(index + 1, 0, duplicate);
+    forgeCoupleReplaceMapping(mapping, index + 1);
+  }));
+  document.querySelectorAll('[data-fc-delete]').forEach((node) => node.addEventListener('click', () => {
+    forgeCoupleRemoveAdvancedRegion(Number(node.dataset.fcDelete));
+  }));
+  document.getElementById('forgeCoupleAdvancedAdd')?.addEventListener('click', () => {
+    const mapping = settings.advanced_mapping.map((item) => [...item]);
+    mapping.push([0.25, 0.75, 0.25, 0.75, 1]);
+    forgeCoupleReplaceMapping(mapping, mapping.length - 1);
+  });
+  document.getElementById('forgeCoupleAdvancedRemoveSelected')?.addEventListener('click', () => {
+    forgeCoupleRemoveAdvancedRegion(forgeCoupleAdvancedSelectedIndex);
+  });
+  document.getElementById('forgeCoupleAdvancedReset')?.addEventListener('click', () => forgeCoupleReplaceMapping(FORGE_COUPLE_DEFAULT_MAPPING, 0));
+  document.getElementById('forgeCoupleAdvancedSync')?.addEventListener('click', () => {
+    const count = Math.max(1, forgeCoupleRegions(settings).length);
+    const kind = count <= 3 ? 'columns' : 'grid';
+    forgeCoupleReplaceMapping(forgeCoupleAutoLayout(count, kind), 0);
+  });
+  document.getElementById('forgeCoupleAdvancedApplyPreset')?.addEventListener('click', () => {
+    const value = document.getElementById('forgeCoupleAdvancedPreset')?.value || '';
+    if (value.startsWith('builtin:')) {
+      const preset = FORGE_COUPLE_BUILTIN_PRESETS[value.slice(8)];
+      if (preset) forgeCoupleReplaceMapping(preset.mapping, 0);
+    } else if (value.startsWith('custom:')) {
+      const preset = forgeCoupleLoadCustomPresets()[value.slice(7)];
+      if (preset) forgeCoupleReplaceMapping(preset, 0);
+    }
+  });
+  document.getElementById('forgeCoupleAdvancedSavePreset')?.addEventListener('click', () => {
+    const name = String(document.getElementById('forgeCoupleAdvancedPresetName')?.value || '').trim();
+    if (!name) return;
+    const presets = forgeCoupleLoadCustomPresets();
+    presets[name] = forgeCoupleSettings().advanced_mapping.map((item) => [...item]);
+    forgeCoupleSaveCustomPresets(presets);
+    render();
+  });
+  document.getElementById('forgeCoupleAdvancedDeletePreset')?.addEventListener('click', () => {
+    const value = document.getElementById('forgeCoupleAdvancedPreset')?.value || '';
+    if (!value.startsWith('custom:')) return;
+    const presets = forgeCoupleLoadCustomPresets();
+    delete presets[value.slice(7)];
+    forgeCoupleSaveCustomPresets(presets);
+    render();
+  });
+  document.getElementById('forgeCoupleAdvancedBackground')?.addEventListener('change', (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) return;
+    if (forgeCoupleAdvancedBackgroundUrl) URL.revokeObjectURL(forgeCoupleAdvancedBackgroundUrl);
+    forgeCoupleAdvancedBackgroundUrl = URL.createObjectURL(file);
+    render();
+  });
+  document.getElementById('forgeCoupleAdvancedClearBackground')?.addEventListener('click', () => {
+    if (forgeCoupleAdvancedBackgroundUrl) URL.revokeObjectURL(forgeCoupleAdvancedBackgroundUrl);
+    forgeCoupleAdvancedBackgroundUrl = '';
+    render();
+  });
+  forgeCoupleBindAdvancedDrag();
+}
+
+function bindForgeCoupleControls() {
+  const rerenderFields = new Map([
+    ['forgeCoupleMode', 'mode'],
+    ['forgeCoupleDirection', 'direction'],
+    ['forgeCoupleBackground', 'background'],
+    ['forgeCoupleCommonParser', 'common_parser'],
+  ]);
+  rerenderFields.forEach((field, id) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.addEventListener('change', () => {
+      const patch = { [field]: node.value };
+      if (field === 'mode' && node.value === 'Mask') patch.tile_enabled = false;
+      updateForgeCoupleSettings(patch);
+      render();
+    });
+  });
+  const numberNode = document.getElementById('forgeCoupleBackgroundWeight');
+  if (numberNode) numberNode.addEventListener('input', () => {
+    updateForgeCoupleSettings({ background_weight: Number(numberNode.value) });
+    forgeCoupleRefreshPreviewDom();
+  });
+  const separatorNode = document.getElementById('forgeCoupleSeparator');
+  if (separatorNode) separatorNode.addEventListener('input', () => {
+    updateForgeCoupleSettings({ separator: separatorNode.value });
+    const mode = forgeCoupleSettings().mode;
+    if (mode === 'Advanced') forgeCoupleRefreshAdvancedDom();
+    else if (mode === 'Mask') render();
+    else forgeCoupleRefreshPreviewDom();
+  });
+  const checkboxFields = new Map([
+    ['forgeCoupleDisableHr', 'disable_hr'],
+    ['forgeCoupleDefInPrompt', 'def_in_prompt'],
+    ['forgeCoupleCommonDebug', 'common_debug'],
+  ]);
+  checkboxFields.forEach((field, id) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.addEventListener('change', () => {
+      updateForgeCoupleSettings({ [field]: Boolean(node.checked) });
+      forgeCoupleRefreshPreviewDom();
+    });
+  });
+  const promptNode = document.getElementById('imagePositivePrompt');
+  if (promptNode) promptNode.addEventListener('input', () => {
+    const mode = forgeCoupleSettings().mode;
+    if (mode === 'Advanced') forgeCoupleRefreshAdvancedDom();
+    else if (mode === 'Mask') forgeCoupleRefreshMaskDom();
+    else forgeCoupleRefreshPreviewDom();
+  });
+  const mode = forgeCoupleSettings().mode;
+  if (mode === 'Advanced') bindForgeCoupleAdvancedControls();
+  if (mode === 'Mask') bindForgeCoupleMaskControls();
+  bindForgeCoupleTileControls();
+}
+
+const FORGE_E2_DEFAULTS = {
+  [PID_INTEGRATED_EXTENSION_ID]: { prompt: '', pid_model: '', vae: '', text_encoder: '', degrade_sigma: 0, color_correction: true },
+  [SPECTRUM_EXTENSION_ID]: { prediction_weighting: 0.25, polynomial_degree: 6, regularization: 0.5, cache_window: 2, window_growth: 0, warmup_steps: 6, stop_caching_step: 0.9 },
+  [MULTIDIFFUSION_EXTENSION_ID]: { method: 'Mixture of Diffusers', tile_width: 768, tile_height: 768, tile_overlap: 64, tile_batch_size: 1 },
+};
+function forgeE2Settings(extId) {
+  const defaults = FORGE_E2_DEFAULTS[extId] || {};
+  const raw = state.imageDraft?.[extId] || {};
+  return { ...defaults, ...raw };
+}
+function updateForgeE2Settings(extId, patch = {}) {
+  state.imageDraft[extId] = { ...forgeE2Settings(extId), ...patch };
+  saveUiState();
+}
+function forgeE2OverlayPolicy(extId) {
+  return activeImageCapabilityOverlay()?.extension_policy?.[extId] || {};
+}
+function forgeE2Options(values = [], selected = '') {
+  const items = [...new Set([...(Array.isArray(values) ? values : []), selected].filter(Boolean))];
+  if (!items.length) return '<option value="">No live choices discovered</option>';
+  return items.map((value) => `<option value="${escapeAttr(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+}
+function forgeE2PayloadPreview(record, forSubmit = false) {
+  const extId = extensionId(record);
+  const settings = forgeE2Settings(extId);
+  const enabled = forSubmit ? true : extensionWorkflowApplied(record);
+  const base = { enabled, version: record?.manifest?.version || '0.1.0', inputs: {}, params: {}, assets: {}, metadata: { provider: 'forge', phase: 'E2', contract: forgeE2OverlayPolicy(extId).contract || '', applied_to_workflow: enabled } };
+  if (extId === PID_INTEGRATED_EXTENSION_ID) {
+    base.inputs = { pid_model: settings.pid_model || '', vae: settings.vae || '', text_encoder: settings.text_encoder || '' };
+    base.params = { prompt: settings.prompt || '', degrade_sigma: Number(settings.degrade_sigma ?? 0), color_correction: settings.color_correction !== false };
+  } else if (extId === SPECTRUM_EXTENSION_ID) {
+    base.params = { prediction_weighting: Number(settings.prediction_weighting ?? 0.25), polynomial_degree: Number(settings.polynomial_degree ?? 6), regularization: Number(settings.regularization ?? 0.5), cache_window: Number(settings.cache_window ?? 2), window_growth: Number(settings.window_growth ?? 0), warmup_steps: Number(settings.warmup_steps ?? 6), stop_caching_step: Number(settings.stop_caching_step ?? 0.9) };
+  } else if (extId === MULTIDIFFUSION_EXTENSION_ID) {
+    base.params = { method: settings.method || 'Mixture of Diffusers', tile_width: Number(settings.tile_width ?? 768), tile_height: Number(settings.tile_height ?? 768), tile_overlap: Number(settings.tile_overlap ?? 64), tile_batch_size: Number(settings.tile_batch_size ?? 1) };
+  }
+  return { extensions: { [extId]: base } };
+}
+function forgeE2ValidationPreview(record, forSubmit = false) {
+  const extId = extensionId(record);
+  const settings = forgeE2Settings(extId);
+  const issues = [];
+  if (!forSubmit && !extensionWorkflowApplied(record)) return issues;
+  if (extId === PID_INTEGRATED_EXTENSION_ID) {
+    if (!settings.pid_model) issues.push({ extension_id: extId, level: 'error', field: 'inputs.pid_model', message: 'Select a PiD model from the live Forge catalog.' });
+    if (!settings.vae) issues.push({ extension_id: extId, level: 'error', field: 'inputs.vae', message: 'Select the PiD VAE from the live Forge catalog.' });
+    if (!settings.text_encoder) issues.push({ extension_id: extId, level: 'error', field: 'inputs.text_encoder', message: 'Select the PiD text encoder from the live Forge catalog.' });
+    if (extensionWorkflowAppliedById(HIGH_RES_LAB_EXTENSION_ID) || highResLabSettings().enabled) issues.push({ extension_id: extId, level: 'error', field: 'conflict', message: 'Forge PiD Integrated cannot run together with High-Res Lab / Hires Fix.' });
+  }
+  return issues;
+}
+function forgeE2Panel(record) {
+  const extId = extensionId(record);
+  const settings = forgeE2Settings(extId);
+  const policy = forgeE2OverlayPolicy(extId);
+  const route = extensionActiveRouteSnapshot(record);
+  const routeActive = extensionRouteStateActive(route.route_state);
+  const disabled = routeActive ? '' : 'disabled';
+  const apply = extensionApplyToggle(record);
+  const status = extensionWorkflowApplied(record) ? 'Enabled' : 'Disabled';
+  let controls = '';
+  if (extId === PID_INTEGRATED_EXTENSION_ID) {
+    controls = `<div class="neo-parameter-row"><label>PiD Model<select data-forge-e2-id="${extId}" data-forge-e2-field="pid_model" ${disabled}>${forgeE2Options(policy.pid_models, settings.pid_model)}</select></label><label>VAE<select data-forge-e2-id="${extId}" data-forge-e2-field="vae" ${disabled}>${forgeE2Options(policy.vaes, settings.vae)}</select></label><label>Text Encoder<select data-forge-e2-id="${extId}" data-forge-e2-field="text_encoder" ${disabled}>${forgeE2Options(policy.text_encoders, settings.text_encoder)}</select></label></div><label>PiD Prompt Override<textarea data-forge-e2-id="${extId}" data-forge-e2-field="prompt" ${disabled} placeholder="Leave empty to use the main prompt">${escapeHtml(settings.prompt || '')}</textarea></label><div class="neo-parameter-row"><label>Degrade Sigma<input type="number" min="0" max="1" step="0.05" data-forge-e2-id="${extId}" data-forge-e2-field="degrade_sigma" value="${escapeAttr(settings.degrade_sigma)}" ${disabled}></label><label class="neo-toggle-row"><input type="checkbox" data-forge-e2-id="${extId}" data-forge-e2-field="color_correction" ${settings.color_correction !== false ? 'checked' : ''} ${disabled}><span>Color correction</span></label></div><p class="neo-muted">PiD is a Forge post-sampling pass. Neo blocks it when High-Res Lab / Hires Fix is active.</p>`;
+  } else if (extId === SPECTRUM_EXTENSION_ID) {
+    controls = `<div class="neo-parameter-row"><label>Prediction Weighting<input type="number" min="0" max="1" step="0.05" data-forge-e2-id="${extId}" data-forge-e2-field="prediction_weighting" value="${escapeAttr(settings.prediction_weighting)}" ${disabled}></label><label>Polynomial Degree<input type="number" min="1" max="8" step="1" data-forge-e2-id="${extId}" data-forge-e2-field="polynomial_degree" value="${escapeAttr(settings.polynomial_degree)}" ${disabled}></label><label>Regularization<input type="number" min="0" max="2" step="0.05" data-forge-e2-id="${extId}" data-forge-e2-field="regularization" value="${escapeAttr(settings.regularization)}" ${disabled}></label><label>Cache Window<input type="number" min="1" max="10" step="1" data-forge-e2-id="${extId}" data-forge-e2-field="cache_window" value="${escapeAttr(settings.cache_window)}" ${disabled}></label></div><div class="neo-parameter-row"><label>Window Growth<input type="number" min="0" max="2" step="0.05" data-forge-e2-id="${extId}" data-forge-e2-field="window_growth" value="${escapeAttr(settings.window_growth)}" ${disabled}></label><label>Warmup Steps<input type="number" min="0" max="20" step="1" data-forge-e2-id="${extId}" data-forge-e2-field="warmup_steps" value="${escapeAttr(settings.warmup_steps)}" ${disabled}></label><label>Stop Caching<input type="number" min="0" max="1" step="0.05" data-forge-e2-id="${extId}" data-forge-e2-field="stop_caching_step" value="${escapeAttr(settings.stop_caching_step)}" ${disabled}></label></div><p class="neo-muted">Spectrum is hidden when Forge Ignore/Skip Negative Prompt optimizations conflict with its cache patch.</p>`;
+  } else if (extId === MULTIDIFFUSION_EXTENSION_ID) {
+    const methods = policy.methods?.length ? policy.methods : ['MultiDiffusion', 'Mixture of Diffusers'];
+    controls = `<div class="neo-parameter-row"><label>Method<select data-forge-e2-id="${extId}" data-forge-e2-field="method" ${disabled}>${forgeE2Options(methods, settings.method)}</select></label><label>Tile Width<input type="number" min="256" max="2048" step="64" data-forge-e2-id="${extId}" data-forge-e2-field="tile_width" value="${escapeAttr(settings.tile_width)}" ${disabled}></label><label>Tile Height<input type="number" min="256" max="2048" step="64" data-forge-e2-id="${extId}" data-forge-e2-field="tile_height" value="${escapeAttr(settings.tile_height)}" ${disabled}></label><label>Overlap<input type="number" min="0" max="1024" step="16" data-forge-e2-id="${extId}" data-forge-e2-field="tile_overlap" value="${escapeAttr(settings.tile_overlap)}" ${disabled}></label><label>Batch<input type="number" min="1" max="8" step="1" data-forge-e2-id="${extId}" data-forge-e2-field="tile_batch_size" value="${escapeAttr(settings.tile_batch_size)}" ${disabled}></label></div><p class="neo-muted">E2 conservatively enables MultiDiffusion only on SD 1.5 / SDXL Img2Img-family routes until modern-family physical validation is complete.</p>`;
+  }
+  const issues = forgeE2ValidationPreview(record);
+  const body = `<section class="neo-forge-e2-panel" data-extension-id="${escapeAttr(extId)}"><header class="neo-cfg-fix-panel__header"><div><strong>${escapeHtml(record?.manifest?.name || extId)}</strong><span class="neo-muted">Forge built-in · Neo-managed</span></div><div class="neo-extension-status-line">${extensionEnableStateChip(extensionWorkflowApplied(record))}${extensionRouteStateChip(record)}<span class="neo-badge">${escapeHtml(policy.contract || 'live schema')}</span></div></header><div class="neo-extension-card-actions">${apply}</div>${controls}${policy.reason ? `<p class="neo-muted">${escapeHtml(policy.reason)}</p>` : ''}${issues.map((item) => `<p class="neo-${item.level === 'error' ? 'error' : 'warn'}">${escapeHtml(item.message)}</p>`).join('')}${state.detailMode === 'expert' ? `<pre>${escapeHtml(JSON.stringify(forgeE2PayloadPreview(record), null, 2))}</pre>` : ''}</section>`;
+  return panel(record?.manifest?.name || extId, body, false, status);
+}
+function bindForgeE2Controls() {
+  document.querySelectorAll('[data-forge-e2-field]').forEach((node) => {
+    const eventName = node.tagName === 'SELECT' || node.type === 'checkbox' ? 'change' : 'input';
+    node.addEventListener(eventName, () => {
+      const extId = node.getAttribute('data-forge-e2-id') || '';
+      const field = node.getAttribute('data-forge-e2-field') || '';
+      let value = node.type === 'checkbox' ? node.checked : node.value;
+      if (node.type === 'number') value = Number(value);
+      updateForgeE2Settings(extId, { [field]: value });
+    });
+  });
+}
+
+
+function forgeE3BridgePolicy() {
+  return activeImageCapabilityOverlay()?.extension_policy?.[FORGE_SCRIPT_BRIDGE_EXTENSION_ID] || {};
+}
+function forgeE3BridgeSettings() {
+  const raw = state.imageDraft?.[FORGE_SCRIPT_BRIDGE_EXTENSION_ID] || {};
+  return { scripts: (raw.scripts && typeof raw.scripts === 'object') ? raw.scripts : {} };
+}
+function updateForgeE3BridgeScript(scriptKey, patch = {}) {
+  const current = forgeE3BridgeSettings();
+  const existing = current.scripts?.[scriptKey] || {};
+  state.imageDraft[FORGE_SCRIPT_BRIDGE_EXTENSION_ID] = {
+    ...current,
+    scripts: { ...current.scripts, [scriptKey]: { ...existing, ...patch } },
+  };
+  saveUiState();
+}
+function forgeE3ScriptMode() {
+  const mode = activeImageMode ? activeImageMode() : (state.imageDraft?.workflow_mode || 'txt2img');
+  return ['img2img', 'inpaint', 'outpaint', 'edit'].includes(String(mode)) ? 'img2img' : 'txt2img';
+}
+function forgeE3BridgeScripts() {
+  const mode = forgeE3ScriptMode();
+  return (Array.isArray(forgeE3BridgePolicy().scripts) ? forgeE3BridgePolicy().scripts : [])
+    .filter((item) => item?.bridgeable === true && item?.status === 'generic_bridge_ready' && String(item?.mode || '') === mode);
+}
+function forgeE3ArgValue(script, spec) {
+  const settings = forgeE3BridgeSettings();
+  const row = settings.scripts?.[script.script_key] || {};
+  const args = row.args && typeof row.args === 'object' ? row.args : {};
+  return Object.prototype.hasOwnProperty.call(args, String(spec.index)) ? args[String(spec.index)] : spec.default;
+}
+function forgeE3ArgControl(script, spec, disabled = false) {
+  const value = forgeE3ArgValue(script, spec);
+  const attrs = `data-forge-e3-script="${escapeAttr(script.script_key)}" data-forge-e3-arg="${escapeAttr(spec.index)}" ${disabled ? 'disabled' : ''}`;
+  const label = escapeHtml(spec.label || `Argument ${Number(spec.index) + 1}`);
+  if (spec.type === 'boolean') return `<label class="neo-toggle-row"><input type="checkbox" ${attrs} ${value ? 'checked' : ''}><span>${label}</span></label>`;
+  if (spec.type === 'select') {
+    const choices = Array.isArray(spec.choices) ? spec.choices : [];
+    return `<label>${label}<select ${attrs}>${forgeE2Options(choices, String(value ?? ''))}</select></label>`;
+  }
+  if (spec.type === 'integer' || spec.type === 'number') {
+    const min = spec.minimum !== undefined ? `min="${escapeAttr(spec.minimum)}"` : '';
+    const max = spec.maximum !== undefined ? `max="${escapeAttr(spec.maximum)}"` : '';
+    const step = spec.step !== undefined ? `step="${escapeAttr(spec.step)}"` : (spec.type === 'integer' ? 'step="1"' : 'step="any"');
+    return `<label>${label}<input type="number" ${min} ${max} ${step} value="${escapeAttr(value ?? '')}" ${attrs}></label>`;
+  }
+  return `<label>${label}<input type="text" value="${escapeAttr(value ?? '')}" ${attrs}></label>`;
+}
+function forgeE3BridgePayloadPreview(record, forSubmit = false) {
+  const settings = forgeE3BridgeSettings();
+  const catalog = new Map((Array.isArray(forgeE3BridgePolicy().scripts) ? forgeE3BridgePolicy().scripts : []).map((item) => [String(item.script_key || ''), item]));
+  const scripts = [];
+  Object.entries(settings.scripts || {}).forEach(([scriptKey, row]) => {
+    if (!row?.enabled) return;
+    const script = catalog.get(scriptKey);
+    if (!script || script.bridgeable !== true) return;
+    scripts.push({
+      script_key: scriptKey,
+      schema_fingerprint: script.schema_fingerprint || row.schema_fingerprint || '',
+      enabled: true,
+      args: { ...(row.args || {}) },
+    });
+  });
+  const enabled = Boolean((forSubmit ? true : extensionWorkflowApplied(record)) && scripts.length);
+  return { extensions: { [FORGE_SCRIPT_BRIDGE_EXTENSION_ID]: {
+    enabled,
+    version: record?.manifest?.version || '0.1.0',
+    inputs: {},
+    params: { scripts },
+    assets: {},
+    metadata: { provider: 'forge', phase: 'E3', contract: forgeE3BridgePolicy().contract || '', applied_to_workflow: enabled },
+  } } };
+}
+function forgeE3BridgeValidationPreview(record, forSubmit = false) {
+  const issues = [];
+  if (!forSubmit && !extensionWorkflowApplied(record)) return issues;
+  const route = extensionActiveRouteSnapshot(record);
+  const family = String(route?.family || state.imageDraft?.family || imageCommandValue('family') || '');
+  if (!['sd15', 'sdxl'].includes(family)) issues.push({ extension_id: FORGE_SCRIPT_BRIDGE_EXTENSION_ID, level: 'error', field: 'family', message: `Generic Forge scripts are conservatively limited to SD 1.5/SDXL in E3; ${family || 'this family'} requires a dedicated adapter.` });
+  const scripts = forgeE3BridgePayloadPreview(record, true).extensions[FORGE_SCRIPT_BRIDGE_EXTENSION_ID].params.scripts;
+  if (!scripts.length) issues.push({ extension_id: FORGE_SCRIPT_BRIDGE_EXTENSION_ID, level: 'warning', field: 'params.scripts', message: 'Enable at least one live bridge-safe Forge script.' });
+  const selectable = scripts.filter((row) => forgeE3BridgePolicy().scripts?.find((item) => item.script_key === row.script_key)?.invocation === 'selectable');
+  if (selectable.length > 1) issues.push({ extension_id: FORGE_SCRIPT_BRIDGE_EXTENSION_ID, level: 'error', field: 'params.scripts', message: 'Forge allows one selectable script per request. Disable all but one selectable generic script.' });
+  return issues;
+}
+function forgeE3BridgePanel(record) {
+  const policy = forgeE3BridgePolicy();
+  const settings = forgeE3BridgeSettings();
+  const route = extensionActiveRouteSnapshot(record);
+  const routeActive = extensionRouteStateActive(route.route_state) && policy.allowed === true;
+  const scripts = forgeE3BridgeScripts();
+  const summary = policy.summary || {};
+  const apply = extensionApplyToggle(record);
+  const cards = scripts.map((script) => {
+    const row = settings.scripts?.[script.script_key] || {};
+    const enabled = Boolean(row.enabled);
+    const controls = (Array.isArray(script.args) ? script.args : []).map((spec) => forgeE3ArgControl(script, spec, !routeActive || !enabled)).join('');
+    const source = script.source_extension || (script.source === 'external_extension' ? 'Forge extension' : 'Forge built-in / unknown source');
+    return `<details class="neo-extension-expert-block neo-forge-e3-script" ${enabled ? 'open' : ''}><summary><label class="neo-toggle-row" onclick="event.stopPropagation()"><input type="checkbox" data-forge-e3-enable="${escapeAttr(script.script_key)}" ${enabled ? 'checked' : ''} ${routeActive ? '' : 'disabled'}><span>${escapeHtml(script.name)}</span></label><span class="neo-badge">${escapeHtml(script.invocation)}</span><span class="neo-badge">${escapeHtml(script.mode)}</span></summary><p class="neo-muted">${escapeHtml(source)} · schema ${escapeHtml(script.schema_fingerprint || 'unknown')}</p>${controls ? `<div class="neo-parameter-row">${controls}</div>` : '<p class="neo-muted">This script has no API arguments.</p>'}</details>`;
+  }).join('');
+  const detected = Number(summary.installed_extensions || 0);
+  const adapterRequired = Number(summary.adapter_required || 0);
+  const mapped = Number(summary.neo_mapped || 0);
+  const body = `<section class="neo-forge-e3-panel" data-extension-id="${FORGE_SCRIPT_BRIDGE_EXTENSION_ID}"><header class="neo-cfg-fix-panel__header"><div><strong>Forge Script Bridge</strong><span class="neo-muted">Provider-owned generic bridge · E3</span></div><div class="neo-extension-status-line">${extensionEnableStateChip(extensionWorkflowApplied(record))}${extensionRouteStateChip(record)}<span class="neo-badge">${escapeHtml(policy.contract || 'live schema')}</span></div></header><div class="neo-extension-card-actions">${apply}</div>${badgeRow([`Forge extensions ${detected}`, `Bridge-safe ${scripts.length}`, `Adapter required ${adapterRequired}`, `Neo-mapped ${mapped}`])}<p class="neo-muted">Only primitive /script-info schemas are bridged automatically. Image, file, mask, object, unknown-type, and complex scripts stay detected in Forge Admin and require a dedicated Neo adapter.</p>${cards || NeoUI.emptyState('No bridge-safe Forge scripts are available for the current workflow mode. Refresh Forge Admin after installing/enabling extensions.')} ${policy.reason ? `<p class="neo-muted">${escapeHtml(policy.reason)}</p>` : ''}${forgeE3BridgeValidationPreview(record).map((item) => `<p class="neo-${item.level === 'error' ? 'error' : 'warn'}">${escapeHtml(item.message)}</p>`).join('')}${state.detailMode === 'expert' ? `<details><summary>Live bridge catalog</summary><pre>${escapeHtml(JSON.stringify(policy.scripts || [], null, 2))}</pre></details>` : ''}</section>`;
+  return panel(record?.manifest?.name || 'Forge Script Bridge', body, false, extensionWorkflowApplied(record) ? 'Enabled' : 'Disabled');
+}
+function bindForgeE3BridgeControls() {
+  document.querySelectorAll('[data-forge-e3-enable]').forEach((node) => node.addEventListener('change', () => {
+    const scriptKey = node.getAttribute('data-forge-e3-enable') || '';
+    const script = (forgeE3BridgePolicy().scripts || []).find((item) => item.script_key === scriptKey) || {};
+    updateForgeE3BridgeScript(scriptKey, { enabled: Boolean(node.checked), schema_fingerprint: script.schema_fingerprint || '' });
+    render();
+  }));
+  document.querySelectorAll('[data-forge-e3-arg]').forEach((node) => {
+    const eventName = node.tagName === 'SELECT' || node.type === 'checkbox' ? 'change' : 'input';
+    node.addEventListener(eventName, () => {
+      const scriptKey = node.getAttribute('data-forge-e3-script') || '';
+      const argIndex = node.getAttribute('data-forge-e3-arg') || '0';
+      const settings = forgeE3BridgeSettings();
+      const row = settings.scripts?.[scriptKey] || {};
+      let value = node.type === 'checkbox' ? node.checked : node.value;
+      if (node.type === 'number') value = Number(value);
+      updateForgeE3BridgeScript(scriptKey, { ...row, args: { ...(row.args || {}), [argIndex]: value } });
+    });
+  });
+}
+
 function builtInExtensionPanel(record) {
 // Compatibility marker for existing regression tests: if (extensionId(record) === CFG_FIX_EXTENSION_ID) return cfgFixPanel(record);
   const id = extensionId(record);
@@ -22234,6 +25620,9 @@ function builtInExtensionPanel(record) {
     if (id === IMAGE_UPSCALE_EXTENSION_ID) return imageUpscalePanel(record);
     if (id === BACKGROUND_REMOVAL_EXTENSION_ID) return backgroundRemovalPanel(record);
     if (id === ADETAILER_EXTENSION_ID) return adetailerPanel(record);
+    if (id === FORGE_COUPLE_EXTENSION_ID) return forgeCouplePanel(record);
+    if ([PID_INTEGRATED_EXTENSION_ID, SPECTRUM_EXTENSION_ID, MULTIDIFFUSION_EXTENSION_ID].includes(id)) return forgeE2Panel(record);
+    if (id === FORGE_SCRIPT_BRIDGE_EXTENSION_ID) return forgeE3BridgePanel(record);
     if (id === LORA_STACK_EXTENSION_ID) return loraStackPanels(record);
     if (id === EMBEDDINGS_TI_EXTENSION_ID) return embeddingsTiPanel(record);
     if (id === WILDCARDS_EXTENSION_ID) return wildcardsPanel(record);
@@ -22429,6 +25818,7 @@ function adminGlobalExtensionActionsHtml() {
 
 async function reloadExtensionRegistry() {
   state.extensions = await loadJson('/api/extensions', { extensions: [] });
+  await refreshImagePreviewActionEvaluation(selectedBackendProfileIdForSurface('image')).catch(() => null);
 }
 
 async function toggleImageAdminExtension(extensionId, action) {
@@ -28094,7 +31484,7 @@ async function scanAdminInstalledModels() {
 async function saveAdminModelPaths() {
   const payload = {
     backends: {
-      comfyui: { enabled: document.getElementById('admin-model-path-comfyui-enabled')?.checked, root: document.getElementById('admin-model-path-comfyui-root')?.value || '', models_root: document.getElementById('admin-model-path-comfyui-models')?.value || '' },
+      comfyui: { enabled: document.getElementById('admin-model-path-comfyui-enabled')?.checked, root: document.getElementById('admin-model-path-comfyui-root')?.value || '', models_root: document.getElementById('admin-model-path-comfyui-models')?.value || '', extra_model_paths_yaml: document.getElementById('admin-model-path-comfyui-extra-yaml')?.value || '' },
       forge: { enabled: document.getElementById('admin-model-path-forge-enabled')?.checked, root: document.getElementById('admin-model-path-forge-root')?.value || '', models_root: document.getElementById('admin-model-path-forge-models')?.value || '' },
       koboldcpp: { enabled: document.getElementById('admin-model-path-koboldcpp-enabled')?.checked, root: document.getElementById('admin-model-path-koboldcpp-root')?.value || '', models_root: document.getElementById('admin-model-path-koboldcpp-models')?.value || '' },
       local_llm: { enabled: document.getElementById('admin-model-path-local-llm-enabled')?.checked, user_llm_models_root: document.getElementById('admin-model-path-local-llm-root')?.value || '', user_embedding_models_root: document.getElementById('admin-model-path-embedding-root')?.value || '', user_reranker_models_root: document.getElementById('admin-model-path-reranker-root')?.value || '' },
@@ -28284,12 +31674,13 @@ function adminModelsPathsBody() {
   const local = backends.local_llm || {};
   return `<div class="neo-admin-models-paths">${NeoUI.card({
     title: 'Model paths',
-    description: 'Local-only settings saved under neo_data/config/model_paths.json. These are never part of the repo manifest.',
+    description: 'Local-only settings saved under neo_data/config/model_paths.json. ComfyUI remains the shared model-path authority; Forge Neo can reference the same extra_model_paths.yaml without duplicating models.',
     badge: NeoUI.statusBadge(pathsPayload.status || 'ready'),
     body: `<div class="neo-ui-field-grid two compact admin-model-path-grid">
       <label class="neo-ui-check-card"><input id="admin-model-path-comfyui-enabled" type="checkbox" ${comfy.enabled !== false ? 'checked' : ''}> Enable ComfyUI</label>
       ${adminModelPathField('admin-model-path-comfyui-root', 'ComfyUI root', comfy.root, 'Select your ComfyUI root folder')}
       ${adminModelPathField('admin-model-path-comfyui-models', 'ComfyUI models root', comfy.models_root, 'Select your ComfyUI models folder')}
+      ${adminModelPathField('admin-model-path-comfyui-extra-yaml', 'Shared extra_model_paths.yaml', comfy.extra_model_paths_yaml, 'Select the ComfyUI extra_model_paths.yaml shared with Forge Neo')}
       <label class="neo-ui-check-card"><input id="admin-model-path-forge-enabled" type="checkbox" ${forge.enabled ? 'checked' : ''}> Enable Forge</label>
       ${adminModelPathField('admin-model-path-forge-root', 'Forge root', forge.root, 'Select your Forge root folder')}
       ${adminModelPathField('admin-model-path-forge-models', 'Forge models root', forge.models_root, 'Select your Forge models folder')}
@@ -29263,6 +32654,19 @@ function layerDiffuseOutputInspectorDetails(payloads = {}, patches = [], validat
   return outputExtensionDetailBlock('LayerDiffuse', chips, body, `data-extension-id="${LAYERDIFFUSE_EXTENSION_ID}"`);
 }
 
+function extensionBlockNeedsProviderRevalidation(block = {}) {
+  if (!block || typeof block !== 'object') return false;
+  const metadata = block.metadata && typeof block.metadata === 'object' ? block.metadata : {};
+  const params = block.params && typeof block.params === 'object' ? block.params : {};
+  const restoreState = String(block.restore_state || metadata.restore_state || params.restore_state || '');
+  return block.revalidation_required === true
+    || metadata.revalidation_required === true
+    || params.revalidation_required === true
+    || restoreState.includes('pending_selected_provider_revalidation')
+    || restoreState.includes('pending_revalidation')
+    || restoreState.includes('restored_for_backend_revalidation');
+}
+
 function renderExtensionInspector(extensions = {}) {
   const used = Array.isArray(extensions.used) ? extensions.used : [];
   const patches = Array.isArray(extensions.workflow_patches) ? extensions.workflow_patches : [];
@@ -29283,15 +32687,21 @@ function renderExtensionInspector(extensions = {}) {
     ? used.map((item) => {
         const extId = item.extension_id || item.id || '';
         const block = extId && payloads[extId] && typeof payloads[extId] === 'object' ? payloads[extId] : null;
-        const status = block && block.enabled === false ? 'disabled' : (item.status || 'used');
+        const pendingRevalidation = extensionBlockNeedsProviderRevalidation(block || {});
+        const status = pendingRevalidation ? 'restored · revalidation required' : (block && block.enabled === false ? 'disabled' : (item.status || 'used'));
         const extTiming = outputExtensionTimingLabel(item);
-        return `<span class="neo-output-chip">${escapeHtml(item.label || extId || 'Extension')} · ${escapeHtml(status)}${extTiming ? ` · ${escapeHtml(extTiming)}` : ''}</span>`;
+        return `<span class="neo-output-chip${pendingRevalidation ? ' is-warning' : ''}">${escapeHtml(item.label || extId || 'Extension')} · ${escapeHtml(status)}${extTiming ? ` · ${escapeHtml(extTiming)}` : ''}</span>`;
       }).join('')
     : '<span class="neo-muted">No extensions were recorded for this output.</span>';
+  const revalidationPayloads = payloadKeys.filter((extensionId) => extensionBlockNeedsProviderRevalidation(payloads[extensionId]));
+  const revalidationNotice = revalidationPayloads.length
+    ? `<div class="neo-image-revalidation-notice"><span class="neo-state-pill warning">Revalidation required</span><span>${escapeHtml(state.detailMode === 'expert' ? revalidationPayloads.join(', ') : 'Restored extension settings are disabled until the selected provider revalidates their models and routes.')}</span></div>`
+    : '';
   return `
     <div class="neo-output-section-card">
       <div class="neo-output-section-title">Extension Slots</div>
       <div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>
+      ${revalidationNotice}
       <div class="neo-output-extension-used">${usedList}</div>
       ${styleStackOutputInspectorDetails(payloads, patches, validation)}
       ${cfgFixOutputInspectorDetails(payloads, patches, validation)}
@@ -29663,167 +33073,310 @@ function bindImageSeedActionButtons() {
   });
 }
 
-const PREVIEW_ACTION_GROUPS = [
-  {
-    id: 'source',
-    label: 'Source',
-    actions: [
-      { id: 'core.img2img', icon: '🖼️', label: 'Img2Img', tooltip: 'Send this image to Img2Img', kind: 'core' },
-      { id: 'core.inpaint', icon: '🩹', label: 'Inpaint', tooltip: 'Send this image to Inpaint', kind: 'core' },
-      { id: 'core.outpaint', icon: '↔️', label: 'Outpaint', tooltip: 'Send this image to Outpaint', kind: 'core' },
-    ],
-  },
-  {
-    id: 'reference',
-    label: 'Reference',
-    actions: [
-      { id: 'extension.controlnet', icon: '🎯', label: 'ControlNet', tooltip: 'Send this image to ControlNet reference', kind: 'extension', requiresExtension: 'image.controlnet' },
-      { id: 'extension.ip_adapter', icon: '👤', label: 'IPAdapter', tooltip: 'Send this image to IPAdapter reference', kind: 'extension', requiresExtension: 'image.ip_adapter' },
-    ],
-  },
-  {
-    id: 'layerdiffuse',
-    label: 'LayerDiffuse',
-    actions: [
-      { id: 'extension.layerdiffuse.source', icon: '📥', label: 'LD Source', tooltip: 'Send this image to LayerDiffuse Source slot', kind: 'extension', requiresExtension: 'image.layerdiffuse' },
-      { id: 'extension.layerdiffuse.background', icon: '🌄', label: 'LD Background', tooltip: 'Send this image to LayerDiffuse Background slot', kind: 'extension', requiresExtension: 'image.layerdiffuse' },
-      { id: 'extension.layerdiffuse.foreground', icon: '🍎', label: 'LD Foreground', tooltip: 'Send this image to LayerDiffuse Foreground slot', kind: 'extension', requiresExtension: 'image.layerdiffuse' },
-      { id: 'extension.layerdiffuse.replace_target', icon: '🎯', label: 'LD Target', tooltip: 'Send this image to LayerDiffuse Replace Target slot', kind: 'extension', requiresExtension: 'image.layerdiffuse' },
-    ],
-  },
-  {
-    id: 'finish',
-    label: 'Finish',
-    actions: [
-      { id: 'extension.high_res_lab', icon: '✨', label: 'High-Res Lab', tooltip: 'Apply current High-Res Lab settings to this image', kind: 'extension', requiresExtension: 'image.high_res_lab' },
-      { id: 'extension.adetailer', icon: '🩹+', label: 'ADetailer', tooltip: 'Repair faces/details with ADetailer', kind: 'extension', requiresExtension: 'image.adetailer' },
-      { id: 'extension.identity_rescue', icon: '🧬', label: 'Identity Rescue', tooltip: 'Identity Rescue / FaceID', kind: 'extension', requiresExtension: 'image.ip_adapter', requiresCapability: 'face_id' },
-      { id: 'extension.image_upscale', icon: '⬆️', label: 'Image Upscale', tooltip: 'Upscale this image', kind: 'extension', requiresExtension: 'image.image_upscale', v2Improvement: true },
-    ],
-  },
-];
+function normalizePreviewActionDefinition(action = {}) {
+  return {
+    ...action,
+    kind: action.kind || action.type || 'extension',
+    actionClass: action.actionClass || action.action_class || '',
+    providerDispatch: action.providerDispatch || action.provider_dispatch || {},
+    requiresExtension: action.requiresExtension || action.requires_extension || '',
+    requiresCapability: action.requiresCapability || action.requires_capability || '',
+    dispatchType: action.dispatchType || action.dispatch_type || '',
+    executionMode: action.executionMode || action.execution_mode || '',
+    providerEnabled: Boolean(action.providerEnabled ?? action.provider_enabled),
+    providerSupported: action.providerSupported ?? action.provider_supported,
+    profileLabel: action.profileLabel || action.profile_label || '',
+    providerLabel: action.providerLabel || action.provider_label || '',
+    guidedRouteLabel: action.guidedRouteLabel || action.guided_route_label || '',
+    guidedRouteBadge: action.guidedRouteBadge || action.guided_route_badge || '',
+    expertRouteLabel: action.expertRouteLabel || action.expert_route_label || '',
+    disabledReasonCode: action.disabledReasonCode || action.disabled_reason_code || '',
+    disabledReasonGuided: action.disabledReasonGuided || action.disabled_reason_guided || '',
+    disabledReasonExpert: action.disabledReasonExpert || action.disabled_reason_expert || action.disabledReason || action.disabled_reason || '',
+    requirementChecks: Array.isArray(action.requirementChecks) ? action.requirementChecks : (Array.isArray(action.requirement_checks) ? action.requirement_checks : []),
+    disabledReason: action.disabledReason || action.disabled_reason || '',
+    routeState: action.routeState || action.route_state || '',
+    v2Improvement: Boolean(action.v2Improvement || action.v2_improvement),
+    autoRunDefault: Boolean(action.autoRunDefault || action.auto_run_default),
+    targetMode: action.targetMode || action.target_mode || '',
+    targetWorkspace: action.targetWorkspace || action.target_workspace || '',
+    sourceContractSchema: action.sourceContractSchema || action.source_contract_schema || '',
+    referenceContractSchema: action.referenceContractSchema || action.reference_contract_schema || '',
+    targetPanel: action.targetPanel || action.target_panel || '',
+    catalogPolicy: action.catalogPolicy || action.catalog_policy || '',
+    stagePolicy: action.stagePolicy || action.stage_policy || '',
+    overwritePolicy: action.overwritePolicy || action.overwrite_policy || '',
+    profilePolicy: action.profilePolicy || action.profile_policy || '',
+    executionPolicy: action.executionPolicy || action.execution_policy || '',
+    maskPolicy: action.maskPolicy || action.mask_policy || '',
+    editorPolicy: action.editorPolicy || action.editor_policy || '',
+  };
+}
+
+function imagePreviewActionGroups() {
+  const registry = state.imagePreviewActionRegistry && typeof state.imagePreviewActionRegistry === 'object'
+    ? state.imagePreviewActionRegistry
+    : {};
+  const groups = Array.isArray(registry.groups) ? registry.groups : [];
+  return groups.map((group) => ({
+    ...group,
+    actions: (Array.isArray(group.actions) ? group.actions : []).map(normalizePreviewActionDefinition),
+  }));
+}
+
+function imagePreviewActionById(actionId = '') {
+  const id = String(actionId || '').trim();
+  if (!id) return null;
+  const registry = state.imagePreviewActionRegistry && typeof state.imagePreviewActionRegistry === 'object'
+    ? state.imagePreviewActionRegistry
+    : {};
+  const flat = Array.isArray(registry.actions) ? registry.actions : [];
+  const direct = flat.find((item) => String(item?.id || '') === id);
+  if (direct) return normalizePreviewActionDefinition(direct);
+  return imagePreviewActionGroups().flatMap((group) => group.actions).find((item) => item.id === id) || null;
+}
+
+function imagePreviewActionEvaluationContext(profileId = '') {
+  const id = String(profileId || selectedBackendProfileIdForSurface('image') || '').trim();
+  const workflowMode = String(getImageWorkflowMode?.() || state.imageDraft?.workflow_mode || state.activeSubtabId || 'generate');
+  const context = {
+    profile_id: id,
+    family: String(state.imageDraft?.family || ''),
+    loader: String(state.imageDraft?.loader || ''),
+    workflow_mode: workflowMode,
+    expert_mode: state.detailMode === 'expert',
+  };
+  return { ...context, context_key: [context.profile_id, context.family, context.loader, context.workflow_mode, context.expert_mode ? 'expert' : 'normal'].join('::') };
+}
+
+function imagePreviewActionEvaluationForProfile(profileId = '') {
+  const context = imagePreviewActionEvaluationContext(profileId);
+  if (!context.profile_id) return null;
+  const payload = state.imagePreviewActionEvaluations?.[context.profile_id] || null;
+  if (!payload) return null;
+  const payloadKey = [
+    String(payload.profile_id || ''),
+    String(payload.family || ''),
+    String(payload.loader || ''),
+    String(payload.workflow_mode || ''),
+    payload.expert_mode ? 'expert' : 'normal',
+  ].join('::');
+  return payloadKey === context.context_key ? payload : null;
+}
+
+function activeImagePreviewActionEvaluation() {
+  return imagePreviewActionEvaluationForProfile(selectedBackendProfileIdForSurface('image'));
+}
+
+function providerEvaluatedPreviewAction(actionId = '') {
+  const id = String(actionId || '').trim();
+  const payload = activeImagePreviewActionEvaluation();
+  const directActions = Array.isArray(payload?.actions) ? payload.actions : [];
+  const groupedActions = Array.isArray(payload?.groups)
+    ? payload.groups.flatMap((group) => Array.isArray(group?.actions) ? group.actions : [])
+    : [];
+  const actions = [...directActions, ...groupedActions];
+  const record = actions.find((item) => String(item?.id || item?.action_id || item?.preview_action_id || '').trim() === id);
+  return record ? normalizePreviewActionDefinition(record) : null;
+}
+
+function scheduleImagePreviewActionEvaluationRefresh(delayMs = 140) {
+  if (imagePreviewActionEvaluationRefreshTimer) window.clearTimeout(imagePreviewActionEvaluationRefreshTimer);
+  imagePreviewActionEvaluationRefreshTimer = window.setTimeout(() => {
+    imagePreviewActionEvaluationRefreshTimer = null;
+    void refreshImagePreviewActionEvaluation(selectedBackendProfileIdForSurface('image'), { renderAfter: true });
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+async function refreshImagePreviewActionEvaluation(profileId = '', { renderAfter = false } = {}) {
+  const context = imagePreviewActionEvaluationContext(profileId);
+  const id = context.profile_id;
+  if (!id) return null;
+  const params = new URLSearchParams({
+    profile_id: id,
+    family: context.family,
+    loader: context.loader,
+    workflow_mode: context.workflow_mode,
+    expert_mode: context.expert_mode ? 'true' : 'false',
+  });
+  state.imagePreviewActionEvaluationLoading = { ...(state.imagePreviewActionEvaluationLoading || {}), [id]: context.context_key };
+  try {
+    const response = await fetch(`/api/image/preview-actions/evaluate?${params.toString()}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.message || `Preview action evaluation failed with HTTP ${response.status}`);
+    if (imagePreviewActionEvaluationContext(id).context_key !== context.context_key) return payload;
+    state.imagePreviewActionEvaluations = { ...(state.imagePreviewActionEvaluations || {}), [id]: payload };
+    return payload;
+  } catch (error) {
+    if (imagePreviewActionEvaluationContext(id).context_key !== context.context_key) return null;
+    const failure = {
+      schema_id: 'neo.image.preview_action_provider_evaluation.client_error.v1',
+      profile_id: id,
+      provider_id: activeImageProfile()?.provider_id || '',
+      family: context.family,
+      loader: context.loader,
+      workflow_mode: context.workflow_mode,
+      expert_mode: context.expert_mode,
+      selected_profile_only: true,
+      automatic_provider_fallback: false,
+      actions: [],
+      groups: [],
+      error: error?.message || 'Preview action provider evaluation failed.',
+    };
+    state.imagePreviewActionEvaluations = { ...(state.imagePreviewActionEvaluations || {}), [id]: failure };
+    return failure;
+  } finally {
+    if (state.imagePreviewActionEvaluationLoading?.[id] === context.context_key) {
+      state.imagePreviewActionEvaluationLoading = { ...(state.imagePreviewActionEvaluationLoading || {}), [id]: false };
+    }
+    if (renderAfter) render();
+  }
+}
 
 function previewActionHasSource(sourceContext = {}) {
   return Boolean(sourceContext && (sourceContext.url || sourceContext.path || sourceContext.filename || sourceContext.file_id || sourceContext.output_id));
 }
 
-function previewActionExtensionRecords() {
-  if (Array.isArray(state.extensions?.extensions)) return state.extensions.extensions;
-  if (Array.isArray(state.extensions)) return state.extensions;
-  return [];
+function previewActionDisplayLabel(action = {}) {
+  if (String(action.id || '') === 'extension.high_res_lab') return 'High-Res Fix';
+  return action.label || action.id || 'Action';
 }
-function previewActionExtensionRecord(targetExtensionId) {
-  if (!targetExtensionId) return null;
-  const byId = state.extensionsById || state.extensionStates || {};
-  const mapped = byId?.[targetExtensionId];
-  if (mapped) return mapped;
-  return previewActionExtensionRecords().find((item) => extensionId(item) === targetExtensionId || item?.id === targetExtensionId || item?.extension_id === targetExtensionId || item?.manifest?.id === targetExtensionId) || null;
+
+function previewActionRouteCopy(action = {}, expertMode = state.detailMode === 'expert') {
+  if (expertMode) return action.expertRouteLabel || action.expert_route_label || action.executionMode || action.execution_mode || 'Provider route unavailable';
+  return action.guidedRouteLabel || action.guided_route_label || action.tooltip || previewActionDisplayLabel(action);
 }
-function previewActionExtensionEnabled(targetExtensionId) {
-  if (!targetExtensionId) return true;
-  const record = previewActionExtensionRecord(targetExtensionId);
-  if (!record) return false;
-  if (record.enabled === false) return false;
-  if (record.state === 'disabled') return false;
-  if (record.status === 'disabled') return false;
-  return true;
+
+function previewActionDisabledCopy(action = {}, expertMode = state.detailMode === 'expert') {
+  if (expertMode) return action.disabledReasonExpert || action.disabled_reason_expert || action.disabledReason || action.disabled_reason || 'This action is unavailable for the selected backend profile.';
+  return action.disabledReasonGuided || action.disabled_reason_guided || action.disabledReason || action.disabled_reason || 'This action is unavailable for the selected backend profile.';
 }
-function previewActionRouteFor(action = {}, record = null) {
-  const id = action.id || '';
-  const ext = action.requiresExtension || '';
-  if (id === 'extension.controlnet' || ext === CONTROLNET_EXTENSION_ID) {
-    const route = controlNetActiveRoute(record || {});
-    return { route, enabled: controlNetRouteControlsEnabled(route), visible: controlNetRouteVisible(route), reason: route.reason || `ControlNet route is ${route.route_state}.` };
-  }
-  if (id === 'extension.ip_adapter' || id === 'extension.identity_rescue' || ext === IP_ADAPTER_EXTENSION_ID) {
-    const route = ipAdapterActiveRoute(record || {});
-    return { route, enabled: ipAdapterRouteControlsEnabled(route), visible: ipAdapterRouteVisible(route), reason: route.reason || `IPAdapter route is ${route.route_state}.` };
-  }
-  if (id === 'extension.image_upscale' || ext === IMAGE_UPSCALE_EXTENSION_ID) {
-    const route = imageUpscaleActiveRoute(record || {});
-    return { route, enabled: imageUpscaleControlsEnabled(route), visible: imageUpscaleRouteVisible(route), reason: route.reason || `Image Upscale route is ${route.route_state}.` };
-  }
-  if (id === 'extension.high_res_lab' || ext === HIGH_RES_LAB_EXTENSION_ID) {
-    const route = highResLabActiveRoute(record || {});
-    return { route, enabled: highResLabRouteControlsEnabled(route), visible: highResLabRouteVisible(route), reason: route.reason || `High-Res Lab route is ${route.route_state}.` };
-  }
-  if (id === 'extension.adetailer' || ext === ADETAILER_EXTENSION_ID) {
-    const route = adetailerActiveRoute(record || {});
-    return { route, enabled: adetailerRouteControlsEnabled(route), visible: adetailerRouteVisible(route), reason: route.reason || `ADetailer route is ${route.route_state}.` };
-  }
-  if (id.startsWith('extension.layerdiffuse.') || ext === LAYERDIFFUSE_EXTENSION_ID) {
-    const route = layerDiffuseRouteSnapshot(record || {});
-    const enabled = route.route_state === 'available';
-    return { route, enabled, visible: enabled || state.detailMode === 'expert', reason: route.reason || `LayerDiffuse route is ${route.route_state}.` };
-  }
-  const manifest = record?.manifest || {};
-  const routeState = manifest.route_state || manifest.route_states?.['*'] || 'available';
-  const enabled = ['available', 'experimental_available'].includes(routeState);
-  return { route: { route_state: routeState, reason: '' }, enabled, visible: enabled || state.detailMode === 'expert', reason: `Extension route is ${routeState}.` };
+
+function previewActionBlockedRequirementLabels(action = {}) {
+  const checks = Array.isArray(action.requirementChecks) ? action.requirementChecks : (Array.isArray(action.requirement_checks) ? action.requirement_checks : []);
+  return checks.filter((item) => item && item.required !== false && item.ready === false).map((item) => item.label || item.check_id || 'Requirement').filter(Boolean);
 }
-function previewActionCapabilityStatus(action = {}, record = null) {
-  if (!action.requiresCapability) return { available: true, reason: '' };
-  if (action.requiresCapability === 'face_id') {
-    const settings = ipAdapterSettings();
-    const status = ipAdapterNodeStatus(settings);
-    const units = ipAdapterNormalizeUiUnits(settings.units || []);
-    const hasFaceIdUnit = units.some((unit) => unit.mode === 'faceid' || unit.faceid_model || unit.faceid_preset);
-    const manifestCaps = record?.manifest?.capability_profiles || record?.manifest?.capabilities || [];
-    const manifestHasFaceId = JSON.stringify(manifestCaps || '').toLowerCase().includes('faceid') || JSON.stringify(manifestCaps || '').toLowerCase().includes('face_id');
-    const checkedUnavailable = status.checked_at && status.faceid_available === false;
-    const available = !checkedUnavailable && (hasFaceIdUnit || manifestHasFaceId || status.faceid_available === true);
-    return { available, reason: available ? '' : 'FaceID capability is not configured or available yet.' };
-  }
-  return { available: false, reason: `Missing required capability: ${action.requiresCapability}.` };
+
+function imagePreviewActionProviderContext() {
+  const profile = activeImageProfile() || {};
+  const evaluation = activeImagePreviewActionEvaluation() || {};
+  const profileId = String(evaluation.profile_id || profile.profile_id || selectedBackendProfileIdForSurface('image') || '').trim();
+  const providerId = String(evaluation.provider_id || profile.provider_id || '').trim().toLowerCase();
+  return {
+    profileId,
+    providerId,
+    profileLabel: evaluation.profile_label || profile.display_name || profile.profile_id || 'No Image profile selected',
+    providerLabel: evaluation.provider_label || profile.provider_label || humanize(providerId || 'Image provider'),
+    connected: evaluation.connected ?? backendProfileConnectedForRuntime(profile),
+    selectedProfileOnly: evaluation.selected_profile_only !== false,
+    automaticProviderFallback: evaluation.automatic_provider_fallback === true,
+    error: evaluation.error || '',
+  };
 }
+
+function imageReplayBindingDiagnostic() {
+  const context = state.imageDraft && typeof state.imageDraft._replay_context === 'object' ? state.imageDraft._replay_context : null;
+  const binding = context?.provider_binding && typeof context.provider_binding === 'object' ? context.provider_binding : null;
+  if (!context || !binding) return null;
+  const profileId = String(binding.profileId || binding.profile_id || binding.selectedProfileId || binding.selected_profile_id || '').trim();
+  const providerId = String(binding.providerId || binding.provider_id || '').trim().toLowerCase();
+  const profile = backendProfilesForSurface('image').find((item) => String(item.profile_id || '') === profileId) || null;
+  const stateId = String(binding.state || 'recorded_profile_selected');
+  const explicitOverride = stateId === 'explicit_current_provider_override';
+  return {
+    sourceResultId: context.source_result_id || '',
+    profileId,
+    providerId,
+    profileLabel: profile?.display_name || profileId || 'recorded profile',
+    providerLabel: profile?.provider_label || humanize(providerId || 'provider'),
+    state: stateId,
+    explicitOverride,
+    guidedMessage: explicitOverride
+      ? 'This replay uses the profile you explicitly selected for the Source action.'
+      : `Replay is bound to ${profile?.display_name || profileId || 'the recorded Image profile'}. Neo will not substitute another provider.`,
+    expertMessage: `Replay binding · provider=${providerId || 'unknown'} · profile=${profileId || 'missing'} · state=${stateId}`,
+  };
+}
+
+function imagePendingRevalidationExtensions() {
+  const draft = state.imageDraft && typeof state.imageDraft === 'object' ? state.imageDraft : {};
+  return Object.entries(draft).flatMap(([extensionId, value]) => {
+    if (!extensionId.includes('.') || !value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const metadata = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
+    const restoreState = String(value.restore_state || metadata.restore_state || '');
+    const pending = value.revalidation_required === true
+      || metadata.revalidation_required === true
+      || restoreState.includes('pending_selected_provider_revalidation')
+      || restoreState.includes('pending_revalidation')
+      || restoreState.includes('restored_for_backend_revalidation');
+    if (!pending) return [];
+    const record = extensionRecordById(extensionId);
+    const matchedAction = imagePreviewActionGroups().flatMap((group) => group.actions).find((action) => action.requiresExtension === extensionId) || null;
+    const label = record?.manifest?.name || (matchedAction ? previewActionDisplayLabel(matchedAction) : extensionId);
+    return [{ extensionId, label: label || extensionId, restoreState: restoreState || 'revalidation_required' }];
+  });
+}
+
+function renderImagePendingRevalidationNotice({ compact = true, resultId = '', placement = 'preview' } = {}) {
+  const replay = imageReplayBindingDiagnostic();
+  if (resultId && replay?.sourceResultId && replay.sourceResultId !== resultId) return '';
+  const pending = imagePendingRevalidationExtensions();
+  if (!pending.length) return '';
+  const labels = pending.map((item) => item.label);
+  const guided = `${labels.join(', ')} restored disabled. Review and re-enable after the selected provider finishes revalidation.`;
+  const expert = pending.map((item) => `${item.extensionId} · ${item.restoreState}`).join(' | ');
+  return `<div class="neo-image-revalidation-notice${compact ? ' is-compact' : ''}" data-image-revalidation-notice="${escapeAttr(placement)}"><span class="neo-state-pill warning">Revalidation required</span><span>${escapeHtml(state.detailMode === 'expert' ? expert : guided)}</span></div>`;
+}
+
+// Provider evaluation owns availability; source presence is the final browser-side gate.
+// Legacy diagnostic anchor: providerRecord.disabledReason || providerRecord.disabled_reason
 function evaluatePreviewActionForToolbar(action = {}, sourceContext = {}) {
   const validSource = previewActionHasSource(sourceContext);
   const expertMode = state.detailMode === 'expert';
-  if (action.kind === 'core') {
-    return {
-      ...action,
-      visible: validSource || expertMode,
-      enabled: validSource,
-      disabledReason: validSource ? '' : (sourceContext.missing_reason || 'No preview output is selected yet.'),
-      routeState: 'core',
-      extensionEnabled: true,
-      diagnostic: false,
-    };
-  }
-  const record = previewActionExtensionRecord(action.requiresExtension);
-  const extensionEnabled = previewActionExtensionEnabled(action.requiresExtension);
-  let routeInfo = previewActionRouteFor(action, record);
-  let capability = previewActionCapabilityStatus(action, record);
-  const isPostOutputBridgeAction = ['extension.high_res_lab', 'extension.adetailer', 'extension.image_upscale', 'extension.identity_rescue'].includes(action.id || '');
-  const bridge = isPostOutputBridgeAction ? imagePostOutputComfyBridgeProfile(action.id || '') : { profile: null };
-  if (validSource && isPostOutputBridgeAction && bridge.profile && !routeInfo.enabled) {
-    routeInfo = { ...routeInfo, enabled: true, visible: true, reason: imagePostOutputBridgeNotice(action.id || '', sourceContext), route: { ...(routeInfo.route || {}), route_state: 'post_output_bridge', bridge_profile_id: bridge.profile.profile_id } };
-    capability = { available: true, reason: '' };
-  }
+  const providerRecord = providerEvaluatedPreviewAction(action.id || '');
+  const evaluationContext = imagePreviewActionEvaluationContext(selectedBackendProfileIdForSurface('image'));
+  const evaluationLoading = state.imagePreviewActionEvaluationLoading?.[evaluationContext.profile_id] === evaluationContext.context_key;
+  const providerEnabled = Boolean(providerRecord?.providerEnabled ?? providerRecord?.provider_enabled);
   let disabledReason = '';
-  if (!validSource) disabledReason = sourceContext.missing_reason || 'No preview output is selected yet.';
-  else if (!record) disabledReason = `${action.requiresExtension} is not registered.`;
-  else if (!extensionEnabled) disabledReason = `${action.requiresExtension} is disabled in Admin.`;
-  else if (!routeInfo.enabled) disabledReason = routeInfo.reason || `${action.requiresExtension} route is ${routeInfo.route?.route_state || 'gated'}.`;
-  else if (!capability.available) disabledReason = capability.reason;
-  else if (isPostOutputBridgeAction && !bridge.profile) disabledReason = imagePostOutputBridgeNotice(action.id || '', sourceContext) || 'No local Comfy image backend profile is available for this post-output bridge.';
-  const enabled = Boolean(validSource && record && extensionEnabled && routeInfo.enabled && capability.available);
+  if (!validSource) disabledReason = sourceContext.missing_reason || 'Select an output image before using this action.';
+  else if (!providerRecord) {
+    const activeEvaluation = activeImagePreviewActionEvaluation();
+    disabledReason = evaluationLoading
+      ? 'Checking the selected backend profile…'
+      : (activeEvaluation?.error || (activeEvaluation
+        ? 'The selected backend profile evaluation did not include this action. Refresh the selected profile evaluation.'
+        : 'The selected backend profile has not published a preview-action evaluation yet.'));
+  }
+  else if (!providerEnabled) disabledReason = previewActionDisabledCopy(providerRecord, expertMode);
+  const enabled = Boolean(validSource && providerRecord && providerEnabled);
+  const providerSupported = providerRecord ? providerRecord.providerSupported !== false && providerRecord.provider_supported !== false : true;
+  const routeState = providerRecord?.routeState || providerRecord?.route_state || (action.kind === 'core' ? 'core' : 'unknown');
+  const guidedRelevant = Boolean(providerRecord ? (providerSupported && routeState !== 'provider_unsupported') : evaluationLoading || evaluationContext.profile_id);
   const diagnostic = expertMode && !enabled;
-  const visible = enabled || diagnostic;
   return {
     ...action,
-    visible,
+    ...(providerRecord || {}),
+    visible: enabled || diagnostic || guidedRelevant,
     enabled,
-    disabledReason,
-    routeState: routeInfo.route?.route_state || 'unknown',
-    extensionEnabled,
+    disabledReason: enabled ? '' : disabledReason,
+    disabledReasonGuided: providerRecord?.disabledReasonGuided || providerRecord?.disabled_reason_guided || disabledReason,
+    disabledReasonExpert: providerRecord?.disabledReasonExpert || providerRecord?.disabled_reason_expert || providerRecord?.disabledReason || providerRecord?.disabled_reason || disabledReason,
+    routeState,
+    routeLabel: previewActionRouteCopy(providerRecord || action, expertMode),
+    routeBadge: providerRecord?.guidedRouteBadge || providerRecord?.guided_route_badge || 'Action',
+    extensionEnabled: providerRecord?.extension_enabled !== false,
+    capabilityAvailable: providerRecord?.capability_available !== false,
+    providerEnabled,
+    providerSupported,
     diagnostic,
-    capabilityAvailable: capability.available,
   };
 }
 
 function buildLivePreviewActionSource(activeOutput = {}) {
   const index = Number.isFinite(state.activeResultIndex) ? state.activeResultIndex : 0;
+  const lineage = activeOutput.lineage && typeof activeOutput.lineage === 'object'
+    ? activeOutput.lineage
+    : (activeOutput.metadata?.lineage && typeof activeOutput.metadata.lineage === 'object' ? activeOutput.metadata.lineage : {});
   return {
     source_type: 'generated_output',
     source_scope: 'live_preview',
@@ -29836,6 +33389,15 @@ function buildLivePreviewActionSource(activeOutput = {}) {
     subfolder: activeOutput.subfolder || '',
     file_type: activeOutput.type || activeOutput.file_type || 'output',
     metadata: activeOutput.metadata || {},
+    lineage,
+    parent_output_id: activeOutput.parent_output_id || lineage.parent_output_id || '',
+    parent_job_id: activeOutput.parent_job_id || lineage.parent_job_id || '',
+    root_output_id: activeOutput.root_output_id || lineage.root_output_id || '',
+    root_job_id: activeOutput.root_job_id || lineage.root_job_id || '',
+    lineage_depth: Number(activeOutput.lineage_depth ?? lineage.depth ?? 0),
+    ancestor_output_ids: Array.isArray(activeOutput.ancestor_output_ids) ? activeOutput.ancestor_output_ids : (Array.isArray(lineage.ancestor_output_ids) ? lineage.ancestor_output_ids : []),
+    width: Number(activeOutput.width || activeOutput.image_width || activeOutput.metadata?.width || 0),
+    height: Number(activeOutput.height || activeOutput.image_height || activeOutput.metadata?.height || 0),
     source_rank: 4,
     is_valid: Boolean(activeOutput.url || activeOutput.path || activeOutput.filename),
     missing_reason: activeOutput.url || activeOutput.path || activeOutput.filename ? '' : 'No preview output is selected yet.',
@@ -29844,6 +33406,7 @@ function buildLivePreviewActionSource(activeOutput = {}) {
 
 function buildInspectorPreviewActionSource(metadata = {}, activeFile = {}) {
   const file = activeFile || {};
+  const lineage = metadata.lineage && typeof metadata.lineage === 'object' ? metadata.lineage : {};
   return {
     source_type: 'generated_output',
     source_scope: 'inspector_file',
@@ -29858,37 +33421,90 @@ function buildInspectorPreviewActionSource(metadata = {}, activeFile = {}) {
     subfolder: file.subfolder || '',
     file_type: file.type || file.file_type || 'output',
     metadata,
-    parent_output_id: metadata.parent_output_id || metadata.source?.parent_output_id || '',
-    parent_job_id: metadata.parent_job_id || metadata.source?.parent_job_id || '',
+    lineage,
+    parent_output_id: lineage.parent_output_id || metadata.parent_output_id || metadata.source?.parent_output_id || '',
+    parent_job_id: lineage.parent_job_id || metadata.parent_job_id || metadata.source?.parent_job_id || '',
+    root_output_id: lineage.root_output_id || '',
+    root_job_id: lineage.root_job_id || '',
+    lineage_depth: Number(lineage.depth || 0),
+    ancestor_output_ids: Array.isArray(lineage.ancestor_output_ids) ? lineage.ancestor_output_ids : [],
     created_at: metadata.created_at || '',
+    width: Number(file.width || file.image_width || metadata.width || metadata.params?.width || 0),
+    height: Number(file.height || file.image_height || metadata.height || metadata.params?.height || 0),
     source_rank: 1,
     is_valid: Boolean(file.url || file.path || file.filename),
     missing_reason: file.url || file.path || file.filename ? '' : 'No preview output is selected yet.',
   };
 }
 
+// Preview actions are evaluated against the selected backend profile only; automatic provider fallback is disabled.
+// Canonical visibility pipeline compatibility anchor:
+// .map((action) => evaluatePreviewActionForToolbar(action, sourceContext)).filter((action) => action.visible)
+function previewActionTooltipText(action = {}, expertMode = false, providerContext = {}) {
+  const displayLabel = previewActionDisplayLabel(action);
+  const reason = action.enabled
+    ? previewActionRouteCopy(action, expertMode)
+    : (action.disabledReason || previewActionDisabledCopy(action, expertMode));
+  const provider = [providerContext.providerLabel, providerContext.profileLabel].filter(Boolean).join(' · ');
+  const requirements = expertMode && !action.enabled ? previewActionBlockedRequirementLabels(action) : [];
+  const parts = [displayLabel, reason, provider ? `Provider: ${provider}` : ''];
+  if (requirements.length) parts.push(`Blocked: ${requirements.join(', ')}`);
+  return parts.filter(Boolean).join(' — ');
+}
+
+// Preview actions are evaluated against the selected backend profile only; automatic provider fallback is disabled.
+// Live Preview and Output Inspector intentionally share this compact icon renderer.
+// Detailed provider diagnostics belong in Output Inspector, not on top of the image.
 function renderPreviewActionToolbar(sourceContext = {}, options = {}) {
-    // Core preview actions are ready. Extension actions wire in later phases.
-  // Extension handlers wire in later preview-action phases.
   const validSource = previewActionHasSource(sourceContext);
   const placement = options.placement || 'preview';
   const expertMode = state.detailMode === 'expert';
-  const groups = PREVIEW_ACTION_GROUPS.map((group) => {
-    const evaluated = group.actions.map((action) => evaluatePreviewActionForToolbar(action, sourceContext)).filter((action) => action.visible);
+  const providerContext = imagePreviewActionProviderContext();
+  const evaluatedGroups = imagePreviewActionGroups().map((group) => ({
+    ...group,
+    actions: group.actions.map((action) => evaluatePreviewActionForToolbar(action, sourceContext)),
+  }));
+  const groups = evaluatedGroups.map((group) => {
+    const evaluated = group.actions.filter((action) => action.visible);
     if (!evaluated.length) return '';
     const actions = evaluated.map((action) => {
       const disabled = !action.enabled;
-      const diagnostic = action.diagnostic;
-      const ready = action.enabled;
-      const disabledReason = action.disabledReason || (ready ? action.tooltip : 'Preview action is unavailable for the current source or route.');
       const routeAttr = action.routeState || (action.kind === 'core' ? 'core' : 'unknown');
-      return `<button class="neo-preview-action-btn${diagnostic ? ' is-diagnostic' : ''}${ready ? ' is-ready' : ''}" type="button" data-preview-action-id="${escapeAttr(action.id)}" data-preview-action-placement="${escapeAttr(placement)}" data-preview-action-route-state="${escapeAttr(routeAttr)}" title="${escapeAttr(disabledReason || action.tooltip)}" aria-label="${escapeAttr(action.tooltip)}" ${disabled ? 'disabled' : ''}><span class="neo-preview-action-icon">${escapeHtml(action.icon)}</span><span class="neo-preview-action-name">${escapeHtml(action.label)}</span></button>`;
+      const displayLabel = previewActionDisplayLabel(action);
+      const tooltip = previewActionTooltipText(action, expertMode, providerContext);
+      const button = `<button class="neo-preview-action-btn${action.enabled ? ' is-ready' : ' is-disabled'}" type="button" data-preview-action-id="${escapeAttr(action.id)}" data-preview-action-placement="${escapeAttr(placement)}" data-preview-action-route-state="${escapeAttr(routeAttr)}" data-preview-action-execution-mode="${escapeAttr(action.executionMode || action.execution_mode || '')}" aria-label="${escapeAttr(tooltip || displayLabel)}" ${disabled ? 'disabled' : ''}><span class="neo-preview-action-icon" aria-hidden="true">${escapeHtml(action.icon)}</span></button>`;
+      return `<span class="neo-preview-action-tooltip-host" title="${escapeAttr(tooltip || action.tooltip || displayLabel)}" data-preview-action-tooltip="${escapeAttr(action.id)}">${button}</span>`;
     }).join('');
-    return `<div class="neo-preview-action-group" data-preview-action-group="${escapeAttr(group.id)}"><span class="neo-preview-action-group-label">${escapeHtml(group.label)}</span><div class="neo-preview-action-cluster">${actions}</div></div>`;
+    return `<div class="neo-preview-action-group" data-preview-action-group="${escapeAttr(group.id)}" aria-label="${escapeAttr(group.label)}">${actions}</div>`;
   }).join('');
+  if (!groups) return '';
   const sourceAttr = sourceContext.source_scope || (validSource ? 'unknown' : 'missing');
-  const reason = validSource ? 'Preview actions are filtered by Admin extension state and route support.' : (sourceContext.missing_reason || 'No preview output is selected yet.');
-  return `<div class="neo-preview-actions" data-preview-action-toolbar="${escapeAttr(placement)}" data-preview-action-source="${escapeAttr(sourceAttr)}" aria-label="Preview image actions"><div class="neo-preview-actions-inner">${groups}</div>${expertMode ? `<p class="neo-preview-action-debug">${escapeHtml(reason)}</p>` : ''}</div>`;
+  return `<div class="neo-preview-actions" data-preview-action-toolbar="${escapeAttr(placement)}" data-preview-action-source="${escapeAttr(sourceAttr)}" data-preview-action-provider="${escapeAttr(providerContext.providerId || '')}" data-preview-action-profile="${escapeAttr(providerContext.profileId || '')}" aria-label="Preview image actions"><div class="neo-preview-actions-inner">${groups}</div></div>`;
+}
+
+function renderOutputPreviewActionDiagnostics(sourceContext = {}) {
+  const expertMode = state.detailMode === 'expert';
+  const providerContext = imagePreviewActionProviderContext();
+  const evaluationContext = imagePreviewActionEvaluationContext(providerContext.profileId);
+  const evaluationLoading = state.imagePreviewActionEvaluationLoading?.[evaluationContext.profile_id] === evaluationContext.context_key;
+  const replayBinding = imageReplayBindingDiagnostic();
+  const actions = imagePreviewActionGroups()
+    .flatMap((group) => group.actions)
+    .map((action) => evaluatePreviewActionForToolbar(action, sourceContext))
+    .filter((action) => action.visible);
+  const blocked = actions.filter((action) => !action.enabled);
+  const ready = actions.filter((action) => action.enabled);
+  const rows = actions.map((action) => {
+    const requirements = expertMode && !action.enabled ? previewActionBlockedRequirementLabels(action) : [];
+    const route = previewActionRouteCopy(action, expertMode);
+    const message = action.enabled ? route : (action.disabledReason || previewActionDisabledCopy(action, expertMode));
+    return `<div class="neo-output-action-diagnostic-row${action.enabled ? ' is-ready' : ' is-blocked'}"><div><span class="neo-preview-action-icon" aria-hidden="true">${escapeHtml(action.icon)}</span><strong>${escapeHtml(previewActionDisplayLabel(action))}</strong></div><span>${escapeHtml(message || '')}</span>${requirements.length ? `<small>Blocked: ${escapeHtml(requirements.join(', '))}</small>` : ''}</div>`;
+  }).join('');
+  const statusText = evaluationLoading
+    ? 'Checking provider capabilities…'
+    : (providerContext.error || (providerContext.profileId ? 'Selected profile only · automatic provider fallback is disabled' : 'Select an Image profile'));
+  const replayNotice = replayBinding ? `<p class="neo-muted" data-preview-replay-binding="true">${escapeHtml(expertMode ? replayBinding.expertMessage : replayBinding.guidedMessage)}</p>` : '';
+  return `<details class="neo-output-action-diagnostics" data-output-action-diagnostics="${expertMode ? 'expert' : 'guided'}"><summary><span>Provider action diagnostics</span><span class="neo-output-chip${blocked.length ? '' : ' is-active'}">${ready.length} ready · ${blocked.length} unavailable</span></summary><div class="neo-output-action-diagnostics-body"><div class="neo-output-action-diagnostics-context"><div><span class="neo-preview-action-provider">${escapeHtml(providerContext.providerLabel)}</span><strong>${escapeHtml(providerContext.profileLabel)}</strong></div><span>${escapeHtml(statusText)}</span></div>${replayNotice}<div class="neo-output-action-diagnostics-list">${rows || '<p class="neo-muted">No provider action evaluation is available yet.</p>'}</div></div></details>`;
 }
 
 
@@ -30181,6 +33797,29 @@ function renderImageReplaySourceSelect(activeSummary = {}, activeMetadata = {}, 
     <div class="neo-output-replay-source-help"><strong>${escapeHtml(selected?.badge || 'Available')}</strong><span>${escapeHtml(selected?.description || 'Choose the replay source Neo can truthfully use.')}</span></div>`;
 }
 
+function renderLanpaintReplayAudit(activeMetadata = {}) {
+  const contract = activeMetadata?.lanpaint || activeMetadata?.replay?.lanpaint || {};
+  if (contract?.schema_id !== 'neo.image.lanpaint_replay.v1') return '';
+  const route = contract.route || {};
+  const assets = contract.input_assets || {};
+  const missing = Array.isArray(assets.missing_roles) ? assets.missing_roles : [];
+  const lora = contract.lora || {};
+  const lineage = contract.workflow_lineage || {};
+  const stateLabel = missing.length ? 'Missing assets' : 'Replay-ready';
+  const loaded = outputReplayDraftContextForResult(activeMetadata.result_id || '')?.lanpaint_reconstruction;
+  return `<div class="neo-output-provider-replay${loaded ? ' is-active' : ''}" data-output-lanpaint-replay="true">
+    <div class="neo-output-provider-replay-head"><strong>LanPaint Replay Audit</strong><span class="neo-state-pill ${missing.length ? 'warning' : 'success'}">${escapeHtml(stateLabel)}</span></div>
+    <p class="neo-output-provider-replay-summary">${escapeHtml(state.detailMode === 'expert' ? `route=${route.route_key || ''} · policy=${route.policy_id || ''} · compiler=${route.compiler_id || ''} · fingerprint=${contract.replay_fingerprint || ''}` : `Exact ${route.family || 'LanPaint'} / ${route.loader || ''} route, controls, source-mask references, LoRA order, and graph lineage were saved for replay.`)}</p>
+    <div class="neo-output-chip-row"><span class="neo-output-chip is-active">${escapeHtml(route.family || 'LanPaint')}</span><span class="neo-output-chip">${escapeHtml(route.loader || '')}</span><span class="neo-output-chip">${escapeHtml(route.engine || 'lanpaint')}</span><span class="neo-output-chip">Nodes · ${Number(lineage.node_count || 0)}</span><span class="neo-output-chip">LoRAs · ${Array.isArray(lora.base_graph_rows) ? lora.base_graph_rows.length : 0}</span></div>
+    <div class="neo-output-replay-check-grid">
+      <div class="neo-output-replay-check" data-replay-check-state="${assets.source?.portable_reference_available ? 'available' : 'required'}"><span>source asset</span><small>${escapeHtml(assets.source?.portable_reference_available ? (assets.source.filename || 'Neo-owned source reference saved') : 'Re-upload required')}</small></div>
+      <div class="neo-output-replay-check" data-replay-check-state="${assets.mask?.portable_reference_available ? 'available' : 'required'}"><span>mask asset</span><small>${escapeHtml(assets.mask?.portable_reference_available ? (assets.mask.filename || 'Neo-owned mask reference saved') : 'Re-upload required')}</small></div>
+      <div class="neo-output-replay-check" data-replay-check-state="required"><span>live capability check</span><small>Required before queueing; recorded readiness is audit evidence, not current authority.</small></div>
+      <div class="neo-output-replay-check" data-replay-check-state="required"><span>LoRA revalidation</span><small>${escapeHtml(lora.revalidation_required ? 'Rows restore disabled until the exact loader and catalog are checked.' : 'No active base/global LoRA rows were recorded.')}</small></div>
+    </div>
+  </div>`;
+}
+
 function renderOutputReplayRegeneratePanel(activeSummary, activeMetadata, activeFile = {}) {
   const resultId = activeSummary?.result_id || activeMetadata?.result_id || '';
   const context = outputReplayDraftContextForResult(resultId);
@@ -30209,7 +33848,7 @@ function renderOutputReplayRegeneratePanel(activeSummary, activeMetadata, active
       <div class="neo-output-replay-actions">
         <button class="neo-btn primary" id="imageResultLoadReplayDraftBtn" type="button" ${actionDisabled}>${escapeHtml(actionLabel)}</button>
       </div>
-    </div>`;
+    </div>${renderLanpaintReplayAudit(activeMetadata)}`;
 }
 
 function imageLatePassAllowedPasses(restorePoint = '') {
@@ -30313,21 +33952,32 @@ function renderOutputProviderReplayValidation(activeMetadata = {}) {
   const checks = Array.isArray(validation.checks) ? validation.checks : [];
   const sourceAssets = validation.source_assets || {};
   const extensionPolicy = validation.extension_policy || {};
+  const resultId = activeMetadata.result_id || '';
+  const activeReplay = outputReplayDraftContextForResult(resultId);
+  const activeBinding = activeReplay?.provider_binding && typeof activeReplay.provider_binding === 'object' ? activeReplay.provider_binding : null;
+  const profileId = binding.backend_profile_id || binding.profile_id || validation.backend_profile_id || validation.profile_id || '';
+  const profile = backendProfilesForSurface('image').find((item) => String(item.profile_id || '') === String(profileId || '')) || null;
+  const profileLabel = profile?.display_name || profileId || 'recorded Image profile';
   const checkRows = checks.length ? checks.map((item) => {
-    const state = item.state || 'required';
+    const checkState = item.state || 'required';
     const label = item.check_id || 'check';
     const reason = item.reason || item.message || '';
-    return `<div class="neo-output-replay-check" data-replay-check-state="${escapeAttr(state)}"><span>${escapeHtml(label.replaceAll('_', ' '))}</span><small>${escapeHtml(reason)}</small></div>`;
+    return `<div class="neo-output-replay-check" data-replay-check-state="${escapeAttr(checkState)}"><span>${escapeHtml(label.replaceAll('_', ' '))}</span><small>${escapeHtml(reason)}</small></div>`;
   }).join('') : '<p class="neo-muted">Replay validation requirements will be created on next save.</p>';
   const blocked = Array.isArray(extensionPolicy.inline_blocked) ? extensionPolicy.inline_blocked : [];
   const allowed = Array.isArray(extensionPolicy.provider_neutral_allowed) ? extensionPolicy.provider_neutral_allowed : [];
+  const guidedPolicy = activeReplay
+    ? `Replay draft loaded and bound to ${profileLabel}. Neo will not substitute another provider.`
+    : `Regenerate is bound to ${profileLabel}. Load the replay draft to restore that exact profile.`;
+  const expertPolicy = `selected_profile_only=true · automatic_provider_fallback=false${activeBinding?.state ? ` · state=${activeBinding.state}` : ''}`;
   return `
-    <div class="neo-output-provider-replay" data-output-provider-replay="true">
-      <div class="neo-output-provider-replay-head"><strong>Provider Replay Binding</strong><span class="neo-muted">Profile/model/source checks before regenerate</span></div>
+    <div class="neo-output-provider-replay${activeReplay ? ' is-active' : ''}" data-output-provider-replay="true">
+      <div class="neo-output-provider-replay-head"><strong>Provider Replay Binding</strong><span class="neo-state-pill ${activeReplay ? 'success' : 'info'}">${escapeHtml(activeReplay ? 'Replay profile active' : 'Recorded profile')}</span></div>
+      <p class="neo-output-provider-replay-summary">${escapeHtml(state.detailMode === 'expert' ? expertPolicy : guidedPolicy)}</p>
       <div class="neo-output-chip-row">
         ${binding.provider_id ? `<span class="neo-output-chip">Provider · ${escapeHtml(binding.provider_id)}</span>` : ''}
         ${binding.connection_type ? `<span class="neo-output-chip">Connection · ${escapeHtml(binding.connection_type)}</span>` : ''}
-        ${binding.backend_profile_id ? `<span class="neo-output-chip">Profile · ${escapeHtml(binding.backend_profile_id)}</span>` : ''}
+        ${profileId ? `<span class="neo-output-chip is-active">Profile · ${escapeHtml(profileLabel)}</span>` : ''}
         ${binding.model ? `<span class="neo-output-chip">Model · ${escapeHtml(basename(binding.model))}</span>` : ''}
         ${sourceAssets.count ? `<span class="neo-output-chip">Sources · ${Number(sourceAssets.count)}</span>` : ''}
       </div>
@@ -30336,10 +33986,42 @@ function renderOutputProviderReplayValidation(activeMetadata = {}) {
     </div>`;
 }
 
+function renderOutputLineagePanel(activeMetadata = {}) {
+  const lineage = activeMetadata.lineage && typeof activeMetadata.lineage === 'object' ? activeMetadata.lineage : {};
+  const hasLineage = Boolean(lineage.current_output_id || lineage.parent_output_id || lineage.root_output_id || Number(lineage.depth || 0));
+  if (!hasLineage) return '';
+  const depth = Number(lineage.depth || 0);
+  const ancestors = Array.isArray(lineage.ancestor_output_ids) ? lineage.ancestor_output_ids.filter(Boolean) : [];
+  const action = lineage.action_id || activeMetadata.params?._neo_derived_action?.action_id || '';
+  const dispatch = lineage.dispatch_type || activeMetadata.params?._neo_derived_action?.dispatch_type || '';
+  const guidedSummary = depth > 0
+    ? `This is derived output level ${depth}. Parent is ${lineage.parent_output_id || 'unknown'} and the chain starts at ${lineage.root_output_id || lineage.current_output_id || 'this output'}.`
+    : 'This output is the root of its generation chain.';
+  const ancestorRows = ancestors.length
+    ? ancestors.map((outputId, index) => `<span class="neo-output-lineage-node"><small>${index === 0 ? 'Root' : `Step ${index}`}</small><strong>${escapeHtml(outputId)}</strong></span>`).join('<span class="neo-output-lineage-arrow">→</span>')
+      + `<span class="neo-output-lineage-arrow">→</span><span class="neo-output-lineage-node is-current"><small>Current</small><strong>${escapeHtml(lineage.current_output_id || activeMetadata.output_id || activeMetadata.result_id || 'output')}</strong></span>`
+    : `<span class="neo-output-lineage-node is-current"><small>Current / root</small><strong>${escapeHtml(lineage.current_output_id || activeMetadata.output_id || activeMetadata.result_id || 'output')}</strong></span>`;
+  return `<div class="neo-output-lineage-panel" data-output-lineage="true" data-output-lineage-depth="${escapeAttr(depth)}">
+    <div class="neo-output-lineage-head"><div><strong>Output Lineage</strong><span class="neo-muted">Parent, root, and derived-pass depth</span></div><span class="neo-output-chip is-active">Depth · ${depth}</span></div>
+    <p>${escapeHtml(state.detailMode === 'expert' ? `parent=${lineage.parent_output_id || 'none'} · root=${lineage.root_output_id || 'none'} · source=${lineage.source_output_id || 'none'} · action=${action || 'base'} · dispatch=${dispatch || 'base_generation'}` : guidedSummary)}</p>
+    <div class="neo-output-lineage-chain">${ancestorRows}</div>
+    <div class="neo-output-meta-grid neo-output-lineage-meta">
+      ${resultMetaTile('Immediate Parent', lineage.parent_output_id)}
+      ${resultMetaTile('Root Output', lineage.root_output_id || lineage.current_output_id)}
+      ${resultMetaTile('Source Output', lineage.source_output_id)}
+      ${resultMetaTile('Action', action || (depth ? 'derived pass' : 'base generation'))}
+      ${state.detailMode === 'expert' ? resultMetaTile('Dispatch', dispatch) : ''}
+      ${state.detailMode === 'expert' ? resultMetaTile('Parent Job', lineage.parent_job_id) : ''}
+      ${state.detailMode === 'expert' ? resultMetaTile('Root Job', lineage.root_job_id) : ''}
+      ${state.detailMode === 'expert' ? resultMetaTile('Provider / Profile', `${lineage.provider_id || ''}${lineage.profile_id ? ` · ${lineage.profile_id}` : ''}`) : ''}
+    </div>
+  </div>`;
+}
+
 
 function outputInspectorPostFixActions(sourceContext = {}) {
   const ids = ['extension.high_res_lab', 'extension.adetailer', 'extension.image_upscale', 'extension.identity_rescue'];
-  return PREVIEW_ACTION_GROUPS
+  return imagePreviewActionGroups()
     .flatMap((group) => group.actions)
     .filter((action) => ids.includes(action.id))
     .map((action) => evaluatePreviewActionForToolbar(action, sourceContext));
@@ -30369,7 +34051,7 @@ function renderOutputPostFixPanel(activeSummary = {}, activeMetadata = {}, activ
       <div class="neo-output-postfix-copy">
         <div class="neo-output-postfix-title">Post-Fix Selected Output</div>
         <div class="neo-output-postfix-status"><span class="neo-output-chip${hasSource ? ' is-active' : ''}">${escapeHtml(hasSource ? 'Source ready' : 'Select output')}</span><span class="neo-muted">${escapeHtml(sourceLabel)}</span></div>
-        <p class="neo-muted">Apply ADetailer Pass runs immediately on the selected output. Other post-fix actions stage the image for review. Grok/cloud outputs remain source images and local finish tools use a compatible Comfy Image backend profile.</p>
+        <p class="neo-muted">Each finish action stays on the selected provider. High-Res Fix is diffusion, ADetailer and Identity Rescue are repair passes, and Image Upscale is pixel post-processing. Cross-provider finishing requires an explicit profile choice.</p>
       </div>
       <div class="neo-output-postfix-actions">${actionButtons}</div>
     </div>`;
@@ -30414,6 +34096,7 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
     model.model ? `Model · ${basename(model.model)}` : '',
     runTimingLabel ? `Run Time · ${runTimingLabel.replace(/^total\s+/, '')}` : '',
     cleanupSummary.label,
+    metadata.lineage?.depth !== undefined ? `Lineage · depth ${Number(metadata.lineage.depth || 0)}` : '',
     conditioningMode ? `Prompt Conditioning · ${conditioningMode}${conditioningChanged ? ' · changed' : ''}` : '',
   ].filter(Boolean);
 
@@ -30452,6 +34135,9 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
       ${renderOutputReplayRegeneratePanel(activeSummary, metadata, media || activeFile || {})}
       ${renderOutputLatePassContinuationPanel(activeSummary, metadata)}
       ${renderOutputProviderReplayValidation(metadata)}
+      ${renderOutputPreviewActionDiagnostics(buildInspectorPreviewActionSource(metadata, media || activeFile || {}))}
+      ${renderImagePendingRevalidationNotice({ compact: false, resultId: metadata.result_id || '', placement: 'output_inspector' })}
+      ${renderOutputLineagePanel(metadata)}
       ${renderOutputFileStrip(metadata.outputs?.files || [], activeFile?.file_id)}
       ${renderOutputInputAssetStrip(inputAssets, state.activeSavedInspectorMediaId)}
       ${renderOutputExtensionAssetStrip(extensionAssets, state.activeSavedInspectorMediaId)}
@@ -31025,6 +34711,7 @@ function stripEnhancementExtensionsForBaseGenerationBranch(resultId = '') {
   state.imageDraft[IMAGE_UPSCALE_EXTENSION_ID] = { ...imageUpscaleSettings(), enabled: false, restored_from_output: resultId, restore_state: 'stripped_for_base_generation_branch' };
   state.imageDraft[LAYERDIFFUSE_EXTENSION_ID] = { ...layerDiffuseSettings(), enabled: false, restored_from_output: resultId, restore_state: 'stripped_for_base_generation_branch' };
   stripped.forEach((extensionId) => setWorkflowExtensionApplied(extensionId, false));
+  delete state.imageDraft._neo_derived_action;
   delete state.imageDraft._preview_action_force_workflow_mode;
   delete state.imageDraft._preview_action_run_label;
   delete state.imageDraft._preview_action_finish_pass;
@@ -31074,11 +34761,159 @@ function prepareImageLatePassContinuationDraft(branchRestore = {}, resultId = ''
     restore_state: 'disabled_for_latent_late_pass_continuation',
   };
   [HIGH_RES_LAB_EXTENSION_ID, ADETAILER_EXTENSION_ID, IMAGE_UPSCALE_EXTENSION_ID, LAYERDIFFUSE_EXTENSION_ID].forEach((extensionId) => setWorkflowExtensionApplied(extensionId, false));
+  delete state.imageDraft._neo_derived_action;
   delete state.imageDraft._preview_action;
   delete state.imageDraft._preview_action_force_workflow_mode;
   delete state.imageDraft._preview_action_run_label;
   delete state.imageDraft._preview_action_finish_pass;
   state.imageDraft.output_policy = 'append_derived';
+}
+
+function imageReplayRecordedProviderBinding(reuse = {}, activeMetadata = {}) {
+  const binding = reuse.provider_binding && typeof reuse.provider_binding === 'object'
+    ? reuse.provider_binding
+    : (activeMetadata.provider_binding && typeof activeMetadata.provider_binding === 'object' ? activeMetadata.provider_binding : {});
+  return {
+    providerId: String(binding.provider_id || '').trim().toLowerCase(),
+    profileId: String(binding.backend_profile_id || binding.profile_id || '').trim(),
+  };
+}
+
+function applyImageReplayProviderBinding(reuse = {}, activeMetadata = {}, options = {}) {
+  const binding = imageReplayRecordedProviderBinding(reuse, activeMetadata);
+  const selectedProfileId = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  if (options.providerPolicy === 'preserve_selected_source_action' || options.allowProviderOverride === true) {
+    return { ...binding, selectedProfileId, state: 'explicit_current_provider_override' };
+  }
+  if (!binding.profileId) return { ...binding, selectedProfileId, state: 'recorded_profile_not_available_in_metadata' };
+  const profile = backendProfilesForSurface('image').find((item) => String(item.profile_id || '') === binding.profileId);
+  if (!profile) {
+    const error = new Error(`Replay is bound to backend profile ${binding.profileId}, but that profile is not available. Select an explicit replacement before running this replay.`);
+    error.neoReplayProviderBinding = { ...binding, selectedProfileId, state: 'recorded_profile_missing' };
+    throw error;
+  }
+  setSelectedBackendProfileForSurface('image', binding.profileId, { preserveActionState: true });
+  const selector = document.getElementById('workspaceProvider');
+  if (selector) selector.value = binding.profileId;
+  return { ...binding, selectedProfileId: binding.profileId, state: 'recorded_profile_selected' };
+}
+
+function restoreProviderNeutralExtensionsFromReuse(reuse = {}, resultId = '') {
+  const payloads = reuse.extensions?.payloads && typeof reuse.extensions.payloads === 'object' ? reuse.extensions.payloads : {};
+  const restored = [];
+  Object.entries(payloads).forEach(([extensionId, payload]) => {
+    if (!payload || typeof payload !== 'object') return;
+    if ([IP_ADAPTER_EXTENSION_ID, HIGH_RES_LAB_EXTENSION_ID, ADETAILER_EXTENSION_ID].includes(extensionId)) return;
+    const next = JSON.parse(JSON.stringify(payload));
+    next.enabled = false;
+    next.restored_from_output = resultId;
+    next.restore_state = 'restored_disabled_pending_selected_provider_revalidation';
+    next.metadata = {
+      ...(next.metadata && typeof next.metadata === 'object' ? next.metadata : {}),
+      revalidation_required: true,
+      temporary_handoff_restored: false,
+    };
+    state.imageDraft[extensionId] = next;
+    setWorkflowExtensionApplied(extensionId, false);
+    restored.push(extensionId);
+  });
+  return restored;
+}
+
+function imageLanpaintReplayContract(reuse = {}, activeMetadata = {}) {
+  const direct = reuse?.lanpaint && typeof reuse.lanpaint === 'object' ? reuse.lanpaint : null;
+  if (direct?.schema_id === 'neo.image.lanpaint_replay.v1') return direct;
+  const metadata = activeMetadata?.lanpaint && typeof activeMetadata.lanpaint === 'object' ? activeMetadata.lanpaint : null;
+  if (metadata?.schema_id === 'neo.image.lanpaint_replay.v1') return metadata;
+  const replay = activeMetadata?.replay?.lanpaint && typeof activeMetadata.replay.lanpaint === 'object' ? activeMetadata.replay.lanpaint : null;
+  return replay?.schema_id === 'neo.image.lanpaint_replay.v1' ? replay : null;
+}
+
+function imageLanpaintReplayAsset(contract = {}, reuse = {}, role = '') {
+  const direct = contract?.input_assets?.[role];
+  if (direct && typeof direct === 'object' && (direct.path || direct.url)) return direct;
+  const assets = Array.isArray(reuse?.input_assets) ? reuse.input_assets : (Array.isArray(contract?.input_assets?.all) ? contract.input_assets.all : []);
+  return assets.find((item) => item && item.role === role && (item.path || item.url)) || null;
+}
+
+function imageLanpaintReplayControlPatch(contract = {}) {
+  const controls = contract?.controls && typeof contract.controls === 'object' ? contract.controls : {};
+  const crop = controls.processing_size && typeof controls.processing_size === 'object' ? controls.processing_size : {};
+  const sampling = controls.sampling_mask && typeof controls.sampling_mask === 'object' ? controls.sampling_mask : {};
+  const stitch = controls.stitch_mask && typeof controls.stitch_mask === 'object' ? controls.stitch_mask : {};
+  return {
+    lanpaint_crop_padding: controls.crop_padding,
+    lanpaint_processing_width: crop.width,
+    lanpaint_processing_height: crop.height,
+    lanpaint_resize_method: controls.resize_method,
+    lanpaint_sampling_mask_expand: sampling.expand,
+    lanpaint_sampling_mask_blur: sampling.blur,
+    lanpaint_stitch_mask_expand: stitch.expand,
+    lanpaint_stitch_mask_blur: stitch.blur,
+    lanpaint_steps: controls.steps,
+    lanpaint_cfg: controls.cfg,
+    lanpaint_sampler: controls.sampler,
+    lanpaint_scheduler: controls.scheduler,
+    lanpaint_denoise: controls.denoise,
+    lanpaint_thinking_steps: controls.thinking_steps,
+    lanpaint_prompt_mode: String(controls.prompt_mode || 'Image First').toLowerCase().includes('prompt') ? 'prompt_first' : 'image_first',
+    lanpaint_stitch_resize_method: controls.restore_resize_method,
+  };
+}
+
+function buildImageLanpaintReplayRestore(reuse = {}, activeMetadata = {}, resultId = '') {
+  const contract = imageLanpaintReplayContract(reuse, activeMetadata);
+  if (!contract) return { contract: null, draftPatch: {}, report: null };
+  const route = contract.route && typeof contract.route === 'object' ? contract.route : {};
+  const source = imageLanpaintReplayAsset(contract, reuse, 'source');
+  const mask = imageLanpaintReplayAsset(contract, reuse, 'mask');
+  const draftPatch = {
+    ...imageLanpaintReplayControlPatch(contract),
+    family: route.family || '',
+    loader: route.loader || '',
+    workflow_mode: 'inpaint',
+    inpaint_engine: 'lanpaint',
+    inpaint_selection_target: contract?.mask?.target || 'masked_area',
+    lanpaint_replay: contract,
+    lanpaint_replay_fingerprint: contract.replay_fingerprint || '',
+  };
+  if (source) Object.assign(draftPatch, {
+    source_image: source.path || source.url || '',
+    source_image_path: source.path || '',
+    source_image_url: source.url || '',
+    source_image_name: source.filename || '',
+  });
+  if (mask) Object.assign(draftPatch, {
+    mask_image: mask.path || mask.url || '',
+    mask_image_path: mask.path || '',
+    mask_image_url: mask.url || '',
+    mask_image_name: mask.filename || '',
+  });
+  const missingAssets = [];
+  if (!source) missingAssets.push('source');
+  if (!mask) missingAssets.push('mask');
+  const recordedAdapter = contract?.family_adapter && typeof contract.family_adapter === 'object' ? contract.family_adapter : null;
+  const liveAdapter = imageLanpaintAdapterForRoute(activeImageProfile(), { family: route.family || '', loader: route.loader || '', mode: 'inpaint', engine: 'lanpaint' });
+  const exactAdapterDeclared = Boolean(recordedAdapter?.binding?.selectable || liveAdapter?.binding?.selectable);
+  const report = {
+    schema_version: 'neo.image.lanpaint_replay_reconstruction.v1',
+    source_result_id: resultId,
+    recorded_route_key: route.route_key || '',
+    recorded_provider_id: route.provider_id || '',
+    family: route.family || '',
+    loader: route.loader || '',
+    engine: 'lanpaint',
+    state: missingAssets.length ? 'blocked_missing_portable_assets' : (exactAdapterDeclared ? 'restored_pending_live_revalidation' : 'blocked_unsupported_route'),
+    restored_fields: Object.keys(draftPatch).filter((key) => draftPatch[key] !== undefined && draftPatch[key] !== null && draftPatch[key] !== ''),
+    missing_asset_roles: missingAssets,
+    exact_route_declared: exactAdapterDeclared,
+    live_capability_revalidation_required: true,
+    selected_asset_catalog_revalidation_required: true,
+    lora_restore_state: contract?.lora?.revalidation_required ? 'rows_restored_disabled_pending_revalidation' : 'inactive',
+    auto_run: false,
+    replay_fingerprint: contract.replay_fingerprint || '',
+  };
+  return { contract, draftPatch, report };
 }
 
 function applyImageResultReusePayload(reuse = {}, options = {}) {
@@ -31087,6 +34922,8 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
   const model = reuse.model || {};
   const resultId = reuse.result_id || options.resultId || activeSavedResultSummary()?.result_id || '';
   const activeMetadata = options.activeMetadata || state.activeSavedResultMetadata || {};
+  const providerBindingState = applyImageReplayProviderBinding(reuse, activeMetadata, options);
+  const lanpaintRestore = buildImageLanpaintReplayRestore(reuse, activeMetadata, resultId);
   const replaySource = options.replaySource || options.replayKind || 'full_recipe';
   const latePassContinuation = options.latePassContinuation === true;
   const branchRestore = buildImageBranchRestoreContext(activeMetadata, replaySource, resultId, { latePassContinuation });
@@ -31099,6 +34936,7 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
   state.imageDraft = {
     ...state.imageDraft,
     ...params,
+    ...lanpaintRestore.draftPatch,
     positive_prompt: prompt.positive || state.imageDraft.positive_prompt,
     negative_prompt: prompt.negative || state.imageDraft.negative_prompt,
     family: model.family || state.imageDraft.family,
@@ -31113,6 +34951,10 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
       source_is_output_image: false,
       loaded_at: new Date().toISOString(),
       trigger: options.trigger || 'reuse_prompt_params',
+      provider_binding: providerBindingState,
+      lineage: reuse.lineage && typeof reuse.lineage === 'object' ? reuse.lineage : (activeMetadata.lineage || {}),
+      lanpaint_reconstruction: lanpaintRestore.report,
+      state_cleanup: reuse.state_cleanup || {},
       available_restore_points: availableRestorePoints,
       latent_restore_points: latePassRestorePoints,
       late_pass_restore_points: latePassRestorePoints,
@@ -31137,6 +34979,7 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
       auto_run: false,
     },
   };
+  const restoredProviderNeutralExtensions = restoreProviderNeutralExtensionsFromReuse(reuse, resultId);
   const restoredIpAdapter = restoreIpAdapterSettingsFromReuse(reuse);
   const restoredSceneDirector = restoreSceneDirectorSettingsFromReuse(reuse);
   const isBaseGenerationBranch = replaySource === 'base_generation_only';
@@ -31149,8 +34992,10 @@ function applyImageResultReusePayload(reuse = {}, options = {}) {
   const baseBranchLabel = isBaseGenerationBranch ? 'Base branch: finish extensions stripped' : '';
   const restoredHighResLabLabel = restoredHighResLab ? 'High-Res Lab settings' : '';
   const restoredAdetailerLabel = restoredAdetailer ? 'ADetailer settings' : '';
-  const restoredLabels = [restoredIpAdapter ? 'IP Adapter settings' : '', restoredSceneDirector ? 'Scene Director regions' : '', isBaseGenerationBranch ? '' : restoredHighResLabLabel, isBaseGenerationBranch ? '' : restoredAdetailerLabel, baseBranchLabel].filter(Boolean).join(' + ');
-  return { restoredLabels };
+  const providerNeutralLabel = restoredProviderNeutralExtensions.length ? `${restoredProviderNeutralExtensions.length} provider-neutral extension draft(s)` : '';
+  const lanpaintLabel = lanpaintRestore.report ? `LanPaint ${lanpaintRestore.report.family || ''} ${lanpaintRestore.report.loader || ''} recipe` : '';
+  const restoredLabels = [lanpaintLabel, restoredIpAdapter ? 'IP Adapter settings' : '', restoredSceneDirector ? 'Scene Director regions' : '', providerNeutralLabel, isBaseGenerationBranch ? '' : restoredHighResLabLabel, isBaseGenerationBranch ? '' : restoredAdetailerLabel, baseBranchLabel].filter(Boolean).join(' + ');
+  return { restoredLabels, providerBindingState, restoredProviderNeutralExtensions, lanpaintRestore };
 }
 
 async function fetchActiveImageResultReusePayload() {
@@ -31713,6 +35558,677 @@ function imageInpaintContextLabel(value) {
   return 'Route default';
 }
 
+const IMAGE_LANPAINT_PHASE22_1_CAPABILITY_DISCOVERY_CACHE = 'lanpaint_capability_discovery_phase22_1_20260805';
+const IMAGE_LANPAINT_UI_STATE_VERSION = 1;
+const IMAGE_LANPAINT_FAMILY_UI_FALLBACKS = {
+  flux2_dev: {
+    diffusion_model: {
+      policy_id: 'lanpaint.flux2_dev.v1', route_state: 'experimental_available', variant: 'flux2_dev',
+      family_label: 'Flux 2 Dev', lora_mode: 'model_and_clip', transform_label: 'Flux2 Mistral3 + FluxGuidance',
+      controls: { lanpaint_crop_padding: 128, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 40, lanpaint_sampling_mask_blur: 28, lanpaint_stitch_mask_expand: 48, lanpaint_stitch_mask_blur: 9, lanpaint_steps: 28, lanpaint_cfg: 1, lanpaint_flux_guidance: 4, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  flux2_klein: {
+    diffusion_model: {
+      policy_id: 'lanpaint.flux2_klein.v1', route_state: 'experimental_available', variant: 'flux2_klein_base_distilled',
+      family_label: 'Flux 2 Klein', lora_mode: 'model_and_clip', transform_label: 'Flux2 Qwen3 + FluxGuidance',
+      controls: { lanpaint_crop_padding: 128, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 40, lanpaint_sampling_mask_blur: 28, lanpaint_stitch_mask_expand: 48, lanpaint_stitch_mask_blur: 9, lanpaint_steps: 4, lanpaint_cfg: 1, lanpaint_flux_guidance: 1, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 2, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  flux: {
+    diffusion_model: {
+      policy_id: 'lanpaint.flux1.v1', route_state: 'experimental_available', variant: 'flux1_dev_schnell',
+      family_label: 'Flux 1', lora_mode: 'model_and_clip', transform_label: 'FluxGuidance + Flux sampling',
+      controls: { lanpaint_crop_padding: 128, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 40, lanpaint_sampling_mask_blur: 28, lanpaint_stitch_mask_expand: 48, lanpaint_stitch_mask_blur: 9, lanpaint_steps: 30, lanpaint_cfg: 1, lanpaint_flux_guidance: 1.5, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  sdxl: {
+    checkpoint: {
+      policy_id: 'lanpaint.sdxl.v1', route_state: 'experimental_available', variant: 'checkpoint_crop_stitch_v1',
+      family_label: 'SDXL', lora_mode: 'model_and_clip', transform_label: 'Checkpoint MODEL + CLIP + VAE',
+      controls: { lanpaint_crop_padding: 96, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 32, lanpaint_sampling_mask_blur: 24, lanpaint_stitch_mask_expand: 40, lanpaint_stitch_mask_blur: 8, lanpaint_steps: 28, lanpaint_cfg: 7, lanpaint_sampler: 'euler', lanpaint_scheduler: 'normal', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+  },
+  sd15: {
+    checkpoint: {
+      policy_id: 'lanpaint.sd15.v1', route_state: 'experimental_available', variant: 'checkpoint_crop_stitch_v1',
+      family_label: 'SD 1.5', lora_mode: 'model_and_clip', transform_label: 'Checkpoint MODEL + CLIP + VAE',
+      controls: { lanpaint_crop_padding: 96, lanpaint_processing_width: 768, lanpaint_processing_height: 768, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 32, lanpaint_sampling_mask_blur: 24, lanpaint_stitch_mask_expand: 40, lanpaint_stitch_mask_blur: 8, lanpaint_steps: 25, lanpaint_cfg: 7, lanpaint_sampler: 'euler', lanpaint_scheduler: 'normal', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+  },
+  sd35: {
+    diffusion_model: {
+      policy_id: 'lanpaint.sd35.v1', route_state: 'experimental_available', variant: 'sd3_crop_stitch_v1',
+      family_label: 'SD 3.5', lora_mode: 'model_and_clip', transform_label: 'ModelSamplingSD3 3.0',
+      controls: { lanpaint_crop_padding: 128, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 40, lanpaint_sampling_mask_blur: 28, lanpaint_stitch_mask_expand: 48, lanpaint_stitch_mask_blur: 9, lanpaint_steps: 28, lanpaint_cfg: 4.5, lanpaint_sampler: 'euler', lanpaint_scheduler: 'sgm_uniform', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  krea2_turbo: {
+    gguf: {
+      policy_id: 'lanpaint.krea2_turbo.v1', route_state: 'experimental_available', variant: 'crop_stitch_v1',
+      family_label: 'Krea 2 Turbo', lora_mode: 'model_only', transform_label: 'Differential Diffusion',
+      controls: { lanpaint_crop_padding: 152, lanpaint_processing_width: 768, lanpaint_processing_height: 768, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 45, lanpaint_sampling_mask_blur: 31, lanpaint_stitch_mask_expand: 50, lanpaint_stitch_mask_blur: 9.1, lanpaint_steps: 8, lanpaint_cfg: 1, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 10, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+  },
+  qwen_image: {
+    diffusion_model: {
+      policy_id: 'lanpaint.qwen_image.v1', route_state: 'experimental_available', variant: 'crop_stitch_aura_v1',
+      family_label: 'Qwen Image', lora_mode: 'model_and_clip', transform_label: 'AuraFlow 3.1',
+      controls: { lanpaint_crop_padding: 152, lanpaint_processing_width: 768, lanpaint_processing_height: 768, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 45, lanpaint_sampling_mask_blur: 31, lanpaint_stitch_mask_expand: 50, lanpaint_stitch_mask_blur: 9.1, lanpaint_steps: 20, lanpaint_cfg: 4, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  hidream: {
+    diffusion_model: {
+      policy_id: 'lanpaint.hidream_i1.v1', route_state: 'experimental_available', variant: 'hidream_i1_quad_clip_crop_stitch_v1',
+      family_label: 'HiDream-I1', lora_mode: 'model_and_clip', transform_label: 'CLIP-L + CLIP-G + T5XXL + Llama 3.1 8B + ModelSamplingSD3 6.0', family_variant: 'HiDream-I1', hidream_i1_profile: 'dev',
+      controls: { lanpaint_crop_padding: 128, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 40, lanpaint_sampling_mask_blur: 28, lanpaint_stitch_mask_expand: 48, lanpaint_stitch_mask_blur: 9, lanpaint_steps: 28, lanpaint_cfg: 1, lanpaint_sampler: 'lcm', lanpaint_scheduler: 'normal', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  anima: {
+    diffusion_model: {
+      policy_id: 'lanpaint.anima.v1', route_state: 'experimental_available', variant: 'anima_base_crop_stitch_v1',
+      family_label: 'Anima Base v1', lora_mode: 'model_only', transform_label: 'Qwen3 0.6B + Qwen Image VAE + basic LanPaint KSampler',
+      controls: { lanpaint_crop_padding: 112, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 32, lanpaint_sampling_mask_blur: 24, lanpaint_stitch_mask_expand: 40, lanpaint_stitch_mask_blur: 8, lanpaint_steps: 30, lanpaint_cfg: 4, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  ideogram4: {
+    diffusion_model: {
+      policy_id: 'lanpaint.ideogram4.v1', route_state: 'experimental_available', variant: 'ideogram4_dual_model_custom_advanced_v1',
+      family_label: 'Ideogram 4', lora_mode: 'blocked_dual_model', transform_label: 'Main + unconditional models + Ideogram4Scheduler + LanPaint custom advanced',
+      controls: { lanpaint_crop_padding: 112, lanpaint_processing_width: 1024, lanpaint_processing_height: 1024, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 32, lanpaint_sampling_mask_blur: 24, lanpaint_stitch_mask_expand: 40, lanpaint_stitch_mask_blur: 8, lanpaint_steps: 20, lanpaint_cfg: 4, lanpaint_sampler: 'euler', lanpaint_scheduler: 'ideogram4', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos', lanpaint_lambda: 16, lanpaint_step_size: 0.2, lanpaint_beta: 1, lanpaint_friction: 15, lanpaint_early_stop: 1 },
+    },
+    gguf: null,
+  },
+  z_image: {
+    diffusion_model: {
+      policy_id: 'lanpaint.z_image.v2', route_state: 'experimental_available', variant: 'z_image_lanpaint_base_crop_stitch_v2',
+      family_label: 'Z-Image Base', lora_mode: 'model_and_clip', transform_label: 'AuraFlow 3.0', stability_profile: 'z_image_lanpaint_base_cautious_v1', family_variant: 'base',
+      controls: { lanpaint_crop_padding: 152, lanpaint_processing_width: 768, lanpaint_processing_height: 768, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 45, lanpaint_sampling_mask_blur: 31, lanpaint_stitch_mask_expand: 50, lanpaint_stitch_mask_blur: 9.1, lanpaint_steps: 35, lanpaint_cfg: 3.5, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 3, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+  z_image_turbo: {
+    diffusion_model: {
+      policy_id: 'lanpaint.z_image_turbo.v2', route_state: 'experimental_available', variant: 'z_image_turbo_lanpaint_crop_stitch_v2',
+      family_label: 'Z-Image Turbo', lora_mode: 'model_and_clip', transform_label: 'AuraFlow 3.0', stability_profile: 'z_image_turbo_distilled_v1', family_variant: 'turbo',
+      controls: { lanpaint_crop_padding: 152, lanpaint_processing_width: 768, lanpaint_processing_height: 768, lanpaint_resize_method: 'lanczos', lanpaint_sampling_mask_expand: 45, lanpaint_sampling_mask_blur: 31, lanpaint_stitch_mask_expand: 50, lanpaint_stitch_mask_blur: 9.1, lanpaint_steps: 9, lanpaint_cfg: 1, lanpaint_sampler: 'euler', lanpaint_scheduler: 'simple', lanpaint_denoise: 1, lanpaint_thinking_steps: 5, lanpaint_prompt_mode: 'image_first', lanpaint_stitch_resize_method: 'lanczos' },
+    },
+    gguf: null,
+  },
+};
+IMAGE_LANPAINT_FAMILY_UI_FALLBACKS.krea2_turbo.diffusion_model = {
+  ...IMAGE_LANPAINT_FAMILY_UI_FALLBACKS.krea2_turbo.gguf,
+  controls: { ...IMAGE_LANPAINT_FAMILY_UI_FALLBACKS.krea2_turbo.gguf.controls },
+};
+['flux', 'flux2_dev', 'flux2_klein', 'qwen_image', 'hidream', 'anima', 'ideogram4', 'z_image', 'z_image_turbo', 'sd35'].forEach((family) => {
+  IMAGE_LANPAINT_FAMILY_UI_FALLBACKS[family].gguf = {
+    ...IMAGE_LANPAINT_FAMILY_UI_FALLBACKS[family].diffusion_model,
+    controls: { ...IMAGE_LANPAINT_FAMILY_UI_FALLBACKS[family].diffusion_model.controls },
+  };
+});
+
+const IMAGE_LANPAINT_CAPABILITY_STATUS = Object.freeze({
+  available: { label: 'Available', tone: 'success', selectable: true },
+  experimental_available: { label: 'Experimental', tone: 'warning', selectable: true },
+  blocked_missing_nodes: { label: 'Missing nodes', tone: 'danger', selectable: false },
+  blocked_missing_models: { label: 'Missing models', tone: 'danger', selectable: false },
+  blocked_stale_capability_snapshot: { label: 'Refresh required', tone: 'warning', selectable: false },
+  unsupported: { label: 'Unsupported', tone: 'danger', selectable: false },
+});
+
+function imageLanpaintAdapterRegistry(profile = activeImageProfile()) {
+  const capabilities = imageLanpaintBackendCapabilities(profile);
+  const registry = capabilities?.lanpaint_family_adapters;
+  return registry && typeof registry === 'object' ? registry : null;
+}
+
+function imageLanpaintAdapterForRoute(profile = activeImageProfile(), { family = '', loader = '', mode = 'inpaint', engine = 'lanpaint' } = {}) {
+  const registry = imageLanpaintAdapterRegistry(profile);
+  const adapters = Array.isArray(registry?.adapters) ? registry.adapters : [];
+  return adapters.find((item) => {
+    const identity = item?.identity || {};
+    return String(identity.family || '').toLowerCase() === String(family || '').toLowerCase()
+      && String(identity.loader || '').toLowerCase() === String(loader || '').toLowerCase()
+      && String(identity.mode || '').toLowerCase() === String(mode || 'inpaint').toLowerCase()
+      && String(identity.engine || '').toLowerCase() === String(engine || 'lanpaint').toLowerCase();
+  }) || null;
+}
+
+function imageLanpaintPolicyFromAdapter(adapter, fallback = null) {
+  if (!adapter || typeof adapter !== 'object') return fallback;
+  const identity = adapter.identity || {};
+  const policy = adapter.policy || {};
+  const binding = adapter.binding || {};
+  const spatial = adapter.spatial || {};
+  const crop = spatial.crop || {};
+  const process = crop.processing_size || {};
+  const masks = spatial.mask || {};
+  const samplingMask = masks.sampling || {};
+  const stitchMask = masks.stitch || {};
+  const stitch = spatial.stitch || {};
+  const sampler = adapter.sampler?.defaults || {};
+  const latent = adapter.latent || {};
+  const graphProfile = String(binding.graph_profile || '');
+  const transformLabel = graphProfile.includes('differential')
+    ? 'Differential Diffusion'
+    : (latent.model_sampling_patch === 'ModelSamplingAuraFlow'
+      ? `AuraFlow ${Number(latent.aura_shift || 0).toFixed(1)}`
+      : (latent.model_sampling_patch === 'ModelSamplingSD3'
+        ? `ModelSamplingSD3 ${Number(latent.sd3_shift || 3).toFixed(1)}`
+        : (graphProfile.includes('sd_checkpoint') ? 'Checkpoint MODEL + CLIP + VAE' : 'Family adapter')));
+  return {
+    policy_id: policy.policy_id || fallback?.policy_id || '',
+    route_state: binding.selectable ? 'experimental_available' : 'unsupported',
+    variant: identity.variant || fallback?.variant || 'default',
+    family_label: fallback?.family_label || humanize(identity.family || ''),
+    lora_mode: adapter.lora?.mode || fallback?.lora_mode || 'model_and_clip',
+    transform_label: transformLabel,
+    adapter_id: identity.adapter_id || '',
+    adapter_fingerprint: adapter.adapter_fingerprint || '',
+    binding_state: binding.state || 'scaffold_only',
+    graph_profile: graphProfile,
+    controls: {
+      lanpaint_crop_padding: crop.padding_px ?? fallback?.controls?.lanpaint_crop_padding,
+      lanpaint_processing_width: process.width ?? fallback?.controls?.lanpaint_processing_width,
+      lanpaint_processing_height: process.height ?? fallback?.controls?.lanpaint_processing_height,
+      lanpaint_resize_method: crop.resize_method || fallback?.controls?.lanpaint_resize_method || 'lanczos',
+      lanpaint_sampling_mask_expand: samplingMask.expand_px ?? fallback?.controls?.lanpaint_sampling_mask_expand,
+      lanpaint_sampling_mask_blur: samplingMask.blur_radius ?? fallback?.controls?.lanpaint_sampling_mask_blur,
+      lanpaint_stitch_mask_expand: stitchMask.expand_px ?? fallback?.controls?.lanpaint_stitch_mask_expand,
+      lanpaint_stitch_mask_blur: stitchMask.blur_radius ?? fallback?.controls?.lanpaint_stitch_mask_blur,
+      lanpaint_steps: sampler.steps ?? fallback?.controls?.lanpaint_steps,
+      lanpaint_cfg: sampler.cfg ?? fallback?.controls?.lanpaint_cfg,
+      lanpaint_sampler: sampler.sampler_name || fallback?.controls?.lanpaint_sampler || 'euler',
+      lanpaint_scheduler: sampler.scheduler || fallback?.controls?.lanpaint_scheduler || 'simple',
+      lanpaint_denoise: sampler.denoise ?? fallback?.controls?.lanpaint_denoise,
+      lanpaint_thinking_steps: sampler.lanpaint_thinking_steps ?? fallback?.controls?.lanpaint_thinking_steps,
+      lanpaint_prompt_mode: sampler.prompt_mode || fallback?.controls?.lanpaint_prompt_mode || 'image_first',
+      lanpaint_stitch_resize_method: stitch.resize_method || fallback?.controls?.lanpaint_stitch_resize_method || 'lanczos',
+    },
+  };
+}
+
+function imageLanpaintBackendCapabilities(profile = activeImageProfile()) {
+  const profileCapabilities = profile?.backend_capabilities
+    || profile?.runtime?.backend_capabilities
+    || profile?.runtime?.capabilities?.backend_capabilities;
+  if (profileCapabilities && typeof profileCapabilities === 'object' && Object.keys(profileCapabilities).length) {
+    return profileCapabilities;
+  }
+  const overlay = imageCapabilityOverlayForProfile(profile);
+  const overlayCapabilities = overlay?.backend_capabilities || overlay?.capabilities?.backend_capabilities;
+  return overlayCapabilities && typeof overlayCapabilities === 'object' ? overlayCapabilities : {};
+}
+
+function imageLanpaintCapabilitySnapshotState(profile = activeImageProfile(), { family = '', loader = '', mode = 'inpaint' } = {}) {
+  const capabilities = imageLanpaintBackendCapabilities(profile);
+  const routeKey = `${String(family || '').toLowerCase()}:${String(loader || '').toLowerCase()}:${String(mode || 'inpaint').toLowerCase()}:lanpaint`;
+  const matrix = capabilities?.lanpaint_route_capability_matrix;
+  const matrixPresent = Boolean(matrix && typeof matrix === 'object');
+  const snapshot = matrixPresent ? matrix[routeKey] : capabilities?.lanpaint_route_capabilities;
+  const metadata = capabilities?.lanpaint_capability_snapshot && typeof capabilities.lanpaint_capability_snapshot === 'object'
+    ? capabilities.lanpaint_capability_snapshot
+    : null;
+  const registry = imageLanpaintAdapterRegistry(profile);
+  const reasons = [];
+  if (matrixPresent && (!snapshot || typeof snapshot !== 'object')) reasons.push('route_missing_from_capability_matrix');
+  if (matrixPresent && !metadata) reasons.push('snapshot_metadata_missing');
+  if (metadata) {
+    const activeRouteKeys = Array.isArray(metadata.active_route_keys) ? metadata.active_route_keys.map((item) => String(item || '')) : [];
+    if (!activeRouteKeys.includes(routeKey)) reasons.push('route_missing_from_snapshot_registry');
+    const expectedFingerprint = String(registry?.registry_fingerprint || '');
+    const actualFingerprint = String(metadata.adapter_registry_fingerprint || '');
+    if (expectedFingerprint && expectedFingerprint !== actualFingerprint) reasons.push('adapter_registry_fingerprint_mismatch');
+  }
+  return {
+    routeKey,
+    snapshot: snapshot && typeof snapshot === 'object' ? snapshot : null,
+    metadata,
+    stale: reasons.length > 0,
+    reasons,
+    matrixPresent,
+  };
+}
+
+function imageLanpaintCapabilitySnapshot(profile = activeImageProfile(), options = {}) {
+  return imageLanpaintCapabilitySnapshotState(profile, options).snapshot;
+}
+
+function imageLanpaintPortableAssetName(value) {
+  return String(value || '').trim().replaceAll('\\', '/').split('/').pop().toLowerCase();
+}
+
+function imageLanpaintAssetSelectionUsable(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return Boolean(normalized)
+    && normalized !== 'automatic'
+    && normalized !== 'provider_default'
+    && !normalized.startsWith('select_');
+}
+
+function imageLanpaintSelectedAssets({ family = '', loader = '' } = {}) {
+  const model = loader === 'checkpoint'
+    ? (state.imageDraft.checkpoint || state.imageDraft.checkpoint_name || valueOf('imageCheckpoint') || state.imageDraft.model || '')
+    : (loader === 'gguf'
+      ? (state.imageDraft.gguf_model || state.imageDraft.gguf_unet || valueOf('imageParam_gguf_model') || state.imageDraft.model || '')
+      : (state.imageDraft.diffusion_model || valueOf('imageParam_diffusion_model') || state.imageDraft.model || ''));
+  let textEncoder = state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || imageCommandValue('text_encoder_1') || '';
+  if (family === 'krea2_turbo') textEncoder = state.imageDraft.qwen3vl_text_encoder || textEncoder || imageCommandValue('qwen3vl_text_encoder') || '';
+  if (family === 'qwen_image') textEncoder = state.imageDraft.qwen_text_encoder || textEncoder || imageCommandValue('qwen_text_encoder') || '';
+  if (family === 'z_image' || family === 'z_image_turbo') textEncoder = state.imageDraft.qwen3_text_encoder || textEncoder || imageCommandValue('qwen3_text_encoder') || '';
+  if (family === 'hidream') textEncoder = state.imageDraft.hidream_clip_l || textEncoder || imageCommandValue('hidream_clip_l') || '';
+  const textEncoder2 = family === 'hidream'
+    ? (state.imageDraft.hidream_clip_g || state.imageDraft.text_encoder_2 || state.imageDraft.gguf_text_encoder_2 || imageCommandValue('hidream_clip_g') || imageCommandValue('text_encoder_2') || '')
+    : (state.imageDraft.text_encoder_2 || state.imageDraft.gguf_text_encoder_2 || imageCommandValue('text_encoder_2') || '');
+  const textEncoder3 = family === 'hidream'
+    ? (state.imageDraft.hidream_t5xxl || state.imageDraft.text_encoder_3 || state.imageDraft.gguf_text_encoder_3 || imageCommandValue('hidream_t5xxl') || imageCommandValue('text_encoder_3') || '')
+    : (state.imageDraft.text_encoder_3 || state.imageDraft.gguf_text_encoder_3 || imageCommandValue('text_encoder_3') || '');
+  const textEncoder4 = family === 'hidream'
+    ? (state.imageDraft.hidream_llama_3_1_8b || state.imageDraft.text_encoder_4 || state.imageDraft.gguf_text_encoder_4 || imageCommandValue('hidream_llama_3_1_8b') || imageCommandValue('text_encoder_4') || '')
+    : (state.imageDraft.text_encoder_4 || state.imageDraft.gguf_text_encoder_4 || imageCommandValue('text_encoder_4') || '');
+  return {
+    model,
+    text_encoder: textEncoder,
+    text_encoder_2: textEncoder2,
+    text_encoder_3: textEncoder3,
+    text_encoder_4: textEncoder4,
+    vae: state.imageDraft.vae || valueOf('imageVae') || '',
+  };
+}
+
+function imageLanpaintCatalogContains(catalog, selected) {
+  const target = imageLanpaintPortableAssetName(selected);
+  return Boolean(target) && (Array.isArray(catalog) ? catalog : []).some((item) => imageLanpaintPortableAssetName(item) === target);
+}
+
+function imageLanpaintCapabilityEvaluation({ contractEligible = false, family = '', loader = '', mode = 'inpaint', policy = null } = {}) {
+  if (!contractEligible) {
+    return {
+      checked: true,
+      status: 'unsupported',
+      selectable: false,
+      executable: false,
+      blockers: [{ code: 'unsupported_route', message: 'LanPaint is not implemented for this provider/family/loader/mode.' }],
+      warnings: [],
+      remediation: ['Use Native Inpaint or select one of the exact Phase 10 LanPaint routes.'],
+      snapshot: null,
+      selected_assets: imageLanpaintSelectedAssets({ family, loader }),
+    };
+  }
+  const snapshotState = imageLanpaintCapabilitySnapshotState(activeImageProfile(), { family, loader, mode });
+  const snapshot = snapshotState.snapshot;
+  if (snapshotState.stale) {
+    return {
+      checked: true,
+      status: 'blocked_stale_capability_snapshot',
+      selectable: false,
+      executable: false,
+      blockers: [{ code: 'stale_capability_snapshot', message: `The selected backend capability snapshot is older than the current LanPaint route registry (${snapshotState.reasons.join(', ')}).` }],
+      warnings: [],
+      remediation: ['Reconnect/Test the selected ComfyUI profile to rebuild the LanPaint capability matrix from live /object_info.'],
+      snapshot,
+      snapshot_metadata: snapshotState.metadata,
+      selected_assets: imageLanpaintSelectedAssets({ family, loader }),
+    };
+  }
+  if (!snapshot) {
+    return {
+      checked: false,
+      status: 'blocked_missing_nodes',
+      selectable: false,
+      executable: false,
+      blockers: [{ code: 'capability_snapshot_unavailable', message: 'No live LanPaint capability report is available for the selected backend profile.' }],
+      warnings: [],
+      remediation: ['Connect/Test the ComfyUI backend profile to refresh /object_info.'],
+      snapshot: null,
+      selected_assets: imageLanpaintSelectedAssets({ family, loader }),
+    };
+  }
+  const blockers = Array.isArray(snapshot.blockers) ? snapshot.blockers.map((item) => ({ ...item })) : [];
+  const warnings = Array.isArray(snapshot.warnings) ? snapshot.warnings.map((item) => ({ ...item })) : [];
+  const remediation = Array.isArray(snapshot.remediation) ? [...snapshot.remediation] : [];
+  let status = String(snapshot.status || 'blocked_missing_nodes');
+  let selectable = Boolean(snapshot.selectable);
+  const selectedAssets = imageLanpaintSelectedAssets({ family, loader });
+  const modelItems = snapshot?.checks?.models?.items || {};
+  if (selectable) {
+    const requiredAssets = family === 'sd35'
+      ? { model: 'SD 3.5 model', text_encoder: 'SD 3.5 CLIP-L', text_encoder_2: 'SD 3.5 CLIP-G', text_encoder_3: 'SD 3.5 T5XXL', vae: 'SD 3.5 VAE' }
+      : (loader === 'checkpoint' ? { model: `${policy?.family_label || humanize(family)} checkpoint` } : { model: `${policy?.family_label || humanize(family)} model`, text_encoder: `${policy?.family_label || humanize(family)} text encoder`, vae: `${policy?.family_label || humanize(family)} VAE / AE` });
+    Object.entries(requiredAssets).forEach(([key, label]) => {
+      const selected = selectedAssets[key];
+      const catalog = Array.isArray(modelItems?.[key]?.catalog) ? modelItems[key].catalog : [];
+      if (!imageLanpaintAssetSelectionUsable(selected)) {
+        blockers.push({ code: `selected_${key}_required`, field: key, message: `Select a concrete ${label} before enabling LanPaint.` });
+      } else if (catalog.length && !imageLanpaintCatalogContains(catalog, selected)) {
+        blockers.push({ code: `selected_${key}_not_found`, field: key, message: `The selected ${label} is not present in the connected ComfyUI catalog.` });
+      }
+    });
+  }
+  const lora = imageLanpaintActiveLoraSummary();
+  if (selectable && lora.base > 0 && snapshot?.lora?.supported !== true) {
+    const modelOnly = policy?.lora_mode === 'model_only';
+    blockers.push({ code: modelOnly ? 'model_only_lora_unavailable' : 'model_clip_lora_unavailable', field: 'lora', message: `Active base/global LoRAs require ${modelOnly ? 'LoraLoaderModelOnly' : 'LoraLoader'} on this backend.` });
+  }
+  if (blockers.length) {
+    const staleCodes = new Set(['stale_capability_snapshot']);
+    const nodeCodes = new Set(['backend_capability_snapshot_unavailable', 'capability_snapshot_unavailable', 'missing_required_nodes', 'incompatible_node_signature', 'gguf_loader_unavailable', 'krea2_clip_type_unavailable', 'qwen_image_vae_loader_unavailable', 'model_only_lora_unavailable', 'model_clip_lora_unavailable', 'architecture_clip_type_unavailable']);
+    status = blockers.some((item) => staleCodes.has(String(item?.code || '')))
+      ? 'blocked_stale_capability_snapshot'
+      : (blockers.some((item) => nodeCodes.has(String(item?.code || ''))) ? 'blocked_missing_nodes' : 'blocked_missing_models');
+    selectable = false;
+  }
+  return {
+    checked: true,
+    status,
+    selectable,
+    executable: selectable,
+    blockers,
+    warnings,
+    remediation: [...new Set(remediation)],
+    snapshot,
+    selected_assets: selectedAssets,
+    capability_fingerprint: snapshot.capability_fingerprint || '',
+  };
+}
+
+function imageLanpaintCapabilityPolicy(status) {
+  return IMAGE_LANPAINT_CAPABILITY_STATUS[status] || IMAGE_LANPAINT_CAPABILITY_STATUS.blocked_missing_nodes;
+}
+
+function imageLanpaintRouteContext(p = {}) {
+  const profile = activeImageProfile();
+  const rawProvider = String(profile?.provider_id || profile?.backend || profile?.profile_id || '').trim().toLowerCase();
+  const backend = normalizeRouteBackend(rawProvider);
+  const family = String(p.family || state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(p.loader || state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const mode = activeImageMode();
+  const requestedEngine = String(p.inpaint_engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  const fallbackPolicy = IMAGE_LANPAINT_FAMILY_UI_FALLBACKS?.[family]?.[loader] || null;
+  const adapter = imageLanpaintAdapterForRoute(profile, { family, loader, mode, engine: 'lanpaint' });
+  const policy = imageLanpaintPolicyFromAdapter(adapter, fallbackPolicy);
+  const contractEligible = mode === 'inpaint' && backend === 'comfyui' && Boolean(adapter?.binding?.selectable);
+  const capability = imageLanpaintCapabilityEvaluation({ contractEligible, family, loader, mode, policy });
+  const eligible = contractEligible && capability.selectable;
+  const active = eligible && requestedEngine === 'lanpaint';
+  const providerLabel = rawProvider.includes('portable') ? 'ComfyUI Portable' : (backend === 'comfyui' ? 'ComfyUI' : humanize(rawProvider || backend));
+  const familyLabel = policy?.family_label || humanize(family);
+  const loaderLabel = loader === 'gguf' ? 'GGUF' : (loader === 'diffusion_model' ? 'Safetensors' : humanize(loader));
+  return {
+    raw_provider: rawProvider,
+    backend,
+    provider_label: providerLabel,
+    family,
+    family_label: familyLabel,
+    loader,
+    loader_label: loaderLabel,
+    mode,
+    requested_engine: requestedEngine,
+    engine: active ? 'lanpaint' : 'native',
+    contract_eligible: contractEligible,
+    eligible,
+    selectable: eligible,
+    active,
+    policy,
+    policy_id: policy?.policy_id || '',
+    adapter,
+    adapter_id: policy?.adapter_id || '',
+    adapter_fingerprint: policy?.adapter_fingerprint || '',
+    adapter_binding_state: policy?.binding_state || 'unavailable',
+    graph_profile: policy?.graph_profile || '',
+    capability,
+    capability_checked: capability.checked,
+    capability_fingerprint: capability.capability_fingerprint || '',
+    route_state: contractEligible ? capability.status : 'unsupported',
+    route_key: `${rawProvider || backend}:${family}:${loader}:${mode}:lanpaint`,
+  };
+}
+
+function imageLanpaintPhase5Eligible(p = {}) {
+  return imageLanpaintRouteContext(p).eligible;
+}
+
+function imageLanpaintSyncRouteState(p = {}, { persist = false } = {}) {
+  const route = imageLanpaintRouteContext(p);
+  if (!route.eligible && String(state.imageDraft.inpaint_engine || 'native').toLowerCase() === 'lanpaint') {
+    state.imageDraft.inpaint_engine = 'native';
+    if (persist) saveUiState();
+  }
+  return imageLanpaintRouteContext(p);
+}
+
+function imageLanpaintControlDefaults(route = imageLanpaintRouteContext()) {
+  return { ...(route.policy?.controls || {}) };
+}
+
+function imageLanpaintControlValue(field, p = {}) {
+  const route = imageLanpaintRouteContext(p);
+  const defaults = imageLanpaintControlDefaults(route);
+  const draftValue = state.imageDraft?.[field];
+  if (draftValue !== undefined && draftValue !== null && draftValue !== '') return draftValue;
+  const paramValue = p?.[field];
+  if (paramValue !== undefined && paramValue !== null && paramValue !== '') return paramValue;
+  return defaults[field];
+}
+
+function imageLanpaintHydrateDefaults(p = {}) {
+  const route = imageLanpaintRouteContext(p);
+  const defaults = imageLanpaintControlDefaults(route);
+  Object.entries(defaults).forEach(([field, value]) => {
+    if (state.imageDraft[field] === undefined || state.imageDraft[field] === null || state.imageDraft[field] === '') state.imageDraft[field] = value;
+  });
+  state.imageDraft.lanpaint_ui_state_version = IMAGE_LANPAINT_UI_STATE_VERSION;
+  return route;
+}
+
+function imageLanpaintActiveLoraSummary() {
+  try {
+    const rows = loraStackCleanRows(loraStackSettings().rows || []);
+    const baseRows = rows.filter((row) => loraStackNormalizeApplyTo(row.apply_to) === 'global' && ['base', 'both'].includes(row.target || 'both'));
+    const deferred = rows.length - baseRows.length;
+    return { total: rows.length, base: baseRows.length, deferred };
+  } catch (error) {
+    return { total: 0, base: 0, deferred: 0 };
+  }
+}
+
+function imageLanpaintUiStatePayload(p = {}) {
+  const route = imageLanpaintHydrateDefaults(p);
+  const value = (field) => imageLanpaintControlValue(field, p);
+  const controls = {
+    crop: {
+      padding_px: Number(value('lanpaint_crop_padding')),
+      processing_width: Number(value('lanpaint_processing_width')),
+      processing_height: Number(value('lanpaint_processing_height')),
+      resize_method: String(value('lanpaint_resize_method') || 'lanczos'),
+    },
+    sampling_mask: {
+      expand_px: Number(value('lanpaint_sampling_mask_expand')),
+      blur_radius: Number(value('lanpaint_sampling_mask_blur')),
+    },
+    stitch_mask: {
+      expand_px: Number(value('lanpaint_stitch_mask_expand')),
+      blur_radius: Number(value('lanpaint_stitch_mask_blur')),
+    },
+    sampler: {
+      steps: Number(value('lanpaint_steps')),
+      cfg: Number(value('lanpaint_cfg')),
+      sampler_name: String(value('lanpaint_sampler') || 'euler'),
+      scheduler: String(value('lanpaint_scheduler') || 'simple'),
+      denoise: Number(value('lanpaint_denoise')),
+      thinking_steps: Number(value('lanpaint_thinking_steps')),
+      prompt_mode: String(value('lanpaint_prompt_mode') || 'image_first'),
+    },
+    stitch: {
+      resize_method: String(value('lanpaint_stitch_resize_method') || 'lanczos'),
+      preserve_source_dimensions: true,
+    },
+  };
+  const flat = {
+    lanpaint_crop_padding: controls.crop.padding_px,
+    lanpaint_processing_width: controls.crop.processing_width,
+    lanpaint_processing_height: controls.crop.processing_height,
+    lanpaint_resize_method: controls.crop.resize_method,
+    lanpaint_sampling_mask_expand: controls.sampling_mask.expand_px,
+    lanpaint_sampling_mask_blur: controls.sampling_mask.blur_radius,
+    lanpaint_stitch_mask_expand: controls.stitch_mask.expand_px,
+    lanpaint_stitch_mask_blur: controls.stitch_mask.blur_radius,
+    lanpaint_steps: controls.sampler.steps,
+    lanpaint_cfg: controls.sampler.cfg,
+    lanpaint_sampler: controls.sampler.sampler_name,
+    lanpaint_scheduler: controls.sampler.scheduler,
+    lanpaint_denoise: controls.sampler.denoise,
+    lanpaint_thinking_steps: controls.sampler.thinking_steps,
+    lanpaint_prompt_mode: controls.sampler.prompt_mode,
+    lanpaint_stitch_resize_method: controls.stitch.resize_method,
+  };
+  return {
+    nested: {
+      schema_id: 'neo.image.lanpaint_ui_state.v1',
+      schema_version: IMAGE_LANPAINT_UI_STATE_VERSION,
+      route: {
+        provider_id: route.raw_provider || route.backend,
+        family: route.family,
+        loader: route.loader,
+        mode: route.mode,
+        engine: route.active ? 'lanpaint' : 'native',
+        requested_engine: route.requested_engine,
+        route_key: route.route_key,
+        route_state: route.route_state,
+        eligible: route.eligible,
+        active: route.active,
+        policy_id: route.policy_id,
+        variant: route.policy?.variant || 'crop_stitch_v1',
+        capability_checked: route.capability_checked,
+        capability_fingerprint: route.capability_fingerprint,
+      },
+      family_adapter: {
+        schema_id: route.adapter?.schema_id || 'neo.image.lanpaint_family_adapter.v2',
+        adapter_id: route.adapter_id,
+        adapter_fingerprint: route.adapter_fingerprint,
+        binding_state: route.adapter_binding_state,
+        graph_profile: route.graph_profile,
+        compatibility_key: route.adapter?.identity?.compatibility_key || `${route.family}:${route.loader}:${route.mode}`,
+      },
+      capability: {
+        status: route.route_state,
+        selectable: route.selectable,
+        checked: route.capability_checked,
+        blockers: route.capability?.blockers || [],
+        warnings: route.capability?.warnings || [],
+        remediation: route.capability?.remediation || [],
+        selected_assets: route.capability?.selected_assets || {},
+        capability_fingerprint: route.capability_fingerprint,
+      },
+      controls,
+      state_policy: {
+        preserve_saved_controls_when_inactive: true,
+        force_execution_engine_native_when_ineligible: true,
+        family_policy_defaults_are_authoritative: true,
+        flat_payload_compatibility_enabled: true,
+      },
+    },
+    flat,
+  };
+}
+
+function imageInpaintEngineOptions(route = imageLanpaintRouteContext()) {
+  const reason = route.capability?.blockers?.[0]?.message || 'LanPaint requirements are not available on the selected backend.';
+  return [
+    { id: 'native', label: 'Native Inpaint' },
+    { id: 'lanpaint', label: route.selectable ? 'LanPaint' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`, disabled: !route.selectable, title: reason },
+  ];
+}
+
+function imageLanpaintResizeOptions() {
+  return [
+    { id: 'lanczos', label: 'Lanczos' },
+    { id: 'bicubic', label: 'Bicubic' },
+    { id: 'bilinear', label: 'Bilinear' },
+    { id: 'area', label: 'Area' },
+    { id: 'nearest-exact', label: 'Nearest Exact' },
+  ];
+}
+
+function imageLanpaintPromptModeOptions() {
+  return [
+    { id: 'image_first', label: 'Image First' },
+    { id: 'prompt_first', label: 'Prompt First' },
+  ];
+}
+
+function renderLanpaintCapabilityDiagnostics(route = imageLanpaintRouteContext()) {
+  if (!route.contract_eligible) return '';
+  const capability = route.capability || {};
+  const policy = imageLanpaintCapabilityPolicy(route.route_state);
+  const blockers = Array.isArray(capability.blockers) ? capability.blockers : [];
+  const warnings = Array.isArray(capability.warnings) ? capability.warnings : [];
+  const remediation = Array.isArray(capability.remediation) ? capability.remediation : [];
+  const missingPacks = capability?.snapshot?.checks?.nodes?.missing_by_pack || [];
+  const issueItems = [...blockers, ...warnings].map((item) => `<li><strong>${escapeHtml(humanize(item.code || item.field || 'diagnostic'))}</strong> — ${escapeHtml(item.message || '')}</li>`).join('');
+  const packBadges = missingPacks.map((item) => `<span class="neo-badge">${escapeHtml(item.pack_id || 'Node pack')}: ${escapeHtml((item.missing_node_classes || []).join(', '))}</span>`).join('');
+  const fixes = remediation.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const readyText = route.selectable
+    ? 'All required node classes, signatures, loader roles, and model catalogs are available. Physical validation is still required.'
+    : 'LanPaint is disabled for this profile until the blockers below are resolved.';
+  return `<section class="neo-lanpaint-diagnostics ${escapeAttr(policy.tone)}" data-testid="image-lanpaint-capability-diagnostics" data-capability-status="${escapeAttr(route.route_state)}">
+    <div class="neo-lanpaint-diagnostics-head"><div><strong>LanPaint Readiness</strong><p class="neo-muted">${escapeHtml(readyText)}</p></div><span class="neo-state-pill ${escapeAttr(policy.tone)}">${escapeHtml(policy.label)}</span></div>
+    ${packBadges ? `<div class="neo-badge-row">${packBadges}</div>` : ''}
+    ${issueItems ? `<ul class="neo-lanpaint-diagnostic-list">${issueItems}</ul>` : ''}
+    ${fixes ? `<details><summary>How to fix</summary><ol class="neo-lanpaint-remediation-list">${fixes}</ol></details>` : ''}
+    <div class="neo-badge-row"><span class="neo-badge">Backend check: ${capability.checked ? 'complete' : 'not checked'}</span><span class="neo-badge">LoRA: ${capability.snapshot?.lora?.supported === true ? (route.policy?.lora_mode === 'model_only' ? 'model-only ready' : 'model + CLIP ready') : 'base route only / unavailable'}</span></div>
+  </section>`;
+}
+
+function renderLanpaintControlPanel(p = {}) {
+  const route = imageLanpaintHydrateDefaults(p);
+  if (!route.active) return '';
+  const v = (field) => imageLanpaintControlValue(field, p);
+  const lora = imageLanpaintActiveLoraSummary();
+  const capabilityPolicy = imageLanpaintCapabilityPolicy(route.route_state);
+  const stateBadge = capabilityPolicy.label;
+  const loraText = `${lora.base} active base LoRA${lora.base === 1 ? '' : 's'}${lora.deferred ? ` · ${lora.deferred} deferred` : ''}`;
+  return `<section class="neo-lanpaint-panel" data-testid="image-lanpaint-panel" data-route-key="${escapeAttr(route.route_key)}" data-route-state="${escapeAttr(route.route_state)}">
+    <header class="neo-lanpaint-panel-head">
+      <div><strong>LanPaint Inpaint</strong><p class="neo-muted">Route-aware crop, mask, sampler-thinking, and source-space stitch controls.</p></div>
+      <div class="neo-badge-row neo-lanpaint-route-badges"><span class="neo-badge">${escapeHtml(route.provider_label)}</span><span class="neo-badge">${escapeHtml(route.family_label)}</span><span class="neo-badge">${escapeHtml(route.loader_label)}</span><span class="neo-badge">LanPaint</span><span class="neo-state-pill ${escapeAttr(capabilityPolicy.tone)}">${escapeHtml(stateBadge)}</span></div>
+    </header>
+    <div class="neo-lanpaint-grid">
+      <fieldset class="neo-lanpaint-control-group"><legend>Crop + Processing</legend>
+        <label>Crop Padding<input id="imageLanpaintCropPadding" type="number" min="0" max="4096" step="8" value="${escapeAttr(v('lanpaint_crop_padding'))}"></label>
+        <label>Process Width<input id="imageLanpaintProcessingWidth" type="number" min="64" max="8192" step="8" value="${escapeAttr(v('lanpaint_processing_width'))}"></label>
+        <label>Process Height<input id="imageLanpaintProcessingHeight" type="number" min="64" max="8192" step="8" value="${escapeAttr(v('lanpaint_processing_height'))}"></label>
+        <label>Resize${optionSelect('imageLanpaintResizeMethod', imageLanpaintResizeOptions(), String(v('lanpaint_resize_method') || 'lanczos'))}</label>
+      </fieldset>
+      <fieldset class="neo-lanpaint-control-group"><legend>Sampling Mask</legend>
+        <label>Expand<input id="imageLanpaintSamplingMaskExpand" type="number" min="0" max="1024" step="1" value="${escapeAttr(v('lanpaint_sampling_mask_expand'))}"></label>
+        <label>Blur Radius<input id="imageLanpaintSamplingMaskBlur" type="number" min="0" max="1024" step="0.1" value="${escapeAttr(v('lanpaint_sampling_mask_blur'))}"></label>
+        <p class="neo-muted">This mask drives latent noise and the family model transform. It does not change the saved source mask.</p>
+      </fieldset>
+      <fieldset class="neo-lanpaint-control-group"><legend>LanPaint Behavior</legend>
+        <label>Thinking Steps<input id="imageLanpaintThinkingSteps" type="number" min="0" max="100" step="1" value="${escapeAttr(v('lanpaint_thinking_steps'))}"></label>
+        <label>Prompt Mode${optionSelect('imageLanpaintPromptMode', imageLanpaintPromptModeOptions(), String(v('lanpaint_prompt_mode') || 'image_first'))}</label>
+        <label>Denoise<input id="imageLanpaintDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(v('lanpaint_denoise'))}"></label>
+        <div class="neo-lanpaint-family-lock"><span class="neo-badge">Sampler: ${escapeHtml(String(v('lanpaint_sampler') || 'euler'))}</span><span class="neo-badge">Scheduler: ${escapeHtml(String(v('lanpaint_scheduler') || 'simple'))}</span><span class="neo-badge">Steps: ${escapeHtml(String(v('lanpaint_steps') ?? 8))}</span><span class="neo-badge">CFG: ${escapeHtml(String(v('lanpaint_cfg') ?? 1))}</span></div>
+      </fieldset>
+      <fieldset class="neo-lanpaint-control-group"><legend>Stitch + Output</legend>
+        <label>Stitch Expand<input id="imageLanpaintStitchMaskExpand" type="number" min="0" max="1024" step="1" value="${escapeAttr(v('lanpaint_stitch_mask_expand'))}"></label>
+        <label>Stitch Blur<input id="imageLanpaintStitchMaskBlur" type="number" min="0" max="1024" step="0.1" value="${escapeAttr(v('lanpaint_stitch_mask_blur'))}"></label>
+        <label>Restore Resize${optionSelect('imageLanpaintStitchResizeMethod', imageLanpaintResizeOptions(), String(v('lanpaint_stitch_resize_method') || 'lanczos'))}</label>
+        <p class="neo-muted">The decoded crop is restored and composited into the original source dimensions.</p>
+      </fieldset>
+    </div>
+    <footer class="neo-lanpaint-panel-foot"><span class="neo-badge">LoRA mode: ${escapeHtml(route.policy?.lora_mode === 'model_only' ? 'Model-only' : 'Model + CLIP')}</span><span class="neo-badge">Transform: ${escapeHtml(route.policy?.transform_label || 'Family policy')}</span><span class="neo-badge">${escapeHtml(loraText)}</span><span class="neo-muted">Shared LoRA Stack remains the owner. Regional and finish-only rows stay deferred.</span></footer>
+  </section>`;
+}
+
 function renderImageSourceMaskWorkflowCard({ hasSource = false, hasMask = false } = {}) {
   if (!imageNeedsMaskPanel()) return '';
   const targetVisible = shouldShowProfileField('inpaint_selection_target');
@@ -31863,6 +36379,9 @@ function imageModelCatalogForField(fieldId) {
 }
 // Regression guard: if (fieldId === 'diffusion_model') return profileModelOptions('diffusion_models');
 function imageOptionsForField(fieldId) {
+  if (imageUsesStrictForgeRouteGating() && ['checkpoint', 'diffusion_model', 'gguf_model', 'qwen_rapid_aio_checkpoint', 'model'].includes(fieldId)) {
+    return activeForgeRoutePrimaryModelOptions();
+  }
   if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family')) && fieldId === 'qwen3vl_text_encoder') {
     return profileModelOptions('text_encoders');
   }
@@ -31920,7 +36439,8 @@ function renderImageParameterField(field, p) {
   if (['positive_prompt', 'negative_prompt', 'source_image', 'mask_image', 'outpaint_padding', 'width', 'height'].includes(fieldId)) return '';
   const key = imageFieldDraftKey(fieldId);
   const id = `imageParam_${fieldId}`;
-  const value = p[key] ?? field.default ?? '';
+  const rawValue = p[key] ?? field.default ?? '';
+  const value = imageSamplingPresetManagedFields().includes(fieldId) ? imageSamplingDisplayValue(fieldId, rawValue, field.default ?? '') : rawValue;
   const label = escapeHtml(field.label || humanize(fieldId));
   const helpText = field.help_text && state.detailMode !== 'compact' ? `<small class="neo-muted">${escapeHtml(field.help_text)}</small>` : '';
   const required = field.required ? '<span class="neo-state-pill warning">Required</span>' : '';
@@ -31931,7 +36451,7 @@ function renderImageParameterField(field, p) {
     return `<label class="neo-param-field neo-param-status"><span>${label}</span><span class="neo-badge">${escapeHtml(statusValue)}</span>${required}${helpText}</label>`;
   }
   if (field.control_type === 'select') {
-    const options = imageOptionsForField(fieldId);
+    const options = imageSamplingPresetManagedFields().includes(fieldId) ? imageSamplingSelectOptions(fieldId, imageOptionsForField(fieldId)) : imageOptionsForField(fieldId);
     const select = optionSelect(id, options, value);
     return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span>${select}${required}${helpText}</label>`;
   }
@@ -31963,8 +36483,11 @@ function renderImageComponentParameterRows(p = {}) {
   if (!fields.length) return '';
   const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
   if (!fieldHtml) return '';
+  const componentHelp = imageUsesStrictForgeRouteGating()
+    ? 'Select the native Forge modules required by this executable route. Neo does not auto-select arbitrary installed files.'
+    : 'Select the exact ComfyUI text encoder and route-specific component values. Neo does not guess installed filenames.';
   return `<div class="neo-parameter-profile-card neo-component-asset-card" data-testid="image-safetensors-component-assets">
-    <div class="neo-ui-section-head"><div><strong>Required Model Components</strong><p class="neo-muted">Select the exact ComfyUI text encoder and route-specific component values. Neo does not guess installed filenames.</p></div><span class="neo-badge">Safetensors / Components</span></div>
+    <div class="neo-ui-section-head"><div><strong>Required Model Components</strong><p class="neo-muted">${escapeHtml(componentHelp)}</p></div><span class="neo-badge">Safetensors / Components</span></div>
     <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
   </div>`;
 }
@@ -31997,17 +36520,73 @@ function renderDynamicImageParameterRows(p) {
 }
 
 
+function imageUsesTrueCfgSemantic(family = state.imageDraft.family || imageCommandValue('family') || '') {
+  return ['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(String(family || '').trim().toLowerCase());
+}
+
+function imageCfgUiContract(p = {}) {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const routeHasCfg = routeUsesParameterField('cfg') && !activeParameterProfileHiddenFields().has('cfg');
+  if (imageUsesTrueCfgSemantic(family)) {
+    const raw = state.imageDraft.true_cfg ?? p.true_cfg ?? state.imageDraft.cfg ?? p.cfg ?? '';
+    return {
+      visible: true,
+      disabled: false,
+      label: 'True CFG',
+      semantic_field: 'true_cfg',
+      value: imageSamplingDisplayValue('true_cfg', raw, imageSamplingDisplayValue('cfg', p.cfg, '')),
+      help: 'True CFG controls the Qwen negative branch. Values at or below 1 disable negative prompting.',
+    };
+  }
+  if (family === 'krea2_turbo') {
+    return { visible: true, disabled: true, label: 'CFG', semantic_field: 'cfg', value: 1, help: 'Fixed at CFG 1 by Krea 2 Turbo.' };
+  }
+  if (family === 'z_image_turbo') {
+    return { visible: true, disabled: true, label: 'CFG', semantic_field: 'cfg', value: 1, help: 'Fixed at CFG 1 by Z-Image Turbo.' };
+  }
+  if (['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev') {
+    return { visible: false, disabled: true, label: 'CFG', semantic_field: 'none', value: '', help: 'CFG handled by Flux Guidance · classic CFG is not an editable control on this route.' };
+  }
+  if (!routeHasCfg) {
+    return { visible: false, disabled: true, label: 'CFG', semantic_field: 'none', value: '', help: 'CFG unavailable for selected route.' };
+  }
+  return {
+    visible: true,
+    disabled: false,
+    label: 'CFG',
+    semantic_field: 'cfg',
+    value: imageSamplingDisplayValue('cfg', p.cfg, ''),
+    help: 'CFG above 1 activates negative prompting; 1–1.5 is a weak influence range.',
+  };
+}
+
 function cfgDisabledPlaceholderLabel() {
-  const family = state.imageDraft.family || imageCommandValue('family') || '';
-  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
-  if (['flux', 'flux2_klein'].includes(family) && loader === 'gguf') return 'CFG handled by Flux Guidance';
-  if (family === 'flux') return 'CFG handled by Flux Guidance';
+  const contract = imageCfgUiContract(state.imageDraft || {});
+  if (contract.help) return contract.help;
   return 'CFG unavailable for selected route';
+}
+
+function renderImageCfgControl(p = {}) {
+  const contract = imageCfgUiContract(p);
+  if (!contract.visible) {
+    return `<label class="neo-param-disabled">CFG<input id="imageCfgDisplay" type="text" value="${escapeAttr(contract.help || 'CFG unavailable for selected route')}" aria-label="CFG disabled for selected profile" disabled></label>`;
+  }
+  const disabled = contract.disabled ? ' disabled aria-disabled="true"' : '';
+  const disabledClass = contract.disabled ? ' class="neo-param-disabled"' : '';
+  const help = state.detailMode !== 'compact' && contract.help ? `<small class="neo-muted neo-cfg-semantic-note">${escapeHtml(contract.help)}</small>` : '';
+  return `<label${disabledClass}>${escapeHtml(contract.label)}<input id="imageCfg" type="number" step="0.1" value="${escapeAttr(contract.value)}" aria-label="${escapeAttr(contract.label)}" data-neo-guidance-semantic="${escapeAttr(contract.semantic_field)}"${disabled}>${help}</label>`;
 }
 
 function activeParameterProfileHiddenFields() {
   const profile = activeImageParameterProfile();
-  return new Set(profile?.hidden_fields || []);
+  const hidden = new Set(profile?.hidden_fields || []);
+  const fieldIds = new Set([
+    ...Object.keys(activeImageCapabilityOverlay()?.field_policy || {}),
+    ...Object.keys(activeImageRouteFieldPolicy() || {}),
+  ]);
+  fieldIds.forEach((fieldId) => { if (imageOverlayFieldPolicy(fieldId)?.visible === false) hidden.add(fieldId); });
+  return hidden;
 }
 function shouldShowProfileField(fieldId) {
   if (isCloudImageProfile()) return false;
@@ -32033,24 +36612,31 @@ function renderImageOutpaintSourceResolutionRow(p = {}) {
 function renderImageInpaintVisibilityRow(p = {}) {
   const targetVisible = shouldShowProfileField('inpaint_selection_target');
   const contextVisible = shouldShowProfileField('inpaint_context_mode');
+  const route = imageLanpaintSyncRouteState(p);
+  const engineVisible = route.contract_eligible;
   const fluxKontextActive = state.imageDraft.family === 'flux'
     && state.imageDraft.loader === 'diffusion_model'
     && String(state.imageDraft.flux_variant || '').toLowerCase() === 'kontext'
     && activeImageMode() === 'inpaint';
-  if (!targetVisible && !contextVisible && !fluxKontextActive) return '';
+  if (!targetVisible && !contextVisible && !fluxKontextActive && !engineVisible) return '';
   const targetValue = p.inpaint_selection_target || state.imageDraft.inpaint_selection_target || 'masked_area';
   const contextValue = p.inpaint_context_mode || state.imageDraft.inpaint_context_mode || 'masked_region_focus';
+  const engineValue = engineVisible ? (p.inpaint_engine || state.imageDraft.inpaint_engine || 'native') : 'native';
   const contextLatentCard = fluxKontextActive ? `<div class="neo-context-latent-card" data-testid="image-context-latent-controls">
     <div class="neo-ui-section-head"><div><strong>RMBG Context + Latent Assist</strong><p class="neo-muted">Experimental Flux Kontext route. Reuses Image 1 latent context and the existing inpaint mask through the live Reference Latent Mask node.</p></div><span class="neo-badge">Live-gated</span></div>
     <label class="neo-check-row"><input id="imageContextLatentEnabled" type="checkbox" ${state.imageDraft.context_latent_enabled ? 'checked' : ''}> Enable Reference Latent Mask</label>
     <div class="neo-parameter-row"><label>Mask Expand<input id="imageContextLatentExpand" type="number" min="-64" max="64" step="1" value="${escapeAttr(state.imageDraft.context_latent_expand ?? 5)}"></label><label>Mask Blur<input id="imageContextLatentBlur" type="number" min="0" max="64" step="0.1" value="${escapeAttr(state.imageDraft.context_latent_blur ?? 3)}"></label><label class="neo-check-row"><input id="imageContextLatentMaskOnly" type="checkbox" ${state.imageDraft.context_latent_mask_only !== false ? 'checked' : ''}> Mask-only latent</label></div>
     <p class="neo-muted">The run is blocked if the exact live AILab_ReferenceLatentMask contract or an inpaint mask is unavailable. No fallback route is used.</p>
   </div>` : '';
+  const routeNote = engineVisible
+    ? `${route.provider_label} · ${route.family_label} · ${route.loader_label}. Native remains the default. LanPaint controls and model-only LoRA support are route-owned and preserved for replay.`
+    : 'Shown only when the active route profile exposes masked/not-masked area controls.';
   return `<div class="neo-parameter-row neo-inpaint-visibility-row" data-testid="image-inpaint-visibility-controls">
+    ${engineVisible ? `<label>Inpaint Engine${optionSelect('imageInpaintEngine', imageInpaintEngineOptions(route), engineValue)}</label>` : ''}
     ${targetVisible ? `<label>Inpaint Target${optionSelect('imageParam_inpaint_selection_target', imageOptionsForField('inpaint_selection_target'), targetValue)}</label>` : ''}
     ${contextVisible ? `<label>Inpaint Context${optionSelect('imageParam_inpaint_context_mode', imageOptionsForField('inpaint_context_mode'), contextValue)}</label>` : ''}
-    <span class="neo-muted neo-param-note">Shown only when the active route profile exposes masked/not-masked area controls.</span>
-  </div>${contextLatentCard}`;
+    <span class="neo-muted neo-param-note">${escapeHtml(routeNote)}</span>
+  </div>${renderLanpaintCapabilityDiagnostics(route)}${renderLanpaintControlPanel(p)}${contextLatentCard}`;
 }
 
 function checkpointModelValue(p = {}) {
@@ -32063,16 +36649,27 @@ function checkpointModelValue(p = {}) {
 function imageModelComponentRouteNote() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
+  if (imageUsesStrictForgeRouteGating()) {
+    const requiredRoles = activeForgeRouteRequiredModuleRoles().map((role) => humanize(role));
+    const optionalRoles = activeForgeRouteOptionalModuleRoles().map((role) => humanize(role));
+    const moduleText = requiredRoles.length
+      ? ` Required native modules: ${requiredRoles.join(', ')}.${optionalRoles.length ? ` Optional: ${optionalRoles.join(', ')}.` : ''}`
+      : (optionalRoles.length ? ` Optional native modules: ${optionalRoles.join(', ')}.` : ' No separate native modules are required by this route.');
+    if (loader === 'gguf') return `Forge GGUF model bundle. The GGUF file is the primary model; Comfy GGUF node and encoder-layout semantics do not apply.${moduleText}`;
+    if (loader === 'diffusion_model' || loader === 'unet') return `Forge primary-model bundle. Neo sends the selected model plus route-owned native modules through Forge additional-module settings.${moduleText}`;
+    if (loader === 'checkpoint') return `Forge checkpoint bundle. The selected checkpoint is the primary model.${moduleText}`;
+    return `Forge model bundle owned by the active executable route.${moduleText}`;
+  }
   if (loader === 'checkpoint_aio') return family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO bundled route. Main model contains the needed AIO parts; extra encoder/VAE fields stay hidden unless Advanced Override enables them.' : 'Bundled model route. Extra encoder/VAE fields stay hidden unless Advanced Override enables them.';
   if (loader === 'diffusion_model' || loader === 'unet') {
     if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea component route. Uses the FLUX.1 dual encoder stack (T5XXL + CLIP-L); img2img/inpaint/outpaint keep the selected Krea model and use latent source/mask workflows.';
     if (family === 'krea2' || family === 'krea2_turbo') return `${family === 'krea2_turbo' ? 'Krea 2 Turbo' : 'Krea 2 RAW'} native route. Uses Qwen3-VL-4B through CLIPLoader(type=krea2) + Qwen Image VAE. Image-conditioned modes are experimental latent adapters.`;
-    return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.'));
+    return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 component route. Supports Image 1 plus optional Image 2/Image 3 for img2img/edit; inpaint/outpaint use Image 1 as the canvas.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.')));
   }
   if (loader === 'gguf') {
     if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF route. Uses a Krea GGUF diffusion model with the FLUX.1 T5XXL + CLIP-L dual encoder stack; image modes retain Krea through the Flux GGUF latent/mask branch.';
     if (family === 'krea2' || family === 'krea2_turbo') return 'Krea 2 GGUF route (Experimental). Quantizes the diffusion transformer only; Qwen3-VL-4B stays native/safetensors via CLIPLoader(type=krea2). Requires a Krea2-capable GGUF loader.';
-    return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.'));
+    return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for edit modes and requires matching Qwen2.5-VL MMProj for image-conditioned routes.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.')));
   }
   return 'Checkpoint route. Extra model components stay hidden unless this family needs them.';
 }
@@ -32127,6 +36724,73 @@ function imageLatentCaptureHelp(mode) {
   return 'Off. Neo saves replay metadata only.';
 }
 
+
+function renderImageCapabilityOverlayCard() {
+  const profile = activeImageProfile();
+  if (normalizeRouteBackend(profile?.provider_id || profile?.backend) !== 'forge') return '';
+  const overlay = activeImageCapabilityOverlay();
+  const loading = Boolean(state.imageCapabilityOverlayLoading?.[profile?.profile_id]);
+  if (!overlay) {
+    return `<section class="neo-image-capability-overlay is-loading" data-testid="forge-image-capability-overlay">
+      <div class="neo-capability-overlay-head"><div><span class="neo-card-kicker">Forge Capability Overlay</span><strong>Loading backend capabilities…</strong></div><button id="imageCapabilityOverlayRefreshBtn" class="neo-secondary-btn" type="button">Refresh</button></div>
+      <p class="neo-muted">Connect/Test the Forge profile in Admin if discovery has not run yet.</p>
+    </section>`;
+  }
+  const counts = overlay.catalog_counts || {};
+  const policy = overlay.resolution_policy || {};
+  const routes = overlay.route_support || {};
+  const warnings = Array.isArray(overlay.warnings) ? overlay.warnings : [];
+  const statusClass = overlay.generation_ready ? 'ready' : (overlay.connected ? 'warning' : 'blocked');
+  const statusText = overlay.generation_ready ? 'Generation ready' : (overlay.connected ? 'Discovery incomplete' : 'Not connected');
+  const routeBadges = [
+    ...(routes.families || []).map((item) => `Family: ${String(item).toUpperCase()}`),
+    ...(routes.modes || []).map((item) => `Mode: ${humanize(item)}`),
+    policy.enabled ? `Resolution: ${policy.step || 64}px step` : '',
+  ].filter(Boolean);
+  const countItems = [
+    ['Models', counts.models], ['VAEs', counts.vaes], ['Text encoders', counts.text_encoders],
+    ['Samplers', counts.samplers], ['Schedulers', counts.schedulers], ['Upscalers', counts.upscalers],
+  ];
+  return `<section class="neo-image-capability-overlay ${statusClass}" data-testid="forge-image-capability-overlay" data-overlay-status="${escapeAttr(overlay.status || '')}">
+    <div class="neo-capability-overlay-head">
+      <div><span class="neo-card-kicker">Forge Capability Overlay</span><strong>${escapeHtml(statusText)}</strong><p>${escapeHtml(overlay.message || '')}</p></div>
+      <button id="imageCapabilityOverlayRefreshBtn" class="neo-secondary-btn" type="button" ${loading ? 'disabled aria-disabled="true"' : ''}>${loading ? 'Refreshing…' : 'Refresh Forge'}</button>
+    </div>
+    <div class="neo-capability-count-grid">${countItems.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${Number(value || 0)}</strong></div>`).join('')}</div>
+    ${routeBadges.length ? badgeRow(routeBadges) : ''}
+    ${warnings.length ? `<details class="neo-capability-warning-list"><summary>${warnings.length} capability warning${warnings.length === 1 ? '' : 's'}</summary><ul>${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : ''}
+  </section>`;
+}
+
+function renderForgeImageRouteControls(p = {}) {
+  const profile = activeImageProfile();
+  if (normalizeRouteBackend(profile?.provider_id || profile?.backend) !== 'forge') return '';
+  const overlay = activeImageCapabilityOverlay() || {};
+  const controls = overlay.forge_controls || {};
+  const mode = activeImageMode();
+  const restoreFacesVisible = controls.restore_faces?.visible !== false && imageRouteControlVisible('restore_faces', false);
+  const tilingVisible = controls.tiling?.visible !== false && imageRouteControlVisible('tiling', false);
+  const inpaintControlsVisible = imageRouteControlVisible('forge_inpaint_controls', false);
+  if (!restoreFacesVisible && !tilingVisible && !inpaintControlsVisible) return '';
+  const moduleCount = Number(overlay.catalog_counts?.vaes || 0) + Number(overlay.catalog_counts?.text_encoders || 0);
+  return `<section class="neo-forge-route-controls" data-testid="forge-image-route-controls">
+    <div class="neo-forge-route-controls-head"><div><span class="neo-card-kicker">Forge Route Controls</span><strong>${escapeHtml(humanize(mode))}</strong></div><span class="neo-badge">${moduleCount} modules discovered</span></div>
+    ${(restoreFacesVisible || tilingVisible) ? `<div class="neo-parameter-row neo-forge-common-controls">
+      ${restoreFacesVisible ? `<label class="neo-checkbox-label"><input id="imageForgeRestoreFaces" type="checkbox" ${state.imageDraft.forge_restore_faces ? 'checked' : ''}>Restore faces</label>` : ''}
+      ${tilingVisible ? `<label class="neo-checkbox-label"><input id="imageForgeTiling" type="checkbox" ${state.imageDraft.forge_tiling ? 'checked' : ''}>Seamless tiling</label>` : ''}
+    </div>` : ''}
+    ${inpaintControlsVisible ? `<div class="neo-parameter-row neo-forge-inpaint-controls">
+      <label>Masked Content${optionSelect('imageForgeInpaintingFill', [
+        { id: '0', label: 'Fill' }, { id: '1', label: 'Original' }, { id: '2', label: 'Latent noise' }, { id: '3', label: 'Latent nothing' },
+      ], String(state.imageDraft.forge_inpainting_fill ?? p.inpainting_fill ?? 1))}</label>
+      <label class="neo-checkbox-label"><input id="imageForgeInpaintFullRes" type="checkbox" ${state.imageDraft.forge_inpaint_full_res !== false ? 'checked' : ''}>Only masked area</label>
+      <label>Mask Padding<input id="imageForgeInpaintPadding" type="number" min="0" max="2048" step="4" value="${escapeAttr(state.imageDraft.forge_inpaint_full_res_padding ?? p.inpaint_full_res_padding ?? 32)}"></label>
+      <label>Apply To${optionSelect('imageForgeMaskInvert', [{ id: '0', label: 'Masked area' }, { id: '1', label: 'Not masked area' }], String(state.imageDraft.forge_inpainting_mask_invert ?? 0))}</label>
+    </div>` : ''}
+    <p class="neo-muted">Only controls owned by the active executable Forge route are shown.</p>
+  </section>`;
+}
+
 function imageSectionBody(section, imageSetup, surface, subtab) {
   const workspaceExtensions = activeWorkspaceExtensions('image', activeWorkspaceApp().id, subtab.subtab_id);
   const activeProviders = (state.providers?.providers || []).filter((provider) => provider.surfaces?.includes('image'));
@@ -32137,6 +36801,9 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     return `${help}<label>Backend</label>${optionSelect('imageBackend', activeProviders.map((provider) => ({ id: provider.provider_id, label: provider.display_name })), 'comfyui_portable')}${badgeRow(activeProviders.map((provider) => `${provider.provider_id}: ${provider.status}`))}${expert}`;
   }
   if (section.section_id === 'model') {
+    if (imageUsesStrictForgeRouteGating() && !activeImageExecutableRouteRows().length) {
+      return `${help}<div class="neo-forge-route-empty-state compact" data-testid="forge-model-route-empty"><strong>No Forge model route is executable</strong><span>Refresh the selected Forge profile after installing a supported primary model and its required modules.</span></div>${expert}`;
+    }
     const selectedFamily = state.imageDraft.family || 'sdxl';
     const selectedLoader = state.imageDraft.loader || 'checkpoint';
     const family = modelFamilyMeta(selectedFamily);
@@ -32144,7 +36811,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     return `${help}<label>Model Family</label>${optionSelect('imageFamily', familyOptionList('image'), selectedFamily)}<label>Main Model Type</label>${optionSelect('imageLoader', loaderOptionList(selectedFamily), selectedLoader)}${familyInfo}${expert}`;
   }
   if (section.section_id === 'prompt') {
-    const negativeVisible = !isCloudImageProfile() || imageProfileSupportsCapability('negative_prompt');
+    const negativeVisible = isCloudImageProfile() ? imageProfileSupportsCapability('negative_prompt') : imageRouteControlVisible('negative_prompt', true);
     const negativeBlock = negativeVisible
       ? `<label>Negative Prompt</label><textarea id="imageNegativePrompt" placeholder="Things to avoid...">${escapeHtml(state.imageDraft.negative_prompt)}</textarea>`
       : `<p class="neo-muted neo-cloud-hidden-note">Negative prompt is hidden because the selected cloud image profile does not expose a native negative prompt field.</p>`;
@@ -32161,6 +36828,9 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     return `${help}<label>Edit Instruction</label><textarea placeholder="Tell the model what to change..."></textarea>${expert}`;
   }
   if (section.section_id === 'params') {
+    if (imageUsesStrictForgeRouteGating() && !activeImageExecutableRouteRows().length) {
+      return `${help}${renderImageCapabilityOverlayCard()}<div class="neo-forge-route-empty-state compact" data-testid="forge-params-route-empty"><strong>Generation controls are gated</strong><span>No family, loader, or workflow controls are shown until the selected Forge profile has an executable route.</span></div>${expert}`;
+    }
     applyQwenRapidAioRuntimeDefaultsIfNeeded();
     const p = { ...(imageSetup.default_params || {}), ...state.imageDraft };
     if (isCloudImageProfile()) return `${help}${renderCloudImageParameterRows(p)}${expert}`;
@@ -32168,46 +36838,52 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     const ggufRuntime = renderGgufRuntimeCard(p);
     const primaryModelRow = renderImagePrimaryModelRow(p);
     const componentParameterRows = renderImageComponentParameterRows(p);
-    const cfgVisible = shouldShowProfileField('cfg');
+    const cfgContract = imageCfgUiContract(p);
     const clipSkipVisible = shouldShowProfileField('clip_skip');
     const denoiseVisible = shouldShowProfileField('denoise');
+    const latentCaptureVisible = imageOverlayFieldVisible('latent_capture_mode');
+    const resolutionPolicy = activeImageResolutionPolicy();
+    const resolutionStep = imageResolutionStep();
     const clampOptions = [
       { id: 'raw', label: 'Raw' },
       { id: 'soft_clamp', label: 'Soft Clamp' },
       { id: 'balanced', label: 'Balanced' },
     ];
     return `${help}<div class="neo-parameter-stack">
+      ${renderImageCapabilityOverlayCard()}
       ${primaryModelRow}
       ${componentParameterRows}
       ${ggufRuntime}
       <div class="neo-parameter-row neo-sampler-scheduler-row">
-        <label>Sampler${optionSelect('imageSampler', imageOptionsForField('sampler'), p.sampler || 'provider_default')}</label>
-        <label>Scheduler${optionSelect('imageScheduler', imageOptionsForField('scheduler'), p.scheduler || 'provider_default')}</label>
+        <label>Sampler${optionSelect('imageSampler', imageSamplingSelectOptions('sampler', imageOptionsForField('sampler')), imageSamplingDisplayValue('sampler', p.sampler, 'provider_default'))}</label>
+        <label>Scheduler${optionSelect('imageScheduler', imageSamplingSelectOptions('scheduler', imageOptionsForField('scheduler')), imageSamplingDisplayValue('scheduler', p.scheduler, 'provider_default'))}</label>
       </div>
       <div class="neo-parameter-row neo-size-row">
-        <label>Width<input id="imageWidth" type="number" value="${p.width}" aria-label="Width"></label>
-        <label>Height<input id="imageHeight" type="number" value="${p.height}" aria-label="Height"></label>
+        <label>Width<input id="imageWidth" type="number" min="${escapeAttr(resolutionPolicy.minimum || resolutionStep)}" max="${escapeAttr(resolutionPolicy.maximum || 16384)}" step="${escapeAttr(resolutionStep)}" value="${escapeAttr(imageSamplingDisplayValue('width', p.width, ''))}" aria-label="Width"></label>
+        <label>Height<input id="imageHeight" type="number" min="${escapeAttr(resolutionPolicy.minimum || resolutionStep)}" max="${escapeAttr(resolutionPolicy.maximum || 16384)}" step="${escapeAttr(resolutionStep)}" value="${escapeAttr(imageSamplingDisplayValue('height', p.height, ''))}" aria-label="Height"></label>
         <div class="neo-size-helper-control" aria-label="Size helper controls">
           <button class="neo-icon-btn icon" id="imageSwapSizeBtn" type="button" title="Swap width and height" aria-label="Swap width and height" data-tooltip="Swap width and height">🔁</button>
           <label class="neo-size-scale-control" title="Scale width and height together, preserving the current ratio"><span class="neo-size-scale-icon" aria-hidden="true">📐</span><input id="imageAspectScale" type="range" min="0.5" max="1.5" step="0.01" value="1" aria-label="Scale width and height together"></label>
         </div>
         <label class="neo-size-preset-control">Size Preset<div class="neo-inline-control">${optionSelect('imageSizePreset', presets, p.size_preset || 'square_1024')}<button class="neo-icon-btn icon" id="imageSaveSizePresetBtn" type="button" title="Save current width and height as a custom size preset" aria-label="Save current width and height as a custom size preset" data-tooltip="Save current width and height as a custom size preset">💾</button></div></label>
       </div>
-      <div class="neo-parameter-row neo-generation-row ${cfgVisible ? 'has-cfg' : 'no-cfg'}">
-        <label>Steps<input id="imageSteps" type="number" value="${p.steps}" aria-label="Steps"></label>
-        ${cfgVisible ? `<label>CFG<input id="imageCfg" type="number" step="0.1" value="${p.cfg}" aria-label="CFG"></label>` : `<label class="neo-param-disabled">CFG<input id="imageCfgDisplay" type="text" value="${escapeAttr(cfgDisabledPlaceholderLabel())}" aria-label="CFG disabled for selected profile" disabled></label>`}
-        <label class="neo-seed-control">Seed<div class="neo-inline-control"><input id="imageSeed" value="${p.seed}" aria-label="Seed">${iconButton('🔒', 'Lock seed so future generations reuse it', 'icon', 'data-image-seed-action="lock"')}${iconButton('🎲', 'Randomize seed for every generation', 'icon', 'data-image-seed-action="randomize"')}${iconButton('♻️', 'Reuse previous resolved seed', 'icon', 'data-image-seed-action="reuse"')}${iconButton('📋', 'Copy current seed', 'icon', 'data-image-seed-action="copy"')}</div></label>
+      ${resolutionPolicy.enabled ? `<p class="neo-muted neo-resolution-policy-note">${escapeHtml(resolutionPolicy.message || `Dimensions are aligned to ${resolutionStep}px increments.`)}</p>` : ''}
+      <div class="neo-parameter-row neo-generation-row ${cfgContract.visible ? 'has-cfg' : 'no-cfg'}">
+        <label>Steps<input id="imageSteps" type="number" value="${escapeAttr(imageSamplingDisplayValue('steps', p.steps, ''))}" aria-label="Steps"></label>
+        ${renderImageCfgControl(p)}
+        <label class="neo-seed-control">Seed<div class="neo-inline-control"><input id="imageSeed" value="${escapeAttr(imageSamplingDisplayValue('seed', p.seed, ''))}" aria-label="Seed">${iconButton('🔒', 'Lock seed so future generations reuse it', 'icon', 'data-image-seed-action="lock"')}${iconButton('🎲', 'Randomize seed for every generation', 'icon', 'data-image-seed-action="randomize"')}${iconButton('♻️', 'Reuse previous resolved seed', 'icon', 'data-image-seed-action="reuse"')}${iconButton('📋', 'Copy current seed', 'icon', 'data-image-seed-action="copy"')}</div></label>
         <label>Batch Count<input id="imageBatchCount" type="number" min="1" max="16" step="1" value="${p.batch_count || 1}" aria-label="Batch Count"></label>
       </div>
       <div class="neo-parameter-row neo-advanced-sampler-row">
-        ${denoiseVisible ? `<label>Denoise<input id="imageDenoise" type="number" min="0" max="1" step="0.01" value="${p.denoise}" aria-label="Denoise"></label>` : ''}
+        ${denoiseVisible ? `<label>Denoise<input id="imageDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(imageSamplingDisplayValue('denoise', p.denoise, ''))}" aria-label="Denoise"></label>` : ''}
         ${clipSkipVisible ? `<label>Clip Skip<input id="imageClipSkip" type="number" min="1" max="12" step="1" value="${p.clip_skip || 1}" aria-label="Clip Skip"></label>` : ''}
         <label>Prompt Conditioning${optionSelect('imageClamp', clampOptions, p.prompt_conditioning_mode || p.clamp || 'raw')}</label>
       </div>
-      <div class="neo-parameter-row neo-latent-capture-row" data-testid="image-latent-capture-foundation">
+      ${renderForgeImageRouteControls(p)}
+      ${latentCaptureVisible ? `<div class="neo-parameter-row neo-latent-capture-row" data-testid="image-latent-capture-foundation">
         <label>Latent Capture${optionSelect('imageLatentCaptureMode', imageLatentCaptureOptions(), p.latent_capture_mode || 'off')}</label>
         <span class="neo-muted neo-param-note">${escapeHtml(imageLatentCaptureHelp(p.latent_capture_mode || 'off'))}</span>
-      </div>
+      </div>` : ''}
       ${renderImageInpaintVisibilityRow(p)}
       ${(shouldShowProfileField('mask_grow') || shouldShowProfileField('mask_blur')) ? `<div class="neo-parameter-row neo-inpaint-mask-row">
         ${shouldShowProfileField('mask_grow') ? `<label>Mask Grow<input id="imageMaskGrow" type="number" min="0" max="128" step="1" value="${p.mask_grow ?? 6}" aria-label="Mask grow"></label>` : ''}
@@ -32228,12 +36904,10 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
   }
 
   if (section.section_id === 'extensions') {
-    const externalTitle = neoFeatureTitleCard('Image Extensions', 'External Extensions', 'Workspace-mounted extension panels from installed extension packages.', ['external', 'workspace scoped', `${workspaceExtensions.external.length} mounted`], { testId: 'image-external-extensions-feature-title-card', extraClass: 'neo-image-feature-title-card' });
-    const externalCards = workspaceExtensions.external.map((record) => {
-      const gate = imageExtensionAllowedForActiveProfile(record);
-      return gate.allowed ? extensionCard(record, { collapsible: true }) : renderProviderGatedExtensionPanel(record, gate.reason);
-    }).join('');
-    return `${help}${externalTitle}${workspaceExtensions.external.length ? externalCards : '<p>No external extensions mounted into this workspace yet.</p>'}${expert}`;
+    const visibleExternalExtensions = workspaceExtensions.external.filter((record) => imageExtensionAllowedForActiveProfile(record).allowed);
+    const externalTitle = neoFeatureTitleCard('Image Extensions', 'External Extensions', 'Workspace-mounted extension panels compatible with the active Image provider.', ['external', 'workspace scoped', `${visibleExternalExtensions.length} compatible`], { testId: 'image-external-extensions-feature-title-card', extraClass: 'neo-image-feature-title-card' });
+    const externalCards = visibleExternalExtensions.map((record) => extensionCard(record, { collapsible: true })).join('');
+    return `${help}${externalTitle}${visibleExternalExtensions.length ? externalCards : '<p>No compatible external extensions are available for the active Image provider.</p>'}${expert}`;
   }
   if (section.section_id === 'run') {
     return `${help}<div class="neo-run-readiness-note" data-testid="image-run-actions-cleaned"><strong>Generation actions</strong><p>Use the main Generate button in the Image header. Queue, board, and cancel controls stay hidden until real handlers exist.</p></div>${expert}`;
@@ -32272,28 +36946,26 @@ function renderImageBasePanels(surface, subtab) {
   const right = document.createElement('section');
   right.className = 'neo-workspace-column neo-workspace-right';
 
-  const context = activeImageWorkspaceWorkflowSummary(subtab);
-  appendNeoFirstRunPanel(left, 'image', 'Image quick start');
-  const intro = fixedPanel(`${app.label} Workspace`, `
-    <div class="neo-image-workspace-explainer" data-testid="image-workspace-explainer">
-      <div><span class="neo-card-kicker">Workspace</span><strong>${escapeHtml(context.workspace_label)}</strong><p>${escapeHtml(context.workspace_description)}</p></div>
-      <div><span class="neo-card-kicker">Workflow Mode</span><strong>${escapeHtml(context.workflow_label)}</strong><p>${escapeHtml(context.workflow_description || contract.description)}</p></div>
-    </div>
-    ${state.detailMode !== 'compact' ? `<p class="neo-muted">Workspace tabs organize tools. Workflow Mode controls the generation route/type. Switching workspace does not change the selected workflow mode.</p>` : `<p>${app.label} workspace · ${contract.display_name} workflow.</p>`}
-    ${badgeRow([`Workspace: ${app.label}`, `Workflow Mode: ${contract.display_name}`, `Route: ${contract.mode}`, `Backend-neutral`])}
-    ${state.detailMode === 'expert' ? `<pre>${JSON.stringify({ workflow_mode: contract.subtab_id, workspace_app: app, contract }, null, 2)}</pre>` : ''}
-  `, 'image-workspace-summary');
-  left.appendChild(intro);
+  // Image's top command row already exposes workspace, workflow mode,
+  // backend, and route context. Do not repeat Start Here / Workspace summary
+  // cards inside every Image subtab; they consume the most valuable vertical
+  // space before the actual tools.
 
   const sourceInRight = imageNeedsSourcePanel(subtab.subtab_id);
   const maskInRight = imageNeedsMaskPanel(subtab.subtab_id);
-  const sections = contract.sections.filter((section) => !['backend', 'model', 'prompt', 'params', 'run', 'preview'].includes(section.section_id) && !(sourceInRight && section.section_id === 'source') && section.section_id !== 'mask');
+  const instructionAllowed = !imageUsesStrictForgeRouteGating() || imageRouteControlVisible('instruction_panel', false);
+  const sections = contract.sections.filter((section) => !['backend', 'model', 'prompt', 'params', 'run', 'preview'].includes(section.section_id)
+    && !(sourceInRight && section.section_id === 'source')
+    && section.section_id !== 'mask'
+    && (section.section_id !== 'instruction' || instructionAllowed));
   const appSections = sections.filter((section) => app.sections.includes(section.section_id));
   const fallbackSections = sections.filter((section) => ['extensions', 'source', 'reuse', 'filters'].includes(section.section_id));
+  const workspaceExtensions = activeWorkspaceExtensions(surface.surface_id, app.id, app.id === 'finish' ? null : subtab.subtab_id);
   const leftSectionsBase = appSections.length ? appSections : (app.id === 'results' ? [] : fallbackSections.slice(0, 2));
   // Built-in extension panels must render before the generic External Extensions section.
   const leftSections = leftSectionsBase.filter((section) => section.section_id !== 'extensions');
   const externalExtensionSection = leftSectionsBase.find((section) => section.section_id === 'extensions');
+  const visibleExternalExtensionCount = workspaceExtensions.external.filter((record) => imageExtensionAllowedForActiveProfile(record).allowed).length;
 
   if (app.id === 'results') {
     left.appendChild(panel('Results', `${neoFeatureTitleCard('Image Results', 'Results Workspace', 'Review saved outputs, reuse selected images, inspect metadata, and manage safe output actions.', ['preview', 'reuse', 'metadata'], { testId: 'image-results-feature-title-card', extraClass: 'neo-image-feature-title-card' })}${imageResultsWorkspaceBody()}`, false, 'results-shell'));
@@ -32308,23 +36980,27 @@ function renderImageBasePanels(surface, subtab) {
     // Finish workspace owns workflow/output finishing tools. Match built-ins by
     // workspace app first so the panel stays visible even if the current image
     // workflow mode is route-gated; the panel itself handles control visibility.
-    const workspaceExtensions = activeWorkspaceExtensions(surface.surface_id, app.id, app.id === 'finish' ? null : subtab.subtab_id);
     let renderedBuiltInExtensionCount = 0;
     workspaceExtensions.builtIn.forEach((record) => {
       const gate = imageExtensionAllowedForActiveProfile(record);
-      const extensionPanel = gate.allowed ? builtInExtensionPanel(record) : renderProviderGatedExtensionPanel(record, gate.reason);
+      // Provider-gated extensions stay installed and retain their saved state,
+      // but are omitted from the active Image workspace until a compatible
+      // provider profile is selected. This prevents disabled extension cards
+      // from crowding the working UI.
+      if (!gate.allowed) return;
+      const extensionPanel = builtInExtensionPanel(record);
       if (extensionPanel) {
         left.appendChild(extensionPanel);
         renderedBuiltInExtensionCount += 1;
       }
     });
 
-    if (externalExtensionSection) {
+    if (externalExtensionSection && visibleExternalExtensionCount > 0) {
       left.appendChild(panel(externalExtensionSection.title, imageSectionBody(externalExtensionSection, state.imageBase, surface, subtab), false, externalExtensionSection.section_id));
     }
 
-    if (!leftSections.length && !renderedBuiltInExtensionCount && !externalExtensionSection) {
-      left.appendChild(panel('No App-Specific Sections', '<p>This workspace app has no dedicated sections for this workflow mode.</p>', false, 'muted'));
+    if (!leftSections.length && !renderedBuiltInExtensionCount && !(externalExtensionSection && visibleExternalExtensionCount > 0)) {
+      left.appendChild(panel('No Compatible Tools', '<p>No workspace tools or extensions are compatible with the active Image provider and workflow.</p>', false, 'muted'));
     }
   }
 
@@ -35983,7 +40659,7 @@ function sendPromptAssistCaptionBrowserImageToSource() {
   saveUiState();
 }
 
-function sendPromptAssistCaptionBrowserImageToControlNet() {
+async function sendPromptAssistCaptionBrowserImageToControlNet() {
   const pc = promptCaptioningState();
   const pb = pc.promptBuilder || (pc.promptBuilder = {});
   const { selected } = promptCaptioningCaptionBrowserCurrentCaption();
@@ -35999,8 +40675,7 @@ function sendPromptAssistCaptionBrowserImageToControlNet() {
     return;
   }
   try {
-    previewActionStageControlNetSource(source, { renderPanel: false });
-    state.activeSurfaceId = 'image';
+    await previewActionStageControlNetSource(source, { renderPanel: false });
     state.activeSurfaceId = 'image';
     setSurfaceWorkspaceAppId('image', 'reference');
     pb.status = 'Sent caption image to ControlNet.';
@@ -44658,6 +49333,11 @@ function bindImageSourceDimensionProbe() {
   });
 }
 
+function clearPreviewSourceActionOwnership() {
+  ['_neo_derived_action', '_preview_action', '_preview_action_source', '_preview_action_force_workflow_mode', '_preview_action_finish_pass'].forEach((key) => { delete state.imageDraft[key]; });
+  clearPreviewActionProviderTransientState();
+}
+
 async function uploadImageSourceFile(file) {
   if (!file) return;
   const dims = await readImageFileDimensions(file);
@@ -44671,6 +49351,7 @@ async function uploadImageSourceFile(file) {
   state.imageDraft.source_image_name = payload.filename || payload.stored_filename || file.name;
   state.imageDraft.source_image_width = dims.width || 0;
   state.imageDraft.source_image_height = dims.height || 0;
+  clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
   saveUiState();
   render();
@@ -44682,6 +49363,7 @@ function clearImageSource() {
   state.imageDraft.source_image_name = '';
   state.imageDraft.source_image_width = 0;
   state.imageDraft.source_image_height = 0;
+  clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
   saveUiState();
   render();
@@ -46094,6 +50776,8 @@ function stageSavedOutputAsCurrentImagePreview(source = {}, options = {}) {
     from_saved_result: true,
     replay_preview: true,
     replay_source: options.replaySource || state.imageResultsReplaySource || 'none',
+    width: Number(source.width || source.image_width || 0),
+    height: Number(source.height || source.image_height || 0),
     loaded_at: new Date().toISOString(),
   }];
   state.activeResultIndex = 0;
@@ -46126,43 +50810,326 @@ function previewActionSourceName(source = {}) {
   return source.filename || source.saved_filename || basename(source.path || '') || basename(source.url || '') || 'Selected output';
 }
 
-function stagePreviewActionSourceAsImageSource(source = {}) {
-  if (!previewActionHasSource(source)) throw new Error(source.missing_reason || 'No preview output is selected yet.');
-  state.imageDraft.source_image = source.path || source.saved_path || '';
-  state.imageDraft.source_image_url = source.url || source.view_url || source.path || '';
-  state.imageDraft.source_image_name = previewActionSourceName(source);
-  state.imageDraft.source_image_width = Number(source.width || source.image_width || source.source_width || 0);
-  state.imageDraft.source_image_height = Number(source.height || source.image_height || source.source_height || 0);
+const PREVIEW_SOURCE_HANDOFF_SCHEMA = 'neo.image.preview_source_handoff.v1';
+const PREVIEW_SOURCE_PROVIDER_TRANSIENT_KEYS = [
+  'comfy_source_image_name',
+  'source_image_uploaded_to_comfy',
+  'comfy_mask_image_name',
+  'comfy_outpaint_canvas_image_name',
+  'comfy_outpaint_mask_image_name',
+  'forge_source_image_b64',
+  'forge_mask_image_b64',
+];
+
+const IMAGE_ACTION_TRANSIENT_KEYS = [
+  '_neo_derived_action',
+  '_neo_derived_action_validation',
+  '_neo_derived_action_type',
+  '_neo_preview_action',
+  '_neo_preview_action_source',
+  '_neo_preview_source_handoff',
+  '_neo_preview_reference_handoff',
+  '_neo_source_output_id',
+  '_neo_source_job_id',
+  '_neo_parent_output_id',
+  '_neo_save_lane',
+  '_preview_action',
+  '_preview_action_source',
+  '_preview_action_finish_pass',
+  '_preview_action_force_workflow_mode',
+  '_preview_action_run_label',
+  '_post_output_bridge',
+  'save_mode_override',
+];
+const IMAGE_PROVIDER_UPLOAD_CACHE_KEYS = Array.from(new Set([
+  ...PREVIEW_SOURCE_PROVIDER_TRANSIENT_KEYS,
+  'comfy_reference_image_name',
+  'comfy_control_image_name',
+  'forge_reference_image_b64',
+  'forge_control_image_b64',
+]));
+const IMAGE_EXTENSION_HANDOFF_FIELDS = [
+  'preview_reference_handoff',
+  'preview_action_source',
+  'staged_preview_source',
+  'preview_derived_action',
+  '_replay_source_handoff',
+];
+
+function imageStripExtensionActionHandoffs(extensionId = '', options = {}) {
+  const current = state.imageDraft?.[extensionId];
+  if (!current || typeof current !== 'object') return [];
+  const next = { ...current };
+  const params = next.params && typeof next.params === 'object' ? { ...next.params } : null;
+  const metadata = next.metadata && typeof next.metadata === 'object' ? { ...next.metadata } : {};
+  const cleared = [];
+  IMAGE_EXTENSION_HANDOFF_FIELDS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key)) { delete next[key]; cleared.push(key); }
+    if (params && Object.prototype.hasOwnProperty.call(params, key)) { delete params[key]; cleared.push(`params.${key}`); }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, key)) { delete metadata[key]; cleared.push(`metadata.${key}`); }
+  });
+  if (params?.source_mode === 'preview_action_selected_output') {
+    params.source_mode = 'selected_result_or_upload';
+    cleared.push('params.source_mode');
+  }
+  ['detailer_output_pass', 'upscale_lab_source_only', 'preserve_prompt_context', 'preserve_reference_context'].forEach((key) => {
+    if (params && Object.prototype.hasOwnProperty.call(params, key)) { delete params[key]; cleared.push(`params.${key}`); }
+    if (Object.prototype.hasOwnProperty.call(next, key)) { delete next[key]; cleared.push(key); }
+  });
+  IMAGE_PROVIDER_UPLOAD_CACHE_KEYS.forEach((key) => {
+    if (params && Object.prototype.hasOwnProperty.call(params, key)) { delete params[key]; cleared.push(`params.${key}`); }
+    if (Object.prototype.hasOwnProperty.call(next, key)) { delete next[key]; cleared.push(key); }
+  });
+  if (options.disablePendingRevalidation && cleared.length) {
+    next.enabled = false;
+    metadata.revalidation_required = true;
+    metadata.restore_state = 'restored_disabled_pending_selected_provider_revalidation';
+    metadata.temporary_handoff_restored = false;
+    setWorkflowExtensionApplied(extensionId, false);
+  }
+  if (params) next.params = params;
+  if (Object.keys(metadata).length) next.metadata = metadata;
+  state.imageDraft[extensionId] = next;
+  return cleared;
+}
+
+function imageFinalizeActionLifecycle(reason = 'completed', options = {}) {
+  if (!state.imageDraft || typeof state.imageDraft !== 'object') return { reason, cleared_fields: [] };
+  const cleared = [];
+  const hadActionState = IMAGE_ACTION_TRANSIENT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(state.imageDraft, key))
+    || [CONTROLNET_EXTENSION_ID, IP_ADAPTER_EXTENSION_ID, HIGH_RES_LAB_EXTENSION_ID, ADETAILER_EXTENSION_ID, IMAGE_UPSCALE_EXTENSION_ID].some((extensionId) => {
+      const block = state.imageDraft?.[extensionId];
+      if (!block || typeof block !== 'object') return false;
+      const params = block.params && typeof block.params === 'object' ? block.params : {};
+      return IMAGE_EXTENSION_HANDOFF_FIELDS.some((key) => Object.prototype.hasOwnProperty.call(block, key) || Object.prototype.hasOwnProperty.call(params, key));
+    });
+  IMAGE_ACTION_TRANSIENT_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(state.imageDraft, key)) {
+      delete state.imageDraft[key];
+      cleared.push(key);
+    }
+  });
+  if (state.imageDraft.output_policy === 'append_derived') {
+    delete state.imageDraft.output_policy;
+    cleared.push('output_policy');
+  }
+  if (options.clearProviderCaches !== false) {
+    IMAGE_PROVIDER_UPLOAD_CACHE_KEYS.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(state.imageDraft, key)) {
+        delete state.imageDraft[key];
+        cleared.push(key);
+      }
+    });
+    delete state.imageDraft._neo_provider_state_owner;
+  }
+  [CONTROLNET_EXTENSION_ID, IP_ADAPTER_EXTENSION_ID, HIGH_RES_LAB_EXTENSION_ID, ADETAILER_EXTENSION_ID, IMAGE_UPSCALE_EXTENSION_ID].forEach((extensionId) => {
+    imageStripExtensionActionHandoffs(extensionId, { disablePendingRevalidation: options.disablePendingRevalidation === true });
+  });
+  if (hadActionState || options.forceClearStagedSources === true) {
+    if (typeof adetailerClearStagedPreviewSource === 'function') adetailerClearStagedPreviewSource({ renderPanel: false });
+    if (typeof highResLabClearStagedPreviewSource === 'function') highResLabClearStagedPreviewSource({ renderPanel: false });
+    if (typeof imageUpscaleClearStagedPreviewSource === 'function') imageUpscaleClearStagedPreviewSource();
+  }
+  if (options.preserveCanonicalSource === false) {
+    ['source_image', 'source_image_path', 'source_image_url', 'source_image_name', 'source_image_width', 'source_image_height'].forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(state.imageDraft, key)) { delete state.imageDraft[key]; cleared.push(key); }
+    });
+  }
+  if (options.preserveReplayContext === false) delete state.imageDraft._replay_context;
+  state.imageDraft._neo_action_state_cleanup = {
+    schema: 'neo.image.action_state_cleanup.v1',
+    reason,
+    cleared_fields: Array.from(new Set(cleared)),
+    provider_profile_id: selectedBackendProfileIdForSurface('image') || '',
+    completed_at: new Date().toISOString(),
+  };
+  return state.imageDraft._neo_action_state_cleanup;
+}
+
+function previewSourceActionMode(action = {}, fallback = 'img2img') {
+  const candidate = String(action.targetMode || action.target_mode || action.handler_args?.[0] || fallback || 'img2img').trim();
+  return ['img2img', 'inpaint', 'outpaint'].includes(candidate) ? candidate : 'img2img';
+}
+
+function previewSourceActionEvaluation(action = {}, source = {}) {
+  const evaluated = evaluatePreviewActionForToolbar(action, source);
+  if (!evaluated.enabled) throw new Error(evaluated.disabledReason || 'This source action is unavailable for the selected backend profile.');
+  const selectedProfileId = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const evaluatedProfileId = String(evaluated.profile_id || '').trim();
+  if (!selectedProfileId) throw new Error('Select an Image backend profile before staging this output.');
+  if (evaluatedProfileId && evaluatedProfileId !== selectedProfileId) {
+    throw new Error('The preview action evaluation is stale for the selected Image backend profile. Refresh and try again.');
+  }
+  if (String(evaluated.dispatchType || evaluated.dispatch_type || '') !== 'stage_source_mode') {
+    throw new Error('The selected provider did not publish a source-stage dispatcher for this action.');
+  }
+  return {
+    ...evaluated,
+    profileId: selectedProfileId,
+    providerId: String(evaluated.provider_id || activeImageProfile()?.provider_id || activeImageProfile()?.backend || '').trim().toLowerCase(),
+    targetMode: previewSourceActionMode(action),
+  };
+}
+
+function clearPreviewActionProviderTransientState() {
+  const cleared = [];
+  PREVIEW_SOURCE_PROVIDER_TRANSIENT_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(state.imageDraft, key)) return;
+    delete state.imageDraft[key];
+    cleared.push(key);
+  });
+  return cleared;
+}
+
+function clearPreviewActionModeSpecificState(mode = 'img2img') {
   resetImageMaskDraft();
-  state.imageDraft._preview_action_source = {
+  state.imageMaskEditor.open = false;
+  state.imageMaskEditor.initializedFor = '';
+  if (mode !== 'outpaint') {
+    state.imageOutpaintEditor.open = false;
+    state.imageOutpaintEditor.dragging = false;
+    state.imageOutpaintEditor.dragEdge = '';
+    state.imageOutpaintEditor.dragMode = '';
+    return;
+  }
+  ['outpaint_left', 'outpaint_top', 'outpaint_right', 'outpaint_bottom'].forEach((key) => { state.imageDraft[key] = 0; });
+  [
+    'outpaint_canvas_image', 'outpaint_canvas_image_path', 'outpaint_canvas_image_url', 'outpaint_canvas_image_name',
+    'outpaint_mask_image', 'outpaint_mask_image_path', 'outpaint_mask_image_url', 'outpaint_mask_image_name',
+  ].forEach((key) => { delete state.imageDraft[key]; });
+  state.imageOutpaintEditor.open = false;
+  state.imageOutpaintEditor.dragging = false;
+  state.imageOutpaintEditor.dragEdge = '';
+  state.imageOutpaintEditor.dragMode = '';
+  state.imageOutpaintEditor.autoOpenedFor = '';
+  state.imageOutpaintEditor.dismissedFor = '';
+}
+
+function previewActionSourceRecord(source = {}) {
+  const lineage = source.lineage && typeof source.lineage === 'object'
+    ? source.lineage
+    : (source.metadata?.lineage && typeof source.metadata.lineage === 'object' ? source.metadata.lineage : {});
+  const ancestors = Array.isArray(source.ancestor_output_ids) ? source.ancestor_output_ids : (Array.isArray(lineage.ancestor_output_ids) ? lineage.ancestor_output_ids : []);
+  return {
     source_type: source.source_type || 'generated_output',
     source_scope: source.source_scope || '',
     result_id: source.result_id || '',
     job_id: source.job_id || '',
     output_id: source.output_id || '',
     file_id: source.file_id || '',
-    filename: source.filename || '',
-    path: source.path || '',
-    url: source.url || '',
-    parent_output_id: source.parent_output_id || '',
-    parent_job_id: source.parent_job_id || '',
+    filename: previewActionSourceName(source),
+    saved_filename: source.saved_filename || source.filename || '',
+    path: source.path || source.saved_path || '',
+    url: source.url || source.view_url || source.path || '',
+    width: Number(source.width || source.image_width || source.source_width || 0),
+    height: Number(source.height || source.image_height || source.source_height || 0),
+    parent_output_id: source.parent_output_id || lineage.parent_output_id || '',
+    parent_job_id: source.parent_job_id || lineage.parent_job_id || '',
+    root_output_id: source.root_output_id || lineage.root_output_id || '',
+    root_job_id: source.root_job_id || lineage.root_job_id || '',
+    lineage_depth: Number(source.lineage_depth ?? lineage.depth ?? 0),
+    ancestor_output_ids: Array.from(new Set(ancestors.map((item) => String(item || '').trim()).filter(Boolean))),
+    lineage,
   };
 }
 
-function clearPreviewActionMaskForMode(mode) {
-  if (mode !== 'inpaint' && mode !== 'outpaint') return;
-  resetImageMaskDraft();
+async function materializePreviewActionSource(source = {}) {
+  if (!previewActionHasSource(source)) throw new Error(source.missing_reason || 'No preview output is selected yet.');
+  if (source.path || source.saved_path) return { ...source };
+  const sourceUrl = String(source.url || source.view_url || '').trim();
+  if (!sourceUrl) throw new Error('The selected output has no reusable path or preview URL.');
+  const download = await fetch(sourceUrl);
+  if (!download.ok) throw new Error(`Could not read the selected output (HTTP ${download.status}).`);
+  const blob = await download.blob();
+  if (!blob.size) throw new Error('The selected output returned an empty image.');
+  const filename = previewActionSourceName(source).replace(/[^A-Za-z0-9._-]+/g, '_') || 'preview-source.png';
+  const file = new File([blob], filename, { type: blob.type || 'image/png' });
+  const dimensions = await readImageFileDimensions(file);
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch('/api/image/source-image', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Could not stage the selected output in Neo-owned source storage.');
+  return {
+    ...source,
+    path: payload.path || '',
+    saved_path: payload.path || '',
+    url: payload.url || sourceUrl,
+    view_url: payload.url || sourceUrl,
+    filename: payload.filename || source.filename || filename,
+    saved_filename: payload.stored_filename || payload.filename || source.saved_filename || filename,
+    source_id: payload.source_id || payload.stored_filename || '',
+    width: Number(source.width || source.image_width || dimensions.width || 0),
+    height: Number(source.height || source.image_height || dimensions.height || 0),
+    materialized_from_preview: true,
+  };
 }
 
-function previewActionModeMessage(mode) {
-  if (mode === 'inpaint') return 'Image sent to Inpaint. Add or draw a mask next.';
-  if (mode === 'outpaint') return 'Image sent to Outpaint. Set padding directions next.';
-  return 'Image sent to Img2Img. Source is locked from the preview.';
+function buildPreviewSourceHandoffContract(action = {}, evaluation = {}, source = {}, replayInfo = {}) {
+  const mode = previewSourceActionMode(action, evaluation.targetMode || 'img2img');
+  return {
+    schema: action.sourceContractSchema || action.source_contract_schema || PREVIEW_SOURCE_HANDOFF_SCHEMA,
+    action_id: action.id || `core.${mode}`,
+    action_class: 'source_stage',
+    target_mode: mode,
+    profile_id: evaluation.profileId || evaluation.profile_id || selectedBackendProfileIdForSurface('image') || '',
+    provider_id: evaluation.providerId || evaluation.provider_id || '',
+    dispatch_type: evaluation.dispatchType || evaluation.dispatch_type || 'stage_source_mode',
+    execution_mode: evaluation.executionMode || evaluation.execution_mode || '',
+    provider_policy: action.profilePolicy || action.profile_policy || 'selected_profile_only',
+    automatic_provider_fallback: false,
+    auto_run: false,
+    mask_policy: action.maskPolicy || action.mask_policy || 'clear_stale_mask_on_source_change',
+    editor_policy: action.editorPolicy || action.editor_policy || 'source_panel',
+    prompt_context_policy: 'preserve_or_explicit_replay',
+    reference_context_policy: 'preserve_or_explicit_replay',
+    replay_source: replayInfo.replaySource || 'none',
+    created_at: new Date().toISOString(),
+    cleared_provider_fields: [],
+    source: previewActionSourceRecord(source),
+  };
 }
 
-async function applySelectedReplaySourceForOutputHandoff(trigger = 'source_button_handoff') {
+function stagePreviewActionSourceAsImageSource(source = {}, handoff = {}) {
+  if (!previewActionHasSource(source)) throw new Error(source.missing_reason || 'No preview output is selected yet.');
+  const record = previewActionSourceRecord(source);
+  state.imageDraft.source_image = record.path || '';
+  state.imageDraft.source_image_path = record.path || '';
+  state.imageDraft.source_image_url = record.url || record.path || '';
+  state.imageDraft.source_image_name = record.filename;
+  state.imageDraft.source_image_width = record.width;
+  state.imageDraft.source_image_height = record.height;
+  const clearedProviderFields = clearPreviewActionProviderTransientState();
+  clearPreviewActionModeSpecificState(handoff.target_mode || 'img2img');
+  state.imageDraft._preview_action_source = {
+    ...handoff,
+    schema: handoff.schema || PREVIEW_SOURCE_HANDOFF_SCHEMA,
+    automatic_provider_fallback: false,
+    auto_run: false,
+    cleared_provider_fields: Array.from(new Set([...(handoff.cleared_provider_fields || []), ...clearedProviderFields])),
+    source: record,
+  };
+  return state.imageDraft._preview_action_source;
+}
+
+function previewActionModeMessage(mode, providerLabel = '') {
+  const owner = providerLabel ? ` using ${providerLabel}` : '';
+  if (mode === 'inpaint') return `Image sent to Inpaint${owner}. Draw or upload a new mask next.`;
+  if (mode === 'outpaint') return `Image sent to Outpaint${owner}. Set fresh canvas padding next.`;
+  return `Image sent to Img2Img${owner}. The selected output is staged without running generation.`;
+}
+
+function previewSourceMatchesSavedResult(source = {}, summary = {}) {
+  if (!summary?.result_id) return false;
+  if (source.result_id) return String(source.result_id) === String(summary.result_id);
+  return ['saved_result', 'inspector_file'].includes(String(source.source_scope || ''));
+}
+
+async function applySelectedReplaySourceForOutputHandoff(trigger = 'source_button_handoff', options = {}) {
+  const source = options.source || activeSavedPreviewActionSource();
+  const lockedProfileId = String(options.lockedProfileId || selectedBackendProfileIdForSurface('image') || '').trim();
   const summary = activeSavedResultSummary();
-  if (!summary?.result_id) return { replaySource: 'none', applied: null, branch: null };
+  if (!previewSourceMatchesSavedResult(source, summary)) return { replaySource: 'none', applied: null, branch: null };
   const activeFile = activeInspectorOutputFile() || summary.active_file || {};
   const sourceOption = selectedImageReplaySourceOption(summary, state.activeSavedResultMetadata || {}, activeFile);
   const replaySource = sourceOption?.id || 'none';
@@ -46174,7 +51141,9 @@ async function applySelectedReplaySourceForOutputHandoff(trigger = 'source_butto
     replaySource,
     resultId: summary.result_id,
     activeMetadata: state.activeSavedResultMetadata || {},
+    providerPolicy: 'preserve_selected_source_action',
   });
+  if (lockedProfileId) setSelectedBackendProfileForSurface('image', lockedProfileId);
   const previewSource = activeSavedPreviewActionSource();
   if (previewActionHasSource(previewSource)) {
     stageSavedOutputAsCurrentImagePreview(previewSource, { replaySource });
@@ -46189,44 +51158,68 @@ function replayHandoffSuffix(replayInfo = {}) {
   return ` Replay source loaded: ${replayInfo.replaySource}.`;
 }
 
-async function sendOutputToSourceMode(mode, sourceOverride = null) {
-  const cleanMode = ['img2img', 'inpaint', 'outpaint'].includes(mode) ? mode : 'img2img';
+function preparePreviewSourceModeEditor(mode = 'img2img') {
+  if (mode === 'inpaint') {
+    state.imageMaskEditor.open = Boolean(state.imageDraft.source_image_url);
+    state.imageMaskEditor.initializedFor = '';
+    return;
+  }
+  if (mode === 'outpaint') {
+    state.imageOutpaintEditor.open = Boolean(state.imageDraft.source_image_url);
+    state.imageOutpaintEditor.autoOpenedFor = '';
+    state.imageOutpaintEditor.dismissedFor = '';
+  }
+}
+
+async function sendOutputToSourceMode(mode, sourceOverride = null, options = {}) {
+  const action = options.action || imagePreviewActionById(`core.${['img2img', 'inpaint', 'outpaint'].includes(mode) ? mode : 'img2img'}`) || {};
+  const cleanMode = previewSourceActionMode(action, mode);
   const source = sourceOverride || activeSavedPreviewActionSource();
   if (!previewActionHasSource(source)) {
-    alert(source.missing_reason || 'No preview output is selected yet.');
-    return false;
+    throw new Error(source.missing_reason || 'No preview output is selected yet.');
   }
+  const evaluation = options.evaluation || previewSourceActionEvaluation(action, source);
+  const lockedProfileId = evaluation.profileId;
   clearImageLatePassContinuation();
+  setWorkspaceStatus(`Staging ${previewActionSourceName(source)} for ${cleanMode}…`, 'info');
+  const stagedSource = await materializePreviewActionSource(source);
   let replayInfo = { replaySource: 'none', applied: null, branch: null };
-  try {
-    replayInfo = await applySelectedReplaySourceForOutputHandoff(`send_output_to_${cleanMode}`);
-  } catch (error) {
-    setWorkspaceStatus(error.message || 'Could not load the selected replay source before source handoff.', 'warning');
-    return false;
-  }
-  stagePreviewActionSourceAsImageSource(source);
-  clearPreviewActionMaskForMode(cleanMode);
+  replayInfo = await applySelectedReplaySourceForOutputHandoff(`send_output_to_${cleanMode}`, {
+    source: stagedSource,
+    lockedProfileId,
+  });
+  if (lockedProfileId) setSelectedBackendProfileForSurface('image', lockedProfileId);
+  const handoff = buildPreviewSourceHandoffContract(action, evaluation, stagedSource, replayInfo);
+  stagePreviewActionSourceAsImageSource(stagedSource, handoff);
   setImageWorkflowMode(cleanMode);
-  setSurfaceWorkspaceAppId('image', 'generations');
+  setSurfaceWorkspaceAppId('image', action.targetWorkspace || action.target_workspace || 'generations');
   state.imageDraft.output_policy = 'new_current_run';
   state.imageDraft._preview_action = {
-    schema_version: 1,
-    action_id: `core.${cleanMode}`,
+    schema_version: 2,
+    action_id: action.id || `core.${cleanMode}`,
     action_type: cleanMode,
+    dispatch_type: evaluation.dispatchType || evaluation.dispatch_type || 'stage_source_mode',
+    execution_mode: evaluation.executionMode || evaluation.execution_mode || '',
+    provider_id: evaluation.providerId || evaluation.provider_id || '',
+    backend_profile_id: lockedProfileId,
+    provider_policy: 'selected_profile_only',
+    automatic_provider_fallback: false,
+    auto_run: false,
     replay_source: replayInfo.replaySource || 'none',
-    source_output_id: source.output_id || source.file_id || '',
-    source_file_id: source.file_id || '',
-    source_job_id: source.job_id || '',
-    source_filename: source.filename || '',
-    source_url: source.url || '',
-    parent_output_id: source.parent_output_id || '',
-    parent_job_id: source.parent_job_id || '',
+    source_output_id: stagedSource.output_id || stagedSource.file_id || '',
+    source_file_id: stagedSource.file_id || '',
+    source_job_id: stagedSource.job_id || '',
+    source_filename: previewActionSourceName(stagedSource),
+    source_url: stagedSource.url || stagedSource.view_url || '',
+    parent_output_id: stagedSource.parent_output_id || '',
+    parent_job_id: stagedSource.parent_job_id || '',
     preserve_prompt_context: true,
     preserve_reference_context: true,
-    created_at: new Date().toISOString(),
+    created_at: handoff.created_at,
   };
+  preparePreviewSourceModeEditor(cleanMode);
   saveUiState();
-  setWorkspaceProgress(`${previewActionModeMessage(cleanMode)}${replayHandoffSuffix(replayInfo)}`, 100, { allowBackwards: true });
+  setWorkspaceProgress(`${previewActionModeMessage(cleanMode, evaluation.provider_id || evaluation.providerId || '')}${replayHandoffSuffix(replayInfo)}`, 100, { allowBackwards: true });
   render();
   return true;
 }
@@ -46262,128 +51255,227 @@ async function sendOutputToImageUpscale(sourceOverride = null) {
   }
 }
 
-function previewActionBuildSetup(actionId = '', source = {}, label = '') {
-  const actionTypeMap = {
-    'extension.high_res_lab': 'hires_fix',
-    'extension.adetailer': 'selective_repair',
-    'extension.identity_rescue': 'identity_rescue',
-    'extension.image_upscale': 'image_upscale',
-  };
+const PREVIEW_DERIVED_ACTION_SCHEMA = 'neo.image.derived_action.v2';
+
+function previewActionBuildDerivedContract(actionId = '', source = {}, evaluation = {}, label = '') {
+  const sourceRecord = previewActionSourceRecord(source);
+  const sourceBinding = previewFinishSourceProviderBinding(source);
+  const profileId = String(evaluation.profileId || evaluation.profile_id || selectedBackendProfileIdForSurface('image') || '').trim();
+  const providerId = String(evaluation.providerId || evaluation.provider_id || activeImageProfile()?.provider_id || '').trim().toLowerCase();
+  const parentOutputId = sourceRecord.output_id || sourceRecord.file_id || sourceRecord.parent_output_id || '';
+  const parentJobId = sourceRecord.job_id || sourceRecord.parent_job_id || '';
+  const rootOutputId = sourceRecord.root_output_id || sourceRecord.lineage?.root_output_id || parentOutputId;
+  const rootJobId = sourceRecord.root_job_id || sourceRecord.lineage?.root_job_id || parentJobId;
+  const ancestorOutputIds = Array.from(new Set([...(sourceRecord.ancestor_output_ids || []), parentOutputId].map((item) => String(item || '').trim()).filter(Boolean)));
+  const lineageDepth = Math.max(Number(sourceRecord.lineage_depth || 0) + 1, ancestorOutputIds.length);
   return {
-    schema_version: 1,
+    schema: PREVIEW_DERIVED_ACTION_SCHEMA,
+    schema_version: 2,
     action_id: actionId,
-    action_type: actionTypeMap[actionId] || actionId || 'derived',
-    source_output_id: source.output_id || source.file_id || '',
-    source_file_id: source.file_id || '',
-    source_job_id: source.job_id || '',
-    source_kind: source.source_type || 'generated_output',
-    source_filename: previewActionSourceName(source),
-    source_saved_filename: source.saved_filename || source.filename || '',
-    source_saved_path: source.path || source.saved_path || '',
-    source_view_url: source.url || source.view_url || '',
-    execution_mode: 'img2img',
-    workflow_variant: 'preview_action',
+    action_class: 'post_process',
+    action_type: ({
+      'extension.high_res_lab': 'hires_fix',
+      'extension.adetailer': 'selective_repair',
+      'extension.identity_rescue': 'identity_rescue',
+      'extension.image_upscale': 'image_upscale',
+    })[actionId] || actionId || 'derived',
+    label: label || outputPostFixActionLabel(actionId),
+    provider_id: providerId,
+    profile_id: profileId,
+    finish_provider_id: providerId,
+    finish_profile_id: profileId,
+    source_provider_id: sourceBinding.providerId || '',
+    source_profile_id: sourceBinding.profileId || '',
+    dispatch_type: String(evaluation.dispatchType || evaluation.dispatch_type || ''),
+    execution_mode: String(evaluation.executionMode || evaluation.execution_mode || ''),
+    provider_policy: 'selected_profile_only',
+    automatic_provider_fallback: false,
+    cross_provider: false,
     save_lane: 'append_derived',
-    derived_stage: label || actionId || 'Derived pass',
-    parent_output_id: source.parent_output_id || source.output_id || source.file_id || '',
-    parent_job_id: source.parent_job_id || source.job_id || '',
-    preserve_prompt_context: actionId !== 'extension.image_upscale',
-    preserve_reference_context: actionId !== 'extension.image_upscale',
-    requires_active_output: true,
+    output_policy: 'append_derived',
+    parent_output_id: parentOutputId,
+    parent_job_id: parentJobId,
+    source_parent_output_id: sourceRecord.parent_output_id || '',
+    source_parent_job_id: sourceRecord.parent_job_id || '',
+    root_output_id: rootOutputId,
+    root_job_id: rootJobId,
+    lineage_depth: lineageDepth,
+    ancestor_output_ids: ancestorOutputIds,
+    source_output_id: sourceRecord.output_id || sourceRecord.file_id || '',
+    source_job_id: sourceRecord.job_id || '',
+    source: sourceRecord,
     created_at: new Date().toISOString(),
   };
 }
 
-// V1 parity: Finish toolbar actions are derived preview actions. They should use
-// the selected output as the processing source without visually switching the
-// workspace into Img2Img and without running a fresh txt2img generation first.
-async function previewActionRunFinishPass(actionId, source, stageFn, label) {
-  const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-  const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-  if (!evaluated.enabled) {
-    setWorkspaceStatus(evaluated.disabledReason || `${label} is not available for this source.`, 'warning');
-    return false;
+function previewFinishStageFunction(actionId = '') {
+  if (actionId === 'extension.high_res_lab') return highResLabStagePreviewSource;
+  if (actionId === 'extension.adetailer') return adetailerStagePreviewSource;
+  if (actionId === 'extension.identity_rescue') return previewActionStageIdentityRescueSource;
+  if (actionId === 'extension.image_upscale') return imageUpscaleStagePreviewSource;
+  return null;
+}
+
+function previewFinishStageGenerationSource(actionId = '', source = {}, evaluation = {}, contract = {}) {
+  const stageFn = previewFinishStageFunction(actionId);
+  if (!stageFn) throw new Error('No provider-owned staging function is registered for this Finish action.');
+  let cleanSource = source;
+  const staged = stageFn(source, { renderPanel: false });
+  if (staged && previewActionHasSource(staged)) cleanSource = staged;
+  const sourceHandoff = buildPreviewSourceHandoffContract(
+    { id: 'core.img2img', source_contract_schema: PREVIEW_SOURCE_HANDOFF_SCHEMA, profile_policy: 'selected_profile_only' },
+    { profileId: evaluation.profileId, providerId: evaluation.providerId, dispatchType: 'stage_source_mode', executionMode: evaluation.executionMode },
+    cleanSource,
+    { replaySource: 'derived_finish_source' },
+  );
+  stagePreviewActionSourceAsImageSource(cleanSource, sourceHandoff);
+  const sourceWidth = Number(cleanSource.width || contract.source?.width || 0);
+  const sourceHeight = Number(cleanSource.height || contract.source?.height || 0);
+  if (sourceWidth > 0 && sourceHeight > 0) {
+    state.imageDraft.width = sourceWidth;
+    state.imageDraft.height = sourceHeight;
   }
-  clearImageLatePassContinuation();
-  const previousUi = {
-    activeWorkspaceAppId: state.activeWorkspaceAppId,
-    activeSubtabId: state.activeSubtabId,
-    imageSubtab: state.activeSubtabsBySurface?.image,
-    imageBackendProfileId: selectedBackendProfileIdForSurface('image'),
-    activeBackendProfileId: state.activeBackendProfileId,
-  };
-  const cleanSource = stageFn(source, { renderPanel: false });
-  const sourceName = previewActionSourceName(cleanSource || source);
-  const contract = previewActionBuildSetup(actionId, cleanSource || source, label);
-  const bridge = imagePostOutputComfyBridgeProfile(actionId);
-  if (!bridge.profile) {
-    setWorkspaceStatus(imagePostOutputBridgeNotice(actionId, cleanSource || source) || `${label} needs a local Comfy image backend profile.`, 'warning');
-    return false;
-  }
-  stagePreviewActionSourceAsImageSource(cleanSource || source);
-  state.imageDraft.workflow_mode = previousUi.activeSubtabId || state.imageDraft.workflow_mode || 'generate';
-  state.imageDraft._preview_action = contract;
-  state.imageDraft._post_output_bridge = {
-    schema_version: 'neo.image.post_output_comfy_bridge.v1',
-    action_id: actionId,
-    label,
-    source_backend_profile_id: previousUi.imageBackendProfileId || '',
-    bridge_backend_profile_id: bridge.profile.profile_id || '',
-    bridge_provider_id: bridge.profile.provider_id || '',
-    bridge_reason: bridge.reason || '',
-    created_at: new Date().toISOString(),
-  };
+  state.imageDraft._neo_derived_action = contract;
+  state.imageDraft._preview_action = contract; // compatibility for existing output/replay readers
   state.imageDraft._preview_action_force_workflow_mode = 'img2img';
-  state.imageDraft._preview_action_run_label = label;
+  state.imageDraft._preview_action_run_label = contract.label || actionId;
   state.imageDraft._preview_action_finish_pass = actionId;
   state.imageDraft.output_policy = 'append_derived';
-  if (actionId.startsWith('extension.layerdiffuse.')) {
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'LayerDiffuse slot handoff is not available for this source.', 'warning');
-      return;
-    }
-    try {
-      const slot = actionId.replace('extension.layerdiffuse.', '');
-      previewActionStageLayerDiffuseSlot(source, slot);
-    } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not stage this output for LayerDiffuse.', 'warning');
-    }
-    return;
-  }
   if (actionId === 'extension.high_res_lab') {
-    updateHighResLabSettings({
-      enabled: true,
-      source_mode: 'preview_action_selected_output',
-      preview_action_source: contract,
-      preserve_prompt_context: true,
-      preserve_reference_context: true,
-      upscale_lab_source_only: true,
-    });
-  }
-  if (actionId === 'extension.adetailer') {
+    updateHighResLabSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, preserve_prompt_context: true, preserve_reference_context: true, upscale_lab_source_only: true });
+  } else if (actionId === 'extension.adetailer') {
     updateAdetailerSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, detailer_output_pass: true });
-  }
-  if (actionId === 'extension.identity_rescue') {
-    // Identity Rescue is routed through IPAdapter FaceID, but the generated pass
-    // should still use the selected output as the source and preserve visible UI.
+  } else if (actionId === 'extension.identity_rescue') {
     state.imageDraft.denoise = Math.max(0.12, Math.min(Number(state.imageDraft.denoise || 0.28) || 0.28, 0.35));
   }
-  setSurfaceWorkspaceAppId('image', previousUi.activeWorkspaceAppId || getSurfaceWorkspaceAppId('image') || 'results');
-  setImageWorkflowMode(previousUi.activeSubtabId || previousUi.imageSubtab || getImageWorkflowMode() || 'generate');
-  saveUiState();
-  setSelectedBackendProfileForSurface('image', bridge.profile.profile_id);
-  setWorkspaceProgress(`Running ${label} on ${sourceName} via ${imagePostOutputBridgeLabel(bridge.profile)}…`, 18, { allowBackwards: true });
-  try {
-    await runImageGeneration();
-  } finally {
-    if (previousUi.imageBackendProfileId) setSelectedBackendProfileForSurface('image', previousUi.imageBackendProfileId);
-    else state.activeBackendProfileId = previousUi.activeBackendProfileId || state.activeBackendProfileId;
-  }
-  return true;
+  return cleanSource;
 }
 
+async function previewActionRunSelectedProviderDerived(actionId = '', source = {}, evaluation = {}, label = '') {
+  const materialized = await materializePreviewActionSource(source);
+  const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
+  const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const cleanSource = previewFinishStageGenerationSource(actionId, materialized, evaluation, contract);
+  saveUiState();
+  setWorkspaceProgress(`Running ${label} on ${previewActionSourceName(cleanSource)} via ${previewFinishDispatchLabel(evaluation)}…`, 18, { allowBackwards: true });
+  try {
+    await runImageGeneration();
+    const selectedProfileAfter = String(selectedBackendProfileIdForSurface('image') || '').trim();
+    if (selectedProfileAfter !== selectedProfileBefore) throw new Error('Finish dispatch changed the selected backend profile. The result was blocked to prevent a silent provider fallback.');
+    return true;
+  } finally {
+    imageFinalizeActionLifecycle('provider_derived_finish_terminal', {
+      clearProviderCaches: true,
+      preserveCanonicalSource: true,
+      preserveReplayContext: true,
+      forceClearStagedSources: true,
+    });
+    saveUiState();
+  }
+}
+
+async function previewActionRunForgeNativeHires(actionId = '', source = {}, evaluation = {}, label = '') {
+  const materialized = await materializePreviewActionSource(source);
+  const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
+  const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
+  const previousHighResSettings = { ...highResLabSettings() };
+  const requestedScale = highResLabClampNumber(previousHighResSettings.scale, HIGH_RES_LAB_DEFAULTS.scale, 1.1, 4);
+  const sourceWidth = Number(materialized.width || materialized.image_width || contract.source?.width || 0);
+  const sourceHeight = Number(materialized.height || materialized.image_height || contract.source?.height || 0);
+  const snapHiresDimension = (value) => Math.max(8, Math.round(Number(value || 0) / 8) * 8);
+  const expectedWidth = sourceWidth > 0 ? snapHiresDimension(sourceWidth * requestedScale) : 0;
+  const expectedHeight = sourceHeight > 0 ? snapHiresDimension(sourceHeight * requestedScale) : 0;
+  if (sourceWidth > 0 && sourceHeight > 0 && (expectedWidth <= sourceWidth || expectedHeight <= sourceHeight)) {
+    throw new Error('Native Forge Hires requires a target size larger than the selected source image.');
+  }
+  contract.native_hires = {
+    schema: 'neo.image.native_hires_size.v1',
+    size_mode: 'scale',
+    source_width: sourceWidth,
+    source_height: sourceHeight,
+    scale: requestedScale,
+    expected_width: expectedWidth,
+    expected_height: expectedHeight,
+  };
+  highResLabStagePreviewSource(materialized, { renderPanel: false });
+  state.imageDraft._neo_derived_action = contract;
+  state.imageDraft._preview_action = contract;
+  state.imageDraft._preview_action_force_workflow_mode = 'generate';
+  state.imageDraft._preview_action_run_label = contract.label || actionId;
+  state.imageDraft._preview_action_finish_pass = actionId;
+  state.imageDraft.output_policy = 'append_derived';
+  updateHighResLabSettings({
+    enabled: true,
+    enable_origin: 'preview_action',
+    source_mode: 'preview_action_selected_output',
+    preview_action_source: contract,
+    staged_preview_source: materialized,
+    preserve_prompt_context: true,
+    preserve_reference_context: true,
+    upscale_lab_source_only: true,
+    target_width: 0,
+    target_height: 0,
+  });
+  saveUiState();
+  const targetLabel = expectedWidth && expectedHeight ? ` → ${expectedWidth}×${expectedHeight}` : ` · ${requestedScale}×`;
+  setWorkspaceProgress(`Running native Forge Hires on ${previewActionSourceName(materialized)}${targetLabel}…`, 18, { allowBackwards: true });
+  try {
+    await runImageGeneration();
+    const selectedProfileAfter = String(selectedBackendProfileIdForSurface('image') || '').trim();
+    if (selectedProfileAfter !== selectedProfileBefore) throw new Error('Native Forge Hires changed the selected backend profile. The result was blocked.');
+    return true;
+  } finally {
+    state.imageDraft[HIGH_RES_LAB_EXTENSION_ID] = previousHighResSettings;
+    imageFinalizeActionLifecycle('forge_native_hires_terminal', {
+      clearProviderCaches: true,
+      preserveCanonicalSource: true,
+      preserveReplayContext: true,
+      forceClearStagedSources: true,
+    });
+    saveUiState();
+  }
+}
+
+async function previewActionRunSelectedProviderUpscale(actionId = '', source = {}, evaluation = {}, label = '') {
+  const materialized = await materializePreviewActionSource(source);
+  const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
+  imageUpscaleStagePreviewSource(materialized, { renderPanel: false });
+  updateImageUpscaleSettings({ preview_derived_action: contract, staged_preview_source: imageUpscaleStagedPreviewSource, source_mode: 'preview_action_selected_output' });
+  setSurfaceWorkspaceAppId('image', 'finish');
+  saveUiState();
+  render();
+  try {
+    await imageUpscaleQueueSelectedResult(contract);
+    return true;
+  } finally {
+    imageFinalizeActionLifecycle('provider_upscale_finish_terminal', {
+      clearProviderCaches: true,
+      preserveCanonicalSource: true,
+      preserveReplayContext: true,
+      forceClearStagedSources: true,
+    });
+    saveUiState();
+  }
+}
+
+async function previewActionDispatchFinish(actionId = '', source = {}, { placement = '' } = {}) {
+  const evaluation = previewFinishDispatchEvaluation(actionId, source);
+  const label = outputPostFixActionLabel(actionId);
+  clearImageLatePassContinuation();
+  if (evaluation.dispatchType === 'run_comfy_derived' || evaluation.dispatchType === 'run_provider_img2img_derived') {
+    return previewActionRunSelectedProviderDerived(actionId, source, evaluation, label);
+  }
+  if (evaluation.dispatchType === 'run_provider_upscale' || evaluation.dispatchType === 'run_provider_extras') {
+    return previewActionRunSelectedProviderUpscale(actionId, source, evaluation, label);
+  }
+  if (evaluation.dispatchType === 'explicit_cross_provider_bridge') {
+    throw new Error(`${label} requires an explicitly selected local finishing profile. Neo will not choose or switch providers automatically.`);
+  }
+  if (evaluation.dispatchType === 'run_forge_native_hires') {
+    return previewActionRunForgeNativeHires(actionId, source, evaluation, label);
+  }
+  throw new Error(`Provider-owned dispatcher ${evaluation.dispatchType || 'unavailable'} is not implemented for ${label}.`);
+}
 
 function outputPostFixActionLabel(actionId = '') {
   if (actionId === 'extension.high_res_lab') return 'High-Res Lab';
@@ -46395,160 +51487,57 @@ function outputPostFixActionLabel(actionId = '') {
 
 async function handleOutputInspectorPostFixAction(actionId = '') {
   const source = activeSavedPreviewActionSource();
-  const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-  const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-  if (!evaluated.enabled) {
-    setWorkspaceStatus(evaluated.disabledReason || `${outputPostFixActionLabel(actionId)} is not available for this output.`, 'warning');
+  try {
+    return await previewActionDispatchFinish(actionId, source, { placement: 'output_inspector' });
+  } catch (error) {
+    const label = outputPostFixActionLabel(actionId);
+    setWorkspaceStatus(error.message || `${label} could not run for this output.`, 'warning');
+    alert(`${label} failed: ${error.message || error}`);
     return false;
   }
-  if (actionId === 'extension.high_res_lab') {
-    highResLabStagePreviewSource(source);
-    setWorkspaceStatus('Selected output staged for High-Res Lab. Review settings, then run the finish pass.', 'success');
-    return true;
-  }
-  if (actionId === 'extension.adetailer') {
-    setWorkspaceStatus(`Preparing ADetailer pass for ${previewActionSourceName(source)}…`, 'info');
-    return await previewActionRunFinishPass(actionId, source, adetailerStagePreviewSource, 'ADetailer');
-  }
-  if (actionId === 'extension.image_upscale') {
-    imageUpscaleStagePreviewSource(source);
-    setWorkspaceStatus('Selected output staged for Image Upscale. Review settings, then click Upscale selected result.', 'success');
-    return true;
-  }
-  if (actionId === 'extension.identity_rescue') {
-    previewActionStageIdentityRescueSource(source);
-    setWorkspaceStatus('Selected output staged for Identity Rescue / FaceID. Confirm FaceID model before running.', 'success');
-    return true;
-  }
-  setWorkspaceStatus('This post-fix action is not connected yet.', 'warning');
-  return false;
 }
 
 async function handlePreviewActionClick(actionId, placement = '') {
   if (!actionId) return;
   const source = resolvePreviewActionSource(placement);
-  if (actionId === 'core.img2img') {
-    sendOutputToSourceMode('img2img', source);
-    return;
-  }
-  if (actionId === 'core.inpaint') {
-    sendOutputToSourceMode('inpaint', source);
-    return;
-  }
-  if (actionId === 'core.outpaint') {
-    sendOutputToSourceMode('outpaint', source);
-    return;
-  }
-  if (actionId === 'extension.image_upscale') {
-    if (placement === 'output_inspector') {
-      handleOutputInspectorPostFixAction(actionId);
-      return;
-    }
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'Image Upscale is not available for this source.', 'warning');
-      return;
-    }
+  const canonicalAction = imagePreviewActionById(actionId);
+  if (canonicalAction?.actionClass === 'source_stage') {
     try {
-      imageUpscaleStagePreviewSource(source, { renderPanel: false });
-      setSurfaceWorkspaceAppId('image', 'finish');
-      saveUiState();
-      render();
-      await imageUpscaleQueueSelectedResult();
+      const evaluation = previewSourceActionEvaluation(canonicalAction, source);
+      await sendOutputToSourceMode(previewSourceActionMode(canonicalAction), source, { action: canonicalAction, evaluation });
     } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not run Image Upscale for this output.', 'warning');
-      alert(`Image Upscale failed: ${error.message || error}`);
+      setWorkspaceStatus(error.message || 'Could not stage this output for the selected source mode.', 'warning');
     }
     return;
   }
-  if (actionId === 'extension.controlnet') {
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'ControlNet is not available for this source.', 'warning');
-      return;
-    }
+  if (canonicalAction?.actionClass === 'reference_stage' && [CONTROLNET_EXTENSION_ID, IP_ADAPTER_EXTENSION_ID].includes(canonicalAction.targetPanel || canonicalAction.requiresExtension)) {
     try {
-      previewActionStageControlNetSource(source);
+      const evaluation = previewReferenceActionEvaluation(canonicalAction, source);
+      if ((canonicalAction.targetPanel || canonicalAction.requiresExtension) === CONTROLNET_EXTENSION_ID) {
+        await previewActionStageControlNetSource(source, { action: canonicalAction, evaluation });
+      } else {
+        await previewActionStageIpAdapterSource(source, { action: canonicalAction, evaluation });
+      }
     } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not stage this output for ControlNet.', 'warning');
+      setWorkspaceStatus(error.message || 'Could not stage this output for the selected reference extension.', 'warning');
     }
     return;
   }
-  if (actionId === 'extension.ip_adapter') {
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'IPAdapter is not available for this source.', 'warning');
-      return;
-    }
-    try {
-      previewActionStageIpAdapterSource(source);
-    } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not stage this output for IPAdapter.', 'warning');
-    }
-    return;
-  }
-  if (actionId === 'extension.high_res_lab') {
-    if (placement === 'output_inspector') {
-      handleOutputInspectorPostFixAction(actionId);
-      return;
-    }
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'High-Res Lab is not available for this source.', 'warning');
-      return;
-    }
-    try {
-      await previewActionRunFinishPass(actionId, source, highResLabStagePreviewSource, 'High-Res Lab');
-    } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not run High-Res Lab for this output.', 'warning');
-      alert(`High-Res Lab failed: ${error.message || error}`);
-    }
-    return;
-  }
-  if (actionId === 'extension.adetailer') {
+  if (canonicalAction?.actionClass === 'post_process') {
     if (placement === 'output_inspector') {
       await handleOutputInspectorPostFixAction(actionId);
       return;
     }
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'ADetailer is not available for this source.', 'warning');
-      return;
-    }
     try {
-      await previewActionRunFinishPass(actionId, source, adetailerStagePreviewSource, 'ADetailer');
+      await previewActionDispatchFinish(actionId, source, { placement });
     } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not run ADetailer for this output.', 'warning');
-      alert(`ADetailer failed: ${error.message || error}`);
+      const label = outputPostFixActionLabel(actionId);
+      setWorkspaceStatus(error.message || `${label} could not run for this output.`, 'warning');
+      alert(`${label} failed: ${error.message || error}`);
     }
     return;
   }
-  if (actionId === 'extension.identity_rescue') {
-    if (placement === 'output_inspector') {
-      handleOutputInspectorPostFixAction(actionId);
-      return;
-    }
-    const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-    const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
-    if (!evaluated.enabled) {
-      setWorkspaceStatus(evaluated.disabledReason || 'Identity Rescue / FaceID is not available for this source.', 'warning');
-      return;
-    }
-    try {
-      await previewActionRunFinishPass(actionId, source, previewActionStageIdentityRescueSource, 'Identity Rescue / FaceID');
-    } catch (error) {
-      setWorkspaceStatus(error.message || 'Could not run Identity Rescue / FaceID for this output.', 'warning');
-      alert(`Identity Rescue / FaceID failed: ${error.message || error}`);
-    }
-    return;
-  }
-  const action = PREVIEW_ACTION_GROUPS.flatMap((group) => group.actions).find((item) => item.id === actionId);
-  const evaluated = evaluatePreviewActionForToolbar(action || {}, source);
+  const evaluated = evaluatePreviewActionForToolbar(canonicalAction || {}, source);
   const reason = evaluated.disabledReason || 'Extension preview-action handlers are not connected yet.';
   setWorkspaceStatus(reason, evaluated.enabled ? 'info' : 'warning');
 }
@@ -47062,8 +52051,8 @@ function adetailerReconcilePassesWithCatalog(payload = {}) {
     const current = String(normalized.detector_model || '').trim();
     const canonical = adetailerCatalogCanonicalModel(payload, normalized.detector_type, current);
     let detectorModel = current;
-    if (canonical) detectorModel = canonical;
-    else if (!current || current === ADETAILER_DEFAULT_PASS.detector_model) detectorModel = adetailerDefaultDetectorForType(payload, normalized.detector_type) || current;
+    if (canonical && (normalized.mode === 'custom' || adetailerModelMatchesDetailTarget(canonical, normalized.mode))) detectorModel = canonical;
+    else if (!current || current === ADETAILER_DEFAULT_PASS.detector_model || canonical) detectorModel = adetailerPreferredDetectorForPass(payload, normalized) || current;
     if (detectorModel === current) return normalized;
     changed = true;
     return adetailerNormalizePass({ ...normalized, detector_model: detectorModel }, index);
@@ -47741,17 +52730,32 @@ function bindAdetailerControls() {
     const index = Number(node.getAttribute('data-adetailer-pass-index') || 0);
     const key = node.getAttribute('data-adetailer-pass-field');
     const handler = (event) => {
-      const raw = event.target.type === 'checkbox' ? Boolean(event.target.checked) : event.target.value;
+      let raw = event.target.type === 'checkbox' ? Boolean(event.target.checked) : event.target.value;
+      if (key === 'detector_model' && raw === '__neo_manual__') {
+        const currentPass = adetailerSettings().detailer_passes?.[index] || {};
+        const manual = window.prompt('Enter the exact detector model name shown by Forge ADetailer:', String(currentPass.detector_model || ''));
+        if (manual === null) { render(); return; }
+        raw = String(manual || '').trim();
+      }
       const numeric = ['start_index','count','min_area','max_area'].includes(key);
       const patch = { [key]: numeric ? Number(raw) : raw };
       if (key === 'detector_type') {
         const catalog = adetailerCatalogPayloadForProfile();
-        const available = adetailerCatalogListForType(catalog, raw);
         const currentPass = adetailerSettings().detailer_passes?.[index] || {};
-        patch.detector_model = adetailerCatalogCanonicalModel(catalog, raw, currentPass.detector_model)
-          || adetailerDefaultDetectorForType(catalog, raw)
-          || available[0]
-          || '';
+        const nextPass = { ...currentPass, detector_type: raw };
+        const available = adetailerDetectorModelsForPass(adetailerSettings(), nextPass, catalog);
+        const forgeManualModel = String(activeImageProfile()?.provider_id || '') === 'forge' && !available.length;
+        patch.detector_model = forgeManualModel
+          ? String(currentPass.detector_model || '')
+          : adetailerPreferredDetectorForPass(catalog, nextPass) || '';
+      }
+      if (key === 'mode') {
+        const catalog = adetailerCatalogPayloadForProfile();
+        const currentPass = adetailerSettings().detailer_passes?.[index] || {};
+        const nextPass = { ...currentPass, mode: raw };
+        if (String(raw || '').toLowerCase() !== 'custom') {
+          patch.detector_model = adetailerPreferredDetectorForPass(catalog, nextPass) || String(currentPass.detector_model || '');
+        }
       }
       updateAdetailerPass(index, patch);
       if (event.type === 'change' && ['mode','detector_type','target_mode','target_order','reference_lock','enabled'].includes(key)) render();
@@ -48265,11 +53269,17 @@ function bindImageUpscaleControls() {
   const map = [
     ['imageUpscaleEngine', 'upscale_engine', 'value'],
     ['imageUpscaleModel', 'upscale_model', 'value'],
+    ['imageUpscaleForgeResizeMode', 'forge_resize_mode', 'value'],
+    ['imageUpscaleTargetWidth', 'target_width', 'number'],
+    ['imageUpscaleTargetHeight', 'target_height', 'number'],
+    ['imageUpscaleSecondaryModel', 'secondary_upscale_model', 'value'],
+    ['imageUpscaleSecondaryVisibility', 'secondary_visibility', 'number'],
     ['imageUpscaleScale', 'scale', 'number'],
     ['imageUpscaleResizeMethod', 'resize_method', 'value'],
     ['imageUpscaleRestoreAssist', 'restore_assist', 'value'],
     ['imageUpscaleRestoreModel', 'restore_model', 'value'],
     ['imageUpscaleRestoreFidelity', 'restore_fidelity', 'number'],
+    ['imageUpscaleRestoreVisibility', 'restore_visibility', 'number'],
     ['imageUpscaleRestoreDetection', 'restore_detection', 'value'],
     ['imageUpscaleSeedVR2DitModel', 'seedvr2_dit_model', 'value'],
     ['imageUpscaleSeedVR2VaeModel', 'seedvr2_vae_model', 'value'],
@@ -48296,7 +53306,7 @@ function bindImageUpscaleControls() {
       const patch = { [key]: kind === 'number' ? Number(event.target.value) : event.target.value, profile: key === 'restore_assist' ? imageUpscaleSettings().profile : 'custom' };
       if ((key === 'seedvr2_resolution' || key === 'seedvr2_max_resolution') && imageUpscaleSettings().seedvr2_sizing_mode === 'scale_factor') patch.seedvr2_sizing_mode = key === 'seedvr2_resolution' ? 'short_edge' : 'max_edge';
       updateImageUpscaleSettings(patch);
-      if (['restore_assist', 'upscale_engine', 'seedvr2_alpha_mode', 'seedvr2_sizing_mode', 'scale', 'seedvr2_resolution', 'seedvr2_max_resolution'].includes(key)) {
+      if (['restore_assist', 'upscale_engine', 'forge_resize_mode', 'secondary_upscale_model', 'seedvr2_alpha_mode', 'seedvr2_sizing_mode', 'scale', 'seedvr2_resolution', 'seedvr2_max_resolution'].includes(key)) {
         const current = imageUpscaleSettings();
         if (current.upscale_engine === 'seedvr2' && current.seedvr2_source_width && current.seedvr2_source_height) imageUpscaleUpdateAutoSeedVR2SizingFromDimensions(current.seedvr2_source_width, current.seedvr2_source_height, { renderPanel: false, status: false });
         render();
@@ -48311,6 +53321,8 @@ function bindImageUpscaleControls() {
     ['imageUpscaleSeedVR2DecodeTiled', 'seedvr2_decode_tiled'],
     ['imageUpscaleSeedVR2CacheModels', 'seedvr2_cache_models'],
     ['imageUpscaleSeedVR2Debug', 'seedvr2_enable_debug'],
+    ['imageUpscaleCropToFit', 'upscaling_crop'],
+    ['imageUpscaleUpscaleFirst', 'upscale_first'],
   ].forEach(([id, key]) => {
     const node = document.getElementById(id);
     if (!node) return;
@@ -48357,7 +53369,7 @@ function bindHighResLabControls() {
   const clearPreviewSource = document.getElementById('highResLabClearPreviewSource');
   if (clearPreviewSource) clearPreviewSource.addEventListener('click', () => highResLabClearStagedPreviewSource());
   const enabled = document.getElementById('highResLabEnabled');
-  if (enabled) enabled.addEventListener('change', (event) => { updateHighResLabSettings({ enabled: Boolean(event.target.checked) }); render(); });
+  if (enabled) enabled.addEventListener('change', (event) => { updateHighResLabSettings({ enabled: Boolean(event.target.checked), enable_origin: 'user' }); render(); });
   const profile = document.getElementById('highResLabProfile');
   if (profile) profile.addEventListener('change', (event) => { highResLabApplyProfile(event.target.value); render(); });
   const map = [
@@ -48412,10 +53424,11 @@ function bindCfgFixControls() {
 }
 
 
-function snapImageDimension(value, step = 64) {
+function snapImageDimension(value, step = imageResolutionStep()) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 1024;
-  return Math.max(64, Math.round(n / step) * step);
+  const minimum = Number(activeImageResolutionPolicy().minimum || step || 64);
+  return Math.max(minimum, Math.round(n / step) * step);
 }
 
 function syncImageSizeInputs(width, height) {
@@ -48423,6 +53436,8 @@ function syncImageSizeInputs(width, height) {
   const h = snapImageDimension(height);
   state.imageDraft.width = w;
   state.imageDraft.height = h;
+  noteImageManagedSamplingFieldEdit('width', w);
+  noteImageManagedSamplingFieldEdit('height', h);
   state.imageDraft.size_preset = 'custom';
   const widthInput = document.getElementById('imageWidth');
   const heightInput = document.getElementById('imageHeight');
@@ -48472,13 +53487,24 @@ function bindImageDraftInputs() {
     ['imageScheduler', 'scheduler', 'value'],
     ['imageClamp', 'clamp', 'value'],
     ['imageLatentCaptureMode', 'latent_capture_mode', 'value'],
+    ['imageInpaintEngine', 'inpaint_engine', 'value'],
+    ['imageLanpaintResizeMethod', 'lanpaint_resize_method', 'value'],
+    ['imageLanpaintPromptMode', 'lanpaint_prompt_mode', 'value'],
+    ['imageLanpaintStitchResizeMethod', 'lanpaint_stitch_resize_method', 'value'],
     ['imageOutpaintSourceResolutionMode', 'outpaint_source_resolution_mode', 'value'],
   ];
   bindings.forEach(([id, key]) => {
     const node = document.getElementById(id);
     if (!node) return;
-    node.addEventListener('input', (event) => updateDraftValue(key, event.target.value));
-    node.addEventListener('change', (event) => updateDraftValue(key, event.target.value));
+    node.addEventListener('input', (event) => {
+      updateDraftValue(key, event.target.value);
+      if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, event.target.value);
+    });
+    node.addEventListener('change', (event) => {
+      updateDraftValue(key, event.target.value);
+      if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, event.target.value);
+      if (key === 'inpaint_engine') render();
+    });
   });
 
   [
@@ -48520,21 +53546,42 @@ function bindImageDraftInputs() {
     ['imageOutpaintSourceMaxMegapixels', 'outpaint_source_max_megapixels'],
     ['imageMaskGrow', 'mask_grow'],
     ['imageMaskBlur', 'mask_blur'],
+    ['imageLanpaintCropPadding', 'lanpaint_crop_padding'],
+    ['imageLanpaintProcessingWidth', 'lanpaint_processing_width'],
+    ['imageLanpaintProcessingHeight', 'lanpaint_processing_height'],
+    ['imageLanpaintSamplingMaskExpand', 'lanpaint_sampling_mask_expand'],
+    ['imageLanpaintSamplingMaskBlur', 'lanpaint_sampling_mask_blur'],
+    ['imageLanpaintStitchMaskExpand', 'lanpaint_stitch_mask_expand'],
+    ['imageLanpaintStitchMaskBlur', 'lanpaint_stitch_mask_blur'],
+    ['imageLanpaintThinkingSteps', 'lanpaint_thinking_steps'],
+    ['imageLanpaintDenoise', 'lanpaint_denoise'],
   ];
   numericBindings.forEach(([id, key]) => {
     const node = document.getElementById(id);
     if (!node) return;
     node.addEventListener('input', (event) => {
-      updateDraftValue(key, Number(event.target.value));
+      const rawValue = event.target.value;
+      updateDraftValue(key, rawValue === '' ? '' : Number(rawValue));
+      if (key === 'cfg' && imageUsesTrueCfgSemantic()) updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+      if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, rawValue);
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
       if (key === 'cfg' && state.imageDraft.family === 'qwen_rapid_aio' && state.imageDraft.loader === 'checkpoint_aio') state.imageDraft._qwen_rapid_aio_cfg = Number(event.target.value);
+      if (key === 'cfg') window.NeoNegativePromptEligibility?.applyToDom?.(document);
     });
     node.addEventListener('change', (event) => {
-      updateDraftValue(key, Number(event.target.value));
+      let rawValue = event.target.value;
+      if ((key === 'width' || key === 'height') && rawValue !== '' && activeImageResolutionPolicy().enabled) {
+        rawValue = String(snapImageDimension(rawValue));
+        event.target.value = rawValue;
+      }
+      updateDraftValue(key, rawValue === '' ? '' : Number(rawValue));
+      if (key === 'cfg' && imageUsesTrueCfgSemantic()) updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+      if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, rawValue);
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
       if (key === 'cfg' && state.imageDraft.family === 'qwen_rapid_aio' && state.imageDraft.loader === 'checkpoint_aio') state.imageDraft._qwen_rapid_aio_cfg = Number(event.target.value);
+      if (key === 'cfg') window.NeoNegativePromptEligibility?.applyToDom?.(document);
     });
   });
 
@@ -48543,6 +53590,45 @@ function bindImageDraftInputs() {
   const contextLatentMaskOnly = document.getElementById('imageContextLatentMaskOnly');
   if (contextLatentMaskOnly) contextLatentMaskOnly.addEventListener('change', (event) => updateDraftValue('context_latent_mask_only', Boolean(event.target.checked)));
   [['imageContextLatentExpand', 'context_latent_expand'], ['imageContextLatentBlur', 'context_latent_blur']].forEach(([id, key]) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const sync = (event) => updateDraftValue(key, Number(event.target.value));
+    node.addEventListener('input', sync);
+    node.addEventListener('change', sync);
+  });
+
+  const overlayRefresh = document.getElementById('imageCapabilityOverlayRefreshBtn');
+  if (overlayRefresh) overlayRefresh.addEventListener('click', async () => {
+    const profileId = activeImageProfile()?.profile_id || '';
+    overlayRefresh.disabled = true;
+    try {
+      const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/forge-admin/refresh`, { method: 'POST' });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || payload.message || `Forge refresh failed with HTTP ${response.status}`);
+      }
+      await refreshBackendProfiles();
+      await refreshImageCapabilityOverlay(profileId);
+      setWorkspaceStatus('Forge Image capabilities refreshed.', 'success');
+    } catch (error) {
+      setWorkspaceStatus(error?.message || 'Forge capability refresh failed.', 'warning');
+    } finally {
+      render();
+    }
+  });
+  [
+    ['imageForgeRestoreFaces', 'forge_restore_faces'],
+    ['imageForgeTiling', 'forge_tiling'],
+    ['imageForgeInpaintFullRes', 'forge_inpaint_full_res'],
+  ].forEach(([id, key]) => {
+    const node = document.getElementById(id);
+    if (node) node.addEventListener('change', (event) => updateDraftValue(key, Boolean(event.target.checked)));
+  });
+  [
+    ['imageForgeInpaintingFill', 'forge_inpainting_fill'],
+    ['imageForgeInpaintPadding', 'forge_inpaint_full_res_padding'],
+    ['imageForgeMaskInvert', 'forge_inpainting_mask_invert'],
+  ].forEach(([id, key]) => {
     const node = document.getElementById(id);
     if (!node) return;
     const sync = (event) => updateDraftValue(key, Number(event.target.value));
@@ -48574,10 +53660,11 @@ function bindImageDraftInputs() {
         updateDraftValue('text_encoder_1', raw);
         updateDraftValue('gguf_text_encoder_1', raw);
       }
+      if (imageSamplingPresetManagedFields().includes(fieldId)) noteImageManagedSamplingFieldEdit(fieldId, raw);
       if (fieldId === 'qwen3_text_encoder') setFlux2KleinCanonicalEncoder(raw);
       if (fieldId === 'qwen3vl_text_encoder') { updateDraftValue('text_encoder_1', raw); updateDraftValue('text_encoder_primary', raw); }
       if (fieldId === 'gguf_clip_type') {
-        if (['qwen_image', 'z_image', 'hidream', 'flux2_klein', 'krea2'].includes(raw)) updateDraftValue('gguf_clip_mode', 'single');
+        if (['qwen_image', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_klein', 'krea2'].includes(raw)) updateDraftValue('gguf_clip_mode', 'single');
         if (raw === 'flux' && !state.imageDraft.gguf_clip_mode) updateDraftValue('gguf_clip_mode', 'dual');
       }
       if (fieldId === 'flux_variant' && isFluxKleinVariant(raw)) {
@@ -48594,6 +53681,9 @@ function bindImageDraftInputs() {
       if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family')) && ['diffusion_model', 'gguf_model', 'qwen3vl_text_encoder', 'text_encoder_1'].includes(fieldId)) {
         syncKrea2State({ persist: false });
       }
+      if (['flux_variant', 'diffusion_model', 'gguf_model', 'checkpoint', 'qwen_rapid_aio_checkpoint'].includes(fieldId)) {
+        reapplyActiveImageBuiltInPresetForRoute(`component_${fieldId}_change`);
+      }
       refreshGgufBundleCheck();
       if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant', 'diffusion_model', 'gguf_model'].includes(fieldId)) render();
     };
@@ -48605,11 +53695,12 @@ function bindImageDraftInputs() {
   if (fluxGuidanceRange) {
     fluxGuidanceRange.addEventListener('input', (event) => {
       updateDraftValue('flux_guidance', Number(event.target.value));
+      noteImageManagedSamplingFieldEdit('flux_guidance', event.target.value);
       const numberInput = document.getElementById('imageParam_flux_guidance');
       if (numberInput) numberInput.value = event.target.value;
       refreshGgufBundleCheck();
     });
-    fluxGuidanceRange.addEventListener('change', (event) => updateDraftValue('flux_guidance', Number(event.target.value)));
+    fluxGuidanceRange.addEventListener('change', (event) => { updateDraftValue('flux_guidance', Number(event.target.value)); noteImageManagedSamplingFieldEdit('flux_guidance', event.target.value); });
   }
 
   const updateFamilyOrLoader = (key, value) => {
@@ -48635,6 +53726,7 @@ function bindImageDraftInputs() {
     applyQwenGgufStabilityPresetIfNeeded();
     applyZImageRuntimeDefaultsIfNeeded({ force: true });
     applyQwenRapidAioRuntimeDefaultsIfNeeded({ force: true });
+    reapplyActiveImageBuiltInPresetForRoute(`${key}_change`);
     render();
   };
   const family = document.getElementById('imageWorkspaceFamily');
@@ -48694,6 +53786,9 @@ function bindImageDraftInputs() {
 
   bindNeoImageDropzones();
   bindImageSourceDimensionProbe();
+  // IR-4: render() replaces Image controls, so refresh eligibility against the
+  // newly bound live DOM rather than waiting on a generic mutation callback.
+  window.NeoNegativePromptEligibility?.applyToDom?.(document);
   const maskFile = document.getElementById('imageMaskFile');
   if (maskFile) maskFile.addEventListener('change', (event) => uploadImageMaskFile(event.target.files?.[0]).catch((error) => alert(`Mask image failed: ${error.message}`)));
   const clearMask = document.getElementById('imageClearMaskBtn');
@@ -48893,8 +53988,9 @@ async function handleImageWatchdogDetach(profileId, jobId, watch, result = {}) {
   revokeImageLivePreview();
   const recovery = imageWatchdogRecoveryPayload(profileId, jobId, watch?.reason || 'progress_watchdog', watch?.message || 'Progress watchdog stopped waiting.');
   state.lastImageRecovery = recovery;
-  state.imageResults = Array.isArray(result?.outputs) ? result.outputs : state.imageResults || [];
+  state.imageResults = Array.isArray(result?.outputs) ? imageOutputsWithLineage(result.outputs, state.activeImageJob?.derived_action || null, result) : state.imageResults || [];
   state.activeResultIndex = 0;
+  imageFinalizeActionLifecycle('generation_detached_for_recovery', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
   state.activeImageJob = null;
   saveUiState();
   clearImageProgressWatchdog();
@@ -49112,6 +54208,83 @@ function setWorkspaceProgress(label, percent, details = {}) {
   if (state.imageGenerationProgress.completedAt) stopImageElapsedTicker();
 }
 
+function imageCapabilityOverlayForProfile(profile = null) {
+  const target = profile || activeImageProfile();
+  if (!target?.profile_id) return null;
+  return state.imageCapabilityOverlays?.[target.profile_id] || null;
+}
+
+function activeImageCapabilityOverlay() {
+  return imageCapabilityOverlayForProfile(activeImageProfile());
+}
+
+async function refreshImageCapabilityOverlay(profileId = '', { renderAfter = false } = {}) {
+  const id = String(profileId || activeImageProfile()?.profile_id || '').trim();
+  if (!id) return null;
+  state.imageCapabilityOverlayLoading = { ...(state.imageCapabilityOverlayLoading || {}), [id]: true };
+  try {
+    const response = await fetch(`/api/image/capability-overlay?profile_id=${encodeURIComponent(id)}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.message || `Capability overlay failed with HTTP ${response.status}`);
+    state.imageCapabilityOverlays = { ...(state.imageCapabilityOverlays || {}), [id]: payload };
+    if (state.activeSurfaceId === 'image' && activeImageProfile()?.profile_id === id) ensureActiveImageModeSelectable();
+    await refreshImagePreviewActionEvaluation(id).catch(() => null);
+    return payload;
+  } catch (error) {
+    state.imageCapabilityOverlays = {
+      ...(state.imageCapabilityOverlays || {}),
+      [id]: {
+        schema_id: 'neo.image.capability_overlay.client_error.v1',
+        profile_id: id,
+        provider_id: activeImageProfile()?.provider_id || '',
+        status: 'overlay_error',
+        connected: false,
+        generation_ready: false,
+        message: error?.message || 'Could not load Image capability overlay.',
+        catalog_scope: 'selected_profile',
+        catalogs: {},
+        resolution_policy: { enabled: false, step: 64 },
+        field_policy: {},
+        extension_policy: {},
+        warnings: [error?.message || 'Capability overlay failed.'],
+      },
+    };
+    return state.imageCapabilityOverlays[id];
+  } finally {
+    state.imageCapabilityOverlayLoading = { ...(state.imageCapabilityOverlayLoading || {}), [id]: false };
+    if (renderAfter) render();
+  }
+}
+
+function imageOverlayFieldPolicy(fieldId = '') {
+  const policy = activeImageCapabilityOverlay()?.field_policy || {};
+  const routePolicy = activeImageRouteFieldPolicy();
+  if (routePolicy[fieldId]) return { ...(policy[fieldId] || {}), ...routePolicy[fieldId] };
+  return policy[fieldId] || null;
+}
+
+function imageOverlayFieldVisible(fieldId = '') {
+  const policy = imageOverlayFieldPolicy(fieldId);
+  return !policy || policy.visible !== false;
+}
+
+function activeImageResolutionPolicy() {
+  const policy = activeImageCapabilityOverlay()?.resolution_policy;
+  if (policy && typeof policy === 'object') return policy;
+  return { enabled: false, step: 64, minimum: 64, maximum: 16384, strategy: 'nearest_multiple', source: 'neo_default' };
+}
+
+function imageResolutionStep() {
+  const policy = activeImageResolutionPolicy();
+  const step = Number(policy.step || 64);
+  return Number.isFinite(step) && step >= 1 ? step : 64;
+}
+
+function imageOverlayCatalogsForProfile(profile = null) {
+  const overlay = imageCapabilityOverlayForProfile(profile);
+  return overlay?.catalogs && typeof overlay.catalogs === 'object' ? overlay.catalogs : null;
+}
+
 function activeImageProfile() {
   return defaultBackendProfile('image');
 }
@@ -49241,8 +54414,11 @@ function buildImageJobPayload() {
   const sourceImageUrl = draft.source_image_url || '';
   const activeFieldIds = forcedPreviewMode ? new Set(imageParameterFieldsForMode(forcedPreviewMode).map((field) => field.field_id)) : activeImageParameterFieldIds();
   const usesField = (fieldId) => activeFieldIds.has(fieldId) || (fieldId === 'source_image' && imageSourceModes().has(forcedPreviewMode));
-  const width = Number(draft.width || numberValue('imageWidth', 1024));
-  const height = Number(draft.height || numberValue('imageHeight', 1024));
+  const requestedWidth = Number(draft.width || numberValue('imageWidth', 1024));
+  const requestedHeight = Number(draft.height || numberValue('imageHeight', 1024));
+  const resolutionPolicy = activeImageResolutionPolicy();
+  const width = resolutionPolicy.enabled ? snapImageDimension(requestedWidth) : requestedWidth;
+  const height = resolutionPolicy.enabled ? snapImageDimension(requestedHeight) : requestedHeight;
   const params = {
     ...parameterProfileParams(),
     model: activeImagePrimaryModelValue(),
@@ -49257,8 +54433,37 @@ function buildImageJobPayload() {
     batch_count: Number(draft.batch_count || numberValue('imageBatchCount', 1)),
     clamp: draft.prompt_conditioning_mode || draft.clamp || valueOf('imageClamp') || 'raw',
     prompt_conditioning_mode: draft.prompt_conditioning_mode || draft.clamp || valueOf('imageClamp') || 'raw',
-    latent_capture_mode: draft.latent_capture_mode || valueOf('imageLatentCaptureMode') || 'off',
+    latent_capture_mode: imageOverlayFieldVisible('latent_capture_mode') ? (draft.latent_capture_mode || valueOf('imageLatentCaptureMode') || 'off') : 'off',
   };
+  if (runtimeMode === 'inpaint') {
+    const lanpaintRoute = imageLanpaintSyncRouteState(draft);
+    params.inpaint_engine = lanpaintRoute.eligible
+      ? (draft.inpaint_engine || valueOf('imageInpaintEngine') || 'native')
+      : 'native';
+    if (params.inpaint_engine === 'lanpaint') {
+      const lanpaintState = imageLanpaintUiStatePayload(draft);
+      Object.assign(params, lanpaintState.flat);
+      params.lanpaint_ui_state = lanpaintState.nested;
+    }
+  }
+  if (normalizeRouteBackend(profile?.provider_id || profile?.backend) === 'forge') {
+    Object.assign(params, {
+      forge_resolution_step: imageResolutionStep(),
+      requested_width: requestedWidth,
+      requested_height: requestedHeight,
+      restore_faces: Boolean(draft.forge_restore_faces),
+      tiling: Boolean(draft.forge_tiling),
+    });
+    if (runtimeMode === 'inpaint') {
+      const selectionTarget = draft.inpaint_selection_target || valueOf('imageParam_inpaint_selection_target') || 'masked_area';
+      Object.assign(params, {
+        inpainting_fill: Number(draft.forge_inpainting_fill ?? 1),
+        inpaint_full_res: draft.forge_inpaint_full_res !== false,
+        inpaint_full_res_padding: Number(draft.forge_inpaint_full_res_padding ?? 32),
+        inpainting_mask_invert: Number(draft.forge_inpainting_mask_invert ?? (selectionTarget === 'not_masked_area' ? 1 : 0)),
+      });
+    }
+  }
   if (isCloudImageProfile(profile)) {
     const defaults = profile?.defaults || profile?.generation_defaults || {};
     params.model = activeImagePrimaryModelValue(profile);
@@ -49277,7 +54482,24 @@ function buildImageJobPayload() {
       provider_hook_required: true,
     };
   }
-  if (usesField('cfg')) params.cfg = Number(draft.cfg ?? numberValue('imageCfg', 7));
+  if (usesField('cfg')) {
+    const cfgControl = imageCfgUiContract(draft);
+    if (cfgControl.semantic_field === 'none') {
+      delete params.cfg;
+      delete params.true_cfg;
+    } else {
+      const rawCfg = cfgControl.disabled && cfgControl.value !== ''
+        ? cfgControl.value
+        : (cfgControl.semantic_field === 'true_cfg'
+          ? (draft.true_cfg ?? draft.cfg ?? valueOf('imageCfg'))
+          : (draft.cfg ?? valueOf('imageCfg')));
+      if (rawCfg !== '' && rawCfg !== null && rawCfg !== undefined) {
+        params.cfg = Number(rawCfg);
+        if (cfgControl.semantic_field === 'true_cfg') params.true_cfg = Number(rawCfg);
+        else delete params.true_cfg;
+      }
+    }
+  }
   if (usesField('clip_skip')) params.clip_skip = Number(draft.clip_skip || numberValue('imageClipSkip', 1));
   if (usesField('denoise')) params.denoise = Number(draft.denoise || numberValue('imageDenoise', 1));
   if (usesField('source_image')) {
@@ -49362,16 +54584,23 @@ function buildImageJobPayload() {
     params._neo_replay_context = replayContext;
   }
   const previewActionAllowed = imagePreviewActionPayloadAllowed(mode, runtimeMode, draft);
-  if (draft._preview_action && typeof draft._preview_action === 'object' && previewActionAllowed) {
-    params._neo_preview_action = { ...draft._preview_action };
-    params._neo_derived_action_type = draft._preview_action.action_type || '';
-    params._neo_source_output_id = draft._preview_action.source_output_id || '';
-    params._neo_source_job_id = draft._preview_action.source_job_id || '';
-    params._neo_parent_output_id = draft._preview_action.parent_output_id || '';
-    params._neo_save_lane = draft._preview_action.save_lane || 'append_derived';
-    params.save_mode_override = draft._preview_action.save_lane || 'append_derived';
+  const derivedAction = draft._neo_derived_action && typeof draft._neo_derived_action === 'object'
+    ? draft._neo_derived_action
+    : (draft._preview_action && typeof draft._preview_action === 'object' ? draft._preview_action : null);
+  if (derivedAction && previewActionAllowed) {
+    params._neo_derived_action = JSON.parse(JSON.stringify(derivedAction));
+    params._neo_preview_action = JSON.parse(JSON.stringify(derivedAction)); // compatibility reader
+    params._neo_derived_action_type = derivedAction.action_type || '';
+    params._neo_source_output_id = derivedAction.source_output_id || '';
+    params._neo_source_job_id = derivedAction.source_job_id || '';
+    params._neo_parent_output_id = derivedAction.parent_output_id || '';
+    if (draft._preview_action_source && typeof draft._preview_action_source === 'object') {
+      params._neo_preview_action_source = JSON.parse(JSON.stringify(draft._preview_action_source));
+    }
+    params._neo_save_lane = derivedAction.save_lane || 'append_derived';
+    params.save_mode_override = derivedAction.save_lane || 'append_derived';
     params.batch_size = 1;
-  } else if (draft._preview_action && typeof draft._preview_action === 'object') {
+  } else if (derivedAction) {
     params._neo_clean_state_boundary = {
       schema: 'neo.image.clean_state_boundary.v25_9_5',
       releaseStage: 'ready',
@@ -49379,7 +54608,7 @@ function buildImageJobPayload() {
       runtime_mode: runtimeMode || 'txt2img',
       source_workflow_active: false,
       preview_action_present: true,
-      cleared_fields: ['_neo_preview_action', '_neo_derived_action_type', '_neo_source_output_id', '_neo_source_job_id', '_neo_parent_output_id'],
+      cleared_fields: ['_neo_derived_action', '_neo_preview_action', '_neo_derived_action_type', '_neo_source_output_id', '_neo_source_job_id', '_neo_parent_output_id'],
       warning_codes: ['clean_txt2img_preview_img2img_state_cleared'],
       status: 'cleaned',
     };
@@ -49437,7 +54666,7 @@ function buildImageJobPayload() {
   const controlNetSubmitUnits = controlNetSubmitAllowed ? controlNetCleanUnits(controlNetForSubmit.units || []) : [];
   const controlNetRunnableUnits = controlNetSubmitUnits.filter((unit, index) => {
     const source = (controlNetForSubmit.units || [])[index] || {};
-    return Boolean(unit.enabled !== false && unit.model && (unit.generated_map || source.generated_map || source.control_image));
+    return Boolean(unit.enabled !== false && unit.model && (controlNetAssetRefValue(unit.generated_map) || controlNetAssetRefValue(source.generated_map) || source.control_image));
   });
   if (Boolean(controlNetForSubmit.enabled) && controlNetRunnableUnits.length) {
     const assignedControlNetIds = sceneDirectorSubmitAssignments.controlnetUnitIds || new Set();
@@ -49451,7 +54680,7 @@ function buildImageJobPayload() {
       params.controlnet_name = unassignedControlNetUnits[0].model || '';
       params.controlnet_preprocessor = unassignedControlNetUnits[0].preprocessor || 'none';
       params.controlnet_strength = unassignedControlNetUnits[0].strength ?? 1;
-      params.control_image_name = unassignedControlNetUnits[0].generated_map || unassignedControlNetUnits[0].control_image || '';
+      params.control_image_name = controlNetAssetRefValue(unassignedControlNetUnits[0].generated_map) || unassignedControlNetUnits[0].control_image || '';
     } else {
       params.controlnet_stack_enabled = false;
       params.controlnet_stack_count = 0;
@@ -49471,12 +54700,15 @@ function buildImageJobPayload() {
     };
   }
   pruneImageParamsForActiveRoute(params, draft, runtimeMode);
+  applyImageSamplingPresetSubmissionToParams(params, draft);
   if (qwenStitchRouteActive(runtimeMode)) {
     const stitchPayload = qwenStitchSubmitPayload();
     if (stitchPayload.enabled || stitchPayload.groups.length) params.qwen_stitch = stitchPayload;
   }
   params._neo_ui_route_snapshot = imageRouteUiSnapshot(params);
-  params._neo_extension_state = imageExtensionSubmitStateSnapshot();
+  const sceneDirectorCanonicalSubmit = sceneDirectorCanonicalSubmitSnapshot();
+  const extensionSubmitState = imageExtensionSubmitStateSnapshot(sceneDirectorCanonicalSubmit);
+  params._neo_extension_state = extensionSubmitState;
   return {
     profile_id: profile?.profile_id,
     job: {
@@ -49490,7 +54722,7 @@ function buildImageJobPayload() {
       prompt: draft.positive_prompt || valueOf('imagePositivePrompt'),
       negative_prompt: draft.negative_prompt || valueOf('imageNegativePrompt'),
       params,
-      extensions: activeWorkflowExtensionMetadata(),
+      extensions: activeWorkflowExtensionMetadata(sceneDirectorCanonicalSubmit, extensionSubmitState),
     },
   };
 }
@@ -49584,6 +54816,57 @@ function applyImagePreviewBuffer(buffer) {
   revokeImageLivePreview();
   setImageLivePreviewUrl(url, label);
   setWorkspaceProgress(label, 55);
+}
+
+function imagePreviewDataUrlToObjectUrl(dataUrl) {
+  const raw = String(dataUrl || '').trim();
+  const match = /^data:([^;,]+)?;base64,(.+)$/i.exec(raw);
+  if (!match) return raw;
+  try {
+    const binary = window.atob(match[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return URL.createObjectURL(new Blob([bytes], { type: match[1] || 'image/png' }));
+  } catch (_) {
+    return raw;
+  }
+}
+
+async function refreshImageLivePreviewFrame(profileId = '', jobId = '') {
+  const active = state.activeImageJob;
+  const safeProfile = String(profileId || active?.profile_id || '').trim();
+  const safeJob = String(jobId || active?.job_id || '').trim();
+  if (!active || active.job_id !== safeJob || !safeProfile || !safeJob) return null;
+  const caps = active.capabilities || active.runtime?.capabilities || providerFeatureCapabilities(activeImageProfile());
+  if (!caps?.live_preview) return null;
+  if (active.client_id && String(caps.live_preview_source || '').includes('websocket')) return null;
+  const now = Date.now();
+  if (state.imageLivePreviewPollInFlight || now - Number(state.imageLivePreviewLastPollAt || 0) < 700) return null;
+  state.imageLivePreviewPollInFlight = true;
+  state.imageLivePreviewLastPollAt = now;
+  try {
+    const response = await fetch(`/api/image/jobs/${encodeURIComponent(safeProfile)}/${encodeURIComponent(safeJob)}/preview`, { cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.ok) return payload;
+    const preview = payload.preview && typeof payload.preview === 'object' ? payload.preview : {};
+    const dataUrl = String(preview.data_url || preview.url || '').trim();
+    if (!dataUrl) return payload;
+    const signature = `${dataUrl.length}:${dataUrl.slice(-96)}`;
+    if (signature === state.imageLivePreviewLastSignature) return payload;
+    state.imageLivePreviewLastSignature = signature;
+    state.imageLivePreviewFrameCount = Number(state.imageLivePreviewFrameCount || 0) + 1;
+    const label = String(payload.message || `Forge live preview — frame ${state.imageLivePreviewFrameCount}`);
+    const url = imagePreviewDataUrlToObjectUrl(dataUrl);
+    revokeImageLivePreview();
+    setImageLivePreviewUrl(url, label);
+    restoreImageLivePreviewAfterRender();
+    return payload;
+  } catch (error) {
+    console.warn('Forge live preview poll skipped', error);
+    return null;
+  } finally {
+    state.imageLivePreviewPollInFlight = false;
+  }
 }
 
 function highResLabLivePreviewPatch() {
@@ -49714,6 +54997,7 @@ async function stopImageGeneration() {
     closeImageProgressSocket();
     clearImageProgressWatchdog();
     state.activeImageJob = null;
+    imageFinalizeActionLifecycle('generation_cancelled', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     saveUiState();
     setWorkspaceProgress(result.message || 'Stopped', 100, { allowBackwards: true, status: 'cancelled' });
     recordMemoryEvent('image.generation.cancelled', 'image', { profile_id: job.profile_id, job_id: job.job_id });
@@ -49906,6 +55190,48 @@ async function reportImageClientGenerationError(error, payload = null, stage = '
   return report;
 }
 
+function imageOutputsWithLineage(outputs = [], derivedAction = null, result = {}) {
+  if (!Array.isArray(outputs)) return [];
+  if (!derivedAction || typeof derivedAction !== 'object') return outputs.map((output) => ({ ...output }));
+  return outputs.map((output, index) => {
+    const currentOutputId = String(output.output_id || output.file_id || output.id || output.filename || `${result.job_id || 'derived'}_${index}`).trim();
+    const ancestors = Array.from(new Set([...(Array.isArray(derivedAction.ancestor_output_ids) ? derivedAction.ancestor_output_ids : []), derivedAction.parent_output_id].map((item) => String(item || '').trim()).filter((item) => item && item !== currentOutputId)));
+    const lineage = {
+      schema_version: 'neo.image.output_lineage.v1',
+      kind: 'derived',
+      current_result_id: String(result.result_id || ''),
+      current_output_id: currentOutputId,
+      current_job_id: String(result.job_id || ''),
+      source_result_id: String(derivedAction.source?.result_id || ''),
+      source_output_id: String(derivedAction.source_output_id || derivedAction.source?.output_id || ''),
+      source_job_id: String(derivedAction.source_job_id || derivedAction.source?.job_id || ''),
+      parent_output_id: String(derivedAction.parent_output_id || ''),
+      parent_job_id: String(derivedAction.parent_job_id || ''),
+      root_output_id: String(derivedAction.root_output_id || derivedAction.parent_output_id || currentOutputId),
+      root_job_id: String(derivedAction.root_job_id || derivedAction.parent_job_id || result.job_id || ''),
+      depth: Math.max(Number(derivedAction.lineage_depth || 1), ancestors.length),
+      ancestor_output_ids: ancestors,
+      action_id: String(derivedAction.action_id || ''),
+      dispatch_type: String(derivedAction.dispatch_type || ''),
+      provider_id: String(derivedAction.provider_id || result.provider_id || ''),
+      profile_id: String(derivedAction.profile_id || ''),
+      cross_provider: Boolean(derivedAction.cross_provider),
+      save_lane: String(derivedAction.save_lane || 'append_derived'),
+    };
+    return {
+      ...output,
+      lineage,
+      parent_output_id: lineage.parent_output_id,
+      parent_job_id: lineage.parent_job_id,
+      root_output_id: lineage.root_output_id,
+      root_job_id: lineage.root_job_id,
+      lineage_depth: lineage.depth,
+      ancestor_output_ids: lineage.ancestor_output_ids,
+      metadata: { ...(output.metadata && typeof output.metadata === 'object' ? output.metadata : {}), lineage },
+    };
+  });
+}
+
 async function submitSingleImageGenerationPayload(payload, profile, queueContext = null) {
   attachImageClientRunTimingToPayload(payload);
   const response = await fetch('/api/image/generate', {
@@ -49922,6 +55248,7 @@ async function submitSingleImageGenerationPayload(payload, profile, queueContext
     throw err;
   }
   const runtimeCaps = result.runtime?.capabilities || result.capabilities || providerFeatureCapabilities(profile);
+  const derivedAction = payload.job?.params?._neo_derived_action || payload.job?.params?._neo_preview_action || null;
   state.activeImageJob = {
     profile_id: profile.profile_id,
     job_id: result.job_id,
@@ -49936,6 +55263,7 @@ async function submitSingleImageGenerationPayload(payload, profile, queueContext
       workflow_type: result.runtime?.actual_params?.workflow_type,
     },
     wildcard_queue: queueContext || null,
+    derived_action: derivedAction,
     poll_started_at: Date.now(),
   };
   startImageProgressWatchdog(profile.profile_id, result.job_id, result.runtime || {});
@@ -49947,11 +55275,12 @@ async function submitSingleImageGenerationPayload(payload, profile, queueContext
         // Use the completed Neo-owned output directly instead of forcing one extra poll.
     closeImageProgressSocket();
     revokeImageLivePreview();
-    state.imageResults = result.outputs || [];
+    state.imageResults = imageOutputsWithLineage(result.outputs || [], derivedAction, result);
     const completedSeed = seedFromNestedObject(result);
     if (completedSeed !== null && completedSeed >= 0) state.imageDraft._last_resolved_seed = completedSeed;
     state.activeResultIndex = 0;
     if (state.imageGenerationProgress) state.imageGenerationProgress.batchDone = state.imageResults.length;
+    imageFinalizeActionLifecycle('generation_completed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     state.activeImageJob = null;
     clearImageProgressWatchdog();
     saveUiState();
@@ -50023,6 +55352,9 @@ async function runImageGeneration() {
   clearImageProgressWatchdog();
   state.lastImageRecovery = null;
   state.imageLivePreviewFrameCount = 0;
+  state.imageLivePreviewPollInFlight = false;
+  state.imageLivePreviewLastPollAt = 0;
+  state.imageLivePreviewLastSignature = '';
   revokeImageLivePreview();
   saveUiState();
   render();
@@ -50036,8 +55368,24 @@ async function runImageGeneration() {
     if ((branchRestore?.restore_point === 'final_latent' || branchRestore?.restore_point === 'before_high_res_fix' || branchRestore?.restore_point === 'after_high_res_fix' || branchRestore?.restore_point === 'before_adetailer') && branchRestore?.provider_resume_supported === true && !branchRestore?.comfy_load_name && !branchRestore?.source_filename && !branchRestore?.artifact_path) {
       throw new Error(`${branchRestore.restore_point_label || branchRestore.restore_point || 'Latent'} branch is missing its provider-owned latent file reference. Generate once with Latent Capture enabled, then load the restore point again.`);
     }
+    const lanpaintReplay = state.imageDraft?._replay_context?.lanpaint_reconstruction;
+    if (lanpaintReplay?.state === 'blocked_missing_portable_assets') {
+      throw new Error(`LanPaint replay is missing required portable asset(s): ${(lanpaintReplay.missing_asset_roles || []).join(', ')}. Re-upload the source and mask before generating.`);
+    }
+    if (lanpaintReplay?.state === 'blocked_unsupported_route') {
+      throw new Error(`The recorded LanPaint route ${lanpaintReplay.recorded_route_key || ''} is not implemented in this build. Neo will not substitute another family or engine.`);
+    }
+    const replayProviderBinding = state.imageDraft?._replay_context?.provider_binding;
+    if (replayProviderBinding?.state === 'recorded_profile_missing') {
+      throw new Error(`Replay is bound to backend profile ${replayProviderBinding.profileId || replayProviderBinding.profile_id || 'unknown'}, which is not available. Select an explicit replacement before generating.`);
+    }
+    if (replayProviderBinding?.state === 'recorded_profile_selected' && replayProviderBinding.profileId && replayProviderBinding.profileId !== profile.profile_id) {
+      throw new Error('The selected backend no longer matches the replay-recorded profile. Reload the replay or choose an explicit provider override.');
+    }
     payload = buildImageJobPayload();
     if (state.imageDraft?._preview_action_force_workflow_mode) {
+      delete state.imageDraft._neo_derived_action;
+      delete state.imageDraft._preview_action;
       delete state.imageDraft._preview_action_force_workflow_mode;
       delete state.imageDraft._preview_action_run_label;
       delete state.imageDraft._preview_action_finish_pass;
@@ -50063,6 +55411,7 @@ async function runImageGeneration() {
     recordMemoryEvent('image.generation.queued', 'image', { profile_id: profile.profile_id, job_id: result.job_id });
   } catch (error) {
     state.activeImageJob = null;
+    imageFinalizeActionLifecycle('generation_failed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     closeImageProgressSocket();
     clearImageProgressWatchdog();
     setWorkspaceProgress('Failed', 100, { allowBackwards: true, status: 'failed' });
@@ -50126,12 +55475,16 @@ async function pollImageGeneration(profileId, jobId, attempt) {
   const label = runtimeProgress.label || (attempt ? `Running (${attempt})` : 'Running');
   const watch = updateImageProgressWatchdog({ profileId, jobId, result, percent, label, attempt });
   setWorkspaceProgress(label, percent, { batchDone: currentDone });
+  const previewCaps = result.capabilities || result.runtime?.capabilities || state.activeImageJob?.capabilities || {};
+  if (previewCaps.live_preview && !state.activeImageJob?.client_id && !['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(String(result.status || ''))) {
+    void refreshImageLivePreviewFrame(profileId, jobId);
+  }
   if (watch.action === 'warn_keep_polling') setWorkspaceStatus(watch.message, 'warning');
   if (watch.action === 'detach_with_recovery') return handleImageWatchdogDetach(profileId, jobId, watch, result);
   if (result.status === 'completed' || result.status === 'completed_with_warnings') {
     closeImageProgressSocket();
     revokeImageLivePreview();
-    state.imageResults = result.outputs || [];
+    state.imageResults = imageOutputsWithLineage(result.outputs || [], state.activeImageJob?.derived_action || null, result);
     const completedSeed = seedFromNestedObject(result);
     if (completedSeed !== null && completedSeed >= 0) state.imageDraft._last_resolved_seed = completedSeed;
     state.activeResultIndex = 0;
@@ -50141,6 +55494,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     saveUiState();
     const completedLabel = result.status === 'completed_with_warnings' ? 'Completed with output warnings' : (state.imageResults.length ? 'Completed' : 'Completed — no outputs found');
     setWorkspaceProgress(completedLabel, 100, { batchDone: state.imageResults.length, status: 'completed' });
+    imageFinalizeActionLifecycle('generation_completed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     state.activeImageJob = null;
     updateImageGenerationControls();
     render();
@@ -50150,13 +55504,14 @@ async function pollImageGeneration(profileId, jobId, attempt) {
   if (['import_failed', 'saved_in_comfy_only', 'completed_no_outputs_recoverable'].includes(result.status)) {
     closeImageProgressSocket();
     revokeImageLivePreview();
-    state.imageResults = result.outputs || [];
+    state.imageResults = imageOutputsWithLineage(result.outputs || [], state.activeImageJob?.derived_action || null, result);
     state.activeResultIndex = 0;
     state.lastImageRecovery = result.neo_recovery || result.runtime?.job_registry?.import_state || imageWatchdogRecoveryPayload(profileId, jobId, result.status, result.message || 'Output recovery is available.');
     clearImageProgressWatchdog();
     saveUiState();
-    const recoveryLabel = result.neo_recovery?.label || result.message || 'Saved in Comfy only — recovery available';
+    const recoveryLabel = result.neo_recovery?.label || result.message || 'Saved in backend only — recovery available';
     setWorkspaceProgress(recoveryLabel, 100, { batchDone: state.imageResults.length, allowBackwards: true, status: 'waiting' });
+    imageFinalizeActionLifecycle('generation_detached_for_recovery', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     state.activeImageJob = null;
     updateImageGenerationControls();
     render();
@@ -50167,13 +55522,20 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     closeImageProgressSocket();
     clearImageProgressWatchdog();
     state.activeImageJob = null;
+    imageFinalizeActionLifecycle('generation_cancelled', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     saveUiState();
     setWorkspaceProgress(result.message || 'Stopped', 100, { allowBackwards: true, status: 'cancelled' });
     updateImageGenerationControls();
     return result;
   }
   if (result.status === 'failed') {
+    closeImageProgressSocket();
+    revokeImageLivePreview();
     clearImageProgressWatchdog();
+    state.activeImageJob = null;
+    imageFinalizeActionLifecycle('generation_failed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
+    saveUiState();
+    updateImageGenerationControls();
     throw new Error(imageProviderErrorMessage(result, 'Generation failed while polling'));
   }
   if (state.activeImageJob?.job_id === jobId) {
@@ -50188,7 +55550,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     const timeoutWatch = updateImageProgressWatchdog({ profileId, jobId, result, percent: Math.max(percent, 90), label: `Generation polling timed out after ${pollSettings.timeoutSeconds}s`, attempt });
     timeoutWatch.action = 'detach_with_recovery';
     timeoutWatch.reason = 'poll_max_attempts';
-    timeoutWatch.message = `Generation polling timed out after ${pollSettings.timeoutSeconds}s. Recovery is available if Comfy finished in the background.`;
+    timeoutWatch.message = `Generation polling timed out after ${pollSettings.timeoutSeconds}s. Recovery is available if the backend finished in the background.`;
     return handleImageWatchdogDetach(profileId, jobId, timeoutWatch, result);
   }
   await new Promise((resolve) => setTimeout(resolve, pollSettings.intervalMs));
@@ -50233,6 +55595,9 @@ function render() {
     bindCfgFixControls();
     bindHighResLabControls();
     bindImageUpscaleControls();
+    bindForgeCoupleControls();
+    bindForgeE2Controls();
+    bindForgeE3BridgeControls();
     bindBackgroundRemovalControls();
     bindAdetailerControls();
     bindControlNetControls();
@@ -50354,6 +55719,14 @@ async function boot() {
   state.modelFamilies = await loadJson('/api/model-families?surface=image', null);
   state.parameterProfiles = await loadJson('/api/model-families/parameter-profiles', { parameter_profiles: [] });
   state.imageBase = await loadJson('/api/image/base', null);
+  state.imagePreviewActionRegistry = await loadJson('/api/image/preview-actions/registry', {
+    schema_id: 'neo.image.preview_action_registry_definition.v1',
+    schema_version: 1,
+    groups: [],
+    actions: [],
+    valid: false,
+    validation_errors: ['Preview action registry could not be loaded.'],
+  });
   await loadImagePromptLibrary().catch((error) => { state.imagePromptLibrary.status = `Could not load prompt library: ${error.message}`; });
   state.roleplayBase = await loadJson('/api/roleplay/base', null);
   state.roleplayFoundation = await loadJson('/api/roleplay/foundation', null);
@@ -50396,8 +55769,10 @@ async function boot() {
     const defaultId = state.backendProfiles?.defaults?.[active.surface_id] || null;
     if (defaultId) setSelectedBackendProfileForSurface(active.surface_id, defaultId);
   }
+  const imageProfileId = selectedBackendProfileIdForSurface('image');
+  if (imageProfileId) await refreshImageCapabilityOverlay(imageProfileId).catch(() => null);
   el.detailMode.value = state.detailMode;
-  el.detailMode.addEventListener('change', (event) => { state.detailMode = event.target.value; render(); });
+  el.detailMode.addEventListener('change', (event) => { state.detailMode = event.target.value; scheduleImagePreviewActionEvaluationRefresh(0); render(); });
   render();
 }
 

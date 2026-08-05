@@ -7,6 +7,7 @@ import json
 
 from neo_app.providers.comfy_provider import ComfyProvider
 from neo_app.providers.mock_provider import MockProvider
+from neo_app.providers.forge_neo_provider import ForgeNeoProvider
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
 from neo_app.providers.commercial_background_removal_provider import CommercialBackgroundRemovalProvider, COMMERCIAL_PROVIDER_IDS
 from neo_app.providers.schema import NeoJob, ProviderManifest
@@ -32,6 +33,8 @@ def list_providers() -> list[ProviderManifest]:
 def build_provider(manifest: ProviderManifest, *, profile: dict[str, Any] | None = None):
     if manifest.provider_id in {"comfyui", "comfyui_portable"}:
         return ComfyProvider(manifest)
+    if manifest.provider_id == "forge":
+        return ForgeNeoProvider(manifest, profile=profile)
     if manifest.provider_id == "xai_grok":
         return XaiGrokProvider(manifest, profile=profile)
     if manifest.provider_id in COMMERCIAL_PROVIDER_IDS:

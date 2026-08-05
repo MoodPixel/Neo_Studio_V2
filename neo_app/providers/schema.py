@@ -112,6 +112,112 @@ class NeoJob(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     extensions: dict[str, Any] | list[dict[str, Any]] = Field(default_factory=dict)
 
+    def __init__(self, **data: Any) -> None:
+        super().__init__(**data)
+        if str(self.surface or "").strip().casefold() != "image":
+            return
+
+        # IP-6 normalizes Output Intent first. Realistic / Anime are metadata-only
+        # in this phase, but canonicalizing the intent before preset resolution
+        # keeps the existing family+variant+loader+mode+intent key deterministic.
+        from neo_app.image.output_intents import prepare_output_intent_payload
+
+        prepared = prepare_output_intent_payload({
+            "surface": self.surface,
+            "subtab": self.subtab,
+            "mode": self.mode,
+            "provider_id": self.provider_id,
+            "family": self.family,
+            "loader": self.loader,
+            "model": self.model,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "params": self.params,
+            "extensions": self.extensions,
+        })
+        object.__setattr__(self, "params", dict(prepared.get("params") or {}))
+
+        # IP-3/IP-5 resolves sampling preset submission semantics before IP-2 reads
+        # guidance fields. This keeps Provider Defaults authoritative, preserves
+        # manual Clean Slate values, and lets negative eligibility see the actual
+        # effective sampling controls rather than stale preset values.
+        from neo_app.image.sampling_presets import prepare_sampling_preset_payload
+
+        prepared = prepare_sampling_preset_payload({
+            "surface": self.surface,
+            "subtab": self.subtab,
+            "mode": self.mode,
+            "provider_id": self.provider_id,
+            "family": self.family,
+            "loader": self.loader,
+            "model": self.model,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "params": self.params,
+            "extensions": self.extensions,
+        })
+        object.__setattr__(self, "params", dict(prepared.get("params") or {}))
+
+        # IP-2 is the single Image job boundary for effective negative prompting.
+        # Import lazily so provider schemas stay import-safe and the capability
+        # registry never depends back on provider models.
+        from neo_app.image.negative_prompt_eligibility import prepare_negative_prompt_payload
+
+        prepared = prepare_negative_prompt_payload({
+            "surface": self.surface,
+            "subtab": self.subtab,
+            "mode": self.mode,
+            "provider_id": self.provider_id,
+            "family": self.family,
+            "loader": self.loader,
+            "model": self.model,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "params": self.params,
+            "extensions": self.extensions,
+        })
+        object.__setattr__(self, "negative_prompt", prepared.get("negative_prompt"))
+        object.__setattr__(self, "params", dict(prepared.get("params") or {}))
+
+        # IP-8 is the final preset release gate. It runs after IP-2 so it can
+        # verify effective negative execution state, and before provider
+        # validation/compile so invalid preset state fails closed.
+        from neo_app.image.sampling_preset_release_lock import prepare_sampling_preset_release_lock_payload
+
+        prepared = prepare_sampling_preset_release_lock_payload({
+            "surface": self.surface,
+            "subtab": self.subtab,
+            "mode": self.mode,
+            "provider_id": self.provider_id,
+            "family": self.family,
+            "loader": self.loader,
+            "model": self.model,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "params": self.params,
+            "extensions": self.extensions,
+        }, raise_on_block=False)
+        object.__setattr__(self, "params", dict(prepared.get("params") or {}))
+
+        # Inspector is observational only and is attached after the release lock
+        # so it can report the final contract state without affecting execution.
+        from neo_app.image.sampling_preset_inspector import prepare_sampling_preset_inspector_payload
+
+        prepared = prepare_sampling_preset_inspector_payload({
+            "surface": self.surface,
+            "subtab": self.subtab,
+            "mode": self.mode,
+            "provider_id": self.provider_id,
+            "family": self.family,
+            "loader": self.loader,
+            "model": self.model,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "params": self.params,
+            "extensions": self.extensions,
+        })
+        object.__setattr__(self, "params", dict(prepared.get("params") or {}))
+
 
 class ProviderValidationResult(BaseModel):
     ok: bool

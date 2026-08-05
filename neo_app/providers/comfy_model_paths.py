@@ -162,10 +162,18 @@ def resolve_comfy_model_paths(
 
     configured_models_root = _clean_path(configured_comfy.get("models_root")) if admin_enabled else ""
     configured_comfy_root = _clean_path(configured_comfy.get("root")) if admin_enabled else ""
+    configured_extra_model_paths_yaml = _clean_path(configured_comfy.get("extra_model_paths_yaml")) if admin_enabled else ""
     if configured_models_root:
         details["configured_models_root"] = configured_models_root
     if configured_comfy_root:
         details["configured_comfy_root"] = configured_comfy_root
+    if configured_extra_model_paths_yaml:
+        # One local Comfy-style YAML is the shared path authority. Forge Neo can
+        # reference the exact same config with --forge-ref-comfy-yaml; keeping it
+        # on the Comfy side avoids a second, drifting Forge-only path setting.
+        details["configured_extra_model_paths_yaml"] = configured_extra_model_paths_yaml
+        if not _clean_path(details.get("extra_model_paths_yaml")):
+            details["extra_model_paths_yaml"] = configured_extra_model_paths_yaml
 
     candidates: list[dict[str, Any]] = []
     if configured_models_root:
@@ -239,6 +247,7 @@ def resolve_comfy_model_paths(
         "comfy_root_available": _existing_directory(resolved_comfy_root),
         "admin_models_root_configured": bool(configured_models_root),
         "admin_comfy_root_configured": bool(configured_comfy_root),
+        "admin_extra_model_paths_yaml_configured": bool(configured_extra_model_paths_yaml),
         "candidate_count": len(candidates),
         "authority_root_count": len(authority_roots),
     }
@@ -448,6 +457,37 @@ def resolve_comfy_extra_model_folders(
             "configured_folder_count": len(folders),
             "existing_folder_count": existing_folder_count,
             "category_count": len(normalized_categories),
+        },
+    }
+
+
+def resolve_comfy_extra_model_paths_config(
+    backend_details: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Resolve the active Comfy ``extra_model_paths.yaml`` without exposing it.
+
+    ``yaml_path`` is a server-only ``Path`` for provider adapters. The diagnostics
+    are path-free and may be copied into public capability snapshots.
+    """
+
+    details = _mapping(backend_details)
+    candidates = _candidate_extra_model_yaml_paths(details)
+    existing: list[Path] = []
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                existing.append(candidate)
+        except OSError:
+            continue
+    selected = existing[0] if existing else None
+    return {
+        "yaml_path": selected,
+        "diagnostics": {
+            "schema_version": COMFY_EXTRA_MODEL_PATH_SCHEMA,
+            "path_policy": SERVER_PATH_POLICY,
+            "config_candidates": len(candidates),
+            "config_files_found": len(existing),
+            "active_config_available": bool(selected),
         },
     }
 

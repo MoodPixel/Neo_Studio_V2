@@ -21,6 +21,22 @@ RUNTIME_ONLY_ROOTS: Final[tuple[str, ...]] = (
     "htmlcov",
 )
 
+# Internal implementation records and developer tooling are source-of-truth assets,
+# but they are intentionally omitted from the first public runtime repository/export.
+DEVELOPER_ONLY_ROOTS: Final[tuple[str, ...]] = (
+    "neo_system_records",
+    "scripts",
+    "tests",
+)
+
+DEVELOPER_ONLY_PREFIXES: Final[tuple[str, ...]] = (
+    "neo_extensions/installed/",
+)
+
+DEVELOPER_ONLY_FILES: Final[tuple[str, ...]] = (
+    "neo_app/release_hygiene.py",
+)
+
 RUNTIME_ONLY_PREFIXES: Final[tuple[str, ...]] = (
     "neo_data/",
     "tests/.pytest_cache/",
@@ -93,6 +109,23 @@ def _is_hidden_git_path(rel_path: str) -> bool:
     return rel_path == ".git" or rel_path.startswith(".git/")
 
 
+def _contains_scoped_part(rel: str, *, scopes: tuple[str, ...], part: str) -> bool:
+    parts = rel.split("/")
+    return bool(parts and parts[0] in scopes and part in parts[1:])
+
+
+def _public_path_label(path: Path, *, root_dir: Path | None = None) -> str:
+    """Return a portable path label safe to persist in generated reports."""
+
+    if root_dir is not None:
+        try:
+            rel = path.resolve().relative_to(root_dir.resolve()).as_posix()
+            return rel or "."
+        except Exception:
+            pass
+    return path.name or "."
+
+
 def release_exclusion_reason(rel_path: str, *, is_dir: bool = False) -> str:
     """Return the release-exclusion reason for a repo-relative path, or ''."""
 
@@ -106,6 +139,16 @@ def release_exclusion_reason(rel_path: str, *, is_dir: bool = False) -> str:
         return "git_metadata"
     if first in RUNTIME_ONLY_ROOTS:
         return "runtime_only_root"
+    if first in DEVELOPER_ONLY_ROOTS:
+        return "developer_only_root"
+    if rel in DEVELOPER_ONLY_FILES:
+        return "developer_only_file"
+    if any(rel == prefix.rstrip("/") or rel.startswith(prefix) for prefix in DEVELOPER_ONLY_PREFIXES):
+        return "developer_only_prefix"
+    if _contains_scoped_part(rel, scopes=("neo_app", "neo_extensions"), part="tests"):
+        return "developer_only_test_tree"
+    if _contains_scoped_part(rel, scopes=("neo_extensions",), part="docs"):
+        return "developer_only_extension_docs"
     if any(rel == prefix.rstrip("/") or rel.startswith(prefix) for prefix in RUNTIME_ONLY_PREFIXES):
         return "runtime_only_prefix"
     if is_dir and name in RUNTIME_ONLY_DIR_NAMES:
@@ -130,10 +173,11 @@ def _iter_repo_paths(root_dir: Path) -> Iterable[tuple[Path, str, bool]]:
 
 
 def runtime_data_hygiene_audit(root_dir: Path | str | None = None, *, max_findings: int = 100) -> dict[str, Any]:
-    """Audit local-only runtime artifacts that must not be committed or shipped.
+    """Audit paths excluded from the public runtime repository/export.
 
-    Finding these paths on a developer machine is not fatal; it means the clean
-    release builder must exclude them. A release archive audit is the final gate.
+    Finding runtime or developer-only paths in the internal source-of-truth tree
+    is not fatal. The clean release builder must omit them, and the archive audit
+    remains the final public-package gate.
     """
 
     root = Path(root_dir).resolve() if root_dir is not None else ROOT_DIR
@@ -164,7 +208,7 @@ def runtime_data_hygiene_audit(root_dir: Path | str | None = None, *, max_findin
         "phase": "V25.1",
         "status": status,
         "generated_at": _now(),
-        "root": _norm_rel(root, root),
+        "root": ".",
         "excluded_path_count": excluded_count,
         "sensitive_runtime_path_count": sensitive_count,
         "findings_truncated": excluded_count > len(findings),
@@ -176,6 +220,9 @@ def runtime_data_hygiene_audit(root_dir: Path | str | None = None, *, max_findin
             "runtime_bootstrap_recreates_missing_neo_data": True,
             "shipped_defaults_must_live_outside_neo_data": True,
             "raw_api_keys_must_stay_inside_gitignored_neo_data": True,
+            "developer_records_and_tests_are_internal_only": True,
+            "installed_extensions_are_local_only": True,
+            "generated_manifests_use_portable_paths": True,
         },
         "shipped_template_paths": list(SHIPPED_TEMPLATE_PATHS),
         "release_builder": "scripts/build_clean_release.py",
@@ -183,7 +230,7 @@ def runtime_data_hygiene_audit(root_dir: Path | str | None = None, *, max_findin
 
 
 def audit_release_archive(archive_path: Path | str) -> dict[str, Any]:
-    """Verify that a produced release archive contains no runtime-only paths."""
+    """Verify that a public release archive contains no excluded paths."""
 
     archive = Path(archive_path).resolve()
     blocked: list[dict[str, Any]] = []
@@ -194,7 +241,7 @@ def audit_release_archive(archive_path: Path | str) -> dict[str, Any]:
             "schema_id": ARCHIVE_SCHEMA_ID,
             "phase": "V25.1",
             "status": "missing_archive",
-            "archive_path": archive.as_posix(),
+            "archive_path": archive.name,
             "entries_checked": 0,
             "blocked_entry_count": 0,
             "blocked_entries": [],
@@ -216,7 +263,7 @@ def audit_release_archive(archive_path: Path | str) -> dict[str, Any]:
         "schema_id": ARCHIVE_SCHEMA_ID,
         "phase": "V25.1",
         "status": status,
-        "archive_path": archive.as_posix(),
+        "archive_path": archive.name,
         "entries_checked": entries_checked,
         "blocked_entry_count": len(blocked),
         "blocked_entries": blocked[:100],
@@ -225,6 +272,9 @@ def audit_release_archive(archive_path: Path | str) -> dict[str, Any]:
             "pycache_allowed_in_archive": False,
             "local_env_allowed_in_archive": False,
             "runtime_databases_allowed_in_archive": False,
+            "developer_records_allowed_in_archive": False,
+            "developer_tests_allowed_in_archive": False,
+            "local_installed_extensions_allowed_in_archive": False,
         },
     }
 
@@ -239,7 +289,7 @@ def build_clean_release_zip(
     *,
     include_hygiene_manifest: bool = True,
 ) -> dict[str, Any]:
-    """Build a source release zip while excluding all runtime-only artifacts."""
+    """Build the public runtime source zip from the internal source-of-truth tree."""
 
     root = Path(root_dir).resolve() if root_dir is not None else ROOT_DIR
     output = Path(output_path).resolve()
@@ -261,7 +311,8 @@ def build_clean_release_zip(
                 "schema_id": "neo.release_hygiene.clean_release_manifest.v25_1",
                 "phase": "V25.1",
                 "created_at": _now(),
-                "source_root": root.as_posix(),
+                "source_root": ".",
+                "source_layout": "repository_root",
                 "policy": local_audit.get("policy", {}),
                 "local_audit_summary": {
                     "status": local_audit.get("status"),
@@ -296,7 +347,7 @@ def build_clean_release_zip(
         "schema_id": "neo.release_hygiene.clean_release_build.v25_1",
         "phase": "V25.1",
         "status": "ready" if archive_audit.get("ok") is True else "blocked",
-        "archive_path": output.as_posix(),
+        "archive_path": _public_path_label(output, root_dir=root),
         "files_included": files_included,
         "files_excluded": files_excluded,
         "excluded_reasons": excluded_reasons,

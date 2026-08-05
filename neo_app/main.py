@@ -101,6 +101,7 @@ from neo_app.prompt_captioning.upload_validation import (
     CaptionUploadValidationError,
     validate_and_stage_caption_image_upload,
 )
+from neo_app.image.capability_overlays import build_image_capability_overlay
 from neo_app.image.job_contexts import (
     image_job_context_index,
     load_image_job_context,
@@ -193,6 +194,11 @@ from neo_app.providers.profiles import (
     save_backend_profile,
     save_backend_profile_selection,
     get_backend_profile_selection_payload,
+    get_forge_admin_profile_payload,
+    get_forge_bridge_history,
+    refresh_forge_admin_profile,
+    refresh_forge_admin_profile_models,
+    update_forge_admin_profile_settings,
     is_backend_profile_connected_for_task,
     mark_backend_profile_connected_for_task,
     clear_backend_profile_api_key,
@@ -285,6 +291,12 @@ from neo_app.prompt_captioning.assist_tools import (
     caption_browser_send_to_prompt_payload as prompt_assist_caption_browser_send_to_prompt_payload,
 )
 from neo_app.image.base_contract import create_image_job_draft, get_image_surface_base_contract
+from neo_app.image.preview_actions import preview_action_definition_registry_payload
+from neo_app.image.preview_action_routing import build_preview_action_provider_evaluation
+from neo_app.image.preview_source_handoff import normalize_preview_source_handoff_params
+from neo_app.image.preview_reference_handoff import normalize_preview_reference_handoffs
+from neo_app.image.preview_finish_dispatch import normalize_preview_finish_params
+from neo_app.image.state_boundary import sanitize_image_action_state_for_provider
 from neo_app.image.prompt_library import (
     create_image_prompt_pair,
     delete_image_prompt_pair,
@@ -1031,6 +1043,26 @@ def _print_startup_banner(args: argparse.Namespace) -> None:
 
 app = FastAPI(title="Neo Studio V2", version="0.11.4.3-live-preview-server-state-phase44-runtime-hardening", lifespan=neo_runtime_lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.middleware("http")
+async def neo_startup_asset_cache_policy(request, call_next):
+    """Prevent stale frontend code from surviving local patch overlays.
+
+    Neo is a local development application. During active patch testing, a
+    cached index or JavaScript file can keep a fixed startup loop alive even
+    after the files on disk were replaced. The policy is intentionally scoped
+    to the shell and frontend code rather than generated media or model files.
+    """
+
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path == "/static/index.html" or path.startswith("/static/js/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["X-Neo-Startup-Recovery"] = "IR-6.2"
+    return response
 
 
 
@@ -4616,6 +4648,31 @@ def backend_profile_disconnect(profile_id: str) -> dict:
     return disconnect_backend_profile(profile_id)
 
 
+@app.get("/api/backend-profiles/{profile_id}/forge-admin")
+def backend_profile_forge_admin(profile_id: str) -> dict:
+    return get_forge_admin_profile_payload(profile_id)
+
+
+@app.post("/api/backend-profiles/{profile_id}/forge-admin/refresh")
+def backend_profile_forge_admin_refresh(profile_id: str) -> dict:
+    return refresh_forge_admin_profile(profile_id)
+
+
+@app.post("/api/backend-profiles/{profile_id}/forge-admin/refresh-models")
+def backend_profile_forge_admin_refresh_models(profile_id: str) -> dict:
+    return refresh_forge_admin_profile_models(profile_id)
+
+
+@app.post("/api/backend-profiles/{profile_id}/forge-admin/settings")
+def backend_profile_forge_admin_settings(profile_id: str, payload: dict) -> dict:
+    return update_forge_admin_profile_settings(profile_id, payload)
+
+
+@app.get("/api/backend-profiles/{profile_id}/forge-admin/bridge/history")
+def backend_profile_forge_bridge_history(profile_id: str, limit: int = 50) -> dict:
+    return get_forge_bridge_history(profile_id, limit=limit)
+
+
 @app.post("/api/backend-profiles/default")
 def backend_profile_default(payload: dict) -> dict:
     return set_default_backend_profile(payload.get("surface", ""), payload.get("profile_id", ""))
@@ -4907,54 +4964,119 @@ def surface_extensions(surface_id: str, subtab_id: str | None = None, workspace_
 
 
 
-def _lora_catalog_names_for_profile(profile_id: str | None = None) -> list[str]:
-    """Return LoRA names from the active Comfy backend's LoraLoader choices."""
-    profile_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
-    if not profile_id:
-        return []
+def _lora_catalog_names_for_profile(profile_id: str | None = None) -> dict[str, Any]:
+    """Return a provider-aware LoRA catalog for exactly one Image profile.
+
+    The browser always supplies the currently selected Image profile. A missing
+    explicit profile may use the saved Image default only for backward-compatible
+    API callers; the resolver never searches for another connected provider.
+    """
+
+    resolved_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
+    if not resolved_id:
+        return {
+            "schema_version": "neo.lora_stack.provider_catalog.v1",
+            "profile_id": "",
+            "provider_id": "",
+            "provider_label": "Image provider",
+            "catalog_source": "unavailable",
+            "names": [],
+            "available": False,
+            "reason": "No Image backend profile is selected.",
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
+        }
+    profile = get_backend_profile(resolved_id) or {}
+    provider_id = str(profile.get("provider_id") or "").strip().casefold()
+    provider_label = "Forge Neo" if provider_id == "forge" else "ComfyUI" if provider_id in {"comfyui", "comfyui_portable"} else str(profile.get("name") or provider_id or "Image provider")
+    catalog_source = "forge:extra_network_lora" if provider_id == "forge" else "comfy:LoraLoader.lora_name" if provider_id in {"comfyui", "comfyui_portable"} else f"{provider_id or 'provider'}:lora_catalog"
     try:
-        provider, _profile = _profile_bound_provider(profile_id)
+        provider, _profile = _profile_model_catalog_provider(resolved_id)
         models = provider.discover_models()
-    except Exception:  # noqa: BLE001 - library browser should still work with saved records offline.
-        return []
+        reason = ""
+        available = True
+    except Exception as exc:  # noqa: BLE001 - saved library records remain available offline.
+        models = []
+        reason = f"Selected profile LoRA catalog unavailable: {type(exc).__name__}"
+        available = False
     names: list[str] = []
     seen: set[str] = set()
     for item in models if isinstance(models, list) else []:
-        if not isinstance(item, dict) or item.get("kind") not in {"lora", "loras"}:
+        if not isinstance(item, dict) or str(item.get("kind") or "").casefold() not in {"lora", "loras"}:
             continue
-        name = str(item.get("name") or "").strip()
+        name = str(item.get("name") or item.get("id") or "").replace("\\", "/").strip()
         if name and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)
-    return names
+    return {
+        "schema_version": "neo.lora_stack.provider_catalog.v1",
+        "profile_id": resolved_id,
+        "provider_id": provider_id,
+        "provider_label": provider_label,
+        "catalog_source": catalog_source,
+        "names": names,
+        "available": available,
+        "reason": reason,
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
+    }
 
 
-def _embedding_catalog_names_for_profile(profile_id: str | None = None) -> list[str]:
-    """Return Embeddings/TI names from provider model catalogs when available.
+def _embedding_catalog_names_for_profile(profile_id: str | None = None) -> dict[str, Any]:
+    """Return a provider-aware Embeddings/TI catalog for one Image profile.
 
-    Comfy does not expose a default EmbeddingLoader node like LoRA's LoraLoader,
-    so this resolver only consumes explicit provider records whose kind is an
-    embedding/textual inversion asset. Local folder scan remains the primary path.
+    The selected profile is authoritative. The saved default is used only when an
+    older API caller omits ``profile_id``; Neo never searches another provider.
     """
-    profile_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
-    if not profile_id:
-        return []
+
+    resolved_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
+    if not resolved_id:
+        return {
+            "schema_version": "neo.embeddings_ti.provider_catalog.v1",
+            "profile_id": "",
+            "provider_id": "",
+            "provider_label": "Image provider",
+            "catalog_source": "unavailable",
+            "names": [],
+            "available": False,
+            "reason": "No Image backend profile is selected.",
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
+        }
+    profile = get_backend_profile(resolved_id) or {}
+    provider_id = str(profile.get("provider_id") or "").strip().casefold()
+    provider_label = "Forge Neo" if provider_id == "forge" else "ComfyUI" if provider_id in {"comfyui", "comfyui_portable"} else str(profile.get("name") or provider_id or "Image provider")
+    catalog_source = "forge:sdapi_embeddings" if provider_id == "forge" else "comfy:embeddings" if provider_id in {"comfyui", "comfyui_portable"} else f"{provider_id or 'provider'}:embedding_catalog"
     try:
-        provider, _profile = _profile_bound_provider(profile_id)
+        provider, _profile = _profile_model_catalog_provider(resolved_id)
         models = provider.discover_models()
-    except Exception:  # noqa: BLE001 - library browser should still work with saved records offline.
-        return []
+        reason = ""
+        available = True
+    except Exception as exc:  # noqa: BLE001 - saved library records remain available offline.
+        models = []
+        reason = f"Selected profile embedding catalog unavailable: {type(exc).__name__}"
+        available = False
     names: list[str] = []
     seen: set[str] = set()
     for item in models if isinstance(models, list) else []:
         if not isinstance(item, dict) or str(item.get("kind") or "").casefold() not in {"embedding", "embeddings", "textual_inversion", "textual-inversion", "ti"}:
             continue
-        name = str(item.get("name") or item.get("id") or "").strip()
+        name = str(item.get("name") or item.get("id") or "").replace("\\", "/").strip()
         if name and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)
-    return names
-
+    return {
+        "schema_version": "neo.embeddings_ti.provider_catalog.v1",
+        "profile_id": resolved_id,
+        "provider_id": provider_id,
+        "provider_label": provider_label,
+        "catalog_source": catalog_source,
+        "names": names,
+        "available": available,
+        "reason": reason,
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
+    }
 
 def _comfy_catalog_timeout_seconds(value: object) -> float:
     """Use the configured local-backend timeout without letting catalog reads hang forever."""
@@ -5109,16 +5231,44 @@ def _comfy_backend_for_profile(profile_id: str | None = None) -> dict:
 
 
 def _controlnet_backend_for_profile(profile_id: str | None = None) -> dict:
-    """Attach registered ControlNet folders to the shared Comfy snapshot."""
+    """Return the selected backend's ControlNet capability snapshot.
 
-    backend = _comfy_backend_for_profile(profile_id)
+    Comfy keeps its object-info and registered-folder discovery path. Forge
+    consumes the cached Admin discovery snapshot so the public UI never needs
+    direct filesystem access to a Forge installation.
+    """
+
+    resolved_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
+    profile = get_backend_profile(resolved_id) if resolved_id else None
+    if profile and profile.get("provider_id") == "forge":
+        payload = get_forge_admin_profile_payload(resolved_id)
+        return {
+            "profile_id": resolved_id,
+            "provider_id": "forge",
+            "forge_admin": payload.get("forge_admin") if isinstance(payload.get("forge_admin"), dict) else {},
+        }
+    backend = _comfy_backend_for_profile(resolved_id)
     return _comfy_backend_with_registered_folders(backend, _CONTROLNET_COMFY_MODEL_FOLDER_KEYS)
 
 
 def _ip_adapter_backend_for_profile(profile_id: str | None = None) -> dict:
-    """Attach registered IP Adapter folders to the shared Comfy snapshot."""
+    """Return the selected backend's IP Adapter capability snapshot.
 
-    backend = _comfy_backend_for_profile(profile_id)
+    Comfy keeps its node/folder discovery path. Forge uses the cached Admin
+    discovery snapshot so browser-facing IP Adapter status never needs local
+    Forge filesystem access.
+    """
+
+    resolved_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
+    profile = get_backend_profile(resolved_id) if resolved_id else None
+    if profile and profile.get("provider_id") == "forge":
+        payload = get_forge_admin_profile_payload(resolved_id)
+        return {
+            "profile_id": resolved_id,
+            "provider_id": "forge",
+            "forge_admin": payload.get("forge_admin") if isinstance(payload.get("forge_admin"), dict) else {},
+        }
+    backend = _comfy_backend_for_profile(resolved_id)
     return _comfy_backend_with_registered_folders(backend, _IP_ADAPTER_COMFY_MODEL_FOLDER_KEYS)
 
 
@@ -5155,15 +5305,37 @@ def _controlnet_object_info_for_profile(profile_id: str | None = None) -> dict:
 
 
 def _adetailer_backend_for_profile(profile_id: str | None = None) -> dict:
-    """Bind ADetailer to Neo's configured models root and live Comfy folders.
+    """Return ADetailer's backend-specific catalog authority.
 
-    A URL-only Comfy profile cannot reveal its local filesystem root. Neo's
-    local Admin Models path setting is therefore the authoritative filesystem
-    source when present. Absolute values remain server-side and are redacted by
-    the ADetailer API boundary.
+    Comfy keeps its node/folder discovery path. Forge keeps the same Neo
+    ``image.adetailer`` extension, but model suggestions come from the shared
+    Comfy-style library status captured by Forge Admin. Absolute filesystem
+    paths never cross this boundary.
     """
 
-    backend = _comfy_backend_for_profile(profile_id)
+    resolved_id = (profile_id or "").strip() or str(get_backend_profile_payload().get("defaults", {}).get("image") or "")
+    profile = get_backend_profile(resolved_id) if resolved_id else None
+    if profile and profile.get("provider_id") == "forge":
+        payload = get_forge_admin_profile_payload(resolved_id)
+        forge_admin = payload.get("forge_admin") if isinstance(payload.get("forge_admin"), dict) else {}
+        shared = forge_admin.get("shared_model_paths") if isinstance(forge_admin.get("shared_model_paths"), dict) else {}
+        shared_adetailer = shared.get("adetailer") if isinstance(shared.get("adetailer"), dict) else {}
+        return {
+            "profile_id": resolved_id,
+            "provider_id": "forge",
+            "object_info": {},
+            "forge_admin": forge_admin,
+            "forge_shared_model_paths": shared,
+            "forge_adetailer_models": list(shared_adetailer.get("shared_model_names") or []),
+            "forge_adetailer_covered_models": list(shared_adetailer.get("covered_model_names") or []),
+            "forge_adetailer_uncovered_models": list(shared_adetailer.get("uncovered_model_names") or []),
+            "forge_adetailer_model_coverage_known": True,
+            "forge_adetailer_extra_model_dirs_ready": bool(shared_adetailer.get("extra_model_dirs_ready")),
+            "forge_adetailer_shared_status": str(shared_adetailer.get("status") or "not_discovered"),
+            "forge_adetailer_shared_reason": str(shared_adetailer.get("reason") or ""),
+        }
+
+    backend = _comfy_backend_for_profile(resolved_id)
     if backend.get("provider_id") not in {"comfyui", "comfyui_portable"}:
         return backend
 
@@ -5375,7 +5547,7 @@ def _require_backend_connected_for_task(profile_id: str, *, surface: str, operat
         live_profile = get_backend_profile_for_live_task(pid)
         live_status = _runtime_status_from_profile(live_profile)
         live_runtime = live_profile.get("runtime") if isinstance(live_profile, dict) and isinstance(live_profile.get("runtime"), dict) else {}
-        if live_status in {"connected", "online", "ready", "available"} and live_runtime.get("reachable") is not False:
+        if live_status in {"connected", "connected_with_warnings", "online", "ready", "available"} and live_runtime.get("reachable") is not False:
             mark_backend_profile_connected_for_task(pid, True)
         else:
             status = _runtime_status_from_profile(get_backend_profile(pid) or profile)
@@ -5383,7 +5555,7 @@ def _require_backend_connected_for_task(profile_id: str, *, surface: str, operat
     live_profile = live_profile or get_backend_profile_for_live_task(pid) or profile
     status = _runtime_status_from_profile(live_profile)
     runtime = live_profile.get("runtime") if isinstance(live_profile.get("runtime"), dict) else {}
-    if status not in {"connected", "online", "ready", "available"} or runtime.get("reachable") is False:
+    if status not in {"connected", "connected_with_warnings", "online", "ready", "available"} or runtime.get("reachable") is False:
         raise HTTPException(status_code=409, detail=f"Backend profile '{pid}' is {status or 'unreachable'}. Reconnect/test it before running {operation}.")
     return live_profile
 
@@ -5429,6 +5601,11 @@ def _profile_bound_provider(profile_id: str):
         base_url = connection.get("base_url") or runtime.get("base_url") or "http://127.0.0.1:8188"
         timeout = float(connection.get("timeout_seconds") or 3)
         return ComfyProvider(provider.manifest, base_url=base_url, timeout=timeout), live_profile
+    if provider_id == "forge":
+        runtime_provider = get_provider(provider_id, profile=runtime_profile)
+        if runtime_provider is None:
+            raise HTTPException(status_code=404, detail="Forge Neo provider adapter is unavailable.")
+        return runtime_provider, profile
     if provider_id == "xai_grok":
         return XaiGrokProvider(provider.manifest, profile=runtime_profile), profile
     return provider, profile
@@ -5456,6 +5633,12 @@ def _profile_model_catalog_provider(profile_id: str):
         base_url = connection.get("base_url") or runtime.get("base_url") or "http://127.0.0.1:8188"
         timeout = float(connection.get("timeout_seconds") or 3)
         return ComfyProvider(provider.manifest, base_url=base_url, timeout=timeout), profile
+    if provider_id == "forge":
+        runtime_profile = get_backend_profile_for_runtime(profile_id) or profile
+        runtime_provider = get_provider(provider_id, profile=runtime_profile)
+        if runtime_provider is None:
+            raise HTTPException(status_code=404, detail="Forge Neo provider adapter is unavailable.")
+        return runtime_provider, profile
     if provider_id == "xai_grok":
         runtime_profile = get_backend_profile_for_runtime(profile_id) or profile
         return XaiGrokProvider(provider.manifest, profile=runtime_profile), profile
@@ -5795,9 +5978,17 @@ def image_mask_image_file(mask_id: str) -> FileResponse:
 
 
 
-def _normalize_image_source_params(params: dict, runtime_mode: str) -> dict:
+def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_id: str = "", profile_id: str = "") -> dict:
     """Resolve Neo source/mask refs into local Neo_Data paths before provider handoff."""
-    normalized = dict(params or {})
+    normalized, preview_handoff = normalize_preview_source_handoff_params(
+        params,
+        runtime_mode=runtime_mode,
+        provider_id=provider_id,
+        profile_id=profile_id,
+    )
+    if preview_handoff.get("status") == "blocked":
+        reasons = ", ".join(preview_handoff.get("warning_codes") or ["preview_source_handoff_blocked"])
+        raise HTTPException(status_code=409, detail=f"Preview source handoff is not valid for the selected backend profile: {reasons}.")
 
     def local_from_dir(value: str, folder: Path) -> str:
         safe = Path(value or "").name
@@ -5937,6 +6128,25 @@ def image_client_generation_error_latest() -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": str(exc), "path": str(latest_path)}
 
+
+
+@app.get("/api/image/capability-overlay")
+def image_capability_overlay(profile_id: str) -> dict:
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Unknown backend profile: {profile_id}")
+    if str(profile.get("surface") or "image") != "image":
+        raise HTTPException(status_code=400, detail=f"Backend profile is not an Image profile: {profile_id}")
+    # Capability overlays are profile-bound.  For local Comfy profiles, expose a
+    # live object_info snapshot only after the explicit current-session Connect/Test
+    # gate has succeeded.  Never borrow another profile or a manifest default URL.
+    if (
+        str(profile.get("provider_id") or "").strip().lower() in {"comfyui", "comfyui_portable"}
+        and is_backend_profile_connected_for_task(profile_id)
+    ):
+        profile = get_backend_profile_for_live_task(profile_id) or profile
+    return build_image_capability_overlay(profile)
+
 @app.post("/api/image/generate")
 def image_generate(payload: dict) -> dict:
     profile_id = payload.get("profile_id") or payload.get("backend_profile_id")
@@ -5984,6 +6194,17 @@ def image_generate(payload: dict) -> dict:
         effective_extensions = _merge_extension_metadata_for_output(effective_extensions, wildcards_output_metadata)
         style_stack_output_metadata = build_style_stack_output_extension_metadata(effective_extensions, prompt_extension_merge)
         effective_extensions = _merge_extension_metadata_for_output(effective_extensions, style_stack_output_metadata)
+        effective_extensions, preview_reference_handoff = normalize_preview_reference_handoffs(
+            effective_extensions,
+            provider_id=provider_backend_id,
+            profile_id=str(profile_id),
+        )
+        if preview_reference_handoff.get("status") == "blocked":
+            warning_codes = ", ".join(preview_reference_handoff.get("warning_codes") or [])
+            raise HTTPException(
+                status_code=409,
+                detail=f"Preview reference handoff does not match the selected provider/profile ({warning_codes or 'invalid reference handoff'}).",
+            )
         merged_positive_prompt = prompt_extension_merge.get("effective_positive") or job_payload.get("positive_prompt") or job_payload.get("prompt") or ""
         merged_negative_prompt = prompt_extension_merge.get("effective_negative") or job_payload.get("negative_prompt") or ""
         conditioning = condition_prompt_pair(
@@ -5995,11 +6216,35 @@ def image_generate(payload: dict) -> dict:
             **normalized_params,
             "prompt_extension_merge": prompt_extension_merge,
             "prompt_extension_execution": prompt_extension_execution,
+            "_neo_preview_reference_handoff": preview_reference_handoff,
             # Runtime-only profile identity lets filesystem bridges distinguish
             # local/shared Comfy profiles from remote URL-only connections.
             "backend_profile_id": str(profile_id),
         }
-        normalized_params = _normalize_image_source_params(normalized_params, runtime_mode)
+        normalized_params = _normalize_image_source_params(
+            normalized_params,
+            runtime_mode,
+            provider_id=provider_backend_id,
+            profile_id=str(profile_id),
+        )
+        normalized_params, derived_action_validation = normalize_preview_finish_params(
+            normalized_params,
+            runtime_mode=runtime_mode,
+            provider_id=provider_backend_id,
+            profile_id=str(profile_id),
+        )
+        if derived_action_validation.get("status") == "blocked":
+            warning_codes = ", ".join(derived_action_validation.get("warning_codes") or [])
+            raise HTTPException(
+                status_code=409,
+                detail=f"Derived Finish action does not match the selected provider/profile ({warning_codes or 'invalid derived action'}).",
+            )
+        normalized_params, action_state_cleanup = sanitize_image_action_state_for_provider(
+            normalized_params,
+            mode=runtime_mode,
+            provider_id=provider_backend_id,
+            profile_id=str(profile_id),
+        )
         job_payload = {
             **job_payload,
             "surface": "image",
@@ -6014,7 +6259,14 @@ def image_generate(payload: dict) -> dict:
             "params": normalized_params,
             "prompt_conditioning": conditioning,
         }
-        result = provider.run_job(model_from_dict(NeoJob, job_payload))
+        # IR-3: build the authoritative NeoJob exactly once, then use that same
+        # prepared payload for provider execution, job registry/context records,
+        # and Inspector proof. This prevents browser preset authority from
+        # diverging between Generate -> NeoJob -> provider diagnostics.
+        prepared_job = model_from_dict(NeoJob, job_payload)
+        prepared_job_payload = model_to_dict(prepared_job)
+        job_payload = {**job_payload, **prepared_job_payload, "params": dict(prepared_job_payload.get("params") or {})}
+        result = provider.run_job(prepared_job)
     except HTTPException as exc:
         if isinstance(exc.detail, dict) and exc.detail.get("schema") == "neo.image.provider_error.v1":
             raise
@@ -6024,6 +6276,17 @@ def image_generate(payload: dict) -> dict:
     output = model_to_dict(result)
     output["profile_id"] = profile_id
     output["capabilities"] = provider.feature_capability_payload()
+    # IR-3 exposes the authoritative, privacy-safe preset proof in runtime
+    # metadata even for providers that do not mirror all actual_params back.
+    runtime = output.get("runtime") if isinstance(output.get("runtime"), dict) else {}
+    prepared_params = dict((job_payload or {}).get("params") or {})
+    if isinstance(prepared_params.get("sampling_preset_inspector"), dict):
+        runtime["sampling_preset_inspector"] = prepared_params["sampling_preset_inspector"]
+    if isinstance(prepared_params.get("sampling_preset_release_lock"), dict):
+        runtime["sampling_preset_release_lock"] = prepared_params["sampling_preset_release_lock"]
+    if isinstance(prepared_params.get("_neo_sampling_preset_submission"), dict):
+        runtime["sampling_preset_submission"] = prepared_params["_neo_sampling_preset_submission"]
+    output["runtime"] = runtime
     try:
         registry = get_generation_job_registry(ROOT_DIR)
         registry_record = registry.upsert_from_provider_result(
@@ -6141,10 +6404,10 @@ def image_job_status(profile_id: str, job_id: str) -> dict:
 def image_job_recover_outputs(profile_id: str, job_id: str) -> dict:
     """Retry importing a backend-completed Image job into Neo_Data.
 
-    This is intentionally separate from normal polling: a Comfy job can be finished
-    and have files in the backend folder while Neo's persistence handoff failed or
-    the frontend stopped at the finalization step. Recovery reuses the durable job
-    context/registry and never depends on a still-alive provider instance cache.
+    This is intentionally separate from normal polling: a backend job can finish
+    while Neo's persistence handoff fails or the frontend stops at finalization.
+    Recovery reuses the durable job context/registry and calls a provider-owned
+    recovery hook when available instead of depending on volatile adapter memory.
     """
     registry = get_generation_job_registry(ROOT_DIR)
     try:
@@ -6165,7 +6428,8 @@ def image_job_recover_outputs(profile_id: str, job_id: str) -> dict:
             message="Retrying image output import into Neo_Data.",
             increment_attempts=False,
         )
-        result = provider.poll_job(job_id)
+        recoverer = getattr(provider, "recover_job", None)
+        result = recoverer(job_id) if callable(recoverer) else provider.poll_job(job_id)
         output = model_to_dict(result)
         output["profile_id"] = profile_id
         output["capabilities"] = provider.feature_capability_payload()
@@ -6495,7 +6759,7 @@ def _attach_persisted_image_outputs(output: dict, context: dict, *, force_retry:
                     job_id,
                     surface="image",
                     status="saved_in_comfy_only" if failed_status == "import_failed" else failed_status,
-                    message="Comfy finished, but Neo could not import all output files into Neo_Data.",
+                    message="The backend finished, but Neo could not import all output files into Neo_Data.",
                     result_id=persisted_result.result_id,
                     outputs=provider_outputs,
                     errors=persisted_result.errors,
@@ -7262,11 +7526,16 @@ def image_result_replay_validation(result_id: str, category: str | None = None) 
     return _validate_image_result_replay_against_current_profile(record)
 
 
-@app.get("/api/image/post-output-comfy-bridge/profiles")
-def image_post_output_comfy_bridge_profiles() -> dict:
-    """List local Image backend profiles that can receive cloud outputs for finish/refine passes."""
+def _image_finish_bridge_profiles_payload(action_id: str = "") -> dict:
+    """List explicit local finishing targets without selecting one automatically."""
     payload = list_backend_profiles()
     profiles = payload.get("profiles") if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+    capability_key = {
+        "extension.high_res_lab": "highres_inline",
+        "extension.adetailer": "adetailer_inline",
+        "extension.identity_rescue": "ip_adapter",
+        "extension.image_upscale": "image_upscale",
+    }.get(str(action_id or ""), "")
     bridge_profiles = []
     for profile in profiles if isinstance(profiles, list) else []:
         if not isinstance(profile, dict):
@@ -7275,19 +7544,44 @@ def image_post_output_comfy_bridge_profiles() -> dict:
             continue
         if str(profile.get("connection_type") or "") == "cloud_api":
             continue
-        provider_id = str(profile.get("provider_id") or "")
+        provider_id = str(profile.get("provider_id") or "").strip().lower()
         flags = profile.get("capability_flags") if isinstance(profile.get("capability_flags"), dict) else {}
         caps = profile.get("capabilities") if isinstance(profile.get("capabilities"), dict) else {}
+        supported = True
+        if capability_key:
+            supported = bool(caps.get(capability_key, flags.get(f"supports_{capability_key}", provider_id in {"comfyui", "comfyui_portable"})))
         bridge_profiles.append({
             "profile_id": profile.get("profile_id") or "",
             "display_name": profile.get("display_name") or profile.get("profile_id") or "Image backend",
             "provider_id": provider_id,
             "connection_type": profile.get("connection_type") or "",
-            "supports_adetailer": bool(caps.get("adetailer_inline", flags.get("supports_adetailer_inline", provider_id in {"comfyui", "comfyui_portable"}))),
-            "supports_highres": bool(caps.get("highres_inline", flags.get("supports_highres_inline", provider_id in {"comfyui", "comfyui_portable"}))),
-            "supports_upscale": True,
+            "action_id": str(action_id or ""),
+            "eligible": supported,
+            "selection_policy": "explicit_user_selection_only",
+            "automatic_provider_fallback": False,
         })
-    return {"ok": True, "profiles": bridge_profiles, "count": len(bridge_profiles)}
+    return {
+        "ok": True,
+        "schema": "neo.image.explicit_finish_bridge_profiles.v1",
+        "action_id": str(action_id or ""),
+        "profiles": bridge_profiles,
+        "count": len(bridge_profiles),
+        "automatic_selection": False,
+    }
+
+
+@app.get("/api/image/finish-bridge/profiles")
+def image_finish_bridge_profiles(action_id: str = "") -> dict:
+    return _image_finish_bridge_profiles_payload(action_id)
+
+
+@app.get("/api/image/post-output-comfy-bridge/profiles")
+def image_post_output_comfy_bridge_profiles(action_id: str = "") -> dict:
+    """Deprecated compatibility alias; returns provider-neutral explicit targets."""
+    result = _image_finish_bridge_profiles_payload(action_id)
+    result["deprecated_endpoint"] = True
+    result["replacement"] = "/api/image/finish-bridge/profiles"
+    return result
 
 
 @app.post("/api/image/results/{result_id}/reuse")
@@ -7325,6 +7619,43 @@ def image_output_record_schema() -> dict:
 @app.get("/api/image/base")
 def image_base() -> dict:
     return model_to_dict(get_image_surface_base_contract())
+
+
+@app.get("/api/image/preview-actions/registry")
+def image_preview_action_registry() -> dict:
+    """Return the canonical preview-action group and action definitions."""
+    return preview_action_definition_registry_payload()
+
+
+@app.get("/api/image/preview-actions/evaluate")
+def image_preview_action_evaluation(
+    profile_id: str,
+    family: str = "",
+    loader: str = "",
+    workflow_mode: str = "generate",
+    expert_mode: bool = False,
+) -> dict:
+    """Evaluate preview actions against exactly one selected Image profile.
+
+    This endpoint is capability-only. It never selects a fallback provider and
+    does not execute or stage an action. Source availability is combined in the
+    browser with this selected-profile result.
+    """
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Unknown backend profile: {profile_id}")
+    if str(profile.get("surface") or "image") != "image":
+        raise HTTPException(status_code=400, detail=f"Backend profile is not an Image profile: {profile_id}")
+    overlay = build_image_capability_overlay(profile)
+    return build_preview_action_provider_evaluation(
+        profile=profile,
+        overlay=overlay,
+        extension_payload=get_extension_payload(),
+        family=family,
+        loader=loader,
+        workflow_mode=workflow_mode,
+        expert_mode=expert_mode,
+    )
 
 
 

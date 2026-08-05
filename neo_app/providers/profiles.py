@@ -9,6 +9,14 @@ import os
 from datetime import datetime, timezone
 
 from neo_app.providers.registry import get_provider, get_provider_feature_capabilities
+from neo_app.providers.forge_neo_client import ForgeNeoClient
+from neo_app.providers.forge_admin import (
+    forge_models_for_backend_profile,
+    load_forge_admin_cache,
+    probe_forge_admin_profile,
+    refresh_forge_model_catalog,
+    update_forge_settings,
+)
 from neo_app.services.ui_state import read_backend_profile_selection_state, write_backend_profile_selection_state
 from neo_app.runtime_data import (
     backend_api_key_secret_runtime_path,
@@ -43,8 +51,11 @@ LOCAL_PROCESS_CONNECTION_KINDS = {"portable_path", "local_process", "local_proce
 CLOUD_CONNECTION_KINDS = {"cloud_api", "api", "remote_api"}
 API_KEY_AUTH_MODES = {"env", "manual", "none"}
 API_KEY_CLEAR_SENTINELS = {"__CLEAR__", "<CLEAR>", "clear", "CLEAR"}
-CONNECTION_TEST_DIAGNOSTIC_STATUSES = {"missing_config", "missing_key", "auth_failed", "offline", "error", "disabled", "disconnected"}
-CONNECTION_TEST_READY_STATUSES = {"connected", "available", "online", "ready"}
+CONNECTION_TEST_DIAGNOSTIC_STATUSES = {
+    "missing_config", "missing_key", "auth_failed", "authentication_required", "api_disabled",
+    "offline", "error", "disabled", "disconnected", "version_incompatible",
+}
+CONNECTION_TEST_READY_STATUSES = {"connected", "connected_with_warnings", "available", "online", "ready"}
 BACKEND_SELECTION_ALIASES = {
     "prompt_captioning": {"prompt_captioning", "text"},
     "roleplay": {"roleplay", "text"},
@@ -326,9 +337,9 @@ def _connection_test_severity(status: str) -> str:
     status = str(status or "").strip().lower()
     if status in CONNECTION_TEST_READY_STATUSES:
         return "success"
-    if status in {"missing_key", "missing_config", "auth_failed"}:
+    if status in {"missing_key", "missing_config", "auth_failed", "authentication_required", "api_disabled", "connected_with_warnings"}:
         return "warning"
-    if status in {"offline", "error"}:
+    if status in {"offline", "error", "version_incompatible"}:
         return "danger"
     return "muted"
 
@@ -343,10 +354,18 @@ def _connection_test_next_action(status: str, profile: dict[str, Any]) -> str:
         return "Paste a manual API key or switch this profile to environment-variable auth."
     if status == "auth_failed":
         return "Check that the API key belongs to this provider and has access to the selected model/API."
+    if status == "authentication_required":
+        return "Forge API authentication is enabled. Configure a supported auth bridge or launch a trusted local Forge API without Basic Auth."
+    if status == "api_disabled":
+        return "Launch Forge with --api, then run Test Connection again."
+    if status == "version_incompatible":
+        return "Confirm this endpoint is Forge Neo/A1111-compatible and exposes the standard /sdapi/v1 discovery routes."
     if status == "missing_config":
         return "Fill the missing base URL/provider configuration, then test again."
     if status == "offline":
         return "Check the base URL, health-check path, internet/local server availability, and timeout."
+    if status == "connected_with_warnings":
+        return "Review the Forge capability warnings before relying on optional Admin controls."
     if status in CONNECTION_TEST_READY_STATUSES:
         return "Connection is ready for this backend profile."
     return "Run Test Connection after changing this profile."
@@ -1798,6 +1817,18 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
     if provider_id in {"koboldcpp", "openai_compatible_text"}:
         return _probe_koboldcpp_profile(profile)
 
+    if provider_id == "forge":
+        snapshot = probe_forge_admin_profile(profile, persist=True)
+        return {
+            "status": snapshot.get("status") or "disconnected",
+            "reachable": bool(snapshot.get("reachable", False)),
+            "base_url": base_url,
+            "last_checked": snapshot.get("checked_at") or checked_at,
+            "message": snapshot.get("message") or "Forge Admin probe completed.",
+            "models": forge_models_for_backend_profile(snapshot),
+            "forge_admin": snapshot,
+        }
+
     if provider_id in {"comfyui", "comfyui_portable"}:
         if not base_url:
             return {
@@ -1810,6 +1841,20 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
         try:
             stats = _http_get_json(base_url, "/system_stats", timeout=timeout)
             models = _discover_comfy_models(base_url, timeout=timeout, backend_details={"portable_path": connection.get("portable_path") or "", "profile_id": profile.get("profile_id") or ""})
+            # Capability discovery must be bound to the selected profile's URL.
+            # The generic provider registry instance uses manifest defaults and is
+            # therefore not authoritative for multi-profile Comfy installations.
+            from neo_app.providers.comfy_provider import ComfyProvider
+
+            manifest_provider = get_provider(provider_id)
+            backend_capabilities = {}
+            if manifest_provider is not None:
+                profile_provider = ComfyProvider(
+                    manifest_provider.manifest,
+                    base_url=base_url,
+                    timeout=timeout,
+                )
+                backend_capabilities = profile_provider.discover_backend_capabilities()
             return {
                 "status": "connected",
                 "reachable": True,
@@ -1818,6 +1863,8 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
                 "message": "Connected to ComfyUI.",
                 "system_stats": stats,
                 "models": models,
+                "backend_capabilities": backend_capabilities,
+                "capability_source": "selected_profile_object_info",
             }
         except Exception as exc:  # noqa: BLE001 - connection test should never crash UI.
             return {
@@ -1888,7 +1935,7 @@ def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = Fal
             "activation": runtime.get("activation") or ("auto_connect" if auto_connect else "manual_connect"),
         }, operation="auto_connect" if auto_connect else "manual_connect")
         runtime_status = runtime_payload.get("status") or "missing_config"
-        show_live_runtime = bool(runtime_payload.get("reachable", False)) and str(runtime_status).lower() in {"connected", "available", "online", "ready"}
+        show_live_runtime = bool(runtime_payload.get("reachable", False)) and str(runtime_status).lower() in CONNECTION_TEST_READY_STATUSES
     elif preserve_saved_diagnostic:
         show_live_runtime = False
         runtime_payload = _decorate_connection_test_result(profile, runtime, operation=activation_raw or "manual_test")
@@ -1922,6 +1969,19 @@ def _enrich_profile(profile: dict[str, Any], *, allow_manual_runtime: bool = Fal
             "message": runtime_payload.get("message") or "Backend is not connected.",
         }
         runtime_status = "disconnected"
+
+    if str(profile.get("provider_id") or "") == "forge" and not isinstance(runtime_payload.get("forge_admin"), dict):
+        cached_forge_admin = load_forge_admin_cache(str(profile.get("profile_id") or ""))
+        if isinstance(cached_forge_admin, dict):
+            runtime_payload["forge_admin"] = cached_forge_admin
+
+    # A saved capability snapshot is useful for audit, but it must not be sent
+    # back to the browser as live readiness after a new session or a disconnect.
+    # The explicit Connect/Test response uses ``allow_manual_runtime=True`` and
+    # therefore retains the freshly probed snapshot.
+    if not show_live_runtime:
+        runtime_payload.pop("backend_capabilities", None)
+        runtime_payload.pop("capability_source", None)
 
     models = runtime_payload.get("models") or _empty_models()
 
@@ -2296,3 +2356,68 @@ def test_backend_profile(profile_id: str) -> dict[str, Any]:
                 "profile": _enrich_profile(profile, allow_manual_runtime=True),
             }
     return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
+
+
+def get_forge_admin_profile_payload(profile_id: str) -> dict[str, Any]:
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
+    if str(profile.get("provider_id") or "") != "forge":
+        return {"ok": False, "status": "wrong_provider", "errors": [f"Backend profile is not Forge: {profile_id}"]}
+    runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    snapshot = runtime.get("forge_admin") if isinstance(runtime.get("forge_admin"), dict) else load_forge_admin_cache(profile_id)
+    return {
+        "ok": bool(snapshot),
+        "profile_id": profile_id,
+        "status": str((snapshot or {}).get("status") or "not_checked"),
+        "forge_admin": snapshot or {},
+    }
+
+
+def refresh_forge_admin_profile(profile_id: str) -> dict[str, Any]:
+    result = test_backend_profile(profile_id)
+    profile = result.get("profile") if isinstance(result.get("profile"), dict) else {}
+    runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    return {**result, "forge_admin": runtime.get("forge_admin") or {}}
+
+
+def update_forge_admin_profile_settings(profile_id: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
+    payload = payload or {}
+    result = update_forge_settings(
+        profile,
+        payload.get("changes") if isinstance(payload.get("changes"), dict) else {},
+        expert_confirmed=bool(payload.get("expert_confirmed", False)),
+    )
+    if result.get("ok"):
+        refreshed = refresh_forge_admin_profile(profile_id)
+        result["forge_admin"] = refreshed.get("forge_admin") or {}
+        result["profile"] = refreshed.get("profile") or {}
+    return result
+
+
+def refresh_forge_admin_profile_models(profile_id: str) -> dict[str, Any]:
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
+    result = refresh_forge_model_catalog(profile)
+    refreshed = refresh_forge_admin_profile(profile_id)
+    result["forge_admin"] = refreshed.get("forge_admin") or {}
+    result["profile"] = refreshed.get("profile") or {}
+    return result
+
+def get_forge_bridge_history(profile_id: str, *, limit: int = 50) -> dict[str, Any]:
+    profile = get_backend_profile_for_runtime(profile_id)
+    if profile is None:
+        return {"ok": False, "status": "missing_config", "errors": [f"Unknown backend profile: {profile_id}"]}
+    if str(profile.get("provider_id") or "") != "forge":
+        return {"ok": False, "status": "wrong_provider", "errors": [f"Backend profile is not Forge: {profile_id}"]}
+    try:
+        client = ForgeNeoClient.from_profile(profile)
+        payload = client.bridge_history(limit=max(1, min(int(limit), 500)), timeout=15.0)
+        return {"ok": True, "profile_id": profile_id, "bridge_history": payload}
+    except Exception as exc:  # noqa: BLE001 - Admin diagnostics return normalized errors.
+        return {"ok": False, "profile_id": profile_id, "status": "bridge_unavailable", "errors": [str(exc)]}
+

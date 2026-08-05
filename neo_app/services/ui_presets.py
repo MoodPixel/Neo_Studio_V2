@@ -13,16 +13,26 @@ PRESET_ROOT = ROOT_DIR / "neo_data" / "ui_presets"
 VALID_SURFACE = re.compile(r"^[a-z0-9_-]{1,48}$")
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,80}$")
 IMAGE_UI_PRESET_LATENT_CHECKPOINT_SCHEMA = "neo.image.ui_preset_latent_checkpoint.v1"
+IMAGE_SAMPLING_SURFACE = "image_sampling"
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _surface_dir(surface: str) -> Path:
+def _surface_id(surface: str) -> str:
     surface_id = str(surface or "").strip().lower()
     if not VALID_SURFACE.match(surface_id):
         raise ValueError("Invalid surface id")
+    return surface_id
+
+
+def _is_image_sampling_surface(surface: str) -> bool:
+    return _surface_id(surface) == IMAGE_SAMPLING_SURFACE
+
+
+def _surface_dir(surface: str) -> Path:
+    surface_id = _surface_id(surface)
     path = PRESET_ROOT / surface_id
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -158,7 +168,6 @@ def _sanitize_image_draft_for_ui_preset(value: Any) -> dict[str, Any]:
 
 def normalize_snapshot(value: Any, *, surface: str = "") -> dict[str, Any]:
     snapshot = copy.deepcopy(value) if isinstance(value, dict) else {}
-    # Preserve extension data when the frontend includes it, but keep the shell stable.
     snapshot.setdefault("extensions", {})
     snapshot.setdefault("extension_settings", {})
     snapshot.setdefault("surface_state", {})
@@ -173,6 +182,9 @@ def normalize_snapshot(value: Any, *, surface: str = "") -> dict[str, Any]:
 
 
 def list_ui_presets(surface: str) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        from neo_app.image.user_sampling_presets import list_user_sampling_presets
+        return list_user_sampling_presets()
     index = _load_index(surface)
     presets = []
     for item in index.get("presets", []):
@@ -189,6 +201,9 @@ def list_ui_presets(surface: str) -> dict[str, Any]:
 
 
 def get_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        from neo_app.image.user_sampling_presets import get_user_sampling_preset
+        return get_user_sampling_preset(preset_id)
     record = _load_json(_preset_path(surface, preset_id), None)
     if not isinstance(record, dict):
         raise FileNotFoundError("UI preset not found")
@@ -199,6 +214,9 @@ def get_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
 
 
 def create_ui_preset(surface: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        from neo_app.image.user_sampling_presets import create_user_sampling_preset
+        return create_user_sampling_preset(payload)
     name = str(payload.get("name") or "New UI Preset").strip()[:80] or "New UI Preset"
     preset_id = f"{_slug(name)}-{uuid.uuid4().hex[:8]}"
     now = _now()
@@ -223,6 +241,9 @@ def create_ui_preset(surface: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_ui_preset(surface: str, preset_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        from neo_app.image.user_sampling_presets import update_user_sampling_preset
+        return update_user_sampling_preset(preset_id, payload)
     record = get_ui_preset(surface, preset_id)
     if "name" in payload:
         record["name"] = str(payload.get("name") or record.get("name") or "UI Preset").strip()[:80]
@@ -241,6 +262,9 @@ def update_ui_preset(surface: str, preset_id: str, payload: dict[str, Any]) -> d
 
 
 def delete_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        from neo_app.image.user_sampling_presets import delete_user_sampling_preset
+        return delete_user_sampling_preset(preset_id)
     path = _preset_path(surface, preset_id)
     if path.exists():
         path.unlink()
@@ -253,6 +277,8 @@ def delete_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
 
 
 def set_default_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        raise ValueError("Image sampling presets do not use an automatic user default. Choose a preset explicitly in the Image workspace.")
     get_ui_preset(surface, preset_id)
     index = _load_index(surface)
     index["default_preset_id"] = preset_id
@@ -261,6 +287,8 @@ def set_default_ui_preset(surface: str, preset_id: str) -> dict[str, Any]:
 
 
 def get_default_ui_preset(surface: str) -> dict[str, Any]:
+    if _is_image_sampling_surface(surface):
+        return {"surface": IMAGE_SAMPLING_SURFACE, "preset": None, "policy": "explicit_selection_only"}
     index = _load_index(surface)
     preset_id = index.get("default_preset_id")
     if not preset_id:

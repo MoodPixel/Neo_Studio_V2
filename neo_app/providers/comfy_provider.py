@@ -12,7 +12,11 @@ from urllib import parse, request, error
 from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
-from neo_app.extensions.workflow_hooks import apply_comfy_workflow_extension_patches, has_comfy_workflow_extension_requests
+from neo_app.extensions.workflow_hooks import (
+    apply_comfy_workflow_extension_patches,
+    has_comfy_workflow_extension_requests,
+    lora_stack_execution_requested,
+)
 from neo_app.providers.base import BaseProvider
 from neo_app.providers.comfy_artifact_paths import (
     ComfyArtifactPathError,
@@ -26,6 +30,12 @@ from neo_app.providers.comfy_workflows.checkpoint_sd import resolve_sd_checkpoin
 from neo_app.providers.comfy_workflows.flux_native import compile_flux_native_txt2img, compile_flux_klein_txt2img, compile_flux_fill_workflow, compile_flux_krea_workflow
 from neo_app.providers.comfy_workflows.flux_gguf import compile_flux_gguf_txt2img
 from neo_app.providers.comfy_workflows.krea2 import compile_krea2_workflow
+from neo_app.providers.comfy_workflows.lanpaint import (
+    LANPAINT_BASE_OBJECT_INFO_NODE_CLASSES,
+    LANPAINT_OBJECT_INFO_NODE_CLASSES,
+    PHASE5_GRAPH_STATE,
+)
+from neo_app.providers.comfy_workflows.lanpaint_family import compile_lanpaint_family_inpaint
 from neo_app.providers.comfy_workflows.qwen_gguf import compile_qwen_gguf_txt2img
 from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_txt2img
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
@@ -43,6 +53,13 @@ from neo_app.image.flux1_krea_contract import (
     resolve_flux1_variant,
 )
 from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
+from neo_app.image.lanpaint_capabilities import evaluate_lanpaint_route_capabilities
+from neo_app.image.lanpaint_capability_discovery import (
+    build_lanpaint_capability_snapshot_metadata,
+    build_lanpaint_discovery_contract,
+)
+from neo_app.image.lanpaint_family_expansion import lanpaint_family_expansion_summary
+from neo_app.image.lanpaint_family_adapter import lanpaint_family_adapter_registry
 from neo_app.providers.comfy_workflows.image_stitch_route import (
     extract_image_stitch_payload,
     image_stitch_has_ready_group,
@@ -51,11 +68,13 @@ from neo_app.providers.comfy_workflows.image_stitch_route import (
 )
 from neo_app.providers.comfy_workflows.z_image import compile_z_image_txt2img
 from neo_app.providers.comfy_workflows.hidream import compile_hidream_txt2img
+from neo_app.providers.comfy_workflows.phase22_families import compile_anima_image, compile_ideogram4_txt2img
 from neo_extensions.built_in.ip_adapter.backend.node_discovery import split_ip_adapter_model_names
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.state_boundary import sanitize_image_params_for_state_boundary
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.output_records import build_route_metadata, build_route_snapshot, normalize_latent_capture_request
+from neo_app.image.lanpaint_replay import refresh_lanpaint_replay_contract
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 from neo_extensions.built_in.background_removal.backend.context_latent import (
     build_context_latent_catalog,
@@ -524,6 +543,23 @@ class ComfyProvider(BaseProvider):
         }
 
     def discover_backend_capabilities(self) -> dict[str, Any]:
+        adapter_registry = lanpaint_family_adapter_registry(self.manifest.provider_id)
+        active_adapters = [
+            item for item in adapter_registry.get("adapters", [])
+            if isinstance(item, dict) and (item.get("binding") or {}).get("selectable")
+        ]
+        active_routes = [
+            (
+                str((item.get("identity") or {}).get("family") or ""),
+                str((item.get("identity") or {}).get("loader") or ""),
+            )
+            for item in active_adapters
+        ]
+        discovery_contract = build_lanpaint_discovery_contract(
+            adapter_registry,
+            base_node_classes=LANPAINT_BASE_OBJECT_INFO_NODE_CLASSES,
+        )
+        object_info_scope = tuple(discovery_contract["required_node_classes"])
         try:
             info = self._get_json("/object_info")
         except Exception as exc:  # noqa: BLE001 - discovery must not crash provider payloads.
@@ -533,7 +569,41 @@ class ComfyProvider(BaseProvider):
                 reachable=False,
                 error=f"ComfyUI object_info discovery failed: {exc}",
             )
-            return discovery_result_to_dict(result)
+            payload = discovery_result_to_dict(result)
+            payload["object_info_node_inputs"] = {}
+            payload["lanpaint_family_expansion"] = lanpaint_family_expansion_summary()
+            payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
+            payload["lanpaint_capability_discovery_contract"] = deepcopy(discovery_contract)
+            payload["lanpaint_capability_snapshot"] = build_lanpaint_capability_snapshot_metadata(
+                discovery_contract, discovered_node_classes=(), object_info_available=False
+            )
+            payload["lanpaint_route_capabilities"] = evaluate_lanpaint_route_capabilities(
+                payload,
+                provider_id=self.manifest.provider_id,
+                family="krea2_turbo",
+                loader="gguf",
+                mode="inpaint",
+                engine="lanpaint",
+            )
+            payload["lanpaint_route_capability_matrix"] = {
+                f"{family}:{loader}:inpaint:lanpaint": evaluate_lanpaint_route_capabilities(
+                    payload, provider_id=self.manifest.provider_id, family=family, loader=loader, mode="inpaint", engine="lanpaint"
+                )
+                for family, loader in active_routes
+            }
+            payload["lanpaint_node_diagnostics"] = {
+                "compiler_id": "comfy.lanpaint.family_aware.v1",
+                "available_nodes": [],
+                "missing_nodes": list(object_info_scope),
+                "graph_compile_enabled": False,
+                "graph_state": PHASE5_GRAPH_STATE,
+                "route_status": payload["lanpaint_route_capabilities"]["status"],
+                "selectable": False,
+                "blockers": deepcopy(payload["lanpaint_route_capabilities"]["blockers"]),
+                "remediation": list(payload["lanpaint_route_capabilities"]["remediation"]),
+                "note": "ComfyUI is offline or /object_info failed; LanPaint remains fail-closed.",
+            }
+            return payload
 
         result = discover_comfy_backend_capabilities(info, provider_id=self.manifest.provider_id, reachable=True)
         payload = discovery_result_to_dict(result)
@@ -561,9 +631,68 @@ class ComfyProvider(BaseProvider):
         ]
         payload["object_info_node_inputs"] = {
             node_name: self._node_input_names(info, node_name)
-            for node_name in [*qwen_edit_nodes, *stitch_nodes, *context_latent_nodes]
+            for node_name in [
+                *qwen_edit_nodes,
+                *stitch_nodes,
+                *context_latent_nodes,
+                *object_info_scope,
+            ]
             if isinstance(info.get(node_name), dict)
         }
+        payload["lanpaint_family_expansion"] = lanpaint_family_expansion_summary()
+        payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
+        payload["lanpaint_capability_discovery_contract"] = deepcopy(discovery_contract)
+        payload["lanpaint_capability_snapshot"] = build_lanpaint_capability_snapshot_metadata(
+            discovery_contract,
+            discovered_node_classes=payload["object_info_node_inputs"].keys(),
+            object_info_available=True,
+        )
+        payload["lanpaint_node_diagnostics"] = {
+            "compiler_id": "comfy.lanpaint.family_aware.v1",
+            "available_nodes": [
+                node_name
+                for node_name in object_info_scope
+                if node_name in payload["object_info_node_inputs"]
+            ],
+            "missing_nodes": [
+                node_name
+                for node_name in object_info_scope
+                if node_name not in payload["object_info_node_inputs"]
+            ],
+            "graph_compile_enabled": True,
+            "graph_state": PHASE5_GRAPH_STATE,
+            "enabled_routes": [
+                {
+                    "family": str((item.get("identity") or {}).get("family") or ""),
+                    "loader": str((item.get("identity") or {}).get("loader") or ""),
+                    "mode": "inpaint",
+                    "engine": "lanpaint",
+                    "adapter_id": str((item.get("identity") or {}).get("adapter_id") or ""),
+                    "adapter_fingerprint": str(item.get("adapter_fingerprint") or ""),
+                }
+                for item in active_adapters
+            ],
+            "note": "Phase 22.1 derives object_info discovery from every selectable family adapter; missing classes now reflect the exact selected route rather than a static Krea-era whitelist.",
+        }
+        payload["lanpaint_route_capabilities"] = evaluate_lanpaint_route_capabilities(
+            payload,
+            provider_id=self.manifest.provider_id,
+            family="krea2_turbo",
+            loader="gguf",
+            mode="inpaint",
+            engine="lanpaint",
+        )
+        payload["lanpaint_route_capability_matrix"] = {
+            f"{family}:{loader}:inpaint:lanpaint": evaluate_lanpaint_route_capabilities(
+                payload, provider_id=self.manifest.provider_id, family=family, loader=loader, mode="inpaint", engine="lanpaint"
+            )
+            for family, loader in active_routes
+        }
+        payload["lanpaint_node_diagnostics"]["route_status"] = payload["lanpaint_route_capabilities"]["status"]
+        payload["lanpaint_node_diagnostics"]["selectable"] = payload["lanpaint_route_capabilities"]["selectable"]
+        payload["lanpaint_node_diagnostics"]["blockers"] = deepcopy(payload["lanpaint_route_capabilities"]["blockers"])
+        payload["lanpaint_node_diagnostics"]["remediation"] = list(payload["lanpaint_route_capabilities"]["remediation"])
+        payload["lanpaint_node_diagnostics"]["note"] = "Phase 8 publishes one fail-closed route capability report; the UI must not infer readiness from family/loader identity alone."
         payload["context_latent"] = build_context_latent_catalog(info)
         payload["qwen_edit_node_diagnostics"] = {
             "available_nodes": list(payload["object_info_node_inputs"].keys()),
@@ -755,6 +884,37 @@ class ComfyProvider(BaseProvider):
             clean_params["clip_type"] = "lumina2"
             clean_params.pop("qwen_text_encoder", None)
             clean_params.pop("qwen_mmproj", None)
+        if job.family == "anima":
+            clean_params = dict(clean_params)
+            clean_params["clip_type"] = "stable_diffusion"
+            encoder = clean_params.get("anima_text_encoder") or clean_params.get("qwen3_06b_text_encoder") or clean_params.get("text_encoder_1") or clean_params.get("clip_name") or ""
+            vae = clean_params.get("anima_vae") or clean_params.get("qwen_image_vae") or clean_params.get("vae") or ""
+            if encoder:
+                clean_params["anima_text_encoder"] = encoder
+                clean_params["text_encoder_1"] = encoder
+            if vae:
+                clean_params["anima_vae"] = vae
+                clean_params["vae"] = vae
+            if job.loader == "gguf":
+                clean_params["gguf_clip_mode"] = "single"
+                clean_params["gguf_clip_type"] = "anima"
+            clean_params["_neo_anima_runtime_reconciled"] = True
+        if job.family == "ideogram4":
+            clean_params = dict(clean_params)
+            clean_params["clip_type"] = "ideogram4"
+            encoder = clean_params.get("ideogram4_text_encoder") or clean_params.get("qwen3_vl_text_encoder") or clean_params.get("text_encoder_1") or clean_params.get("clip_name") or ""
+            vae = clean_params.get("ideogram4_vae") or clean_params.get("flux2_vae") or clean_params.get("vae") or ""
+            if encoder:
+                clean_params["ideogram4_text_encoder"] = encoder
+                clean_params["text_encoder_1"] = encoder
+            if vae:
+                clean_params["ideogram4_vae"] = vae
+                clean_params["vae"] = vae
+            if job.loader == "gguf":
+                clean_params["gguf_clip_mode"] = "single"
+                clean_params["gguf_clip_type"] = "ideogram4"
+            clean_params["_neo_ideogram4_dual_model_required"] = True
+            clean_params["_neo_ideogram4_runtime_reconciled"] = True
         if runtime_mode != job.mode or clean_params != (job.params or {}):
             return job.copy(update={"mode": runtime_mode, "params": clean_params})
         return job
@@ -859,6 +1019,102 @@ class ComfyProvider(BaseProvider):
             merged[key] = current
         return merged
 
+    def _enforce_explicit_lora_execution(
+        self,
+        *,
+        extensions: object,
+        route_payload: dict[str, Any],
+        extension_metadata: dict[str, Any] | None,
+        validation_payload: dict[str, Any],
+        actual_params: dict[str, Any],
+        compile_status: str,
+    ) -> str:
+        """Fail closed unless an explicit LoRA request has verifiable graph proof.
+
+        This gate is workflow-engine neutral. Native generation, Img2Img, Native
+        Inpaint, LanPaint, and Outpaint all use the same rule: an explicit base/global
+        request either produces an applied loader patch or the job never reaches
+        Comfy ``/prompt``.
+        """
+
+        metadata = extension_metadata if isinstance(extension_metadata, dict) else {}
+        workflow_patches = metadata.get("workflow_patches") if isinstance(metadata.get("workflow_patches"), list) else []
+        lora_patch = next((item for item in workflow_patches if isinstance(item, dict) and item.get("extension_id") == "lora_stack"), None)
+        requested = lora_stack_execution_requested(extensions, route_payload)
+        applied = bool(isinstance(lora_patch, dict) and lora_patch.get("applied"))
+        engine = str(route_payload.get("workflow_engine") or route_payload.get("engine") or "native")
+
+        if not requested:
+            actual_params["_neo_lora_execution"] = "inactive"
+            actual_params.pop("_neo_lora_blocker", None)
+            actual_params.pop("_neo_lora_execution_proof", None)
+            if engine == "lanpaint":
+                actual_params.setdefault("_neo_lanpaint_lora_execution", "inactive")
+            return compile_status
+
+        if applied:
+            proof = {
+                "schema_version": "neo.image.lora_stack.execution_proof.v1",
+                "execution_state": str(lora_patch.get("execution_state") or "applied"),
+                "provider_id": str(route_payload.get("provider_id") or route_payload.get("backend") or self.manifest.provider_id),
+                "family": str(route_payload.get("family") or ""),
+                "loader": str(route_payload.get("loader") or ""),
+                "workflow_mode": str(route_payload.get("workflow_mode") or route_payload.get("mode") or "generate"),
+                "workflow_engine": engine,
+                "loader_node_class": str(lora_patch.get("node_class") or lora_patch.get("node") or ""),
+                "loader_node_ids": list(lora_patch.get("node_ids") or []),
+                "portable_lora_names": list(lora_patch.get("portable_lora_names") or lora_patch.get("lora_names") or []),
+                "submitted_lora_names": list(lora_patch.get("submitted_lora_names") or []),
+                "catalog_bindings": deepcopy(lora_patch.get("catalog_bindings") or []),
+                "provider_catalog_verified": bool(lora_patch.get("provider_catalog_verified")),
+                "previous_model_ref": deepcopy(lora_patch.get("previous_model_ref") or []),
+                "patched_model_ref": deepcopy(lora_patch.get("patched_model_ref") or []),
+                "previous_clip_ref": deepcopy(lora_patch.get("previous_clip_ref") or []),
+                "patched_clip_ref": deepcopy(lora_patch.get("patched_clip_ref") or []),
+                "patched_model_consumer_nodes": list(lora_patch.get("patched_model_consumer_nodes") or []),
+                "patched_clip_encode_nodes": list(lora_patch.get("patched_clip_encode_nodes") or []),
+                "route": deepcopy(lora_patch.get("route") or route_payload),
+            }
+            actual_params["_neo_lora_execution"] = "applied"
+            actual_params["_neo_lora_execution_proof"] = proof
+            actual_params.pop("_neo_lora_blocker", None)
+            if engine == "lanpaint":
+                actual_params["_neo_lanpaint_lora_execution"] = "applied"
+                actual_params.pop("_neo_lanpaint_lora_blocker", None)
+            return compile_status
+
+        execution_state = str((lora_patch or {}).get("execution_state") or "")
+        if execution_state in {"", "inactive", "inactive_deferred_only"}:
+            execution_state = "blocked_unapplied_explicit_request"
+        reason = str((lora_patch or {}).get("reason") or "An explicitly enabled LoRA Stack could not be applied to the selected family route.")
+        errors = list(validation_payload.get("errors") or [])
+        if reason not in errors:
+            errors.append(reason)
+        validation_payload["errors"] = errors
+        validation_payload["ok"] = False
+        actual_params["_neo_lora_execution"] = execution_state
+        actual_params["_neo_lora_blocker"] = reason
+        actual_params["_neo_lora_execution_proof"] = {
+            "schema_version": "neo.image.lora_stack.execution_proof.v1",
+            "execution_state": execution_state,
+            "provider_id": str(route_payload.get("provider_id") or route_payload.get("backend") or self.manifest.provider_id),
+            "family": str(route_payload.get("family") or ""),
+            "loader": str(route_payload.get("loader") or ""),
+            "workflow_mode": str(route_payload.get("workflow_mode") or route_payload.get("mode") or "generate"),
+            "workflow_engine": engine,
+            "loader_node_class": str((lora_patch or {}).get("node_class") or (lora_patch or {}).get("node") or ""),
+            "portable_lora_names": list((lora_patch or {}).get("portable_lora_names") or []),
+            "submitted_lora_names": list((lora_patch or {}).get("submitted_lora_names") or []),
+            "catalog_bindings": deepcopy((lora_patch or {}).get("catalog_bindings") or []),
+            "provider_catalog_verified": False,
+            "reason": reason,
+            "route": deepcopy((lora_patch or {}).get("route") or route_payload),
+        }
+        if engine == "lanpaint":
+            actual_params["_neo_lanpaint_lora_execution"] = "blocked_before_queue"
+            actual_params["_neo_lanpaint_lora_blocker"] = reason
+        return "mock_compiled"
+
     def _object_info_for_extensions(self, extensions: object, *, route: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return live Comfy node schemas after staging selected ADetailer assets.
 
@@ -943,7 +1199,11 @@ class ComfyProvider(BaseProvider):
         return {}
 
     @classmethod
-    def _non_checkpoint_patch_extensions(cls, extensions: object) -> dict[str, Any]:
+    def _non_checkpoint_patch_extensions(
+        cls,
+        extensions: object,
+        allowed_extension_ids: tuple[str, ...] = ("lora_stack", "image.controlnet"),
+    ) -> dict[str, Any]:
         """Return only extension blocks approved for non-checkpoint graph patching.
 
         Flux/Qwen provider-owned graphs can now accept LoRA Stack and ControlNet
@@ -953,7 +1213,7 @@ class ComfyProvider(BaseProvider):
         if not isinstance(extensions, dict):
             return {}
         payloads: dict[str, Any] = {}
-        for extension_id in ("lora_stack", "image.controlnet"):
+        for extension_id in allowed_extension_ids:
             block = cls._extension_block_from_job_extensions(extensions, extension_id)
             if block:
                 payloads[extension_id] = block
@@ -1530,7 +1790,7 @@ class ComfyProvider(BaseProvider):
             or (job.family == "flux2_klein" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
             or (job.family in {"krea2", "krea2_turbo"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "qwen_image" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
-            or (job.family == "qwen_image_edit_2509" and job.mode in {"img2img", "edit", "inpaint", "outpaint"})
+            or (job.family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and job.mode in {"img2img", "edit", "inpaint", "outpaint"})
             or (job.family == "z_image" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "z_image_turbo" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "hidream" and job.mode == "txt2img")
@@ -1577,13 +1837,13 @@ class ComfyProvider(BaseProvider):
             (job.family == "flux" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "flux2_klein" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"})
             or (job.family in {"krea2", "krea2_turbo"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
-            or (job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"})
+            or (job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"})
             or (job.family == "z_image" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "z_image_turbo" and job.mode == "txt2img")
             or (job.family == "hidream" and job.mode == "txt2img")
         ):
             result.warnings.append("GGUF loader compile is enabled for Flux txt2img/img2img/inpaint/outpaint, Flux 2 Klein routes, experimental Krea 2 RAW/Turbo routes, Qwen/Qwen Rapid AIO image routes, Z-Image base image routes, Z-Image Turbo txt2img, and HiDream txt2img. ZImage Turbo GGUF image modes remain a separate workflow pass.")
-        if job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} and job.loader == "gguf" and job.mode in {"img2img", "inpaint", "outpaint", "edit"}:
+        if job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} and job.loader == "gguf" and job.mode in {"img2img", "inpaint", "outpaint", "edit"}:
             params = job.params or {}
             mmproj = (
                 params.get("qwen_mmproj")
@@ -2683,14 +2943,23 @@ class ComfyProvider(BaseProvider):
             log_image_event("ip_adapter_reference_handoff", run_id=run_id, payload={"handoffs": handoffs, "disabled_units": disabled_units, "warnings": warnings})
         return self._replace_ip_adapter_extension_block(extensions, new_block)
 
-    def _apply_non_checkpoint_extension_patches(self, compiled: CompiledJob, job: NeoJob, route: Any) -> CompiledJob:
+    def _apply_non_checkpoint_extension_patches(
+        self,
+        compiled: CompiledJob,
+        job: NeoJob,
+        route: Any,
+        *,
+        allowed_extension_ids: tuple[str, ...] = ("lora_stack", "image.controlnet"),
+        fail_closed_on_unapplied_lora: bool = True,
+    ) -> CompiledJob:
         """Apply shared workflow extension hooks to family-specific Comfy compilers.
 
         SDXL/SD1.5 checkpoint graphs are patched inline where they are built.
         Flux, Qwen, Z-Image, and HiDream compilers live in provider-owned modules,
         so this helper patches their returned backend payload without borrowing one
-        family compiler from another. LoRA Stack only activates when the route
-        matrix validates the family/loader/mode and Comfy exposes LoraLoader.
+        family compiler from another. LoRA Stack only activates when the engine-independent family/loader/mode
+        compatibility matrix allows it, the active compiler emits valid graph anchors,
+        and Comfy exposes the required LoRA loader node.
         """
         if not has_comfy_workflow_extension_requests(job.extensions):
             return compiled
@@ -2703,6 +2972,7 @@ class ComfyProvider(BaseProvider):
             **route.as_dict(),
             "comfy_base_url": self.base_url,
             "workflow_mode": "generate" if route.mode == "txt2img" else route.mode,
+            "engine": str(actual_params.get("inpaint_engine") or getattr(route, "engine", "") or "native"),
             "route_state": "available" if route.status == "available" else route.status,
             "params": actual_params,
             "actual_params": actual_params,
@@ -2723,10 +2993,39 @@ class ComfyProvider(BaseProvider):
         # Scene Director remain route-owned until each declares non-checkpoint
         # family support. This path now supports LoRA Stack plus ControlNet for
         # active Flux/Qwen txt2img/img2img routes.
-        patch_extensions = self._non_checkpoint_patch_extensions(job.extensions)
+        patch_extensions = self._non_checkpoint_patch_extensions(job.extensions, allowed_extension_ids=allowed_extension_ids)
         if not patch_extensions:
             return compiled
         lora_patch_profile = actual_params.get("_neo_lora_patch_profile") if isinstance(actual_params.get("_neo_lora_patch_profile"), dict) else backend_payload.get("_neo_lora_patch_profile")
+        if tuple(allowed_extension_ids) == ("lora_stack",) and isinstance(lora_patch_profile, dict):
+            profile_route = lora_patch_profile.get("route") if isinstance(lora_patch_profile.get("route"), dict) else {}
+            compatibility_route_key = str(
+                lora_patch_profile.get("compatibility_route_key")
+                or profile_route.get("compatibility_route_key")
+                or profile_route.get("route_key")
+                or route_payload.get("route_key")
+                or ""
+            )
+            workflow_route_key = str(
+                lora_patch_profile.get("workflow_route_key")
+                or profile_route.get("workflow_route_key")
+                or compatibility_route_key
+            )
+            workflow_engine = str(
+                lora_patch_profile.get("workflow_engine")
+                or profile_route.get("workflow_engine")
+                or profile_route.get("engine")
+                or route_payload.get("engine")
+                or "native"
+            )
+            route_payload["route_state"] = str(profile_route.get("route_state") or route_payload.get("route_state") or "experimental_available")
+            route_payload["reason"] = str(profile_route.get("reason") or "")
+            route_payload["route_key"] = compatibility_route_key
+            route_payload["compatibility_route_key"] = compatibility_route_key
+            route_payload["workflow_route_key"] = workflow_route_key
+            route_payload["engine"] = workflow_engine
+            route_payload["workflow_engine"] = workflow_engine
+            route_payload["compatibility_engine_independent"] = True
         sampler_node_id = str((lora_patch_profile or {}).get("sampler_node_id") or actual_params.get("_neo_sampler_node_id") or self._find_primary_ksampler_node_id(workflow) or "8")
         patch_result = apply_comfy_workflow_extension_patches(
             workflow,
@@ -2743,12 +3042,58 @@ class ComfyProvider(BaseProvider):
         backend_payload["prompt"] = patch_result.get("workflow", workflow)
         extension_metadata = patch_result.get("extensions") or {"used": [], "payloads": {}, "workflow_patches": [], "validation": []}
         backend_payload["extensions"] = extension_metadata
+        compile_status = compiled.compile_status
         if isinstance(actual_params, dict):
             actual_params = dict(actual_params)
-            if extension_metadata.get("workflow_patches"):
-                actual_params["extension_workflow_patches"] = extension_metadata.get("workflow_patches")
+            workflow_patches = extension_metadata.get("workflow_patches") if isinstance(extension_metadata.get("workflow_patches"), list) else []
+            if workflow_patches:
+                actual_params["extension_workflow_patches"] = workflow_patches
+            lora_patch = next((item for item in workflow_patches if isinstance(item, dict) and item.get("extension_id") == "lora_stack"), None)
+            if str(route_payload.get("engine") or "") == "lanpaint" and isinstance(lora_patch, dict):
+                patched_nodes = list(lora_patch.get("patched_model_consumer_nodes") or [])
+                differential_node = patched_nodes[0] if patched_nodes else ""
+                actual_params["lanpaint_lora_lineage"] = {
+                    "schema_version": "neo.image.lanpaint_lora_lineage.v1",
+                    "engine": "lanpaint",
+                    "family": str(route_payload.get("family") or "krea2_turbo"),
+                    "loader": str(route_payload.get("loader") or "gguf"),
+                    "route_key": str(route_payload.get("compatibility_route_key") or route_payload.get("route_key") or "krea2_turbo:gguf:inpaint"),
+                    "compatibility_route_key": str(route_payload.get("compatibility_route_key") or route_payload.get("route_key") or "krea2_turbo:gguf:inpaint"),
+                    "workflow_route_key": str(route_payload.get("workflow_route_key") or "krea2_turbo:gguf:inpaint:lanpaint"),
+                    "workflow_engine": str(route_payload.get("workflow_engine") or route_payload.get("engine") or "lanpaint"),
+                    "compatibility_engine_independent": True,
+                    "support_matrix_state": str(route_payload.get("route_state") or "experimental_available"),
+                    "lora_mode": str(actual_params.get("lanpaint_lora_mode") or ("model_only" if route_payload.get("family") == "krea2_turbo" else "model_and_clip")),
+                    "lora_loader": str(lora_patch.get("node_class") or ("LoraLoaderModelOnly" if route_payload.get("family") == "krea2_turbo" else "LoraLoader")),
+                    "lora_node_ids": list(lora_patch.get("node_ids") or []),
+                    "stack_order": list(lora_patch.get("lora_names") or []),
+                    "base_model_ref": deepcopy(lora_patch.get("previous_model_ref") or []),
+                    "final_lora_model_ref": deepcopy(lora_patch.get("patched_model_ref") or []),
+                    "family_model_transform_consumer_node": str(differential_node),
+                    "differential_model_consumer_node": str(differential_node) if route_payload.get("family") == "krea2_turbo" else "",
+                    "patched_model_consumer_nodes": patched_nodes,
+                    "clip_patched": bool(lora_patch.get("patched_clip_encode_nodes")),
+                    "physical_validation": "required",
+                }
+            if str(route_payload.get("engine") or "") == "lanpaint":
+                actual_params = refresh_lanpaint_replay_contract(
+                    actual_params,
+                    provider_id=str(route_payload.get("provider_id") or self.manifest.provider_id),
+                    workflow_prompt=backend_payload.get("prompt") if isinstance(backend_payload.get("prompt"), dict) else {},
+                )
+            if fail_closed_on_unapplied_lora:
+                validation_payload = dict(backend_payload.get("validation") or {})
+                compile_status = self._enforce_explicit_lora_execution(
+                    extensions=patch_extensions,
+                    route_payload=route_payload,
+                    extension_metadata=extension_metadata,
+                    validation_payload=validation_payload,
+                    actual_params=actual_params,
+                    compile_status=compile_status,
+                )
+                backend_payload["validation"] = validation_payload
             backend_payload["actual_params"] = actual_params
-        return compiled.model_copy(update={"backend_payload": backend_payload})
+        return compiled.model_copy(update={"compile_status": compile_status, "backend_payload": backend_payload})
 
     def _apply_context_latent_hook(self, compiled: CompiledJob, job: NeoJob, route: Any) -> CompiledJob:
         """Patch the live Flux Kontext reference-latent adapter into inpaint.
@@ -2910,6 +3255,27 @@ class ComfyProvider(BaseProvider):
                     ],
                 },
             )
+        if route.compiler_id == "comfy.lanpaint.family_aware.v1":
+            # LanPaint is a complete standalone workflow. The shared LoRA Stack
+            # hook is an optional interoperability seam that runs only after the
+            # user explicitly enables a compatible base/global LoRA row.
+            compiled = compile_lanpaint_family_inpaint(
+                provider_id=self.manifest.provider_id,
+                base_url=self.base_url,
+                job=job,
+                validation=validation,
+                route=route,
+                capabilities=self.feature_capability_payload(),
+                backend_capabilities=self.discover_backend_capabilities(),
+            )
+            return self._apply_non_checkpoint_extension_patches(
+                compiled,
+                job,
+                route,
+                allowed_extension_ids=("lora_stack",),
+                fail_closed_on_unapplied_lora=True,
+            )
+
         if route.compiler_id in {"comfy.krea2", "comfy.krea2_gguf"}:
             compiled = compile_krea2_workflow(
                 provider_id=self.manifest.provider_id,
@@ -3045,6 +3411,12 @@ class ComfyProvider(BaseProvider):
                 capabilities=self.feature_capability_payload(),
                 backend_capabilities=self.discover_backend_capabilities(),
             )
+            return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
+        if route.compiler_id in {"comfy.anima_native", "comfy.anima_gguf"}:
+            compiled = compile_anima_image(provider_id=self.manifest.provider_id, base_url=self.base_url, job=job, validation=validation, route=route, capabilities=self.feature_capability_payload(), backend_capabilities=self.discover_backend_capabilities())
+            return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
+        if route.compiler_id in {"comfy.ideogram4_native", "comfy.ideogram4_gguf"}:
+            compiled = compile_ideogram4_txt2img(provider_id=self.manifest.provider_id, base_url=self.base_url, job=job, validation=validation, route=route, capabilities=self.feature_capability_payload(), backend_capabilities=self.discover_backend_capabilities())
             return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
 
         params = job.params or {}
@@ -3384,11 +3756,22 @@ class ComfyProvider(BaseProvider):
         if extension_metadata.get("workflow_patches"):
             actual_params["extension_workflow_patches"] = extension_metadata.get("workflow_patches")
 
+        checkpoint_validation_payload = model_to_dict(validation)
+        checkpoint_compile_status = "compiled" if validation.ok else "mock_compiled"
+        checkpoint_compile_status = self._enforce_explicit_lora_execution(
+            extensions=runtime_extensions,
+            route_payload=route_payload,
+            extension_metadata=extension_metadata,
+            validation_payload=checkpoint_validation_payload,
+            actual_params=actual_params,
+            compile_status=checkpoint_compile_status,
+        )
+
         backend_payload = {
             "provider_id": self.manifest.provider_id,
             "backend": "comfyui",
             "base_url": self.base_url,
-            "validation": model_to_dict(validation),
+            "validation": checkpoint_validation_payload,
             "prompt": workflow,
             "client_id": f"neo-studio-v2-{uuid4().hex[:8]}",
             "actual_params": actual_params,
@@ -3416,7 +3799,7 @@ class ComfyProvider(BaseProvider):
             )
         compiled_job = CompiledJob(
             provider_id=self.manifest.provider_id,
-            compile_status="compiled" if validation.ok else "mock_compiled",
+            compile_status=checkpoint_compile_status,
             backend_payload=backend_payload,
         )
         return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(compiled_job, job, route), job, route)
@@ -3459,15 +3842,15 @@ class ComfyProvider(BaseProvider):
                     record_generation_error(run_id=run_id, message="Failed to upload source image to Comfy input.", exc=exc, payload={"source_image": source_image})
                     raise
             extra_source_stack_active = (
-                runtime_job.family == "qwen_image_edit_2509" and runtime_job.loader in {"diffusion_model", "gguf"} and runtime_job.mode in {"img2img", "edit"}
+                runtime_job.family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and runtime_job.loader in {"diffusion_model", "gguf"} and runtime_job.mode in {"img2img", "edit"}
             ) or (
                 runtime_job.family in {"qwen_rapid_aio"} and runtime_job.loader == "gguf" and runtime_job.mode == "img2img"
             ) or (
                 runtime_job.family == "flux" and runtime_job.loader == "gguf" and runtime_job.mode in {"img2img", "inpaint", "outpaint"}
             )
             if extra_source_stack_active:
-                stack_label = "qwen_reference_image_handoff" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} else "flux_reference_image_handoff"
-                family_label = "Qwen" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} else "Flux"
+                stack_label = "qwen_reference_image_handoff" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "flux_reference_image_handoff"
+                family_label = "Qwen" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "Flux"
                 for lane in (2, 3):
                     extra_source = self._extra_source_image_value(params, lane)
                     comfy_key = f"comfy_source_image_{lane}_name"
@@ -3763,7 +4146,7 @@ class ComfyProvider(BaseProvider):
             combined_error_text = (raw_error + "\n" + http_error_text).lower()
             is_qwen_size_nameerror = (
                 "size is not defined" in combined_error_text
-                and runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"}
+                and runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"}
                 and runtime_job.loader == "gguf"
                 and runtime_job.mode in {"img2img", "inpaint", "outpaint"}
             )

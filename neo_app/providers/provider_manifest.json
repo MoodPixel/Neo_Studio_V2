@@ -1,5 +1,5 @@
 {
-  "provider_registry_version": "0.2.0-unified-provider-templates",
+  "provider_registry_version": "0.4.0-forge-image-job-lifecycle",
   "providers": [
     {
       "provider_id": "comfyui",
@@ -30,13 +30,15 @@
         "qwen_image",
         "qwen_rapid_aio",
         "qwen_image_edit_2509",
+        "qwen_image_edit_2511",
         "krea2",
         "krea2_turbo",
         "z_image",
         "z_image_turbo",
         "wan_image",
         "hunyuan_image",
-        "other"
+        "other",
+        "sd35"
       ],
       "supported_loaders": [
         "checkpoint",
@@ -61,6 +63,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "krea2",
             "krea2_turbo",
             "z_image",
@@ -128,6 +131,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "krea2",
             "krea2_turbo",
             "z_image",
@@ -215,6 +219,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "z_image",
             "z_image_turbo",
             "wan_image",
@@ -292,13 +297,15 @@
         "qwen_image",
         "qwen_rapid_aio",
         "qwen_image_edit_2509",
+        "qwen_image_edit_2511",
         "krea2",
         "krea2_turbo",
         "z_image",
         "z_image_turbo",
         "wan_image",
         "hunyuan_image",
-        "other"
+        "other",
+        "sd35"
       ],
       "supported_loaders": [
         "checkpoint",
@@ -324,6 +331,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "krea2",
             "krea2_turbo",
             "z_image",
@@ -389,6 +397,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "krea2",
             "krea2_turbo",
             "z_image",
@@ -477,6 +486,7 @@
             "qwen_image",
             "qwen_rapid_aio",
             "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
             "z_image",
             "z_image_turbo",
             "wan_image",
@@ -534,21 +544,33 @@
       "surfaces": [
         "image"
       ],
-      "status": "mock",
+      "status": "configured",
       "connection_kind": "local_http",
       "supported_modes": [
         "txt2img",
         "img2img",
         "inpaint",
+        "outpaint",
+        "edit",
         "upscale"
       ],
       "supported_families": [
         "sd15",
         "sdxl",
-        "other"
+        "flux",
+        "flux2_klein",
+        "krea2",
+        "krea2_turbo",
+        "qwen_image",
+        "qwen_image_edit_2509",
+        "qwen_image_edit_2511",
+        "z_image",
+        "z_image_turbo"
       ],
       "supported_loaders": [
-        "checkpoint"
+        "checkpoint",
+        "diffusion_model",
+        "gguf"
       ],
       "capabilities": [
         {
@@ -558,26 +580,50 @@
           "modes": [
             "txt2img",
             "img2img",
-            "inpaint"
+            "inpaint",
+            "outpaint",
+            "edit"
           ],
           "families": [
             "sd15",
-            "sdxl"
+            "sdxl",
+            "flux",
+            "flux2_klein",
+            "krea2",
+            "krea2_turbo",
+            "qwen_image",
+            "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
+            "z_image",
+            "z_image_turbo"
           ],
           "loaders": [
-            "checkpoint"
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
           ]
         }
       ],
       "config_schema": {
-        "base_url": "http://127.0.0.1:7860"
+        "base_url": "http://127.0.0.1:7860",
+        "timeout_seconds": 30,
+        "generation_timeout_seconds": 3600,
+        "bridge_mode": "auto",
+        "bridge_token_env": "NEO_FORGE_BRIDGE_TOKEN",
+        "bridge_allow_standard_fallback": true
       },
-      "notes": "Phase 12.31: future backend adapter. Forge/A1111 must keep independent route contracts and must not borrow Comfy compiler availability.",
+      "notes": "Forge Neo Phase 4 adds route-authority-backed classic and modern workflow compilers, translated model bundles, SD outpaint preprocessing, and fail-closed single-source Qwen editing. The durable Bridge and standard SDAPI fallback remain available.",
       "backend_route_policy": {
-        "contract_phase": "Phase 12.31 — Backend Plug-in Contract",
+        "contract_phase": "Forge Neo Workflow Compiler Phase 4",
         "route_source": "neo_app.models.route_matrix",
-        "current_adapter": "planned_gated",
-        "notes": "Forge/A1111 routes are intentionally gated until their own adapters translate Neo jobs into backend API payloads."
+        "current_adapter": "execution_lifecycle_ready",
+        "notes": "Forge route authority, live profile discovery, loader translation, and family-specific workflow compilers jointly control generation. Unsupported combinations stay hidden and fail closed.",
+        "admin_adapter": "implemented",
+        "execution_lifecycle": "implemented",
+        "capability_overlay": "implemented",
+        "extension_compatibility": "implemented",
+        "optional_bridge": "implemented",
+        "workflow_compilers": "implemented"
       },
       "profile_templates": {
         "image": {
@@ -587,15 +633,27 @@
             "txt2img",
             "img2img",
             "inpaint",
+            "outpaint",
+            "edit",
             "upscale"
           ],
           "supported_families": [
             "sd15",
             "sdxl",
-            "other"
+            "flux",
+            "flux2_klein",
+            "krea2",
+            "krea2_turbo",
+            "qwen_image",
+            "qwen_image_edit_2509",
+            "qwen_image_edit_2511",
+            "z_image",
+            "z_image_turbo"
           ],
           "supported_loaders": [
-            "checkpoint"
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
           ],
           "default_profile": {
             "provider_label": "Forge / Forge Neo",
@@ -605,15 +663,30 @@
             "connection_type": "local_http",
             "connection": {
               "base_url": "http://127.0.0.1:7860",
-              "timeout_seconds": 10,
-              "auth_mode": "none"
+              "timeout_seconds": 30,
+              "auth_mode": "none",
+              "api_launch_hint": "Launch Forge Neo with --api.",
+              "generation_timeout_seconds": 3600,
+              "bridge_mode": "auto",
+              "bridge_token_env": "NEO_FORGE_BRIDGE_TOKEN",
+              "bridge_allow_standard_fallback": true
             },
             "capabilities": {
+              "admin_probe": true,
+              "model_discovery": true,
+              "module_discovery": true,
+              "sampler_discovery": true,
+              "scheduler_discovery": true,
+              "settings_read": true,
+              "settings_write": true,
+              "script_discovery": true,
+              "extension_discovery": true,
+              "memory_diagnostics": true,
               "txt2img": true,
               "img2img": true,
               "multi_image_edit": false,
               "inpaint": true,
-              "outpaint": false,
+              "outpaint": true,
               "mask_edit": true,
               "negative_prompt": true,
               "seed": true,
@@ -622,10 +695,24 @@
               "sampler": true,
               "scheduler": true,
               "lora": true,
-              "controlnet": true,
+              "controlnet": false,
               "ip_adapter": false,
               "adetailer_inline": false,
-              "highres_inline": false
+              "highres_inline": true,
+              "provider_adapter": true,
+              "payload_compile": true,
+              "execution_lifecycle": true,
+              "capability_overlay": true,
+              "embeddings": true,
+              "extension_compatibility": true,
+              "image_upscale": false,
+              "optional_bridge": true,
+              "bridge_handshake": true,
+              "bridge_durable_jobs": true,
+              "bridge_history": true,
+              "bridge_settings_schema": true,
+              "edit": true,
+              "workflow_compilers": true
             },
             "defaults": {
               "mode": "generate",
@@ -640,12 +727,45 @@
               "show_api_auth_fields": false,
               "show_model_fields": true,
               "show_sd_generation_fields": true,
-              "show_cloud_generation_fields": false
+              "show_cloud_generation_fields": false,
+              "show_capability_overlay": true
             },
-            "notes": "forge profile template remains route-gated until its adapter is implemented."
+            "notes": "Forge Neo Phase 4 supports live route-authority-backed classic and modern workflow compilers. Multi-image edit remains gated until an API-safe ImageStitch contract is verified.",
+            "capability_flags": {
+              "capability_overlay": true,
+              "extension_compatibility": true,
+              "optional_bridge": true,
+              "bridge_handshake": true
+            },
+            "feature_capabilities": {
+              "capability_overlay": true,
+              "extension_compatibility": true,
+              "optional_bridge": true,
+              "bridge_fallback": "standard_sdapi"
+            }
           },
-          "notes": "forge profile template remains route-gated until its adapter is implemented."
+          "notes": "Forge Neo Phase 4 compiles supported classic and modern families through provider-native SDAPI workflows while hiding unsupported family, loader, and mode combinations."
         }
+      },
+      "admin_integration": {
+        "status": "implemented",
+        "schema_id": "neo.provider.forge_admin.v1",
+        "connection_probe": true,
+        "capability_cache": "neo_data/provider_cache/<profile_id>/forge_capabilities.json",
+        "settings_read": true,
+        "settings_write_policy": "guided_and_expert_safe_options_only",
+        "execution_adapter": "implemented",
+        "provider_adapter": "implemented",
+        "payload_compile": true,
+        "execution_lifecycle": true,
+        "image_capability_overlay": true,
+        "extension_compatibility": true,
+        "optional_bridge": true,
+        "bridge_protocol": "1.0",
+        "bridge_history": true,
+        "bridge_settings_schema": true,
+        "bridge_fallback": "standard_sdapi",
+        "workflow_compilers": true
       }
     },
     {
