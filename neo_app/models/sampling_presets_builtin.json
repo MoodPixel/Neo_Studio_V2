@@ -1,0 +1,1795 @@
+{
+  "schema": "neo.image.sampling_presets.builtin.v1",
+  "phase": "IP-5",
+  "version": "1.3.0",
+  "purpose": "Immutable built-in sampling presets. IP-5 extends reviewed Default · Balanced family bases into workflow-aware inherited overrides while preserving Provider Defaults and Empty · Clean Slate. IP-6 locks the intent dimension to metadata-only so Realistic / Anime cannot silently fork sampling values.",
+  "contract": {
+    "resolution_key": "preset_id + family + variant + loader + mode + intent",
+    "builtin_source": "repository_packaged_read_only",
+    "user_source": "neo_data/image/sampling_presets",
+    "user_source_status": "reserved_for_ip7_authoring",
+    "numeric_family_defaults_owner": "IP-4",
+    "balanced_scope": "family_base_plus_workflow_overrides",
+    "workflow_overrides_owner": "IP-5",
+    "quality_fast_status": "deferred_until_validated",
+    "prompt_contamination": "forbidden",
+    "negative_prompt_contamination": "forbidden",
+    "style_contamination": "forbidden",
+    "lora_contamination": "forbidden",
+    "klein_unresolved_variant_policy": "no_default_balanced_match",
+    "flux1_krea_policy": "does_not_inherit_flux1_dev_balanced",
+    "workflow_inheritance": "txt2img_family_base_then_route_override",
+    "image_resolution_ownership": "img2img/edit/inpaint=source_or_auto; outpaint=expanded_canvas_or_auto",
+    "outpaint_full_synthesis_starting_point": "denoise_1.0_builtin_balanced_pending_live_quality_tuning",
+    "intent_layer_owner": "neo_app.image.output_intents (IP-6)",
+    "intent_specific_sampling_status": "disabled_ip6",
+    "intent_alias_normalization": "canonicalized_by_output_intent_registry_before_sampling_resolution",
+    "intent_sampling_mutation_future": "requires_explicit_validated_later_phase"
+  },
+  "managed_fields": [
+    "sampler",
+    "scheduler",
+    "width",
+    "height",
+    "steps",
+    "cfg",
+    "true_cfg",
+    "flux_guidance",
+    "guidance",
+    "guidance_scale",
+    "model_guidance",
+    "denoise",
+    "seed",
+    "requested_seed",
+    "actual_seed"
+  ],
+  "presets": [
+    {
+      "entry_id": "provider_defaults__global",
+      "preset_id": "provider_defaults",
+      "label": "Provider Defaults",
+      "description": "Delegate sampling values to the selected provider/compiler. Any stale preset-managed sampling values are removed at the Image job boundary.",
+      "category": "system",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "*",
+        "variant": "*",
+        "loader": "*",
+        "mode": "*",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "empty_clean_slate__global",
+      "preset_id": "empty_clean_slate",
+      "label": "Empty · Clean Slate",
+      "description": "Authoring template with no sampling values. Applying it clears preset-managed sampling fields once; later manual values are preserved and must be complete before generation.",
+      "category": "templates",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "clean_slate",
+      "authoring_template": true,
+      "match": {
+        "family": "*",
+        "variant": "*",
+        "loader": "*",
+        "mode": "*",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__sd15_checkpoint_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SD 1.5 txt2img baseline: DPM++ 2M SDE Heun GPU, Karras, 512 square, 30 steps, CFG 4.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sd15",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "dpmpp_2m_sde_heun_gpu",
+        "scheduler": "karras",
+        "width": 512,
+        "height": 512,
+        "steps": 30,
+        "cfg": 4.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__sdxl_checkpoint_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SDXL txt2img baseline: DPM++ 2M SDE Heun GPU, Karras, 1024 square, 40 steps, CFG 4.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sdxl",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "dpmpp_2m_sde_heun_gpu",
+        "scheduler": "karras",
+        "width": 1024,
+        "height": 1024,
+        "steps": 40,
+        "cfg": 4.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced FLUX.1 Dev txt2img baseline. FLUX Guidance is embedded guidance; sampler CFG remains 1 and does not activate negative prompting.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 20,
+        "cfg": 1.0,
+        "flux_guidance": 3.5
+      }
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_distilled_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced FLUX.2 Klein Distilled txt2img baseline for explicit 4B/9B distilled variants.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_distilled",
+          "klein_9b_distilled"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 4,
+        "cfg": 1.0,
+        "flux_guidance": 1.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_base_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced FLUX.2 Klein Base txt2img baseline for explicit 4B/9B Base variants. Base sampling must not inherit distilled few-step settings.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_base",
+          "klein_9b_base"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 50,
+        "cfg": 1.0,
+        "flux_guidance": 4.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__krea2_raw_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Krea 2 RAW txt2img baseline: official-style 52 steps / CFG 3.5 with Euler/Simple.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 52,
+        "cfg": 3.5
+      }
+    },
+    {
+      "entry_id": "default_balanced__krea2_turbo_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Krea 2 Turbo txt2img baseline: family-owned 8-step, Comfy CFG 1 semantics with Euler/Simple.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 8,
+        "cfg": 1.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Qwen Image/Edit no-source generation baseline: native 1328 square, 50 steps, True CFG 4. Compatibility cfg mirrors true_cfg for current Comfy compilers.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1328,
+        "height": 1328,
+        "steps": 50,
+        "cfg": 4.0,
+        "true_cfg": 4.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit_2509_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Qwen Image Edit 2509 no-source baseline: 1328 square, 40 steps, True CFG 4 and model guidance 1.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image_edit_2509",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1328,
+        "height": 1328,
+        "steps": 40,
+        "cfg": 4.0,
+        "true_cfg": 4.0,
+        "guidance": 1.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__qwen_rapid_aio_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Rapid AIO Balanced delegates sampling to the selected bundled/GGUF provider profile because one universal numeric recipe is not trustworthy across AIO checkpoints.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_rapid_aio",
+        "variant": "*",
+        "loader": [
+          "checkpoint_aio",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__z_image_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Z-Image Base txt2img baseline: 35 steps / CFG 3.5 with Euler/Simple.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 35,
+        "cfg": 3.5
+      }
+    },
+    {
+      "entry_id": "default_balanced__z_image_turbo_txt2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced Z-Image Turbo txt2img baseline: 9 KSampler steps, Comfy CFG 1, Euler/Simple; negative prompting remains disabled by family semantics.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "txt2img",
+        "intent": "*"
+      },
+      "values": {
+        "sampler": "euler",
+        "scheduler": "simple",
+        "width": 1024,
+        "height": 1024,
+        "steps": 9,
+        "cfg": 1.0
+      }
+    },
+    {
+      "entry_id": "default_balanced__sd15_checkpoint_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SD15 img2img inherits the family sampling base; source/canvas owns resolution and denoise is 0.65.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sd15",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.65
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__sd15_checkpoint_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SD15 inpaint inherits the family sampling base; source/canvas owns resolution and denoise is 0.72.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sd15",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.72
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__sd15_checkpoint_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SD15 outpaint inherits the family sampling base; source/canvas owns resolution and denoise is 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sd15",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__sdxl_checkpoint_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SDXL img2img inherits the family sampling base; source/canvas owns resolution and denoise is 0.65.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sdxl",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.65
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__sdxl_checkpoint_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SDXL inpaint inherits the family sampling base; source/canvas owns resolution and denoise is 0.72.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sdxl",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.72
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__sdxl_checkpoint_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Balanced SDXL outpaint inherits the family sampling base; source/canvas owns resolution and denoise is 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "sdxl",
+        "variant": "*",
+        "loader": "checkpoint",
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_diffusion_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev component img2img keeps the Balanced Dev sampling base, uses source resolution, and starts at denoise 0.65.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "diffusion_model",
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.65
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_fill_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev component inpaint resolves through Neo internal FLUX.1 Fill semantics: 50 steps, Fill Guidance 30, full denoise, source/expanded canvas resolution.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "diffusion_model",
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "steps": 50,
+        "cfg": 1.0,
+        "flux_guidance": 30.0,
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_fill_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev component outpaint resolves through Neo internal FLUX.1 Fill semantics: 50 steps, Fill Guidance 30, full denoise, source/expanded canvas resolution.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "diffusion_model",
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "steps": 50,
+        "cfg": 1.0,
+        "flux_guidance": 30.0,
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_gguf_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev GGUF img2img stays on the generic GGUF latent route with Flux Guidance 3.5 and denoise 0.65; it does not inherit Fill Guidance 30.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "gguf",
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.65
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_gguf_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev GGUF inpaint stays on the provider-owned GGUF mask/canvas route with normal Flux Guidance; full denoise is the Balanced masked synthesis starting point.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "gguf",
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux1_dev_gguf_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.1 Dev GGUF outpaint stays on the provider-owned GGUF mask/canvas route with normal Flux Guidance; full denoise is the Balanced masked synthesis starting point.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux",
+        "variant": "dev",
+        "loader": "gguf",
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_distilled_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Distilled img2img inherits only its matching distilled family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_distilled",
+          "klein_9b_distilled"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_distilled_edit",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Distilled edit inherits only its matching distilled family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_distilled",
+          "klein_9b_distilled"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "edit",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_distilled_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Distilled inpaint inherits only its matching distilled family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_distilled",
+          "klein_9b_distilled"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_distilled_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Distilled outpaint inherits only its matching distilled family base; source/canvas owns resolution and denoise is 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_distilled",
+          "klein_9b_distilled"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_base_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Base img2img inherits only its matching base family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_base",
+          "klein_9b_base"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_base_edit",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Base edit inherits only its matching base family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_base",
+          "klein_9b_base"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "edit",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_base_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Base inpaint inherits only its matching base family base; source/canvas owns resolution and denoise is 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_base",
+          "klein_9b_base"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__flux2_klein_base_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "FLUX.2 Klein Base outpaint inherits only its matching base family base; source/canvas owns resolution and denoise is 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "flux2_klein",
+        "variant": [
+          "klein_4b_base",
+          "klein_9b_base"
+        ],
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 RAW img2img inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 RAW inpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 RAW outpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_turbo_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 Turbo img2img inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_turbo_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 Turbo inpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__krea2_turbo_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Krea 2 Turbo outpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "krea2_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit img2img inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit edit inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "edit",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit inpaint inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit outpaint inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit_2509_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit 2509 img2img inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image_edit_2509",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit_2509_edit",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit 2509 edit inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image_edit_2509",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "edit",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit_2509_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit 2509 inpaint inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 0.85.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image_edit_2509",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.85
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_image_edit_2509_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Image Edit 2509 outpaint inherits the IP-4 True-CFG family base, lets source/canvas own resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_image_edit_2509",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__qwen_rapid_aio_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Rapid AIO img2img Balanced delegates sampling and route-specific strength to the selected bundled/GGUF provider profile.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_rapid_aio",
+        "variant": "*",
+        "loader": [
+          "checkpoint_aio",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__qwen_rapid_aio_edit",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Rapid AIO edit Balanced delegates sampling and route-specific strength to the selected bundled/GGUF provider profile.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_rapid_aio",
+        "variant": "*",
+        "loader": [
+          "checkpoint_aio",
+          "gguf"
+        ],
+        "mode": "edit",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__qwen_rapid_aio_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Rapid AIO inpaint Balanced delegates sampling and route-specific strength to the selected bundled/GGUF provider profile.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_rapid_aio",
+        "variant": "*",
+        "loader": [
+          "checkpoint_aio",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__qwen_rapid_aio_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Qwen Rapid AIO outpaint Balanced delegates sampling and route-specific strength to the selected bundled/GGUF provider profile.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "delegate_provider",
+      "authoring_template": false,
+      "match": {
+        "family": "qwen_rapid_aio",
+        "variant": "*",
+        "loader": [
+          "checkpoint_aio",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {}
+    },
+    {
+      "entry_id": "default_balanced__z_image_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Base img2img inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__z_image_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Base inpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__z_image_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Base outpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__z_image_turbo_img2img",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Turbo img2img inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "img2img",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__z_image_turbo_inpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Turbo inpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 0.75.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "inpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 0.75
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    },
+    {
+      "entry_id": "default_balanced__z_image_turbo_outpaint",
+      "preset_id": "default_balanced",
+      "label": "Default · Balanced",
+      "description": "Z-Image Turbo outpaint inherits family sampling semantics, uses source/canvas resolution, and starts at denoise 1.0.",
+      "category": "defaults",
+      "source": "built_in",
+      "immutable": true,
+      "application_mode": "replace_sampling_fields",
+      "authoring_template": false,
+      "match": {
+        "family": "z_image_turbo",
+        "variant": "*",
+        "loader": [
+          "diffusion_model",
+          "gguf"
+        ],
+        "mode": "outpaint",
+        "intent": "*"
+      },
+      "values": {
+        "denoise": 1.0
+      },
+      "inherit": {
+        "preset_id": "default_balanced",
+        "mode": "txt2img"
+      },
+      "drop_fields": [
+        "width",
+        "height"
+      ]
+    }
+  ]
+}

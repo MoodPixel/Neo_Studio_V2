@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_family_policy.v1",
+  "title": "Neo Studio LanPaint family policy",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "identity",
+    "loader_policies",
+    "text_encoder_policy",
+    "vae_policy",
+    "conditioning_policy",
+    "route_defaults",
+    "lora_policy",
+    "node_requirements",
+    "model_requirements",
+    "model_transform_pipeline",
+    "execution",
+    "validation",
+    "policy_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {"const": "neo.image.lanpaint_family_policy.v1"},
+    "schema_version": {"const": 1},
+    "authority": {"const": "neo_app.image.lanpaint_family_policies"},
+    "identity": {
+      "type": "object",
+      "required": [
+        "policy_id",
+        "route_family_id",
+        "family",
+        "display_name",
+        "provider_ids",
+        "loader_ids",
+        "mode",
+        "engine",
+        "variant",
+        "status",
+        "policy_state"
+      ],
+      "properties": {
+        "policy_id": {"type": "string", "minLength": 1},
+        "route_family_id": {"const": "image.inpaint.lanpaint"},
+        "family": {"type": "string", "minLength": 1},
+        "display_name": {"type": "string", "minLength": 1},
+        "provider_ids": {
+          "type": "array",
+          "items": {"enum": ["comfyui", "comfyui_portable"]},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "loader_ids": {
+          "type": "array",
+          "items": {"enum": ["diffusion_model", "gguf"]},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "mode": {"const": "inpaint"},
+        "engine": {"const": "lanpaint"},
+        "variant": {"type": "string"},
+        "status": {"enum": ["complete_policy", "unresolved_placeholder"]},
+        "policy_state": {"const": "policy_only"}
+      },
+      "additionalProperties": false
+    },
+    "loader_policies": {"type": "object"},
+    "text_encoder_policy": {"type": "object"},
+    "vae_policy": {"type": "object"},
+    "conditioning_policy": {"type": "object"},
+    "route_defaults": {"type": "object"},
+    "lora_policy": {"type": "object"},
+    "node_requirements": {"type": "object"},
+    "model_requirements": {"type": "object"},
+    "model_transform_pipeline": {"type": "object"},
+    "execution": {
+      "type": "object",
+      "required": ["enabled", "selectable", "state", "compiler_id", "workflow_type", "execution_ready", "reason"],
+      "properties": {
+        "enabled": {"const": false},
+        "selectable": {"const": false},
+        "state": {"const": "policy_only"},
+        "compiler_id": {"type": "null"},
+        "workflow_type": {"type": "null"},
+        "execution_ready": {"const": false},
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "validation": {"type": "object"},
+    "policy_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

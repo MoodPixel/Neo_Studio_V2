@@ -11,7 +11,7 @@ MODEL_PATHS_DIR = ROOT_DIR / "neo_data" / "config"
 MODEL_PATHS_PATH = MODEL_PATHS_DIR / "model_paths.json"
 
 MODEL_PATHS_SCHEMA_ID = "neo.admin.models.paths.v1"
-MODEL_PATHS_VERSION = "0.9.0-phase9"
+MODEL_PATHS_VERSION = "0.10.0-forge-shared-model-paths"
 
 
 def _now() -> str:
@@ -42,7 +42,8 @@ def default_model_paths_payload() -> dict[str, Any]:
                 "enabled": True,
                 "root": "",
                 "models_root": "",
-                "notes": "Set models_root to your ComfyUI models folder, for example <ComfyUI-root>/models.",
+                "extra_model_paths_yaml": "",
+                "notes": "ComfyUI is the shared model-path authority. Set extra_model_paths_yaml to the same Comfy config Forge Neo should reference with --forge-ref-comfy-yaml.",
             },
             "forge": {
                 "enabled": False,
@@ -137,7 +138,7 @@ def update_model_paths_config(update: dict[str, Any] | None) -> dict[str, Any]:
     backends_update = _as_dict(update.get("backends"))
     backends = _as_dict(existing.get("backends"))
     allowed_backend_keys = {
-        "comfyui": {"enabled", "root", "models_root", "notes"},
+        "comfyui": {"enabled", "root", "models_root", "extra_model_paths_yaml", "notes"},
         "forge": {"enabled", "root", "models_root", "notes"},
         "koboldcpp": {"enabled", "root", "models_root", "notes"},
         "local_llm": {"enabled", "user_llm_models_root", "user_embedding_models_root", "user_reranker_models_root", "notes"},

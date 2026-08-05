@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from neo_app.models.registry import get_family, get_families
+from neo_app.models.forge_neo_route_catalog import resolve_forge_route
 
 RouteState = Literal[
     "available",
@@ -87,6 +88,12 @@ class RouteMatrixEntry:
     requires: list[str] = field(default_factory=list)
     parameter_profile: str | None = None
     provider_nodes: dict[str, str] = field(default_factory=dict)
+    provider_loader_id: str | None = None
+    architecture_id: str | None = None
+    model_formats: list[str] = field(default_factory=list)
+    required_settings: list[str] = field(default_factory=list)
+    required_scripts: list[str] = field(default_factory=list)
+    provider_contract: dict[str, Any] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -710,6 +717,115 @@ for _mode in ("inpaint", "outpaint"):
         notes=["Inpaint/outpaint use source image + mask/padding; extra source lanes are not consumed for these modes."],
     ))
 
+# Phase 18 — Qwen Image Edit 2511 visible family route lock.
+# 2511 owns multi-source Qwen editing; normal qwen_image stays single-source.
+for _mode in ("img2img", "edit"):
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_edit_2511",
+        loader="diffusion_model",
+        backend="comfyui",
+        mode=_mode,
+        state="available",
+        workflow_type=f"image.{_mode}.qwen_image_edit_2511",
+        compiler_id="comfy.qwen_native_edit",
+        requires=["qwen_image_edit_model", "qwen_text_encoder", "vae", "source_image"],
+        parameter_profile="qwen_2511_native",
+        provider_nodes={"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": "TextEncodeQwenImageEditPlus"},
+        reason="Phase 18 promotes Qwen Image Edit 2511 Safetensors / Components img2img/edit as real multi-source native edit workflows with 1–3 source images.",
+        notes=[
+            "source_image_2/source_image_3 are consumed only by qwen_image_edit_2511, not normal qwen_image.",
+            "No fallback to Qwen Rapid AIO checkpoint, normal Qwen Image Edit single-source, Flux, SD checkpoint, or Z-Image routes.",
+        ],
+    ))
+_add_comfy(RouteMatrixEntry(
+    family="qwen_image_edit_2511",
+    loader="diffusion_model",
+    backend="comfyui",
+    mode="txt2img",
+    state="available",
+    workflow_type="image.txt2img.qwen_image_edit_2511_native",
+    compiler_id="comfy.qwen_native",
+    requires=["diffusion_model", "qwen_text_encoder", "vae"],
+    parameter_profile="qwen_2511_native",
+    provider_nodes={"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "sampling_patch": "ModelSamplingAuraFlow"},
+    reason="Phase 18 removes the old 2511 Safetensors / Components txt2img gate and routes no-source generation through the Qwen native component compiler as an experimental no-source compatibility path; plain qwen_image remains recommended for text-to-image.",
+    notes=["2511 remains primarily an edit family; img2img/edit own 1–3 sources while inpaint/outpaint own single-source mask/canvas workflows."],
+))
+for _mode in ("inpaint", "outpaint"):
+    _requires = ["diffusion_model", "qwen_text_encoder", "vae", "source_image"]
+    if _mode == "inpaint":
+        _requires.append("mask_image")
+    if _mode == "outpaint":
+        _requires.append("outpaint_padding")
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_edit_2511",
+        loader="diffusion_model",
+        backend="comfyui",
+        mode=_mode,
+        state="available",
+        workflow_type=f"image.{_mode}.qwen_image_edit_2511",
+        compiler_id="comfy.qwen_native_edit",
+        requires=_requires,
+        parameter_profile="qwen_2511_native",
+        provider_nodes={"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": "TextEncodeQwenImageEditPlus"},
+        reason="Phase 18 promotes Qwen Image Edit 2511 Safetensors / Components mask/canvas workflows through the native Qwen edit compiler.",
+        notes=[
+            "2511 owns 1–3 source lanes for img2img/edit only; inpaint/outpaint intentionally prune to single-source mask/canvas routes.",
+            "Inpaint uses source VAEEncode + SetLatentNoiseMask + ModelSamplingAuraFlow + DifferentialDiffusion + final masked composite; outpaint uses ImagePadForOutpaint plus a padded latent canvas.",
+            "P3 cleanup: these are implemented selectable routes, not future-gated placeholders.",
+        ],
+    ))
+_add_comfy(RouteMatrixEntry(
+    family="qwen_image_edit_2511",
+    loader="gguf",
+    backend="comfyui",
+    mode="txt2img",
+    state="available",
+    workflow_type="image.txt2img.qwen_image_edit_2511_gguf",
+    compiler_id="comfy.qwen_gguf",
+    requires=["gguf_unet", "gguf_text_encoder_primary", "vae"],
+    parameter_profile="qwen_2511_gguf",
+    provider_nodes={"gguf_unet_loader": "UnetLoaderGGUF", "gguf_clip_single_loader": "CLIPLoaderGGUF"},
+    reason="Phase 18 adds Qwen Image Edit 2511 GGUF through the existing Qwen single-encoder GGUF compiler; txt2img does not require MMProj.",
+    notes=["GGUF txt2img is route-compatible but 2511's main product reason is multi-source img2img/edit."],
+))
+for _mode in ("img2img", "edit"):
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_edit_2511",
+        loader="gguf",
+        backend="comfyui",
+        mode=_mode,
+        state="available",
+        workflow_type=f"image.{_mode}.qwen_image_edit_2511_gguf",
+        compiler_id="comfy.qwen_gguf",
+        requires=["gguf_unet", "gguf_text_encoder_primary", "vae", "qwen_mmproj", "source_image"],
+        parameter_profile="qwen_2511_gguf",
+        provider_nodes={"gguf_unet_loader": "UnetLoaderGGUF", "gguf_clip_single_loader": "CLIPLoaderGGUF", "conditioning": "TextEncodeQwenImageEditPlus"},
+        reason="Phase 18 enables Qwen Image Edit 2511 GGUF multi-source img2img/edit with 1–3 source images through the Qwen edit encoder.",
+        notes=["source_image_2/source_image_3 are consumed by this family for img2img/edit when provided."],
+    ))
+for _mode in ("inpaint", "outpaint"):
+    _requires = ["gguf_unet", "gguf_text_encoder_primary", "vae", "qwen_mmproj", "source_image"]
+    if _mode == "inpaint":
+        _requires.append("mask_image")
+    if _mode == "outpaint":
+        _requires.append("outpaint_padding")
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_edit_2511",
+        loader="gguf",
+        backend="comfyui",
+        mode=_mode,
+        state="available",
+        workflow_type=f"image.{_mode}.qwen_image_edit_2511_gguf",
+        compiler_id="comfy.qwen_gguf",
+        requires=_requires,
+        parameter_profile="qwen_2511_gguf",
+        provider_nodes={"gguf_unet_loader": "UnetLoaderGGUF", "gguf_clip_single_loader": "CLIPLoaderGGUF"},
+        reason="Phase 18 maps Qwen Image Edit 2511 GGUF inpaint/outpaint to the existing Qwen GGUF source/mask/padding compiler; multi-source composition remains scoped to img2img/edit.",
+        notes=["Inpaint/outpaint use source image + mask/padding; extra source lanes are not consumed for these modes."],
+    ))
+
+
 # V25.9.20 Pass F: qwen_image no longer exposes checkpoint_aio; Qwen Rapid AIO owns bundled checkpoint routes.
 
 
@@ -897,7 +1013,20 @@ for _loader in ("diffusion_model", "gguf"):
         parameter_profile="hidream",
         reason="HiDream first route is txt2img; image-conditioned modes are variant-specific gates.",
     ))
-    for _mode in ("img2img", "inpaint", "outpaint"):
+    _add_comfy(RouteMatrixEntry(
+        family="hidream",
+        loader=_loader,
+        backend="comfyui",
+        mode="inpaint",
+        state="available",
+        workflow_type="image.inpaint.lanpaint",
+        compiler_id="comfy.lanpaint.family_aware.v1",
+        requires=["hidream_variant", "source_image", "mask_image", "diffusion_model" if _loader == "diffusion_model" else "gguf_unet", "hidream_clip_l", "hidream_clip_g", "hidream_t5xxl", "hidream_llama_3_1_8b", "vae_or_ae"],
+        parameter_profile="hidream",
+        reason="Phase 21 enables HiDream-I1 full/dev/fast as a four-encoder LanPaint inpainting family; other HiDream variants remain gated.",
+        notes=["This available route requires inpaint_engine=lanpaint.", "HiDream-E1/E1.1 and HiDream-O1 do not inherit this I1 workflow."],
+    ))
+    for _mode in ("img2img", "outpaint"):
         _add_comfy(RouteMatrixEntry(
             family="hidream",
             loader=_loader,
@@ -907,6 +1036,64 @@ for _loader in ("diffusion_model", "gguf"):
             requires=["hidream_variant"],
             reason="HiDream image-conditioned workflows stay variant-gated until each variant declares support.",
         ))
+
+
+# Phase 22 — Anima and Ideogram 4 model-family + workflow onboarding.
+for _loader in ("diffusion_model", "gguf"):
+    _model_role = "diffusion_model" if _loader == "diffusion_model" else "gguf_unet"
+    _add_comfy(RouteMatrixEntry(
+        family="anima", loader=_loader, backend="comfyui", mode="txt2img",
+        state="experimental_available",
+        workflow_type="image.txt2img.anima_native" if _loader == "diffusion_model" else "image.txt2img.anima_gguf",
+        compiler_id="comfy.anima_native" if _loader == "diffusion_model" else "comfy.anima_gguf",
+        requires=[_model_role, "anima_qwen3_06b_text_encoder", "qwen_image_vae"],
+        parameter_profile="anima_full",
+        reason="Phase 22 onboards Anima Base v1 txt2img with the official Qwen3 0.6B + Qwen Image VAE architecture for safetensors and model-GGUF lanes.",
+    ))
+    _add_comfy(RouteMatrixEntry(
+        family="anima", loader=_loader, backend="comfyui", mode="img2img",
+        state="experimental_available",
+        workflow_type="image.img2img.anima_native" if _loader == "diffusion_model" else "image.img2img.anima_gguf",
+        compiler_id="comfy.anima_native" if _loader == "diffusion_model" else "comfy.anima_gguf",
+        requires=[_model_role, "anima_qwen3_06b_text_encoder", "qwen_image_vae", "source_image"],
+        parameter_profile="anima_full",
+        reason="Phase 22 enables Anima img2img through source VAEEncode and a denoise-controlled KSampler latent branch.",
+    ))
+    _add_comfy(RouteMatrixEntry(
+        family="anima", loader=_loader, backend="comfyui", mode="inpaint",
+        state="experimental_available", workflow_type="image.inpaint.lanpaint",
+        compiler_id="comfy.lanpaint.family_aware.v1",
+        requires=[_model_role, "anima_qwen3_06b_text_encoder", "qwen_image_vae", "source_image", "mask_image"],
+        parameter_profile="anima_lanpaint",
+        reason="Phase 22 enables Anima Base v1 through the basic LanPaint KSampler crop/restore/stitch route.",
+        notes=["This route requires inpaint_engine=lanpaint."],
+    ))
+    _add_comfy(RouteMatrixEntry(family="anima",loader=_loader,backend="comfyui",mode="outpaint",state="planned_gated",reason="Anima outpainting is outside Phase 22."))
+
+    _ideo_requires=["ideogram4_main_model" if _loader=="diffusion_model" else "ideogram4_main_model_gguf", "ideogram4_unconditional_model" if _loader=="diffusion_model" else "ideogram4_unconditional_model_gguf", "ideogram4_qwen3_vl_text_encoder", "flux2_vae"]
+    _add_comfy(RouteMatrixEntry(
+        family="ideogram4", loader=_loader, backend="comfyui", mode="txt2img",
+        state="experimental_available",
+        workflow_type="image.txt2img.ideogram4_native" if _loader == "diffusion_model" else "image.txt2img.ideogram4_gguf",
+        compiler_id="comfy.ideogram4_native" if _loader == "diffusion_model" else "comfy.ideogram4_gguf",
+        requires=_ideo_requires, parameter_profile="ideogram4_dual_model_advanced",
+        reason="Phase 22 onboards Ideogram 4 txt2img through paired main/unconditional models, Ideogram4Scheduler, DualModelGuider and SamplerCustomAdvanced.",
+    ))
+    _add_comfy(RouteMatrixEntry(
+        family="ideogram4", loader=_loader, backend="comfyui", mode="img2img",
+        state="planned_gated", requires=_ideo_requires+["source_image"],
+        reason="No verified official local Ideogram 4 img2img workflow was found for Phase 22; generic VAEEncode support is not treated as proof.",
+    ))
+    _add_comfy(RouteMatrixEntry(
+        family="ideogram4", loader=_loader, backend="comfyui", mode="inpaint",
+        state="experimental_available", workflow_type="image.inpaint.lanpaint",
+        compiler_id="comfy.lanpaint.family_aware.v1",
+        requires=_ideo_requires+["source_image","mask_image","lanpaint_custom_advanced"],
+        parameter_profile="ideogram4_lanpaint_custom_advanced",
+        reason="Phase 22 enables Ideogram 4 inpainting only through LanPaint_SamplerCustomAdvanced and its dual-model advanced sampling graph.",
+        notes=["The basic LanPaint_KSampler compiler is forbidden for Ideogram 4."],
+    ))
+    _add_comfy(RouteMatrixEntry(family="ideogram4",loader=_loader,backend="comfyui",mode="outpaint",state="planned_gated",reason="Ideogram 4 outpainting is outside Phase 22."))
 
 for _family in ("wan_image", "hunyuan_image"):
     for _loader in ("diffusion_model", "gguf", "api_model"):
@@ -920,7 +1107,7 @@ for _family in ("wan_image", "hunyuan_image"):
                 reason=(
                     "Wan is currently tracked as provider-gated for the Image surface; do not expose fake Image-tab workflows."
                     if _family == "wan_image"
-                    else "Hunyuan Image requires exact branch/workflow selection before any Image route becomes available."
+                    else "HunyuanVideo/T2V is held for the Video workspace; the separate HunyuanImage family remains unavailable in Image until an image-native LanPaint workflow is physically proven."
                 ),
             ))
 
@@ -931,6 +1118,34 @@ def _loader_supported_by_family(family: str, loader: str) -> bool:
 
 
 def _forge_or_a1111_route(family: str, loader: str, mode: str, backend: str) -> RouteMatrixEntry:
+    if backend == "forge":
+        authority = resolve_forge_route(family, loader, mode)
+        provider_nodes = {mode: authority.endpoint} if authority.endpoint else {}
+        return RouteMatrixEntry(
+            family=family,
+            loader=loader,
+            backend=backend,
+            mode=mode,
+            state=authority.state,
+            reason=authority.reason,
+            workflow_type=authority.workflow_type,
+            compiler_id=authority.compiler_id,
+            requires=list(authority.requires),
+            parameter_profile=authority.parameter_profile,
+            provider_nodes=provider_nodes,
+            provider_loader_id=authority.provider_loader_id,
+            architecture_id=authority.architecture_id,
+            model_formats=list(authority.model_formats),
+            required_settings=list(authority.required_settings),
+            required_scripts=list(authority.required_scripts),
+            provider_contract={
+                "primary_model_role": authority.primary_model_role,
+                "required_module_roles": list(authority.required_module_roles),
+                "optional_module_roles": list(authority.optional_module_roles),
+                "neo_role_translation": dict(authority.neo_role_translation),
+            },
+            notes=list(authority.notes),
+        )
     if family in {"sdxl", "sd15"} and loader == "checkpoint" and mode in {"txt2img", "img2img", "inpaint"}:
         return RouteMatrixEntry(
             family=family,
@@ -953,7 +1168,7 @@ def _forge_or_a1111_route(family: str, loader: str, mode: str, backend: str) -> 
         )
     if family in {"wan_image", "hunyuan_image"}:
         return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="provider_gated", reason=f"{family} is gated for {backend} until a provider route is selected.")
-    if family in {"flux", "flux2_klein", "krea2", "krea2_turbo", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "z_image_turbo", "hidream"}:
+    if family in {"flux", "flux2_klein", "krea2", "krea2_turbo", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511", "z_image", "z_image_turbo", "hidream", "anima", "ideogram4"}:
         return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="planned_gated", reason=f"{family}+{loader}+{mode} for {backend} is not part of the V2 base contract yet.")
     return RouteMatrixEntry(family=family, loader=loader, backend=backend, mode=mode, state="unsupported", reason=f"No {backend} route contract exists for {family}+{loader}+{mode}.")
 
@@ -1008,7 +1223,7 @@ def list_model_backend_routes(backend: str | None = None) -> list[dict[str, Any]
             continue
         for backend_id in backends:
             for loader in family.supported_loaders:
-                modes = IMAGE_ROUTE_MODES_WITH_EDIT if family.family_id in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509"} else IMAGE_MODES
+                modes = IMAGE_ROUTE_MODES_WITH_EDIT if family.family_id in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else IMAGE_MODES
                 for mode in modes:
                     rows.append(resolve_model_backend_route(family.family_id, loader, mode, backend_id).as_dict())
     return rows

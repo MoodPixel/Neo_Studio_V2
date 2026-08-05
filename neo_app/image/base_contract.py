@@ -1,9 +1,13 @@
-
 from __future__ import annotations
 
 from copy import deepcopy
 
 from neo_app.image.schema import ImageJobDraft, ImageOption, ImageShellSection, ImageSubtabBase, ImageSurfaceBaseContract
+from neo_app.image.sampling_presets import sampling_preset_contract
+from neo_app.image.output_intents import output_intent_contract
+from neo_app.image.user_sampling_presets import user_sampling_preset_contract
+from neo_app.image.sampling_preset_inspector import sampling_preset_inspector_contract
+from neo_app.image.sampling_preset_release_lock import sampling_preset_release_lock_contract
 from neo_app.models.registry import get_loader_types, get_surface_families
 
 
@@ -32,8 +36,6 @@ SIZE_PRESETS = [
 ]
 
 
-
-
 DEFAULT_PARAMS = {
     "width": 1024,
     "height": 1024,
@@ -49,6 +51,10 @@ DEFAULT_PARAMS = {
     "clip_skip": 1,
     "clamp": "raw",
     "prompt_conditioning_mode": "raw",
+    # IR-1: Image starts in Manual / No Preset. The sampling preset layer stays
+    # inactive until the user explicitly chooses a built-in preset in the unified selector.
+    "sampling_preset_id": "",
+    "output_intent": "none",
 }
 
 
@@ -65,7 +71,18 @@ def _sections(subtab: str, include_source: bool = False, include_mask: bool = Fa
         base.append(ImageShellSection(section_id="instruction", title="Instruction", description="Instruction prompt for image editing providers.", slot=f"image.{subtab}.instruction", fields=["edit_instruction"]))
     base.extend([
         ImageShellSection(section_id="prompt", title="Prompt", description="Positive/negative prompt shell shared by base and extensions.", slot=f"image.{subtab}.prompt", fields=["positive_prompt", "negative_prompt", "style_chips"]),
-        ImageShellSection(section_id="params", title="Parameters", description="Backend-neutral generation parameters, size presets, and reusable seed controls.", slot=f"image.{subtab}.params", fields=["model", "vae", "size_preset", "width", "height", "steps", "cfg", "seed", "seed_lock", "seed_randomize", "seed_reuse", "seed_copy", "sampler", "scheduler", "batch_count", "clip_skip", "clamp", "denoise"]),
+        ImageShellSection(
+            section_id="params",
+            title="Parameters",
+            description="Backend-neutral generation parameters, workflow-aware sampling presets, Output Intent, size presets, and reusable seed controls.",
+            slot=f"image.{subtab}.params",
+            fields=[
+                "sampling_preset_id", "output_intent", "model", "vae", "size_preset", "width", "height",
+                "steps", "cfg", "true_cfg", "flux_guidance", "guidance", "model_guidance", "seed",
+                "seed_lock", "seed_randomize", "seed_reuse", "seed_copy", "sampler", "scheduler",
+                "batch_count", "clip_skip", "clamp", "denoise",
+            ],
+        ),
         ImageShellSection(section_id="extensions", title="Extensions", description="Compatible extensions mount here based on surface, subtab, backend, family, and loader.", slot=f"image.{subtab}.extensions", fields=["mounted_extensions", "compatibility_status"]),
         ImageShellSection(section_id="preview", title="Preview", description="Live preview, final preview, and batch thumbnails. Output management belongs in the Results workspace/subtab, not this preview panel.", slot=f"image.{subtab}.preview", fields=["live_preview", "final_preview", "batch_thumbnails"]),
     ])
@@ -78,6 +95,11 @@ def get_image_surface_base_contract() -> ImageSurfaceBaseContract:
         loader_types=_loader_type_options(),
         default_params=DEFAULT_PARAMS,
         size_presets=SIZE_PRESETS,
+        sampling_presets=sampling_preset_contract(),
+        output_intents=output_intent_contract(),
+        sampling_preset_authoring=user_sampling_preset_contract(),
+        sampling_preset_inspector=sampling_preset_inspector_contract(),
+        sampling_preset_release_lock=sampling_preset_release_lock_contract(),
         memory_events=[
             "image.surface.opened",
             "image.subtab.opened",
@@ -86,6 +108,12 @@ def get_image_surface_base_contract() -> ImageSurfaceBaseContract:
             "image.family.selected",
             "image.loader.selected",
             "image.extension.slot_rendered",
+            "image.sampling_preset.applied",
+            "image.sampling_preset.saved",
+            "image.sampling_preset.deleted",
+            "image.output_intent.selected",
+            "image.sampling_preset.inspected",
+            "image.sampling_preset.release_locked",
         ],
         subtabs=[
             ImageSubtabBase(subtab_id="generate", display_name="Generate", mode="txt2img", description="Base text-to-image workspace.", sections=_sections("generate")),

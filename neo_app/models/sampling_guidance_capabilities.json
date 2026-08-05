@@ -1,0 +1,1001 @@
+{
+  "schema": "neo.image.sampling_guidance_capabilities.v1",
+  "phase": "IP-1",
+  "version": "1.0.0",
+  "purpose": "Capability semantics only. This registry does not choose best sampling defaults or decide route availability.",
+  "global_contract": {
+    "route_availability_owner": "neo_app.models.route_matrix + provider compile router",
+    "preset_defaults_owner": "IP-3 owns preset resolution/application semantics; family numeric defaults are deferred to IP-4/IP-5",
+    "negative_prompt_execution_owner": "neo_app.image.negative_prompt_eligibility (IP-2) at the NeoJob Image boundary",
+    "unknown_family_policy": "fail_closed_provider_profile",
+    "negative_prompt_value_retention": "retain_user_input_when_inactive; effective provider negative becomes empty only when IP-2 suppresses execution",
+    "negative_cfg_hard_threshold": 1.0,
+    "negative_cfg_weak_threshold": 1.5,
+    "threshold_semantics": "For cfg-gated routes, <=1.0 means inactive; >1.0 and <1.5 is technically active but weak; >=1.5 is normal UX state. Family/route overrides win.",
+    "negative_prompt_ui_owner": "neo_app/static/js/negative_prompt_eligibility.js (IP-2 mirror; backend remains authoritative)",
+    "preset_foundation_owner": "neo_app.image.sampling_presets (IP-3)",
+    "preset_clean_slate_policy": "Empty · Clean Slate never borrows provider defaults; incomplete manual sampling blocks generation",
+    "preset_provider_defaults_policy": "Provider Defaults intentionally removes preset-managed fields so provider/compiler defaults remain authoritative"
+  },
+  "resolution_policies": {
+    "explicit_canvas": "Text generation owns width/height explicitly.",
+    "source_or_auto": "Image-conditioned generation follows source dimensions or provider auto-sizing; family native size is only a fallback later in preset resolution.",
+    "expanded_canvas_or_auto": "Outpaint follows expanded source canvas or provider auto-sizing.",
+    "provider_profile": "Provider/model profile owns the size contract."
+  },
+  "denoise_policies": {
+    "full_generation": "Text generation is full denoise/generation.",
+    "strength_controlled": "Image-conditioned route exposes user/provider denoise strength.",
+    "masked_strength_controlled": "Masked route exposes user/provider denoise strength while mask/canvas controls locality.",
+    "provider_profile": "Provider/model profile owns denoise semantics."
+  },
+  "families": {
+    "sdxl": {
+      "display_name": "SDXL",
+      "visible": true,
+      "loaders": [
+        "checkpoint"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "CFG"
+        }
+      },
+      "guidance": {
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG"
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/checkpoint_sd.py"
+      ]
+    },
+    "sd15": {
+      "display_name": "SD 1.5",
+      "visible": true,
+      "loaders": [
+        "checkpoint"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "CFG"
+        }
+      },
+      "guidance": {
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG"
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/checkpoint_sd.py"
+      ]
+    },
+    "flux": {
+      "display_name": "FLUX.1",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "fixed",
+          "field": "cfg",
+          "fixed_value": 1.0,
+          "ui_label": "Sampler CFG"
+        }
+      },
+      "guidance": {
+        "kind": "embedded_guidance",
+        "field": "flux_guidance",
+        "ui_label": "Flux Guidance"
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_route",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "zero_or_ignored_negative_at_sampler_cfg_1",
+        "note": "Flux Guidance is not True CFG. IP-1 does not expose an unvalidated True-CFG control."
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "variants": {
+        "dev": {
+          "aliases": [
+            "dev",
+            "flux1_dev",
+            "flux.1-dev"
+          ]
+        },
+        "krea_dev": {
+          "aliases": [
+            "krea",
+            "krea_dev",
+            "flux1_krea",
+            "flux1_krea_dev"
+          ],
+          "negative_prompt": {
+            "policy": "disabled_by_route",
+            "activation_field": null,
+            "hard_min_exclusive": null,
+            "weak_below": null,
+            "graph_semantics": "ConditioningZeroOut; sampler CFG fixed at 1.0"
+          }
+        }
+      },
+      "route_overrides": [
+        {
+          "match": {
+            "loader": "diffusion_model",
+            "modes": [
+              "inpaint",
+              "outpaint"
+            ],
+            "variants": [
+              "dev"
+            ]
+          },
+          "guidance": {
+            "kind": "embedded_guidance",
+            "field": "flux_guidance",
+            "ui_label": "Fill Guidance"
+          },
+          "negative_prompt": {
+            "policy": "disabled_by_route",
+            "activation_field": null,
+            "hard_min_exclusive": null,
+            "weak_below": null,
+            "graph_semantics": "internal_flux_fill_route_without_true_cfg_negative_control"
+          },
+          "route_semantic": "flux_fill_internal"
+        }
+      ],
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/flux_native.py",
+        "neo_app/providers/comfy_workflows/flux_gguf.py"
+      ]
+    },
+    "flux1_fill": {
+      "display_name": "FLUX.1 Fill (Internal Alias)",
+      "visible": false,
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "fixed",
+          "field": "cfg",
+          "fixed_value": 1.0,
+          "ui_label": "Sampler CFG"
+        }
+      },
+      "guidance": {
+        "kind": "embedded_guidance",
+        "field": "flux_guidance",
+        "ui_label": "Fill Guidance"
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_route",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "internal_fill_route"
+      },
+      "resolution": {
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "flux2_klein": {
+      "display_name": "FLUX.2 Klein",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "fixed",
+          "field": "cfg",
+          "fixed_value": 1.0,
+          "ui_label": "Sampler CFG"
+        }
+      },
+      "guidance": {
+        "kind": "embedded_guidance",
+        "field": "flux_guidance",
+        "ui_label": "Flux Guidance"
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_route",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "ConditioningZeroOut from positive conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "edit": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "edit": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "variants": {
+        "klein_4b_distilled": {
+          "aliases": [
+            "4b",
+            "klein_4b",
+            "klein_4b_distilled",
+            "distilled_4b"
+          ]
+        },
+        "klein_9b_distilled": {
+          "aliases": [
+            "9b",
+            "klein_9b",
+            "klein_9b_distilled",
+            "distilled_9b"
+          ]
+        },
+        "klein_4b_base": {
+          "aliases": [
+            "klein_base_4b",
+            "base_4b",
+            "klein_4b_base"
+          ]
+        },
+        "klein_9b_base": {
+          "aliases": [
+            "klein_base_9b",
+            "base_9b",
+            "klein_9b_base"
+          ]
+        }
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/flux_native.py",
+        "neo_app/providers/comfy_workflows/flux_gguf.py",
+        "neo_app/image/flux2_klein_contract.py"
+      ]
+    },
+    "krea2": {
+      "display_name": "Krea 2 RAW",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "CFG"
+        }
+      },
+      "guidance": {
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG"
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/krea2.py"
+      ]
+    },
+    "krea2_turbo": {
+      "display_name": "Krea 2 Turbo",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "forced_by_family",
+        "sampler_cfg": {
+          "kind": "fixed",
+          "field": "cfg",
+          "fixed_value": 1.0,
+          "ui_label": "Comfy CFG"
+        }
+      },
+      "guidance": {
+        "kind": "none",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_family",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "ConditioningZeroOut"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/krea2.py"
+      ]
+    },
+    "qwen_image": {
+      "display_name": "Qwen Image Edit",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "True CFG"
+        }
+      },
+      "guidance": {
+        "kind": "true_cfg",
+        "field": "cfg",
+        "aliases": [
+          "true_cfg"
+        ],
+        "ui_label": "True CFG",
+        "note": "Current Comfy compiler stores this on KSampler cfg."
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "activation_aliases": [
+          "true_cfg"
+        ],
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "edit": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "edit": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/qwen_native.py",
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "qwen_image_edit_2509": {
+      "display_name": "Qwen Image Edit 2509",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "True CFG"
+        }
+      },
+      "guidance": {
+        "kind": "true_cfg",
+        "field": "cfg",
+        "aliases": [
+          "true_cfg"
+        ],
+        "ui_label": "True CFG",
+        "secondary": {
+          "kind": "model_guidance",
+          "field": "guidance",
+          "ui_label": "Model Guidance",
+          "status": "declared_not_enforced_by_ip1"
+        }
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "activation_aliases": [
+          "true_cfg"
+        ],
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "edit": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "edit": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/qwen_native.py",
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "qwen_rapid_aio": {
+      "display_name": "Qwen Rapid AIO",
+      "visible": true,
+      "loaders": [
+        "checkpoint_aio",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "provider_profile",
+        "scheduler_control": "provider_profile",
+        "steps_control": "provider_profile",
+        "sampler_cfg": {
+          "kind": "provider_profile",
+          "field": "cfg",
+          "ui_label": "Profile CFG"
+        }
+      },
+      "guidance": {
+        "kind": "provider_profile",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "profile_controlled",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "selected_checkpoint_or_provider_profile"
+      },
+      "resolution": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "edit": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile"
+      },
+      "denoise": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "edit": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile"
+      },
+      "source_contracts": [
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "z_image": {
+      "display_name": "Z-Image Base",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "CFG"
+        }
+      },
+      "guidance": {
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG"
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/z_image.py"
+      ]
+    },
+    "z_image_turbo": {
+      "display_name": "Z-Image Turbo",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "fixed",
+          "field": "cfg",
+          "fixed_value": 1.0,
+          "ui_label": "Comfy CFG"
+        }
+      },
+      "guidance": {
+        "kind": "none",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_family",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "ConditioningZeroOut"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/z_image.py"
+      ]
+    },
+    "hidream": {
+      "display_name": "HiDream",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf",
+        "api_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "provider_profile",
+        "scheduler_control": "provider_profile",
+        "steps_control": "provider_profile",
+        "sampler_cfg": {
+          "kind": "provider_profile",
+          "field": "cfg",
+          "ui_label": "Profile CFG"
+        }
+      },
+      "guidance": {
+        "kind": "provider_profile",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "profile_controlled",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "variant_or_provider_profile"
+      },
+      "resolution": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "edit": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile"
+      },
+      "denoise": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "edit": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile"
+      },
+      "source_contracts": [
+        "neo_app/models/model_family_manifest.json",
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "wan_image": {
+      "display_name": "Wan Image / Video",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf",
+        "api_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "image_to_video",
+        "text_to_video"
+      ],
+      "sampling": {
+        "sampler_control": "provider_profile",
+        "scheduler_control": "provider_profile",
+        "steps_control": "provider_profile",
+        "sampler_cfg": {
+          "kind": "provider_profile",
+          "field": null,
+          "ui_label": null
+        }
+      },
+      "guidance": {
+        "kind": "provider_profile",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "profile_controlled",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "provider_gated"
+      },
+      "resolution": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile",
+        "image_to_video": "provider_profile",
+        "text_to_video": "provider_profile"
+      },
+      "denoise": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile",
+        "image_to_video": "provider_profile",
+        "text_to_video": "provider_profile"
+      },
+      "source_contracts": [
+        "neo_app/models/model_family_manifest.json"
+      ]
+    },
+    "hunyuan_image": {
+      "display_name": "Hunyuan Image / Video",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf",
+        "api_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "image_to_video",
+        "text_to_video"
+      ],
+      "sampling": {
+        "sampler_control": "provider_profile",
+        "scheduler_control": "provider_profile",
+        "steps_control": "provider_profile",
+        "sampler_cfg": {
+          "kind": "provider_profile",
+          "field": null,
+          "ui_label": null
+        }
+      },
+      "guidance": {
+        "kind": "provider_profile",
+        "field": null,
+        "ui_label": null
+      },
+      "negative_prompt": {
+        "policy": "profile_controlled",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "provider_gated_variant_specific"
+      },
+      "resolution": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile",
+        "image_to_video": "provider_profile",
+        "text_to_video": "provider_profile"
+      },
+      "denoise": {
+        "txt2img": "provider_profile",
+        "img2img": "provider_profile",
+        "inpaint": "provider_profile",
+        "outpaint": "provider_profile",
+        "image_to_video": "provider_profile",
+        "text_to_video": "provider_profile"
+      },
+      "source_contracts": [
+        "neo_app/models/model_family_manifest.json"
+      ]
+    },
+    "qwen_image_edit_2511": {
+      "display_name": "Qwen Image Edit 2511",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "True CFG"
+        }
+      },
+      "guidance": {
+        "kind": "true_cfg",
+        "field": "cfg",
+        "aliases": [
+          "true_cfg"
+        ],
+        "ui_label": "True CFG",
+        "secondary": {
+          "kind": "model_guidance",
+          "field": "guidance",
+          "ui_label": "Model Guidance",
+          "status": "declared_not_enforced_by_ip1"
+        }
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "activation_aliases": [
+          "true_cfg"
+        ],
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "encoded_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "source_or_auto",
+        "edit": "source_or_auto",
+        "inpaint": "source_or_auto",
+        "outpaint": "expanded_canvas_or_auto"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "strength_controlled",
+        "edit": "strength_controlled",
+        "inpaint": "masked_strength_controlled",
+        "outpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/qwen_native.py",
+        "neo_app/providers/compile_router.py"
+      ]
+    }
+  }
+}

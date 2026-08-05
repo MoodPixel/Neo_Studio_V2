@@ -1,0 +1,78 @@
+{
+  "schema": "neo.image.output_intents.builtin.v1",
+  "phase": "IP-6",
+  "version": "1.0.0",
+  "purpose": "Immutable Image output-intent layers. IP-6 introduces neutral, Realistic, and Anime / Illustration intent metadata without injecting prompts, negatives, styles, LoRAs, embeddings, extensions, or sampling overrides.",
+  "contract": {
+    "role": "output_intent_metadata_layer",
+    "application_order": "output_intent -> sampling_preset -> negative_prompt_eligibility",
+    "sampling_mutation": "forbidden_ip6",
+    "prompt_injection": "forbidden",
+    "negative_prompt_injection": "forbidden",
+    "style_injection": "forbidden",
+    "lora_injection": "forbidden",
+    "embedding_injection": "forbidden",
+    "extension_mutation": "forbidden",
+    "unknown_intent_policy": "neutralize_to_none_with_warning_without_blocking_generation",
+    "future_sampling_tuning": "requires_explicit_validated_later_phase"
+  },
+  "intents": [
+    {
+      "entry_id": "output_intent__none",
+      "intent_id": "none",
+      "label": "None",
+      "description": "Neutral output intent. Applies no creative or sampling mutation.",
+      "aliases": ["neutral", "off", "disabled", "default"],
+      "source": "built_in",
+      "immutable": true,
+      "state": "neutral",
+      "effects": {
+        "sampling_overrides": {},
+        "prompt_additions": [],
+        "negative_prompt_additions": [],
+        "style_ids": [],
+        "lora_ids": [],
+        "embedding_ids": [],
+        "extension_overrides": {}
+      }
+    },
+    {
+      "entry_id": "output_intent__realistic",
+      "intent_id": "realistic",
+      "label": "Realistic",
+      "description": "Advisory visual intent for realistic / photographic output. IP-6 records the intent only; it does not rewrite prompts or sampling values.",
+      "aliases": ["photo", "photographic", "photoreal", "photorealistic", "realism"],
+      "source": "built_in",
+      "immutable": true,
+      "state": "advisory_only",
+      "effects": {
+        "sampling_overrides": {},
+        "prompt_additions": [],
+        "negative_prompt_additions": [],
+        "style_ids": [],
+        "lora_ids": [],
+        "embedding_ids": [],
+        "extension_overrides": {}
+      }
+    },
+    {
+      "entry_id": "output_intent__anime_illustration",
+      "intent_id": "anime_illustration",
+      "label": "Anime / Illustration",
+      "description": "Advisory visual intent for anime or illustrated output. IP-6 records the intent only; it does not rewrite prompts or sampling values.",
+      "aliases": ["anime", "illustration", "illustrated", "anime_illustration", "anime_or_illustration"],
+      "source": "built_in",
+      "immutable": true,
+      "state": "advisory_only",
+      "effects": {
+        "sampling_overrides": {},
+        "prompt_additions": [],
+        "negative_prompt_additions": [],
+        "style_ids": [],
+        "lora_ids": [],
+        "embedding_ids": [],
+        "extension_overrides": {}
+      }
+    }
+  ]
+}

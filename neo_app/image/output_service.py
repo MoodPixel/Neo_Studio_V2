@@ -12,6 +12,8 @@ from urllib import parse, request
 from neo_app.image.output_paths import ROOT_DIR, get_image_output_paths, sanitize_path_part
 from neo_app.image.upload_validation import ALLOWED_IMAGE_EXTENSIONS, _detect_image_type, canonical_image_suffix_for_type
 from neo_app.providers.comfy_artifact_paths import ComfyArtifactPathError, normalize_comfy_artifact_reference
+from neo_app.image.action_state import sanitize_replay_extensions, sanitize_replay_params
+from neo_app.image.lanpaint_replay import build_lanpaint_replay_contract
 from neo_app.image.output_settings import (
     ensure_output_settings_dirs,
     load_image_output_settings,
@@ -22,6 +24,7 @@ from neo_app.image.output_settings import (
 from neo_app.image.output_records import (
     build_assistant_output_summary,
     build_image_output_record,
+    build_output_lineage_metadata,
     build_output_file_record,
     build_output_replay_metadata,
     build_output_replay_payload,
@@ -226,6 +229,7 @@ def persist_image_outputs(
         result_id=result_id,
     )
 
+    record["lineage"] = build_output_lineage_metadata(record)
     record["provider_binding"] = build_provider_binding_metadata(record)
     record["replay_validation"] = build_provider_replay_validation_metadata(record)
 
@@ -238,6 +242,17 @@ def persist_image_outputs(
     input_assets = collect_input_asset_records(record_params, extensions=record_extensions)
     record.setdefault("source", {})["input_assets"] = input_assets
     record.setdefault("source", {})["asset_contract"] = build_input_asset_contract(input_assets)
+    lanpaint_contract = build_lanpaint_replay_contract(
+        record_params,
+        provider_id=provider_id,
+        input_assets=input_assets,
+        route_snapshot=record.get("route_snapshot") if isinstance(record.get("route_snapshot"), dict) else {},
+        output_lineage=record.get("lineage") if isinstance(record.get("lineage"), dict) else {},
+    )
+    if lanpaint_contract:
+        record["lanpaint"] = lanpaint_contract
+        record_params = {**record_params, "lanpaint_replay": lanpaint_contract, "lanpaint_replay_fingerprint": lanpaint_contract.get("replay_fingerprint")}
+        record["params"] = record_params
 
     background_block = (record_extensions.get("payloads") or {}).get("image.background_removal") if isinstance(record_extensions.get("payloads"), dict) else None
     if isinstance(background_block, dict) and background_block.get("enabled"):
@@ -1328,6 +1343,8 @@ def build_image_result_reuse_payload(record: dict[str, Any]) -> dict[str, Any]:
     params = record.get("params") if isinstance(record.get("params"), dict) else {}
     extensions = record.get("extensions") if isinstance(record.get("extensions"), dict) else {}
     outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+    safe_params, params_cleanup = sanitize_replay_params(params, mode=str(record.get("mode") or "generate"))
+    safe_extensions, extensions_cleanup = sanitize_replay_extensions(extensions)
     return {
         "schema_version": "neo.image.result_reuse.v1",
         "result_id": record.get("result_id") or "",
@@ -1341,19 +1358,31 @@ def build_image_result_reuse_payload(record: dict[str, Any]) -> dict[str, Any]:
             "effective_negative": prompt.get("effective_negative") or prompt.get("negative") or "",
             "conditioning": deepcopy_dict(prompt.get("conditioning") if isinstance(prompt.get("conditioning"), dict) else {}),
         },
-        "params": deepcopy_dict(params),
+        "params": deepcopy_dict(safe_params),
         "model": deepcopy_dict(model),
         "outputs": {
             "active_file": outputs.get("active_file") or "",
             "files": deepcopy_list(outputs.get("files") if isinstance(outputs.get("files"), list) else []),
             "reuse_policy": "all_batch_files_available_core_reads_first_by_default",
         },
+        "input_assets": deepcopy_list((record.get("source") or {}).get("input_assets") if isinstance(record.get("source"), dict) and isinstance((record.get("source") or {}).get("input_assets"), list) else []),
+        "lanpaint": deepcopy_dict(record.get("lanpaint") if isinstance(record.get("lanpaint"), dict) else {}),
+        "provider_binding": deepcopy_dict(record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) and record.get("provider_binding") else build_provider_binding_metadata(record)),
+        "replay_validation": deepcopy_dict(record.get("replay_validation") if isinstance(record.get("replay_validation"), dict) and record.get("replay_validation") else build_provider_replay_validation_metadata(record)),
+        "lineage": deepcopy_dict(record.get("lineage") if isinstance(record.get("lineage"), dict) and record.get("lineage") else build_output_lineage_metadata(record)),
+        "replay": deepcopy_dict(record.get("replay") if isinstance(record.get("replay"), dict) and record.get("replay") else build_output_replay_metadata(record)),
         "extensions": {
-            "used": deepcopy_list(extensions.get("used") if isinstance(extensions, dict) else []),
-            "payloads": deepcopy_dict(extensions.get("payloads") if isinstance(extensions, dict) else {}),
-            "workflow_patches": deepcopy_list(extensions.get("workflow_patches") if isinstance(extensions, dict) else []),
-            "validation": deepcopy_list(extensions.get("validation") if isinstance(extensions, dict) else []),
-            "restore_policy": "defer_to_extension_runtime",
+            "used": deepcopy_list(safe_extensions.get("used") if isinstance(safe_extensions, dict) else []),
+            "payloads": deepcopy_dict(safe_extensions.get("payloads") if isinstance(safe_extensions, dict) else {}),
+            "replay_payloads": deepcopy_dict(safe_extensions.get("replay_payloads") if isinstance(safe_extensions, dict) else {}),
+            "workflow_patches": deepcopy_list(safe_extensions.get("workflow_patches") if isinstance(safe_extensions, dict) else []),
+            "validation": deepcopy_list(safe_extensions.get("validation") if isinstance(safe_extensions, dict) else []),
+            "restore_policy": "provider_neutral_disabled_pending_live_revalidation",
+        },
+        "state_cleanup": {
+            "schema": "neo.image.replay_state_sanitization.v1",
+            "params": params_cleanup,
+            "extensions": extensions_cleanup,
         },
     }
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from neo_app.image.action_state import sanitize_replay_extensions, sanitize_replay_params
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
 from neo_app.image.output_paths import normalize_image_output_category, sanitize_path_part
+from neo_app.image.lanpaint_replay import build_lanpaint_replay_contract
 
 IMAGE_OUTPUT_RECORD_SCHEMA_VERSION: Final[str] = "neo.image.output.v1"
 EXTENSION_METADATA_KEYS: Final[tuple[str, ...]] = (
@@ -323,6 +325,43 @@ def empty_extension_metadata() -> dict[str, Any]:
     }
 
 
+def _sanitize_forge_couple_output_block(value: Any, *, replay: bool = False) -> Any:
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    block = deepcopy(value)
+    params = block.get("params") if isinstance(block.get("params"), dict) else {}
+    metadata = block.get("metadata") if isinstance(block.get("metadata"), dict) else {}
+    raw_masks = params.get("mask_mapping") if isinstance(params.get("mask_mapping"), list) else []
+    descriptors: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_masks, start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            descriptor_index = int(item.get("index") or index)
+        except (TypeError, ValueError):
+            descriptor_index = index
+        try:
+            descriptor_weight = float(item.get("weight", 1.0))
+        except (TypeError, ValueError):
+            descriptor_weight = 1.0
+        descriptors.append({
+            "index": descriptor_index,
+            "weight": max(0.0, min(5.0, descriptor_weight)),
+            "mask_present": bool(item.get("mask_present", True)),
+        })
+    if raw_masks:
+        metadata["mask_count"] = int(metadata.get("mask_count") or len(descriptors))
+        metadata["mask_reupload_required"] = True
+    params["mask_mapping"] = [] if replay else descriptors
+    if replay:
+        block["enabled"] = False
+        params["tile_enabled"] = False
+        metadata["tile_reenable_required"] = True
+    block["params"] = params
+    block["metadata"] = metadata
+    return block
+
+
 def normalize_extension_metadata(value: dict[str, Any] | None = None) -> dict[str, Any]:
     """Normalize extension metadata while preserving only approved append slots."""
     normalized = empty_extension_metadata()
@@ -335,6 +374,10 @@ def normalize_extension_metadata(value: dict[str, Any] | None = None) -> dict[st
     payloads = source.get("payloads")
     if isinstance(payloads, dict):
         normalized["payloads"] = deepcopy(payloads)
+        if "image.forge_couple" in normalized["payloads"]:
+            normalized["payloads"]["image.forge_couple"] = _sanitize_forge_couple_output_block(
+                normalized["payloads"]["image.forge_couple"]
+            )
 
     patches = source.get("workflow_patches")
     if isinstance(patches, list):
@@ -347,6 +390,10 @@ def normalize_extension_metadata(value: dict[str, Any] | None = None) -> dict[st
     replay_payloads = source.get("replay_payloads")
     if isinstance(replay_payloads, dict):
         normalized["replay_payloads"] = deepcopy(replay_payloads)
+        if "image.forge_couple" in normalized["replay_payloads"]:
+            normalized["replay_payloads"]["image.forge_couple"] = _sanitize_forge_couple_output_block(
+                normalized["replay_payloads"]["image.forge_couple"], replay=True
+            )
 
     assistant_summaries = source.get("assistant_summaries")
     if isinstance(assistant_summaries, dict):
@@ -602,6 +649,43 @@ def _ip_adapter_assistant_summary(extensions: dict[str, Any]) -> str:
 
 
 
+def _forge_couple_assistant_summary(extensions: dict[str, Any]) -> str:
+    normalized = normalize_extension_metadata(extensions)
+    summaries = normalized.get("assistant_summaries") if isinstance(normalized.get("assistant_summaries"), dict) else {}
+    if summaries.get("image.forge_couple"):
+        return f" {summaries.get('image.forge_couple')}"
+    block = (normalized.get("payloads") or {}).get("image.forge_couple") if isinstance(normalized.get("payloads"), dict) else None
+    if not isinstance(block, dict):
+        return ""
+    params = block.get("params") if isinstance(block.get("params"), dict) else {}
+    metadata = block.get("metadata") if isinstance(block.get("metadata"), dict) else {}
+    if not block.get("enabled"):
+        reason = metadata.get("reason") or metadata.get("gated_reason") or "disabled or gated"
+        return f" Forge Couple was not applied ({reason})."
+    mode = str(params.get("mode") or "Basic")
+    region_count = metadata.get("region_count")
+    count_text = f"{region_count} prompt line(s), " if region_count is not None else ""
+    hires = "base pass only" if params.get("disable_hr", True) else "base + Hires Fix"
+    tile_text = ""
+    if params.get("tile_enabled"):
+        columns = metadata.get("tile_columns") if metadata.get("tile_columns") is not None else params.get("tile_columns")
+        rows = metadata.get("tile_rows") if metadata.get("tile_rows") is not None else params.get("tile_rows")
+        tile_text = f", Tile Mode {columns}×{rows}"
+    if mode == "Advanced":
+        mapping = params.get("advanced_mapping") if isinstance(params.get("advanced_mapping"), list) else []
+        mapping_count = metadata.get("mapping_count") if metadata.get("mapping_count") is not None else len(mapping)
+        coverage = metadata.get("mapping_covers_canvas")
+        coverage_text = "full-canvas coverage verified" if coverage is True else "coverage not verified"
+        return f" Forge Couple applied: Advanced {mapping_count} mapped region(s), {count_text}{coverage_text}, {hires}{tile_text}."
+    if mode == "Mask":
+        mask_count = metadata.get("mask_count") if metadata.get("mask_count") is not None else len(params.get("mask_mapping") or [])
+        background = str(params.get("background") or "None")
+        return f" Forge Couple applied: Mask {mask_count} layer(s), {count_text}global effect {background.lower()}, {hires}{tile_text}."
+    direction = str(params.get("direction") or "Horizontal").lower()
+    background = str(params.get("background") or "None")
+    return f" Forge Couple applied: Basic {direction} regions, {count_text}global effect {background.lower()}, {hires}{tile_text}."
+
+
 def _scene_director_assistant_summary(extensions: dict[str, Any]) -> str:
     normalized = normalize_extension_metadata(extensions)
     summaries = normalized.get("assistant_summaries") if isinstance(normalized.get("assistant_summaries"), dict) else {}
@@ -823,6 +907,8 @@ def build_route_metadata(
     model = model if isinstance(model, dict) else {}
     family = _first_nonempty(model.get("family"), params.get("family"))
     loader = _first_nonempty(model.get("loader"), params.get("loader"))
+    lanpaint_route = params.get("lanpaint_route") if isinstance(params.get("lanpaint_route"), dict) else {}
+    engine = _first_nonempty(lanpaint_route.get("engine"), params.get("inpaint_engine"), "native")
     clean_mode = _clean_string(mode or params.get("mode") or "generate")
     workflow_type = _first_nonempty(params.get("workflow_type"), f"image.{clean_mode}.{family}" if family else "")
     backend_name = _first_nonempty(backend, params.get("backend"), "comfyui" if _clean_string(provider_id).startswith("comfy") else "")
@@ -837,6 +923,12 @@ def build_route_metadata(
         "backend": backend_name,
         "mode": clean_mode,
         "workflow_type": workflow_type,
+        "engine": engine,
+        "route_key": _first_nonempty(lanpaint_route.get("route_key")),
+        "variant": _first_nonempty(lanpaint_route.get("variant")),
+        "policy_id": _first_nonempty(lanpaint_route.get("policy_id")),
+        "compiler_id": _first_nonempty(lanpaint_route.get("compiler_id")),
+        "graph_state": _first_nonempty(lanpaint_route.get("graph_state")),
         "parameter_profile": _infer_parameter_profile(params, family, loader),
         "assets": _collect_route_assets(params, model, family, loader),
         "provider_nodes": _collect_provider_nodes(params),
@@ -907,6 +999,11 @@ def build_route_snapshot(
         "family": _first_nonempty(route.get("family"), model.get("family"), params.get("family")),
         "loader": _first_nonempty(route.get("loader"), model.get("loader"), params.get("loader")),
         "mode": _first_nonempty(route.get("mode"), mode, params.get("mode")),
+        "engine": _first_nonempty(route.get("engine"), params.get("inpaint_engine"), "native"),
+        "route_key": _first_nonempty(route.get("route_key"), (params.get("lanpaint_route") or {}).get("route_key") if isinstance(params.get("lanpaint_route"), dict) else ""),
+        "variant": _first_nonempty(route.get("variant"), (params.get("lanpaint_route") or {}).get("variant") if isinstance(params.get("lanpaint_route"), dict) else ""),
+        "policy_id": _first_nonempty(route.get("policy_id"), (params.get("lanpaint_route") or {}).get("policy_id") if isinstance(params.get("lanpaint_route"), dict) else ""),
+        "graph_state": _first_nonempty(route.get("graph_state"), (params.get("lanpaint_route") or {}).get("graph_state") if isinstance(params.get("lanpaint_route"), dict) else ""),
         "state": _first_nonempty(compile_route.get("status"), params.get("_neo_route_state"), "unknown"),
         "workflow_type": _first_nonempty(route.get("workflow_type"), params.get("workflow_type")),
         "compiler": _first_nonempty(compile_route.get("compiler_id"), params.get("compiler_id")),
@@ -1012,7 +1109,7 @@ def build_provider_replay_validation_metadata(record: dict[str, Any]) -> dict[st
     block stays inside the sidecar so old outputs can still explain what must be
     checked before replay.
     """
-    binding = record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) else build_provider_binding_metadata(record)
+    binding = record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) and record.get("provider_binding") else build_provider_binding_metadata(record)
     source = record.get("source") if isinstance(record.get("source"), dict) else {}
     input_assets = source.get("input_assets") if isinstance(source.get("input_assets"), list) else []
     params = record.get("params") if isinstance(record.get("params"), dict) else {}
@@ -1061,6 +1158,92 @@ def build_provider_replay_validation_metadata(record: dict[str, Any]) -> dict[st
             "roles": [str(item.get("role") or "") for item in input_assets if isinstance(item, dict)],
         },
         "state": "requires_live_revalidation",
+    }
+
+
+def build_output_lineage_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    """Build stable parent/source/root lineage for base and derived outputs.
+
+    The immediate parent is always the selected source output used for this run.
+    Earlier parent/root information is retained separately so repeated Finish
+    passes form a chain instead of collapsing back to the first ancestor.
+    """
+    params = record.get("params") if isinstance(record.get("params"), dict) else {}
+    outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+    files = outputs.get("files") if isinstance(outputs.get("files"), list) else []
+    active_file_id = str(outputs.get("active_file") or "")
+    active_file = next(
+        (item for item in files if isinstance(item, dict) and str(item.get("file_id") or "") == active_file_id),
+        files[0] if files and isinstance(files[0], dict) else {},
+    )
+    contract = params.get("_neo_derived_action") if isinstance(params.get("_neo_derived_action"), dict) else (
+        params.get("_neo_preview_action") if isinstance(params.get("_neo_preview_action"), dict) else {}
+    )
+    source = contract.get("source") if isinstance(contract.get("source"), dict) else {}
+    source_lineage = source.get("lineage") if isinstance(source.get("lineage"), dict) else {}
+    current_output_id = str(active_file.get("output_id") or active_file.get("file_id") or record.get("result_id") or "")
+    current_job_id = str((record.get("job") or {}).get("job_id") or "") if isinstance(record.get("job"), dict) else ""
+    source_output_id = str(contract.get("source_output_id") or source.get("output_id") or source.get("file_id") or "")
+    source_job_id = str(contract.get("source_job_id") or source.get("job_id") or "")
+    parent_output_id = str(contract.get("parent_output_id") or source_output_id or "")
+    parent_job_id = str(contract.get("parent_job_id") or source_job_id or "")
+    root_output_id = str(
+        contract.get("root_output_id")
+        or source.get("root_output_id")
+        or source_lineage.get("root_output_id")
+        or source_output_id
+        or current_output_id
+    )
+    root_job_id = str(
+        contract.get("root_job_id")
+        or source.get("root_job_id")
+        or source_lineage.get("root_job_id")
+        or source_job_id
+        or current_job_id
+    )
+    raw_ancestors = contract.get("ancestor_output_ids") if isinstance(contract.get("ancestor_output_ids"), list) else (
+        source.get("ancestor_output_ids") if isinstance(source.get("ancestor_output_ids"), list) else (
+            source_lineage.get("ancestor_output_ids") if isinstance(source_lineage.get("ancestor_output_ids"), list) else []
+        )
+    )
+    ancestors: list[str] = []
+    for value in [*raw_ancestors, parent_output_id]:
+        item = str(value or "").strip()
+        if item and item != current_output_id and item not in ancestors:
+            ancestors.append(item)
+    derived = bool(contract)
+    contract_depth_value = contract.get("lineage_depth")
+    try:
+        if contract_depth_value not in (None, ""):
+            # build_derived_action_contract stores the depth of the output being
+            # created, not the depth of its source.  Do not increment it again.
+            depth = max(len(ancestors), int(contract_depth_value)) if derived else 0
+        else:
+            source_depth = int(source.get("lineage_depth") or source_lineage.get("depth") or 0)
+            depth = max(len(ancestors), source_depth + (1 if derived else 0)) if derived else 0
+    except (TypeError, ValueError):
+        depth = len(ancestors) if derived else 0
+    return {
+        "schema_version": "neo.image.output_lineage.v1",
+        "kind": "derived" if derived else "base",
+        "current_result_id": str(record.get("result_id") or ""),
+        "current_output_id": current_output_id,
+        "current_job_id": current_job_id,
+        "source_result_id": str(source.get("result_id") or contract.get("source_result_id") or ""),
+        "source_output_id": source_output_id,
+        "source_job_id": source_job_id,
+        "parent_output_id": parent_output_id,
+        "parent_job_id": parent_job_id,
+        "root_output_id": root_output_id,
+        "root_job_id": root_job_id,
+        "depth": depth,
+        "ancestor_output_ids": ancestors,
+        "action_id": str(contract.get("action_id") or ""),
+        "dispatch_type": str(contract.get("dispatch_type") or ""),
+        "provider_id": str(contract.get("provider_id") or (record.get("job") or {}).get("provider_id") or ""),
+        "profile_id": str(contract.get("profile_id") or (record.get("job") or {}).get("backend_profile_id") or ""),
+        "cross_provider": bool(contract.get("cross_provider")),
+        "save_lane": str(contract.get("save_lane") or ("append_derived" if derived else "new_run")),
     }
 
 
@@ -1154,6 +1337,12 @@ def build_image_output_record(
             "comfy_view_url": comfy_view_url or "",
             "input_assets": [],
         },
+        "lanpaint": build_lanpaint_replay_contract(
+            params if isinstance(params, dict) else {},
+            provider_id=provider_id or "",
+            route_snapshot=route_snapshot if isinstance(route_snapshot, dict) else {},
+        ),
+        "lineage": {},
         "provider_binding": {},
         "replay_validation": {},
         "workflow_memory": {
@@ -1181,13 +1370,14 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
     active_file_id = str(outputs.get("active_file") or "")
     active_file = next((item for item in files if isinstance(item, dict) and item.get("file_id") == active_file_id), files[0] if files and isinstance(files[0], dict) else {})
     replay_context = params.get("_neo_replay_context") if isinstance(params.get("_neo_replay_context"), dict) else {}
-    preview_action = params.get("_neo_preview_action") if isinstance(params.get("_neo_preview_action"), dict) else {}
-    source_result_id = str(replay_context.get("source_result_id") or preview_action.get("result_id") or params.get("_neo_source_result_id") or "")
+    preview_action = params.get("_neo_derived_action") if isinstance(params.get("_neo_derived_action"), dict) else (params.get("_neo_preview_action") if isinstance(params.get("_neo_preview_action"), dict) else {})
+    lineage = record.get("lineage") if isinstance(record.get("lineage"), dict) and record.get("lineage") else build_output_lineage_metadata(record)
+    source_result_id = str(replay_context.get("source_result_id") or lineage.get("source_result_id") or preview_action.get("result_id") or params.get("_neo_source_result_id") or "")
     source_file_id = str(
         replay_context.get("output_source", {}).get("file_id")
         if isinstance(replay_context.get("output_source"), dict)
         else ""
-    ) or str(preview_action.get("file_id") or params.get("_neo_source_output_id") or "")
+    ) or str(lineage.get("source_output_id") or preview_action.get("file_id") or params.get("_neo_source_output_id") or "")
     replay_source = str(replay_context.get("replay_source") or replay_context.get("replay_kind") or "full_recipe")
     replay_kind = str(replay_context.get("replay_kind") or replay_source or "full_recipe")
     branch_restore = replay_context.get("branch_restore") if isinstance(replay_context.get("branch_restore"), dict) else {}
@@ -1320,8 +1510,10 @@ def build_output_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
                 "reason": "Provider-owned final latent available" if "final_latent" in latent_restore_points else "Needs saved final latent before VAE decode",
             },
         },
-        "provider_binding": deepcopy(record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) else build_provider_binding_metadata(record)),
-        "provider_revalidation": deepcopy(record.get("replay_validation") if isinstance(record.get("replay_validation"), dict) else build_provider_replay_validation_metadata(record)),
+        "lineage": deepcopy(lineage),
+        "provider_binding": deepcopy(record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) and record.get("provider_binding") else build_provider_binding_metadata(record)),
+        "provider_revalidation": deepcopy(record.get("replay_validation") if isinstance(record.get("replay_validation"), dict) and record.get("replay_validation") else build_provider_replay_validation_metadata(record)),
+        "lanpaint": deepcopy(record.get("lanpaint") if isinstance(record.get("lanpaint"), dict) else {}),
         "capabilities": {
             "metadata_replay": True,
             "output_source_staging": bool(active_file or source_is_output_image),
@@ -1368,6 +1560,7 @@ def build_assistant_output_summary(record: dict[str, Any]) -> str:
     summary += _embeddings_ti_assistant_summary(extensions)
     summary += _controlnet_assistant_summary(extensions)
     summary += _ip_adapter_assistant_summary(extensions)
+    summary += _forge_couple_assistant_summary(extensions)
     summary += _scene_director_assistant_summary(extensions)
     summary += _adetailer_assistant_summary(extensions)
     summary += _high_res_lab_assistant_summary(extensions)
@@ -1387,20 +1580,16 @@ def build_output_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
     model = record.get("model") if isinstance(record.get("model"), dict) else {}
     prompt = record.get("prompt") if isinstance(record.get("prompt"), dict) else {}
     extensions = normalize_extension_metadata(record.get("extensions") if isinstance(record.get("extensions"), dict) else {})
-    safe_params = {
-        str(key): deepcopy(value)
-        for key, value in params.items()
-        if not str(key).startswith("_neo_")
-        and not str(key).startswith("comfy_")
-        and str(key) not in {"backend_output_root"}
-    }
+    safe_params, params_cleanup = sanitize_replay_params(params, mode=str(record.get("mode") or "generate"))
+    safe_extensions, extensions_cleanup = sanitize_replay_extensions(extensions)
     replay_extensions = {
-        "used": deepcopy(extensions.get("used", [])),
-        "payloads": deepcopy(extensions.get("payloads", {})),
-        "restore_policy": "defer_to_extension_runtime",
+        "used": deepcopy(safe_extensions.get("used", [])),
+        "payloads": deepcopy(safe_extensions.get("payloads", {})),
+        "restore_policy": "provider_neutral_disabled_pending_live_revalidation",
         "revalidation_required": True,
+        "state_cleanup": extensions_cleanup,
     }
-    replay_payloads = extensions.get("replay_payloads") if isinstance(extensions.get("replay_payloads"), dict) else {}
+    replay_payloads = safe_extensions.get("replay_payloads") if isinstance(safe_extensions.get("replay_payloads"), dict) else {}
     if replay_payloads:
         replay_extensions["replay_payloads"] = deepcopy(replay_payloads)
     if "cfg_fix_dynamic_thresholding" in replay_extensions.get("payloads", {}):
@@ -1413,6 +1602,36 @@ def build_output_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
         replay_extensions.setdefault("extension_restore_policies", {})["image.controlnet"] = "revalidate_route_nodes_controlnet_models_and_assets_before_enable"
     if "image.ip_adapter" in replay_extensions.get("payloads", {}) or "image.ip_adapter" in replay_extensions.get("replay_payloads", {}):
         replay_extensions.setdefault("extension_restore_policies", {})["image.ip_adapter"] = "revalidate_route_nodes_ip_adapter_models_clip_vision_faceid_and_assets_before_enable"
+    if "image.forge_couple" in replay_extensions.get("payloads", {}) or "image.forge_couple" in replay_extensions.get("replay_payloads", {}):
+        forge_couple_payloads = replay_extensions.get("payloads") if isinstance(replay_extensions.get("payloads"), dict) else {}
+        forge_couple_block = forge_couple_payloads.get("image.forge_couple") if isinstance(forge_couple_payloads, dict) else None
+        if isinstance(forge_couple_block, dict):
+            sanitized = _sanitize_forge_couple_output_block(forge_couple_block, replay=True)
+            forge_couple_block.clear()
+            forge_couple_block.update(sanitized)
+            forge_couple_metadata = forge_couple_block.get("metadata") if isinstance(forge_couple_block.get("metadata"), dict) else {}
+            forge_couple_metadata.update({
+                "revalidation_required": True,
+                "restore_state": "disabled_pending_forge_couple_revalidation",
+                "mask_reupload_required": bool(forge_couple_metadata.get("mask_count")),
+                "tile_reenable_required": True,
+            })
+            forge_couple_block["metadata"] = forge_couple_metadata
+        replay_forge_couple_payloads = replay_extensions.get("replay_payloads") if isinstance(replay_extensions.get("replay_payloads"), dict) else {}
+        replay_forge_couple_block = replay_forge_couple_payloads.get("image.forge_couple") if isinstance(replay_forge_couple_payloads, dict) else None
+        if isinstance(replay_forge_couple_block, dict):
+            sanitized = _sanitize_forge_couple_output_block(replay_forge_couple_block, replay=True)
+            replay_forge_couple_block.clear()
+            replay_forge_couple_block.update(sanitized)
+            replay_forge_couple_metadata = replay_forge_couple_block.get("metadata") if isinstance(replay_forge_couple_block.get("metadata"), dict) else {}
+            replay_forge_couple_metadata.update({
+                "revalidation_required": True,
+                "restore_state": "disabled_pending_forge_couple_revalidation",
+                "mask_reupload_required": bool(replay_forge_couple_metadata.get("mask_count")),
+                "tile_reenable_required": True,
+            })
+            replay_forge_couple_block["metadata"] = replay_forge_couple_metadata
+        replay_extensions.setdefault("extension_restore_policies", {})["image.forge_couple"] = "restore_basic_advanced_or_mask_settings_disabled_strip_masks_disable_tile_and_revalidate_live_forge_couple_script_route_prompt_regions_masks_and_sd_upscale_before_enable"
     if "image.scene_director" in replay_extensions.get("payloads", {}) or "image.scene_director" in replay_extensions.get("replay_payloads", {}):
         replay_extensions.setdefault("extension_restore_policies", {})["image.scene_director"] = "revalidate_route_nodes_scene_director_regions_and_checkpoint_family_before_enable"
     if "image.adetailer" in replay_extensions.get("payloads", {}) or "image.adetailer" in replay_extensions.get("replay_payloads", {}):
@@ -1449,10 +1668,17 @@ def build_output_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
         "params": safe_params,
         "model": deepcopy(model),
         "route": deepcopy(record.get("route") if isinstance(record.get("route"), dict) else {}),
-        "provider_binding": deepcopy(record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) else build_provider_binding_metadata(record)),
-        "replay_validation": deepcopy(record.get("replay_validation") if isinstance(record.get("replay_validation"), dict) else build_provider_replay_validation_metadata(record)),
+        "provider_binding": deepcopy(record.get("provider_binding") if isinstance(record.get("provider_binding"), dict) and record.get("provider_binding") else build_provider_binding_metadata(record)),
+        "replay_validation": deepcopy(record.get("replay_validation") if isinstance(record.get("replay_validation"), dict) and record.get("replay_validation") else build_provider_replay_validation_metadata(record)),
         "job": deepcopy(record.get("job") if isinstance(record.get("job"), dict) else {}),
+        "lineage": deepcopy(record.get("lineage") if isinstance(record.get("lineage"), dict) and record.get("lineage") else build_output_lineage_metadata(record)),
+        "lanpaint": deepcopy(record.get("lanpaint") if isinstance(record.get("lanpaint"), dict) else {}),
         "extensions": replay_extensions,
+        "state_cleanup": {
+            "schema": "neo.image.replay_state_sanitization.v1",
+            "params": params_cleanup,
+            "extensions": extensions_cleanup,
+        },
         "input_assets": deepcopy((record.get("source") or {}).get("input_assets", []) if isinstance(record.get("source"), dict) else []),
     }
 
@@ -1466,7 +1692,7 @@ def output_record_schema_payload() -> dict[str, Any]:
         "file": "neo_app/image/output_records.py",
         "extension_slots": list(EXTENSION_METADATA_KEYS),
         "workflow_memory": ["event_id", "namespace", "assistant_summary"],
-        "assistant_ready_slots": ["assistant_summary", "replay", "replay_payload", "provider_binding", "replay_validation", "source.input_assets", "extensions.replay_payloads", "extensions.assistant_summaries", "extensions.memory_events"],
+        "assistant_ready_slots": ["assistant_summary", "replay", "replay_payload", "lineage", "lanpaint", "provider_binding", "replay_validation", "source.input_assets", "extensions.replay_payloads", "extensions.assistant_summaries", "extensions.memory_events"],
         "required_top_level_keys": [
             "schema_version",
             "result_id",
@@ -1495,6 +1721,7 @@ def output_record_schema_payload() -> dict[str, Any]:
             "Extensions must provide stable extension_id values when they affect generation.",
             "Provider output refs remain source references until the persistence service copies files into Neo_Data.",
             "The top-level replay block is metadata-only until provider-owned latent restore points are implemented.",
+            "LanPaint outputs include neo.image.lanpaint_replay.v1 with exact route, controls, assets, LoRA lineage, capability evidence and deterministic fingerprints.",
             "Provider binding and replay validation blocks must never store API keys or secrets; they only record profile/model/capability requirements.",
         ],
     }

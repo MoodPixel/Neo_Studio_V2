@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_workflow_abstraction.v1",
+  "title": "Neo Studio base LanPaint workflow abstraction",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "route_family_id",
+    "abstraction_state",
+    "stage_order",
+    "stages",
+    "edges",
+    "external_ports",
+    "insertion_points",
+    "compiler_interface",
+    "invariants",
+    "execution",
+    "validation",
+    "abstraction_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {"const": "neo.image.lanpaint_workflow_abstraction.v1"},
+    "schema_version": {"const": 1},
+    "authority": {"const": "neo_app.image.lanpaint_workflow_abstraction"},
+    "route_family_id": {"const": "image.inpaint.lanpaint"},
+    "abstraction_state": {"const": "abstraction_only"},
+    "stage_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "source_image"},
+        {"const": "mask_image"},
+        {"const": "crop_context"},
+        {"const": "processing_resize"},
+        {"const": "sampling_mask_refine"},
+        {"const": "latent_encode"},
+        {"const": "latent_noise_mask"},
+        {"const": "family_model_transform"},
+        {"const": "lanpaint_sample"},
+        {"const": "latent_decode"},
+        {"const": "restore_crop_size"},
+        {"const": "stitch_mask_refine"},
+        {"const": "stitch_composite"},
+        {"const": "output_handoff"}
+      ],
+      "minItems": 14,
+      "maxItems": 14
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "required": ["stage_id", "role_id", "ordinal", "category", "required", "inputs", "outputs", "responsibility", "binding"],
+        "properties": {
+          "stage_id": {"type": "string"},
+          "role_id": {"type": "string"},
+          "ordinal": {"type": "integer", "minimum": 0, "maximum": 13},
+          "category": {"type": "string"},
+          "required": {"type": "boolean"},
+          "inputs": {"type": "array"},
+          "outputs": {"type": "array"},
+          "responsibility": {"type": "string"},
+          "binding": {
+            "type": "object",
+            "required": ["state", "provider_id", "family_id", "loader_id", "compiler_id", "node_class"],
+            "properties": {
+              "state": {"const": "unbound"},
+              "provider_id": {"type": "null"},
+              "family_id": {"type": "null"},
+              "loader_id": {"type": "null"},
+              "compiler_id": {"type": "null"},
+              "node_class": {"type": "null"}
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "edges": {"type": "array", "minItems": 20},
+    "external_ports": {"type": "array", "minItems": 5, "maxItems": 5},
+    "insertion_points": {"type": "object"},
+    "compiler_interface": {
+      "type": "object",
+      "properties": {
+        "binding_state": {"const": "unbound"},
+        "compiler_id": {"type": "null"},
+        "workflow_type": {"type": "null"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["enabled", "selectable", "compiler_id", "workflow_type", "state", "reason"],
+      "properties": {
+        "enabled": {"const": false},
+        "selectable": {"const": false},
+        "compiler_id": {"type": "null"},
+        "workflow_type": {"type": "null"},
+        "state": {"const": "abstraction_only"},
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "validation": {"type": "object"},
+    "abstraction_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

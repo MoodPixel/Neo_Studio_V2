@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_route_capabilities.v1",
+  "title": "Neo Studio LanPaint route capability report",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "phase_state",
+    "route",
+    "discovery",
+    "checks",
+    "blockers",
+    "warnings",
+    "remediation",
+    "status",
+    "selectable",
+    "executable",
+    "lora",
+    "capability_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.image.lanpaint_route_capabilities.v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "authority": {
+      "const": "neo_app.image.lanpaint_capabilities"
+    },
+    "phase_state": {
+      "const": "capability_gating_and_diagnostics"
+    },
+    "status": {
+      "enum": [
+        "available",
+        "experimental_available",
+        "blocked_missing_nodes",
+        "blocked_missing_models",
+        "unsupported"
+      ]
+    },
+    "selectable": {
+      "type": "boolean"
+    },
+    "executable": {
+      "type": "boolean"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "remediation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capability_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "expansion_scaffold": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

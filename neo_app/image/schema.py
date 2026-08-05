@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -28,13 +27,18 @@ class ImageSubtabBase(BaseModel):
 
 class ImageSurfaceBaseContract(BaseModel):
     surface_id: str = "image"
-    version: str = "0.9.0"
+    version: str = "0.11.0-ip8"
     model_families: list[ImageOption] = Field(default_factory=list)
     loader_types: list[ImageOption] = Field(default_factory=list)
     default_params: dict = Field(default_factory=dict)
     size_presets: list[ImageOption] = Field(default_factory=list)
     subtabs: list[ImageSubtabBase] = Field(default_factory=list)
     memory_events: list[str] = Field(default_factory=list)
+    sampling_presets: dict = Field(default_factory=dict)
+    output_intents: dict = Field(default_factory=dict)
+    sampling_preset_authoring: dict = Field(default_factory=dict)
+    sampling_preset_inspector: dict = Field(default_factory=dict)
+    sampling_preset_release_lock: dict = Field(default_factory=dict)
 
 
 class ImageJobDraft(BaseModel):

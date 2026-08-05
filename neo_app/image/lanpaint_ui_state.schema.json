@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_ui_state.v1",
+  "title": "Neo Studio LanPaint route-aware UI state",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "phase_state",
+    "route_family_id",
+    "route",
+    "badges",
+    "controls",
+    "requested_flat",
+    "resolved_flat",
+    "flat_params",
+    "value_sources",
+    "family_policy",
+    "validation",
+    "state_policy",
+    "state_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {"const": "neo.image.lanpaint_ui_state.v1"},
+    "schema_version": {"const": 1},
+    "authority": {"const": "neo_app.image.lanpaint_ui_state"},
+    "phase_state": {"const": "route_aware_ui_state_enabled"},
+    "route_family_id": {"const": "image.inpaint.lanpaint"},
+    "route": {
+      "type": "object",
+      "required": ["provider_id", "family", "loader", "mode", "engine", "requested_engine", "route_key", "route_state", "eligible", "active", "selectable", "variant"],
+      "properties": {
+        "mode": {"enum": ["inpaint"]},
+        "engine": {"enum": ["native", "lanpaint"]},
+        "requested_engine": {"type": "string"},
+        "eligible": {"type": "boolean"},
+        "active": {"type": "boolean"},
+        "selectable": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "controls": {
+      "type": "object",
+      "required": ["crop", "sampling_mask", "stitch_mask", "sampler", "stitch"],
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": ["ok", "eligible", "active", "errors", "warnings"],
+      "additionalProperties": true
+    },
+    "state_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_replay.v1",
+  "title": "Neo Image LanPaint Replay, Lineage and Audit Contract",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "phase_state",
+    "route",
+    "family_adapter",
+    "controls",
+    "input_assets",
+    "workflow_lineage",
+    "reconstruction",
+    "audit",
+    "replay_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.image.lanpaint_replay.v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "authority": {
+      "const": "neo_app.image.lanpaint_replay"
+    },
+    "phase_state": {
+      "const": "replay_lineage_and_audit_support"
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "family",
+        "loader",
+        "mode",
+        "engine",
+        "route_key"
+      ],
+      "properties": {
+        "provider_id": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "loader": {
+          "type": "string"
+        },
+        "mode": {
+          "const": "inpaint"
+        },
+        "engine": {
+          "const": "lanpaint"
+        },
+        "route_key": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string"
+        },
+        "policy_id": {
+          "type": "string"
+        },
+        "compiler_id": {
+          "type": "string"
+        },
+        "graph_state": {
+          "type": "string"
+        },
+        "route_state": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "controls": {
+      "type": "object"
+    },
+    "ui_state": {
+      "type": "object"
+    },
+    "selected_assets": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "input_assets": {
+      "type": "object",
+      "required": [
+        "source",
+        "mask",
+        "all",
+        "missing_roles",
+        "image_bytes_embedded"
+      ],
+      "properties": {
+        "source": {
+          "type": "object"
+        },
+        "mask": {
+          "type": "object"
+        },
+        "all": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "missing_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "image_bytes_embedded": {
+          "const": false
+        }
+      }
+    },
+    "mask": {
+      "type": "object"
+    },
+    "source": {
+      "type": "object"
+    },
+    "lora": {
+      "type": "object"
+    },
+    "workflow_lineage": {
+      "type": "object"
+    },
+    "output_lineage": {
+      "type": "object"
+    },
+    "fingerprints": {
+      "type": "object"
+    },
+    "capability_snapshot": {
+      "type": "object"
+    },
+    "reconstruction": {
+      "type": "object"
+    },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "provider_upload_aliases_retained": {
+          "const": false
+        },
+        "image_bytes_retained": {
+          "const": false
+        },
+        "exact_route_rebuild": {
+          "const": true
+        },
+        "exact_family_adapter_rebuild": {
+          "const": true
+        }
+      }
+    },
+    "replay_fingerprint": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "family_adapter": {
+      "type": "object",
+      "required": [
+        "adapter_id",
+        "adapter_fingerprint",
+        "exact_adapter_required"
+      ],
+      "properties": {
+        "schema_id": {
+          "type": "string"
+        },
+        "adapter_id": {
+          "type": "string"
+        },
+        "adapter_fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "binding_state": {
+          "type": "string"
+        },
+        "graph_profile": {
+          "type": "string"
+        },
+        "exact_adapter_required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -188,7 +188,7 @@ def _known_issues_for_route(row: dict[str, Any]) -> list[str]:
         issues.append("P5 implements the ZImage component compiler shape; run physical Comfy validation with local ZImage diffusion model, Qwen3 text encoder, AE/VAE, source image, and mask/padding before marking verified.")
     if backend == "comfyui" and family == "z_image_turbo" and loader in {"diffusion_model", "gguf"} and mode in {"img2img", "inpaint", "outpaint"}:
         issues.append("P8.5 locks ZImage Turbo image modes to the selected loader's provider-owned Turbo route with family-forced low-step/low-CFG defaults; run physical Comfy validation with local Turbo model/text encoder/AE assets, source image, and mask/padding before marking verified.")
-    if backend == "comfyui" and mode == "outpaint" and family in {"sdxl", "sd15", "qwen_image", "qwen_image_edit_2509"}:
+    if backend == "comfyui" and mode == "outpaint" and family in {"sdxl", "sd15", "qwen_image", "qwen_image_edit_2509", "qwen_image_edit_2511"}:
         issues.append("Outpaint must be validated with the V1-parity canvas popup, drag/reposition, and padding sync.")
     return issues
 

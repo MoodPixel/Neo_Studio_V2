@@ -3,6 +3,15 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from neo_app.image.action_state import (
+    ACTION_TRANSIENT_KEYS,
+    MASK_FIELDS,
+    OUTPAINT_FIELDS,
+    PROVIDER_UPLOAD_CACHE_KEYS,
+    SOURCE_FIELDS,
+    clear_cross_provider_upload_caches,
+)
+
 SCHEMA_ID = "neo.image.clean_state_boundary.v25_9_5"
 PHASE = "V25.9.5"
 SOURCE_WORKFLOW_MODES = {"img2img", "image_to_image", "edit", "inpaint", "outpaint"}
@@ -10,11 +19,14 @@ TXT2IMG_MODES = {"generate", "txt2img", "text_to_image"}
 
 PREVIEW_ACTION_KEYS = {
     "_neo_preview_action",
+    "_neo_derived_action",
+    "_neo_derived_action_validation",
     "_neo_derived_action_type",
     "_neo_source_output_id",
     "_neo_source_job_id",
     "_neo_parent_output_id",
     "_neo_preview_action_source",
+    "_neo_preview_source_handoff",
 }
 SOURCE_IMAGE_KEYS = {
     "source_image",
@@ -23,12 +35,20 @@ SOURCE_IMAGE_KEYS = {
     "source_image_name",
     "comfy_source_image_name",
     "source_image_uploaded_to_comfy",
+    "forge_source_image_b64",
     "mask_image",
     "mask_image_path",
     "mask_image_url",
     "mask_image_name",
     "mask_image_preview_url",
     "comfy_mask_image_name",
+    "forge_mask_image_b64",
+    "comfy_outpaint_canvas_image_name",
+    "comfy_outpaint_mask_image_name",
+} | SOURCE_FIELDS | MASK_FIELDS | OUTPAINT_FIELDS | PROVIDER_UPLOAD_CACHE_KEYS
+PREVIEW_ACTION_KEYS |= ACTION_TRANSIENT_KEYS | {
+    "_neo_preview_reference_handoff",
+    "_neo_action_state_cleanup",
 }
 
 
@@ -102,3 +122,49 @@ def sanitize_image_params_for_state_boundary(params: dict[str, Any] | None, mode
     if cleared or warnings:
         clean["_neo_clean_state_boundary"] = report
     return clean, report
+
+
+def sanitize_image_action_state_for_provider(
+    params: dict[str, Any] | None,
+    *,
+    mode: Any = "txt2img",
+    provider_id: str = "",
+    profile_id: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply provider ownership cleanup without deleting the active action contract.
+
+    Source/Reference/Finish validators still own their active contracts.  This
+    boundary removes only stale provider upload aliases and then applies the
+    existing clean-txt2img mode hygiene.
+    """
+
+    provider_clean, provider_report = clear_cross_provider_upload_caches(
+        params, provider_id=provider_id, profile_id=profile_id
+    )
+    active_contract = any(
+        isinstance(provider_clean.get(key), dict) and provider_clean.get(key)
+        for key in ("_neo_derived_action", "_neo_preview_action", "_preview_action_source", "_neo_preview_source_handoff")
+    )
+    if active_contract:
+        mode_clean = provider_clean
+        mode_report = {
+            "schema": SCHEMA_ID,
+            "phase": PHASE,
+            "runtime_mode": normalize_runtime_mode(mode),
+            "status": "preserved_active_action_contract",
+            "cleared_fields": [],
+            "warning_codes": [],
+        }
+    else:
+        mode_clean, mode_report = sanitize_image_params_for_state_boundary(provider_clean, mode)
+    report = {
+        "schema": "neo.image.action_state_provider_boundary.v1",
+        "provider_id": str(provider_id or "").strip().casefold(),
+        "profile_id": str(profile_id or "").strip(),
+        "runtime_mode": normalize_runtime_mode(mode),
+        "provider_cleanup": provider_report,
+        "mode_cleanup": mode_report,
+        "status": "cleaned" if provider_report.get("cleared_fields") or mode_report.get("cleared_fields") else "clean",
+    }
+    mode_clean["_neo_action_state_cleanup"] = report
+    return mode_clean, report

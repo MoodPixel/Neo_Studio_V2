@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_route_family_contract.v1",
+  "title": "Neo Studio LanPaint route-family contract",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "identity",
+    "stage_order",
+    "crop_policy",
+    "mask_policy",
+    "latent_policy",
+    "sampler_policy",
+    "lora_policy",
+    "stitch_policy",
+    "capability_requirements",
+    "family_policy",
+    "execution",
+    "validation",
+    "contract_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {"const": "neo.image.lanpaint_route_family_contract.v1"},
+    "schema_version": {"const": 1},
+    "authority": {"const": "neo_app.image.lanpaint_route_contract"},
+    "identity": {
+      "type": "object",
+      "required": ["route_family_id", "provider_id", "family", "loader", "mode", "engine", "variant", "route_key"],
+      "properties": {
+        "route_family_id": {"const": "image.inpaint.lanpaint"},
+        "provider_id": {"type": "string"},
+        "family": {"type": "string"},
+        "loader": {"type": "string"},
+        "mode": {"const": "inpaint"},
+        "engine": {"const": "lanpaint"},
+        "variant": {"type": "string"},
+        "route_key": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "stage_order": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 14,
+      "uniqueItems": true
+    },
+    "execution": {
+      "type": "object",
+      "required": ["enabled", "state", "compiler_id", "workflow_type", "selectable", "reason"],
+      "properties": {
+        "enabled": {"const": false},
+        "state": {"const": "contract_only"},
+        "compiler_id": {"type": ["string", "null"]},
+        "workflow_type": {"type": ["string", "null"]},
+        "selectable": {"const": false},
+        "reason": {"type": "string"}
+      }
+    },
+    "contract_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": true
+}

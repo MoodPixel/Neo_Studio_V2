@@ -6,6 +6,7 @@ from typing import Any
 SCHEMA_ID = "neo.image.output_recovery.v25_3"
 RECOVERABLE_IMPORT_STATUSES = {
     "import_failed",
+    # Legacy persisted status ID; UI wording is backend-neutral.
     "saved_in_comfy_only",
     "completed_no_outputs_recoverable",
     "completed_import_failed",
@@ -52,11 +53,11 @@ def _backend_file_candidates(output: dict[str, Any], backend_output_root: str) -
 
 
 def enrich_provider_outputs_for_local_recovery(provider_outputs: list[dict[str, Any]], context: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Attach a backend local_path fallback when Comfy /view is slow or unavailable.
+    """Attach a backend local-path fallback when remote output import is unavailable.
 
-    Comfy can finish and save files while Neo's HTTP import times out. If the backend
-    profile exposes a local output root, this keeps persistence retry-safe by reading
-    the file directly before falling back to /view.
+    A local backend can finish and save files while Neo's HTTP import times out. If
+    the profile exposes a local output root, this keeps persistence retry-safe by
+    reading the file directly before falling back to the provider fetch endpoint.
     """
     context = context if isinstance(context, dict) else {}
     backend_root = str(context.get("backend_output_root") or "").strip()
@@ -93,9 +94,9 @@ def image_output_recovery_payload(
     clean_status = str(status or "saved_in_comfy_only")
     recoverable = clean_status in RECOVERABLE_IMPORT_STATUSES or (bool(outputs) and not files)
     endpoint = f"/api/image/jobs/{profile_id}/{job_id}/recover" if job_id and profile_id else ""
-    label = "Saved in Comfy only — recovery available" if recoverable else "Output import state recorded"
+    label = "Saved in backend only — recovery available" if recoverable else "Output import state recorded"
     if clean_status == "completed_no_outputs_recoverable":
-        label = "Comfy completed, but Neo found no output files yet"
+        label = "Backend completed, but Neo found no output files yet"
     elif clean_status == "import_failed":
         label = "Neo output import failed — recovery available"
     return {

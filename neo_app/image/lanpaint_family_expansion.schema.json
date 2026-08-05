@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_family_expansion_profile.v1",
+  "title": "Neo Studio LanPaint family expansion profile",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "identity",
+    "family_policy",
+    "loader_policy",
+    "conditioning_policy",
+    "negative_policy",
+    "lora_policy",
+    "node_requirements",
+    "model_requirements",
+    "onboarding",
+    "test_status",
+    "execution",
+    "validation",
+    "profile_fingerprint"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.image.lanpaint_family_expansion_profile.v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "authority": {
+      "const": "neo_app.image.lanpaint_family_expansion"
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "profile_id",
+        "route_family_id",
+        "family",
+        "loader",
+        "provider_ids",
+        "mode",
+        "engine",
+        "route_keys",
+        "display_name"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "route_family_id": {
+          "const": "image.inpaint.lanpaint"
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "loader": {
+          "enum": [
+            "checkpoint",
+            "diffusion_model",
+            "gguf"
+          ]
+        },
+        "provider_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "comfyui",
+              "comfyui_portable"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "mode": {
+          "const": "inpaint"
+        },
+        "engine": {
+          "const": "lanpaint"
+        },
+        "route_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "family_policy": {
+      "type": "object"
+    },
+    "loader_policy": {
+      "type": "object"
+    },
+    "conditioning_policy": {
+      "type": "object"
+    },
+    "negative_policy": {
+      "type": "object"
+    },
+    "lora_policy": {
+      "type": "object"
+    },
+    "node_requirements": {
+      "type": "object"
+    },
+    "model_requirements": {
+      "type": "object"
+    },
+    "onboarding": {
+      "type": "object"
+    },
+    "test_status": {
+      "type": "object"
+    },
+    "execution": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "selectable",
+        "executable",
+        "state",
+        "compiler_id",
+        "route_status",
+        "reason"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "selectable": {
+          "type": "boolean"
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "scaffold_only",
+            "phase10_onboarded",
+            "phase14_stabilized",
+            "phase15_onboarded",
+            "phase16_onboarded",
+            "phase17_onboarded",
+            "phase18_onboarded",
+            "phase20_onboarded",
+            "phase21_onboarded",
+            "phase22_onboarded"
+          ]
+        },
+        "compiler_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route_status": {
+          "enum": [
+            "unsupported",
+            "experimental_available"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "enabled": {
+              "const": false
+            },
+            "selectable": {
+              "const": false
+            },
+            "executable": {
+              "const": false
+            },
+            "state": {
+              "const": "scaffold_only"
+            },
+            "compiler_id": {
+              "type": "null"
+            },
+            "route_status": {
+              "const": "unsupported"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase10_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase14_stabilized"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase15_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase16_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase17_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase18_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase20_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase21_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        },
+        {
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "selectable": {
+              "const": true
+            },
+            "executable": {
+              "const": true
+            },
+            "state": {
+              "const": "phase22_onboarded"
+            },
+            "compiler_id": {
+              "const": "comfy.lanpaint.family_aware.v1"
+            },
+            "route_status": {
+              "const": "experimental_available"
+            }
+          }
+        }
+      ]
+    },
+    "validation": {
+      "type": "object"
+    },
+    "profile_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,4501 @@
+{
+  "schema_id": "neo.image.lanpaint_family_expansion_profile_data.v1",
+  "schema_version": 1,
+  "authority": "neo_app.image.lanpaint_family_expansion",
+  "phase_state": "anima_ideogram4_family_lanpaint_onboarding",
+  "profiles": [
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.anima.diffusion_model.phase22.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "anima",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:anima:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:anima:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Anima Base v1 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.anima.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase22_verified_family_contract"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "anima_qwen3_06b_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "stable_diffusion",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_family_workflow"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase22_family_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_only",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase22_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "anima_qwen3_06b_text_encoder",
+          "qwen_image_vae"
+        ],
+        "optional_model_roles": [
+          "anima_compatible_model_only_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase22",
+        "required_work": [
+          "Run physical masked-region generation, exact loader and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 22 Anima and Ideogram 4 onboarding"
+      },
+      "test_status": {
+        "overall": "phase22_automated",
+        "schema_validation": "phase22_automated",
+        "route_isolation": "phase22_automated",
+        "compiler_graph": "phase22_automated",
+        "capability_gating": "phase22_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase22_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 22 exact family adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.anima.gguf.phase22.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "anima",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:anima:gguf:inpaint:lanpaint",
+          "comfyui_portable:anima:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Anima Base v1 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.anima.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase22_verified_family_contract"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "anima_qwen3_06b_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "stable_diffusion",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_family_workflow"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase22_family_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_only",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "CLIPLoader",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase22_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "anima_qwen3_06b_text_encoder",
+          "qwen_image_vae"
+        ],
+        "optional_model_roles": [
+          "anima_compatible_model_only_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase22",
+        "required_work": [
+          "Run physical masked-region generation, exact loader and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 22 Anima and Ideogram 4 onboarding"
+      },
+      "test_status": {
+        "overall": "phase22_automated",
+        "schema_validation": "phase22_automated",
+        "route_isolation": "phase22_automated",
+        "compiler_graph": "phase22_automated",
+        "capability_gating": "phase22_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase22_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 22 exact family adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux.diffusion_model.phase16.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:flux:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.1 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux1.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase16_flux1_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux1_dual_text_encoder",
+        "loader_node_class": "DualCLIPLoader",
+        "clip_type": "flux",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase16_flux1_policy",
+        "variants": {
+          "dev": {
+            "guidance": 1.5,
+            "steps": 30
+          },
+          "schnell": {
+            "guidance": 1.0,
+            "steps": 4
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase16_flux1_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "DualCLIPLoader",
+          "VAELoader",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase16_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "flux_t5xxl",
+          "flux_clip_l",
+          "flux_ae"
+        ],
+        "optional_model_roles": [
+          "flux1_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase16",
+        "required_work": [
+          "Run physical Flux.1 Dev and Schnell masked-region generation, LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 16 Flux.1 family onboarding"
+      },
+      "test_status": {
+        "overall": "phase16_automated",
+        "schema_validation": "phase16_automated",
+        "route_isolation": "phase16_automated",
+        "compiler_graph": "phase16_automated",
+        "capability_gating": "phase16_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase16_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 16 exact Flux.1 Dev/Schnell adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux.gguf.phase16.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux:gguf:inpaint:lanpaint",
+          "comfyui_portable:flux:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.1 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux1.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase16_flux1_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux1_dual_text_encoder",
+        "loader_node_class": "DualCLIPLoaderGGUF",
+        "clip_type": "flux",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase16_flux1_policy",
+        "variants": {
+          "dev": {
+            "guidance": 1.5,
+            "steps": 30
+          },
+          "schnell": {
+            "guidance": 1.0,
+            "steps": 4
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase16_flux1_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "DualCLIPLoaderGGUF",
+          "VAELoader",
+          "ModelSamplingFlux",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase16_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "flux_t5xxl",
+          "flux_clip_l",
+          "flux_ae"
+        ],
+        "optional_model_roles": [
+          "flux1_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase16",
+        "required_work": [
+          "Run physical Flux.1 Dev and Schnell masked-region generation, LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 16 Flux.1 family onboarding"
+      },
+      "test_status": {
+        "overall": "phase16_automated",
+        "schema_validation": "phase16_automated",
+        "route_isolation": "phase16_automated",
+        "compiler_graph": "phase16_automated",
+        "capability_gating": "phase16_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase16_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 16 exact Flux.1 Dev/Schnell adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux2_dev.diffusion_model.phase17.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux2_dev",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux2_dev:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:flux2_dev:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.2 Dev Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux2_dev.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase17_flux2_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux2_mistral3_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "flux2",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase17_flux2_policy",
+        "variants": {
+          "dev": {
+            "guidance": 4.0,
+            "steps": 28
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase17_flux2_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "VAELoader",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase17_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "flux2_mistral3_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": [
+          "flux2_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase17",
+        "required_work": [
+          "Run physical Flux.2 Dev/Klein masked-region generation, optional LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 17 Flux.2 Dev and Klein onboarding"
+      },
+      "test_status": {
+        "overall": "phase17_automated",
+        "schema_validation": "phase17_automated",
+        "route_isolation": "phase17_automated",
+        "compiler_graph": "phase17_automated",
+        "capability_gating": "phase17_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase17_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 17 exact Flux.2 family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux2_dev.gguf.phase17.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux2_dev",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux2_dev:gguf:inpaint:lanpaint",
+          "comfyui_portable:flux2_dev:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.2 Dev GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux2_dev.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase17_flux2_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux2_mistral3_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "flux2",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase17_flux2_policy",
+        "variants": {
+          "dev": {
+            "guidance": 4.0,
+            "steps": 28
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase17_flux2_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "CLIPLoader",
+          "VAELoader",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase17_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "flux2_mistral3_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": [
+          "flux2_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase17",
+        "required_work": [
+          "Run physical Flux.2 Dev/Klein masked-region generation, optional LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 17 Flux.2 Dev and Klein onboarding"
+      },
+      "test_status": {
+        "overall": "phase17_automated",
+        "schema_validation": "phase17_automated",
+        "route_isolation": "phase17_automated",
+        "compiler_graph": "phase17_automated",
+        "capability_gating": "phase17_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase17_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 17 exact Flux.2 family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux2_klein.diffusion_model.phase17.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux2_klein",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux2_klein:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:flux2_klein:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.2 Klein Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux2_klein.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase17_flux2_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux2_qwen3_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "flux2",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase17_flux2_policy",
+        "variants": {
+          "klein_base": {
+            "guidance": 4.0,
+            "steps": 50
+          },
+          "klein_distilled": {
+            "guidance": 1.0,
+            "steps": 4
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase17_flux2_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "VAELoader",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase17_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "flux2_qwen3_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": [
+          "flux2_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase17",
+        "required_work": [
+          "Run physical Flux.2 Dev/Klein masked-region generation, optional LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 17 Flux.2 Dev and Klein onboarding"
+      },
+      "test_status": {
+        "overall": "phase17_automated",
+        "schema_validation": "phase17_automated",
+        "route_isolation": "phase17_automated",
+        "compiler_graph": "phase17_automated",
+        "capability_gating": "phase17_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase17_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 17 exact Flux.2 family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.flux2_klein.gguf.phase17.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "flux2_klein",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:flux2_klein:gguf:inpaint:lanpaint",
+          "comfyui_portable:flux2_klein:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Flux.2 Klein GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.flux2_klein.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase17_flux2_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "flux2_qwen3_text_encoder",
+        "loader_node_class": "CLIPLoaderGGUF",
+        "clip_type": "flux2",
+        "positive": "CLIPTextEncode -> FluxGuidance",
+        "source_authority": "phase17_flux2_policy",
+        "variants": {
+          "klein_base": {
+            "guidance": 4.0,
+            "steps": 50
+          },
+          "klein_distilled": {
+            "guidance": 1.0,
+            "steps": 4
+          }
+        }
+      },
+      "negative_policy": {
+        "strategy": "zero_out_unguided_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase17_flux2_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "CLIPLoaderGGUF",
+          "VAELoader",
+          "FluxGuidance"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase17_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "flux2_qwen3_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": [
+          "flux2_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase17",
+        "required_work": [
+          "Run physical Flux.2 Dev/Klein masked-region generation, optional LoRA, and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 17 Flux.2 Dev and Klein onboarding"
+      },
+      "test_status": {
+        "overall": "phase17_automated",
+        "schema_validation": "phase17_automated",
+        "route_isolation": "phase17_automated",
+        "compiler_graph": "phase17_automated",
+        "capability_gating": "phase17_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase17_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 17 exact Flux.2 family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.hidream.diffusion_model.phase21.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "hidream",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:hidream:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:hidream:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "HiDream-I1 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.hidream_i1.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase21_hidream_i1_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "hidream_i1_quadruple_text_encoder",
+        "loader_node_class": "QuadrupleCLIPLoader",
+        "clip_type": "hidream",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_hidream_i1_four_encoder_workflow"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase21_hidream_i1_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "QuadrupleCLIPLoader",
+          "VAELoader",
+          "ModelSamplingSD3"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase21_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "hidream_clip_l",
+          "hidream_clip_g",
+          "hidream_t5xxl",
+          "hidream_llama_3_1_8b",
+          "vae_or_ae"
+        ],
+        "optional_model_roles": [
+          "hidream_i1_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase21",
+        "required_work": [
+          "Run physical HiDream-I1 masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 21 HiDream-I1 onboarding and Hunyuan video hold"
+      },
+      "test_status": {
+        "overall": "phase21_automated",
+        "schema_validation": "phase21_automated",
+        "route_isolation": "phase21_automated",
+        "compiler_graph": "phase21_automated",
+        "capability_gating": "phase21_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase21_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 21 exact HiDream-I1 four-encoder adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.hidream.gguf.phase21.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "hidream",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:hidream:gguf:inpaint:lanpaint",
+          "comfyui_portable:hidream:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "HiDream-I1 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.hidream_i1.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase21_hidream_i1_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "hidream_i1_quadruple_text_encoder",
+        "loader_node_class": "QuadrupleCLIPLoaderGGUF",
+        "clip_type": "hidream",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_hidream_i1_four_encoder_workflow"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase21_hidream_i1_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "QuadrupleCLIPLoaderGGUF",
+          "VAELoader",
+          "ModelSamplingSD3"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase21_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "hidream_clip_l",
+          "hidream_clip_g",
+          "hidream_t5xxl",
+          "hidream_llama_3_1_8b",
+          "vae_or_ae"
+        ],
+        "optional_model_roles": [
+          "hidream_i1_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase21",
+        "required_work": [
+          "Run physical HiDream-I1 masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 21 HiDream-I1 onboarding and Hunyuan video hold"
+      },
+      "test_status": {
+        "overall": "phase21_automated",
+        "schema_validation": "phase21_automated",
+        "route_isolation": "phase21_automated",
+        "compiler_graph": "phase21_automated",
+        "capability_gating": "phase21_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase21_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 21 exact HiDream-I1 four-encoder adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.hunyuan_image.diffusion_model.video_hold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "hunyuan_image",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:hunyuan_image:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:hunyuan_image:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Hunyuan Image Safetensors LanPaint (Held)"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.hunyuan_image.video_hold.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "unresolved_placeholder",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "unresolved",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "unresolved",
+        "loader_node_class": null,
+        "clip_type": "",
+        "positive": "unresolved",
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "negative_policy": {
+        "strategy": "unresolved",
+        "node_class": null,
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "lora_policy": {
+        "support_state": "provider_gated",
+        "strategy": "provider_specific",
+        "loader_node_class": null,
+        "clip_strength_supported": false,
+        "source_authority": "hunyuan_video_hold"
+      },
+      "node_requirements": {
+        "base_node_roles": [],
+        "family_specific_candidates": [],
+        "required_custom_node_packs": [],
+        "binding_state": "held_for_video_workspace"
+      },
+      "model_requirements": {
+        "required_model_roles": [],
+        "optional_model_roles": []
+      },
+      "onboarding": {
+        "state": "blocked_family_policy",
+        "required_work": [
+          "Implement HunyuanVideo under Video workspace first.",
+          "Research a separate HunyuanImage LanPaint graph before any Image route activation."
+        ],
+        "core_changes_expected": true,
+        "activation_owner": "future_video_and_hunyuan_image_program"
+      },
+      "test_status": {
+        "overall": "hold_contract_only",
+        "schema_validation": "phase21_automated",
+        "route_isolation": "phase21_automated",
+        "compiler_graph": "not_applicable",
+        "capability_gating": "phase21_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Held: upstream LanPaint Hunyuan T2I is HunyuanVideo/T2V; no Image-tab compiler is permitted."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.hunyuan_image.gguf.video_hold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "hunyuan_image",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:hunyuan_image:gguf:inpaint:lanpaint",
+          "comfyui_portable:hunyuan_image:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Hunyuan Image GGUF LanPaint (Held)"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.hunyuan_image.video_hold.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "unresolved_placeholder",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "unresolved",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "unresolved",
+        "loader_node_class": null,
+        "clip_type": "",
+        "positive": "unresolved",
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "negative_policy": {
+        "strategy": "unresolved",
+        "node_class": null,
+        "source_authority": "video_hold_no_image_binding"
+      },
+      "lora_policy": {
+        "support_state": "provider_gated",
+        "strategy": "provider_specific",
+        "loader_node_class": null,
+        "clip_strength_supported": false,
+        "source_authority": "hunyuan_video_hold"
+      },
+      "node_requirements": {
+        "base_node_roles": [],
+        "family_specific_candidates": [],
+        "required_custom_node_packs": [],
+        "binding_state": "held_for_video_workspace"
+      },
+      "model_requirements": {
+        "required_model_roles": [],
+        "optional_model_roles": []
+      },
+      "onboarding": {
+        "state": "blocked_family_policy",
+        "required_work": [
+          "Implement HunyuanVideo under Video workspace first.",
+          "Research a separate HunyuanImage LanPaint graph before any Image route activation."
+        ],
+        "core_changes_expected": true,
+        "activation_owner": "future_video_and_hunyuan_image_program"
+      },
+      "test_status": {
+        "overall": "hold_contract_only",
+        "schema_validation": "phase21_automated",
+        "route_isolation": "phase21_automated",
+        "compiler_graph": "not_applicable",
+        "capability_gating": "phase21_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Held: upstream LanPaint Hunyuan T2I is HunyuanVideo/T2V; no Image-tab compiler is permitted."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.ideogram4.diffusion_model.phase22.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "ideogram4",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:ideogram4:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:ideogram4:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Ideogram 4 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.ideogram4.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "ideogram4_main_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase22_verified_family_contract"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "ideogram4_qwen3_vl_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "ideogram4",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_family_workflow"
+      },
+      "negative_policy": {
+        "strategy": "zero_out_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase22_family_policy"
+      },
+      "lora_policy": {
+        "support_state": "blocked_unproven_dual_model_patch",
+        "strategy": "none",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_SamplerCustomAdvanced",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "Ideogram4Scheduler",
+          "DualModelGuider",
+          "RandomNoise",
+          "KSamplerSelect",
+          "UNETLoader",
+          "CLIPLoader",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase22_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "ideogram4_main_model",
+          "ideogram4_unconditional_model",
+          "ideogram4_qwen3_vl_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": []
+      },
+      "onboarding": {
+        "state": "onboarded_phase22",
+        "required_work": [
+          "Run physical masked-region generation, exact loader and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 22 Anima and Ideogram 4 onboarding"
+      },
+      "test_status": {
+        "overall": "phase22_automated",
+        "schema_validation": "phase22_automated",
+        "route_isolation": "phase22_automated",
+        "compiler_graph": "phase22_automated",
+        "capability_gating": "phase22_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase22_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 22 exact family adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.ideogram4.gguf.phase22.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "ideogram4",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:ideogram4:gguf:inpaint:lanpaint",
+          "comfyui_portable:ideogram4:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Ideogram 4 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.ideogram4.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "ideogram4_main_model_gguf",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "phase22_verified_family_contract"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "ideogram4_qwen3_vl_text_encoder",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "ideogram4",
+        "positive": "CLIPTextEncode",
+        "source_authority": "official_comfy_family_workflow"
+      },
+      "negative_policy": {
+        "strategy": "zero_out_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "phase22_family_policy"
+      },
+      "lora_policy": {
+        "support_state": "blocked_unproven_dual_model_patch",
+        "strategy": "none",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "phase19_exact_catalog_engine_independent_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_SamplerCustomAdvanced",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "Ideogram4Scheduler",
+          "DualModelGuider",
+          "RandomNoise",
+          "KSamplerSelect",
+          "UnetLoaderGGUF",
+          "CLIPLoader",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase22_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "ideogram4_main_model_gguf",
+          "ideogram4_unconditional_model_gguf",
+          "ideogram4_qwen3_vl_text_encoder",
+          "flux2_vae"
+        ],
+        "optional_model_roles": []
+      },
+      "onboarding": {
+        "state": "onboarded_phase22",
+        "required_work": [
+          "Run physical masked-region generation, exact loader and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 22 Anima and Ideogram 4 onboarding"
+      },
+      "test_status": {
+        "overall": "phase22_automated",
+        "schema_validation": "phase22_automated",
+        "route_isolation": "phase22_automated",
+        "compiler_graph": "phase22_automated",
+        "capability_gating": "phase22_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase22_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 22 exact family adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.krea2.diffusion_model.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "krea2",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:krea2:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:krea2:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Krea 2 RAW Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.krea2_base.placeholder.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3vl_4b_native",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "krea2",
+        "positive": "CLIPTextEncode",
+        "source_authority": "neo_app.providers.comfy_workflows.krea2"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "Krea 2 RAW existing compiler"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_only",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "existing_krea2_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "DifferentialDiffusionAdvanced",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "CLIPTextEncode",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "candidate_only"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "krea2_raw_diffusion_model",
+          "qwen3vl_4b_native_text_encoder",
+          "qwen_image_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "pending_phase10"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 52,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple"
+        },
+        "lanpaint_defaults_state": "unresolved",
+        "must_not_inherit": "lanpaint.krea2_turbo.v1"
+      },
+      "onboarding": {
+        "state": "blocked_family_policy",
+        "required_work": [
+          "Promote the Krea 2 RAW placeholder into a dedicated complete family policy.",
+          "Define LanPaint thinking/prompt-mode defaults independently from Turbo.",
+          "Validate normal negative-prompt conditioning through LanPaint.",
+          "Validate RAW LoRA behavior and physical crop/stitch output."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 family onboarding"
+      },
+      "test_status": {
+        "overall": "scaffold_defined",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "pending_phase10",
+        "capability_gating": "pending_phase10",
+        "physical_validation": "pending"
+      },
+      "notes": [],
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Phase 9 defines the family/loader scaffold only. No compile route, UI selector, or capability gate is activated."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.krea2.gguf.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "krea2",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:krea2:gguf:inpaint:lanpaint",
+          "comfyui_portable:krea2:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Krea 2 RAW GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.krea2_base.placeholder.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3vl_4b_native",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "krea2",
+        "positive": "CLIPTextEncode",
+        "source_authority": "neo_app.providers.comfy_workflows.krea2"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "Krea 2 RAW existing compiler"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_only",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "existing_krea2_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "DifferentialDiffusionAdvanced",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "CLIPLoader",
+          "CLIPTextEncode",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "candidate_only"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "krea2_raw_diffusion_model",
+          "qwen3vl_4b_native_text_encoder",
+          "qwen_image_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "pending_phase10"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 52,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple"
+        },
+        "lanpaint_defaults_state": "unresolved",
+        "must_not_inherit": "lanpaint.krea2_turbo.v1"
+      },
+      "onboarding": {
+        "state": "blocked_family_policy",
+        "required_work": [
+          "Promote the Krea 2 RAW placeholder into a dedicated complete family policy.",
+          "Define LanPaint thinking/prompt-mode defaults independently from Turbo.",
+          "Validate normal negative-prompt conditioning through LanPaint.",
+          "Validate RAW LoRA behavior and physical crop/stitch output."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 family onboarding"
+      },
+      "test_status": {
+        "overall": "scaffold_defined",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "pending_phase10",
+        "capability_gating": "pending_phase10",
+        "physical_validation": "pending"
+      },
+      "notes": [],
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Phase 9 defines the family/loader scaffold only. No compile route, UI selector, or capability gate is activated."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.krea2_turbo.diffusion_model.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "krea2_turbo",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:krea2_turbo:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:krea2_turbo:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Krea 2 Turbo Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.krea2_turbo.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3vl_4b_native",
+        "loader_node_class": "CLIPLoader",
+        "clip_type": "krea2",
+        "positive": "CLIPTextEncode",
+        "source_authority": "neo_app.providers.comfy_workflows.krea2"
+      },
+      "negative_policy": {
+        "strategy": "zero_out_positive_conditioning",
+        "node_class": "ConditioningZeroOut",
+        "source_authority": "Krea 2 Turbo existing compiler"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_only",
+        "loader_node_class": "LoraLoaderModelOnly",
+        "clip_strength_supported": false,
+        "source_authority": "existing_krea2_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "DifferentialDiffusionAdvanced",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "ConditioningZeroOut",
+          "VAELoader"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase14_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "krea2_turbo_diffusion_model",
+          "qwen3vl_4b_native_text_encoder",
+          "qwen_image_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase14_live_capability_gated"
+      },
+      "route_defaults": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0,
+        "lanpaint_thinking_steps": 10,
+        "prompt_mode": "image_first",
+        "source_policy_id": "lanpaint.krea2_turbo.v1"
+      },
+      "onboarding": {
+        "state": "onboarded_phase14",
+        "required_work": [
+          "Run physical masked-region generation and loader-parity validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 14 existing route parity and stabilization"
+      },
+      "test_status": {
+        "overall": "phase14_automated_stabilized",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "phase14_automated",
+        "capability_gating": "phase14_automated",
+        "physical_validation": "pending",
+        "loader_parity": "phase14_automated"
+      },
+      "notes": [
+        "Phase 14 binds the safetensors/component loader to the same Krea 2 Turbo Differential Diffusion crop/stitch graph used by the GGUF route.",
+        "The route remains experimental until a real ComfyUI masked-region run confirms model loading, stitch alignment, and model-only LoRA behavior."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase14_stabilized",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 14 binds UNETLoader through the universal adapter and validates parity with the existing Krea 2 Turbo GGUF LanPaint graph; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image.diffusion_model.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:qwen_image:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_text_encoder",
+        "clip_type": "qwen_image",
+        "positive": "CLIPTextEncode",
+        "source_authority": "neo_app.providers.comfy_workflows.qwen_native/qwen_gguf",
+        "loader_node_class": "CLIPLoader"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "existing Qwen compiler"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_qwen_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase10_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_diffusion_model",
+          "qwen_image_text_encoder",
+          "qwen_image_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase10_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 20,
+          "cfg": 4.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.1
+        },
+        "lanpaint_defaults_state": "complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 20,
+          "cfg": 4.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.1,
+          "lanpaint_thinking_steps": 5,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          }
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase10",
+        "required_work": [
+          "Run physical ComfyUI generation and stitch validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 Qwen and Z-Image onboarding"
+      },
+      "test_status": {
+        "overall": "phase10_graph_enabled",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "phase10_automated",
+        "capability_gating": "phase10_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Phase 10 uses ModelSamplingAuraFlow before LanPaint_KSampler and does not borrow Krea DifferentialDiffusionAdvanced.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase10_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 10 binds the complete family policy, capability gate, UI selector and family-aware compiler; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image.gguf.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image:gguf:inpaint:lanpaint",
+          "comfyui_portable:qwen_image:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_text_encoder",
+        "clip_type": "qwen_image",
+        "positive": "CLIPTextEncode",
+        "source_authority": "neo_app.providers.comfy_workflows.qwen_native/qwen_gguf",
+        "loader_node_class": "CLIPLoaderGGUF|ClipLoaderGGUF"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "existing Qwen compiler"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_qwen_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "CLIPLoaderGGUF|ClipLoaderGGUF",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase10_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_diffusion_model",
+          "qwen_image_text_encoder",
+          "qwen_image_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase10_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 20,
+          "cfg": 4.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.1
+        },
+        "lanpaint_defaults_state": "complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 20,
+          "cfg": 4.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.1,
+          "lanpaint_thinking_steps": 5,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          }
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase10",
+        "required_work": [
+          "Run physical ComfyUI generation and stitch validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 Qwen and Z-Image onboarding"
+      },
+      "test_status": {
+        "overall": "phase10_graph_enabled",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "phase10_automated",
+        "capability_gating": "phase10_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Phase 10 uses ModelSamplingAuraFlow before LanPaint_KSampler and does not borrow Krea DifferentialDiffusionAdvanced.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase10_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 10 binds the complete family policy, capability gate, UI selector and family-aware compiler; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image_edit_2509.diffusion_model.phase18.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image_edit_2509",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image_edit_2509:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:qwen_image_edit_2509:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image Edit 2509 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image_edit_2509.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_edit_encoder",
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "candidate_node_classes": [
+          "TextEncodeQwenImageEditPlus",
+          "TextEncodeQwenImageEditPlus_lrzjason",
+          "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+          "TextEncodeQwenImageEditPlusPro_lrzjason"
+        ],
+        "resolution_state": "complete",
+        "source_image_role": "image1",
+        "max_sources_for_lanpaint": 1,
+        "normal_edit_max_sources": 3
+      },
+      "negative_policy": {
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "resolution_state": "complete",
+        "source_image_role": "image1"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "TextEncodeQwenImageEditPlus*",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase18_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_edit_2509_diffusion_model",
+          "qwen_image_edit_text_encoder",
+          "qwen_image_vae",
+          "source_image_conditioning"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase18_live_capability_gate"
+      },
+      "route_defaults": {
+        "lanpaint_defaults_state": "complete",
+        "policy_id": "lanpaint.qwen_image_edit_2509.v1",
+        "aura_shift": 3.1,
+        "steps": 20,
+        "cfg": 4.0,
+        "lanpaint_source_limit": 1
+      },
+      "onboarding": {
+        "state": "onboarded_phase18",
+        "required_work": [
+          "Run physical Qwen Image Edit 2509 masked generation, MMProj validation for GGUF, optional LoRA and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 18 Qwen Image Edit variant onboarding"
+      },
+      "test_status": {
+        "overall": "phase18_automated",
+        "schema_validation": "phase18_automated",
+        "route_isolation": "phase18_automated",
+        "compiler_graph": "phase18_automated",
+        "capability_gating": "phase18_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Normal edit/img2img supports up to three native source lanes; LanPaint uses Image 1 only as the masked canvas."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase18_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 18 exact versioned Qwen Image Edit family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image_edit_2509.gguf.phase18.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image_edit_2509",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image_edit_2509:gguf:inpaint:lanpaint",
+          "comfyui_portable:qwen_image_edit_2509:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image Edit 2509 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image_edit_2509.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_edit_encoder",
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "candidate_node_classes": [
+          "TextEncodeQwenImageEditPlus",
+          "TextEncodeQwenImageEditPlus_lrzjason",
+          "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+          "TextEncodeQwenImageEditPlusPro_lrzjason"
+        ],
+        "resolution_state": "complete",
+        "source_image_role": "image1",
+        "max_sources_for_lanpaint": 1,
+        "normal_edit_max_sources": 3
+      },
+      "negative_policy": {
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "resolution_state": "complete",
+        "source_image_role": "image1"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "TextEncodeQwenImageEditPlus*",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase18_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_edit_2509_diffusion_model",
+          "qwen_image_edit_text_encoder",
+          "qwen_image_vae",
+          "source_image_conditioning",
+          "qwen_image_edit_mmproj"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase18_live_capability_gate"
+      },
+      "route_defaults": {
+        "lanpaint_defaults_state": "complete",
+        "policy_id": "lanpaint.qwen_image_edit_2509.v1",
+        "aura_shift": 3.1,
+        "steps": 20,
+        "cfg": 4.0,
+        "lanpaint_source_limit": 1
+      },
+      "onboarding": {
+        "state": "onboarded_phase18",
+        "required_work": [
+          "Run physical Qwen Image Edit 2509 masked generation, MMProj validation for GGUF, optional LoRA and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 18 Qwen Image Edit variant onboarding"
+      },
+      "test_status": {
+        "overall": "phase18_automated",
+        "schema_validation": "phase18_automated",
+        "route_isolation": "phase18_automated",
+        "compiler_graph": "phase18_automated",
+        "capability_gating": "phase18_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Normal edit/img2img supports up to three native source lanes; LanPaint uses Image 1 only as the masked canvas."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase18_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 18 exact versioned Qwen Image Edit family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image_edit_2511.diffusion_model.phase18.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image_edit_2511",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image_edit_2511:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:qwen_image_edit_2511:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image Edit 2511 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image_edit_2511.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_edit_encoder",
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "candidate_node_classes": [
+          "TextEncodeQwenImageEditPlus",
+          "TextEncodeQwenImageEditPlus_lrzjason",
+          "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+          "TextEncodeQwenImageEditPlusPro_lrzjason"
+        ],
+        "resolution_state": "complete",
+        "source_image_role": "image1",
+        "max_sources_for_lanpaint": 1,
+        "normal_edit_max_sources": 3
+      },
+      "negative_policy": {
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "resolution_state": "complete",
+        "source_image_role": "image1"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "TextEncodeQwenImageEditPlus*",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase18_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_edit_2511_diffusion_model",
+          "qwen_image_edit_text_encoder",
+          "qwen_image_vae",
+          "source_image_conditioning"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase18_live_capability_gate"
+      },
+      "route_defaults": {
+        "lanpaint_defaults_state": "complete",
+        "policy_id": "lanpaint.qwen_image_edit_2511.v1",
+        "aura_shift": 3.1,
+        "steps": 20,
+        "cfg": 4.0,
+        "lanpaint_source_limit": 1
+      },
+      "onboarding": {
+        "state": "onboarded_phase18",
+        "required_work": [
+          "Run physical Qwen Image Edit 2511 masked generation, MMProj validation for GGUF, optional LoRA and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 18 Qwen Image Edit variant onboarding"
+      },
+      "test_status": {
+        "overall": "phase18_automated",
+        "schema_validation": "phase18_automated",
+        "route_isolation": "phase18_automated",
+        "compiler_graph": "phase18_automated",
+        "capability_gating": "phase18_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Normal edit/img2img supports up to three native source lanes; LanPaint uses Image 1 only as the masked canvas."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase18_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 18 exact versioned Qwen Image Edit family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.qwen_image_edit_2511.gguf.phase18.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "qwen_image_edit_2511",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:qwen_image_edit_2511:gguf:inpaint:lanpaint",
+          "comfyui_portable:qwen_image_edit_2511:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Qwen Image Edit 2511 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.qwen_image_edit_2511.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen_image_edit_encoder",
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "candidate_node_classes": [
+          "TextEncodeQwenImageEditPlus",
+          "TextEncodeQwenImageEditPlus_lrzjason",
+          "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+          "TextEncodeQwenImageEditPlusPro_lrzjason"
+        ],
+        "resolution_state": "complete",
+        "source_image_role": "image1",
+        "max_sources_for_lanpaint": 1,
+        "normal_edit_max_sources": 3
+      },
+      "negative_policy": {
+        "strategy": "qwen_image_edit_plus_single_canvas",
+        "resolution_state": "complete",
+        "source_image_role": "image1"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "TextEncodeQwenImageEditPlus*",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase18_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "qwen_image_edit_2511_diffusion_model",
+          "qwen_image_edit_text_encoder",
+          "qwen_image_vae",
+          "source_image_conditioning",
+          "qwen_image_edit_mmproj"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase18_live_capability_gate"
+      },
+      "route_defaults": {
+        "lanpaint_defaults_state": "complete",
+        "policy_id": "lanpaint.qwen_image_edit_2511.v1",
+        "aura_shift": 3.1,
+        "steps": 20,
+        "cfg": 4.0,
+        "lanpaint_source_limit": 1
+      },
+      "onboarding": {
+        "state": "onboarded_phase18",
+        "required_work": [
+          "Run physical Qwen Image Edit 2511 masked generation, MMProj validation for GGUF, optional LoRA and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 18 Qwen Image Edit variant onboarding"
+      },
+      "test_status": {
+        "overall": "phase18_automated",
+        "schema_validation": "phase18_automated",
+        "route_isolation": "phase18_automated",
+        "compiler_graph": "phase18_automated",
+        "capability_gating": "phase18_automated",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Normal edit/img2img supports up to three native source lanes; LanPaint uses Image 1 only as the masked canvas."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase18_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 18 exact versioned Qwen Image Edit family/loader adapter binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.sd15.checkpoint.phase15.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "sd15",
+        "loader": "checkpoint",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:sd15:checkpoint:inpaint:lanpaint",
+          "comfyui_portable:sd15:checkpoint:inpaint:lanpaint"
+        ],
+        "display_name": "SD 1.5 Checkpoint LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.sd15.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "checkpoint",
+        "accepted_node_classes": [
+          "CheckpointLoaderSimple"
+        ],
+        "preferred_node_class": "CheckpointLoaderSimple",
+        "model_input_keys": {
+          "CheckpointLoaderSimple": "ckpt_name"
+        },
+        "source_authority": "phase15_sd_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "checkpoint_clip",
+        "loader_node_class": "CheckpointLoaderSimple",
+        "clip_type": "stable_diffusion",
+        "positive": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "CheckpointLoaderSimple",
+          "CheckpointLoaderSimple"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase15_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "checkpoint"
+        ],
+        "optional_model_roles": [
+          "sd15_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase15",
+        "required_work": [
+          "Run physical SD masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 15 SD family onboarding"
+      },
+      "test_status": {
+        "overall": "phase15_automated",
+        "schema_validation": "phase15_automated",
+        "route_isolation": "phase15_automated",
+        "compiler_graph": "phase15_automated",
+        "capability_gating": "phase15_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase15_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 15 exact SD adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.sd15.gguf.phase15.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "sd15",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:sd15:gguf:inpaint:lanpaint",
+          "comfyui_portable:sd15:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "SD 1.5 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": null,
+        "policy_status": "missing_policy",
+        "resolution_state": "missing_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name"
+        },
+        "source_authority": "phase15_sd_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "sd3_triple_text_encoder",
+        "loader_node_class": "TripleCLIPLoaderGGUF",
+        "clip_type": "sd3",
+        "positive": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "TripleCLIPLoaderGGUF",
+          "VAELoader",
+          "ModelSamplingSD3"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "blocked_loader_ecosystem"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "sd3_clip_l",
+          "sd3_clip_g",
+          "sd3_t5xxl",
+          "sd3_vae"
+        ],
+        "optional_model_roles": [
+          "sd15_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "blocked_loader_ecosystem",
+        "required_work": [
+          "Regular convolutional SD 1.5 UNet GGUF loading is not an approved ecosystem route."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 15 SD family onboarding"
+      },
+      "test_status": {
+        "overall": "blocked_ecosystem",
+        "schema_validation": "phase15_automated",
+        "route_isolation": "phase15_automated",
+        "compiler_graph": "not_applicable",
+        "capability_gating": "phase15_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Regular convolutional SD 1.5 UNet GGUF loading is not an approved ecosystem route."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.sd35.diffusion_model.phase15.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "sd35",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:sd35:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:sd35:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "SD 3.5 Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.sd35.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "phase15_sd_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "sd3_triple_text_encoder",
+        "loader_node_class": "TripleCLIPLoader",
+        "clip_type": "sd3",
+        "positive": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "TripleCLIPLoader",
+          "VAELoader",
+          "ModelSamplingSD3"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase15_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "diffusion_model",
+          "sd3_clip_l",
+          "sd3_clip_g",
+          "sd3_t5xxl",
+          "sd3_vae"
+        ],
+        "optional_model_roles": [
+          "sd35_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase15",
+        "required_work": [
+          "Run physical SD masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 15 SD family onboarding"
+      },
+      "test_status": {
+        "overall": "phase15_automated",
+        "schema_validation": "phase15_automated",
+        "route_isolation": "phase15_automated",
+        "compiler_graph": "phase15_automated",
+        "capability_gating": "phase15_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase15_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 15 exact SD adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.sd35.gguf.phase15.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "sd35",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:sd35:gguf:inpaint:lanpaint",
+          "comfyui_portable:sd35:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "SD 3.5 GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.sd35.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_unet",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name"
+        },
+        "source_authority": "phase15_sd_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "sd3_triple_text_encoder",
+        "loader_node_class": "TripleCLIPLoaderGGUF",
+        "clip_type": "sd3",
+        "positive": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "TripleCLIPLoaderGGUF",
+          "VAELoader",
+          "ModelSamplingSD3"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase15_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "gguf_unet",
+          "sd3_clip_l",
+          "sd3_clip_g",
+          "sd3_t5xxl",
+          "sd3_vae"
+        ],
+        "optional_model_roles": [
+          "sd35_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase15",
+        "required_work": [
+          "Run physical SD masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 15 SD family onboarding"
+      },
+      "test_status": {
+        "overall": "phase15_automated",
+        "schema_validation": "phase15_automated",
+        "route_isolation": "phase15_automated",
+        "compiler_graph": "phase15_automated",
+        "capability_gating": "phase15_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase15_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 15 exact SD adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.sdxl.checkpoint.phase15.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "sdxl",
+        "loader": "checkpoint",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:sdxl:checkpoint:inpaint:lanpaint",
+          "comfyui_portable:sdxl:checkpoint:inpaint:lanpaint"
+        ],
+        "display_name": "SDXL Checkpoint LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.sdxl.v1",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "checkpoint",
+        "accepted_node_classes": [
+          "CheckpointLoaderSimple"
+        ],
+        "preferred_node_class": "CheckpointLoaderSimple",
+        "model_input_keys": {
+          "CheckpointLoaderSimple": "ckpt_name"
+        },
+        "source_authority": "phase15_sd_family_adapter"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "checkpoint_clip",
+        "loader_node_class": "CheckpointLoaderSimple",
+        "clip_type": "stable_diffusion",
+        "positive": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase15_sd_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "engine_independent_lora_matrix"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "CheckpointLoaderSimple",
+          "CheckpointLoaderSimple"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase15_compiler_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "checkpoint"
+        ],
+        "optional_model_roles": [
+          "sdxl_compatible_lora"
+        ]
+      },
+      "onboarding": {
+        "state": "onboarded_phase15",
+        "required_work": [
+          "Run physical SD masked-region generation and replay validation before promotion."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 15 SD family onboarding"
+      },
+      "test_status": {
+        "overall": "phase15_automated",
+        "schema_validation": "phase15_automated",
+        "route_isolation": "phase15_automated",
+        "compiler_graph": "phase15_automated",
+        "capability_gating": "phase15_automated",
+        "physical_validation": "pending"
+      },
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase15_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 15 exact SD adapter/compiler binding; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image.diffusion_model.phase20.v2",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:z_image:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Base Safetensors LanPaint Inpaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image.v2",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false,
+        "phase20_variant": "base"
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20",
+        "loader_node_class": "CLIPLoader"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase20_z_image_base_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase20_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase20_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "phase20_complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0,
+          "lanpaint_thinking_steps": 3,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          },
+          "family_variant": "base",
+          "graph_profile": "z_image_lanpaint_base_crop_stitch_v2",
+          "stability_profile": "z_image_lanpaint_base_cautious_v1"
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase20",
+        "required_work": [
+          "Run physical ComfyUI source/mask/stitch and fixed-seed LoRA A/B validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 20 Z-Image LanPaint Inpainting Onboarding"
+      },
+      "test_status": {
+        "overall": "phase20_graph_enabled",
+        "schema_validation": "phase20_automated",
+        "route_isolation": "phase20_automated",
+        "compiler_graph": "phase20_automated",
+        "capability_gating": "phase20_automated",
+        "physical_validation": "pending",
+        "replay_lineage": "phase20_automated",
+        "lora_execution_proof": "phase19_contract_integrated"
+      },
+      "notes": [
+        "Phase 20 is LanPaint inpainting-only and does not add or alter general txt2img, Img2Img, Native Inpaint or Outpaint routes.",
+        "The canonical z_image family is Z-Image Base; z_image_turbo is an independent distilled route.",
+        "ModelSamplingAuraFlow remains before LanPaint_KSampler; Krea DifferentialDiffusionAdvanced is not used.",
+        "Base defaults to three LanPaint thinking iterations because upstream warns that larger iterative updates can diverge.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase20_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 20 completes the dedicated Z-Image Base/Turbo LanPaint policy, capability, replay and compiler contracts; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image.gguf.phase20.v2",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image:gguf:inpaint:lanpaint",
+          "comfyui_portable:z_image:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Base GGUF LanPaint Inpaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image.v2",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false,
+        "phase20_variant": "base"
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20",
+        "loader_node_class": "CLIPLoaderGGUF|ClipLoaderGGUF"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase20_z_image_base_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "CLIPLoaderGGUF|ClipLoaderGGUF",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase20_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase20_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "phase20_complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0,
+          "lanpaint_thinking_steps": 3,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          },
+          "family_variant": "base",
+          "graph_profile": "z_image_lanpaint_base_crop_stitch_v2",
+          "stability_profile": "z_image_lanpaint_base_cautious_v1"
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase20",
+        "required_work": [
+          "Run physical ComfyUI source/mask/stitch and fixed-seed LoRA A/B validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 20 Z-Image LanPaint Inpainting Onboarding"
+      },
+      "test_status": {
+        "overall": "phase20_graph_enabled",
+        "schema_validation": "phase20_automated",
+        "route_isolation": "phase20_automated",
+        "compiler_graph": "phase20_automated",
+        "capability_gating": "phase20_automated",
+        "physical_validation": "pending",
+        "replay_lineage": "phase20_automated",
+        "lora_execution_proof": "phase19_contract_integrated"
+      },
+      "notes": [
+        "Phase 20 is LanPaint inpainting-only and does not add or alter general txt2img, Img2Img, Native Inpaint or Outpaint routes.",
+        "The canonical z_image family is Z-Image Base; z_image_turbo is an independent distilled route.",
+        "ModelSamplingAuraFlow remains before LanPaint_KSampler; Krea DifferentialDiffusionAdvanced is not used.",
+        "Base defaults to three LanPaint thinking iterations because upstream warns that larger iterative updates can diverge.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase20_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 20 completes the dedicated Z-Image Base/Turbo LanPaint policy, capability, replay and compiler contracts; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image_base.diffusion_model.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image_base",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image_base:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:z_image_base:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Base Safetensors LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image_base.placeholder.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.z_image",
+        "loader_node_class": "CLIPLoader"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "existing Z-Image compiler"
+      },
+      "lora_policy": {
+        "support_state": "implementation_target",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "DifferentialDiffusionAdvanced",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "candidate_only"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_base_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "pending_phase10"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "unresolved"
+      },
+      "onboarding": {
+        "state": "blocked_variant_identity",
+        "required_work": [
+          "Use the canonical z_image family for Z-Image Base; keep this duplicate alias blocked to prevent route and replay ambiguity."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 family onboarding"
+      },
+      "test_status": {
+        "overall": "scaffold_defined",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "pending_phase10",
+        "capability_gating": "pending_phase10",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Phase 20 confirms that z_image is the canonical Z-Image Base identity. This duplicate z_image_base scaffold remains intentionally unsupported."
+      ],
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Phase 9 defines the family/loader scaffold only. No compile route, UI selector, or capability gate is activated."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image_base.gguf.scaffold.v1",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image_base",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image_base:gguf:inpaint:lanpaint",
+          "comfyui_portable:z_image_base:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Base GGUF LanPaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image_base.placeholder.v1",
+        "policy_status": "unresolved_placeholder",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "existing_non_lanpaint_comfy_compiler"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.z_image",
+        "loader_node_class": "CLIPLoaderGGUF|ClipLoaderGGUF"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "existing Z-Image compiler"
+      },
+      "lora_policy": {
+        "support_state": "implementation_target",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "DifferentialDiffusionAdvanced",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "CLIPLoaderGGUF|ClipLoaderGGUF",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "candidate_only"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_base_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "pending_phase10"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 35,
+          "cfg": 3.5,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "unresolved"
+      },
+      "onboarding": {
+        "state": "blocked_variant_identity",
+        "required_work": [
+          "Use the canonical z_image family for Z-Image Base; keep this duplicate alias blocked to prevent route and replay ambiguity."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 10 family onboarding"
+      },
+      "test_status": {
+        "overall": "scaffold_defined",
+        "schema_validation": "phase9_automated",
+        "route_isolation": "phase9_automated",
+        "compiler_graph": "pending_phase10",
+        "capability_gating": "pending_phase10",
+        "physical_validation": "pending"
+      },
+      "notes": [
+        "Phase 20 confirms that z_image is the canonical Z-Image Base identity. This duplicate z_image_base scaffold remains intentionally unsupported."
+      ],
+      "execution": {
+        "enabled": false,
+        "selectable": false,
+        "executable": false,
+        "state": "scaffold_only",
+        "compiler_id": null,
+        "route_status": "unsupported",
+        "reason": "Phase 9 defines the family/loader scaffold only. No compile route, UI selector, or capability gate is activated."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image_turbo.diffusion_model.phase20.v2",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image_turbo",
+        "loader": "diffusion_model",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image_turbo:diffusion_model:inpaint:lanpaint",
+          "comfyui_portable:z_image_turbo:diffusion_model:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Turbo Safetensors LanPaint Inpaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image_turbo.v2",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false,
+        "phase20_variant": "turbo"
+      },
+      "loader_policy": {
+        "model_loader_role": "diffusion_model",
+        "accepted_node_classes": [
+          "UNETLoader"
+        ],
+        "preferred_node_class": "UNETLoader",
+        "model_input_keys": {
+          "UNETLoader": "unet_name"
+        },
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20",
+        "loader_node_class": "CLIPLoader"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase20_z_image_turbo_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UNETLoader",
+          "CLIPLoader",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes"
+        ],
+        "binding_state": "phase20_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_turbo_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase20_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 9,
+          "cfg": 1.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "phase20_complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 9,
+          "cfg": 1.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0,
+          "lanpaint_thinking_steps": 5,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          },
+          "family_variant": "turbo",
+          "graph_profile": "z_image_turbo_lanpaint_crop_stitch_v2",
+          "stability_profile": "z_image_turbo_distilled_v1"
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase20",
+        "required_work": [
+          "Run physical ComfyUI source/mask/stitch and fixed-seed LoRA A/B validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 20 Z-Image LanPaint Inpainting Onboarding"
+      },
+      "test_status": {
+        "overall": "phase20_graph_enabled",
+        "schema_validation": "phase20_automated",
+        "route_isolation": "phase20_automated",
+        "compiler_graph": "phase20_automated",
+        "capability_gating": "phase20_automated",
+        "physical_validation": "pending",
+        "replay_lineage": "phase20_automated",
+        "lora_execution_proof": "phase19_contract_integrated"
+      },
+      "notes": [
+        "Phase 20 is LanPaint inpainting-only and does not add or alter general txt2img, Img2Img, Native Inpaint or Outpaint routes.",
+        "The canonical z_image family is Z-Image Base; z_image_turbo is an independent distilled route.",
+        "ModelSamplingAuraFlow remains before LanPaint_KSampler; Krea DifferentialDiffusionAdvanced is not used.",
+        "Turbo keeps a separate low-step distilled sampling policy and five LanPaint thinking iterations.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase20_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 20 completes the dedicated Z-Image Base/Turbo LanPaint policy, capability, replay and compiler contracts; physical validation remains pending."
+      }
+    },
+    {
+      "schema_id": "neo.image.lanpaint_family_expansion_profile.v1",
+      "schema_version": 1,
+      "authority": "neo_app.image.lanpaint_family_expansion",
+      "identity": {
+        "profile_id": "lanpaint.z_image_turbo.gguf.phase20.v2",
+        "route_family_id": "image.inpaint.lanpaint",
+        "family": "z_image_turbo",
+        "loader": "gguf",
+        "provider_ids": [
+          "comfyui",
+          "comfyui_portable"
+        ],
+        "mode": "inpaint",
+        "engine": "lanpaint",
+        "route_keys": [
+          "comfyui:z_image_turbo:gguf:inpaint:lanpaint",
+          "comfyui_portable:z_image_turbo:gguf:inpaint:lanpaint"
+        ],
+        "display_name": "Z-Image Turbo GGUF LanPaint Inpaint"
+      },
+      "family_policy": {
+        "policy_id": "lanpaint.z_image_turbo.v2",
+        "policy_status": "complete_policy",
+        "resolution_state": "matched_registry_policy",
+        "inherits_defaults": false,
+        "phase20_variant": "turbo"
+      },
+      "loader_policy": {
+        "model_loader_role": "gguf_diffusion_model",
+        "accepted_node_classes": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF"
+        ],
+        "preferred_node_class": "UnetLoaderGGUF",
+        "model_input_keys": {
+          "UnetLoaderGGUF": "unet_name",
+          "LoaderGGUF": "gguf_name"
+        },
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20"
+      },
+      "conditioning_policy": {
+        "text_encoder_role": "qwen3_4b_text_encoder",
+        "clip_type": "lumina2",
+        "positive": "CLIPTextEncode",
+        "sampling_patch": "ModelSamplingAuraFlow",
+        "source_authority": "neo_app.providers.comfy_workflows.lanpaint_family.phase20",
+        "loader_node_class": "CLIPLoaderGGUF|ClipLoaderGGUF"
+      },
+      "negative_policy": {
+        "strategy": "encode_user_negative_prompt",
+        "node_class": "CLIPTextEncode",
+        "source_authority": "phase20_z_image_turbo_policy"
+      },
+      "lora_policy": {
+        "support_state": "experimental_available",
+        "strategy": "model_and_clip",
+        "loader_node_class": "LoraLoader",
+        "clip_strength_supported": true,
+        "source_authority": "existing_z_image_patch_profile"
+      },
+      "node_requirements": {
+        "base_node_roles": [
+          "LoadImage",
+          "ImageToMask",
+          "CropByMask",
+          "ImageResizeKJv2",
+          "GrowMaskWithBlur",
+          "VAEEncode",
+          "SetLatentNoiseMask",
+          "ModelSamplingAuraFlow",
+          "LanPaint_KSampler",
+          "VAEDecode",
+          "ImageCompositeMasked",
+          "PreviewImage"
+        ],
+        "family_specific_candidates": [
+          "UnetLoaderGGUF",
+          "LoaderGGUF",
+          "CLIPLoaderGGUF|ClipLoaderGGUF",
+          "ModelSamplingAuraFlow",
+          "VAELoader|VaeGGUF"
+        ],
+        "required_custom_node_packs": [
+          "LanPaint",
+          "ComfyUI-InpaintEasy",
+          "ComfyUI-KJNodes",
+          "ComfyUI-GGUF"
+        ],
+        "binding_state": "phase20_bound"
+      },
+      "model_requirements": {
+        "required_model_roles": [
+          "z_image_turbo_diffusion_model",
+          "qwen3_4b_text_encoder",
+          "flux_ae_or_compatible_vae"
+        ],
+        "portable_identity_only": true,
+        "catalog_binding_state": "phase20_capability_gate"
+      },
+      "route_defaults": {
+        "known_non_lanpaint_defaults": {
+          "steps": 9,
+          "cfg": 1.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0
+        },
+        "lanpaint_defaults_state": "phase20_complete_family_policy",
+        "lanpaint_defaults": {
+          "steps": 9,
+          "cfg": 1.0,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "aura_shift": 3.0,
+          "lanpaint_thinking_steps": 5,
+          "prompt_mode": "image_first",
+          "crop_padding": 152,
+          "processing_size": {
+            "width": 768,
+            "height": 768
+          },
+          "family_variant": "turbo",
+          "graph_profile": "z_image_turbo_lanpaint_crop_stitch_v2",
+          "stability_profile": "z_image_turbo_distilled_v1"
+        }
+      },
+      "onboarding": {
+        "state": "onboarded_phase20",
+        "required_work": [
+          "Run physical ComfyUI source/mask/stitch and fixed-seed LoRA A/B validation before promotion to available."
+        ],
+        "core_changes_expected": false,
+        "activation_owner": "Phase 20 Z-Image LanPaint Inpainting Onboarding"
+      },
+      "test_status": {
+        "overall": "phase20_graph_enabled",
+        "schema_validation": "phase20_automated",
+        "route_isolation": "phase20_automated",
+        "compiler_graph": "phase20_automated",
+        "capability_gating": "phase20_automated",
+        "physical_validation": "pending",
+        "replay_lineage": "phase20_automated",
+        "lora_execution_proof": "phase19_contract_integrated"
+      },
+      "notes": [
+        "Phase 20 is LanPaint inpainting-only and does not add or alter general txt2img, Img2Img, Native Inpaint or Outpaint routes.",
+        "The canonical z_image family is Z-Image Base; z_image_turbo is an independent distilled route.",
+        "ModelSamplingAuraFlow remains before LanPaint_KSampler; Krea DifferentialDiffusionAdvanced is not used.",
+        "Turbo keeps a separate low-step distilled sampling policy and five LanPaint thinking iterations.",
+        "Route remains experimental until physical validation."
+      ],
+      "execution": {
+        "enabled": true,
+        "selectable": true,
+        "executable": true,
+        "state": "phase20_onboarded",
+        "compiler_id": "comfy.lanpaint.family_aware.v1",
+        "route_status": "experimental_available",
+        "reason": "Phase 20 completes the dedicated Z-Image Base/Turbo LanPaint policy, capability, replay and compiler contracts; physical validation remains pending."
+      }
+    }
+  ]
+}

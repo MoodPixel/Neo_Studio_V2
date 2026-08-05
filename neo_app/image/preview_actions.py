@@ -1,8 +1,8 @@
-"""Preview action parity contract for the Image surface.
+"""Canonical preview-action definitions and evaluation contracts.
 
-Phase C is intentionally a mapping/contract layer. It does not render buttons,
-mutate UI state, queue Comfy jobs, or stage files. Later phases consume this
-registry to build the V2 preview/result action toolbar.
+The Python registry owns every toolbar group/action rendered by the browser.
+It does not execute actions or choose provider routes; later routing layers
+evaluate these definitions against source, extension, and provider state.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 ACTION_GROUPS: List[Dict[str, str]] = [
     {"id": "source", "label": "Source", "description": "Send an output into a core image source mode."},
     {"id": "reference", "label": "Reference", "description": "Use an output as a conditioning/reference image."},
+    {"id": "layerdiffuse", "label": "LayerDiffuse", "description": "Send an output into a named LayerDiffuse image slot."},
     {"id": "finish", "label": "Finish", "description": "Stage an output for a post-process/finish pass."},
 ]
 
@@ -42,11 +43,13 @@ SOURCE_CONTEXT_SCHEMA: Dict[str, str] = {
     "created_at": "",
 }
 
-# V1 toolbar parity mapped into V2 destinations. Normal clicks stage/open; they
-# do not auto-run expensive finish passes in Phase C.
+# V1 toolbar parity plus V2-only actions mapped into Neo destinations. The
+# canonical definition inventory never auto-runs expensive finish passes.
 PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     {
         "id": "core.img2img",
+        "action_class": "source_stage",
+        "provider_dispatch": {"comfyui": "stage_source_mode", "comfyui_portable": "stage_source_mode", "forge": "stage_source_mode", "*": "stage_source_mode"},
         "v1_button_id": "btn-generation-preview-img2img",
         "v1_icon": "🖼️",
         "icon": "🖼️",
@@ -59,6 +62,11 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "target_mode": "img2img",
         "handler": "previewActionSendToSourceMode",
         "handler_args": ["img2img"],
+        "source_contract_schema": "neo.image.preview_source_handoff.v1",
+        "profile_policy": "selected_profile_only",
+        "execution_policy": "stage_only_no_auto_run",
+        "mask_policy": "clear_stale_mask_on_source_change",
+        "editor_policy": "source_panel",
         "auto_run_default": False,
         "preserve_prompt_context": "optional",
         "preserve_reference_context": "optional",
@@ -66,6 +74,8 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "core.inpaint",
+        "action_class": "source_stage",
+        "provider_dispatch": {"comfyui": "stage_source_mode", "comfyui_portable": "stage_source_mode", "forge": "stage_source_mode", "*": "stage_source_mode"},
         "v1_button_id": "btn-generation-preview-inpaint",
         "v1_icon": "🩹",
         "icon": "🩹",
@@ -78,7 +88,12 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "target_mode": "inpaint",
         "handler": "previewActionSendToSourceMode",
         "handler_args": ["inpaint"],
-        "clears": ["mask"],
+        "source_contract_schema": "neo.image.preview_source_handoff.v1",
+        "profile_policy": "selected_profile_only",
+        "execution_policy": "stage_only_no_auto_run",
+        "mask_policy": "clear_stale_mask_on_source_change",
+        "editor_policy": "open_mask_editor",
+        "clears": ["mask", "provider_upload_cache"],
         "auto_run_default": False,
         "preserve_prompt_context": "optional",
         "preserve_reference_context": "optional",
@@ -86,6 +101,8 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "core.outpaint",
+        "action_class": "source_stage",
+        "provider_dispatch": {"comfyui": "stage_source_mode", "comfyui_portable": "stage_source_mode", "forge": "stage_source_mode", "*": "stage_source_mode"},
         "v1_button_id": "btn-generation-preview-outpaint",
         "v1_icon": "↔️",
         "icon": "↔️",
@@ -98,7 +115,12 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "target_mode": "outpaint",
         "handler": "previewActionSendToSourceMode",
         "handler_args": ["outpaint"],
-        "clears": ["mask"],
+        "source_contract_schema": "neo.image.preview_source_handoff.v1",
+        "profile_policy": "selected_profile_only",
+        "execution_policy": "stage_only_no_auto_run",
+        "mask_policy": "clear_stale_mask_on_source_change",
+        "editor_policy": "open_outpaint_editor",
+        "clears": ["mask", "outpaint_canvas", "provider_upload_cache"],
         "auto_run_default": False,
         "preserve_prompt_context": "optional",
         "preserve_reference_context": "optional",
@@ -106,6 +128,8 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "extension.controlnet",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_reference", "comfyui_portable": "stage_reference", "forge": "stage_reference"},
         "v1_button_id": "btn-generation-preview-controlnet",
         "v1_icon": "🎯",
         "icon": "🎯",
@@ -117,7 +141,12 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "target_workspace": "generations",
         "target_panel": "image.controlnet",
         "handler": "previewActionSendToControlNet",
+        "reference_contract_schema": "neo.image.preview_reference_handoff.v1",
+        "profile_policy": "selected_profile_only",
+        "execution_policy": "stage_only_no_auto_run",
+        "catalog_policy": "selected_profile_live_catalog",
         "stage_policy": "first_empty_unit_no_overwrite",
+        "overwrite_policy": "never_overwrite_occupied_unit",
         "auto_run_default": False,
         "preserve_prompt_context": False,
         "preserve_reference_context": "source_becomes_reference",
@@ -125,6 +154,8 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "extension.ip_adapter",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_reference", "comfyui_portable": "stage_reference", "forge": "stage_reference"},
         "v1_button_id": "btn-generation-preview-ipadapter",
         "v1_icon": "👤",
         "icon": "👤",
@@ -136,39 +167,122 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "target_workspace": "generations",
         "target_panel": "image.ip_adapter",
         "handler": "previewActionSendToIpAdapter",
+        "reference_contract_schema": "neo.image.preview_reference_handoff.v1",
+        "profile_policy": "selected_profile_only",
+        "execution_policy": "stage_only_no_auto_run",
+        "catalog_policy": "selected_profile_live_catalog",
         "stage_policy": "first_empty_reference_slot_no_overwrite",
+        "overwrite_policy": "never_overwrite_occupied_unit",
         "auto_run_default": False,
         "preserve_prompt_context": False,
         "preserve_reference_context": "source_becomes_reference",
         "v1_parity": True,
     },
     {
-        "id": "extension.image_upscale",
+        "id": "extension.layerdiffuse.source",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_layer_slot", "comfyui_portable": "stage_layer_slot"},
         "v1_button_id": None,
         "v1_icon": None,
-        "icon": "⬆️",
-        "group": "finish",
-        "label": "Image Upscale",
-        "tooltip": "Upscale this image",
+        "icon": "📥",
+        "group": "layerdiffuse",
+        "label": "LD Source",
+        "tooltip": "Send this image to LayerDiffuse Source slot",
         "type": "extension",
-        "requires_extension": "image.image_upscale",
-        "target_workspace": "finish",
-        "target_panel": "image.image_upscale",
-        "handler": "previewActionStageImageUpscale",
+        "requires_extension": "image.layerdiffuse",
+        "target_workspace": "generations",
+        "target_panel": "image.layerdiffuse",
+        "handler": "previewActionStageLayerDiffuseSlot",
+        "handler_args": ["source"],
+        "stage_policy": "named_slot_explicit_replace",
         "auto_run_default": False,
         "preserve_prompt_context": False,
-        "preserve_reference_context": False,
+        "preserve_reference_context": "source_becomes_layer_slot",
+        "v1_parity": False,
+        "v2_improvement": True,
+    },
+    {
+        "id": "extension.layerdiffuse.background",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_layer_slot", "comfyui_portable": "stage_layer_slot"},
+        "v1_button_id": None,
+        "v1_icon": None,
+        "icon": "🌄",
+        "group": "layerdiffuse",
+        "label": "LD Background",
+        "tooltip": "Send this image to LayerDiffuse Background slot",
+        "type": "extension",
+        "requires_extension": "image.layerdiffuse",
+        "target_workspace": "generations",
+        "target_panel": "image.layerdiffuse",
+        "handler": "previewActionStageLayerDiffuseSlot",
+        "handler_args": ["background"],
+        "stage_policy": "named_slot_explicit_replace",
+        "auto_run_default": False,
+        "preserve_prompt_context": False,
+        "preserve_reference_context": "source_becomes_layer_slot",
+        "v1_parity": False,
+        "v2_improvement": True,
+    },
+    {
+        "id": "extension.layerdiffuse.foreground",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_layer_slot", "comfyui_portable": "stage_layer_slot"},
+        "v1_button_id": None,
+        "v1_icon": None,
+        "icon": "🍎",
+        "group": "layerdiffuse",
+        "label": "LD Foreground",
+        "tooltip": "Send this image to LayerDiffuse Foreground slot",
+        "type": "extension",
+        "requires_extension": "image.layerdiffuse",
+        "target_workspace": "generations",
+        "target_panel": "image.layerdiffuse",
+        "handler": "previewActionStageLayerDiffuseSlot",
+        "handler_args": ["foreground"],
+        "stage_policy": "named_slot_explicit_replace",
+        "auto_run_default": False,
+        "preserve_prompt_context": False,
+        "preserve_reference_context": "source_becomes_layer_slot",
+        "v1_parity": False,
+        "v2_improvement": True,
+    },
+    {
+        "id": "extension.layerdiffuse.replace_target",
+        "action_class": "reference_stage",
+        "provider_dispatch": {"comfyui": "stage_layer_slot", "comfyui_portable": "stage_layer_slot"},
+        "v1_button_id": None,
+        "v1_icon": None,
+        "icon": "🎯",
+        "group": "layerdiffuse",
+        "label": "LD Target",
+        "tooltip": "Send this image to LayerDiffuse Replace Target slot",
+        "type": "extension",
+        "requires_extension": "image.layerdiffuse",
+        "target_workspace": "generations",
+        "target_panel": "image.layerdiffuse",
+        "handler": "previewActionStageLayerDiffuseSlot",
+        "handler_args": ["replace_target"],
+        "stage_policy": "named_slot_explicit_replace",
+        "auto_run_default": False,
+        "preserve_prompt_context": False,
+        "preserve_reference_context": "source_becomes_layer_slot",
         "v1_parity": False,
         "v2_improvement": True,
     },
     {
         "id": "extension.high_res_lab",
+        "action_class": "post_process",
+        "derived_contract_schema": "neo.image.derived_action.v2",
+        "profile_policy": "selected_profile_only",
+        "automatic_provider_fallback": False,
+        "provider_dispatch": {"comfyui": "run_comfy_derived", "comfyui_portable": "run_comfy_derived", "forge": "run_forge_native_hires", "*": "explicit_cross_provider_bridge"},
         "v1_button_id": "btn-generation-preview-hires",
         "v1_icon": "✨",
         "icon": "✨",
         "group": "finish",
         "label": "High-Res Lab",
-        "tooltip": "Refine with High-Res Lab",
+        "tooltip": "Apply current High-Res Lab settings to this image",
         "type": "extension",
         "requires_extension": "image.high_res_lab",
         "target_workspace": "finish",
@@ -182,6 +296,11 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "extension.adetailer",
+        "action_class": "post_process",
+        "derived_contract_schema": "neo.image.derived_action.v2",
+        "profile_policy": "selected_profile_only",
+        "automatic_provider_fallback": False,
+        "provider_dispatch": {"comfyui": "run_comfy_derived", "comfyui_portable": "run_comfy_derived", "forge": "run_provider_img2img_derived", "*": "explicit_cross_provider_bridge"},
         "v1_button_id": "btn-generation-preview-detailer",
         "v1_icon": "🩹+",
         "icon": "🩹+",
@@ -201,6 +320,11 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
     },
     {
         "id": "extension.identity_rescue",
+        "action_class": "post_process",
+        "derived_contract_schema": "neo.image.derived_action.v2",
+        "profile_policy": "selected_profile_only",
+        "automatic_provider_fallback": False,
+        "provider_dispatch": {"comfyui": "run_comfy_derived", "comfyui_portable": "run_comfy_derived", "forge": "run_provider_img2img_derived", "*": "explicit_cross_provider_bridge"},
         "v1_button_id": "btn-generation-preview-identity",
         "v1_icon": "🧬",
         "icon": "🧬",
@@ -219,9 +343,45 @@ PREVIEW_ACTIONS: List[Dict[str, Any]] = [
         "preserve_reference_context": True,
         "v1_parity": True,
     },
+    {
+        "id": "extension.image_upscale",
+        "action_class": "post_process",
+        "derived_contract_schema": "neo.image.derived_action.v2",
+        "profile_policy": "selected_profile_only",
+        "automatic_provider_fallback": False,
+        "provider_dispatch": {"comfyui": "run_provider_upscale", "comfyui_portable": "run_provider_upscale", "forge": "run_provider_extras", "*": "explicit_cross_provider_bridge"},
+        "v1_button_id": None,
+        "v1_icon": None,
+        "icon": "⬆️",
+        "group": "finish",
+        "label": "Image Upscale",
+        "tooltip": "Upscale this image",
+        "type": "extension",
+        "requires_extension": "image.image_upscale",
+        "target_workspace": "finish",
+        "target_panel": "image.image_upscale",
+        "handler": "previewActionStageImageUpscale",
+        "auto_run_default": False,
+        "preserve_prompt_context": False,
+        "preserve_reference_context": False,
+        "v1_parity": False,
+        "v2_improvement": True,
+    },
 ]
 
 ALLOWED_ROUTE_STATES = {"available", "experimental_available"}
+ALLOWED_ACTION_CLASSES = {"source_stage", "reference_stage", "post_process"}
+ALLOWED_PROVIDER_DISPATCH_TYPES = {
+    "stage_source_mode",
+    "stage_reference",
+    "stage_layer_slot",
+    "run_comfy_derived",
+    "run_provider_upscale",
+    "run_forge_native_hires",
+    "run_provider_img2img_derived",
+    "run_provider_extras",
+    "explicit_cross_provider_bridge",
+}
 
 
 def get_preview_action_groups() -> List[Dict[str, str]]:
@@ -230,7 +390,7 @@ def get_preview_action_groups() -> List[Dict[str, str]]:
 
 
 def get_preview_action_registry() -> List[Dict[str, Any]]:
-    """Return the Phase C V1→V2 preview action registry contract."""
+    """Return the canonical raw preview-action definition list."""
     return deepcopy(PREVIEW_ACTIONS)
 
 
@@ -328,6 +488,18 @@ def validate_preview_action_mapping() -> List[str]:
             errors.append(f"{action_id} must not auto-run by default")
         if action.get("type") == "extension" and not action.get("requires_extension"):
             errors.append(f"{action_id} missing requires_extension")
+        action_class = action.get("action_class")
+        if action_class not in ALLOWED_ACTION_CLASSES:
+            errors.append(f"{action_id} uses invalid action_class: {action_class}")
+        provider_dispatch = action.get("provider_dispatch")
+        if not isinstance(provider_dispatch, dict) or not provider_dispatch:
+            errors.append(f"{action_id} missing provider_dispatch mapping")
+        else:
+            for provider_key, dispatch_type in provider_dispatch.items():
+                if not str(provider_key or "").strip():
+                    errors.append(f"{action_id} has blank provider_dispatch key")
+                if dispatch_type not in ALLOWED_PROVIDER_DISPATCH_TYPES:
+                    errors.append(f"{action_id} uses invalid provider dispatch: {dispatch_type}")
     return errors
 
 SOURCE_CONTEXT_DEFAULTS: Dict[str, Any] = {
@@ -645,12 +817,16 @@ def preview_action_source_metadata(source_context: Dict[str, Any] | None = None)
     }
 
 PREVIEW_ACTION_REGISTRY_SCHEMA_VERSION = 1
+PREVIEW_ACTION_DEFINITION_SCHEMA_ID = "neo.image.preview_action_registry_definition.v1"
+PREVIEW_ACTION_DEFINITION_SCHEMA_VERSION = 1
 
 
 def _action_public_contract(action: Dict[str, Any]) -> Dict[str, Any]:
     """Return the UI-safe registry fields for one preview action."""
     public_keys = (
         "id",
+        "action_class",
+        "provider_dispatch",
         "group",
         "icon",
         "label",
@@ -671,8 +847,44 @@ def _action_public_contract(action: Dict[str, Any]) -> Dict[str, Any]:
         "v1_auto_queued",
         "preserve_prompt_context",
         "preserve_reference_context",
+        "source_contract_schema",
+        "reference_contract_schema",
+        "catalog_policy",
+        "overwrite_policy",
+        "profile_policy",
+        "execution_policy",
+        "mask_policy",
+        "editor_policy",
+        "clears",
     )
     return {key: deepcopy(action.get(key)) for key in public_keys if key in action}
+
+
+def preview_action_definition_registry_payload() -> Dict[str, Any]:
+    """Return the canonical UI-safe preview-action definition registry.
+
+    This payload is the only action/group definition consumed by the browser.
+    It deliberately contains no source/provider evaluation; those decisions
+    remain separate so later routing phases can evolve without duplicating the
+    toolbar inventory in JavaScript.
+    """
+    validation_errors = validate_preview_action_mapping()
+    actions = [_action_public_contract(action) for action in PREVIEW_ACTIONS]
+    groups: List[Dict[str, Any]] = []
+    for group in ACTION_GROUPS:
+        group_actions = [action for action in actions if action.get("group") == group["id"]]
+        groups.append({**deepcopy(group), "actions": group_actions})
+    return {
+        "schema_id": PREVIEW_ACTION_DEFINITION_SCHEMA_ID,
+        "schema_version": PREVIEW_ACTION_DEFINITION_SCHEMA_VERSION,
+        "authority": "neo_app.image.preview_actions",
+        "group_order": [group["id"] for group in ACTION_GROUPS],
+        "action_count": len(actions),
+        "groups": groups,
+        "actions": actions,
+        "validation_errors": validation_errors,
+        "valid": not validation_errors,
+    }
 
 
 def _extension_record(extension_states: Dict[str, Any] | None, extension_id: str) -> Dict[str, Any]:
@@ -731,10 +943,9 @@ def evaluate_preview_action(
 ) -> Dict[str, Any]:
     """Evaluate one preview action for toolbar rendering.
 
-    This is Phase E's central registry decision point. It does not render UI and
-    does not run handlers. It only combines the raw V1→V2 action map, the Phase D
-    source contract, Admin extension state, route state, and optional capability
-    state into a deterministic UI-safe action record.
+    This evaluator does not render UI or run handlers. It combines the canonical
+    action definition, normalized source contract, Admin extension state, route
+    state, and optional capability state into a deterministic UI-safe record.
     """
     if isinstance(action, str):
         raw_action = get_preview_action(action)
@@ -811,7 +1022,7 @@ def build_preview_action_registry(
 ) -> Dict[str, Any]:
     """Build the UI-safe preview action registry for toolbar rendering.
 
-    The returned registry is grouped in V1 order. Normal mode omits hidden
+    The returned registry is grouped in canonical toolbar order. Normal mode omits hidden
     extension actions; expert/include_hidden callers may inspect gated actions
     and disabled reasons without changing runtime behavior.
     """

@@ -226,6 +226,95 @@
       }
     },
     {
+      "family_id": "sd35",
+      "display_name": "Stable Diffusion 3.5",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Stable Diffusion 3.5 split-component and GGUF family. Phase 15 enables LanPaint inpaint only; normal native workflows remain separately gated.",
+      "supported_modes": [
+        "inpaint"
+      ],
+      "mode_support": {
+        "inpaint": "experimental_available"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "sd35_components"
+      ],
+      "parameter_profiles": [
+        "sd35_lanpaint"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "sd3_clip_l",
+          "sd3_clip_g",
+          "sd3_t5xxl",
+          "sd3_vae"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "sd3_clip_l",
+          "sd3_clip_g",
+          "sd3_t5xxl",
+          "sd3_vae"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "UNETLoader",
+            "TripleCLIPLoader",
+            "VAELoader",
+            "ModelSamplingSD3",
+            "LanPaint_KSampler"
+          ],
+          "gguf": [
+            "UnetLoaderGGUF",
+            "TripleCLIPLoaderGGUF",
+            "VAELoader",
+            "ModelSamplingSD3",
+            "LanPaint_KSampler"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "lanpaint_capabilities"
+        ]
+      },
+      "default_params": {
+        "steps": 28,
+        "cfg": 4.5,
+        "denoise": 1.0
+      },
+      "notes": [
+        "Phase 15 enables only the LanPaint inpaint engine.",
+        "SD 3.5 uses triple text encoders and ModelSamplingSD3; it does not inherit SDXL or AuraFlow policy."
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "inpaint": "experimental_available"
+        },
+        "gguf": {
+          "inpaint": "experimental_available"
+        }
+      }
+    },
+    {
       "family_id": "flux",
       "display_name": "Flux 1",
       "surfaces": [
@@ -342,7 +431,8 @@
         "API/cloud model selection is not a normal local Flux 1 main model type in this family lock.",
         "V25.9.20 P1 routes Flux 1 Safetensors / Components inpaint/outpaint through the internal Flux Fill workflow; Flux Fill is not a separate normal family dropdown entry.",
         "Phase M15 adds FLUX.1 Krea as variant=krea_dev under canonical family=flux. Krea is Dev-compatible, uses T5XXL + CLIP-L + Flux AE/VAE, and keeps the selected Krea model for txt2img/img2img/inpaint/outpaint in both component and GGUF routes.",
-        "M15 Krea inpaint/outpaint use latent noise masks + DifferentialDiffusion; non-Krea Flux 1 component inpaint/outpaint preserve the existing internal FLUX.1 Fill route."
+        "M15 Krea inpaint/outpaint use latent noise masks + DifferentialDiffusion; non-Krea Flux 1 component inpaint/outpaint preserve the existing internal FLUX.1 Fill route.",
+        "LanPaint Phase 16 onboards FLUX.1 Dev and Schnell for safetensors/components and GGUF, with exact variant replay and capability gating; Krea remains on the dedicated Krea2 route."
       ],
       "loader_mode_support": {
         "diffusion_model": {
@@ -386,6 +476,67 @@
           "vae_policy": "Flux 1 AE/VAE such as ae.safetensors",
           "masked_workflow_policy": "retain selected Krea model; use VAEEncode + SetLatentNoiseMask + DifferentialDiffusion; do not silently substitute FLUX.1 Fill",
           "gguf_policy": "Krea GGUF uses ComfyUI-GGUF FLUX.1 dual-encoder route; DualCLIPLoaderGGUF can consume GGUF or regular safetensors/bin encoder files"
+        },
+        "dev": {
+          "display_name": "FLUX.1 Dev",
+          "architecture": "flux1",
+          "family_id": "flux",
+          "aliases": [
+            "dev",
+            "flux_dev",
+            "flux1_dev",
+            "flux_1_dev"
+          ],
+          "model_name_markers": [
+            "flux1-dev",
+            "flux.1-dev",
+            "flux_1_dev"
+          ],
+          "supported_loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "text_encoder_policy": "one T5XXL + one CLIP-L using the Flux dual text-encoder contract",
+          "vae_policy": "Flux AE/VAE such as ae.safetensors",
+          "lanpaint_policy": "CFG 1.0, Image First, FluxGuidance in the low 1.0-2.0 range, zeroed negative conditioning, crop/restore/stitch",
+          "gguf_policy": "GGUF model uses ComfyUI-GGUF UnetLoaderGGUF/LoaderGGUF plus DualCLIPLoaderGGUF and ModelSamplingFlux"
+        },
+        "schnell": {
+          "display_name": "FLUX.1 Schnell",
+          "architecture": "flux1",
+          "family_id": "flux",
+          "aliases": [
+            "schnell",
+            "flux_schnell",
+            "flux1_schnell",
+            "flux_1_schnell"
+          ],
+          "model_name_markers": [
+            "flux1-schnell",
+            "flux.1-schnell",
+            "flux_1_schnell"
+          ],
+          "supported_loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "supported_modes": [
+            "txt2img",
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "text_encoder_policy": "one T5XXL + one CLIP-L using the Flux dual text-encoder contract",
+          "vae_policy": "Flux AE/VAE such as ae.safetensors",
+          "sampling_policy": "distilled four-step variant; do not inherit Dev step defaults",
+          "lanpaint_policy": "CFG 1.0, Image First, Schnell-safe low guidance, zeroed negative conditioning, reduced thinking default, crop/restore/stitch",
+          "gguf_policy": "GGUF model uses ComfyUI-GGUF UnetLoaderGGUF/LoaderGGUF plus DualCLIPLoaderGGUF and ModelSamplingFlux"
         }
       }
     },
@@ -472,6 +623,102 @@
         "diffusion_model": {
           "inpaint": "experimental",
           "outpaint": "experimental"
+        }
+      }
+    },
+    {
+      "family_id": "flux2_dev",
+      "display_name": "Flux 2 Dev",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "FLUX.2 Dev LanPaint inpainting family using a Mistral 3 Small Flux2 text encoder and Flux2 VAE. Phase 17 exposes inpaint only.",
+      "supported_modes": [
+        "inpaint"
+      ],
+      "mode_support": {
+        "inpaint": "experimental_available"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "flux2_dev_native",
+        "flux2_dev_gguf"
+      ],
+      "parameter_profiles": [
+        "flux2_dev_native",
+        "flux2_dev_gguf"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "mistral3_text_encoder",
+          "vae_or_ae",
+          "flux_guidance"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "mistral3_text_encoder",
+          "vae_or_ae",
+          "flux_guidance"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "diffusion_model_loader",
+            "clip_loader_flux2",
+            "flux_guidance",
+            "vae_encode",
+            "sampler"
+          ],
+          "gguf": [
+            "gguf_unet_loader",
+            "clip_loader_flux2",
+            "flux_guidance",
+            "vae_encode",
+            "sampler"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "inpaint": [
+          "source_image",
+          "mask_image",
+          "model",
+          "mistral3_text_encoder",
+          "flux_guidance"
+        ]
+      },
+      "default_params": {
+        "steps": 28,
+        "cfg": 1.0,
+        "flux_guidance": 4.0,
+        "clip_skip": 1,
+        "denoise": 1.0
+      },
+      "required_extensions": [
+        "image.gguf_loader"
+      ],
+      "notes": [
+        "Phase 17 LanPaint only: Flux.2 Dev does not inherit Klein Qwen3 conditioning.",
+        "GGUF transformer routes keep the native Mistral 3 Small Flux2 encoder until a GGUF encoder contract is physically validated."
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "inpaint": "experimental_available"
+        },
+        "gguf": {
+          "inpaint": "experimental_available"
         }
       }
     },
@@ -1134,7 +1381,7 @@
       ],
       "category": "image",
       "status": "extension_ready",
-      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1\u20133 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
+      "description": "Qwen Image Edit 2509 multi-source image-edit family. Supports 1–3 source images for img2img/edit routes; normal Qwen Image Edit remains single-source.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -1230,12 +1477,140 @@
       ],
       "notes": [
         "V25.9.20 Pass G adds Qwen Image Edit 2509 as its own visible Image family instead of overloading normal qwen_image.",
-        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1\u20133 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
+        "Official Qwen Image Edit 2509 support is recorded as multi-image editing with best results around 1–3 input images; Neo exposes source_image, source_image_2, and source_image_3 for img2img/edit routes.",
         "V25.9.20 P3 promotes Safetensors / Components img2img/edit/inpaint/outpaint routes as implemented workflows through the Qwen native edit compiler.",
         "Safetensors / Components uses the Qwen native edit compiler with max_images=3 for qwen_image_edit_2509 img2img/edit.",
         "Safetensors / Components inpaint/outpaint compile as single-source mask/canvas workflows; extra source lanes are pruned/ignored for those modes.",
         "GGUF uses the existing Qwen single-encoder GGUF compiler and enables multi-source img2img/edit conditioning for qwen_image_edit_2509.",
         "Normal Qwen Image Edit remains single-source and must not borrow 2509 multi-source behavior."
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "native",
+          "img2img": "multi_source_native",
+          "inpaint": "single_source_native_mask",
+          "outpaint": "single_source_native_canvas",
+          "edit": "multi_source_native"
+        },
+        "gguf": {
+          "txt2img": "native",
+          "img2img": "multi_source_mmproj_required",
+          "inpaint": "single_source_mmproj_required",
+          "outpaint": "single_source_mmproj_required",
+          "edit": "multi_source_mmproj_required"
+        }
+      }
+    },
+    {
+      "family_id": "qwen_image_edit_2511",
+      "display_name": "Qwen Image Edit 2511",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Qwen Image Edit 2511 multi-source edit family with stronger consistency and geometry. Supports 1–3 source images for img2img/edit; inpaint/outpaint remain single-canvas workflows.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "edit"
+      ],
+      "mode_support": {
+        "txt2img": "native",
+        "img2img": "native",
+        "inpaint": "native",
+        "outpaint": "native",
+        "edit": "native"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "qwen_2511_native",
+        "qwen_2511_gguf"
+      ],
+      "parameter_profiles": [
+        "qwen_2511_native",
+        "qwen_2511_gguf"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "qwen_text_encoder",
+          "vae"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "gguf_text_encoder_primary",
+          "vae",
+          "qwen_mmproj_optional"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "diffusion_model_loader",
+            "qwen_text_encoder",
+            "vae_decode",
+            "sampler",
+            "single_source_edit_conditioning"
+          ],
+          "gguf": [
+            "gguf_unet_loader",
+            "gguf_clip_single_loader_or_qwen_text_encoder",
+            "vae_decode",
+            "sampler",
+            "mmproj_for_image_routes"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "txt2img": [
+          "qwen_image_edit_model",
+          "qwen_text_encoder"
+        ],
+        "img2img": [
+          "source_image"
+        ],
+        "inpaint": [
+          "source_image",
+          "mask_image"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding"
+        ],
+        "edit": [
+          "source_image",
+          "edit_instruction"
+        ]
+      },
+      "default_params": {
+        "steps": 20,
+        "cfg": 4.0,
+        "clip_skip": 1,
+        "denoise": 1.0,
+        "qwen_source_slot_count": 3,
+        "qwen_aura_shift": 3.1
+      },
+      "required_extensions": [
+        "image.gguf_loader"
+      ],
+      "notes": [
+        "Phase 18 adds Qwen Image Edit 2511 as a first-class family instead of aliasing it to 2509.",
+        "Official ComfyUI 2511 workflows use qwen_image_edit_2511_bf16, Qwen2.5-VL 7B, qwen_image_vae, TextEncodeQwenImageEditPlus, and up to three image inputs.",
+        "Safetensors/components and GGUF transformer routes support 1–3 source images for img2img/edit.",
+        "Inpaint and outpaint intentionally use Image 1 as the editable canvas; Image 2/Image 3 remain stored but are not applied to the mask/canvas latent.",
+        "txt2img is retained as an experimental no-source compatibility route; plain qwen_image remains the recommended text-to-image family.",
+        "2511 must not silently resolve to 2509, the original Qwen Image Edit family, Qwen Rapid AIO, or plain Qwen Image."
       ],
       "loader_mode_support": {
         "diffusion_model": {
@@ -1648,44 +2023,199 @@
       }
     },
     {
-      "family_id": "hunyuan_image",
-      "display_name": "Hunyuan Image / Video",
+      "family_id": "anima",
+      "display_name": "Anima Base v1",
       "surfaces": [
-        "image",
-        "video"
+        "image"
       ],
-      "category": "multi_surface",
-      "status": "provider_only",
-      "description": "Hunyuan family for provider-gated image/video contexts where exact model branch and workflow compiler must be selected before runtime.",
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Anima Base v1 image-generation family with native Qwen3 0.6B conditioning, Qwen Image VAE, optional model-only Turbo LoRA, standard and GGUF model loaders, txt2img, img2img and LanPaint inpainting.",
       "supported_modes": [
         "txt2img",
         "img2img",
         "inpaint",
         "outpaint",
-        "image_to_video",
-        "text_to_video"
+        "edit"
       ],
       "mode_support": {
-        "txt2img": "provider_required",
-        "img2img": "provider_required",
-        "inpaint": "provider_required",
-        "outpaint": "provider_required",
-        "image_to_video": "provider_required",
-        "text_to_video": "provider_required"
+        "txt2img": "native",
+        "img2img": "native_latent",
+        "inpaint": "lanpaint",
+        "outpaint": "planned",
+        "edit": "unsupported"
       },
       "supported_backends": [
         "comfyui",
-        "comfyui_portable",
-        "cloud_api"
+        "comfyui_portable"
       ],
       "supported_loaders": [
         "diffusion_model",
-        "gguf",
-        "api_model"
+        "gguf"
       ],
       "default_loader": "diffusion_model",
       "runtime_profiles": [
-        "hunyuan_provider_gated"
+        "anima_native",
+        "anima_gguf"
+      ],
+      "parameter_profiles": [
+        "anima_full",
+        "anima_turbo_lora"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "anima_qwen3_06b_text_encoder",
+          "qwen_image_vae"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "anima_qwen3_06b_text_encoder",
+          "qwen_image_vae"
+        ]
+      },
+      "model_variants": [
+        {
+          "variant_id": "anima_base_v1",
+          "display_name": "Anima Base v1.0",
+          "role": "base",
+          "default_steps": 30,
+          "default_cfg": 4.0
+        },
+        {
+          "variant_id": "anima_turbo_lora",
+          "display_name": "Anima Turbo LoRA",
+          "role": "optional_model_only_lora",
+          "default_steps": 8,
+          "default_cfg": 1.0
+        }
+      ],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "available",
+          "img2img": "experimental_available",
+          "inpaint": "experimental_available",
+          "outpaint": "planned_gated"
+        },
+        "gguf": {
+          "txt2img": "experimental_available",
+          "img2img": "experimental_available",
+          "inpaint": "experimental_available",
+          "outpaint": "planned_gated"
+        }
+      },
+      "notes": [
+        "Anima GGUF support quantizes only the diffusion model; the Qwen3 0.6B text encoder and Qwen Image VAE remain separately selected unless the live provider proves another exact loader contract.",
+        "Img2img uses source VAEEncode and denoise below 1.0.",
+        "LanPaint uses the basic LanPaint_KSampler route."
+      ]
+    },
+    {
+      "family_id": "ideogram4",
+      "display_name": "Ideogram 4",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Ideogram 4 open-weight image family with paired main and unconditional diffusion models, Qwen3-VL conditioning, Flux 2 VAE, txt2img and advanced/custom LanPaint inpainting.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "edit"
+      ],
+      "mode_support": {
+        "txt2img": "native_advanced",
+        "img2img": "held_unverified",
+        "inpaint": "lanpaint_custom_advanced",
+        "outpaint": "planned",
+        "edit": "unsupported"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "ideogram4_native",
+        "ideogram4_gguf"
+      ],
+      "parameter_profiles": [
+        "ideogram4_dual_model_advanced"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "ideogram4_main_model",
+          "ideogram4_unconditional_model",
+          "ideogram4_qwen3_vl_text_encoder",
+          "flux2_vae"
+        ],
+        "gguf": [
+          "ideogram4_main_model_gguf",
+          "ideogram4_unconditional_model_gguf",
+          "ideogram4_qwen3_vl_text_encoder",
+          "flux2_vae"
+        ]
+      },
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "experimental_available",
+          "img2img": "held_unverified",
+          "inpaint": "experimental_available",
+          "outpaint": "planned_gated"
+        },
+        "gguf": {
+          "txt2img": "experimental_available",
+          "img2img": "held_unverified",
+          "inpaint": "experimental_available",
+          "outpaint": "planned_gated"
+        }
+      },
+      "notes": [
+        "Both the main and unconditional Ideogram 4 diffusion models are required.",
+        "Img2img remains hidden because Phase 22 found no verified local official Ideogram 4 img2img workflow; Neo does not infer support from generic VAEEncode alone.",
+        "LanPaint must use LanPaint_SamplerCustomAdvanced with Ideogram4Scheduler and DualModelGuider; the basic LanPaint_KSampler route is forbidden.",
+        "LoRA remains blocked until both model branches have a proven patch strategy."
+      ]
+    },
+    {
+      "family_id": "hunyuan_image",
+      "display_name": "HunyuanImage (Held)",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "provider_only",
+      "description": "Separate HunyuanImage image family placeholder. It is not proven by LanPaint’s Hunyuan T2I example and remains held until an image-native LanPaint workflow is validated. HunyuanVideo belongs to the Video workspace.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint"
+      ],
+      "mode_support": {
+        "txt2img": "held_unverified_image_workflow",
+        "img2img": "held_unverified_image_workflow",
+        "inpaint": "held_unverified_image_workflow",
+        "outpaint": "held_unverified_image_workflow"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "hunyuan_image_held"
       ],
       "parameter_profiles": [
         "hunyuan_image_native",
@@ -1735,8 +2265,7 @@
           "variant"
         ],
         "inpaint": [
-          "provider_route",
-          "variant"
+          "held_separate_hunyuanimage_lanpaint_workflow"
         ],
         "outpaint": [
           "provider_route",
@@ -1753,41 +2282,36 @@
         "image.gguf_loader"
       ],
       "notes": [
-        "Phase 12.18 registers Hunyuan for capability/readiness visibility only; no Image-tab compiler route is enabled.",
-        "Hunyuan routes stay provider-gated until the exact model branch/variant and workflow compiler are selected.",
-        "Do not map Hunyuan image modes through SDXL, Flux, Qwen, Z-Image, HiDream, or Wan workflow assumptions.",
-        "Phase 12.19 keeps Hunyuan outpaint provider-gated until a confirmed model branch/workflow exists."
+        "Phase 21 separates HunyuanImage from HunyuanVideo. No Hunyuan route is enabled in the Image workspace.",
+        "LanPaint upstream labels an example Hunyuan T2I but directs users to the HunyuanVideo text-to-video model/workflow; Neo therefore holds that architecture for the Video workspace.",
+        "The separate HunyuanImage family remains provider-gated until its own image-native LanPaint graph, loaders, encoders, VAE and LoRA policy are physically validated.",
+        "Do not reuse HunyuanVideo nodes or latents in the Image tab."
       ],
       "loader_mode_support": {
         "diffusion_model": {
-          "txt2img": "provider_required",
-          "img2img": "provider_required",
-          "inpaint": "provider_required",
-          "outpaint": "provider_required"
+          "txt2img": "held_unverified_image_workflow",
+          "img2img": "held_unverified_image_workflow",
+          "inpaint": "held_unverified_image_workflow",
+          "outpaint": "held_unverified_image_workflow"
         },
         "gguf": {
-          "txt2img": "provider_required",
-          "img2img": "provider_required",
-          "inpaint": "provider_required",
-          "outpaint": "provider_required"
-        },
-        "api_model": {
-          "txt2img": "provider_required",
-          "img2img": "provider_required",
-          "inpaint": "provider_required",
-          "outpaint": "provider_required"
+          "txt2img": "held_unverified_image_workflow",
+          "img2img": "held_unverified_image_workflow",
+          "inpaint": "held_unverified_image_workflow",
+          "outpaint": "held_unverified_image_workflow"
         }
-      }
+      },
+      "hold_state": "held_unverified_image_workflow"
     },
     {
       "family_id": "hidream",
-      "display_name": "HiDream",
+      "display_name": "HiDream-I1 / HiDream Family",
       "surfaces": [
         "image"
       ],
       "category": "image",
       "status": "extension_ready",
-      "description": "HiDream family for safe provider-discovered txt2img workflows with variant-aware future route gates.",
+      "description": "HiDream image family. Phase 21 adds HiDream-I1 full/dev/fast as LanPaint inpainting routes with four text encoders and ModelSamplingSD3; E1/E1.1/O1 remain separately gated.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -1798,7 +2322,7 @@
       "mode_support": {
         "txt2img": "native",
         "img2img": "variant_required",
-        "inpaint": "variant_required",
+        "inpaint": "lanpaint_variant",
         "outpaint": "variant_required",
         "edit": "variant_required"
       },
@@ -1826,14 +2350,20 @@
         "diffusion_model": [
           "hidream_variant",
           "diffusion_model",
-          "text_encoder_primary",
+          "hidream_clip_l",
+          "hidream_clip_g",
+          "hidream_t5xxl",
+          "hidream_llama_3_1_8b",
           "vae_or_ae"
         ],
         "gguf": [
           "hidream_variant",
           "gguf_unet",
-          "gguf_text_encoder_primary",
-          "gguf_vae"
+          "hidream_clip_l",
+          "hidream_clip_g",
+          "hidream_t5xxl",
+          "hidream_llama_3_1_8b",
+          "vae_or_ae"
         ],
         "api_model": [
           "api_model",
@@ -1844,15 +2374,19 @@
         "comfyui": {
           "diffusion_model": [
             "diffusion_model_loader",
-            "text_encoder_loader",
-            "vae_decode",
-            "sampler"
+            "quadruple_clip_loader",
+            "model_sampling_sd3",
+            "vae_encode_decode",
+            "lanpaint_sampler",
+            "crop_stitch_nodes"
           ],
           "gguf": [
             "gguf_unet_loader",
-            "gguf_clip_loader",
-            "gguf_vae_loader",
-            "sampler"
+            "quadruple_clip_loader_gguf",
+            "model_sampling_sd3",
+            "vae_encode_decode",
+            "lanpaint_sampler",
+            "crop_stitch_nodes"
           ]
         },
         "cloud_api": {
@@ -1873,9 +2407,16 @@
           "source_image"
         ],
         "inpaint": [
-          "variant_inpaint_route",
+          "lanpaint_engine",
+          "hidream_variant_i1",
           "source_image",
-          "mask_image"
+          "mask_image",
+          "model",
+          "hidream_clip_l",
+          "hidream_clip_g",
+          "hidream_t5xxl",
+          "hidream_llama_3_1_8b",
+          "vae_or_ae"
         ],
         "outpaint": [
           "variant_outpaint_route",
@@ -1890,18 +2431,21 @@
       },
       "default_params": {
         "steps": 28,
-        "cfg": 4.0,
+        "cfg": 1.0,
         "clip_skip": 1,
         "denoise": 1.0,
-        "hidream_variant": "HiDream-I1"
+        "hidream_variant": "HiDream-I1",
+        "hidream_i1_profile": "dev",
+        "hidream_sd3_shift": 6.0
       },
       "required_extensions": [
         "image.gguf_loader"
       ],
       "notes": [
-        "Phase 12.16 enables only provider-discovered HiDream txt2img routes for diffusion_model and GGUF loaders.",
-        "HiDream-I1, HiDream-E1, and HiDream-O1 are registered as variants, but image-conditioned modes stay gated until valid variant workflows exist.",
-        "Phase 12.19 keeps HiDream outpaint variant-specific; no route is enabled unless the selected variant declares support."
+        "Phase 21 enables HiDream-I1 full/dev/fast for Image → Inpaint → LanPaint with diffusion-model and GGUF loader contracts.",
+        "HiDream-I1 requires CLIP-L, CLIP-G, T5XXL and Llama 3.1 8B through QuadrupleCLIPLoader or QuadrupleCLIPLoaderGGUF, plus AE/VAE and ModelSamplingSD3.",
+        "HiDream-E1/E1.1 and HiDream-O1 are separate edit/checkpoint architectures and do not inherit the Phase 21 I1 LanPaint compiler.",
+        "Native inpaint, img2img, outpaint and edit remain gated unless a dedicated variant compiler is added."
       ],
       "variants": [
         {
@@ -1909,14 +2453,20 @@
           "display_name": "HiDream-I1",
           "role": "image_generation",
           "supported_modes": [
-            "txt2img"
+            "txt2img",
+            "inpaint"
           ],
           "gated_modes": [
             "img2img",
-            "inpaint",
             "outpaint",
             "edit"
-          ]
+          ],
+          "profiles": [
+            "full",
+            "dev",
+            "fast"
+          ],
+          "inpaint_engine": "lanpaint"
         },
         {
           "variant_id": "HiDream-E1",
@@ -1947,7 +2497,7 @@
         "HiDream-I1": {
           "txt2img": "native",
           "img2img": "gated",
-          "inpaint": "gated",
+          "inpaint": "lanpaint",
           "outpaint": "gated",
           "edit": "gated"
         },
@@ -1966,14 +2516,14 @@
         "diffusion_model": {
           "txt2img": "native",
           "img2img": "variant_required",
-          "inpaint": "variant_required",
+          "inpaint": "lanpaint",
           "outpaint": "variant_required",
           "edit": "variant_required"
         },
         "gguf": {
           "txt2img": "native",
           "img2img": "variant_required",
-          "inpaint": "variant_required",
+          "inpaint": "lanpaint",
           "outpaint": "variant_required",
           "edit": "variant_required"
         },
@@ -4560,13 +5110,13 @@
         "source_image_3"
       ],
       "disabled_fields": [
-        "cfg",
         "clip_skip"
       ],
       "notes": [
         "V25.9.20 P3: normal Qwen Image Edit diffusion_model route is single-source and available for img2img/edit/inpaint/outpaint.",
         "MMProj is not exposed for the native/safetensors component route; it is only required by the GGUF image-conditioned route.",
-        "source_image_2/source_image_3 are hidden/ignored for qwen_image because Qwen Image Edit 2509 owns multi-source editing."
+        "source_image_2/source_image_3 are hidden/ignored for qwen_image because Qwen Image Edit 2509 owns multi-source editing.",
+        "IR-4: the single visible CFG control is editable and labeled True CFG; submission mirrors it to true_cfg plus compiler-compatible cfg."
       ]
     },
     {
@@ -4722,7 +5272,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -4800,7 +5350,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "diffusion_model",
-          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1\u20133 image multi-source editing."
+          "help_text": "Use the Qwen Image Edit 2509 safetensors model for single-source or 1–3 image multi-source editing."
         },
         {
           "field_id": "qwen_text_encoder",
@@ -4841,13 +5391,13 @@
       ],
       "hidden_fields": [],
       "disabled_fields": [
-        "cfg",
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1\u20133 source image lanes and compile through comfy.qwen_native_edit.",
+        "V25.9.20 P3: qwen_image_edit_2509 diffusion_model img2img/edit routes expose 1–3 source image lanes and compile through comfy.qwen_native_edit.",
         "Normal qwen_image remains single-source; do not share this profile with qwen_image.",
-        "P3: native inpaint/outpaint are implemented single-source mask/canvas workflows, not planned gates; source_image_2/source_image_3 are mode-scoped to img2img/edit only."
+        "P3: native inpaint/outpaint are implemented single-source mask/canvas workflows, not planned gates; source_image_2/source_image_3 are mode-scoped to img2img/edit only.",
+        "IR-4: the single visible CFG control is editable and labeled True CFG; submission mirrors it to true_cfg plus compiler-compatible cfg."
       ]
     },
     {
@@ -5574,7 +6124,7 @@
             "img2img",
             "edit"
           ],
-          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1\u20133."
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2509 multi-source editing. Keep total input images to 1–3."
         },
         {
           "field_id": "qwen_source_slot_count",
@@ -5720,7 +6270,7 @@
         "clip_skip"
       ],
       "notes": [
-        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1\u20133 source lanes for img2img/edit.",
+        "V25.9.20 Pass G: qwen_image_edit_2509 GGUF route exposes 1–3 source lanes for img2img/edit.",
         "MMProj remains optional for txt2img and required for image-conditioned modes.",
         "Inpaint/outpaint are available through the existing Qwen GGUF source/mask/padding graph, but multi-source behavior is scoped to img2img/edit."
       ]
@@ -7418,8 +7968,8 @@
     },
     {
       "profile_id": "hunyuan_image_native",
-      "display_name": "Hunyuan Image Native Parameters",
-      "description": "Provider-gated Hunyuan status/profile fields. No Image-tab generation workflow is enabled by this profile.",
+      "display_name": "HunyuanImage Native — Held",
+      "description": "Held HunyuanImage placeholder. HunyuanVideo is reserved for the Video workspace, and no image-native LanPaint graph is enabled.",
       "families": [
         "hunyuan_image"
       ],
@@ -7568,15 +8118,15 @@
         "clip_skip"
       ],
       "notes": [
-        "Phase 12.18: Hunyuan Image modes are provider-gated placeholders only.",
-        "Do not expose source image, mask, mask grow/blur, or outpaint controls for Hunyuan until a confirmed Image workflow exists.",
-        "Provider compiler must return a gated status instead of a fake Comfy prompt graph."
+        "Phase 21 does not enable Hunyuan in the Image tab.",
+        "HunyuanVideo/T2V belongs to the future Video workspace implementation.",
+        "HunyuanImage requires a separate verified image-native LanPaint workflow before activation."
       ]
     },
     {
       "profile_id": "hunyuan_image_gguf",
-      "display_name": "Hunyuan Image GGUF Parameters",
-      "description": "Provider-gated Hunyuan status/profile fields. No Image-tab generation workflow is enabled by this profile.",
+      "display_name": "HunyuanImage GGUF — Held",
+      "description": "Held HunyuanImage placeholder. HunyuanVideo is reserved for the Video workspace, and no image-native LanPaint graph is enabled.",
       "families": [
         "hunyuan_image"
       ],
@@ -7725,15 +8275,15 @@
         "clip_skip"
       ],
       "notes": [
-        "Phase 12.18: Hunyuan Image modes are provider-gated placeholders only.",
-        "Do not expose source image, mask, mask grow/blur, or outpaint controls for Hunyuan until a confirmed Image workflow exists.",
-        "Provider compiler must return a gated status instead of a fake Comfy prompt graph."
+        "Phase 21 does not enable Hunyuan in the Image tab.",
+        "HunyuanVideo/T2V belongs to the future Video workspace implementation.",
+        "HunyuanImage requires a separate verified image-native LanPaint workflow before activation."
       ]
     },
     {
       "profile_id": "hidream_native",
-      "display_name": "HiDream Native Parameters",
-      "description": "Phase 12.16 safe txt2img-only HiDream parameter profile.",
+      "display_name": "HiDream-I1 Native Parameters",
+      "description": "HiDream-I1 txt2img and Phase 21 LanPaint inpainting parameters with explicit full/dev/fast profile and four encoder selections.",
       "families": [
         "hidream"
       ],
@@ -7741,7 +8291,8 @@
         "diffusion_model"
       ],
       "modes": [
-        "txt2img"
+        "txt2img",
+        "inpaint"
       ],
       "shared_fields": [
         {
@@ -7836,13 +8387,39 @@
         },
         {
           "field_id": "text_encoder_1",
-          "label": "Primary Text Encoder",
+          "label": "HiDream CLIP-L Encoder",
           "control_type": "select",
           "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "text_encoder_primary",
-          "help_text": "Select the exact installed HiDream text encoder reported by ComfyUI."
+          "role_id": "hidream_clip_l"
+        },
+        {
+          "field_id": "text_encoder_2",
+          "label": "HiDream CLIP-G Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_clip_g"
+        },
+        {
+          "field_id": "text_encoder_3",
+          "label": "HiDream T5XXL Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_t5xxl"
+        },
+        {
+          "field_id": "text_encoder_4",
+          "label": "HiDream Llama 3.1 8B Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_llama_3_1_8b"
         },
         {
           "field_id": "vae",
@@ -7862,7 +8439,7 @@
           "backend_neutral": true,
           "advanced": false,
           "default": "HiDream-I1",
-          "help_text": "Phase 12.16 registers I1/E1/O1, but only txt2img is queue-enabled until variant image workflows exist."
+          "help_text": "Phase 21 LanPaint supports HiDream-I1 only. E1/E1.1/O1 remain blocked."
         },
         {
           "field_id": "provider_status",
@@ -7871,11 +8448,31 @@
           "required": false,
           "backend_neutral": true,
           "advanced": false
+        },
+        {
+          "field_id": "hidream_i1_profile",
+          "label": "HiDream-I1 Profile",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "dev",
+          "options": [
+            "full",
+            "dev",
+            "fast"
+          ],
+          "help_text": "Controls the official I1 step/CFG/ModelSamplingSD3 shift defaults used by LanPaint."
         }
       ],
       "readiness_fields": [
         "model",
-        "hidream_variant"
+        "hidream_variant",
+        "text_encoder_1",
+        "text_encoder_2",
+        "text_encoder_3",
+        "text_encoder_4",
+        "vae"
       ],
       "hidden_fields": [],
       "disabled_fields": [
@@ -7883,13 +8480,15 @@
         "clip_skip"
       ],
       "notes": [
-        "HiDream img2img, inpaint, outpaint, and edit are intentionally gated in Phase 12.16."
+        "Phase 21 enables HiDream-I1 inpaint only when Inpaint Engine is LanPaint.",
+        "Four text encoders are required; no single-encoder fallback is allowed for the Phase 21 LanPaint graph.",
+        "E1/E1.1/O1 and native inpaint remain gated."
       ]
     },
     {
       "profile_id": "hidream_gguf",
-      "display_name": "HiDream GGUF Parameters",
-      "description": "Phase 12.16 safe txt2img-only HiDream parameter profile.",
+      "display_name": "HiDream-I1 GGUF Parameters",
+      "description": "HiDream-I1 txt2img and Phase 21 LanPaint inpainting parameters with explicit full/dev/fast profile and four encoder selections.",
       "families": [
         "hidream"
       ],
@@ -7897,7 +8496,8 @@
         "gguf"
       ],
       "modes": [
-        "txt2img"
+        "txt2img",
+        "inpaint"
       ],
       "shared_fields": [
         {
@@ -8002,12 +8602,39 @@
         },
         {
           "field_id": "text_encoder_1",
-          "label": "Primary Text Encoder",
+          "label": "HiDream CLIP-L Encoder",
           "control_type": "select",
-          "required": false,
+          "required": true,
           "backend_neutral": true,
           "advanced": false,
-          "role_id": "gguf_text_encoder_primary"
+          "role_id": "hidream_clip_l"
+        },
+        {
+          "field_id": "text_encoder_2",
+          "label": "HiDream CLIP-G Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_clip_g"
+        },
+        {
+          "field_id": "text_encoder_3",
+          "label": "HiDream T5XXL Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_t5xxl"
+        },
+        {
+          "field_id": "text_encoder_4",
+          "label": "HiDream Llama 3.1 8B Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "hidream_llama_3_1_8b"
         },
         {
           "field_id": "vae",
@@ -8026,7 +8653,7 @@
           "backend_neutral": true,
           "advanced": false,
           "default": "HiDream-I1",
-          "help_text": "Phase 12.16 registers I1/E1/O1, but only txt2img is queue-enabled until variant image workflows exist."
+          "help_text": "Phase 21 LanPaint supports HiDream-I1 only. E1/E1.1/O1 remain blocked."
         },
         {
           "field_id": "provider_status",
@@ -8035,18 +8662,40 @@
           "required": false,
           "backend_neutral": true,
           "advanced": false
+        },
+        {
+          "field_id": "hidream_i1_profile",
+          "label": "HiDream-I1 Profile",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "dev",
+          "options": [
+            "full",
+            "dev",
+            "fast"
+          ],
+          "help_text": "Controls the official I1 step/CFG/ModelSamplingSD3 shift defaults used by LanPaint."
         }
       ],
       "readiness_fields": [
         "model",
-        "hidream_variant"
+        "hidream_variant",
+        "text_encoder_1",
+        "text_encoder_2",
+        "text_encoder_3",
+        "text_encoder_4",
+        "vae"
       ],
       "hidden_fields": [],
       "disabled_fields": [
         "clip_skip"
       ],
       "notes": [
-        "HiDream img2img, inpaint, outpaint, and edit are intentionally gated in Phase 12.16."
+        "Phase 21 enables HiDream-I1 inpaint only when Inpaint Engine is LanPaint.",
+        "Four text encoders are required; no single-encoder fallback is allowed for the Phase 21 LanPaint graph.",
+        "E1/E1.1/O1 and native inpaint remain gated."
       ]
     },
     {
@@ -8652,6 +9301,1086 @@
         "Image-conditioned modes and ControlNet stay gated until dedicated ZImage Turbo workflow compilers are validated.",
         "Negative prompt is hidden because the current Turbo compiler path uses zeroed negative conditioning.",
         "V25.9.20 Pass J.3: Turbo keeps 9 steps / CFG 1.0 and does not inherit base clamps."
+      ]
+    },
+    {
+      "profile_id": "flux2_dev_native",
+      "display_name": "Flux 2 Dev Components",
+      "description": "FLUX.2 Dev Phase 17 LanPaint inpaint route with a Mistral 3 Small Flux2 text encoder and Flux2 VAE.",
+      "families": [
+        "flux2_dev"
+      ],
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "inpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Optional negative prompt when supported by the selected family/backend."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 28
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "default": 1.0
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "help_text": "Required for image-conditioned modes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for inpaint routes."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 6,
+          "help_text": "Provider mask expansion value for inpaint workflows."
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Provider mask blur value for inpaint workflows."
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by V2 outpaint contract."
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "diffusion_model",
+          "label": "Flux.2 Dev Diffusion Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "diffusion_model"
+        },
+        {
+          "field_id": "text_encoder_1",
+          "label": "Mistral 3 Small Flux2 Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mistral3_text_encoder",
+          "help_text": "Flux.2 Dev uses the Mistral 3 Small Flux2 encoder through CLIPLoader(type=flux2)."
+        },
+        {
+          "field_id": "vae",
+          "label": "Flux2 VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae"
+        },
+        {
+          "field_id": "flux_guidance",
+          "label": "Flux Guidance",
+          "control_type": "slider",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "flux_guidance",
+          "help_text": "Flux guidance replaces SD-style CFG for supported Flux routes.",
+          "default": 3.5
+        }
+      ],
+      "readiness_fields": [
+        "diffusion_model",
+        "qwen3_text_encoder",
+        "vae_or_ae",
+        "flux_guidance"
+      ],
+      "hidden_fields": [
+        "clip_skip",
+        "text_encoder_2",
+        "source_image_2",
+        "source_image_3",
+        "qwen_mmproj"
+      ],
+      "disabled_fields": [
+        "cfg"
+      ],
+      "notes": [
+        "Phase 17 Flux.2 Dev LanPaint route.",
+        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors."
+      ]
+    },
+    {
+      "profile_id": "flux2_dev_gguf",
+      "display_name": "Flux 2 Dev GGUF",
+      "description": "FLUX.2 Dev Phase 17 LanPaint inpaint route with a Mistral 3 Small Flux2 text encoder and Flux2 VAE.",
+      "families": [
+        "flux2_dev"
+      ],
+      "loaders": [
+        "gguf"
+      ],
+      "modes": [
+        "inpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Optional negative prompt when supported by the selected family/backend."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 28
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Image 1 anchor for Flux 2 Klein GGUF img2img/edit and image-conditioned routes. Optional Image 2/Image 3 appear in the Source panel for multi-reference prep/replay."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for inpaint routes."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 6,
+          "help_text": "Provider mask expansion value for inpaint workflows."
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Provider mask blur value for inpaint workflows."
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by V2 outpaint contract."
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "gguf_model",
+          "label": "Flux.2 Dev GGUF Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_unet"
+        },
+        {
+          "field_id": "text_encoder_1",
+          "label": "Mistral 3 Small Flux2 Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mistral3_text_encoder",
+          "help_text": "Flux.2 Dev uses the Mistral 3 Small Flux2 encoder through CLIPLoader(type=flux2)."
+        },
+        {
+          "field_id": "vae",
+          "label": "Flux2 VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae"
+        },
+        {
+          "field_id": "flux_guidance",
+          "label": "Flux Guidance",
+          "control_type": "slider",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "flux_guidance",
+          "default": 3.5
+        },
+        {
+          "field_id": "gguf_loader_status",
+          "label": "GGUF Loader Status",
+          "control_type": "status",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Displays backend GGUF loader readiness."
+        }
+      ],
+      "readiness_fields": [
+        "gguf_unet",
+        "gguf_text_encoder_primary",
+        "vae_or_ae",
+        "flux_guidance"
+      ],
+      "hidden_fields": [
+        "clip_skip",
+        "text_encoder_2",
+        "cfg"
+      ],
+      "disabled_fields": [],
+      "notes": [
+        "Phase 17 Flux.2 Dev LanPaint route.",
+        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors."
+      ]
+    },
+    {
+      "profile_id": "qwen_2511_native",
+      "display_name": "Qwen Image Edit 2511 Components",
+      "description": "Qwen Image Edit 2511 split-component route. P3 promotes img2img/edit/inpaint/outpaint workflows; multi-source editing supports up to 3 source images for img2img/edit while inpaint/outpaint remain single-source mask/canvas.",
+      "families": [
+        "qwen_image_edit_2511"
+      ],
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "edit"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Optional negative prompt when supported by the selected family/backend."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 28
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "help_text": "Required for image-conditioned modes."
+        },
+        {
+          "field_id": "source_image_2",
+          "label": "Source Image 2",
+          "control_type": "image",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image_2",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "help_text": "Optional second source/reference image for Qwen Image Edit 2511 multi-source editing."
+        },
+        {
+          "field_id": "source_image_3",
+          "label": "Source Image 3",
+          "control_type": "image",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image_3",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2511 multi-source editing. Keep total input images to 1–3."
+        },
+        {
+          "field_id": "qwen_source_slot_count",
+          "label": "Qwen Source Slot Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": 3,
+          "help_text": "UI helper for exposing up to three Qwen Image Edit 2511 source image lanes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for inpaint routes."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 6,
+          "help_text": "Provider mask expansion value for inpaint workflows."
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Provider mask blur value for inpaint workflows."
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by V2 outpaint contract."
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "diffusion_model",
+          "label": "Qwen Image Edit 2511 Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "diffusion_model",
+          "help_text": "Use the Qwen Image Edit 2511 safetensors model for single-source or 1–3 image multi-source editing."
+        },
+        {
+          "field_id": "qwen_text_encoder",
+          "label": "Qwen Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "text_encoder_primary"
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae"
+        },
+        {
+          "field_id": "qwen_edit_mode",
+          "label": "Qwen Edit Mode",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "help_text": "Qwen Image Edit 2511 accepts Image 1 plus optional Image 2/Image 3 for multi-source composition/editing."
+        }
+      ],
+      "readiness_fields": [
+        "route_readiness"
+      ],
+      "hidden_fields": [],
+      "disabled_fields": [
+        "clip_skip"
+      ],
+      "notes": [
+        "V25.9.20 P3: qwen_image_edit_2511 diffusion_model img2img/edit routes expose 1–3 source image lanes and compile through comfy.qwen_native_edit.",
+        "Normal qwen_image remains single-source; do not share this profile with qwen_image.",
+        "P3: native inpaint/outpaint are implemented single-source mask/canvas workflows, not planned gates; source_image_2/source_image_3 are mode-scoped to img2img/edit only.",
+        "IR-4: the single visible CFG control is editable and labeled True CFG; submission mirrors it to true_cfg plus compiler-compatible cfg."
+      ]
+    },
+    {
+      "profile_id": "qwen_2511_gguf",
+      "display_name": "Qwen Image Edit 2511 GGUF Parameters",
+      "description": "Qwen Image Edit 2511 GGUF route. Multi-source img2img/edit can pass up to 3 input images through the Qwen edit encoder.",
+      "families": [
+        "qwen_image_edit_2511"
+      ],
+      "loaders": [
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "inpaint",
+        "outpaint",
+        "edit"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Primary generation prompt shared by Image modes."
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Optional negative prompt when supported by the selected family/backend."
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 8,
+          "help_text": "Qwen GGUF inpaint stability preset defaults to 8 steps; explicit user values are preserved."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 4.0,
+          "help_text": "Sampler CFG for non-Flux GGUF routes. Flux GGUF uses Flux Guidance instead."
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "denoise",
+          "label": "Denoise",
+          "control_type": "slider",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "default": 0.9,
+          "help_text": "Qwen GGUF inpaint stability preset defaults to 0.90; image routes may override explicitly."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Source Image",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "help_text": "Required for image-conditioned modes."
+        },
+        {
+          "field_id": "source_image_2",
+          "label": "Source Image 2",
+          "control_type": "image",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image_2",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "help_text": "Optional second source/reference image for Qwen Image Edit 2511 multi-source editing."
+        },
+        {
+          "field_id": "source_image_3",
+          "label": "Source Image 3",
+          "control_type": "image",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image_3",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "help_text": "Optional third source/composition image for Qwen Image Edit 2511 multi-source editing. Keep total input images to 1–3."
+        },
+        {
+          "field_id": "qwen_source_slot_count",
+          "label": "Qwen Source Slot Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": 3,
+          "help_text": "UI helper for exposing up to three Qwen Image Edit 2511 source image lanes."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for inpaint routes."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 3,
+          "help_text": "Qwen GGUF inpaint stability preset expands masks conservatively to avoid red bleed/clipping."
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Provider mask blur value for inpaint workflows."
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Required by V2 outpaint contract."
+        },
+        {
+          "field_id": "qwen_inpaint_composite_feather",
+          "label": "Qwen Composite Feather",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": false,
+          "advanced": true,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 10,
+          "help_text": "Feathers only the final Qwen inpaint composite mask; sampling still uses the crisp normalized mask."
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "gguf_model",
+          "label": "Qwen Image Edit 2511 GGUF Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_unet"
+        },
+        {
+          "field_id": "qwen_text_encoder",
+          "label": "Qwen Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_text_encoder_primary"
+        },
+        {
+          "field_id": "qwen_mmproj",
+          "label": "Qwen MMProj",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "qwen_mmproj",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint",
+            "edit"
+          ],
+          "status_badge": "required_for_image_conditioned_routes",
+          "help_text": "Required for Qwen Image Edit 2511 GGUF image-conditioned routes, including multi-source img2img/edit."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "vae_or_ae"
+        },
+        {
+          "field_id": "route_readiness",
+          "label": "Route Readiness",
+          "control_type": "status",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "help_text": "Shows route blockers such as missing mmproj/source image/padding."
+        }
+      ],
+      "readiness_fields": [
+        "qwen_mmproj",
+        "route_readiness"
+      ],
+      "hidden_fields": [],
+      "disabled_fields": [
+        "clip_skip"
+      ],
+      "notes": [
+        "V25.9.20 Pass G: qwen_image_edit_2511 GGUF route exposes 1–3 source lanes for img2img/edit.",
+        "MMProj remains optional for txt2img and required for image-conditioned modes.",
+        "Inpaint/outpaint are available through the existing Qwen GGUF source/mask/padding graph, but multi-source behavior is scoped to img2img/edit."
       ]
     }
   ]

@@ -30,6 +30,8 @@ SUPPORTED_ROUTE_MODES = {
     ("qwen_image", "gguf"): {"img2img", "inpaint", "outpaint"},
     ("qwen_image_edit_2509", "diffusion_model"): {"img2img", "edit", "inpaint", "outpaint"},
     ("qwen_image_edit_2509", "gguf"): {"img2img", "edit", "inpaint", "outpaint"},
+    ("qwen_image_edit_2511", "diffusion_model"): {"img2img", "edit"},
+    ("qwen_image_edit_2511", "gguf"): {"img2img", "edit"},
     ("qwen_rapid_aio", "checkpoint_aio"): {"img2img", "edit", "inpaint", "outpaint"},
     ("qwen_rapid_aio", "gguf"): {"img2img", "edit", "inpaint", "outpaint"},
     ("z_image", "diffusion_model"): {"img2img", "inpaint", "outpaint"},

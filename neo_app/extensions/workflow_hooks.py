@@ -86,6 +86,46 @@ def _extension_payload_enabled(extensions: Any, extension_id: str) -> bool:
     return bool(block.get("enabled"))
 
 
+def lora_stack_execution_requested(extensions: Any, route: dict[str, Any] | None = None) -> bool:
+    """Return True only for an explicit, executable base/global LoRA request.
+
+    LoRA Stack and LanPaint are independent features. Merely preserving LoRA
+    rows, mounting the extension UI, or compiling a LanPaint-capable route must
+    never make LoRA a dependency of the base workflow. When the current Image
+    submit-state snapshot is present it is authoritative over stale replay or
+    cached payload blocks. API callers without that UI snapshot retain the
+    existing explicit ``enabled + active rows`` behavior.
+    """
+    block = _extension_payload_block(extensions, LORA_STACK_EXTENSION_ID)
+    if not isinstance(block, dict) or block.get("enabled") is not True:
+        return False
+
+    ui_state = _ui_state_block(route, LORA_STACK_EXTENSION_ID)
+    if ui_state:
+        if ui_state.get("enabled") is not True or ui_state.get("workflow_applied") is not True:
+            return False
+        # A current UI snapshot must carry a deliberate v2 execution intent.
+        # Missing/legacy intent is treated as off so replayed or cached state can
+        # never turn LoRA into an implicit dependency of LanPaint.
+        if ui_state.get("execution_requested") is not True:
+            return False
+
+    params = block.get("params") if isinstance(block.get("params"), dict) else {}
+    rows = params.get("loras") if isinstance(params.get("loras"), list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("enabled", True) is False:
+            continue
+        if not str(row.get("name") or row.get("lora_name") or "").strip():
+            continue
+        if str(row.get("apply_to") or "global") != "global":
+            continue
+        if str(row.get("target") or "both") not in {"both", "base"}:
+            continue
+        return True
+    return False
+
 
 
 def _route_actual_params(route: dict[str, Any] | None) -> dict[str, Any]:
@@ -675,7 +715,7 @@ def apply_comfy_workflow_extension_patches(
             memory_events[LAYERDIFFUSE_EXTENSION_ID] = meta.get("memory_event") or {}
 
 
-    if _extension_payload_enabled(extensions, LORA_STACK_EXTENSION_ID):
+    if lora_stack_execution_requested(extensions, route):
         from neo_extensions.built_in.lora_stack.backend.workflow_patch import apply_lora_stack_patch
         from neo_extensions.built_in.lora_stack.backend.metadata import build_output_extension_metadata
 
@@ -1045,7 +1085,7 @@ def has_comfy_workflow_extension_requests(extensions: Any) -> bool:
 
     return (
         _extension_payload_enabled(extensions, CFG_FIX_EXTENSION_ID)
-        or _extension_payload_enabled(extensions, LORA_STACK_EXTENSION_ID)
+        or lora_stack_execution_requested(extensions)
         or _extension_payload_enabled(extensions, EMBEDDINGS_TI_EXTENSION_ID)
         or _extension_payload_enabled(extensions, CONTROLNET_EXTENSION_ID)
         or _extension_payload_enabled(extensions, IP_ADAPTER_EXTENSION_ID)

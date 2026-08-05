@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.lanpaint_family_adapter.v2",
+  "title": "Neo LanPaint Universal Family Adapter v2",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "authority",
+    "phase_state",
+    "identity",
+    "policy",
+    "binding",
+    "loaders",
+    "assets",
+    "conditioning",
+    "spatial",
+    "latent",
+    "model_transforms",
+    "sampler",
+    "lora",
+    "capabilities",
+    "replay",
+    "adapter_fingerprint",
+    "validation"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.image.lanpaint_family_adapter.v2"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "authority": {
+      "const": "neo_app.image.lanpaint_family_adapter"
+    },
+    "phase_state": {
+      "const": "universal_family_adapter_v2"
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "adapter_id",
+        "provider_id",
+        "family",
+        "loader",
+        "mode",
+        "engine",
+        "compatibility_key",
+        "route_key"
+      ],
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_id": {
+          "enum": [
+            "comfyui",
+            "comfyui_portable"
+          ]
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "loader": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "const": "inpaint"
+        },
+        "engine": {
+          "const": "lanpaint"
+        },
+        "compatibility_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "route_key": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "policy": {
+      "type": "object"
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "state",
+        "selectable",
+        "executable",
+        "graph_profile",
+        "new_route_activated_by_phase13"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "compiler_bound",
+            "policy_complete_unbound",
+            "scaffold_only"
+          ]
+        },
+        "selectable": {
+          "type": "boolean"
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "new_route_activated_by_phase13": {
+          "const": false
+        },
+        "new_route_activated_by_phase14": {
+          "type": "boolean"
+        },
+        "new_route_activated_by_phase15": {
+          "type": "boolean"
+        },
+        "new_route_activated_by_phase16": {
+          "type": "boolean"
+        },
+        "new_route_activated_by_phase21": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "loaders": {
+      "type": "object"
+    },
+    "assets": {
+      "type": "object"
+    },
+    "conditioning": {
+      "type": "object"
+    },
+    "spatial": {
+      "type": "object"
+    },
+    "latent": {
+      "type": "object"
+    },
+    "model_transforms": {
+      "type": "object"
+    },
+    "sampler": {
+      "type": "object"
+    },
+    "lora": {
+      "type": "object",
+      "required": [
+        "mode",
+        "compatibility_key",
+        "compatibility_engine_independent",
+        "graph_anchors_owned_by_compiler"
+      ],
+      "properties": {
+        "compatibility_engine_independent": {
+          "const": true
+        },
+        "graph_anchors_owned_by_compiler": {
+          "const": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "capabilities": {
+      "type": "object"
+    },
+    "replay": {
+      "type": "object"
+    },
+    "adapter_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "validation": {
+      "type": "object"
+    },
+    "stabilization": {
+      "type": "object",
+      "required": [
+        "state",
+        "phase_state",
+        "loader_parity_group",
+        "new_binding_activated",
+        "physical_validation",
+        "promotion_state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "phase14_stabilized",
+            "not_stabilized",
+            "phase15_sd_onboarded",
+            "phase16_flux1_onboarded",
+            "phase17_flux2_onboarded",
+            "phase18_qwen_edit_onboarded",
+            "phase20_z_image_onboarded",
+            "phase21_hidream_onboarded"
+          ]
+        },
+        "phase_state": {
+          "enum": [
+            "existing_route_parity_stabilization",
+            "sd_family_onboarding",
+            "flux1_family_onboarding",
+            "flux2_dev_klein_onboarding",
+            "qwen_image_edit_variant_onboarding",
+            "z_image_lanpaint_inpainting_onboarding",
+            "hidream_i1_lanpaint_onboarding_hunyuan_video_hold"
+          ]
+        },
+        "loader_parity_group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_binding_activated": {
+          "type": "boolean"
+        },
+        "physical_validation": {
+          "const": "pending"
+        },
+        "promotion_state": {
+          "enum": [
+            "experimental_available",
+            "unsupported"
+          ]
+        },
+        "new_binding_activated_phase21": {
+          "type": "boolean"
+        },
+        "onboarded_phase21": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
