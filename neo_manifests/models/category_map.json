@@ -46,6 +46,7 @@
   "base_models": [
     "sdxl",
     "sd15",
+    "sd35",
     "flux",
     "pony",
     "wan",
