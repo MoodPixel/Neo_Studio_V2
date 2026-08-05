@@ -35,7 +35,8 @@
   ],
   "supported_backends": [
     "comfyui",
-    "comfyui_portable"
+    "comfyui_portable",
+    "forge"
   ],
   "supported_families": [
     "sdxl",
@@ -344,7 +345,17 @@
     "comfyui_portable:z_image_turbo:native:generate": "unsupported",
     "comfyui_portable:z_image_turbo:native:img2img": "unsupported",
     "comfyui_portable:z_image_turbo:native:inpaint": "unsupported",
-    "comfyui_portable:z_image_turbo:native:outpaint": "unsupported"
+    "comfyui_portable:z_image_turbo:native:outpaint": "unsupported",
+    "forge:sdxl:checkpoint:txt2img": "experimental_available",
+    "forge:sdxl:checkpoint:generate": "experimental_available",
+    "forge:sdxl:checkpoint:img2img": "experimental_available",
+    "forge:sdxl:checkpoint:inpaint": "experimental_available",
+    "forge:sdxl:checkpoint:outpaint": "provider_gated",
+    "forge:sd15:checkpoint:txt2img": "experimental_available",
+    "forge:sd15:checkpoint:generate": "experimental_available",
+    "forge:sd15:checkpoint:img2img": "experimental_available",
+    "forge:sd15:checkpoint:inpaint": "experimental_available",
+    "forge:sd15:checkpoint:outpaint": "provider_gated"
   },
   "depends_on": [],
   "extends": [],
@@ -601,5 +612,22 @@
   "contracts": {
     "typed_model_recovery": "neo.image.adetailer.typed_model_recovery.v1",
     "saved_model_activation_policy": "inactive_until_matching_type_selected"
+  },
+  "forge_extension_compatibility": {
+    "phase": "Phase 5",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_capability_snapshot",
+    "fail_closed": true,
+    "contract": "bing-su.adetailer.api.v1",
+    "supported_modes": [
+      "txt2img",
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "requires": [
+      "ADetailer always-on script",
+      "recognized official API argument shape"
+    ]
   }
 }

@@ -1,0 +1,74 @@
+{
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "supported_backends": [
+    "forge"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "id": "image.spectrum",
+  "name": "Image \u00b7 Spectrum",
+  "version": "0.1.0",
+  "description": "Neo-managed Forge Spectrum acceleration controls using the verified Spectrum Integrated built-in script.",
+  "subtabs": [
+    "generations"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint",
+    "edit"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generations.spectrum"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.spectrum",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15",
+    "flux",
+    "flux2_klein",
+    "krea2",
+    "krea2_turbo",
+    "qwen_image",
+    "qwen_image_edit_2509",
+    "z_image",
+    "z_image_turbo"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "gguf"
+  ],
+  "route_states": {
+    "forge:*:*:*": "experimental_available",
+    "*": "unsupported"
+  },
+  "forge_extension_compatibility": {
+    "phase": "E2",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_script_schema",
+    "contract": "forge.spectrum.integrated.v1",
+    "conflicts_with_forge_options": [
+      "skip_early_cond",
+      "s_min_uncond"
+    ],
+    "physical_validation": "required"
+  }
+}

@@ -17,7 +17,7 @@ VISIBLE_UNIT_KEYS = {
 }
 VALID_INPUT_KEYS = {"units", "mode", "suppress_global_when_scene_director_active"}
 VALID_ASSET_KEYS = {"reference_images"}
-VALID_METADATA_KEYS = {"schema", "route", "route_state", "reason", "legacy_migrated", "scene_director_bound_slots", "scene_director_suppressed", "scene_director_identity_units_consumed", "scene_director_identity_units_blocked", "scene_director_regional_ipadapter_hard_gated", "scene_director_regional_ipadapter_units_suppressed", "scene_director_regional_ipadapter_profiles_metadata_only", "scene_director_ipadapter_hard_gate_phase", "reference_deduplication"}
+VALID_METADATA_KEYS = {"schema", "route", "route_state", "reason", "legacy_migrated", "scene_director_bound_slots", "scene_director_suppressed", "scene_director_identity_units_consumed", "scene_director_identity_units_blocked", "scene_director_regional_ipadapter_hard_gated", "scene_director_regional_ipadapter_units_suppressed", "scene_director_regional_ipadapter_profiles_metadata_only", "scene_director_ipadapter_hard_gate_phase", "reference_deduplication", "preview_reference_handoff"}
 
 
 

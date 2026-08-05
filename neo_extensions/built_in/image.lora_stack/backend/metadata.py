@@ -11,12 +11,23 @@ WORKSPACE_APP = "assets"
 def _clean_route(route: dict | None = None) -> dict[str, Any]:
     route = route if isinstance(route, dict) else {}
     mode = route.get("workflow_mode") or route.get("mode") or "generate"
+    engine = str(route.get("workflow_engine") or route.get("engine") or route.get("inpaint_engine") or "native")
+    family = str(route.get("family") or "")
+    loader = str(route.get("loader") or "")
+    compatibility_route_key = f"{family}:{loader}:{mode}"
+    workflow_route_key = str(route.get("workflow_route_key") or route.get("graph_route_key") or route.get("route_key") or compatibility_route_key + (f":{engine}" if engine and engine != "native" else ""))
     return {
         "backend": route.get("backend") or route.get("provider") or route.get("provider_id") or "",
-        "family": route.get("family") or "",
-        "loader": route.get("loader") or "",
+        "family": family,
+        "loader": loader,
         "mode": mode,
         "workflow_mode": mode,
+        "engine": engine,
+        "workflow_engine": engine,
+        "compatibility_engine_independent": True,
+        "route_key": compatibility_route_key,
+        "compatibility_route_key": compatibility_route_key,
+        "workflow_route_key": workflow_route_key,
         "workspace_app": route.get("workspace_app") or WORKSPACE_APP,
         "route_state": route.get("route_state") or route.get("state") or "unknown",
     }
@@ -66,7 +77,9 @@ def _workflow_summary(block: dict[str, Any], workflow_patch: dict[str, Any], rou
     if workflow_patch.get("applied"):
         patched = workflow_patch.get("lora_count") or groups["global_base"]
         node_ids = workflow_patch.get("node_ids") if isinstance(workflow_patch.get("node_ids"), list) else []
-        return f"Applied {patched} global/base LoRA row(s) through Comfy LoraLoader on {family}/{loader} ({state}). Node ids: {', '.join(map(str, node_ids)) or 'not recorded'}."
+        node_class = workflow_patch.get("node_class") or workflow_patch.get("node") or "LoraLoader"
+        engine = route.get("engine") or "native"
+        return f"Applied {patched} global/base LoRA row(s) through Comfy {node_class} on {family}/{loader}/{engine} ({state}). Node ids: {', '.join(map(str, node_ids)) or 'not recorded'}."
     return f"Validated {groups['total']} LoRA row(s) for {family}/{loader} ({state}); no graph patch was applied."
 
 
@@ -86,7 +99,7 @@ def assistant_summary_from_payload(
         return f"LoRA Stack was not applied ({reason})."
     names = ", ".join(_names(loras)[:3])
     suffix = "..." if len(loras) > 3 else ""
-    route_label = "+".join(str(clean_route.get(key) or "") for key in ("backend", "family", "loader", "workflow_mode") if clean_route.get(key))
+    route_label = "+".join(str(clean_route.get(key) or "") for key in ("backend", "family", "loader", "workflow_mode", "engine") if clean_route.get(key))
     verb = "applied" if workflow_patch.get("applied") else "validated"
     groups = _row_groups(loras)
     detail = f"{groups['global_base']} global/base"
@@ -123,9 +136,13 @@ def replay_payload_from_block(block: dict[str, Any] | None = None, *, route: dic
             "family",
             "loader",
             "workflow_mode",
+            "compatibility_route_key",
+            "workflow_engine",
+            "workflow_route_key",
             "route_state",
             "lora_catalog",
             "lora_loader_node",
+            "exact_provider_lora_catalog_binding",
             "scene_director_targets",
             "finish_pass_support",
         ],
@@ -163,9 +180,13 @@ def memory_readiness_shape(route: dict | None = None, params: dict | None = None
             "family",
             "loader",
             "workflow_mode",
+            "compatibility_route_key",
+            "workflow_engine",
+            "workflow_route_key",
             "route_state",
             "lora_catalog",
             "lora_loader_node",
+            "exact_provider_lora_catalog_binding",
         ],
     }
 
@@ -206,6 +227,11 @@ def build_output_extension_metadata(
         "regional_count": groups["regional"],
         "finish_only_count": groups["finish_only"],
         "node": workflow_patch.get("node") or workflow_patch.get("node_class") or ("LoraLoader" if applied else ""),
+        "execution_state": workflow_patch.get("execution_state") or ("applied" if applied else "inactive"),
+        "portable_lora_names": list(workflow_patch.get("portable_lora_names") or _names(loras)),
+        "submitted_lora_names": list(workflow_patch.get("submitted_lora_names") or []),
+        "provider_catalog_verified": bool(workflow_patch.get("provider_catalog_verified")),
+        "catalog_bindings": deepcopy(workflow_patch.get("catalog_bindings") or []),
     }
     if reason:
         usage["reason"] = reason

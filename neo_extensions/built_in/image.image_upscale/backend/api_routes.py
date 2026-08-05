@@ -7,6 +7,7 @@ can be swapped in tests; Phase G hardens the graph itself.
 """
 from __future__ import annotations
 
+import base64
 import json
 import mimetypes
 import shutil
@@ -16,6 +17,8 @@ from urllib import request as urlrequest
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+
+from neo_app.image.preview_finish_dispatch import normalize_preview_finish_params
 
 from .constants import EXTENSION_ID, QUEUE_ENDPOINT, SUPPORTED_COMFY_BACKENDS, SEEDVR2_DIT_DEFAULT, SEEDVR2_VAE_DEFAULT, SEEDVR2_ENGINE_ID
 from .metadata import build_image_upscale_extension_usage, build_image_upscale_metadata
@@ -361,6 +364,32 @@ def _codeformer_conventional_fallback(info: dict[str, Any], profile: dict[str, A
     return [], ""
 
 
+def _forge_image_upscale_capability(provider: Any) -> dict[str, Any]:
+    if not hasattr(provider, "discover_backend_capabilities"):
+        return {}
+    try:
+        payload = provider.discover_backend_capabilities()
+    except Exception:
+        return {}
+    compatibility = payload.get("extension_compatibility") if isinstance(payload, dict) else {}
+    item = compatibility.get("image_upscale") if isinstance(compatibility, dict) else {}
+    return item if isinstance(item, dict) else {}
+
+
+def _forge_snapshot_extension_capability(provider: Any, key: str) -> dict[str, Any]:
+    profile = getattr(provider, "profile", None)
+    if not isinstance(profile, dict):
+        return {}
+    try:
+        from neo_app.providers.forge_neo_capabilities import forge_snapshot_for_profile
+        snapshot = forge_snapshot_for_profile(profile)
+    except Exception:
+        return {}
+    capabilities = snapshot.get("extension_capabilities") if isinstance(snapshot, dict) else {}
+    item = capabilities.get(key) if isinstance(capabilities, dict) else {}
+    return item if isinstance(item, dict) else {}
+
+
 def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any]) -> dict[str, Any]:
     """Build the Image Upscale model catalog from real model folders.
 
@@ -369,6 +398,48 @@ def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any])
     only Comfy's /models endpoints and filesystem scans for dropdown values.
     object_info is kept only as diagnostics/node capability evidence.
     """
+    provider_id = _provider_id(provider, profile)
+    if provider_id == "forge":
+        capability = _forge_snapshot_extension_capability(provider, "image_upscale")
+        upscalers = [str(item).strip() for item in capability.get("upscalers") or [] if str(item or "").strip()]
+        face_restorers = [str(item).strip() for item in capability.get("face_restorers") or [] if str(item or "").strip()]
+        return {
+            "ok": bool(capability.get("available")),
+            "provider_id": "forge",
+            "upscalers": upscalers,
+            "face_restorers": face_restorers,
+            "supports_codeformer": bool(capability.get("supports_codeformer")),
+            "supports_gfpgan": bool(capability.get("supports_gfpgan")),
+            "supports_face_restoration": bool(capability.get("supports_face_restoration")),
+            "supports_exact_dimensions": bool(capability.get("supports_exact_dimensions", True)),
+            "supports_secondary_upscaler": bool(capability.get("supports_secondary_upscaler", True)),
+            "supports_upscale_first": bool(capability.get("supports_upscale_first")),
+            "supports_crop_to_fit": bool(capability.get("supports_crop_to_fit", True)),
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
+            "seedvr2_dit_models": [],
+            "seedvr2_vae_models": [],
+            "codeformer_models": [],
+            "defaults": {
+                "upscaler": next((item for item in upscalers if item.casefold() == "lanczos"), upscalers[0] if upscalers else ""),
+                "secondary_upscaler": "None",
+                "seedvr2_dit_model": "",
+                "seedvr2_vae_model": "",
+            },
+            "diagnostics": {
+                "forge_extras_contract": str(capability.get("contract") or "forge.extras.single_image.v2"),
+                "forge_extras_available": bool(capability.get("available")),
+                "seedvr2_supported": False,
+                "codeformer_reported": bool(capability.get("supports_codeformer")),
+                "gfpgan_reported": bool(capability.get("supports_gfpgan")),
+                "face_restorers_reported": face_restorers,
+                "real_catalog_policy": "selected_forge_profile_sdapi_catalogs_only",
+            },
+            "sources": [item for item in ("forge_sdapi_upscalers" if upscalers else "", "forge_sdapi_face_restorers" if face_restorers else "") if item],
+            "roots_checked": [],
+            "warnings": [] if capability.get("available") else [str(capability.get("reason") or "Forge Extras/upscaler discovery is unavailable.")],
+        }
+
     info = _object_info(provider)
     node_declared_seed_names: list[str] = []
     node_declared_codeformer_names: list[str] = []
@@ -497,6 +568,22 @@ def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any])
 
 def _assert_selected_models_exist(root_dir: Path, provider: Any, profile: dict[str, Any], settings: dict[str, Any]) -> None:
     catalog = _build_model_catalog(root_dir, provider, profile)
+    if _provider_id(provider, profile) == "forge":
+        if str(settings.get("upscale_engine") or "basic").strip().casefold() == "seedvr2":
+            raise HTTPException(status_code=400, detail="SeedVR2 is a Comfy-specific Image Upscale engine and is not available through Forge Extras.")
+        selected = str(settings.get("upscale_model") or "").strip()
+        secondary = str(settings.get("secondary_upscale_model") or "None").strip()
+        available = {str(item).casefold() for item in catalog.get("upscalers") or []}
+        if selected and available and selected.casefold() not in available:
+            raise HTTPException(status_code=400, detail=f"Selected Forge upscaler was not discovered: {selected}. Refresh the selected Forge profile.")
+        if secondary and secondary.casefold() != "none" and available and secondary.casefold() not in available:
+            raise HTTPException(status_code=400, detail=f"Selected secondary Forge upscaler was not discovered: {secondary}. Refresh the selected Forge profile.")
+        restore = str(settings.get("restore_assist") or "off").strip().casefold()
+        if restore == "codeformer" and not bool(catalog.get("supports_codeformer")):
+            raise HTTPException(status_code=400, detail="CodeFormer was not reported by the selected Forge profile.")
+        if restore == "gfpgan" and not bool(catalog.get("supports_gfpgan")):
+            raise HTTPException(status_code=400, detail="GFPGAN was not reported by the selected Forge profile.")
+        return
     if settings.get("upscale_engine") == "seedvr2":
         dit_models = {str(item).casefold() for item in catalog.get("seedvr2_dit_models") or []}
         vae_models = {str(item).casefold() for item in catalog.get("seedvr2_vae_models") or []}
@@ -613,6 +700,8 @@ def _settings_for_source_image(settings: dict[str, Any], asset: dict[str, Any]) 
     width = int(properties.get("width") or 0)
     height = int(properties.get("height") or 0)
     if width and height:
+        clean["source_width"] = width
+        clean["source_height"] = height
         clean["seedvr2_source_width"] = width
         clean["seedvr2_source_height"] = height
     if str(clean.get("upscale_engine") or "").strip().lower() == SEEDVR2_ENGINE_ID:
@@ -680,9 +769,23 @@ def _available_nodes(provider: Any) -> set[str] | None:
 def _assert_route_ready(provider: Any, profile: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     route = _route_for_profile(provider, profile)
     provider_id = _provider_id(provider, profile)
+    if provider_id == "forge":
+        capability = _forge_snapshot_extension_capability(provider, "image_upscale")
+        if not capability.get("available"):
+            raise HTTPException(status_code=400, detail=capability.get("reason") or "Forge Extras/upscaler discovery is unavailable for this profile.")
+        if str(settings.get("upscale_engine") or "basic").strip().casefold() == "seedvr2":
+            raise HTTPException(status_code=400, detail="SeedVR2 is Comfy-only; choose the Basic engine for Forge Image Upscale.")
+        return {
+            "state": "available",
+            "reason": capability.get("reason") or "Forge Extras is available.",
+            "route": route,
+            "provider_contract": str(capability.get("contract") or "forge.extras.single_image.v2"),
+            "node_status": {},
+            "forge_capability": capability,
+        }
     if provider_id not in SUPPORTED_COMFY_BACKENDS:
         support = support_for_route(route)
-        raise HTTPException(status_code=400, detail=support.get("reason") or "Image Upscale requires a Comfy-compatible backend profile.")
+        raise HTTPException(status_code=400, detail=support.get("reason") or "Image Upscale requires a Comfy-compatible or Forge backend profile.")
     nodes = _available_nodes(provider)
     support = support_for_route(route) if nodes is None else support_with_nodes(route, available_nodes=nodes)
     if support.get("state") not in ACTIVE_ROUTE_STATES:
@@ -883,6 +986,118 @@ def _context_for_job(
     }
 
 
+def _forge_available_upscalers(capability: dict[str, Any]) -> list[str]:
+    return [str(item).strip() for item in capability.get("upscalers") or [] if str(item or "").strip()]
+
+
+def _forge_match_upscaler(requested: str, available: list[str]) -> str:
+    clean = str(requested or "").strip()
+    if not clean:
+        return ""
+    for item in available:
+        if item.casefold() == clean.casefold():
+            return item
+    return ""
+
+
+def _forge_pick_upscaler(settings: dict[str, Any], capability: dict[str, Any]) -> str:
+    available = _forge_available_upscalers(capability)
+    requested = _forge_match_upscaler(str(settings.get("upscale_model") or ""), available)
+    if requested:
+        return requested
+    resize_method = str(settings.get("resize_method") or "lanczos").strip().casefold()
+    aliases = {
+        "lanczos": ("Lanczos",),
+        "bicubic": ("Bicubic",),
+        "bilinear": ("Bilinear",),
+        "nearest-exact": ("Nearest", "Nearest Exact"),
+        "area": ("Area",),
+    }
+    for candidate in aliases.get(resize_method, ()):
+        matched = _forge_match_upscaler(candidate, available)
+        if matched:
+            return matched
+    non_none = [item for item in available if item.casefold() != "none"]
+    if non_none:
+        return non_none[0]
+    raise RuntimeError("Forge did not report an Image Upscale upscaler for the selected profile.")
+
+
+def _forge_pick_secondary_upscaler(settings: dict[str, Any], capability: dict[str, Any], primary: str) -> str:
+    available = _forge_available_upscalers(capability)
+    requested = str(settings.get("secondary_upscale_model") or "None").strip()
+    if not requested or requested.casefold() == "none":
+        return "None"
+    matched = _forge_match_upscaler(requested, available)
+    if not matched:
+        raise RuntimeError(f"Forge did not report the selected secondary upscaler: {requested}.")
+    return "None" if matched.casefold() == primary.casefold() else matched
+
+
+def _compile_forge_image_upscale(local_path: Path, settings: dict[str, Any], capability: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    image_b64 = base64.b64encode(local_path.read_bytes()).decode("ascii")
+    upscaler = _forge_pick_upscaler(settings, capability)
+    secondary = _forge_pick_secondary_upscaler(settings, capability, upscaler)
+    resize_mode_name = str(settings.get("forge_resize_mode") or "scale").strip().casefold()
+    exact = resize_mode_name == "exact"
+    restore = str(settings.get("restore_assist") or "off").strip().casefold()
+    fidelity = min(1.0, max(0.0, float(settings.get("restore_fidelity") if settings.get("restore_fidelity") is not None else 0.65)))
+    visibility = min(1.0, max(0.0, float(settings.get("restore_visibility") if settings.get("restore_visibility") is not None else 1.0)))
+    secondary_visibility = min(1.0, max(0.0, float(settings.get("secondary_visibility") or 0.0)))
+    if secondary == "None":
+        secondary_visibility = 0.0
+    if restore == "codeformer" and not bool(capability.get("supports_codeformer")):
+        raise RuntimeError("CodeFormer was not reported by the selected Forge profile.")
+    if restore == "gfpgan" and not bool(capability.get("supports_gfpgan")):
+        raise RuntimeError("GFPGAN was not reported by the selected Forge profile.")
+    payload = {
+        "image": image_b64,
+        "resize_mode": 1 if exact else 0,
+        "show_extras_results": True,
+        "gfpgan_visibility": visibility if restore == "gfpgan" else 0.0,
+        "codeformer_visibility": visibility if restore == "codeformer" else 0.0,
+        "codeformer_weight": fidelity,
+        "upscaling_resize": float(settings.get("scale") or 2.0),
+        "upscaling_resize_w": int(settings.get("target_width") or 1024),
+        "upscaling_resize_h": int(settings.get("target_height") or 1024),
+        "upscaling_crop": bool(settings.get("upscaling_crop")),
+        "upscaler_1": upscaler,
+        "upscaler_2": secondary,
+        "extras_upscaler_2_visibility": secondary_visibility,
+        "upscale_first": bool(settings.get("upscale_first")) if bool(capability.get("supports_upscale_first")) else False,
+    }
+    notes = [f"Forge Extras primary upscaler: {upscaler}"]
+    if exact:
+        notes.append(f"Forge Extras exact target: {payload['upscaling_resize_w']}x{payload['upscaling_resize_h']}.")
+    else:
+        notes.append(f"Forge Extras scale factor: {payload['upscaling_resize']}x.")
+    if secondary != "None" and secondary_visibility > 0:
+        notes.append(f"Forge Extras secondary upscaler: {secondary} at {secondary_visibility:.2f} visibility.")
+    if restore == "codeformer":
+        notes.append(f"Forge CodeFormer enabled at {visibility:.2f} visibility.")
+    elif restore == "gfpgan":
+        notes.append(f"Forge GFPGAN enabled at {visibility:.2f} visibility.")
+    return {
+        "endpoint": "/sdapi/v1/extra-single-image",
+        "compiler_id": "forge.extras.single_image.v2",
+        "payload": payload,
+        "actual_params": {
+            "resize_mode": "exact" if exact else "scale",
+            "scale": payload["upscaling_resize"],
+            "target_width": payload["upscaling_resize_w"] if exact else 0,
+            "target_height": payload["upscaling_resize_h"] if exact else 0,
+            "upscaler": upscaler,
+            "secondary_upscaler": secondary,
+            "secondary_visibility": secondary_visibility,
+            "upscaling_crop": payload["upscaling_crop"],
+            "restore_assist": restore,
+            "restore_visibility": visibility if restore != "off" else 0.0,
+            "codeformer_weight": payload["codeformer_weight"],
+            "upscale_first": payload["upscale_first"],
+        },
+    }, notes
+
+
 def create_image_upscale_api_router(
     root_dir: Path,
     *,
@@ -917,10 +1132,19 @@ def create_image_upscale_api_router(
         image_files: list[UploadFile] = File(default=[]),
         image_file: UploadFile | None = File(default=None),
     ) -> dict[str, Any]:
+        if not profile_id:
+            raise HTTPException(status_code=400, detail="profile_id is required for Image Upscale.")
+        provider, profile = profile_provider_resolver(profile_id)
+        provider_id = _provider_id(provider, profile)
         try:
             raw_settings = _parse_settings(settings_json)
             settings = normalize_settings(raw_settings)
-            validation = validate_payload_settings(settings, require_source=True, source_images=[f.filename for f in image_files] + ([image_file.filename] if image_file else []))
+            validation = validate_payload_settings(
+                settings,
+                require_source=True,
+                source_images=[f.filename for f in image_files] + ([image_file.filename] if image_file else []),
+                provider_id=provider_id,
+            )
         except PayloadContractError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if image_file is not None:
@@ -929,10 +1153,19 @@ def create_image_upscale_api_router(
             raise HTTPException(status_code=400, detail="Pick at least one source image for Image Upscale.")
         if not validation.get("ok"):
             raise HTTPException(status_code=400, detail="; ".join(validation.get("errors") or ["Image Upscale validation failed."]))
-        if not profile_id:
-            raise HTTPException(status_code=400, detail="profile_id is required for Image Upscale.")
-
-        provider, profile = profile_provider_resolver(profile_id)
+        derived_contract = raw_settings.get("_neo_derived_action") if isinstance(raw_settings.get("_neo_derived_action"), dict) else None
+        if derived_contract:
+            derived_params, derived_validation = normalize_preview_finish_params(
+                {"_neo_derived_action": derived_contract},
+                runtime_mode="image_upscale_finish",
+                provider_id=provider_id,
+                profile_id=profile_id,
+                allow_upscale_dispatch=True,
+            )
+            if derived_validation.get("status") == "blocked":
+                warning_codes = ", ".join(derived_validation.get("warning_codes") or [])
+                raise HTTPException(status_code=409, detail=f"Derived Image Upscale action does not match the selected provider/profile ({warning_codes or 'invalid derived action'}).")
+            settings["_neo_derived_action"] = derived_params.get("_neo_derived_action") or derived_contract
         support = _assert_route_ready(provider, profile, settings)
         _assert_selected_models_exist(root_dir, provider, profile, settings)
         route = {**support.get("route", {}), "provider_id": _provider_id(provider, profile), "route_state": support.get("state")}
@@ -946,8 +1179,8 @@ def create_image_upscale_api_router(
                 _assert_seedvr2_alpha_ready(support, per_source_settings)
                 per_source_asset = {
                     **asset,
-                    "width": per_source_settings.get("seedvr2_source_width", 0),
-                    "height": per_source_settings.get("seedvr2_source_height", 0),
+                    "width": per_source_settings.get("source_width", per_source_settings.get("seedvr2_source_width", 0)),
+                    "height": per_source_settings.get("source_height", per_source_settings.get("seedvr2_source_height", 0)),
                     "format": per_source_settings.get("seedvr2_source_format", ""),
                     "image_mode": per_source_settings.get("seedvr2_source_image_mode", ""),
                     "has_alpha_channel": per_source_settings.get("seedvr2_source_has_alpha", False),
@@ -962,6 +1195,66 @@ def create_image_upscale_api_router(
                     route=route,
                     source_images=[per_source_asset],
                 )
+                if _provider_id(provider, profile) == "forge":
+                    capability = support.get("forge_capability") if isinstance(support.get("forge_capability"), dict) else _forge_snapshot_extension_capability(provider, "image_upscale")
+                    compiled, notes = _compile_forge_image_upscale(Path(asset["path"]), per_source_settings, capability)
+                    manager = getattr(provider, "job_manager", None)
+                    if manager is None:
+                        raise RuntimeError("Selected Forge profile has no durable Image job manager.")
+                    job_id = f"image-upscale-{uuid4().hex[:10]}"
+                    queued_state = manager.enqueue(
+                        job={
+                            "job_id": job_id,
+                            "surface": "image",
+                            "mode": "image_upscale",
+                            "family": "standalone",
+                            "loader": "forge_extras",
+                            "model": str(compiled.get("actual_params", {}).get("upscaler") or ""),
+                            "params": dict(compiled.get("actual_params") or {}),
+                        },
+                        compiled=compiled,
+                    )
+                    normalized = dict(per_source_settings)
+                    metadata = build_image_upscale_metadata(
+                        route=route,
+                        params=normalized,
+                        assets={"source_images": [per_source_asset]},
+                        payload_block=per_source_payload_block,
+                        workflow_summary="; ".join(notes),
+                        node_status={},
+                        compile_notes=notes,
+                    )
+                    if context_recorder:
+                        context_recorder(job_id, _context_for_job(
+                            prompt_id=job_id,
+                            profile_id=profile_id,
+                            profile=profile,
+                            route=route,
+                            payload_block=per_source_payload_block,
+                            metadata=metadata,
+                            normalized=normalized,
+                            notes=notes,
+                            asset=per_source_asset,
+                        ))
+                    queued.append({
+                        "job_id": job_id,
+                        "prompt_id": job_id,
+                        "profile_id": profile_id,
+                        "provider_id": "forge",
+                        "client_id": "",
+                        "source": asset["filename"],
+                        "stored_source": asset["stored_filename"],
+                        "compile_notes": notes,
+                        "source_dimensions": {"width": per_source_asset.get("width", 0), "height": per_source_asset.get("height", 0)},
+                        "computed_output_dimensions": {
+                            "width": int(per_source_settings.get("target_width") or 0) if str(per_source_settings.get("forge_resize_mode") or "scale") == "exact" else 0,
+                            "height": int(per_source_settings.get("target_height") or 0) if str(per_source_settings.get("forge_resize_mode") or "scale") == "exact" else 0,
+                        },
+                        "metadata": metadata,
+                        "status": queued_state.get("status", "queued") if isinstance(queued_state, dict) else "queued",
+                    })
+                    continue
+
                 comfy_name = _upload_to_comfy(provider, Path(asset["path"]))
                 workflow, normalized, notes = workflow_builder(comfy_name, per_source_settings)
                 if not isinstance(workflow, dict) or not workflow:
@@ -1001,7 +1294,7 @@ def create_image_upscale_api_router(
                     "stored_source": asset["stored_filename"],
                     "comfy_source_image_name": comfy_name,
                     "compile_notes": notes,
-                    "source_dimensions": {"width": normalized.get("seedvr2_source_width", 0), "height": normalized.get("seedvr2_source_height", 0)},
+                    "source_dimensions": {"width": normalized.get("source_width", normalized.get("seedvr2_source_width", 0)), "height": normalized.get("source_height", normalized.get("seedvr2_source_height", 0))},
                     "computed_output_dimensions": {"width": normalized.get("seedvr2_output_width", 0), "height": normalized.get("seedvr2_output_height", 0)},
                     "source_transparency": {
                         "format": normalized.get("seedvr2_source_format", ""),

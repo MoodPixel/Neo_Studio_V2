@@ -29,14 +29,25 @@ def _parse_settings(raw: str | None) -> dict[str, Any]:
 
 def _public_model_catalog(payload: dict[str, Any]) -> dict[str, Any]:
     clean = dict(payload or {})
-    clean["comfy_root"] = "ComfyUI"
-    clean["models_root"] = "ComfyUI/models"
-    clean["ultralytics_dir"] = "ComfyUI/models/ultralytics"
-    clean["bbox_dir"] = "ComfyUI/models/ultralytics/bbox"
-    clean["segm_dir"] = "ComfyUI/models/ultralytics/segm"
-    clean["adetailer_dir"] = "ComfyUI/models/adetailer"
-    clean["onnx_dir"] = "ComfyUI/models/onnx"
-    clean["sam_dir"] = "ComfyUI/models/sams"
+    diagnostics = clean.get("diagnostics") if isinstance(clean.get("diagnostics"), dict) else {}
+    if str(diagnostics.get("provider_id") or "") == "forge":
+        clean["comfy_root"] = "Shared model library"
+        clean["models_root"] = "Shared Comfy model paths"
+        clean["ultralytics_dir"] = "Shared detector paths"
+        clean["bbox_dir"] = "Shared detector paths"
+        clean["segm_dir"] = "Shared detector paths"
+        clean["adetailer_dir"] = "Forge ADetailer + shared detector paths"
+        clean["onnx_dir"] = "Not supported by Forge ADetailer"
+        clean["sam_dir"] = "Not used by Forge ADetailer"
+    else:
+        clean["comfy_root"] = "ComfyUI"
+        clean["models_root"] = "ComfyUI/models"
+        clean["ultralytics_dir"] = "ComfyUI/models/ultralytics"
+        clean["bbox_dir"] = "ComfyUI/models/ultralytics/bbox"
+        clean["segm_dir"] = "ComfyUI/models/ultralytics/segm"
+        clean["adetailer_dir"] = "ComfyUI/models/adetailer"
+        clean["onnx_dir"] = "ComfyUI/models/onnx"
+        clean["sam_dir"] = "ComfyUI/models/sams"
     clean.pop("custom_detector_root", None)
     clean.pop("custom_sam_root", None)
     clean.pop("configured_models_root", None)

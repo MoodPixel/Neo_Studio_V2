@@ -8,13 +8,58 @@ from fastapi.responses import FileResponse
 
 from .civitai_import import fetch_civitai_payload, import_civitai_into_record, normalize_civitai_payload, parse_civitai_url
 from .library_scan import scan_comfy_lora_catalog, scan_lora_folder
-from .library_schema import normalize_record, utc_now_iso
+from .library_schema import browser_safe_record, normalize_record, utc_now_iso
 from .library_store import delete_record, find_record, load_records, merge_catalog_records, save_records, upsert_record
 from .metadata_reader import infer_defaults_from_metadata, read_safetensors_metadata
 from .comfy_metadata import fetch_comfy_lora_metadata
 from .local_lora_paths import lora_path_resolution_payload, resolve_lora_file_path
 from .catalog_bridge import catalog_bridge_payload, record_to_stack_row, resolve_catalog_record
 from .preview_cache import cache_preview_urls, normalize_preview_paths, preview_file_response
+
+
+def normalize_catalog_snapshot(value: Any, profile_id: str | None = None) -> dict[str, Any]:
+    """Normalize legacy list resolvers and provider-aware catalog contracts."""
+
+    if isinstance(value, dict):
+        names = value.get("names")
+        if not isinstance(names, list):
+            names = value.get("loras") if isinstance(value.get("loras"), list) else []
+        provider_id = str(value.get("provider_id") or "comfyui").strip().casefold()
+        provider_label = str(value.get("provider_label") or "").strip() or ("Forge Neo" if provider_id == "forge" else "ComfyUI")
+        source = str(value.get("catalog_source") or value.get("source") or "").strip() or ("forge:extra_network_lora" if provider_id == "forge" else "comfy:LoraLoader.lora_name")
+        return {
+            "schema_version": "neo.lora_stack.provider_catalog.v1",
+            "profile_id": str(value.get("profile_id") or profile_id or ""),
+            "provider_id": provider_id,
+            "provider_label": provider_label,
+            "catalog_source": source,
+            "names": [str(item or "").strip() for item in names if str(item or "").strip()],
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
+            "available": bool(value.get("available", True)),
+            "reason": str(value.get("reason") or ""),
+        }
+    names = value if isinstance(value, list) else []
+    return {
+        "schema_version": "neo.lora_stack.provider_catalog.v1",
+        "profile_id": str(profile_id or ""),
+        "provider_id": "comfyui",
+        "provider_label": "ComfyUI",
+        "catalog_source": "comfy:LoraLoader.lora_name",
+        "names": [str(item or "").strip() for item in names if str(item or "").strip()],
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
+        "available": True,
+        "reason": "",
+    }
+
+
+def _catalog_kwargs(catalog: dict[str, Any]) -> dict[str, str]:
+    return {
+        "provider_id": str(catalog.get("provider_id") or "comfyui"),
+        "catalog_source": str(catalog.get("catalog_source") or ""),
+        "provider_label": str(catalog.get("provider_label") or ""),
+    }
 
 
 def route_specs() -> list[dict[str, Any]]:
@@ -46,53 +91,76 @@ def _filter_records(records: list[dict[str, Any]], query: str = "") -> list[dict
     ]
 
 
-def browser_payload(root: str | Path, *, catalog_loras: list[str] | None = None, query: str = "") -> dict[str, Any]:
+def browser_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, query: str = "") -> dict[str, Any]:
+    catalog = normalize_catalog_snapshot(catalog or {})
+    catalog_loras = list(catalog.get("names") or [])
     saved = load_records(root)
-    records = merge_catalog_records(saved, catalog_loras or [])
+    records = merge_catalog_records(saved, catalog_loras, **_catalog_kwargs(catalog))
     filtered = _filter_records(records, query)
-    bridge = catalog_bridge_payload(records, catalog_loras or [])
+    bridge = catalog_bridge_payload(
+        records,
+        catalog_loras,
+        profile_id=str(catalog.get("profile_id") or ""),
+        **_catalog_kwargs(catalog),
+    )
     return {
         "ok": True,
-        "schema_version": "neo.lora_stack.library.browser.v1",
-        "source": "saved_plus_comfy_lora_loader",
+        "schema_version": "neo.lora_stack.library.browser.v2",
+        "source": "saved_plus_selected_provider_catalog",
+        "profile_id": str(catalog.get("profile_id") or ""),
+        "provider_id": str(catalog.get("provider_id") or ""),
+        "provider_label": str(catalog.get("provider_label") or ""),
+        "catalog_source": str(catalog.get("catalog_source") or ""),
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
         "catalog_bridge": {key: value for key, value in bridge.items() if key != "records"},
         "catalog_count": bridge["catalog_count"],
         "available_count": bridge["available_count"],
         "count": len(filtered),
         "total_count": len(records),
-        "records": filtered,
+        "records": [browser_safe_record(item) for item in filtered],
         "route_specs": route_specs(),
     }
 
 
-def catalog_payload(root: str | Path, *, catalog_loras: list[str] | None = None, query: str = "") -> dict[str, Any]:
+def catalog_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, query: str = "") -> dict[str, Any]:
+    catalog = normalize_catalog_snapshot(catalog or {})
+    catalog_loras = list(catalog.get("names") or [])
     saved = load_records(root)
-    bridge = catalog_bridge_payload(saved, catalog_loras or [])
+    bridge = catalog_bridge_payload(
+        saved,
+        catalog_loras,
+        profile_id=str(catalog.get("profile_id") or ""),
+        **_catalog_kwargs(catalog),
+    )
     records = _filter_records(bridge["records"], query)
-    bridge = {**bridge, "records": records, "count": len(records)}
+    bridge = {**bridge, "records": [browser_safe_record(item) for item in records], "count": len(records)}
     return {"ok": True, **bridge}
 
 
-def resolve_payload(root: str | Path, query: str, *, catalog_loras: list[str] | None = None, metadata_resolver: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
+def resolve_payload(root: str | Path, query: str, *, catalog: dict[str, Any] | None = None, metadata_resolver: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
+    catalog = normalize_catalog_snapshot(catalog or {})
+    catalog_loras = list(catalog.get("names") or [])
     saved = load_records(root)
-    record = resolve_catalog_record(saved, query, catalog_loras or [])
+    record = resolve_catalog_record(saved, query, catalog_loras, **_catalog_kwargs(catalog))
     if record is None:
         return {"ok": False, "error": "LoRA catalog record not found.", "query": query}
     row = record_to_stack_row(record)
     enriched = enrich_record_from_local_metadata(root, record, metadata_resolver=metadata_resolver)
     if enriched != record:
         upsert_record(root, enriched)
-    return {"ok": True, "record": enriched, "stack_row": row}
+    return {"ok": True, "record": browser_safe_record(enriched), "stack_row": row}
 
 
-def record_payload(root: str | Path, record_id: str, *, catalog_loras: list[str] | None = None, metadata_resolver: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
-    record = find_record(root, record_id, catalog_loras=catalog_loras or [])
+def record_payload(root: str | Path, record_id: str, *, catalog: dict[str, Any] | None = None, metadata_resolver: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
+    catalog = normalize_catalog_snapshot(catalog or {})
+    record = find_record(root, record_id, catalog_loras=list(catalog.get("names") or []), **_catalog_kwargs(catalog))
     if record is None:
         return {"ok": False, "error": "LoRA record not found.", "record": None}
     enriched = enrich_record_from_local_metadata(root, record, metadata_resolver=metadata_resolver)
     if enriched != record:
         upsert_record(root, enriched)
-    return {"ok": True, "record": enriched}
+    return {"ok": True, "record": browser_safe_record(enriched)}
 
 
 def enrich_record_from_local_metadata(root: str | Path, record: dict[str, Any], *, metadata_resolver: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -290,23 +358,26 @@ def preview_payload(root: str | Path, path: str) -> dict[str, Any]:
 def create_lora_stack_library_router(
     root: str | Path,
     *,
-    catalog_resolver: Callable[[str | None], list[str]] | None = None,
+    catalog_resolver: Callable[[str | None], Any] | None = None,
     metadata_resolver: Callable[[str | None, str], dict[str, Any]] | None = None,
 ) -> APIRouter:
     """Build the extension-owned LoRA Library API router.
 
     The main app supplies a tiny catalog resolver so this module can stay inside
-    the extension folder while still reading the active Comfy profile catalog.
+    the extension folder while still reading the selected Image provider catalog.
     """
     router = APIRouter(prefix="/api/extensions/lora_stack/library", tags=["lora_stack_library"])
 
-    def _catalog(profile_id: str | None = None) -> list[str]:
+    def _catalog(profile_id: str | None = None) -> dict[str, Any]:
         if catalog_resolver is None:
-            return []
+            return normalize_catalog_snapshot([], profile_id)
         try:
-            return catalog_resolver(profile_id)
-        except Exception:  # noqa: BLE001 - API should remain usable for saved records offline.
-            return []
+            return normalize_catalog_snapshot(catalog_resolver(profile_id), profile_id)
+        except Exception as exc:  # noqa: BLE001 - API should remain usable for saved records offline.
+            fallback = normalize_catalog_snapshot([], profile_id)
+            fallback["available"] = False
+            fallback["reason"] = f"Catalog resolver unavailable: {type(exc).__name__}"
+            return fallback
 
     @router.get("/routes")
     def lora_stack_library_routes() -> dict[str, Any]:
@@ -318,11 +389,17 @@ def create_lora_stack_library_router(
 
     @router.get("/status")
     def lora_stack_library_status(profile_id: str | None = None) -> dict[str, Any]:
-        names = _catalog(profile_id)
+        catalog = _catalog(profile_id)
+        names = list(catalog.get("names") or [])
         return {
             "ok": True,
-            "schema_version": "neo.lora_stack.library.status.v1",
-            "source": "comfy_lora_loader",
+            "schema_version": "neo.lora_stack.library.status.v2",
+            "source": str(catalog.get("catalog_source") or ""),
+            "profile_id": str(catalog.get("profile_id") or ""),
+            "provider_id": str(catalog.get("provider_id") or ""),
+            "provider_label": str(catalog.get("provider_label") or ""),
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
             "catalog_count": len(names),
             "store_ready": True,
             "route_specs": route_specs(),
@@ -330,22 +407,22 @@ def create_lora_stack_library_router(
 
     @router.get("/catalog")
     def lora_stack_library_catalog(profile_id: str | None = None, q: str | None = None) -> dict[str, Any]:
-        return catalog_payload(root, catalog_loras=_catalog(profile_id), query=q or "")
+        return catalog_payload(root, catalog=_catalog(profile_id), query=q or "")
 
     @router.get("/resolve")
     def lora_stack_library_resolve(query: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = resolve_payload(root, query, catalog_loras=_catalog(profile_id), metadata_resolver=(lambda name: metadata_resolver(profile_id, name)) if metadata_resolver else None)
+        result = resolve_payload(root, query, catalog=_catalog(profile_id), metadata_resolver=(lambda name: metadata_resolver(profile_id, name)) if metadata_resolver else None)
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "LoRA catalog record not found."))
         return result
 
     @router.get("/browser")
     def lora_stack_library_browser(profile_id: str | None = None, q: str | None = None) -> dict[str, Any]:
-        return browser_payload(root, catalog_loras=_catalog(profile_id), query=q or "")
+        return browser_payload(root, catalog=_catalog(profile_id), query=q or "")
 
     @router.get("/record")
     def lora_stack_library_record(record_id: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = record_payload(root, record_id, catalog_loras=_catalog(profile_id), metadata_resolver=(lambda name: metadata_resolver(profile_id, name)) if metadata_resolver else None)
+        result = record_payload(root, record_id, catalog=_catalog(profile_id), metadata_resolver=(lambda name: metadata_resolver(profile_id, name)) if metadata_resolver else None)
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "LoRA record not found."))
         return result
@@ -359,7 +436,7 @@ def create_lora_stack_library_router(
 
     @router.get("/insert-block")
     def lora_stack_library_insert_block(record_id: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = insert_block_payload(root, record_id, catalog_loras=_catalog(profile_id))
+        result = insert_block_payload(root, record_id, catalog_loras=list(_catalog(profile_id).get("names") or []))
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "LoRA record not found."))
         return result
@@ -367,7 +444,7 @@ def create_lora_stack_library_router(
     @router.post("/scan")
     def lora_stack_library_scan(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
-        return scan_payload(root, payload, catalog_loras=_catalog(payload.get("profile_id")))
+        return scan_payload(root, payload, catalog_loras=list(_catalog(payload.get("profile_id")).get("names") or []))
 
     @router.post("/save")
     def lora_stack_library_save(payload: dict[str, Any]) -> dict[str, Any]:
@@ -378,7 +455,7 @@ def create_lora_stack_library_router(
 
     @router.post("/civitai-import")
     def lora_stack_library_civitai_import(payload: dict[str, Any]) -> dict[str, Any]:
-        result = civitai_import_payload(root, payload, catalog_loras=_catalog(payload.get("profile_id")))
+        result = civitai_import_payload(root, payload, catalog_loras=list(_catalog(payload.get("profile_id")).get("names") or []))
         if not result.get("ok"):
             detail = result.get("message") or result.get("error") or result.get("errors") or "CivitAI import failed."
             raise HTTPException(status_code=400, detail=detail)
@@ -386,7 +463,7 @@ def create_lora_stack_library_router(
 
     @router.post("/set-primary-preview")
     def lora_stack_library_set_primary_preview(payload: dict[str, Any]) -> dict[str, Any]:
-        result = set_primary_preview_payload(root, payload, catalog_loras=_catalog(payload.get("profile_id")))
+        result = set_primary_preview_payload(root, payload, catalog_loras=list(_catalog(payload.get("profile_id")).get("names") or []))
         if not result.get("ok"):
             raise HTTPException(status_code=400, detail=result.get("error", "Could not set primary preview."))
         return result
@@ -405,7 +482,7 @@ def register_lora_stack_library_routes(
     app: Any,
     root: str | Path,
     *,
-    catalog_resolver: Callable[[str | None], list[str]] | None = None,
+    catalog_resolver: Callable[[str | None], Any] | None = None,
     metadata_resolver: Callable[[str | None, str], dict[str, Any]] | None = None,
 ) -> APIRouter:
     """Register LoRA Library API routes on the provided FastAPI app."""

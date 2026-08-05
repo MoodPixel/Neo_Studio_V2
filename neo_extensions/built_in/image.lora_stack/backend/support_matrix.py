@@ -17,8 +17,8 @@ PLANNED = "planned_gated"
 PROVIDER_GATED = "provider_gated"
 UNSUPPORTED = "unsupported"
 
-MATRIX_SCHEMA_VERSION = "neo.image.lora_stack.route_matrix.v4"
-MANIFEST_SYNC_PHASE = "L6-family-enablements"
+MATRIX_SCHEMA_VERSION = "neo.image.lora_stack.route_matrix.v8"
+MANIFEST_SYNC_PHASE = "L12-global-lora-engine-decoupling"
 MATRIX_SOURCE = "neo_extensions/built_in/image.lora_stack/backend/support_matrix.py"
 MATRIX_GENERATOR = "support_matrix.manifest_route_states"
 
@@ -28,18 +28,26 @@ GATED_STATES = {IMPLEMENTATION_TARGET, PLANNED, PROVIDER_GATED, UNSUPPORTED}
 KNOWN_STATES = set(STATE_ORDER)
 SUPPORTED_BACKENDS = ("comfyui", "comfyui_portable")
 SUPPORTED_MODES = ("generate", "img2img", "edit", "inpaint", "outpaint")
+SUPPORTED_ENGINES = ("native", "lanpaint")
 SUPPORTED_LOADERS = ("checkpoint", "checkpoint_aio", "diffusion_model", "gguf")
 SUPPORTED_FAMILIES = (
     "sdxl",
     "sd15",
+    "sd35",
     "flux",
+    "flux2_dev",
     "flux2_klein",
+    "krea2",
+    "krea2_turbo",
     "qwen_image",
     "qwen_rapid_aio",
     "qwen_image_edit_2509",
+    "qwen_image_edit_2511",
     "z_image",
     "z_image_turbo",
     "hidream",
+    "anima",
+    "ideogram4",
     "wan_image",
     "hunyuan_image",
 )
@@ -76,7 +84,22 @@ def _comfy_workflow_mode(mode: str | None) -> str:
     return COMFY_MODE_ALIASES.get(normalized, normalized)
 
 
-def _key(family: str, loader: str, mode: str) -> tuple[str, str, str]:
+def normalize_route_engine(engine: str | None) -> str:
+    value = str(engine or "").strip().lower()
+    if value in {"", "default", "standard"}:
+        return ""
+    return value
+
+
+def _key(family: str, loader: str, mode: str, engine: str | None = None) -> tuple[str, str, str]:
+    """Return the engine-independent LoRA compatibility identity.
+
+    ``engine`` remains accepted for source compatibility with older callers, but
+    it is deliberately excluded from the key. Native Inpaint and LanPaint share
+    the same family/loader/workflow LoRA compatibility policy; each compiler owns
+    its own graph anchors through the patch profile.
+    """
+    _ = engine
     return ((family or "").strip(), (loader or "").strip(), normalize_workflow_mode(mode))
 
 
@@ -103,15 +126,21 @@ def _add(
     patch_profile_required: bool = False,
     validated: bool = False,
     enablement_pass: str = "",
+    engine: str = "",
 ) -> None:
     if state not in KNOWN_STATES:
         raise ValueError(f"Unknown LoRA Stack route state: {state}")
     normalized_mode = normalize_workflow_mode(mode)
+    normalized_engine = normalize_route_engine(engine)
+    if normalized_engine:
+        raise ValueError("LoRA compatibility rows must be engine-independent; store engine-specific graph anchors in compiler patch profiles.")
     ROUTE_SUPPORT[_key(family, loader, normalized_mode)] = {
         "backend": "comfyui",
         "family": family,
         "loader": loader,
         "mode": normalized_mode,
+        "engine": "",
+        "compatibility_engine_independent": True,
         "state": state,
         "route_state": state,
         "reason": reason,
@@ -160,6 +189,7 @@ def _add_model_clip_experimental(
     graph_patch: str = "lora_loader_model_clip_consumer_rewire",
     notes: tuple[str, ...] = (),
     enablement_pass: str = "L6",
+    engine: str = "",
 ) -> None:
     _add(
         family, loader, mode, EXPERIMENTAL,
@@ -175,6 +205,7 @@ def _add_model_clip_experimental(
         patch_profile_required=True,
         validated=False,
         enablement_pass=enablement_pass,
+        engine=engine,
     )
 
 
@@ -186,14 +217,57 @@ def _add_model_clip_chain_experimental(
     *,
     notes: tuple[str, ...] = (),
     enablement_pass: str = "L6",
+    engine: str = "",
 ) -> None:
     _add_model_clip_experimental(
         family, loader, mode, reason,
         graph_patch="lora_loader_model_clip_chain",
         notes=notes,
         enablement_pass=enablement_pass,
+        engine=engine,
     )
 
+
+def _add_model_only_experimental(
+    family: str,
+    loader: str,
+    mode: str,
+    reason: str,
+    *,
+    graph_patch: str = "lora_loader_model_only_consumer_rewire",
+    notes: tuple[str, ...] = (),
+    enablement_pass: str = "L6",
+    engine: str = "",
+) -> None:
+    _add(
+        family, loader, mode, EXPERIMENTAL,
+        reason,
+        graph_patch,
+        roles=("model_ref", "LoraLoaderModelOnly"),
+        notes=(
+            "L6 experimental enablement: compiler emits a model-only LoRA patch profile; real-model/real-LoRA validation is still required before available promotion.",
+            "No fallback to checkpoint, FLUX, Klein, or adjacent family graph assumptions is allowed.",
+            *notes,
+        ),
+        loader_node_class="LoraLoaderModelOnly",
+        requires_clip=False,
+        patch_profile_required=True,
+        validated=False,
+        enablement_pass=enablement_pass,
+        engine=engine,
+    )
+
+
+# Phase 15 SD 3.5 split/GGUF LanPaint routes publish model+CLIP
+# compatibility independently from the selected inpaint engine.  Native SD3.5
+# remains separately gated until a native compiler is onboarded.
+for _loader in ("diffusion_model", "gguf"):
+    _add_model_clip_experimental(
+        "sd35", _loader, "inpaint",
+        "Phase 15 SD 3.5 LanPaint compiler emits exact split model and triple-encoder CLIP anchors for optional LoRA rewiring.",
+        notes=("TripleCLIPLoader/TripleCLIPLoaderGGUF and ModelSamplingSD3 remain family-owned graph contracts.",),
+        enablement_pass="L15.sd35_lanpaint",
+    )
 
 # Flux 1: components and GGUF use provider-owned profiles. Normal edit remains
 # unsupported because Flux edit is not a base route.
@@ -206,6 +280,16 @@ for _loader in ("diffusion_model", "gguf"):
             enablement_pass="L6.flux",
         )
 
+# Phase 17 Flux.2 Dev LanPaint routes share model+CLIP compatibility across
+# Native Inpaint and LanPaint. Other Flux.2 Dev workflow modes remain gated.
+for _loader in ("diffusion_model", "gguf"):
+    _add_model_clip_experimental(
+        "flux2_dev", _loader, "inpaint",
+        "Phase 17 Flux.2 Dev LanPaint compiler emits exact model and Mistral3 CLIP anchors for optional LoRA rewiring.",
+        notes=("GGUF transformer routes keep the proven native Mistral3 Flux2 encoder until a GGUF encoder contract is validated.",),
+        enablement_pass="L17.flux2_dev_lanpaint",
+    )
+
 # Flux 2 Klein: component and GGUF routes include txt2img, image anchor, edit,
 # inpaint, and outpaint compiler profiles.
 for _loader in ("diffusion_model", "gguf"):
@@ -217,10 +301,29 @@ for _loader in ("diffusion_model", "gguf"):
             enablement_pass="L6.flux2_klein",
         )
 
+# Krea 2 RAW/Turbo: every supported workflow mode shares one model-only LoRA
+# compatibility policy for each loader. Native Inpaint and LanPaint remain
+# separate graph compilers and must each emit their own valid patch anchors.
+for _family in ("krea2", "krea2_turbo"):
+    for _loader in ("diffusion_model", "gguf"):
+        for _mode in ("generate", "img2img", "inpaint", "outpaint"):
+            _add_model_only_experimental(
+                _family, _loader, _mode,
+                "Krea 2 compiler emits a model-only LoRA patch profile for this route; LoRA Stack can patch the selected RAW/Turbo transformer experimentally without assuming a CLIP-side LoRA path.",
+                notes=("Krea 2 uses model-only LoRA patching through LoraLoaderModelOnly. Compatibility is shared by Native Inpaint and LanPaint; each compiler supplies its own model-consumer anchors.",),
+                enablement_pass="L6.krea2.m16_3",
+            )
+
+# Phase 12 removes engine-specific compatibility overlays. Krea 2, Qwen Image,
+# Z-Image and Z-Image Turbo inpaint compatibility is declared once per
+# family/loader/mode above or below. Native Inpaint and LanPaint use the same
+# LoRA policy while retaining separate compiler-owned graph anchors.
+
+
 # Qwen GGUF + native component families. Native diffusion_model moved from
 # implementation_target to experimental because the compiler-owned profile exists
 # for generation and edit/mask/canvas routes.
-for _family in ("qwen_image", "qwen_image_edit_2509"):
+for _family in ("qwen_image", "qwen_image_edit_2509", "qwen_image_edit_2511"):
     for _loader in ("diffusion_model", "gguf"):
         for _mode in SUPPORTED_MODES:
             _add_model_clip_experimental(
@@ -260,22 +363,51 @@ for _family in ("z_image", "z_image_turbo"):
                 enablement_pass=f"L6.{_family}",
             )
 
-# HiDream keeps generate-only experimental support. Image-conditioned modes remain
-# variant-gated until the HiDream compiler declares per-variant patch semantics.
+# HiDream-I1 generation and LanPaint inpainting expose compiler-owned model and
+# four-encoder CLIP anchors. E1/E1.1/O1 and other image-conditioned modes stay
+# gated until their distinct architectures receive dedicated compilers.
 for _loader in ("diffusion_model", "gguf"):
     _add_model_clip_experimental(
         "hidream", _loader, "generate",
-        "HiDream txt2img compiler emits model/clip refs; LoRA Stack can patch generation consumers experimentally while image-conditioned variants remain gated.",
-        notes=("Do not infer edit/inpaint/outpaint LoRA support from txt2img; each HiDream variant needs its own route profile.",),
+        "HiDream txt2img compiler emits model/clip refs; LoRA Stack can patch generation consumers experimentally.",
+        notes=("HiDream-I1 LanPaint support does not promote E1/E1.1/O1 or native image-conditioned workflows.",),
         enablement_pass="L6.hidream",
     )
-for _mode in ("img2img", "inpaint", "outpaint"):
-    _add("hidream", "diffusion_model", _mode, PLANNED, "HiDream image-conditioned workflows remain variant-gated; no LoRA patch path is validated.", "none", patch_profile_required=True, enablement_pass="L6.hidream")
-    _add("hidream", "gguf", _mode, PLANNED, "HiDream GGUF image-conditioned workflows remain variant-gated; no LoRA patch path is validated.", "none", patch_profile_required=True, enablement_pass="L6.hidream")
+    _add_model_clip_experimental(
+        "hidream", _loader, "inpaint",
+        "Phase 21 HiDream-I1 LanPaint compiler emits model and quadruple-CLIP refs and proves consumer rewiring before ModelSamplingSD3 and LanPaint sampling.",
+        notes=("Compatibility is engine-independent; the HiDream-I1 LanPaint compiler owns exact model/CLIP graph anchors and Phase 19 catalog binding.",),
+        enablement_pass="Phase21.hidream_i1_lanpaint",
+    )
+for _mode in ("img2img", "outpaint"):
+    _add("hidream", "diffusion_model", _mode, PLANNED, "HiDream image-conditioned workflow remains variant-gated; no LoRA patch path is validated.", "none", patch_profile_required=True, enablement_pass="L6.hidream")
+    _add("hidream", "gguf", _mode, PLANNED, "HiDream GGUF image-conditioned workflow remains variant-gated; no LoRA patch path is validated.", "none", patch_profile_required=True, enablement_pass="L6.hidream")
+
+# Phase 22 Anima uses model-only LoRA anchors for txt2img, img2img and LanPaint inpaint.
+for _loader in ("diffusion_model", "gguf"):
+    for _mode in ("generate", "img2img", "inpaint"):
+        _add(
+            "anima", _loader, _mode, EXPERIMENTAL,
+            "Phase 22 Anima compiler emits a model-only patch profile for the selected workflow and exact provider catalog binding.",
+            "lora_loader_model_only_consumer_rewire",
+            roles=("model_ref", "sampler_model_input"),
+            notes=("Anima official Turbo LoRA is model-only; CLIP remains unpatched.",),
+            loader_node_class="LoraLoaderModelOnly", requires_clip=False, patch_profile_required=True, enablement_pass="Phase22.anima",
+        )
+    _add("anima", _loader, "outpaint", PLANNED, "Anima outpainting is outside Phase 22.", "none", patch_profile_required=True, enablement_pass="Phase22.anima")
+    _add("anima", _loader, "edit", UNSUPPORTED, "Anima does not expose a Neo Image edit route in Phase 22.", "none", patch_profile_required=False, enablement_pass="Phase22.anima")
+
+# Ideogram 4 uses paired main/unconditional models. Generic LoRA insertion is
+# deliberately blocked until both branches have a proven patch contract.
+for _loader in ("diffusion_model", "gguf"):
+    for _mode in ("generate", "inpaint"):
+        _add("ideogram4", _loader, _mode, PLANNED, "Ideogram 4 dual-model LoRA patching is not proven; explicit LoRA requests must fail closed.", "none", patch_profile_required=True, enablement_pass="Phase22.ideogram4_dual_model_hold")
+    for _mode in ("img2img", "outpaint", "edit"):
+        _add("ideogram4", _loader, _mode, UNSUPPORTED if _mode in {"img2img","edit"} else PLANNED, "This Ideogram 4 workflow is not active in Phase 22.", "none", patch_profile_required=False, enablement_pass="Phase22.ideogram4_route_guard")
 
 # Explicit unsupported edit routes for families whose Image base matrix does not
 # expose edit. This prevents the global edit mode from inheriting wildcard states.
-for _family in ("flux", "z_image", "z_image_turbo", "hidream"):
+for _family in ("flux", "z_image", "z_image_turbo", "hidream", "anima", "ideogram4"):
     for _loader in ("diffusion_model", "gguf"):
         _add(_family, _loader, "edit", UNSUPPORTED, "This family/loader does not expose a Neo Image edit base route; LoRA Stack must not synthesize one.", "none", patch_profile_required=False, enablement_pass="L6.unsupported_edit_guard")
 
@@ -336,7 +468,14 @@ def _default_support_state(backend: str, family: str, loader: str, mode: str) ->
     return PLANNED
 
 
-def route_state(backend: str | None, family: str | None, loader: str | None, mode: str | None) -> str:
+def _support_row(family: str, loader: str, mode: str, engine: str | None = None) -> dict[str, Any] | None:
+    # Engine is graph metadata only. Compatibility is resolved exclusively from
+    # family + loader + workflow mode.
+    _ = engine
+    return ROUTE_SUPPORT.get(_key(family, loader, mode))
+
+
+def route_state(backend: str | None, family: str | None, loader: str | None, mode: str | None, engine: str | None = None) -> str:
     backend_value = str(backend or "comfyui")
     family_value = str(family or "")
     loader_value = str(loader or "")
@@ -345,13 +484,13 @@ def route_state(backend: str | None, family: str | None, loader: str | None, mod
         return PROVIDER_GATED
     if not mode_value or mode_value not in SUPPORTED_MODES:
         return UNSUPPORTED
-    support = ROUTE_SUPPORT.get(_key(family_value, loader_value, mode_value))
+    support = _support_row(family_value, loader_value, mode_value, engine)
     if support:
         return str(support["state"])
     return _default_support_state(backend_value, family_value, loader_value, mode_value)
 
 
-def support_reason(backend: str | None, family: str | None, loader: str | None, mode: str | None) -> str:
+def support_reason(backend: str | None, family: str | None, loader: str | None, mode: str | None, engine: str | None = None) -> str:
     backend_value = str(backend or "comfyui")
     family_value = str(family or "")
     loader_value = str(loader or "")
@@ -360,7 +499,7 @@ def support_reason(backend: str | None, family: str | None, loader: str | None, 
         return "Backend is not a supported Comfy backend for LoRA Stack."
     if not mode_value or mode_value not in SUPPORTED_MODES:
         return "Workspace or workflow mode is not an active generation graph target for LoRA Stack."
-    support = ROUTE_SUPPORT.get(_key(family_value, loader_value, mode_value))
+    support = _support_row(family_value, loader_value, mode_value, engine)
     if support:
         return str(support["reason"])
     state = _default_support_state(backend_value, family_value, loader_value, mode_value)
@@ -372,31 +511,39 @@ def support_reason(backend: str | None, family: str | None, loader: str | None, 
         return "Base route exists, but LoRA Stack needs a compiler-owned patch profile before graph insertion is allowed."
     if state == PLANNED:
         return "LoRA graph wiring for this family/loader/mode is planned but not proven; no fallback assumptions are allowed."
-    return "LoRA Stack route state resolved from the explicit source-of-truth matrix."
+    return "LoRA Stack route state resolved from the explicit engine-independent source-of-truth matrix."
 
 
-def graph_patch_strategy(backend: str | None, family: str | None, loader: str | None, mode: str | None) -> str:
+def graph_patch_strategy(backend: str | None, family: str | None, loader: str | None, mode: str | None, engine: str | None = None) -> str:
     backend_value = str(backend or "comfyui")
     if backend_value not in SUPPORTED_BACKENDS:
         return "none"
-    support = ROUTE_SUPPORT.get(_key(str(family or ""), str(loader or ""), normalize_workflow_mode(mode)))
+    support = _support_row(str(family or ""), str(loader or ""), normalize_workflow_mode(mode), engine)
     return str(support["graph_patch"]) if support else "none"
 
 
-def route_support(backend: str | None, family: str | None, loader: str | None, mode: str | None) -> dict[str, Any]:
+def route_support(backend: str | None, family: str | None, loader: str | None, mode: str | None, engine: str | None = None) -> dict[str, Any]:
     backend_value = str(backend or "comfyui")
     family_value = str(family or "")
     loader_value = str(loader or "")
     mode_value = normalize_workflow_mode(mode)
+    engine_value = normalize_route_engine(engine)
     state = route_state(backend_value, family_value, loader_value, mode_value)
-    support = ROUTE_SUPPORT.get(_key(family_value, loader_value, mode_value))
+    support = _support_row(family_value, loader_value, mode_value)
     base_state = _base_route_state(backend_value, family_value, loader_value, mode_value)
+    compatibility_route_key = f"{family_value}:{loader_value}:{mode_value}"
+    workflow_route_key = compatibility_route_key + (f":{engine_value}" if engine_value and engine_value != "native" else "")
     return {
         "backend": backend_value,
         "family": family_value,
         "loader": loader_value,
         "mode": mode_value,
         "workflow_mode": mode_value,
+        "engine": engine_value or "native",
+        "workflow_engine": engine_value or "native",
+        "effective_engine": engine_value or "native",
+        "engine_explicit": bool(engine_value),
+        "compatibility_engine_independent": True,
         "state": state,
         "route_state": state,
         "base_route_state": base_state,
@@ -411,7 +558,9 @@ def route_support(backend: str | None, family: str | None, loader: str | None, m
         "validated": bool(support.get("validated", state == AVAILABLE)) if support else False,
         "enablement_pass": str(support.get("enablement_pass") or "") if support else "",
         "active": state in ACTIVE_STATES,
-        "route_key": f"{family_value}:{loader_value}:{mode_value}",
+        "route_key": compatibility_route_key,
+        "compatibility_route_key": compatibility_route_key,
+        "workflow_route_key": workflow_route_key,
     }
 
 
@@ -481,6 +630,33 @@ def manifest_route_states() -> dict[str, str]:
     return states
 
 
+
+def manifest_route_policies() -> dict[str, dict[str, Any]]:
+    """Return engine-independent LoRA compatibility metadata for the UI.
+
+    Node ids and graph anchors are intentionally absent; those remain compiler
+    patch-profile data. The manifest publishes only compatibility semantics.
+    """
+    policies: dict[str, dict[str, Any]] = {}
+    for row in support_matrix():
+        mode = "model_only" if not bool(row.get("requires_clip", True)) else "model_and_clip"
+        policy = {
+            "state": str(row.get("state") or PLANNED),
+            "lora_mode": mode,
+            "loader_node_class": row.get("loader_node_class"),
+            "requires_model": bool(row.get("requires_model", True)),
+            "requires_clip": bool(row.get("requires_clip", True)),
+            "graph_patch": str(row.get("graph_patch") or "none"),
+            "patch_profile_required": bool(row.get("patch_profile_required")),
+            "compatibility_engine_independent": True,
+        }
+        for key in manifest_route_keys_for_row(row):
+            previous = policies.get(key)
+            if previous is not None and previous != policy:
+                raise ValueError(f"Conflicting LoRA Stack manifest route policy for {key}")
+            policies[key] = dict(policy)
+    return policies
+
 def manifest_sync_checksum() -> str:
     payload = {
         "schema_version": MATRIX_SCHEMA_VERSION,
@@ -488,7 +664,10 @@ def manifest_sync_checksum() -> str:
         "supported_families": list(SUPPORTED_FAMILIES),
         "supported_loaders": list(SUPPORTED_LOADERS),
         "supported_modes": list(SUPPORTED_MODES),
+        "workflow_engine_metadata_values": list(SUPPORTED_ENGINES),
+        "compatibility_dimensions": {"backend": True, "family": True, "loader": True, "workflow_mode": True, "engine": False},
         "route_states": manifest_route_states(),
+        "route_policies": manifest_route_policies(),
         "workspace_support": workspace_support_matrix(),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -508,6 +687,8 @@ def manifest_sync_contract() -> dict[str, Any]:
         "gated_states": [IMPLEMENTATION_TARGET, PLANNED, PROVIDER_GATED, UNSUPPORTED],
         "supported_backends": list(SUPPORTED_BACKENDS),
         "workflow_modes": list(SUPPORTED_MODES),
+        "workflow_engine_metadata_values": list(SUPPORTED_ENGINES),
+        "compatibility_dimensions": {"backend": True, "family": True, "loader": True, "workflow_mode": True, "engine": False},
         "loaders": list(SUPPORTED_LOADERS),
         "families": list(SUPPORTED_FAMILIES),
         "graph_patch_strategies": graph_patches,
@@ -518,12 +699,16 @@ def manifest_sync_contract() -> dict[str, Any]:
             "legacy_unprefixed": True,
             "generate_txt2img_aliases": True,
             "workspace_state_keys": list(WORKSPACE_SUPPORT.keys()),
+            "engine_specific_route_keys": False,
+            "route_policy_map": True,
         },
         "row_contract": [
             "backend",
             "family",
             "loader",
             "workflow_mode",
+            "workflow_engine",
+            "compatibility_engine_independent",
             "route_state",
             "base_route_state",
             "graph_patch",
@@ -536,19 +721,22 @@ def manifest_sync_contract() -> dict[str, Any]:
             "reason",
         ],
         "patch_profile_contract": {
-            "schema_version": "neo.image.lora_stack.patch_profile.v1",
+            "schema_version": "neo.image.lora_stack.patch_profile.v2",
+            "engine_aware": False,
+            "engine_is_graph_metadata_only": True,
             "owner": "compiler",
             "required_fields": ["model_ref", "clip_ref", "sampler_node_id", "sampler_model_input", "loader_node_class", "strategy", "source"],
             "gating_rule": "If patch_profile_required is true and the active compiler does not emit a valid profile, LoRA Stack preserves payload intent but does not mutate the graph.",
         },
-        "rule": "Routes are active only when their own compiler exposes explicit model/clip patch points and, for patch_profile_required routes, emits a compiler-owned LoRA patch profile. L6 may promote such routes to experimental_available, but available still requires physical validation. Base route availability alone is not enough. No family fallback and no checkpoint/GGUF/checkpoint_aio field mixing.",
+        "rule": "LoRA compatibility is resolved from backend + family + loader + workflow mode only. Native Inpaint and LanPaint share that compatibility policy, while each compiler must emit its own model/clip graph anchors. No family or loader fallback and no checkpoint/GGUF/checkpoint_aio field mixing.",
         "l0": "Adds implementation_target state, checkpoint_aio loader coverage, edit-mode matrix coverage, base-route-aware default gating, and generated manifest route states from support_matrix.py.",
         "l1": "Mounts the LoRA Stack UI only inside Image Assets. Generation submission still collects the applied Assets payload with other workspace extensions, but Generation, Reference, Finish, and Results do not mount the editable LoRA panel.",
         "l2": "Hardens manifest sync by generating backend-prefixed keys, legacy keys, generate/txt2img aliases, workspace states, and a checksum from the support matrix source of truth.",
         "l3": "Preserves LoRA apply_to targets through frontend payload cleaning, Scene Director regional assignment metadata, and gated-route requested intent metadata.",
         "l4": "Requires compiler-owned LoRA patch profiles for profile-required routes; graph patching uses declared model_ref, clip_ref, sampler_node_id, sampler_model_input, and loader_node_class instead of hardcoded family fallback refs.",
         "l5": "Upgrades graph insertion to a strategy dispatcher: standard model+clip LoraLoader, model-only LoraLoaderModelOnly, provider-specific adapter placeholders, and explicit no-op routes with metadata-only preservation.",
-        "l6": "Promotes compiler-profile-backed family routes to experimental_available family by family: Flux, Flux 2 Klein, Qwen Image, Qwen Rapid AIO, Qwen Image Edit 2509, ZImage, ZImage Turbo, and HiDream txt2img. SDXL remains available; SD1.5 remains experimental; HiDream image modes, Wan, and Hunyuan stay gated.",
+        "l6": "Historical engine-specific LanPaint overlays are normalized by Phase 12 into engine-independent compatibility rows; compiler-owned graph anchors remain route-specific.",
+        "l12": "Decouples LoRA compatibility from Native/LanPaint engine selection. The optional LoRA Stack remains family/loader/mode aware, while patch profiles retain workflow engine and graph route lineage.",
         "workspace_apps": ["assets"],
         "mount_slots": [
             "image.assets.lora_stack",
@@ -567,7 +755,10 @@ def support_matrix_snapshot() -> dict[str, Any]:
         "supported_families": list(SUPPORTED_FAMILIES),
         "supported_loaders": list(SUPPORTED_LOADERS),
         "workflow_modes": list(SUPPORTED_MODES),
+        "workflow_engine_metadata_values": list(SUPPORTED_ENGINES),
+        "compatibility_dimensions": {"backend": True, "family": True, "loader": True, "workflow_mode": True, "engine": False},
         "route_states": manifest_route_states(),
+        "route_policies": manifest_route_policies(),
         "support_matrix": support_matrix(),
         "workspace_support": workspace_support_matrix(),
     }

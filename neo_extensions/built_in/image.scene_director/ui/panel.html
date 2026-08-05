@@ -1,6 +1,72 @@
-<section id="sceneDirectorPanel" class="neo-scene-director-panel" data-extension-id="image.scene_director">
-  <!-- Runtime-rendered by neo_app/static/js/neo.js until V2 supports per-extension JS module hydration. -->
-  <section class="neo-scene-inspector" data-scene-director-inspector-root hidden>
-    <!-- Phase 26.10.8 read-only inspector/debug UI renders from scene_metadata_json.inspector_debug_ui. -->
+<section id="sceneDirectorPanel" class="neo-scene-director-panel" data-extension-id="image.scene_director" data-scene-director-editor-root>
+  <header class="neo-scene-header neo-scene-editor-header">
+    <div>
+      <h3>Scene Director</h3>
+      <p class="neo-scene-editor-subtitle">Region-aware prompting and regional LoRA routing. The editor stays visible even when optional runtime capabilities are unavailable.</p>
+    </div>
+    <label class="neo-scene-editor-enable"><input type="checkbox" data-sd-field="enabled"> Enable</label>
+  </header>
+
+  <section class="neo-scene-editor-status" aria-live="polite">
+    <div class="neo-scene-editor-chips" data-sd-status-chips></div>
+    <p class="neo-scene-editor-readiness" data-sd-readiness-text>Waiting for route context.</p>
   </section>
+
+  <section class="neo-scene-subsection neo-scene-editor-global">
+    <div class="neo-card-head"><h4>Global Context</h4><span class="neo-scene-editor-badge">SD-28.9</span></div>
+    <div class="neo-scene-core-prompts">
+      <div><label>Global prompt<textarea data-sd-field="global_prompt" placeholder="Global scene, lighting, camera, shared style..."></textarea></label></div>
+      <div><label>Global negative<textarea data-sd-field="global_negative" placeholder="Global exclusions for routes that support negative conditioning..."></textarea></label></div>
+    </div>
+    <div class="neo-scene-region-row">
+      <label>Prompt authority
+        <select data-sd-field="prompt_authority">
+          <option value="global_context">Global context + regional prompts</option>
+          <option value="scene_director_only">Scene Director only</option>
+        </select>
+      </label>
+      <label>Editor mode
+        <select data-sd-field="display_mode">
+          <option value="guided">Guided</option>
+          <option value="compact">Compact</option>
+          <option value="expert">Expert</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="neo-scene-subsection">
+    <div class="neo-card-head">
+      <div><h4>Regions</h4><small data-sd-region-count>0 active</small></div>
+      <div class="neo-inline-actions">
+        <button type="button" data-sd-add="character">+ Character</button>
+        <button type="button" data-sd-add="object">+ Object</button>
+        <button type="button" data-sd-add="background">+ Background</button>
+        <button type="button" data-sd-add="style">+ Style</button>
+      </div>
+    </div>
+    <div class="neo-scene-editor-layout">
+      <div class="neo-scene-canvas-wrap"><div class="neo-scene-canvas" data-sd-canvas aria-label="Scene region canvas"></div></div>
+      <div class="neo-scene-region-grid" data-sd-regions></div>
+    </div>
+  </section>
+
+  <details class="neo-scene-subsection neo-scene-expert" data-sd-expert-panel>
+    <summary>Expert payload preview</summary>
+    <pre data-sd-payload-preview>{}</pre>
+  </details>
+
+  <section class="neo-scene-subsection neo-scene-runtime-inspector-shell">
+    <div class="neo-card-head"><h4>Runtime Inspector</h4><small>read-only</small></div>
+    <div data-scene-director-inspector-root>
+      <p class="neo-scene-inspector-empty">No Scene Director runtime metadata available yet.</p>
+    </div>
+  </section>
+
+  <input type="hidden" name="scene_director_enabled" data-sd-legacy="enabled" value="false">
+  <input type="hidden" name="scene_director_state" data-sd-legacy="state" value="{}">
+  <input type="hidden" name="scene_director_extension_json" data-sd-legacy="extension" value="{}">
+  <input type="hidden" name="scene_graph_json" data-sd-legacy="scene_graph" value="{}">
+  <input type="hidden" name="scene_director_regional_units" data-sd-legacy="regions" value="[]">
+  <input type="hidden" name="regional_prompt_regions" data-sd-legacy="regional_prompts" value="[]">
 </section>

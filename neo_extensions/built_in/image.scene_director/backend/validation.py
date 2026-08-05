@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
-from .node_decision import detect_node_status
+from .node_decision import detect_execution_node_status
 from .payload_schema import EXTENSION_ID, active_regions, normalize_scene_director_payload
 from .support_matrix import ACTIVE_STATES, get_scene_director_support, normalize_route
 
@@ -72,12 +73,10 @@ def validate_scene_director_payload(
 ) -> dict[str, Any]:
     """Validate and normalize the Scene Director extension block.
 
-    Validation is intentionally route-aware but not destructive: unsupported or
-    missing-node routes are reported as gated warnings and the normalized payload
-    is already pruned so no graph mutation can occur. The only hard validation
-    error in Phase I is an explicitly enabled Scene Director state with no active
-    regions, because V1 treated that as a real user-facing problem rather than a
-    silent plain-generation success.
+    SD-28.7 keeps execution requirements strategy-aware and release-inspector ready. Classic SDXL/SD1.5 still
+    requires NeoSceneDirectorV054; lightweight Krea2/Klein/Z-Image prompt routing
+    instead requires the Comfy built-in conditioning/mask nodes declared by the
+    execution strategy.
     """
     normalized_route = normalize_route(route or {})
     nodes = object_info if object_info is not None else node_status
@@ -89,7 +88,7 @@ def validate_scene_director_payload(
     active = active_regions(block) if isinstance(block, dict) else []
     raw_enabled = _raw_scene_director_enabled(payload)
     enabled = bool(block.get("enabled"))
-    node = detect_node_status(nodes)
+    node = detect_execution_node_status(nodes, normalized_route)
 
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -126,19 +125,28 @@ def validate_scene_director_payload(
         warnings.append(_message(
             "warning",
             "node_status",
-            str(node.get("missing_reason") or "Scene Director node is missing."),
-            "missing_scene_director_node",
+            str(node.get("missing_reason") or "Scene Director execution requirements are missing."),
+            "missing_scene_director_execution_nodes",
         ))
 
     if metadata.get("warnings"):
         for item in metadata.get("warnings") or []:
             infos.append(_message("info", "metadata.warnings", str(item), "payload_normalization_note"))
 
+    strategy = support.get("execution_strategy") if isinstance(support.get("execution_strategy"), dict) else {}
+    if raw_enabled and strategy.get("engine") == "lightweight_regional":
+        infos.append(_message(
+            "info",
+            "execution_strategy",
+            "SD-28.7 release-locks Krea2 RAW/Turbo, FLUX.2 Klein, and Z-Image Base/Turbo lightweight support: masked regional conditioning plus at most one family-specific NeoRegionalLoRADelta wrapper, preserving the existing sampler and requiring per-run regional-LoRA proof.",
+            "lightweight_regional_prompt_engine",
+        ))
+
     if metadata.get("workflow_patch_requested") and not metadata.get("workflow_patch_allowed"):
         warnings.append(_message(
             "warning",
             "metadata.workflow_patch_allowed",
-            str(metadata.get("gated_reason") or "Scene Director workflow patch is not allowed for this route/node state."),
+            str(metadata.get("gated_reason") or "Scene Director workflow patch is not allowed for this route/execution state."),
             "workflow_patch_gated",
         ))
 
@@ -161,12 +169,13 @@ def validate_scene_director_payload(
         "block": block,
         "route": normalized_route,
         "support": support,
+        "execution_strategy": strategy,
         "route_state": route_state,
         "route_compatible_state": route_compatible_state,
         "node_status": node,
         "workflow_patch_requested": bool(metadata.get("workflow_patch_requested")),
         "workflow_patch_allowed": bool(metadata.get("workflow_patch_allowed")),
-        "can_emit_workflow_patch": bool(metadata.get("workflow_patch_requested") and metadata.get("workflow_patch_allowed") and ok),
+        "can_emit_workflow_patch": bool(metadata.get("workflow_patch_requested") and metadata.get("workflow_patch_allowed") and node.get("available") and ok),
         "gated_reason": str(metadata.get("gated_reason") or support.get("reason") or ""),
         "errors": errors,
         "warnings": warnings,
@@ -175,6 +184,8 @@ def validate_scene_director_payload(
         "regional_count": int(metadata.get("regional_count") or len(active) or 0),
         "subject_count": int(metadata.get("subject_count") or 0),
         "detail_region_count": int(metadata.get("detail_region_count") or 0),
+        "inspector_debug_ui": deepcopy(metadata.get("inspector_debug_ui") or {}),
+        "release_lock_phase": str(metadata.get("release_lock_phase") or "SD-28.7"),
     }
     return result
 
@@ -215,6 +226,7 @@ def validate_and_normalize_payload(
         "warnings": result["warnings"],
         "infos": result["infos"],
         "route": result["route"],
+        "execution_strategy": result.get("execution_strategy") or {},
         "route_state": result["route_state"],
         "reason": result["gated_reason"],
         "active_regions": result["active_regions"],

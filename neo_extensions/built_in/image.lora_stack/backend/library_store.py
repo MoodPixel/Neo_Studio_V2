@@ -40,8 +40,21 @@ def _record_key(record: dict[str, Any]) -> str:
     return str(record.get("catalog_name") or record.get("name") or record.get("file") or record.get("id") or "").casefold()
 
 
-def merge_catalog_records(saved: list[dict[str, Any]], catalog_loras: list[str]) -> list[dict[str, Any]]:
-    return attach_catalog_bridge([normalize_record(item) for item in saved], catalog_loras or [])
+def merge_catalog_records(
+    saved: list[dict[str, Any]],
+    catalog_loras: list[str],
+    *,
+    provider_id: str = "comfyui",
+    catalog_source: str = "",
+    provider_label: str = "",
+) -> list[dict[str, Any]]:
+    return attach_catalog_bridge(
+        [normalize_record(item) for item in saved],
+        catalog_loras or [],
+        provider_id=provider_id,
+        catalog_source=catalog_source,
+        provider_label=provider_label,
+    )
 
 
 def upsert_record(root: str | Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -65,15 +78,30 @@ def upsert_record(root: str | Path, record: dict[str, Any]) -> dict[str, Any]:
     return incoming
 
 
-def find_record(root: str | Path, record_id: str, *, catalog_loras: list[str] | None = None) -> dict[str, Any] | None:
+def find_record(
+    root: str | Path,
+    record_id: str,
+    *,
+    catalog_loras: list[str] | None = None,
+    provider_id: str = "comfyui",
+    catalog_source: str = "",
+    provider_label: str = "",
+) -> dict[str, Any] | None:
     wanted_raw = str(record_id or "").strip()
     wanted = wanted_raw.casefold()
     if not wanted:
         return None
     wanted_aliases = {wanted}
-    if wanted.startswith("comfy:"):
-        wanted_aliases.add(wanted_raw[6:].strip().casefold())
-    records = merge_catalog_records(load_records(root), catalog_loras or [])
+    for prefix in ("comfy:", "forge:"):
+        if wanted.startswith(prefix):
+            wanted_aliases.add(wanted_raw[len(prefix):].strip().casefold())
+    records = merge_catalog_records(
+        load_records(root),
+        catalog_loras or [],
+        provider_id=provider_id,
+        catalog_source=catalog_source,
+        provider_label=provider_label,
+    )
     for record in records:
         values = [record.get("id"), record.get("name"), record.get("catalog_name"), record.get("file")]
         if any(str(value or "").strip().casefold() in wanted_aliases for value in values):

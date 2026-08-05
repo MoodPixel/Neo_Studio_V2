@@ -32,7 +32,11 @@ def _scale_label(params: dict[str, Any]) -> str:
 
 def _restore_label(params: dict[str, Any]) -> str:
     restore = _clean(params.get("restore_assist") or params.get("image_upscale_restore_assist") or "off").lower()
-    return "CodeFormer" if restore == "codeformer" else "off"
+    if restore == "codeformer":
+        return "CodeFormer"
+    if restore == "gfpgan":
+        return "GFPGAN"
+    return "off"
 
 
 def _alpha_label(params: dict[str, Any]) -> str:
@@ -59,11 +63,14 @@ def build_assistant_summary(params: dict[str, Any] | None = None, assets: dict[s
     mode = _mode_label(clean_params)
     scale = _scale_label(clean_params)
     summary = f"{prefix} using {mode}"
-    if scale:
+    resize_mode = _clean(clean_params.get("forge_resize_mode") or "scale").lower()
+    if resize_mode == "exact" and clean_params.get("target_width") and clean_params.get("target_height"):
+        summary += f" to {clean_params.get('target_width')}x{clean_params.get('target_height')}"
+    elif scale:
         summary += f" at {scale}x"
     restore = _restore_label(clean_params)
-    if restore == "CodeFormer":
-        summary += " with CodeFormer restore"
+    if restore != "off":
+        summary += f" with {restore} restore"
     alpha = _alpha_label(clean_params)
     if alpha:
         summary += f" with {alpha}"
@@ -100,6 +107,14 @@ def build_image_upscale_extension_usage(
         "upscale_engine": clean_params.get("upscale_engine") or clean_params.get("image_upscale_engine") or "basic",
         "upscaler": clean_params.get("seedvr2_dit_model") if (clean_params.get("upscale_engine") == "seedvr2") else (clean_params.get("upscale_model") or clean_params.get("image_upscale_model") or "Interpolation only"),
         "restore_assist": clean_params.get("restore_assist") or clean_params.get("image_upscale_restore_assist") or "off",
+        "restore_visibility": clean_params.get("restore_visibility"),
+        "resize_mode": clean_params.get("forge_resize_mode") or "scale",
+        "target_width": clean_params.get("target_width"),
+        "target_height": clean_params.get("target_height"),
+        "secondary_upscaler": clean_params.get("secondary_upscale_model") or "None",
+        "secondary_visibility": clean_params.get("secondary_visibility") or 0,
+        "upscaling_crop": bool(clean_params.get("upscaling_crop")),
+        "upscale_first": bool(clean_params.get("upscale_first")),
         "alpha_mode": clean_params.get("seedvr2_alpha_mode") or "",
         "alpha_route_applied": bool(clean_params.get("seedvr2_alpha_route_applied") or clean_params.get("_neo_seedvr2_alpha_route_applied")),
         "route": clean_route,
@@ -165,7 +180,11 @@ def build_output_inspector_chips(
         f"Mode · {_mode_label(clean_params)}",
     ]
     scale = _scale_label(clean_params)
-    if scale:
+    forge_resize_mode = _clean(clean_params.get("forge_resize_mode") or "scale").lower()
+    if forge_resize_mode == "exact" and clean_params.get("target_width") and clean_params.get("target_height"):
+        chips.append(f"Target · {clean_params.get('target_width')}×{clean_params.get('target_height')}")
+        chips.append(f"Crop · {'on' if clean_params.get('upscaling_crop') else 'off'}")
+    elif scale:
         chips.append(f"Scale · {scale}x")
     resize = _clean(clean_params.get("resize_method") or clean_params.get("image_upscale_resize_method"))
     if resize:
@@ -192,8 +211,16 @@ def build_output_inspector_chips(
     else:
         upscaler = _clean(clean_params.get("upscale_model") or clean_params.get("image_upscale_model"))
         chips.append(f"Upscaler · {upscaler or 'Interpolation only'}")
+        secondary = _clean(clean_params.get("secondary_upscale_model"))
+        secondary_visibility = float(clean_params.get("secondary_visibility") or 0)
+        if secondary and secondary.casefold() != "none" and secondary_visibility > 0:
+            chips.append(f"Secondary · {secondary} @ {secondary_visibility:.2f}")
     restore = _restore_label(clean_params)
     chips.append(f"Restore · {restore}")
+    if restore != "off":
+        chips.append(f"Restore visibility · {float(clean_params.get('restore_visibility') or 1):.2f}")
+    if clean_params.get("upscale_first"):
+        chips.append("Order · upscale first")
     if source_images:
         chips.append(f"Sources · {len(source_images)}")
     backend = _clean(clean_route.get("backend") or clean_route.get("provider_id"))

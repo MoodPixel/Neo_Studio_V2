@@ -34,7 +34,9 @@
     }
   ],
   "supported_backends": [
-    "comfyui"
+    "comfyui",
+    "comfyui_portable",
+    "forge"
   ],
   "supported_families": [
     "sdxl",
@@ -128,10 +130,10 @@
     "comfyui:sdxl:checkpoint:img2img": "available",
     "comfyui:sdxl:checkpoint:inpaint": "available",
     "comfyui:sdxl:checkpoint:outpaint": "available",
-    "forge:sdxl:checkpoint:txt2img": "planned_gated",
-    "forge:sdxl:checkpoint:img2img": "planned_gated",
-    "forge:sdxl:checkpoint:inpaint": "planned_gated",
-    "forge:sdxl:checkpoint:outpaint": "planned_gated",
+    "forge:sdxl:checkpoint:txt2img": "available",
+    "forge:sdxl:checkpoint:img2img": "provider_gated",
+    "forge:sdxl:checkpoint:inpaint": "provider_gated",
+    "forge:sdxl:checkpoint:outpaint": "provider_gated",
     "a1111:sdxl:checkpoint:txt2img": "planned_gated",
     "a1111:sdxl:checkpoint:img2img": "planned_gated",
     "a1111:sdxl:checkpoint:inpaint": "planned_gated",
@@ -140,10 +142,10 @@
     "comfyui:sd15:checkpoint:img2img": "available",
     "comfyui:sd15:checkpoint:inpaint": "available",
     "comfyui:sd15:checkpoint:outpaint": "available",
-    "forge:sd15:checkpoint:txt2img": "planned_gated",
-    "forge:sd15:checkpoint:img2img": "planned_gated",
-    "forge:sd15:checkpoint:inpaint": "planned_gated",
-    "forge:sd15:checkpoint:outpaint": "planned_gated",
+    "forge:sd15:checkpoint:txt2img": "available",
+    "forge:sd15:checkpoint:img2img": "provider_gated",
+    "forge:sd15:checkpoint:inpaint": "provider_gated",
+    "forge:sd15:checkpoint:outpaint": "provider_gated",
     "a1111:sd15:checkpoint:txt2img": "planned_gated",
     "a1111:sd15:checkpoint:img2img": "planned_gated",
     "a1111:sd15:checkpoint:inpaint": "planned_gated",
@@ -501,7 +503,9 @@
     "a1111:other:api_model:txt2img": "unsupported",
     "a1111:other:api_model:img2img": "unsupported",
     "a1111:other:api_model:inpaint": "unsupported",
-    "a1111:other:api_model:outpaint": "unsupported"
+    "a1111:other:api_model:outpaint": "unsupported",
+    "forge:sdxl:checkpoint:generate": "available",
+    "forge:sd15:checkpoint:generate": "available"
   },
   "capability_profiles": {},
   "ui_schema": {
@@ -841,5 +845,16 @@
     "safe_block_policy": "Normalize, sanitize hidden fields, then disable if route/node revalidation fails.",
     "ui_restore_function": "restoreHighResLabSettingsFromReuse",
     "memory_event_shape": "extension_id, extension_type, workspace_app, route, assets, params, outputs, workflow_summary, assistant_summary, replay_payload"
+  },
+  "forge_extension_compatibility": {
+    "phase": "Phase 5",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_capability_snapshot",
+    "fail_closed": true,
+    "contract": "forge.txt2img.hires.v1",
+    "supported_modes": [
+      "txt2img",
+      "generate"
+    ]
   }
 }

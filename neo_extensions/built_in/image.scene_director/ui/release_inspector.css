@@ -1,0 +1,64 @@
+/* SD-28.7 — Scene Director release/inspector status layer. */
+.neo-scene-release-summary {
+  margin: .3rem 0 0;
+  color: var(--neo-muted, #94a3b8);
+  font-size: .78rem;
+  line-height: 1.4;
+}
+.neo-scene-release-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  align-items: center;
+}
+.neo-scene-release-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  min-height: 26px;
+  padding: .2rem .55rem;
+  border: 1px solid rgba(148,163,184,.28);
+  border-radius: 999px;
+  background: rgba(15,23,42,.42);
+  font-size: .72rem;
+  line-height: 1;
+}
+.neo-scene-release-chip-label {
+  color: var(--neo-muted, #94a3b8);
+}
+.neo-scene-release-chip strong {
+  font-weight: 800;
+  text-transform: capitalize;
+}
+.neo-scene-release-chip.tone-ok {
+  border-color: rgba(52,211,153,.42);
+  background: rgba(5,150,105,.12);
+}
+.neo-scene-release-chip.tone-warning {
+  border-color: rgba(250,204,21,.42);
+  background: rgba(161,98,7,.12);
+}
+.neo-scene-release-chip.tone-blocker {
+  border-color: rgba(248,113,113,.5);
+  background: rgba(153,27,27,.14);
+}
+.neo-scene-inspector[data-release-lock="blocked"] {
+  border-color: rgba(248,113,113,.58);
+}
+.neo-scene-inspector[data-release-lock="locked"] {
+  border-color: rgba(52,211,153,.42);
+}
+.neo-scene-inspector[data-gpu-proof="pending"] .neo-scene-inspector-status::after {
+  content: ' · proof pending';
+  text-transform: none;
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .neo-scene-release-chips {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .neo-scene-release-chip {
+    justify-content: space-between;
+  }
+}

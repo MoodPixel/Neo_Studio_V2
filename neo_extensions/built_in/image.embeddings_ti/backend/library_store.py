@@ -47,20 +47,35 @@ def _record_key(record: dict[str, Any]) -> str:
     return str(record.get("token") or record.get("catalog_name") or record.get("name") or record.get("file") or record.get("id") or "").casefold()
 
 
-def merge_catalog_records(saved: list[dict[str, Any]], catalog_embeddings: list[str]) -> list[dict[str, Any]]:
+def merge_catalog_records(
+    saved: list[dict[str, Any]],
+    catalog_embeddings: list[str],
+    *,
+    provider_id: str = "comfyui",
+    provider_label: str = "",
+    catalog_source: str = "",
+) -> list[dict[str, Any]]:
     records = [normalize_record(item) for item in saved]
     by_key = {_record_key(item): item for item in records if _record_key(item)}
+    catalog_keys: set[str] = set()
     for name in catalog_embeddings or []:
-        incoming = record_from_catalog_name(name)
+        incoming = record_from_catalog_name(name, provider_id=provider_id, provider_label=provider_label, catalog_source=catalog_source)
+        catalog_keys.add(_record_key(incoming))
         key = _record_key(incoming)
         existing = by_key.get(key)
         if existing:
             existing["catalog_available"] = True
-            existing["catalog_source"] = "provider:embeddings"
-            existing.setdefault("field_sources", {})["catalog_available"] = "provider:embeddings"
+            existing["catalog_name"] = incoming.get("catalog_name") or existing.get("catalog_name")
+            existing["provider_id"] = incoming.get("provider_id") or existing.get("provider_id")
+            existing["provider_label"] = incoming.get("provider_label") or existing.get("provider_label")
+            existing["catalog_source"] = incoming.get("catalog_source") or catalog_source or "provider:embeddings"
+            existing.setdefault("field_sources", {})["catalog_available"] = existing["catalog_source"]
         else:
             records.append(incoming)
             by_key[key] = incoming
+    for record in records:
+        if _record_key(record) not in catalog_keys and record.get("source") != "manual":
+            record["catalog_available"] = False
     return [normalize_record(item) for item in records]
 
 
@@ -86,7 +101,15 @@ def upsert_record(root: str | Path, record: dict[str, Any]) -> dict[str, Any]:
     return incoming
 
 
-def find_record(root: str | Path, record_id: str, *, catalog_embeddings: list[str] | None = None) -> dict[str, Any] | None:
+def find_record(
+    root: str | Path,
+    record_id: str,
+    *,
+    catalog_embeddings: list[str] | None = None,
+    provider_id: str = "comfyui",
+    provider_label: str = "",
+    catalog_source: str = "",
+) -> dict[str, Any] | None:
     wanted_raw = str(record_id or "").strip()
     wanted = wanted_raw.casefold()
     if not wanted:
@@ -94,7 +117,7 @@ def find_record(root: str | Path, record_id: str, *, catalog_embeddings: list[st
     aliases = {wanted}
     if wanted.startswith("embedding:"):
         aliases.add(wanted.replace("embedding:", "", 1))
-    records = merge_catalog_records(load_records(root), catalog_embeddings or [])
+    records = merge_catalog_records(load_records(root), catalog_embeddings or [], provider_id=provider_id, provider_label=provider_label, catalog_source=catalog_source)
     for record in records:
         values = [record.get("id"), record.get("name"), record.get("catalog_name"), record.get("token"), record.get("file")]
         normalized_values = {str(value or "").strip().casefold() for value in values if str(value or "").strip()}

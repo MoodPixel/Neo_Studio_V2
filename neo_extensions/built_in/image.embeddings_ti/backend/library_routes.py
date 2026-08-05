@@ -8,9 +8,52 @@ from fastapi.responses import FileResponse
 
 from .civitai_import import fetch_civitai_payload, import_civitai_into_record, is_textual_inversion_payload, normalize_textual_inversion_civitai_payload, parse_civitai_url
 from .library_scan import scan_embeddings_folder
-from .library_schema import normalize_record, token_for_name, utc_now_iso
+from .library_schema import browser_safe_record, normalize_record, token_for_name, utc_now_iso
 from .library_store import delete_record, find_record, load_records, merge_catalog_records, save_records, upsert_record
 from .preview_cache import cache_preview_urls, normalize_preview_paths, preview_file_response
+
+
+
+
+def normalize_catalog_snapshot(value: Any, profile_id: str | None = None) -> dict[str, Any]:
+    if isinstance(value, dict):
+        names = value.get("names") if isinstance(value.get("names"), list) else value.get("embeddings") if isinstance(value.get("embeddings"), list) else []
+        provider_id = str(value.get("provider_id") or "comfyui").strip().casefold()
+        provider_label = str(value.get("provider_label") or "").strip() or ("Forge Neo" if provider_id == "forge" else "ComfyUI")
+        catalog_source = str(value.get("catalog_source") or value.get("source") or "").strip() or ("forge:sdapi_embeddings" if provider_id == "forge" else "comfy:embeddings")
+        return {
+            "schema_version": "neo.embeddings_ti.provider_catalog.v1",
+            "profile_id": str(value.get("profile_id") or profile_id or ""),
+            "provider_id": provider_id,
+            "provider_label": provider_label,
+            "catalog_source": catalog_source,
+            "names": [str(item or "").strip() for item in names if str(item or "").strip()],
+            "available": bool(value.get("available", True)),
+            "reason": str(value.get("reason") or ""),
+            "selected_profile_only": True,
+            "automatic_provider_fallback": False,
+        }
+    names = value if isinstance(value, list) else []
+    return {
+        "schema_version": "neo.embeddings_ti.provider_catalog.v1",
+        "profile_id": str(profile_id or ""),
+        "provider_id": "comfyui",
+        "provider_label": "ComfyUI",
+        "catalog_source": "comfy:embeddings",
+        "names": [str(item or "").strip() for item in names if str(item or "").strip()],
+        "available": True,
+        "reason": "",
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
+    }
+
+
+def _catalog_kwargs(catalog: dict[str, Any]) -> dict[str, str]:
+    return {
+        "provider_id": str(catalog.get("provider_id") or "comfyui"),
+        "provider_label": str(catalog.get("provider_label") or ""),
+        "catalog_source": str(catalog.get("catalog_source") or ""),
+    }
 
 
 def route_specs() -> list[dict[str, Any]]:
@@ -43,49 +86,85 @@ def _filter_records(records: list[dict[str, Any]], query: str = "") -> list[dict
     ]
 
 
-def catalog_payload(root: str | Path, *, catalog_embeddings: list[str] | None = None, query: str = "") -> dict[str, Any]:
+def catalog_payload(
+    root: str | Path,
+    *,
+    catalog: dict[str, Any] | list[str] | None = None,
+    catalog_embeddings: list[str] | None = None,
+    query: str = "",
+) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []))
+    names = list(snapshot.get("names") or [])
     saved = load_records(root)
-    records = merge_catalog_records(saved, catalog_embeddings or [])
+    records = merge_catalog_records(saved, names, **_catalog_kwargs(snapshot))
     filtered = _filter_records(records, query)
     return {
         "ok": True,
-        "schema_version": "neo.embeddings_ti.library.catalog.v2",
-        "source": "saved_plus_provider_embedding_catalog",
-        "catalog_count": len(catalog_embeddings or []),
+        "schema_version": "neo.embeddings_ti.library.catalog.v3",
+        "source": "saved_plus_selected_provider_embedding_catalog",
+        "profile_id": str(snapshot.get("profile_id") or ""),
+        "provider_id": str(snapshot.get("provider_id") or ""),
+        "provider_label": str(snapshot.get("provider_label") or ""),
+        "catalog_source": str(snapshot.get("catalog_source") or ""),
+        "selected_profile_only": True,
+        "automatic_provider_fallback": False,
+        "catalog_count": len(names),
         "available_count": len([item for item in records if item.get("catalog_available")]),
         "count": len(filtered),
         "total_count": len(records),
-        "records": filtered,
+        "records": [browser_safe_record(item) for item in filtered],
         "route_specs": route_specs(),
     }
 
 
-def browser_payload(root: str | Path, *, catalog_embeddings: list[str] | None = None, query: str = "") -> dict[str, Any]:
-    payload = catalog_payload(root, catalog_embeddings=catalog_embeddings, query=query)
-    payload["schema_version"] = "neo.embeddings_ti.library.browser.v2"
+def browser_payload(
+    root: str | Path,
+    *,
+    catalog: dict[str, Any] | list[str] | None = None,
+    catalog_embeddings: list[str] | None = None,
+    query: str = "",
+) -> dict[str, Any]:
+    payload = catalog_payload(root, catalog=catalog, catalog_embeddings=catalog_embeddings, query=query)
+    payload["schema_version"] = "neo.embeddings_ti.library.browser.v3"
     return payload
 
 
-def resolve_payload(root: str | Path, query: str, *, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
-    record = find_record(root, query, catalog_embeddings=catalog_embeddings or [])
+def resolve_payload(
+    root: str | Path,
+    query: str,
+    *,
+    catalog: dict[str, Any] | list[str] | None = None,
+    catalog_embeddings: list[str] | None = None,
+) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []))
+    record = find_record(root, query, catalog_embeddings=list(snapshot.get("names") or []), **_catalog_kwargs(snapshot))
     if record is None:
         return {"ok": False, "error": "Embeddings/TI record not found.", "query": query}
-    return {"ok": True, "record": record, "token": record.get("token") or token_for_name(record.get("name") or query)}
+    safe = browser_safe_record(record)
+    return {"ok": True, "record": safe, "token": safe.get("token") or token_for_name(safe.get("name") or query)}
 
 
-def record_payload(root: str | Path, record_id: str, *, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
-    record = find_record(root, record_id, catalog_embeddings=catalog_embeddings or [])
+def record_payload(
+    root: str | Path,
+    record_id: str,
+    *,
+    catalog: dict[str, Any] | list[str] | None = None,
+    catalog_embeddings: list[str] | None = None,
+) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []))
+    record = find_record(root, record_id, catalog_embeddings=list(snapshot.get("names") or []), **_catalog_kwargs(snapshot))
     if record is None:
         return {"ok": False, "error": "Embeddings/TI record not found.", "record": None}
-    return {"ok": True, "record": record}
+    return {"ok": True, "record": browser_safe_record(record)}
 
 
-def scan_payload(root: str | Path, payload: dict[str, Any] | None = None, *, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
+def scan_payload(root: str | Path, payload: dict[str, Any] | None = None, *, catalog: dict[str, Any] | list[str] | None = None, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
     payload = payload or {}
     folder = payload.get("folder") or payload.get("folder_path") or ""
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []), payload.get("profile_id"))
     result = scan_embeddings_folder(folder)
     if result.get("ok"):
-        existing = merge_catalog_records(load_records(root), catalog_embeddings or [])
+        existing = merge_catalog_records(load_records(root), list(snapshot.get("names") or []), **_catalog_kwargs(snapshot))
         by_id = {item["id"]: item for item in existing if item.get("id")}
         for item in result.get("records", []):
             normalized = normalize_record(item)
@@ -104,7 +183,7 @@ def scan_payload(root: str | Path, payload: dict[str, Any] | None = None, *, cat
         return {
             **result,
             "schema_version": "neo.embeddings_ti.library.scan.v2",
-            "records": records,
+            "records": [browser_safe_record(item) for item in records],
             "count": len(records),
             "catalog_count": len(records),
             "message": f"Scanned {result.get('count', 0)} embedding file(s); library now has {len(records)} record(s).",
@@ -124,7 +203,7 @@ def save_record_payload(root: str | Path, payload: dict[str, Any]) -> dict[str, 
     if isinstance(record.get("remote_source"), dict) and record.get("remote_source", {}).get("url"):
         field_sources["remote_source.url"] = "manual"
     saved = upsert_record(root, normalized)
-    return {"ok": True, "schema_version": "neo.embeddings_ti.library.save.v2", "record": saved, "message": "Embeddings/TI metadata saved."}
+    return {"ok": True, "schema_version": "neo.embeddings_ti.library.save.v3", "record": browser_safe_record(saved), "message": "Embeddings/TI metadata saved."}
 
 
 def _has_meaningful_civitai_data(incoming: dict[str, Any]) -> bool:
@@ -142,12 +221,13 @@ def _changed_fields(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     return [field for field in fields if before.get(field) != after.get(field)]
 
 
-def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog_embeddings: list[str] | None = None, fetcher=None, preview_fetcher=None) -> dict[str, Any]:
+def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog: dict[str, Any] | list[str] | None = None, catalog_embeddings: list[str] | None = None, fetcher=None, preview_fetcher=None) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []), payload.get("profile_id"))
     record_id = str(payload.get("record_id") or payload.get("id") or "").strip()
     url = str(payload.get("url") or payload.get("civitai_url") or "").strip()
     mode = str(payload.get("mode") or "fill_missing")
     selected_fields = payload.get("selected_fields") if isinstance(payload.get("selected_fields"), list) else None
-    record = find_record(root, record_id, catalog_embeddings=catalog_embeddings or []) if record_id else None
+    record = find_record(root, record_id, catalog_embeddings=list(snapshot.get("names") or []), **_catalog_kwargs(snapshot)) if record_id else None
     if record is None and isinstance(payload.get("record"), dict):
         record = normalize_record(payload.get("record") or {})
     if record is None:
@@ -195,7 +275,7 @@ def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog
     return {
         "ok": True,
         "schema_version": "neo.embeddings_ti.library.civitai_import.v2",
-        "record": saved,
+        "record": browser_safe_record(saved),
         "fetched_url": fetched.get("url"),
         "preview_cache": cache_result,
         "mode": mode,
@@ -213,30 +293,33 @@ def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog
     }
 
 
-def set_primary_preview_payload(root: str | Path, payload: dict[str, Any], *, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
+def set_primary_preview_payload(root: str | Path, payload: dict[str, Any], *, catalog: dict[str, Any] | list[str] | None = None, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []), payload.get("profile_id"))
     record_id = str(payload.get("record_id") or payload.get("id") or "").strip()
     preview = str(payload.get("preview") or payload.get("preview_image") or "").strip()
-    record = find_record(root, record_id, catalog_embeddings=catalog_embeddings or [])
+    record = find_record(root, record_id, catalog_embeddings=list(snapshot.get("names") or []), **_catalog_kwargs(snapshot))
     if record is None:
         return {"ok": False, "error": "Embeddings/TI record not found."}
     previews = normalize_preview_paths([preview] + (record.get("preview_images") or []))
     record["preview_image"] = preview
     record["preview_images"] = previews
     record.setdefault("field_sources", {})["preview_image"] = "manual"
-    return {"ok": True, "record": upsert_record(root, record)}
+    return {"ok": True, "record": browser_safe_record(upsert_record(root, record))}
 
 
 def delete_record_payload(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     return delete_record(root, str(payload.get("record_id") or payload.get("id") or ""))
 
 
-def insert_token_payload(root: str | Path, record_id: str, *, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
-    record = find_record(root, record_id, catalog_embeddings=catalog_embeddings or [])
+def insert_token_payload(root: str | Path, record_id: str, *, catalog: dict[str, Any] | list[str] | None = None, catalog_embeddings: list[str] | None = None) -> dict[str, Any]:
+    snapshot = normalize_catalog_snapshot(catalog if catalog is not None else (catalog_embeddings or []))
+    record = find_record(root, record_id, catalog_embeddings=list(snapshot.get("names") or []), **_catalog_kwargs(snapshot))
     if record is None:
         return {"ok": False, "error": "Embeddings/TI record not found.", "text": "", "item": {}}
     token = record.get("token") or token_for_name(record.get("name") or record_id)
-    item = {"token": token, "name": record.get("name") or token.replace("embedding:", ""), "strength": record.get("default_strength", 1), "target": record.get("default_target") or "negative_prompt", "source_record_id": record.get("id")}
-    return {"ok": True, "record_id": record.get("id"), "text": token, "token": token, "item": item, "record": record}
+    item = {"token": token, "asset_name": token, "catalog_name": record.get("catalog_name") or token, "name": record.get("name") or token, "strength": record.get("default_strength", 1), "target": record.get("default_target") or "negative_prompt", "source_record_id": record.get("id")}
+    safe = browser_safe_record(record)
+    return {"ok": True, "record_id": record.get("id"), "text": token, "token": token, "item": item, "record": safe}
 
 
 def preview_payload(root: str | Path, path: str) -> dict[str, Any]:
@@ -246,17 +329,17 @@ def preview_payload(root: str | Path, path: str) -> dict[str, Any]:
 def create_embeddings_ti_library_router(
     root: str | Path,
     *,
-    catalog_resolver: Callable[[str | None], list[str]] | None = None,
+    catalog_resolver: Callable[[str | None], Any] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/extensions/embeddings_ti/library", tags=["embeddings_ti_library"])
 
-    def _catalog(profile_id: str | None = None) -> list[str]:
+    def _catalog(profile_id: str | None = None) -> dict[str, Any]:
         if catalog_resolver is None:
-            return []
+            return normalize_catalog_snapshot({}, profile_id)
         try:
-            return catalog_resolver(profile_id)
+            return normalize_catalog_snapshot(catalog_resolver(profile_id), profile_id)
         except Exception:  # noqa: BLE001 - saved library remains usable offline.
-            return []
+            return normalize_catalog_snapshot({}, profile_id)
 
     @router.get("/routes")
     def embeddings_ti_library_routes() -> dict[str, Any]:
@@ -264,34 +347,34 @@ def create_embeddings_ti_library_router(
 
     @router.get("/status")
     def embeddings_ti_library_status(profile_id: str | None = None, q: str | None = None) -> dict[str, Any]:
-        result = browser_payload(root, catalog_embeddings=_catalog(profile_id), query=q or "")
+        result = browser_payload(root, catalog=_catalog(profile_id), query=q or "")
         return {**result, "schema_version": "neo.embeddings_ti.library.status.v2", "store_ready": True}
 
     @router.get("/catalog")
     def embeddings_ti_library_catalog(profile_id: str | None = None, q: str | None = None) -> dict[str, Any]:
-        return catalog_payload(root, catalog_embeddings=_catalog(profile_id), query=q or "")
+        return catalog_payload(root, catalog=_catalog(profile_id), query=q or "")
 
     @router.get("/browser")
     def embeddings_ti_library_browser(profile_id: str | None = None, q: str | None = None) -> dict[str, Any]:
-        return browser_payload(root, catalog_embeddings=_catalog(profile_id), query=q or "")
+        return browser_payload(root, catalog=_catalog(profile_id), query=q or "")
 
     @router.get("/record")
     def embeddings_ti_library_record(record_id: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = record_payload(root, record_id, catalog_embeddings=_catalog(profile_id))
+        result = record_payload(root, record_id, catalog=_catalog(profile_id))
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "Embeddings/TI record not found."))
         return result
 
     @router.get("/resolve")
     def embeddings_ti_library_resolve(query: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = resolve_payload(root, query, catalog_embeddings=_catalog(profile_id))
+        result = resolve_payload(root, query, catalog=_catalog(profile_id))
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "Embeddings/TI record not found."))
         return result
 
     @router.get("/insert-token")
     def embeddings_ti_library_insert_token(record_id: str, profile_id: str | None = None) -> dict[str, Any]:
-        result = insert_token_payload(root, record_id, catalog_embeddings=_catalog(profile_id))
+        result = insert_token_payload(root, record_id, catalog=_catalog(profile_id))
         if not result.get("ok"):
             raise HTTPException(status_code=404, detail=result.get("error", "Embeddings/TI record not found."))
         return result
@@ -306,7 +389,7 @@ def create_embeddings_ti_library_router(
     @router.post("/scan")
     def embeddings_ti_library_scan(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
-        result = scan_payload(root, payload, catalog_embeddings=_catalog(payload.get("profile_id")))
+        result = scan_payload(root, payload, catalog=_catalog(payload.get("profile_id")))
         if not result.get("ok"):
             raise HTTPException(status_code=400, detail=result.get("error", "Embeddings folder scan failed."))
         return result
@@ -320,7 +403,7 @@ def create_embeddings_ti_library_router(
 
     @router.post("/civitai-import")
     def embeddings_ti_library_civitai_import(payload: dict[str, Any]) -> dict[str, Any]:
-        result = civitai_import_payload(root, payload, catalog_embeddings=_catalog(payload.get("profile_id")))
+        result = civitai_import_payload(root, payload, catalog=_catalog(payload.get("profile_id")))
         if not result.get("ok"):
             detail = result.get("message") or result.get("error") or result.get("errors") or "CivitAI import failed."
             raise HTTPException(status_code=400, detail=detail)
@@ -328,7 +411,7 @@ def create_embeddings_ti_library_router(
 
     @router.post("/set-primary-preview")
     def embeddings_ti_library_set_primary_preview(payload: dict[str, Any]) -> dict[str, Any]:
-        result = set_primary_preview_payload(root, payload, catalog_embeddings=_catalog(payload.get("profile_id")))
+        result = set_primary_preview_payload(root, payload, catalog=_catalog(payload.get("profile_id")))
         if not result.get("ok"):
             raise HTTPException(status_code=400, detail=result.get("error", "Could not set primary preview."))
         return result
@@ -347,7 +430,7 @@ def register_embeddings_ti_library_routes(
     app: Any,
     root: str | Path,
     *,
-    catalog_resolver: Callable[[str | None], list[str]] | None = None,
+    catalog_resolver: Callable[[str | None], Any] | None = None,
 ) -> APIRouter:
     router = create_embeddings_ti_library_router(root, catalog_resolver=catalog_resolver)
     app.include_router(router)

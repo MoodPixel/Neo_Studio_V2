@@ -3,11 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from .provider_serialization import prompt_contains_embedding, render_provider_embedding_token
 from .validation import validate_and_normalize_payload
 
-PHASE = "G"
+PHASE = "9"
 EXTENSION_ID = "embeddings_ti"
-BASE_TARGETS = {"positive_prompt", "negative_prompt"}
+BASE_TARGETS = {"positive_prompt", "negative_prompt", "both"}
 FINISH_TARGETS = {"finish_positive", "finish_negative"}
 
 
@@ -26,17 +27,12 @@ def _format_strength(value: Any) -> str:
     return text or "1"
 
 
-def format_embedding_token(item: dict[str, Any]) -> str:
-    token = str(item.get("token") or "").strip()
-    if not token:
-        return ""
-    try:
-        strength = float(item.get("strength", 1.0))
-    except (TypeError, ValueError):
-        strength = 1.0
-    if abs(strength - 1.0) < 0.0005:
-        return token
-    return f"({token}:{_format_strength(strength)})"
+def format_embedding_token(item: dict[str, Any], provider_id: str = "comfyui") -> str:
+    return render_provider_embedding_token(
+        provider_id,
+        item.get("asset_name") or item.get("token") or item.get("catalog_name") or item.get("name"),
+        item.get("strength", 1.0),
+    )
 
 
 def _refs_equal(current: Any, expected: list[Any]) -> bool:
@@ -91,14 +87,9 @@ def _target_node_ids(graph: dict[str, Any], target: str) -> list[str]:
     return clean
 
 
-def _append_prompt_token(text: Any, token: str) -> tuple[str, bool, str]:
+def _append_prompt_token(text: Any, token: str, identity: Any) -> tuple[str, bool, str]:
     current = str(text or "").strip()
-    needle = token.casefold()
-    # Also detect unweighted duplicates when the new token is weighted.
-    raw_token = token
-    if token.startswith("(") and token.endswith(")") and ":" in token:
-        raw_token = token[1:-1].rsplit(":", 1)[0]
-    if needle in current.casefold() or raw_token.casefold() in current.casefold():
+    if prompt_contains_embedding(current, identity):
         return current, False, "duplicate"
     if not current:
         return token, True, "appended"
@@ -125,7 +116,7 @@ def build_workflow_patch_summary(
         "extension_id": EXTENSION_ID,
         "extension_type": "built_in",
         "phase": PHASE,
-        "strategy": "classic_ti_prompt_token_append",
+        "strategy": "provider_embedding_prompt_compile",
         "applied": bool(mutated),
         "mutated": bool(mutated),
         "graph_patch": "prompt_text_only",
@@ -136,7 +127,10 @@ def build_workflow_patch_summary(
         "applied_item_count": len(applied_items),
         "deferred_item_count": len(deferred_items),
         "duplicate_item_count": len(duplicate_items),
-        "applied_tokens": [format_embedding_token(item) for item in applied_items],
+        "applied_tokens": [format_embedding_token(item, "comfyui") for item in applied_items],
+        "provider_id": "comfyui",
+        "serialization": "comfy_embedding_prefix_compile_time",
+        "visible_prompt_mutation": False,
         "deferred_targets": [str(item.get("target") or "") for item in deferred_items],
         "patched_prompt_nodes": patched_prompt_nodes,
         "route": deepcopy(route or {}),
@@ -154,7 +148,7 @@ def apply_embeddings_ti_patch(
 ) -> dict[str, Any]:
     """Patch validated Embeddings/TI chips into Comfy CLIPTextEncode prompt text.
 
-    Embeddings/TI is non-node-based in Comfy. Phase G appends validated
+    Embeddings/TI is non-node-based in Comfy. Phase 9 appends provider-formatted
     textual-inversion prompt tokens to the existing positive/negative text
     encoder nodes on available/experimental checkpoint routes. Gated routes,
     disabled payloads, finish-only targets, and duplicates do not mutate the
@@ -195,36 +189,42 @@ def apply_embeddings_ti_patch(
         if target in FINISH_TARGETS:
             deferred.append(item)
             continue
-        if target not in BASE_TARGETS:
+        targets = ["positive_prompt", "negative_prompt"] if target == "both" else [target]
+        if any(item_target not in {"positive_prompt", "negative_prompt"} for item_target in targets):
             deferred.append(item)
             continue
-        token = format_embedding_token(item)
-        if not token:
-            deferred.append(item)
-            continue
-        target_nodes = _target_node_ids(graph, target)
-        if not target_nodes:
-            missing_targets.append(target)
+        token = format_embedding_token(item, "comfyui")
+        identity = item.get("asset_name") or item.get("token") or item.get("catalog_name") or item.get("name")
+        if not token or not identity:
             deferred.append(item)
             continue
         item_changed = False
         item_duplicate = True
-        for node_id in target_nodes:
-            node = graph.get(node_id)
-            inputs = node.get("inputs") if isinstance(node, dict) else None
-            if not isinstance(inputs, dict):
+        item_missing = False
+        for item_target in targets:
+            target_nodes = _target_node_ids(graph, item_target)
+            if not target_nodes:
+                missing_targets.append(item_target)
+                item_missing = True
                 continue
-            new_text, changed, status = _append_prompt_token(inputs.get("text"), token)
-            if changed:
-                inputs["text"] = new_text
-                item_changed = True
-                item_duplicate = False
-                if node_id not in patched_nodes[target]:
-                    patched_nodes[target].append(node_id)
-            elif status == "duplicate":
-                continue
+            for node_id in target_nodes:
+                node = graph.get(node_id)
+                inputs = node.get("inputs") if isinstance(node, dict) else None
+                if not isinstance(inputs, dict):
+                    continue
+                new_text, changed, status = _append_prompt_token(inputs.get("text"), token, identity)
+                if changed:
+                    inputs["text"] = new_text
+                    item_changed = True
+                    item_duplicate = False
+                    if node_id not in patched_nodes[item_target]:
+                        patched_nodes[item_target].append(node_id)
+                elif status == "duplicate":
+                    continue
         if item_changed:
             applied.append(item)
+        elif item_missing:
+            deferred.append(item)
         elif item_duplicate:
             duplicates.append(item)
 
@@ -268,5 +268,5 @@ def workflow_patch_not_implemented() -> dict[str, Any]:
         "phase": PHASE,
         "node": "none",
         "graph_patch": "prompt_text_only",
-        "reason": "Phase G appends validated Embeddings/TI prompt-token chips to existing positive/negative Comfy text encoder nodes on active checkpoint routes.",
+        "reason": "Phase 9 renders canonical Embeddings/TI chips with the Comfy embedding: prefix and appends them to existing positive/negative text encoder nodes on active checkpoint routes.",
     }

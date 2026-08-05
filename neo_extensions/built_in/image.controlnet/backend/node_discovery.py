@@ -334,12 +334,116 @@ def preprocessor_status(preprocessor: str | None, node_status: Mapping[str, Any]
         "reason": "This ControlNet map type requires an installed Comfy/custom preprocessor node.",
     }
 
+def _forge_controlnet_capability(backend_details: Mapping[str, Any] | None) -> dict[str, Any]:
+    details = backend_details if isinstance(backend_details, Mapping) else {}
+    if str(details.get("provider_id") or "").strip().lower() != "forge":
+        return {}
+    snapshot = details.get("forge_admin") if isinstance(details.get("forge_admin"), Mapping) else {}
+    extension_caps = snapshot.get("extension_capabilities") if isinstance(snapshot.get("extension_capabilities"), Mapping) else {}
+    capability = extension_caps.get("controlnet") if isinstance(extension_caps.get("controlnet"), Mapping) else {}
+    return dict(capability)
+
+
+def _forge_preprocessor_group(module_name: str) -> str:
+    text = str(module_name or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    if not text or text in {"none", "disabled", "off"}:
+        return ""
+    if "canny" in text:
+        return "canny"
+    if any(token in text for token in ("openpose", "open_pose", "dwpose", "dw_pose", "pose")):
+        return "openpose"
+    if "lineart" in text and "anime" in text:
+        return "lineart_anime"
+    if "lineart" in text:
+        return "lineart"
+    if any(token in text for token in ("softedge", "soft_edge", "hed", "pidinet", "teed")):
+        return "softedge"
+    if "scribble" in text:
+        return "scribble"
+    if any(token in text for token in ("depth", "midas", "zoe", "leres")):
+        return "depth"
+    if any(token in text for token in ("normalbae", "normal_bae", "normal_map", "normalmap")):
+        return "normalbae"
+    if "tile" in text:
+        return "tile"
+    return ""
+
+
+def _inspect_forge_controlnet(backend_details: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    details = backend_details if isinstance(backend_details, Mapping) else {}
+    if str(details.get("provider_id") or "").strip().lower() != "forge":
+        return None
+    capability = _forge_controlnet_capability(details)
+    available = bool(capability.get("available"))
+    models = _dedupe_model_names([str(item) for item in capability.get("models") or []])
+    modules = _dedupe_model_names([str(item) for item in capability.get("modules") or []])
+    preprocessors: dict[str, list[str]] = {group: [] for group in PREPROCESSOR_CANDIDATES}
+    for module_name in modules:
+        group = _forge_preprocessor_group(module_name)
+        if group and group in preprocessors:
+            preprocessors[group].append(module_name)
+    preprocessor_states = {
+        group: {
+            "group": group,
+            "state": AVAILABLE if rows else PROVIDER_GATED,
+            "backend": "forge_integrated_controlnet" if rows else "forge_module_missing",
+            "node": rows[0] if rows else None,
+            "available_nodes": list(rows),
+            "reason": "" if rows else f"Forge exposes no {group} ControlNet module for the selected profile.",
+        }
+        for group, rows in preprocessors.items()
+    }
+    slots = capability.get("unit_slots_by_mode") if isinstance(capability.get("unit_slots_by_mode"), Mapping) else {}
+    missing = []
+    if not available:
+        missing.append(str(capability.get("reason") or "Forge ControlNet capability"))
+    if not models:
+        missing.append("Forge ControlNet model catalog")
+    return {
+        "provider_id": "forge",
+        "base_available": bool(available and models),
+        "loader_available": available,
+        "loader_node": str(capability.get("script_name") or "ControlNet"),
+        "apply_available": available,
+        "apply_node": str(capability.get("script_name") or "ControlNet"),
+        "standard_apply_available": available,
+        "standard_apply_node": str(capability.get("script_name") or "ControlNet"),
+        "advanced_available": available,
+        "advanced_node": str(capability.get("script_name") or "ControlNet"),
+        "preprocessors": preprocessors,
+        "preprocessor_states": preprocessor_states,
+        "gated_preprocessors": [group for group, rows in preprocessors.items() if not rows],
+        "model_inputs": {"control_net_name": models},
+        "model_input_sources": {"forge_controlnet_catalog": models},
+        "model_catalog_diagnostics": {
+            "contract": str(capability.get("contract") or ""),
+            "script_name": str(capability.get("script_name") or "ControlNet"),
+            "reason": str(capability.get("reason") or ""),
+        },
+        "input_schemas": {},
+        "flux": {"available": available},
+        "flux2_klein": {"available": available},
+        "qwen": {"instantx_available": available, "diffsynth_available": False},
+        "z_image": {"available": available, "model_dir": "forge_controlnet_catalog"},
+        "missing": missing,
+        "provider_gated": not bool(available and models),
+        "object_info_present": False,
+        "contract": str(capability.get("contract") or ""),
+        "script_name": str(capability.get("script_name") or "ControlNet"),
+        "available_modes": [str(item) for item in capability.get("available_modes") or []],
+        "unit_slots_by_mode": {str(key): int(value or 0) for key, value in slots.items()},
+        "max_units": int(capability.get("max_units") or max([int(value or 0) for value in slots.values()] or [0])),
+        "modules": modules,
+    }
 
 def inspect_nodes(
     object_info: Mapping[str, Any] | set[str] | list[str] | tuple[str, ...] | None = None,
     *,
     backend_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    forge_status = _inspect_forge_controlnet(backend_details)
+    if forge_status is not None:
+        return forge_status
     names = _node_names(object_info)
     loader = _first_present(names, LOADER_CANDIDATES)
     standard_apply = _first_present(names, STANDARD_APPLY_CANDIDATES)

@@ -25,6 +25,7 @@ _ALIASES = {
     "image_upscale": "image.image_upscale",
     "background_removal": "image.background_removal",
     "adetailer": "image.adetailer",
+    "forge_couple": "image.forge_couple",
     "style_stack": "image.style_stack",
     "wildcards": "image.wildcards",
     "layerdiffuse": "image.layerdiffuse",

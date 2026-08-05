@@ -25,6 +25,7 @@ from .constants import (
     PROVIDER_GATED,
     REQUIRED_COMFY_NODES,
     SUPPORTED_COMFY_BACKENDS,
+    SUPPORTED_FORGE_BACKENDS,
     UNSUPPORTED,
     VALID_ROUTE_STATES,
     WORKSPACE_APP,
@@ -200,6 +201,8 @@ def support_for_route(route: dict[str, Any] | None = None, *, require_finish_sub
     if row is None:
         if normalized["backend"] in SUPPORTED_COMFY_BACKENDS:
             state, reason_code = "available", "comfy_utility_graph_available"
+        elif normalized["backend"] in SUPPORTED_FORGE_BACKENDS:
+            state, reason_code = "available", "forge_extras_available"
         else:
             state, reason_code = PROVIDER_GATED, "non_comfy_provider_gated"
         row = {

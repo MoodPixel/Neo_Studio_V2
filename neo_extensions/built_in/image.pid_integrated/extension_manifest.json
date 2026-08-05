@@ -1,0 +1,74 @@
+{
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "supported_backends": [
+    "forge"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "id": "image.pid_integrated",
+  "name": "Image \u00b7 PiD Integrated",
+  "version": "0.1.0",
+  "description": "Neo-managed Forge PiD Integrated post-sampling refinement using the live Forge built-in script contract.",
+  "subtabs": [
+    "finish"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "edit"
+  ],
+  "workspace_apps": [
+    "finish"
+  ],
+  "mount_slots": [
+    "image.finish.pid_integrated"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "finish",
+      "workflow_mode": null,
+      "slot": "image.finish.pid_integrated",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_families": [
+    "sdxl",
+    "flux",
+    "flux2_klein",
+    "qwen_image",
+    "qwen_image_edit_2509"
+  ],
+  "supported_loaders": [
+    "checkpoint",
+    "diffusion_model",
+    "gguf"
+  ],
+  "route_states": {
+    "forge:sdxl:*:generate": "available",
+    "forge:sdxl:*:img2img": "experimental_available",
+    "forge:flux:*:generate": "experimental_available",
+    "forge:flux:*:img2img": "experimental_available",
+    "forge:flux2_klein:*:generate": "experimental_available",
+    "forge:flux2_klein:*:img2img": "experimental_available",
+    "forge:qwen_image:*:generate": "experimental_available",
+    "forge:qwen_image_edit_2509:*:img2img": "experimental_available",
+    "forge:qwen_image_edit_2509:*:edit": "experimental_available",
+    "*": "unsupported"
+  },
+  "forge_extension_compatibility": {
+    "phase": "E2",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_script_schema",
+    "contract": "forge.pid.integrated.v1",
+    "conflicts": [
+      "image.high_res_lab"
+    ],
+    "physical_validation": "required"
+  }
+}

@@ -1,26 +1,32 @@
 {
   "id": "image.scene_director",
-  "name": "Image \u00b7 Scene Director",
-  "version": "1.2.11",
-  "description": "Built-in Image Scene Director extension with Phase 27.17C presence-only 3+ occupancy de-duplication and Advanced boundary cleanup over the Phase 27.17B occupancy stabilizer, Phase 27.17A.1 execution-state restore, Phase 27.17A Basic/Advanced Scene Mode, frozen Character Lock workflows, and the finalized Character Trait, Pose, repair, Additional Details, and child-owned Attached Detail workflows.",
+  "name": "Image · Scene Director",
+  "version": "1.2.20",
+  "description": "Built-in Image Scene Director through IR-5 live route authority repair: one manifest-backed UI route contract parity-locked to the backend execution strategy, frozen classic V054 plus release-locked lightweight Krea 2 RAW/Turbo, FLUX.2 Klein, and Z-Image Base/Turbo regional engines.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
   "subtabs": [
     "generate",
     "img2img",
-    "inpaint"
+    "inpaint",
+    "outpaint"
   ],
   "workflow_modes": [
     "generate",
     "img2img",
-    "inpaint"
+    "inpaint",
+    "outpaint"
   ],
   "workspace_apps": [
-    "generations"
+    "generations",
+    "reference"
   ],
   "mount_slots": [
-    "image.generate.scene_director"
+    "image.generate.scene_director",
+    "image.img2img.scene_director",
+    "image.inpaint.scene_director",
+    "image.outpaint.scene_director"
   ],
   "mount_targets": [
     {
@@ -30,27 +36,41 @@
       "slot": "image.generate.scene_director",
       "route_states": [
         "available",
-        "experimental_available"
+        "experimental_available",
+        "planned_gated"
       ]
     },
     {
       "surface": "image",
-      "workspace_app": "generations",
+      "workspace_app": "reference",
       "workflow_mode": "img2img",
-      "slot": "image.generate.scene_director",
+      "slot": "image.img2img.scene_director",
       "route_states": [
         "available",
-        "experimental_available"
+        "experimental_available",
+        "planned_gated"
       ]
     },
     {
       "surface": "image",
-      "workspace_app": "generations",
+      "workspace_app": "reference",
       "workflow_mode": "inpaint",
-      "slot": "image.generate.scene_director",
+      "slot": "image.inpaint.scene_director",
       "route_states": [
         "available",
-        "experimental_available"
+        "experimental_available",
+        "planned_gated"
+      ]
+    },
+    {
+      "surface": "image",
+      "workspace_app": "reference",
+      "workflow_mode": "outpaint",
+      "slot": "image.outpaint.scene_director",
+      "route_states": [
+        "available",
+        "experimental_available",
+        "planned_gated"
       ]
     }
   ],
@@ -65,10 +85,27 @@
     "sd1.5",
     "sd_1_5",
     "sd1_5",
-    "sdxl_sd"
+    "sdxl_sd",
+    "krea2",
+    "krea2_turbo",
+    "flux2_klein",
+    "z_image",
+    "z_image_turbo",
+    "flux2",
+    "flux_2_klein",
+    "klein",
+    "krea2_raw",
+    "krea2_base",
+    "zimage",
+    "zimage_turbo"
   ],
   "supported_loaders": [
-    "checkpoint"
+    "checkpoint",
+    "diffusion_model",
+    "gguf",
+    "safetensors",
+    "components",
+    "component"
   ],
   "route_states": {
     "comfyui:sdxl:checkpoint:generate": "available",
@@ -81,26 +118,66 @@
     "comfyui:*:gguf:*": "unsupported",
     "comfyui:flux:*:*": "unsupported",
     "comfyui:qwen_image:*:*": "unsupported",
-    "comfyui:z_image:*:*": "unsupported",
-    "comfyui:z_image_turbo:*:*": "unsupported",
-    "comfyui:flux2_klein:*:*": "unsupported",
     "comfyui:qwen_rapid_aio:*:*": "unsupported",
     "comfyui:qwen_image_edit_2509:*:*": "unsupported",
     "comfyui:hidream:*:*": "unsupported",
     "comfyui:wan_image:*:*": "provider_gated",
-    "comfyui:hunyuan_image:*:*": "provider_gated"
+    "comfyui:hunyuan_image:*:*": "provider_gated",
+    "comfyui:krea2:diffusion_model:generate": "available",
+    "comfyui:krea2:diffusion_model:img2img": "available",
+    "comfyui:krea2:diffusion_model:inpaint": "available",
+    "comfyui:krea2:diffusion_model:outpaint": "planned_gated",
+    "comfyui:krea2:gguf:generate": "available",
+    "comfyui:krea2:gguf:img2img": "available",
+    "comfyui:krea2:gguf:inpaint": "available",
+    "comfyui:krea2:gguf:outpaint": "planned_gated",
+    "comfyui:krea2_turbo:diffusion_model:generate": "available",
+    "comfyui:krea2_turbo:diffusion_model:img2img": "available",
+    "comfyui:krea2_turbo:diffusion_model:inpaint": "available",
+    "comfyui:krea2_turbo:diffusion_model:outpaint": "planned_gated",
+    "comfyui:krea2_turbo:gguf:generate": "available",
+    "comfyui:krea2_turbo:gguf:img2img": "available",
+    "comfyui:krea2_turbo:gguf:inpaint": "available",
+    "comfyui:krea2_turbo:gguf:outpaint": "planned_gated",
+    "comfyui:flux2_klein:diffusion_model:generate": "available",
+    "comfyui:flux2_klein:diffusion_model:img2img": "available",
+    "comfyui:flux2_klein:diffusion_model:inpaint": "available",
+    "comfyui:flux2_klein:diffusion_model:outpaint": "planned_gated",
+    "comfyui:flux2_klein:gguf:generate": "available",
+    "comfyui:flux2_klein:gguf:img2img": "available",
+    "comfyui:flux2_klein:gguf:inpaint": "available",
+    "comfyui:flux2_klein:gguf:outpaint": "planned_gated",
+    "comfyui:z_image:diffusion_model:generate": "available",
+    "comfyui:z_image:diffusion_model:img2img": "available",
+    "comfyui:z_image:diffusion_model:inpaint": "available",
+    "comfyui:z_image:diffusion_model:outpaint": "planned_gated",
+    "comfyui:z_image:gguf:generate": "available",
+    "comfyui:z_image:gguf:img2img": "available",
+    "comfyui:z_image:gguf:inpaint": "available",
+    "comfyui:z_image:gguf:outpaint": "planned_gated",
+    "comfyui:z_image_turbo:diffusion_model:generate": "available",
+    "comfyui:z_image_turbo:diffusion_model:img2img": "available",
+    "comfyui:z_image_turbo:diffusion_model:inpaint": "available",
+    "comfyui:z_image_turbo:diffusion_model:outpaint": "planned_gated",
+    "comfyui:z_image_turbo:gguf:generate": "available",
+    "comfyui:z_image_turbo:gguf:img2img": "available",
+    "comfyui:z_image_turbo:gguf:inpaint": "available",
+    "comfyui:z_image_turbo:gguf:outpaint": "planned_gated",
+    "comfyui:sd15:checkpoint:outpaint": "planned_gated"
   },
   "required_nodes": {
-    "comfyui": [
-      "NeoSceneDirectorV054"
-    ]
+    "comfyui": []
   },
   "asset_bundle": {
     "js": [
-      "ui/panel.js"
+      "ui/editor_restore.js",
+      "ui/panel.js",
+      "ui/release_inspector.js"
     ],
     "css": [
-      "ui/panel.css"
+      "ui/panel.css",
+      "ui/release_inspector.css",
+      "ui/editor_restore.css"
     ],
     "html": [
       "ui/panel.html"
@@ -119,10 +196,24 @@
       "backend/v054_contract.py",
       "backend/v054_node.py",
       "backend/prompt_authority.py",
-      "comfy_node/nodes.py"
+      "backend/execution_strategy.py",
+      "backend/lightweight_regional.py",
+      "backend/regional_lora_delta.py",
+      "comfy_node/nodes.py",
+      "backend/__init__.py",
+      "backend/workflow_dispatch.py",
+      "backend/payload_schema_dispatch.py",
+      "comfy_node/__init__.py",
+      "comfy_node/regional_lora.py",
+      "backend/flux2_klein_support.py",
+      "backend/z_image_support.py",
+      "backend/krea2_support.py",
+      "backend/release_lock.py",
+      "backend/inspector.py"
     ],
     "docs": [],
     "backend": [
+      "backend/workflow_dispatch.py",
       "backend/workflow_patch.py"
     ]
   },
@@ -142,16 +233,22 @@
   },
   "node_decision_contract": {
     "decision": "hybrid",
-    "full_workflow_requires_node": true,
+    "full_workflow_requires_node": "strategy_dependent",
     "preferred_node_order": [
       "NeoSceneDirectorV054"
     ],
     "fallback_policy": "no_fake_graph_support",
     "missing_node_state": "provider_gated",
-    "non_node_safe_metadata_replay": true
+    "non_node_safe_metadata_replay": true,
+    "classic_required_node": "NeoSceneDirectorV054",
+    "lightweight_prompt_required_custom_node": false,
+    "krea2_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "regional_lora_missing_node_policy": "prompt_engine_may_continue_but_regional_lora_must_fail_closed_without_global_or_finish_fallback",
+    "flux2_klein_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta"
   },
   "support_matrix_contract": {
-    "phase": "D",
+    "phase": "SD-28.7",
     "allowed_states": [
       "available",
       "experimental_available",
@@ -170,17 +267,67 @@
       "mode",
       "workspace",
       "subtab",
-      "node_availability_overlay"
+      "node_availability_overlay",
+      "execution_engine"
     ],
-    "node_required_for_workflow_patch": true,
+    "node_required_for_workflow_patch": "strategy_dependent",
     "missing_node_state": "provider_gated",
     "no_fake_support": true,
     "anti_fallback_rules": [
       "no_flux_to_sdxl_fallback",
       "no_qwen_to_flux_or_sdxl_fallback",
+      "no_modern_family_to_classic_v054_fallback",
       "no_gguf_checkpoint_field_mixing",
-      "no_outpaint_graph_mutation"
-    ]
+      "no_outpaint_graph_mutation",
+      "no_lightweight_regional_extra_sampler",
+      "no_lightweight_regional_heavy_sd_repair",
+      "no_regional_lora_global_loader_fallback",
+      "no_regional_lora_finish_sampler_fallback",
+      "regional_lora_single_model_wrapper_only",
+      "regional_lora_clip_delta_suppressed",
+      "krea2_declared_incompatible_lora_blocked_before_regional_wrapper",
+      "krea2_spatial_module_scope_filter_required",
+      "krea2_turbo_8_step_cfg1_zero_negative_profile_preserved",
+      "krea2_raw_turbo_cross_variant_lora_allowed",
+      "flux2_klein_declared_incompatible_lora_blocked_before_regional_wrapper",
+      "flux2_klein_4b_9b_cross_scale_lora_blocked",
+      "flux2_klein_base_distilled_cross_variant_requires_runtime_preflight",
+      "flux2_klein_spatial_module_scope_filter_required",
+      "flux2_klein_fluxguidance_cfg1_zero_negative_profile_preserved",
+      "flux2_klein_partial_qkv_output_slice_preserved",
+      "z_image_declared_incompatible_lora_blocked_before_regional_wrapper",
+      "z_image_base_turbo_cross_variant_requires_runtime_preflight",
+      "z_image_nextdit_signature_required",
+      "z_image_spatial_module_scope_filter_required",
+      "z_image_token_padding_masks_zero_filled",
+      "z_image_turbo_9_step_cfg1_zero_negative_profile_preserved",
+      "z_image_model_sampling_aura_flow_preserved",
+      "sd28_7_exact_route_whitelist_required",
+      "sd28_7_release_lock_fail_closed_to_original_provider_graph",
+      "sd28_7_modern_forbids_new_sampler_or_standard_lora_loader_nodes",
+      "sd28_7_regional_lora_exactly_one_runtime_wrapper_when_requested",
+      "sd28_7_compile_time_support_must_not_claim_gpu_spatial_proof"
+    ],
+    "custom_node_policy": "SD-28.9 removes global UI gating on NeoSceneDirectorV054. Classic V054 execution requires NeoSceneDirectorV054; modern lightweight regional prompts require only Comfy built-ins; modern regional LoRA requires NeoRegionalLoRADelta only when a compatible regional LoRA route is requested. Missing optional nodes never hide the editor.",
+    "lightweight_required_nodes": [
+      "CLIPTextEncode",
+      "ConditioningSetMask",
+      "ConditioningCombine",
+      "ConditioningZeroOut",
+      "SolidMask",
+      "MaskComposite",
+      "FeatherMask"
+    ],
+    "krea2_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "regional_lora_family_state": {
+      "krea2": "supported_model_side_activation_delta_v2",
+      "krea2_turbo": "supported_model_side_activation_delta_v2",
+      "flux2_klein": "supported_model_side_activation_delta_v1_runtime_proof_required",
+      "z_image": "supported_model_side_activation_delta_v1_runtime_proof_required",
+      "z_image_turbo": "supported_model_side_activation_delta_v1_runtime_proof_required"
+    },
+    "flux2_klein_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta"
   },
   "workspace_app": "image",
   "target_subtab": "generations",
@@ -201,14 +348,18 @@
   "entrypoints": {
     "mount_contract": "backend/mount_contract.py",
     "support_matrix": "backend/support_matrix.py",
+    "execution_strategy": "backend/execution_strategy.py",
     "node_decision": "backend/node_decision.py",
     "ui_bundle": "ui/panel.js",
-    "payload_schema": "backend/payload_schema.py",
+    "payload_schema": "backend/payload_schema_dispatch.py",
     "validation": "backend/validation.py",
-    "workflow_patch": "backend/workflow_patch.py",
+    "workflow_patch": "backend/workflow_dispatch.py",
     "replay": "backend/replay.py",
     "dependency_routing": "backend/dependency_routing.py",
-    "comfy_node": "comfy_node/nodes.py"
+    "comfy_node": "comfy_node/__init__.py",
+    "release_lock": "backend/release_lock.py",
+    "inspector": "backend/inspector.py",
+    "editor_ui": "ui/editor_restore.js"
   },
   "phase_f_mount_contract": {
     "phase": "F",
@@ -228,11 +379,15 @@
   },
   "phase_g_ui_migration": {
     "phase": "G",
-    "runtime_renderer": "neo_app/static/js/neo.js",
+    "runtime_renderer": "neo_extensions/built_in/image.scene_director/ui/editor_restore.js",
     "extension_ui_files": [
       "ui/panel.html",
       "ui/panel.css",
-      "ui/panel.js"
+      "ui/editor_restore.css",
+      "ui/panel.js",
+      "ui/editor_restore.js",
+      "ui/release_inspector.js",
+      "ui/release_inspector.css"
     ],
     "display_modes": [
       "compact",
@@ -275,8 +430,10 @@
       "active_regions"
     ],
     "workflow_patch_allowed_requires": [
-      "workflow_patch_requested",
-      "NeoSceneDirectorV054"
+      "enabled",
+      "active_route",
+      "active_regions",
+      "strategy_execution_requirements"
     ],
     "docs": []
   },
@@ -299,7 +456,7 @@
       "enabled",
       "active_route",
       "active_regions",
-      "NeoSceneDirectorV054",
+      "strategy_execution_requirements",
       "can_emit_workflow_patch"
     ],
     "strict_mode_available": true,
@@ -420,5 +577,531 @@
     "primary_payload": "scene_graph_json",
     "legacy_scene_json_active_path": false,
     "fallback_policy": "hard_gate_when_v054_missing"
+  },
+  "phase_sd_28_1_execution_architecture": {
+    "phase": "SD-28.1",
+    "status": "implemented_contract_only",
+    "public_node": "NeoSceneDirectorV054",
+    "new_exported_node_required": false,
+    "classic_engine": {
+      "id": "classic_v054",
+      "families": [
+        "sdxl",
+        "sd15"
+      ],
+      "runtime_behavior_changed": false
+    },
+    "lightweight_engine": {
+      "id": "lightweight_regional",
+      "families": [
+        "krea2",
+        "krea2_turbo",
+        "flux2_klein",
+        "z_image",
+        "z_image_turbo"
+      ],
+      "route_state": "planned_gated",
+      "workflow_patch_allowed": false,
+      "heavy_sd_repairs": false,
+      "single_sampler_required_future": true,
+      "regional_prompt_state": "planned_masked_conditioning",
+      "regional_lora_state": "blocked_until_native_masked_delta_runtime_proof"
+    },
+    "compatibility_guards": [
+      "preserve_v054_public_inputs",
+      "preserve_v054_public_outputs",
+      "preserve_saved_workflows",
+      "preserve_sdxl_character_lock_runtime",
+      "never_fallback_modern_family_to_classic_v054",
+      "no_modern_runtime_graph_mutation_in_sd_28_1"
+    ]
+  },
+  "phase_sd_28_2_lightweight_regional_prompt": {
+    "status": "implemented_experimental_graph_contract",
+    "engine": "lightweight_regional",
+    "families": [
+      "krea2",
+      "krea2_turbo",
+      "flux2_klein",
+      "z_image",
+      "z_image_turbo"
+    ],
+    "loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "outpaint": "planned_gated",
+    "prompt_execution": "CLIPTextEncode + region bbox mask + ConditioningSetMask + ConditioningCombine",
+    "flux2_klein_adapter": "FluxGuidance preserved per regional positive lane",
+    "zero_negative_families": [
+      "krea2_turbo",
+      "flux2_klein",
+      "z_image_turbo"
+    ],
+    "regional_negative_families": [
+      "krea2",
+      "z_image"
+    ],
+    "sampler_policy": "reuse exactly one existing sampler; conditioning inputs only",
+    "model_mutation": false,
+    "regional_lora": "superseded_by_sd_28_3_foundation_and_family_promotions; ZImage remains adapter_gated",
+    "runtime_validation": "static_graph_contract_only_until_live_comfy_gpu_test",
+    "payload_schema_proxy": "backend/payload_schema_dispatch.py preserves classic behavior and fixes modern route node/status metadata without rewriting the legacy payload schema."
+  },
+  "phase_sd_28_3_regional_lora_runtime_foundation": {
+    "status": "implemented_experimental_runtime_foundation",
+    "engine": "lightweight_regional",
+    "executable_families": [
+      "krea2",
+      "krea2_turbo"
+    ],
+    "gated_families": [
+      "flux2_klein",
+      "z_image",
+      "z_image_turbo"
+    ],
+    "runtime_node": "NeoRegionalLoRADelta",
+    "runtime_node_output": [
+      "MODEL"
+    ],
+    "adapter": "krea2_activation_delta_v1",
+    "ownership": {
+      "lora_selection": "lora_stack",
+      "region_targeting": "scene_director",
+      "global_lora_rows": "lora_stack normal base graph patch",
+      "regional_lora_rows": "scene_director model-side masked activation delta"
+    },
+    "execution_contract": {
+      "model_patcher": "clone_before_wrapper",
+      "model_weight_mutation": "forbidden",
+      "clip_delta": "suppressed_model_side_only",
+      "sampler_policy": "reuse provider sampler; no additional KSampler/KSamplerAdvanced",
+      "route_limit": null,
+      "fallback": "fail_closed; no global LoraLoader and no masked finish sampler",
+      "token_layout_unknown": "zero_mask_fail_closed",
+      "provider_wrapper_preservation": "rewire matching MODEL consumers instead of bypassing DifferentialDiffusion/ModelSampling wrappers"
+    },
+    "runtime_proof_fields": [
+      "lora_loaded",
+      "model_family_match",
+      "region_mask_bound",
+      "masked_delta_hook_active",
+      "delta_eval_attempted",
+      "delta_nonzero",
+      "global_model_mutation",
+      "sampler_count",
+      "forward_hooks_removed"
+    ],
+    "gpu_validation": "not_claimed_until_live_comfy_generation",
+    "superseded_by": "SD-28.4 Krea2 full support + SD-28.5 FLUX.2 Klein support + SD-28.6 Z-Image support"
+  },
+  "phase_sd_28_4_krea2_full_support": {
+    "status": "implemented_full_runtime_contract_runtime_proof_per_run",
+    "engine": "lightweight_regional",
+    "families": [
+      "krea2",
+      "krea2_turbo"
+    ],
+    "loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "outpaint": "planned_gated",
+    "regional_prompt": "masked_conditioning",
+    "regional_lora": "krea2_activation_delta_v2",
+    "runtime_node": "NeoRegionalLoRADelta",
+    "runtime_node_output": [
+      "MODEL"
+    ],
+    "sampler_contract": {
+      "count": "exactly existing provider sampler count; no new sampler",
+      "turbo_steps": 8,
+      "turbo_comfy_cfg": 1.0,
+      "turbo_negative": "ConditioningZeroOut",
+      "raw_reference_steps": 52,
+      "raw_reference_cfg": 3.5,
+      "raw_user_provider_profile": "preserved, not silently converted to Turbo"
+    },
+    "lora_compatibility": {
+      "recommended_training": "RAW",
+      "raw_to_turbo": "allowed",
+      "declared_non_krea_family": "blocked before regional wrapper",
+      "undeclared_family": "runtime layer-resolution preflight required",
+      "clip_delta": "suppressed_model_side_only"
+    },
+    "spatial_isolation": {
+      "first": "image_only",
+      "blocks": "combined_text_image",
+      "last.linear": "combined_text_image",
+      "text_fusion_text_mlp_timestep_paths": "excluded",
+      "unknown_sequence_layout": "zero_mask_fail_closed",
+      "reference_tokens": "not region-masked unless they are the primary image token slice"
+    },
+    "gguf": {
+      "supported_contract": true,
+      "policy": "activation-delta hooks operate on live module activations and resolve dimensions via in_features/out_features before tensor-weight fallback; no quantized weight mutation",
+      "runtime_proof_required_per_run": true
+    },
+    "runtime_proof_fields": [
+      "lora_loaded",
+      "model_family_match",
+      "region_mask_bound",
+      "masked_delta_hook_active",
+      "delta_eval_attempted",
+      "delta_nonzero",
+      "global_model_mutation",
+      "sampler_count",
+      "forward_hooks_removed",
+      "spatial_scope_filter_active",
+      "loader_supported",
+      "token_mask_scope_proven"
+    ],
+    "gpu_validation": "static/tensor contract validated in package; live Comfy GPU leakage verification remains a per-run/runtime responsibility and is not fabricated by compile-time metadata"
+  },
+  "phase_sd_28_5_flux2_klein_support": {
+    "phase": "SD-28.5",
+    "engine": "lightweight_regional",
+    "family": "flux2_klein",
+    "loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "outpaint": "planned_gated",
+    "regional_prompt": "masked_conditioning_with_flux_guidance",
+    "regional_lora": "flux2_klein_activation_delta_v1",
+    "runtime_node": "NeoRegionalLoRADelta",
+    "model_scales": [
+      "4b",
+      "9b"
+    ],
+    "variant_policy": "base_and_distilled_same-scale are not auto-cross-compatible; runtime preflight is required when metadata crosses variant kind",
+    "spatial_scope_policy": {
+      "image_only": [
+        "img_in",
+        "double_blocks.*.img_attn.qkv",
+        "double_blocks.*.img_attn.proj",
+        "double_blocks.*.img_mlp.*",
+        "final_layer.linear"
+      ],
+      "combined_text_image": [
+        "single_blocks.*.linear1",
+        "single_blocks.*.linear2"
+      ],
+      "excluded": [
+        "text branches",
+        "time/vector/guidance embedders",
+        "modulation/AdaLN paths"
+      ]
+    },
+    "partial_weight_slice_policy": "Comfy Flux linear1_qkv tuple offsets are preserved and expanded into only the mapped activation output slice",
+    "single_sampler_required": true,
+    "global_model_mutation_allowed": false,
+    "regional_clip_lora": false,
+    "masked_finish_pass_fallback": false,
+    "runtime_proof_required_per_run": true
+  },
+  "phase_sd_28_6_z_image_support": {
+    "phase": "SD-28.6",
+    "engine": "lightweight_regional",
+    "families": [
+      "z_image",
+      "z_image_turbo"
+    ],
+    "loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "outpaint": "planned_gated",
+    "regional_prompt": "masked_conditioning",
+    "regional_lora": "z_image_activation_delta_v1",
+    "runtime_node": "NeoRegionalLoRADelta",
+    "architecture_signature": {
+      "dim": 3840,
+      "in_channels": 16,
+      "n_heads": 30,
+      "main_layers": 30,
+      "noise_refiner_layers": 2,
+      "context_refiner_layers": 2,
+      "patch_size": 2
+    },
+    "variant_policy": "base_and_turbo_share_transformer_architecture_but_cross_variant_lora_requires_runtime_preflight",
+    "spatial_scope_policy": {
+      "image_unpadded": [
+        "x_embedder"
+      ],
+      "image_only_padded": [
+        "noise_refiner.*.attention.qkv",
+        "noise_refiner.*.attention.out",
+        "noise_refiner.*.feed_forward.w1/w2/w3"
+      ],
+      "combined_text_image": [
+        "layers.*.attention.qkv",
+        "layers.*.attention.out",
+        "layers.*.feed_forward.w1/w2/w3",
+        "final_layer.linear"
+      ],
+      "excluded": [
+        "context_refiner.*",
+        "cap_embedder",
+        "timestep/AdaLN paths",
+        "norm-only paths",
+        "siglip/reference stacks"
+      ]
+    },
+    "padding_policy": "caption padding and image padding receive zero regional LoRA mask values; unknown/omni layouts fail closed",
+    "sampler_policy": {
+      "base": "provider_owned_preserved",
+      "turbo": "9_steps_cfg1_zero_negative",
+      "model_sampling": "ModelSamplingAuraFlow_required"
+    },
+    "single_sampler_required": true,
+    "global_model_mutation_allowed": false,
+    "regional_clip_lora": false,
+    "masked_finish_pass_fallback": false,
+    "runtime_proof_required_per_run": true
+  },
+  "conditional_required_nodes": {
+    "classic_v054": [
+      "NeoSceneDirectorV054"
+    ],
+    "lightweight_regional_prompt": [],
+    "lightweight_regional_lora": [
+      "NeoRegionalLoRADelta"
+    ],
+    "policy": "Missing conditional nodes gate only the dependent capability. They must not hide or unmount the Scene Director editor."
+  },
+  "phase_sd_28_7_release_lock": {
+    "phase": "SD-28.7",
+    "release_state": "locked",
+    "engines": {
+      "classic_v054": [
+        "sdxl checkpoint",
+        "sd1.5 checkpoint experimental"
+      ],
+      "lightweight_regional": [
+        "krea2",
+        "krea2_turbo",
+        "flux2_klein",
+        "z_image",
+        "z_image_turbo"
+      ]
+    },
+    "modern_loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modern_modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "outpaint": "planned_gated_no_mutation",
+    "release_lock_schema": "neo.image.scene_director.release_lock.v1",
+    "inspector_schema": "neo.image.scene_director.inspector.v2",
+    "ui_assets": [
+      "ui/release_inspector.js",
+      "ui/release_inspector.css"
+    ],
+    "hard_invariants": [
+      "no_cross_family_fallback",
+      "no_new_sampler_nodes_on_modern_routes",
+      "no_standard_lora_loader_fallback_for_regional_lora",
+      "no_v054_node_on_modern_routes",
+      "one_NeoRegionalLoRADelta_wrapper_max_when_regional_lora_is_requested",
+      "provider_sampler_parameters_preserved",
+      "provider_latent_input_preserved",
+      "global_model_mutation_false",
+      "no_heavy_sd_repair_chain_on_modern_routes",
+      "blocked_release_lock_reverts_to_original_provider_graph"
+    ],
+    "gpu_proof_policy": "compile-time availability is not GPU spatial-isolation proof; per-run runtime proof is shown separately and never fabricated",
+    "inspector_panels": [
+      "overview",
+      "route",
+      "regional_lora",
+      "runtime_proof",
+      "release_lock",
+      "diagnostics"
+    ],
+    "classic_contract": "frozen_v054_unchanged_except_read_only_release_inspector_decoration"
+  },
+  "phase_sd_28_9_editor_restore": {
+    "phase": "SD-28.9",
+    "status": "implemented",
+    "editor_owner": "extension_bundle",
+    "editor_entrypoint": "ui/editor_restore.js",
+    "inspector_target": "[data-scene-director-inspector-root]",
+    "global_required_nodes_removed": true,
+    "classic_required_node": "NeoSceneDirectorV054",
+    "modern_prompt_custom_node_required": false,
+    "modern_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "missing_optional_node_visibility_policy": "editor_visible_capability_gated",
+    "legacy_serialization_fields": [
+      "scene_director_enabled",
+      "scene_director_state",
+      "scene_director_extension_json",
+      "scene_graph_json",
+      "scene_director_regional_units",
+      "regional_prompt_regions"
+    ]
+  },
+  "ui_schema": {
+    "route_authority": {
+      "schema": "neo.image.scene_director.ui_route_authority.v1",
+      "phase": "IR-5",
+      "source": "extension_manifest_route_states_parity_locked_to_backend_execution_strategy",
+      "route_state_source": "route_states",
+      "fail_closed": true,
+      "no_cross_family_fallback": true,
+      "backend_aliases": {
+        "comfy": "comfyui",
+        "comfyui": "comfyui",
+        "comfyui_portable": "comfyui",
+        "comfy_portable": "comfyui"
+      },
+      "family_aliases": {
+        "sd_xl": "sdxl",
+        "stable_diffusion_xl": "sdxl",
+        "sd": "sd15",
+        "sd1.5": "sd15",
+        "sd_1_5": "sd15",
+        "sd1_5": "sd15",
+        "stable_diffusion_1_5": "sd15",
+        "stable_diffusion_15": "sd15",
+        "krea_2": "krea2",
+        "krea2_raw": "krea2",
+        "krea_2_raw": "krea2",
+        "krea2raw": "krea2",
+        "krea2_base": "krea2",
+        "krea_2_turbo": "krea2_turbo",
+        "krea2turbo": "krea2_turbo",
+        "flux2": "flux2_klein",
+        "flux_2_klein": "flux2_klein",
+        "flux2klein": "flux2_klein",
+        "klein": "flux2_klein",
+        "flux2_klein_4b": "flux2_klein",
+        "flux2_klein_9b": "flux2_klein",
+        "zimage": "z_image",
+        "zimage_turbo": "z_image_turbo",
+        "qwenimage": "qwen_image",
+        "qwen_image_edit": "qwen_image_edit_2509"
+      },
+      "loader_aliases": {
+        "ckpt": "checkpoint",
+        "checkpoint_loader": "checkpoint",
+        "checkpointloader": "checkpoint",
+        "components": "diffusion_model",
+        "component": "diffusion_model",
+        "safetensors_components": "diffusion_model",
+        "safetensors_components_loader": "diffusion_model",
+        "diffusion": "diffusion_model",
+        "diffusionmodel": "diffusion_model",
+        "diffusion_model_loader": "diffusion_model",
+        "unet": "diffusion_model",
+        "unet_loader": "diffusion_model",
+        "native": "diffusion_model",
+        "gguf_loader": "gguf",
+        "ggufloader": "gguf"
+      },
+      "family_aware_loader_aliases": {
+        "safetensors": {
+          "classic": "checkpoint",
+          "lightweight_regional": "diffusion_model"
+        },
+        "safetensor": {
+          "classic": "checkpoint",
+          "lightweight_regional": "diffusion_model"
+        }
+      },
+      "mode_aliases": {
+        "txt2img": "generate",
+        "text2image": "generate",
+        "text_to_image": "generate",
+        "generation": "generate",
+        "image_to_image": "img2img"
+      },
+      "engines": [
+        {
+          "id": "classic_v054",
+          "label": "Classic V054",
+          "families": [
+            "sdxl",
+            "sd15"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "active_modes": [
+            "generate",
+            "img2img",
+            "inpaint"
+          ],
+          "planned_modes": [
+            "outpaint"
+          ],
+          "node_label": "NeoSceneDirectorV054",
+          "node_policy": "classic_node_required_at_execution",
+          "regional_prompt": "v054_attention_patch",
+          "regional_lora": "v054_existing_contract"
+        },
+        {
+          "id": "lightweight_regional",
+          "label": "Lightweight Regional",
+          "families": [
+            "krea2",
+            "krea2_turbo",
+            "flux2_klein",
+            "z_image",
+            "z_image_turbo"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "active_modes": [
+            "generate",
+            "img2img",
+            "inpaint"
+          ],
+          "planned_modes": [
+            "outpaint"
+          ],
+          "node_label": "Comfy built-ins + NeoRegionalLoRADelta when regional LoRA is requested",
+          "node_policy": "builtins_for_prompt_optional_regional_lora_node",
+          "regional_prompt": "masked_conditioning",
+          "regional_lora": "family_specific_activation_delta"
+        }
+      ],
+      "state_labels": {
+        "available": "Available",
+        "experimental_available": "Experimental",
+        "planned_gated": "Planned",
+        "provider_gated": "Provider gated",
+        "unsupported": "Unsupported"
+      },
+      "unsupported_reason": "No Scene Director engine exists for this family/loader route. No fallback to Classic V054 is allowed.",
+      "provider_gated_reason": "Scene Director execution requires a validated ComfyUI backend.",
+      "planned_reason": "Scene Director outpaint remains planned-gated until its dedicated canvas/mask policy is implemented."
+    }
   }
 }

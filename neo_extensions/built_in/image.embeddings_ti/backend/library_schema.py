@@ -5,8 +5,10 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
+from .provider_serialization import clean_embedding_catalog_name, embedding_asset_name
+
 SUPPORTED_EXTENSIONS = {".pt", ".safetensors", ".bin"}
-SCHEMA_VERSION = "neo.embeddings_ti.library.v2"
+SCHEMA_VERSION = "neo.embeddings_ti.library.v3"
 
 
 def utc_now_iso() -> str:
@@ -45,9 +47,7 @@ def _clean_list(values: Any) -> list[str]:
 
 
 def token_for_name(name: str) -> str:
-    text = str(name or "").strip().replace("\\", "/").split("/")[-1]
-    stem = Path(text).stem.strip()
-    return f"embedding:{stem}" if stem else ""
+    return embedding_asset_name(name)
 
 
 def normalize_prompt_options(values: Any) -> list[dict[str, str]]:
@@ -82,6 +82,8 @@ def empty_embedding_record(record_id: str = "") -> dict[str, Any]:
         "catalog_name": "",
         "token": "",
         "source": "manual",
+        "provider_id": "",
+        "provider_label": "",
         "category": "",
         "base_model": "unknown",
         "trigger_words": [],
@@ -122,7 +124,7 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     record = record or {}
     file_path = str(record.get("file") or record.get("path") or "").strip()
     name = str(record.get("name") or record.get("catalog_name") or Path(file_path).stem or record.get("id") or "").strip()
-    token = str(record.get("token") or token_for_name(name or file_path)).strip()
+    token = token_for_name(record.get("asset_name") or record.get("token") or name or file_path)
     record_id = str(record.get("id") or "").strip() or stable_record_id(file_path or token or name)
     base = empty_embedding_record(record_id)
     for key in base:
@@ -131,9 +133,10 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     base["id"] = record_id
     base["kind"] = "embedding_ti"
     base["file"] = file_path or str(base.get("file") or "")
-    base["name"] = name or Path(str(base.get("file") or "")).stem or token.replace("embedding:", "") or record_id
-    base["catalog_name"] = str(base.get("catalog_name") or base["name"]).strip()
+    base["name"] = name or Path(str(base.get("file") or "")).stem or token or record_id
+    base["catalog_name"] = clean_embedding_catalog_name(base.get("catalog_name") or base.get("file") or base["name"]) or base["name"]
     base["token"] = token or token_for_name(base["name"])
+    base["asset_name"] = base["token"]
     for key in ("trigger_words", "keywords", "negative_keywords", "preview_images", "preview_urls", "catalog_match_keys"):
         base[key] = _clean_list(base.get(key))
     base["prompt_options"] = normalize_prompt_options(base.get("prompt_options"))
@@ -141,7 +144,7 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(base.get(key), dict):
             base[key] = {}
     base["default_strength"] = max(0.0, min(2.0, _float(base.get("default_strength"), 1.0)))
-    if base.get("default_target") not in {"positive_prompt", "negative_prompt", "finish_positive", "finish_negative"}:
+    if base.get("default_target") not in {"positive_prompt", "negative_prompt", "both", "finish_positive", "finish_negative"}:
         # Negative embeddings are common; keep this as the safe default.
         base["default_target"] = "negative_prompt"
     base["enabled"] = base.get("enabled") is not False
@@ -166,7 +169,7 @@ def record_from_path(path: str | Path, *, root: str | Path | None = None, metada
     record = {
         "id": stable_record_id(str(p)),
         "name": p.stem,
-        "catalog_name": p.name,
+        "catalog_name": rel.replace("\\", "/") if rel else p.name,
         "token": token_for_name(p.stem),
         "file": str(p),
         "rel": rel,
@@ -180,21 +183,56 @@ def record_from_path(path: str | Path, *, root: str | Path | None = None, metada
     return normalize_record(record)
 
 
-def record_from_catalog_name(name: str) -> dict[str, Any]:
-    text = str(name or "").strip()
-    record = empty_embedding_record(stable_record_id(f"comfy_embedding:{text}"))
+def record_from_catalog_name(
+    name: str,
+    *,
+    provider_id: str = "comfyui",
+    provider_label: str = "",
+    catalog_source: str = "",
+) -> dict[str, Any]:
+    text = clean_embedding_catalog_name(name)
+    provider = str(provider_id or "comfyui").strip().casefold()
+    label = str(provider_label or "").strip() or ("Forge Neo" if provider == "forge" else "ComfyUI")
+    source = str(catalog_source or "").strip() or ("forge:sdapi_embeddings" if provider == "forge" else "comfy:embeddings")
+    record = empty_embedding_record(stable_record_id(f"{provider}_embedding:{text}"))
     record.update({
-        "name": Path(text).stem or text,
+        "name": embedding_asset_name(text) or text,
         "catalog_name": text,
         "token": token_for_name(text),
         "file": text,
         "source": "provider_embedding_catalog",
-        "category": "from provider",
+        "provider_id": provider,
+        "provider_label": label,
+        "category": f"from {label}",
         "base_model": "unknown",
-        "notes": "Loaded from provider embedding catalog when available. Use CivitAI Pull or Save metadata to enrich this record.",
+        "notes": f"Loaded from the selected {label} embedding catalog. Use CivitAI Pull or Save metadata to enrich this record.",
         "metadata_status": "catalog_only",
         "catalog_available": True,
-        "catalog_source": "provider:embeddings",
-        "field_sources": {"name": "provider:embeddings", "catalog_name": "provider:embeddings", "token": "provider:embeddings"},
+        "catalog_source": source,
+        "field_sources": {"name": source, "catalog_name": source, "token": source},
     })
     return normalize_record(record)
+
+
+def browser_safe_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a browser payload without backend model roots or local paths."""
+
+    normalized = normalize_record(record)
+    catalog_name = clean_embedding_catalog_name(normalized.get("catalog_name") or normalized.get("file") or normalized.get("name"))
+    file_value = str(normalized.get("file") or "").replace("\\", "/")
+    if file_value.startswith("/") or (len(file_value) > 2 and file_value[1:3] == ":/"):
+        normalized["file"] = catalog_name or Path(file_value).name
+    elif file_value:
+        normalized["file"] = clean_embedding_catalog_name(file_value) or catalog_name
+    normalized["catalog_name"] = catalog_name or normalized.get("name") or normalized.get("token") or ""
+    normalized["token"] = token_for_name(normalized.get("token") or normalized.get("name") or normalized["catalog_name"])
+    normalized["asset_name"] = normalized["token"]
+    normalized["rel"] = str(normalized.get("rel") or "").replace("\\", "/")
+    resolution = normalized.get("metadata_resolution") if isinstance(normalized.get("metadata_resolution"), dict) else {}
+    normalized["metadata_resolution"] = {
+        "ok": bool(resolution.get("ok")),
+        "source": str(resolution.get("source") or ""),
+        "status": str(resolution.get("status") or normalized.get("metadata_status") or ""),
+        "path_policy": "absolute_paths_server_side_only",
+    }
+    return normalized

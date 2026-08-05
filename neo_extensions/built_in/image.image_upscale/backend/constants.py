@@ -21,7 +21,8 @@ UNSUPPORTED_ROUTE_STATES = {UNSUPPORTED}
 VALID_ROUTE_STATES = ACTIVE_ROUTE_STATES | GATED_ROUTE_STATES | UNSUPPORTED_ROUTE_STATES
 
 SUPPORTED_COMFY_BACKENDS = ("comfyui", "comfyui_portable")
-PROVIDER_GATED_BACKENDS = ("forge", "a1111", "cloud_api", "mock")
+SUPPORTED_FORGE_BACKENDS = ("forge",)
+PROVIDER_GATED_BACKENDS = ("a1111", "cloud_api", "mock")
 IMAGE_WORKSPACE = "image"
 
 # V1 Image Upscale is a standalone Comfy utility graph. These are base nodes

@@ -1,0 +1,48 @@
+{
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "supported_backends": ["forge"],
+  "depends_on": [],
+  "extends": [],
+  "id": "image.forge_script_bridge",
+  "name": "Image · Forge Script Bridge",
+  "version": "0.1.0",
+  "description": "Provider-owned bridge for Forge extensions whose /script-info schemas contain only safe primitive controls. Complex scripts remain detected but require dedicated adapters.",
+  "subtabs": ["generations"],
+  "workflow_modes": ["generate", "img2img", "inpaint", "outpaint"],
+  "workspace_apps": ["generations"],
+  "mount_slots": ["image.generations.forge_script_bridge"],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.forge_script_bridge",
+      "route_states": ["available", "experimental_available"]
+    }
+  ],
+  "supported_families": ["sd15", "sdxl"],
+  "supported_loaders": ["checkpoint"],
+  "route_states": {
+    "forge:sd15:*:generate": "experimental_available",
+    "forge:sd15:*:img2img": "experimental_available",
+    "forge:sd15:*:inpaint": "experimental_available",
+    "forge:sd15:*:outpaint": "experimental_available",
+    "forge:sdxl:*:generate": "experimental_available",
+    "forge:sdxl:*:img2img": "experimental_available",
+    "forge:sdxl:*:inpaint": "experimental_available",
+    "forge:sdxl:*:outpaint": "experimental_available",
+    "*": "unsupported"
+  },
+  "forge_extension_compatibility": {
+    "phase": "E3",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_script_info_schema_fingerprint",
+    "contract": "neo.provider.forge_generic_extension_bridge.v1",
+    "install_owner": "forge_extension_manager",
+    "complex_scripts": "adapter_required",
+    "modern_families": "gated_without_explicit_adapter",
+    "physical_validation": "required"
+  }
+}

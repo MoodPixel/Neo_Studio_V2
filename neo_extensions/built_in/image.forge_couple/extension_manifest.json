@@ -1,0 +1,137 @@
+{
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "supported_backends": [
+    "forge"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "id": "image.forge_couple",
+  "name": "Image · Forge Couple",
+  "version": "0.3.0",
+  "description": "Neo-managed Basic, Advanced, Mask, and Tile regional prompting frontend for Haoming02 ForgeCouple, executed by the installed native Forge always-on script.",
+  "subtabs": [
+    "generations"
+  ],
+  "workflow_modes": [
+    "generate",
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generations.forge_couple"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.forge_couple",
+      "route_states": [
+        "available",
+        "experimental_available",
+        "planned_gated"
+      ]
+    }
+  ],
+  "supported_families": [
+    "sd15",
+    "sdxl"
+  ],
+  "supported_loaders": [
+    "checkpoint"
+  ],
+  "route_states": {
+    "forge:sdxl:checkpoint:generate": "available",
+    "forge:sdxl:checkpoint:img2img": "available",
+    "forge:sdxl:checkpoint:inpaint": "experimental_available",
+    "forge:sdxl:checkpoint:outpaint": "planned_gated",
+    "forge:sd15:checkpoint:generate": "experimental_available",
+    "forge:sd15:checkpoint:img2img": "experimental_available",
+    "forge:sd15:checkpoint:inpaint": "experimental_available",
+    "forge:sd15:checkpoint:outpaint": "planned_gated",
+    "*": "unsupported"
+  },
+  "asset_bundle": {
+    "html": [
+      "ui/panel.html"
+    ],
+    "js": [
+      "ui/panel.js"
+    ],
+    "css": [
+      "ui/panel.css"
+    ],
+    "python": [
+      "backend/constants.py",
+      "backend/advanced.py",
+      "backend/tile.py",
+      "backend/mask.py",
+      "backend/payload_schema.py",
+      "backend/validation.py",
+      "backend/metadata.py",
+      "backend/replay.py"
+    ],
+    "assets": []
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true,
+    "prompt_authority": "neo_core_positive_prompt",
+    "session_only_assets": [
+      "mask_mapping.mask"
+    ],
+    "replay_mask_policy": "strip_mask_bytes_restore_disabled"
+  },
+  "forge_extension_compatibility": {
+    "phase": "FC3",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_forge_couple_script_schema",
+    "contract": "haoming02.forge_couple.basic_advanced_mask_tile.api.v1",
+    "install_owner": "forge_extension_manager",
+    "native_runtime_required": true,
+    "generic_script_bridge_allowed": false,
+    "supported_modes": [
+      "Basic",
+      "Advanced",
+      "Mask"
+    ],
+    "advanced_mask_tile": "basic_advanced_mask_implemented_tile_img2img_verified_sd_upscale_runtime",
+    "physical_validation": "required",
+    "tile_mode": "img2img_only_requires_verified_sd_upscale",
+    "mask_assets": "session_only_binary_png_data_uri",
+    "tile_runtime_contract": "forge.sd_upscale.selectable.v1",
+    "tile_supported_region_modes": [
+      "Basic",
+      "Advanced"
+    ],
+    "tile_mask_mode": "gated_pending_api_verification"
+  },
+  "conflict_contract": {
+    "exclusive_group": "regional_conditioning_engine",
+    "conflicts_with": [
+      "image.scene_director",
+      "image.multidiffusion"
+    ]
+  },
+  "attribution": {
+    "runtime_project": "Haoming02/sd-forge-couple",
+    "runtime_license": "GPL-3.0",
+    "frontend_implementation": "original_neo_ui_using_documented_api_contract"
+  }
+}

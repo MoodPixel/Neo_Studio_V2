@@ -14,7 +14,7 @@ VALID_APPLY_TO_PREFIX = "scene_region_"
 SCENE_REGION_RE = re.compile(r"^scene_region_[A-Za-z0-9_-]+$")
 ACTIVE_ROUTE_STATES = {"available", "experimental_available"}
 
-ROW_ALLOWED_KEYS = {"uid", "enabled", "name", "strength", "target", "apply_to", "source_record_id"}
+ROW_ALLOWED_KEYS = {"uid", "enabled", "name", "portable_catalog_name", "strength", "target", "apply_to", "source_record_id"}
 ASSET_ALLOWED_KEYS = {"name", "record_id", "file", "hash", "preview_image"}
 BLOCK_ALLOWED_KEYS = {"enabled", "version", "inputs", "params", "assets", "metadata"}
 
@@ -61,7 +61,10 @@ def normalize_lora_row(row: dict[str, Any] | None, index: int = 0) -> dict[str, 
         return None
     if _as_bool(row.get("enabled"), True) is False:
         return None
-    name = str(row.get("name") or row.get("lora_name") or "").strip()
+    # Canonical rows persist only the portable identity. Exact provider enum
+    # values are rebound from live object_info during graph compilation and are
+    # never trusted from replay/UI payloads.
+    name = str(row.get("portable_catalog_name") or row.get("name") or row.get("lora_name") or "").replace("\\", "/").strip()
     if not name:
         return None
     item = {

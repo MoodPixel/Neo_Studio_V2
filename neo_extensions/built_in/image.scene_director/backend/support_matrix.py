@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_strategy import (
+    ENGINE_CLASSIC_V054,
+    ENGINE_LIGHTWEIGHT_REGIONAL,
+    MODERN_FAMILY_LOADERS,
+    MODERN_LIGHTWEIGHT_FAMILIES,
+    normalize_scene_director_family,
+    normalize_scene_director_loader,
+    normalize_scene_director_mode,
+    resolve_scene_director_execution_strategy,
+)
 from .provider_capabilities import resolve_provider_capabilities_v054
 
 EXTENSION_ID = "image.scene_director"
@@ -26,20 +36,15 @@ COMFY_BACKEND_ALIASES = {
 SDXL_FAMILIES = {"sdxl", "sdxl_sd"}
 SD15_FAMILIES = {"sd", "sd15", "sd1.5", "sd_1_5", "sd1_5", "stable_diffusion_1_5"}
 SUPPORTED_FAMILIES = SDXL_FAMILIES | SD15_FAMILIES
+RECOGNIZED_MODERN_FAMILIES = set(MODERN_LIGHTWEIGHT_FAMILIES)
 BLOCKED_FAMILIES = {
     "flux",
     "flux1",
-    "flux2_klein",
-    "flux_2_klein",
     "qwen",
     "qwen_image",
     "qwen_image_edit",
     "qwen2",
     "qwen2.5",
-    "z_image",
-    "z_image_turbo",
-    "zimage",
-    "zimage_turbo",
     "hidream",
     "wan",
     "wan_image",
@@ -47,7 +52,8 @@ BLOCKED_FAMILIES = {
     "hunyuan_image",
 }
 SUPPORTED_LOADERS = {"checkpoint", "ckpt", "safetensors"}
-BLOCKED_LOADERS = {"gguf", "ggml", "unet", "diffusion_model", "native", "provider"}
+RECOGNIZED_MODERN_LOADERS = {loader for loaders in MODERN_FAMILY_LOADERS.values() for loader in loaders}
+BLOCKED_LOADERS = {"ggml", "provider"}
 SUPPORTED_MODES = {"generate", "txt2img", "img2img", "inpaint"}
 GENERATE_MODE_ALIASES = {"txt2img", "text2image", "text_to_image", "generate", "generation"}
 IMAGE_WORKSPACE = "image"
@@ -56,10 +62,7 @@ BLOCKED_WORKSPACES = {"assets", "reference", "finish", "results"}
 
 
 def normalize_mode(mode: Any) -> str:
-    text = str(mode or "generate").strip().lower().replace("-", "_")
-    if text in GENERATE_MODE_ALIASES:
-        return "generate"
-    return text
+    return normalize_scene_director_mode(mode)
 
 
 def normalize_backend(backend: Any) -> str:
@@ -68,25 +71,11 @@ def normalize_backend(backend: Any) -> str:
 
 
 def normalize_family(family: Any) -> str:
-    text = str(family or "sdxl").strip().lower().replace("-", "_").replace(" ", "_")
-    if text in {"sd_15", "sd_1.5", "stable_diffusion_15"}:
-        return "sd15"
-    if text in {"qwenimage", "qwen_image_edit"}:
-        return "qwen_image"
-    if text in {"zimage_turbo", "z_image_turbo", "z_image_turbo"}:
-        return "z_image_turbo"
-    if text in {"zimage", "z_image"}:
-        return "z_image"
-    return text
+    return normalize_scene_director_family(family)
 
 
-def normalize_loader(loader: Any) -> str:
-    text = str(loader or "checkpoint").strip().lower().replace("-", "_").replace(" ", "_")
-    if text in {"ckpt", "safetensors", "checkpoint_loader", "checkpointloader"}:
-        return "checkpoint"
-    if text in {"gguf_loader", "ggufloader"}:
-        return "gguf"
-    return text
+def normalize_loader(loader: Any, family: Any = None) -> str:
+    return normalize_scene_director_loader(loader, family)
 
 
 def normalize_workspace(value: Any) -> str:
@@ -99,84 +88,115 @@ def normalize_subtab(value: Any) -> str:
 
 
 def normalize_route(route: dict[str, Any] | None = None, **overrides: Any) -> dict[str, str]:
-    """Normalize route keys used by V2 providers, UI subtabs, and older tests.
-
-    Missing workspace/subtab values default to Image → Generations so legacy unit
-    tests and server-side calls without a UI context keep the V1-compatible route.
-    """
+    """Normalize route keys used by providers, workspace UI, and older tests."""
     route = dict(route or {})
     route.update({k: v for k, v in overrides.items() if v is not None})
+    family = normalize_family(route.get("family") or route.get("model_family"))
     return {
         "backend": normalize_backend(route.get("backend") or route.get("provider") or route.get("provider_id")),
-        "family": normalize_family(route.get("family") or route.get("model_family")),
-        "loader": normalize_loader(route.get("loader") or route.get("model_loader") or route.get("loader_type")),
+        "family": family,
+        "loader": normalize_loader(route.get("loader") or route.get("model_loader") or route.get("loader_type"), family),
         "mode": normalize_mode(route.get("workflow_mode") or route.get("mode") or route.get("subtab")),
         "workspace": normalize_workspace(route.get("workspace") or route.get("surface") or "image"),
         "subtab": normalize_subtab(route.get("workspace_app") or route.get("workspace_subtab") or route.get("subtab") or "generations"),
     }
 
 
+def _state_from_strategy(route: dict[str, str]) -> tuple[str, str]:
+    strategy = resolve_scene_director_execution_strategy(route)
+    engine = str(strategy.get("engine") or "unsupported")
+    status = str(strategy.get("status") or "unsupported")
+    if engine == ENGINE_CLASSIC_V054:
+        if status == "active":
+            return "available", str(strategy.get("reason") or "Classic V054 route is available.")
+        if status == "experimental":
+            return "experimental_available", str(strategy.get("reason") or "Classic V054 route is experimental.")
+    if engine == ENGINE_LIGHTWEIGHT_REGIONAL:
+        if status == "active" and strategy.get("execution_enabled"):
+            return "available", str(strategy.get("reason") or "Lightweight regional route is available.")
+        if status == "experimental" and strategy.get("execution_enabled"):
+            return "experimental_available", str(strategy.get("reason") or "Lightweight regional prompt routing is experimental.")
+        if status == "planned_gated":
+            return "planned_gated", str(strategy.get("reason") or "Lightweight regional route is planned-gated.")
+    if status == "provider_gated":
+        return "provider_gated", str(strategy.get("reason") or "Scene Director provider is gated.")
+    if status == "planned_gated":
+        return "planned_gated", str(strategy.get("reason") or "Scene Director route is planned-gated.")
+    return "unsupported", str(strategy.get("reason") or "Scene Director route is unsupported.")
+
+
 def _base_state(route: dict[str, str]) -> tuple[str, str]:
-    backend = route["backend"]
-    family = route["family"]
-    loader = route["loader"]
-    mode = route["mode"]
     workspace = route["workspace"]
     subtab = route["subtab"]
+    backend = route["backend"]
+    family = route["family"]
 
     if workspace != IMAGE_WORKSPACE:
         return "unsupported", "Scene Director is image-generation specific and does not mount outside the Image workspace."
-    if subtab in BLOCKED_WORKSPACES or subtab not in GENERATION_WORKSPACE_ALIASES:
-        return "unsupported", "Scene Director only mounts in Image → Generations; asset/reference/finish/results surfaces are not generation compilers."
-    if backend not in {"comfyui"}:
-        return "provider_gated", "Scene Director workflow patching is Comfy-node based and this backend is not validated."
-    if mode == "outpaint":
-        return "planned_gated", "Outpaint is intentionally skipped by V1 Scene Director and remains planned-gated until a dedicated canvas/mask policy exists."
+    mode = route["mode"]
+    reference_mode = mode in {"img2img", "inpaint", "outpaint"}
+    allowed_subtabs = set(GENERATION_WORKSPACE_ALIASES) | ({"reference"} if reference_mode else set())
+    if subtab in {"assets", "finish", "results"} or subtab not in allowed_subtabs:
+        return "unsupported", "Scene Director route context does not match the active Image generation/reference workflow."
+    if backend != "comfyui":
+        return "provider_gated", "Scene Director graph execution is currently validated only on ComfyUI backends."
     if family in BLOCKED_FAMILIES:
-        return "unsupported", f"{family} uses a non-SD checkpoint conditioning graph and must not fallback to Scene Director V054."
-    if loader in BLOCKED_LOADERS or loader != "checkpoint":
-        return "unsupported", "Scene Director V054 regional conditioning is checkpoint-only; GGUF/native/provider loaders must not consume checkpoint-only fields."
-    if family not in SUPPORTED_FAMILIES:
-        return "unsupported", "Scene Director has no validated V1 parity route for this family."
-    if mode not in {"generate", "img2img", "inpaint"}:
-        return "unsupported", "Scene Director only supports generate/img2img/inpaint; this workflow mode is not validated."
-    if family in SD15_FAMILIES:
-        return "experimental_available", "V1 supports SD/SD1.5 checkpoint routes; V2 keeps them experimental until expanded graph regression tests exist."
-    return "available", "V1-supported SDXL checkpoint generate/img2img/inpaint route."
+        return "unsupported", f"{family} has no Scene Director engine and must not fallback to V054."
+    return _state_from_strategy(route)
 
 
-def _detect_node_available(node_status: Any = None, object_info: Any = None) -> bool | None:
+def _detect_v054_node_available(node_status: Any = None, object_info: Any = None) -> bool | None:
     source = node_status if node_status is not None else object_info
     if source is None:
         return None
     if isinstance(source, dict):
-        if "available" in source:
+        if "available" in source and "NeoSceneDirectorV054" not in source:
             return bool(source.get("available"))
         names = set(map(str, source.keys()))
         names.update(str(v.get("class_type")) for v in source.values() if isinstance(v, dict) and v.get("class_type"))
-        return bool({"NeoSceneDirectorV054"} & names)
+        return "NeoSceneDirectorV054" in names
     if isinstance(source, (set, list, tuple)):
-        return bool({"NeoSceneDirectorV054"} & {str(x) for x in source})
+        return "NeoSceneDirectorV054" in {str(x) for x in source}
     return None
 
 
-def get_scene_director_support(route: dict[str, Any] | None = None, *, node_status: Any = None, object_info: Any = None, require_node: bool = False, **overrides: Any) -> dict[str, Any]:
+def get_scene_director_support(
+    route: dict[str, Any] | None = None,
+    *,
+    node_status: Any = None,
+    object_info: Any = None,
+    require_node: bool = False,
+    **overrides: Any,
+) -> dict[str, Any]:
     normalized = normalize_route(route, **overrides)
     state, reason = _base_state(normalized)
     route_compatible_state = state
-    node_available = _detect_node_available(node_status=node_status, object_info=object_info)
+    execution_strategy = resolve_scene_director_execution_strategy(normalized)
+    engine = str(execution_strategy.get("engine") or "unsupported")
+    custom_node_required = bool(execution_strategy.get("custom_scene_director_node_required"))
+    node_available = _detect_v054_node_available(node_status=node_status, object_info=object_info) if custom_node_required else None
 
-    # Support matrix is route-first. Node availability overlays workflow patch
-    # readiness only when explicitly requested by validation/workflow layers.
-    if require_node and state in ACTIVE_STATES and node_available is False:
+    if require_node and custom_node_required and state in ACTIVE_STATES and node_available is False:
         state = "provider_gated"
-        reason = "Scene Director route is compatible, but NeoSceneDirectorV054 was not detected. V052/V053 active fallback is retired."
+        reason = "Scene Director classic V054 route is compatible, but NeoSceneDirectorV054 was not detected. V052/V053 active fallback is retired."
 
-    workflow_patch_allowed = state in ACTIVE_STATES and (node_available is not False if require_node else True)
-    if state not in ACTIVE_STATES:
+    workflow_patch_allowed = state in ACTIVE_STATES
+    if require_node and custom_node_required and node_available is False:
         workflow_patch_allowed = False
 
     provider_capabilities = resolve_provider_capabilities_v054(normalized, object_info=object_info, node_status=node_status)
+    if isinstance(provider_capabilities, dict):
+        provider_capabilities = dict(provider_capabilities)
+        provider_capabilities["execution_strategy"] = execution_strategy
+        if engine == ENGINE_LIGHTWEIGHT_REGIONAL:
+            provider_capabilities["lightweight_regional"] = {
+                "phase": "SD-28.7",
+                "regional_prompt": bool((execution_strategy.get("regional_prompt") or {}).get("supported")),
+                "regional_lora": bool((execution_strategy.get("regional_lora") or {}).get("supported")),
+                "single_sampler_required": True,
+                "custom_scene_director_node_required": False,
+                "required_comfy_nodes": list(execution_strategy.get("required_comfy_nodes") or []),
+            }
 
     return {
         "extension_id": EXTENSION_ID,
@@ -185,16 +205,38 @@ def get_scene_director_support(route: dict[str, Any] | None = None, *, node_stat
         "workflow_patch_allowed": workflow_patch_allowed,
         "reason": reason,
         "route": normalized,
-        "requires_node": True,
-        "node_required_for_patch": True,
+        "requires_node": custom_node_required,
+        "node_required_for_patch": custom_node_required,
         "node_available": node_available,
+        "execution_engine": engine,
+        "execution_strategy": execution_strategy,
         "provider_capabilities": provider_capabilities,
         "allowed_states": sorted(SUPPORT_STATES),
+        "release_lock": {
+            "phase": "SD-28.7",
+            "state": "preflight",
+            "enforced_at": "workflow_dispatch_post_compile",
+            "fail_closed": True,
+            "gpu_proof_is_separate": True,
+        },
     }
 
 
-def route_state(*, backend: Any = None, family: Any = None, loader: Any = None, workflow_mode: Any = None, mode: Any = None, object_info: Any = None, workspace: Any = None, workspace_app: Any = None, subtab: Any = None, require_node: bool = False, node_status: Any = None) -> str:
-    support = get_scene_director_support(
+def route_state(
+    *,
+    backend: Any = None,
+    family: Any = None,
+    loader: Any = None,
+    workflow_mode: Any = None,
+    mode: Any = None,
+    object_info: Any = None,
+    workspace: Any = None,
+    workspace_app: Any = None,
+    subtab: Any = None,
+    require_node: bool = False,
+    node_status: Any = None,
+) -> str:
+    return str(get_scene_director_support(
         backend=backend,
         family=family,
         loader=loader,
@@ -206,12 +248,24 @@ def route_state(*, backend: Any = None, family: Any = None, loader: Any = None, 
         subtab=subtab,
         require_node=require_node,
         node_status=node_status,
-    )
-    return str(support["state"])
+    )["state"])
 
 
-def route_reason(*, backend: Any = None, family: Any = None, loader: Any = None, workflow_mode: Any = None, mode: Any = None, object_info: Any = None, workspace: Any = None, workspace_app: Any = None, subtab: Any = None, require_node: bool = False, node_status: Any = None) -> str:
-    support = get_scene_director_support(
+def route_reason(
+    *,
+    backend: Any = None,
+    family: Any = None,
+    loader: Any = None,
+    workflow_mode: Any = None,
+    mode: Any = None,
+    object_info: Any = None,
+    workspace: Any = None,
+    workspace_app: Any = None,
+    subtab: Any = None,
+    require_node: bool = False,
+    node_status: Any = None,
+) -> str:
+    return str(get_scene_director_support(
         backend=backend,
         family=family,
         loader=loader,
@@ -223,5 +277,4 @@ def route_reason(*, backend: Any = None, family: Any = None, loader: Any = None,
         subtab=subtab,
         require_node=require_node,
         node_status=node_status,
-    )
-    return str(support["reason"])
+    )["reason"])

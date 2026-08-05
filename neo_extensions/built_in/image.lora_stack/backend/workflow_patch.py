@@ -3,11 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from .catalog_bridge import resolve_exact_provider_catalog_name
 from .payload_schema import EXTENSION_ID
 from .patch_profile import build_lora_patch_profile, normalize_lora_patch_profile, profile_metadata
 from .validation import validate_and_normalize_payload
 
-PHASE = "L6"
+PHASE = "L19"
 LORA_LOADER_NODE = "LoraLoader"
 LORA_MODEL_ONLY_NODE = "LoraLoaderModelOnly"
 
@@ -73,6 +74,124 @@ def _loader_node_available(
     return str(loader_node_class or LORA_LOADER_NODE) in names
 
 
+def _node_input_contract(
+    available_nodes: set[str] | list[str] | tuple[str, ...] | dict[str, Any] | None,
+    node_class: str,
+) -> tuple[set[str], list[str]]:
+    if not isinstance(available_nodes, dict):
+        return set(), []
+    payload = available_nodes.get(node_class)
+    if not isinstance(payload, dict):
+        return set(), []
+    names: set[str] = set()
+    choices: list[str] = []
+    input_block = payload.get("input") if isinstance(payload.get("input"), dict) else payload
+    for section in ("required", "optional"):
+        raw = input_block.get(section) if isinstance(input_block, dict) else None
+        if isinstance(raw, dict):
+            names.update(str(key) for key in raw)
+            lora_spec = raw.get("lora_name")
+            if isinstance(lora_spec, (list, tuple)) and lora_spec:
+                candidate = lora_spec[0]
+                if isinstance(candidate, (list, tuple, set)):
+                    choices.extend(str(item) for item in candidate if str(item).strip())
+        elif isinstance(raw, (list, tuple, set)):
+            names.update(str(item) for item in raw)
+    raw_all = payload.get("all")
+    if isinstance(raw_all, (list, tuple, set)):
+        names.update(str(item) for item in raw_all)
+    return names, list(dict.fromkeys(choices))
+
+
+
+def _validate_loader_contract_and_assets(
+    *,
+    validation: dict[str, Any],
+    available_nodes: set[str] | list[str] | tuple[str, ...] | dict[str, Any] | None,
+    loader_node_class: str,
+    strategy: str,
+    rows: list[dict[str, Any]],
+) -> tuple[bool, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    names, choices = _node_input_contract(available_nodes, loader_node_class)
+    required = {"model", "lora_name", "strength_model"}
+    if strategy in MODEL_CLIP_STRATEGIES:
+        required.update({"clip", "strength_clip"})
+    if isinstance(available_nodes, dict) and names:
+        missing = sorted(required - names)
+        if missing:
+            message = f"Comfy {loader_node_class} has an incompatible input signature; missing: {', '.join(missing)}."
+            validation.setdefault("validation", []).append({
+                "level": "error",
+                "field": "available_nodes",
+                "message": message,
+                "execution_state": "blocked_incompatible_loader_signature",
+            })
+            validation["workflow_patch_allowed"] = False
+            return False, f"provider_gated_incompatible_loader_signature: {message}", [], []
+
+    # A real provider compile supplies the live object_info mapping. Exact enum
+    # binding is mandatory there; sets/None remain supported only for isolated
+    # lower-level compatibility tests that do not model a live Comfy catalog.
+    if isinstance(available_nodes, dict) and not choices:
+        message = f"Comfy {loader_node_class} did not advertise live lora_name catalog choices; exact LoRA binding cannot be proven."
+        validation.setdefault("validation", []).append({
+            "level": "error",
+            "field": "available_nodes",
+            "message": message,
+            "catalog_node": loader_node_class,
+            "execution_state": "blocked_catalog_unavailable",
+        })
+        validation["workflow_patch_allowed"] = False
+        return False, f"provider_gated_lora_catalog_unavailable: {message}", [], []
+
+    bound_rows: list[dict[str, Any]] = []
+    bindings: list[dict[str, Any]] = []
+    for row in rows:
+        portable_name = str(row.get("name") or "").strip()
+        if choices:
+            binding = resolve_exact_provider_catalog_name(portable_name, choices)
+        else:
+            binding = {
+                "schema_version": "neo.image.lora_stack.catalog_binding.v1",
+                "portable_catalog_name": portable_name.replace("\\", "/"),
+                "provider_catalog_name": portable_name,
+                "status": "resolved_unverified_legacy_context",
+                "match_mode": "legacy_no_live_catalog",
+                "catalog_count": 0,
+                "candidate_provider_names": [portable_name] if portable_name else [],
+                "verified": False,
+                "reason": "No live provider catalog mapping was supplied to this lower-level caller.",
+            }
+        binding = {**binding, "loader_node_class": loader_node_class, "uid": str(row.get("uid") or "")}
+        bindings.append(binding)
+        if not str(binding.get("status") or "").startswith("resolved"):
+            candidates = list(binding.get("candidate_provider_names") or [])
+            if binding.get("status") == "blocked_ambiguous_catalog_entry":
+                message = (
+                    f"Selected LoRA '{portable_name}' is ambiguous in the connected ComfyUI {loader_node_class} catalog: "
+                    + ", ".join(candidates)
+                )
+            else:
+                message = f"Selected LoRA '{portable_name}' was not found in the connected ComfyUI {loader_node_class} catalog."
+            validation.setdefault("validation", []).append({
+                "level": "error",
+                "field": "params.loras",
+                "message": message,
+                "catalog_node": loader_node_class,
+                "execution_state": str(binding.get("status") or "blocked_missing_catalog_entry"),
+                "catalog_binding": binding,
+            })
+            validation["workflow_patch_allowed"] = False
+            reason_code = str(binding.get("status") or "blocked_missing_catalog_entry")
+            return False, f"{reason_code}: {message}", [], bindings
+        bound = deepcopy(row)
+        bound["portable_catalog_name"] = str(binding.get("portable_catalog_name") or portable_name)
+        bound["provider_catalog_name"] = str(binding.get("provider_catalog_name") or "")
+        bound["catalog_binding"] = deepcopy(binding)
+        bound_rows.append(bound)
+    return True, "", bound_rows, bindings
+
+
 def _target_applies_to_base(row: dict[str, Any]) -> bool:
     return str(row.get("target") or "both") in {"both", "base"}
 
@@ -86,6 +205,24 @@ def _global_base_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _refs_equal(current: Any, expected: list[Any]) -> bool:
     return current == expected or (isinstance(current, (list, tuple)) and list(current) == expected)
+
+
+def _consumer_node_ids(
+    graph: dict[str, Any],
+    *,
+    input_name: str,
+    source_ref: list[Any],
+) -> list[str]:
+    consumers: list[str] = []
+    if not source_ref:
+        return consumers
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if isinstance(inputs, dict) and _refs_equal(inputs.get(input_name), source_ref):
+            consumers.append(str(node_id))
+    return consumers
 
 
 def _patch_clip_encode_nodes(
@@ -181,7 +318,7 @@ def _build_lora_node_inputs(
         return (
             {
                 "model": deepcopy(current_model_ref),
-                "lora_name": str(row.get("name") or ""),
+                "lora_name": str(row.get("provider_catalog_name") or row.get("name") or ""),
                 "strength_model": strength,
             },
             [],
@@ -191,7 +328,7 @@ def _build_lora_node_inputs(
         {
             "model": deepcopy(current_model_ref),
             "clip": deepcopy(current_clip_ref),
-            "lora_name": str(row.get("name") or ""),
+            "lora_name": str(row.get("provider_catalog_name") or row.get("name") or ""),
             "strength_model": strength,
             "strength_clip": strength,
         },
@@ -214,24 +351,33 @@ def build_workflow_patch_summary(
     patched_clip_encode_nodes: list[str] | None = None,
     patched_model_consumer_nodes: list[str] | None = None,
     patch_profile: dict[str, Any] | None = None,
+    catalog_bindings: list[dict[str, Any]] | None = None,
+    execution_state: str = "",
     reason: str = "",
 ) -> dict[str, Any]:
     route = validation_result.get("route") if isinstance(validation_result, dict) else {}
     applied_rows = deepcopy(applied_rows or [])
     lora_node_ids = list(lora_node_ids or [])
     profile_meta = profile_metadata(patch_profile)
+    catalog_bindings = deepcopy(catalog_bindings or [])
     strategy = str(profile_meta.get("strategy") or "")
     loader_node_class = profile_meta.get("loader_node_class") or STRATEGY_DEFAULT_NODE_CLASS.get(strategy) or LORA_LOADER_NODE
     return {
         "extension_id": EXTENSION_ID,
         "extension_type": "built_in",
         "phase": PHASE,
+        "schema_version": "neo.image.lora_stack.execution_proof.v1",
+        "execution_state": execution_state or ("applied" if applied_rows and lora_node_ids else "inactive"),
         "applied": bool(applied_rows and lora_node_ids),
         "node": loader_node_class if applied_rows else "",
         "node_class": loader_node_class if applied_rows else "",
         "node_ids": lora_node_ids,
         "lora_count": len(applied_rows),
-        "lora_names": [str(row.get("name") or "") for row in applied_rows],
+        "lora_names": [str(row.get("portable_catalog_name") or row.get("name") or "") for row in applied_rows],
+        "portable_lora_names": [str(row.get("portable_catalog_name") or row.get("name") or "") for row in applied_rows],
+        "submitted_lora_names": [str(row.get("provider_catalog_name") or row.get("name") or "") for row in applied_rows],
+        "catalog_bindings": catalog_bindings,
+        "provider_catalog_verified": bool(catalog_bindings) and all(bool(item.get("verified")) for item in catalog_bindings),
         "previous_model_ref": deepcopy(previous_model_ref or []),
         "previous_clip_ref": deepcopy(previous_clip_ref or []),
         "patched_model_ref": deepcopy(patched_model_ref or previous_model_ref or []),
@@ -267,8 +413,8 @@ def apply_lora_stack_patch(
 ) -> dict[str, Any]:
     """Validate and patch a Comfy graph with global base-pass LoRA rows.
 
-    L5/L6 uses the upgraded patcher from a single hardcoded LoraLoader branch into a
-    strategy dispatcher. Routes may use the standard model+clip LoraLoader path,
+    Phase 19 keeps the strategy patcher independent from workflow-engine selection and adds
+    exact live-provider catalog binding plus execution-proof metadata. Routes may use the standard model+clip LoraLoader path,
     a model-only LoraLoaderModelOnly path, or explicit provider-specific/no-op
     strategies that preserve payload intent without mutating the graph.
     """
@@ -307,7 +453,7 @@ def apply_lora_stack_patch(
         profile["requires_clip"] = _strategy_requires_clip(strategy, profile)
         profile_result["profile"] = profile
 
-    def no_patch(reason: str) -> dict[str, Any]:
+    def no_patch(reason: str, *, execution_state: str = "inactive", catalog_bindings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         patch = build_workflow_patch_summary(
             validation_result=validation,
             previous_model_ref=previous_model_ref,
@@ -317,6 +463,8 @@ def apply_lora_stack_patch(
             sampler_node_id=sampler_key,
             sampler_model_input=resolved_sampler_model_input,
             patch_profile=profile_result,
+            catalog_bindings=catalog_bindings,
+            execution_state=execution_state,
             reason=reason,
         )
         return {
@@ -346,7 +494,7 @@ def apply_lora_stack_patch(
         })
         validation["workflow_patch_allowed"] = False
         reason = "compiler_lora_patch_profile_required" if profile_result.get("required") else "invalid_lora_patch_profile"
-        return no_patch(f"{reason}: {profile_result.get('reason') or 'missing_lora_patch_profile'}")
+        return no_patch(f"{reason}: {profile_result.get('reason') or 'missing_lora_patch_profile'}", execution_state="blocked_invalid_patch_profile")
 
     if strategy == NO_PATCH_STRATEGY:
         validation.setdefault("validation", []).append({
@@ -379,10 +527,10 @@ def apply_lora_stack_patch(
         validation.setdefault("validation", []).append({
             "level": "warning",
             "field": "lora_patch_profile.loader_node_class",
-            "message": f"LoRA Stack L6 only supports {LORA_LOADER_NODE} and {LORA_MODEL_ONLY_NODE}; {loader_node_class} requires a provider-specific adapter.",
+            "message": f"LoRA Stack Phase 19 supports {LORA_LOADER_NODE} and {LORA_MODEL_ONLY_NODE}; {loader_node_class} requires a provider-specific adapter.",
         })
         validation["workflow_patch_allowed"] = False
-        return no_patch(f"unsupported_loader_node_class_for_l5: {loader_node_class}")
+        return no_patch(f"unsupported_loader_node_class: {loader_node_class}")
 
     if strategy in MODEL_CLIP_STRATEGIES and loader_node_class != LORA_LOADER_NODE:
         validation.setdefault("validation", []).append({
@@ -402,15 +550,6 @@ def apply_lora_stack_patch(
         validation["workflow_patch_allowed"] = False
         return no_patch(f"loader_strategy_mismatch: {strategy} requires {LORA_MODEL_ONLY_NODE}")
 
-    if not _loader_node_available(available_nodes, loader_node_class):
-        validation.setdefault("validation", []).append({
-            "level": "warning",
-            "field": "available_nodes",
-            "message": f"Comfy object_info did not expose {loader_node_class}; LoRA Stack workflow patch was provider-gated.",
-        })
-        validation["workflow_patch_allowed"] = False
-        return no_patch(f"provider_gated: Comfy {loader_node_class} node is not available")
-
     rows = ((validation.get("block") or {}).get("params") or {}).get("loras") or []
     if not isinstance(rows, list):
         rows = []
@@ -418,6 +557,59 @@ def apply_lora_stack_patch(
     if not patch_rows:
         deferred = len(rows)
         return no_patch(f"no_global_base_loras: {deferred} row(s) were regional or finish-only and were preserved without mutating the base graph")
+
+    if not _loader_node_available(available_nodes, loader_node_class):
+        validation.setdefault("validation", []).append({
+            "level": "warning",
+            "field": "available_nodes",
+            "message": f"Comfy object_info did not expose {loader_node_class}; LoRA Stack workflow patch was provider-gated.",
+        })
+        validation["workflow_patch_allowed"] = False
+        return no_patch(f"provider_gated: Comfy {loader_node_class} node is not available", execution_state="blocked_missing_loader_node")
+
+    loader_contract_ok, loader_contract_reason, bound_patch_rows, catalog_bindings = _validate_loader_contract_and_assets(
+        validation=validation,
+        available_nodes=available_nodes,
+        loader_node_class=loader_node_class,
+        strategy=strategy,
+        rows=patch_rows,
+    )
+    if not loader_contract_ok:
+        execution_state = "blocked_missing_catalog_entry"
+        if loader_contract_reason.startswith("blocked_ambiguous_catalog_entry"):
+            execution_state = "blocked_ambiguous_catalog_entry"
+        elif loader_contract_reason.startswith("provider_gated_lora_catalog_unavailable"):
+            execution_state = "blocked_catalog_unavailable"
+        elif loader_contract_reason.startswith("provider_gated_incompatible_loader_signature"):
+            execution_state = "blocked_incompatible_loader_signature"
+        return no_patch(loader_contract_reason, execution_state=execution_state, catalog_bindings=catalog_bindings)
+
+    missing_anchor_reasons: list[str] = []
+    if not previous_model_ref or str(previous_model_ref[0]) not in graph:
+        missing_anchor_reasons.append("model_source_ref_missing")
+    model_consumers = _consumer_node_ids(graph, input_name="model", source_ref=previous_model_ref)
+    if not model_consumers:
+        missing_anchor_reasons.append("model_consumer_missing")
+    if strategy in MODEL_CLIP_STRATEGIES:
+        if not previous_clip_ref or str(previous_clip_ref[0]) not in graph:
+            missing_anchor_reasons.append("clip_source_ref_missing")
+        if bool(profile.get("patch_clip_consumers", True)) and not _consumer_node_ids(graph, input_name="clip", source_ref=previous_clip_ref):
+            missing_anchor_reasons.append("clip_consumer_missing")
+    if missing_anchor_reasons:
+        message = "Compiler LoRA patch anchors could not be proven: " + ", ".join(missing_anchor_reasons)
+        validation.setdefault("validation", []).append({
+            "level": "error",
+            "field": "lora_patch_profile",
+            "message": message,
+            "execution_state": "blocked_missing_graph_anchor",
+            "missing_anchors": missing_anchor_reasons,
+        })
+        validation["workflow_patch_allowed"] = False
+        return no_patch(
+            f"blocked_missing_graph_anchor: {message}",
+            execution_state="blocked_missing_graph_anchor",
+            catalog_bindings=catalog_bindings,
+        )
 
     current_model_ref = deepcopy(previous_model_ref)
     current_clip_ref = deepcopy(previous_clip_ref)
@@ -429,7 +621,7 @@ def apply_lora_stack_patch(
         except (TypeError, ValueError):
             next_id = None
 
-    for row in patch_rows:
+    for row in bound_patch_rows:
         node_id = _next_graph_id(graph, next_id)
         try:
             next_id = int(node_id) + 1
@@ -480,10 +672,10 @@ def apply_lora_stack_patch(
         )
     reason = f"Applied ordered global base-pass LoRA stack using {strategy} via {loader_node_class}."
     if len(patch_rows) != len(rows):
-        reason += f" {len(rows) - len(patch_rows)} regional/finish row(s) preserved but not graph-patched in Phase L6."
+        reason += f" {len(rows) - len(patch_rows)} regional/finish row(s) preserved but not graph-patched because only global/base rows mutate the base graph."
     patch = build_workflow_patch_summary(
         validation_result=validation,
-        applied_rows=patch_rows,
+        applied_rows=bound_patch_rows,
         lora_node_ids=lora_node_ids,
         previous_model_ref=previous_model_ref,
         previous_clip_ref=previous_clip_ref,
@@ -492,6 +684,8 @@ def apply_lora_stack_patch(
         sampler_node_id=sampler_key,
         sampler_model_input=resolved_sampler_model_input,
         patch_profile=profile_result,
+        catalog_bindings=catalog_bindings,
+        execution_state="applied",
         patched_clip_encode_nodes=patched_clip_nodes,
         patched_model_consumer_nodes=patched_model_nodes,
         reason=reason,
@@ -521,5 +715,5 @@ def workflow_patch_not_implemented() -> dict[str, Any]:
         "node": LORA_LOADER_NODE,
         "node_classes": [LORA_LOADER_NODE, LORA_MODEL_ONLY_NODE],
         "strategies": sorted(SUPPORTED_PATCH_STRATEGIES),
-        "reason": "L6 keeps the L5 strategy patcher and uses family-by-family route matrix enablement for compiler-profile-backed LoRA routes.",
+        "reason": "Phase 19 binds portable LoRA identities to exact live provider catalog values, fails closed on explicit requests, and records execution proof while preserving engine-independent compatibility.",
     }

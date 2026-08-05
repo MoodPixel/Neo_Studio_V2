@@ -1,8 +1,8 @@
 {
   "id": "image.image_upscale",
   "name": "Image · Image Upscale",
-  "version": "0.12.0",
-  "description": "Built-in Image utility extension for standalone Image Upscale workflows, generated-result reuse, uploaded-source upscale, SeedVR2 RGBA preservation, and output metadata capture.",
+  "version": "0.13.0",
+  "description": "Built-in provider-aware Image Upscale utility for selected-profile Forge Extras, Comfy model upscale, SeedVR2 RGBA preservation, uploaded/result sources, and derived-output metadata.",
   "extension_type": "utility_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -82,14 +82,15 @@
   ],
   "supported_backends": [
     "comfyui",
-    "comfyui_portable"
+    "comfyui_portable",
+    "forge"
   ],
   "supported_families": [],
   "supported_loaders": [],
   "route_states": {
     "comfyui:*:*:*:finish": "available",
     "comfyui_portable:*:*:*:finish": "available",
-    "forge:*:*:*:finish": "provider_gated",
+    "forge:*:*:*:finish": "available",
     "a1111:*:*:*:finish": "provider_gated",
     "cloud_api:*:*:*:finish": "provider_gated",
     "mock:*:*:*:finish": "provider_gated",
@@ -204,6 +205,17 @@
             "LoadImage",
             "ImageScaleBy",
             "SaveImage"
+          ]
+        },
+        "forge": {
+          "required_endpoint": [
+            "/sdapi/v1/extra-single-image"
+          ],
+          "required_catalog": [
+            "/sdapi/v1/upscalers"
+          ],
+          "contract": [
+            "forge.extras.single_image.v1"
           ]
         }
       },
@@ -430,7 +442,8 @@
     ],
     "valid_restore_assists": [
       "off",
-      "codeformer"
+      "codeformer",
+      "gfpgan"
     ],
     "valid_upscale_engines": [
       "basic",
@@ -443,7 +456,19 @@
       "discard"
     ],
     "seedvr2_alpha_metadata_backend_authoritative": true,
-    "seedvr2_codeformer_suppressed_when_rgba": true
+    "seedvr2_codeformer_suppressed_when_rgba": true,
+    "forge_extras_fields": [
+      "forge_resize_mode",
+      "target_width",
+      "target_height",
+      "upscaling_crop",
+      "secondary_upscale_model",
+      "secondary_visibility",
+      "upscale_first",
+      "restore_visibility"
+    ],
+    "selected_profile_only": true,
+    "automatic_provider_fallback": false
   },
   "memory_contract": {
     "event_type": "extension_workflow_used",
@@ -643,7 +668,7 @@
       "mount slot"
     ]
   },
-  "phase": "I",
+  "phase": "10",
   "phase_i_mount_integration": {
     "mount": "Image → Finish",
     "extension_id": "image.image_upscale",
@@ -670,7 +695,8 @@
     ]
   },
   "implementation_status": {
-    "phase_i_mount_integration": "complete"
+    "phase_i_mount_integration": "complete",
+    "phase_10_provider_specific_forge_extras": "complete"
   },
   "phase_j_metadata_output_inspector": {
     "metadata_builder": "neo_extensions/built_in/image.image_upscale/backend/metadata.py",
@@ -703,7 +729,63 @@
       "finish",
       "results"
     ],
-    "queue_basis": "selected/source image + Comfy utility nodes",
+    "queue_basis": "selected/source image + active provider utility contract (Comfy utility graph or Forge Extras)",
     "normal_generation_payload_mutation": false
+  },
+  "provider_remap": {
+    "forge": {
+      "mode": "standalone_extras",
+      "contract": "forge.extras.single_image.v2",
+      "upscale_engine": "forge_extras_only",
+      "codeformer": "capability_gated",
+      "seedvr2": "unsupported_comfy_only",
+      "resize_modes": [
+        "scale",
+        "exact_dimensions"
+      ],
+      "secondary_upscaler": true,
+      "face_restoration": "selected_profile_reported_only",
+      "gfpgan": "capability_gated",
+      "selected_profile_only": true,
+      "automatic_provider_fallback": false
+    }
+  },
+  "forge_extension_compatibility": {
+    "phase": "Phase 10",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_capability_snapshot",
+    "fail_closed": true,
+    "contract": "forge.extras.single_image.v2",
+    "supported_modes": [
+      "finish"
+    ],
+    "requires": [
+      "/sdapi/v1/extra-single-image",
+      "/sdapi/v1/upscalers"
+    ],
+    "native_features": [
+      "scale_factor",
+      "exact_dimensions",
+      "primary_upscaler",
+      "secondary_upscaler",
+      "secondary_visibility",
+      "crop_to_fit",
+      "reported_face_restoration",
+      "upscale_first"
+    ],
+    "unsupported_features": [
+      "seedvr2",
+      "comfy_workflow_nodes"
+    ],
+    "selected_profile_only": true,
+    "automatic_provider_fallback": false
+  },
+  "ui_contract": {
+    "forge_native_controls_only": true,
+    "forge_seedvr2_hidden": true,
+    "forge_comfy_node_controls_hidden": true,
+    "forge_exact_dimensions_ready": true,
+    "forge_secondary_upscaler_ready": true,
+    "forge_face_restoration_capability_gated": true
   }
 }

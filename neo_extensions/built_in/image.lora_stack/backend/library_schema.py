@@ -79,6 +79,8 @@ def empty_lora_record(record_id: str = "") -> dict[str, Any]:
         "metadata_resolution": {},
         "catalog_available": False,
         "catalog_source": "",
+        "provider_id": "",
+        "provider_label": "",
         "catalog_match_keys": [],
         "hash": "",
         "enabled": True,
@@ -134,6 +136,8 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     base["max_strength"] = max(-4.0, min(4.0, _float(base.get("max_strength"), 1.0)))
     if base["min_strength"] > base["max_strength"]:
         base["min_strength"], base["max_strength"] = base["max_strength"], base["min_strength"]
+    base["provider_id"] = str(base.get("provider_id") or "").strip().casefold()
+    base["provider_label"] = str(base.get("provider_label") or "").strip()
     base["enabled"] = base.get("enabled") is not False
     now = utc_now_iso()
     base["created"] = str(base.get("created") or now)
@@ -143,18 +147,81 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
-def record_from_comfy_lora_name(name: str) -> dict[str, Any]:
-    text = str(name or "").strip()
-    record = empty_lora_record(stable_record_id(f"comfy:{text}"))
+def record_from_provider_lora_name(
+    name: str,
+    *,
+    provider_id: str = "comfyui",
+    catalog_source: str = "",
+    provider_label: str = "",
+) -> dict[str, Any]:
+    """Build a path-free LoRA library record from a provider catalog name.
+
+    The provider catalog value remains the canonical loader/tag value. Neo stores
+    only the portable name and provider metadata; absolute backend paths are never
+    copied into the browser-facing record.
+    """
+
+    text = str(name or "").replace("\\", "/").strip()
+    if text.startswith("/") or (len(text) > 2 and text[1:3] == ":/"):
+        text = Path(text).name
+    while text.startswith("./"):
+        text = text[2:]
+    provider = str(provider_id or "comfyui").strip().casefold()
+    source = str(catalog_source or "").strip()
+    if not source:
+        source = "forge:extra_network_lora" if provider == "forge" else "comfy:LoraLoader.lora_name"
+    label = str(provider_label or "").strip() or ("Forge Neo" if provider == "forge" else "ComfyUI")
+    source_id = "forge_lora_catalog" if provider == "forge" else "comfy_lora_loader"
+    record = empty_lora_record(stable_record_id(f"{provider}:{text}"))
     record.update({
         "name": text,
         "catalog_name": text,
         "file": text,
-        "source": "comfy_lora_loader",
-        "category": "from Comfy",
+        "source": source_id,
+        "category": f"from {label}",
         "base_model": "Base unknown",
-        "notes": "Loaded from Comfy LoraLoader.lora_name. Use CivitAI Pull to enrich triggers, prompts, and previews.",
+        "notes": f"Loaded from the selected {label} LoRA catalog. Use CivitAI Pull to enrich triggers, prompts, and previews.",
         "metadata_status": "catalog_only",
-        "field_sources": {"name": "comfy:LoraLoader.lora_name", "catalog_name": "comfy:LoraLoader.lora_name"},
+        "catalog_source": source,
+        "provider_id": provider,
+        "provider_label": label,
+        "field_sources": {"name": source, "catalog_name": source},
     })
     return normalize_record(record)
+
+
+def record_from_comfy_lora_name(name: str) -> dict[str, Any]:
+    """Backward-compatible Comfy record constructor."""
+
+    return record_from_provider_lora_name(name, provider_id="comfyui")
+
+
+def browser_safe_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a browser-facing record without backend filesystem locations."""
+
+    normalized = normalize_record(record)
+    file_value = str(normalized.get("file") or "").replace("\\", "/").strip()
+    catalog_name = str(normalized.get("catalog_name") or normalized.get("name") or "").replace("\\", "/").strip()
+    if catalog_name and (catalog_name.startswith("/") or (len(catalog_name) > 2 and catalog_name[1:3] == ":/")):
+        catalog_name = Path(catalog_name).name
+        normalized["catalog_name"] = catalog_name
+        normalized["name"] = catalog_name
+    if file_value:
+        path = Path(file_value)
+        if path.is_absolute() or ":/" in file_value:
+            normalized["file"] = catalog_name or path.name
+    resolution = normalized.get("metadata_resolution") if isinstance(normalized.get("metadata_resolution"), dict) else {}
+    normalized["metadata_resolution"] = {
+        "ok": bool(resolution.get("ok")),
+        "source": str(resolution.get("source") or ""),
+        "status": str(resolution.get("status") or normalized.get("metadata_status") or ""),
+        "path_policy": "absolute_paths_server_side_only",
+    }
+    remote_resolution = normalized.get("remote_metadata_resolution")
+    if isinstance(remote_resolution, dict):
+        normalized["remote_metadata_resolution"] = {
+            "ok": bool(remote_resolution.get("ok")),
+            "source": str(remote_resolution.get("source") or ""),
+            "error": str(remote_resolution.get("error") or ""),
+        }
+    return normalized

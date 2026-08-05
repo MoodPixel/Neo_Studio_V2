@@ -4,12 +4,14 @@ from copy import deepcopy
 import re
 from typing import Any
 
+from .provider_serialization import clean_embedding_catalog_name, embedding_asset_name
+
 EXTENSION_ID = "embeddings_ti"
-VERSION = 1
+VERSION = 2
 WORKSPACE_APP = "assets"
 SOURCE = "image.assets.embeddings_ti"
 ACTIVE_ROUTE_STATES = {"available", "experimental_available"}
-VALID_TARGETS = {"positive_prompt", "negative_prompt", "finish_positive", "finish_negative"}
+VALID_TARGETS = {"positive_prompt", "negative_prompt", "both", "finish_positive", "finish_negative"}
 TARGET_ALIASES = {
     "positive": "positive_prompt",
     "base_positive": "positive_prompt",
@@ -17,15 +19,17 @@ TARGET_ALIASES = {
     "negative": "negative_prompt",
     "base_negative": "negative_prompt",
     "neg": "negative_prompt",
+    "positive_and_negative": "both",
+    "base_both": "both",
     "finish_positive_prompt": "finish_positive",
     "finish_negative_prompt": "finish_negative",
 }
-TOKEN_RE = re.compile(r"^(embedding:)?[A-Za-z0-9_. -]+$")
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_. -]+$")
 BLOCK_ALLOWED_KEYS = {"enabled", "version", "inputs", "params", "assets", "metadata"}
 PARAM_ALLOWED_KEYS = {"items", "selected_tokens", "helper_target", "base_positive", "base_negative", "finish_positive", "finish_negative"}
 LEGACY_PARAM_KEYS = {"selected_tokens", "helper_target", "base_positive", "base_negative", "finish_positive", "finish_negative"}
 ASSET_ALLOWED_KEYS = {"selected_embedding", "selected_embeddings", "selected_embedding_id", "selected_embedding_name", "selected_embedding_path", "selected_embedding_token"}
-ITEM_ALLOWED_KEYS = {"uid", "id", "source_record_id", "token", "name", "strength", "target"}
+ITEM_ALLOWED_KEYS = {"uid", "id", "source_record_id", "token", "name", "asset_name", "catalog_name", "strength", "target"}
 INPUT_ALLOWED_KEYS: set[str] = set()
 
 
@@ -64,14 +68,16 @@ def normalize_strength(value: Any) -> float:
 
 
 def normalize_token(value: Any) -> str:
-    raw = str(value or "").strip()
-    if not raw:
+    """Return the provider-neutral embedding trigger name.
+
+    Legacy ``embedding:`` prefixes, weighted wrappers, model suffixes, and local
+    paths are normalized away. Provider syntax is rendered only at compile time.
+    """
+
+    raw = embedding_asset_name(value)
+    if not raw or not TOKEN_RE.match(raw):
         return ""
-    raw = raw.replace("\\", "/").split("/")[-1]
-    raw = re.sub(r"\.(pt|safetensors|bin)$", "", raw, flags=re.IGNORECASE)
-    if not TOKEN_RE.match(raw):
-        return ""
-    return raw if raw.startswith("embedding:") else f"embedding:{raw}"
+    return raw
 
 
 def normalize_tokens(values: Any) -> list[str]:
@@ -95,13 +101,17 @@ def normalize_item(value: Any) -> dict[str, Any] | None:
         value = {"token": value}
     if not isinstance(value, dict):
         return None
-    token = normalize_token(value.get("token") or value.get("name") or value.get("file"))
-    if not token:
+    source_value = value.get("asset_name") or value.get("token") or value.get("catalog_name") or value.get("name") or value.get("file")
+    asset_name = normalize_token(source_value)
+    if not asset_name:
         return None
-    name = str(value.get("name") or token.replace("embedding:", "")).strip()
+    catalog_name = clean_embedding_catalog_name(value.get("catalog_name") or value.get("file") or source_value)
+    name = str(value.get("name") or asset_name).strip()
     item = {
-        "token": token,
+        "token": asset_name,
+        "asset_name": asset_name,
         "name": name,
+        "catalog_name": catalog_name or asset_name,
         "strength": normalize_strength(value.get("strength", 1.0)),
         "target": normalize_target(value.get("target")),
     }
@@ -122,7 +132,7 @@ def normalize_items(values: Any) -> list[dict[str, Any]]:
         item = normalize_item(value)
         if not item:
             continue
-        key = f"{item['token'].casefold()}|{item['strength']}|{item['target']}"
+        key = f"{item['asset_name'].casefold()}|{item['target']}"
         if key in seen:
             continue
         seen.add(key)
@@ -141,9 +151,9 @@ def legacy_items_from_params(params: dict[str, Any]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for field, target in legacy_fields:
         for token in normalize_tokens(params.get(field)):
-            items.append({"token": token, "name": token.replace("embedding:", ""), "strength": 1.0, "target": target})
+            items.append({"token": token, "asset_name": token, "name": token, "strength": 1.0, "target": target})
     for token in normalize_tokens(params.get("selected_tokens")):
-        items.append({"token": token, "name": token.replace("embedding:", ""), "strength": 1.0, "target": "negative_prompt"})
+        items.append({"token": token, "asset_name": token, "name": token, "strength": 1.0, "target": "negative_prompt"})
     return normalize_items(items)
 
 
@@ -157,12 +167,15 @@ def sanitize_params(params: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _clean_selected_embedding(value: dict[str, Any]) -> dict[str, Any]:
-    token = normalize_token(value.get("token") or value.get("name") or value.get("file"))
+    source_value = value.get("asset_name") or value.get("token") or value.get("catalog_name") or value.get("name") or value.get("file")
+    asset_name = normalize_token(source_value)
+    catalog_name = clean_embedding_catalog_name(value.get("catalog_name") or value.get("file") or source_value)
     clean_selected = {
         "id": str(value.get("id") or value.get("source_record_id") or "").strip(),
-        "name": str(value.get("name") or "").strip(),
-        "path": str(value.get("path") or value.get("file") or "").strip(),
-        "token": token,
+        "name": str(value.get("name") or asset_name or "").strip(),
+        "asset_name": asset_name,
+        "catalog_name": catalog_name or asset_name,
+        "token": asset_name,
         "preview_image": str(value.get("preview_image") or "").strip(),
         "base_model": str(value.get("base_model") or "").strip(),
     }
@@ -290,7 +303,7 @@ def validate_payload_block_shape(block: dict[str, Any]) -> list[str]:
                 item_hidden = sorted(set(item.keys()) - ITEM_ALLOWED_KEYS)
                 if item_hidden:
                     errors.append(f"Embeddings/TI params.items[{index}] contains unsupported keys: {', '.join(item_hidden)}")
-                if not normalize_token(item.get("token") or item.get("name")):
+                if not normalize_token(item.get("asset_name") or item.get("token") or item.get("catalog_name") or item.get("name")):
                     errors.append(f"Embeddings/TI params.items[{index}] has an invalid token.")
     assets = block.get("assets")
     if isinstance(assets, dict):
@@ -329,8 +342,8 @@ def payload_contract() -> dict[str, Any]:
         "block_key": "extensions",
         "required_keys": sorted(BLOCK_ALLOWED_KEYS),
         "inputs_policy": "always_empty",
-        "params_policy": "items_only_after_legacy_migration",
-        "asset_policy": "selected_embedding_metadata_only",
+        "params_policy": "canonical_provider_neutral_items_only_after_legacy_migration",
+        "asset_policy": "portable_selected_embedding_metadata_only_absolute_paths_server_side",
         "active_route_states": sorted(ACTIVE_ROUTE_STATES),
         "item_allowed_keys": sorted(ITEM_ALLOWED_KEYS),
         "allowed_targets": sorted(VALID_TARGETS),

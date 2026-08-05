@@ -2,11 +2,11 @@ from __future__ import annotations
 
 ACTIVE_STATES = {"available", "experimental_available"}
 GATED_STATES = {"planned_gated", "provider_gated", "unsupported"}
-SUPPORTED_BACKENDS = {"comfyui", "comfyui_portable"}
+SUPPORTED_BACKENDS = {"comfyui", "comfyui_portable", "forge"}
 SUPPORTED_WORKFLOW_MODES = {"generate", "txt2img", "img2img", "inpaint", "outpaint"}
 
 REASONS = {
-    "available": "IP Adapter is available for validated Comfy checkpoint routes.",
+    "available": "IP Adapter is available for the selected validated backend route.",
     "experimental_available": "IP Adapter is available experimentally on this route; validate output identity strength before batch use.",
     "planned_gated": "This route has no validated V2 IP Adapter workflow patch yet.",
     "provider_gated": "This backend/provider route is not implemented for IP Adapter yet.",
@@ -30,6 +30,12 @@ def route_state(backend: str | None, family: str | None, loader: str | None, wor
     mode = normalize_mode(workflow_mode)
     if backend not in SUPPORTED_BACKENDS:
         return "provider_gated"
+    if backend == "forge":
+        if family in {"sdxl", "sd15"} and loader == "checkpoint" and mode in {"generate", "img2img", "inpaint"}:
+            return "experimental_available"
+        if family in {"sdxl", "sd15"} and loader == "checkpoint" and mode == "outpaint":
+            return "planned_gated"
+        return "unsupported"
     if family == "sdxl" and loader == "checkpoint" and mode in {"generate", "img2img", "inpaint"}:
         return "available"
     if family == "sd15" and loader == "checkpoint" and mode in {"generate", "img2img", "inpaint"}:

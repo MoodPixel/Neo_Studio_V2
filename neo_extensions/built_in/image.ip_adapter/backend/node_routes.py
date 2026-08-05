@@ -32,6 +32,84 @@ def build_ip_adapter_node_status(
     backend_details = backend_details or {}
     provider_id = _provider_id_from_backend(str(backend_details.get("provider_id") or backend))
     matrix_state = route_state(provider_id, family, loader, workflow_mode)
+    if provider_id == "forge":
+        snapshot = backend_details.get("forge_admin") if isinstance(backend_details.get("forge_admin"), dict) else {}
+        extension_caps = snapshot.get("extension_capabilities") if isinstance(snapshot.get("extension_capabilities"), dict) else {}
+        capability = extension_caps.get("ip_adapter") if isinstance(extension_caps.get("ip_adapter"), dict) else {}
+        family_key = str(family or "").lower()
+        family_rows = capability.get("models_by_family") if isinstance(capability.get("models_by_family"), dict) else {}
+        faceid_family_rows = capability.get("faceid_models_by_family") if isinstance(capability.get("faceid_models_by_family"), dict) else {}
+        model_rows = family_rows.get(family_key) if isinstance(family_rows.get(family_key), list) else []
+        faceid_rows = faceid_family_rows.get(family_key) if isinstance(faceid_family_rows.get(family_key), list) else []
+        model_names = [str(item.get("catalog_name") or "") for item in model_rows if isinstance(item, dict) and str(item.get("catalog_name") or "").strip()]
+        faceid_names = [str(item.get("catalog_name") or "") for item in faceid_rows if isinstance(item, dict) and str(item.get("catalog_name") or "").strip()]
+        preprocessors = [str(item) for item in capability.get("preprocessors") or [] if str(item or "").strip()]
+        faceid_preprocessors = [str(item) for item in capability.get("faceid_preprocessors") or [] if str(item or "").strip()]
+        route_active = matrix_state in {"available", "experimental_available"}
+        standard_available = bool(route_active and capability.get("standard_available", capability.get("available")) and model_names)
+        faceid_available = bool(route_active and capability.get("faceid_available") and faceid_names)
+        any_available = standard_available or faceid_available
+        if not route_active:
+            readiness_state = matrix_state
+            summary = route_reason(matrix_state)
+        elif not capability.get("available"):
+            readiness_state = "provider_gated"
+            summary = str(capability.get("reason") or "Forge IP-Adapter capability is unavailable.")
+        elif not any_available:
+            readiness_state = "provider_gated"
+            summary = f"Forge exposes no compatible IP-Adapter or FaceID models for {family}."
+        elif standard_available and faceid_available:
+            readiness_state = "ready"
+            summary = f"Forge Standard IP-Adapter and FaceID are ready for {family.upper()}."
+        elif standard_available and not capability.get("faceid_detected"):
+            readiness_state = "ready"
+            summary = f"Forge Standard IP-Adapter is ready for {family.upper()}."
+        else:
+            readiness_state = "partial"
+            summary = (
+                f"Forge FaceID is ready for {family.upper()}, but Standard IP-Adapter is unavailable."
+                if faceid_available
+                else f"Forge Standard IP-Adapter is ready for {family.upper()}, but discovered FaceID models do not have a compatible live preprocessor."
+            )
+        missing_standard = [] if standard_available else ["compatible Forge IP-Adapter model/preprocessor pair"]
+        missing_faceid = [] if faceid_available else ["compatible Forge FaceID/InstantID model and InsightFace preprocessor pair"]
+        return {
+            "ok": readiness_state in {"ready", "partial"},
+            "extension_id": EXTENSION_ID,
+            "schema": "neo.image.ip_adapter.node_status.v1",
+            "profile_id": backend_details.get("profile_id") or "",
+            "provider_id": "forge",
+            "route": {"backend": "forge", "family": family, "loader": loader, "workflow_mode": workflow_mode, "route_state": matrix_state},
+            "readiness_state": readiness_state,
+            "summary": summary,
+            "standard_available": standard_available,
+            "faceid_available": faceid_available,
+            "instantid_available": bool(route_active and capability.get("instantid_available")),
+            "image_batch_available": False,
+            "missing": {"standard": missing_standard, "faceid": missing_faceid, "optional": ["multi-reference per unit"]},
+            "required": {
+                "standard": ["Forge Integrated ControlNet", "IP-Adapter model", "matching IP-Adapter preprocessor"],
+                "faceid": ["Forge Integrated ControlNet", "FaceID/InstantID model", "matching InsightFace preprocessor"],
+            },
+            "optional": [],
+            "available_nodes": [],
+            "model_inputs": {"ip_adapter": model_names, "ip_adapter_faceid": faceid_names, "clip_vision": sorted(set(preprocessors + faceid_preprocessors))},
+            "model_input_sources": {"forge_controlnet_catalog": True},
+            "model_catalog_diagnostics": {
+                "contract": str(capability.get("contract") or ""),
+                "faceid_detected": bool(capability.get("faceid_detected")),
+                "faceid_available": faceid_available,
+                "instantid_available": bool(capability.get("instantid_available")),
+                "shared_controlnet_unit_pool": True,
+                "faceid_authority": "live_model_and_preprocessor_pair_required",
+            },
+            "contract": str(capability.get("contract") or ""),
+            "available_modes": [str(item) for item in capability.get("available_modes") or []],
+            "unit_slots_by_mode": dict(capability.get("unit_slots_by_mode") or {}),
+            "max_units": int(capability.get("max_units") or max([int(value or 0) for value in (capability.get("unit_slots_by_mode") or {}).values()] or [0])),
+            "shared_controlnet_unit_pool": True,
+            "unknown_object_info": False,
+        }
     node_status = inspect_nodes(object_info)
     path_catalog = discover_model_path_catalog(backend_details)
     filesystem_inputs = path_catalog.get("model_inputs") if isinstance(path_catalog.get("model_inputs"), dict) else {}

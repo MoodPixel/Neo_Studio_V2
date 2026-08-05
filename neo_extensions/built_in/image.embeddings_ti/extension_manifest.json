@@ -1,8 +1,8 @@
 {
   "id": "embeddings_ti",
   "name": "Embeddings / Textual Inversion",
-  "version": "0.1.0",
-  "description": "Built-in Image Assets extension for Embeddings and Textual Inversion discovery, prompt insertion, metadata capture, and replay-aware prompt composition.",
+  "version": "0.2.0",
+  "description": "Built-in Image Assets extension for selected-provider Embeddings/Textual Inversion discovery, canonical prompt chips, provider-specific compile-time formatting, metadata capture, and replay-aware prompt composition.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -38,7 +38,8 @@
   ],
   "supported_backends": [
     "comfyui",
-    "comfyui_portable"
+    "comfyui_portable",
+    "forge"
   ],
   "supported_families": [
     "sdxl",
@@ -73,7 +74,10 @@
       "Embeddings/TI is treated as a prompt asset and prompt-token patch extension, not a custom-node extension.",
       "No custom Comfy node is required for the Phase C manifest contract.",
       "Route support is gated by text-encoder/prompt-token compatibility rather than node discovery.",
-      "Modern diffusion/GGUF families remain planned-gated until a compatible textual inversion path is validated; no family fallback is allowed."
+      "Modern diffusion/GGUF families remain planned-gated until a compatible textual inversion path is validated; no family fallback is allowed.",
+      "Canonical Embeddings/TI state stores plain provider-neutral trigger names; provider syntax is rendered only during compilation.",
+      "Forge Neo uses plain textual-inversion triggers while ComfyUI uses the embedding: prefix.",
+      "Catalog discovery and serialization are bound to the selected Image profile; automatic provider fallback is forbidden."
     ]
   },
   "route_states": {
@@ -414,7 +418,7 @@
     }
   },
   "ui_schema": {
-    "phase": "E.1",
+    "phase": "9",
     "route_aware": true,
     "display_modes": [
       "compact",
@@ -451,7 +455,7 @@
         "id": "scan_folder",
         "label": "Embeddings Folder",
         "type": "path",
-        "help_text": "Folder scanned for .pt, .safetensors, and .bin textual inversion files. Provider catalogs may also populate the dropdown when available.",
+        "help_text": "Optional local scan folder. The selected Image profile catalog remains authoritative; absolute paths stay server-side.",
         "payload_path": "extensions.embeddings_ti.inputs.scan_folder"
       },
       {
@@ -469,10 +473,11 @@
       },
       {
         "id": "selected_embedding_token",
-        "label": "Prompt Token",
+        "label": "Canonical Trigger",
         "compact_label": "Token",
         "type": "text",
-        "payload_path": "extensions.embeddings_ti.assets.selected_embedding.token"
+        "payload_path": "extensions.embeddings_ti.assets.selected_embedding.token",
+        "help_text": "Provider-neutral trigger name. Forge uses it directly; ComfyUI adds embedding: at compile time."
       },
       {
         "id": "target",
@@ -481,6 +486,7 @@
         "options": [
           "positive_prompt",
           "negative_prompt",
+          "both",
           "finish_positive",
           "finish_negative"
         ],
@@ -539,6 +545,16 @@
       "clean extension payload preview with no active payload on gated routes",
       "no workflow graph mutation in Phase E.1",
       "Phase F payload preview emits canonical items-only contract"
+    ],
+    "phase_9_features": [
+      "selected Image profile owns embedding catalog resolution",
+      "canonical provider-neutral trigger chips with positive, negative, and both targets",
+      "Forge plain-trigger serialization at compile time",
+      "ComfyUI embedding-prefix serialization at compile time",
+      "weighted and unweighted duplicate normalization across provider syntax variants",
+      "no permanent mutation of the visible positive or negative prompt",
+      "browser-safe library records without backend model roots",
+      "Forge finish-only embedding targets remain fail-closed"
     ]
   },
   "payload_contract": {
@@ -554,7 +570,7 @@
     ],
     "forbids_hidden_field_leakage": true,
     "route_validation_required": true,
-    "phase": "G",
+    "phase": "9",
     "extension_block_shape": {
       "enabled": "bool",
       "version": "int",
@@ -576,12 +592,14 @@
       "extensions": {
         "embeddings_ti": {
           "enabled": true,
-          "version": 1,
+          "version": 2,
           "inputs": {},
           "params": {
             "items": [
               {
-                "token": "embedding:EasyNegative",
+                "token": "EasyNegative",
+                "asset_name": "EasyNegative",
+                "catalog_name": "EasyNegative.safetensors",
                 "name": "EasyNegative",
                 "strength": 1,
                 "target": "negative_prompt"
@@ -591,7 +609,9 @@
           "assets": {
             "selected_embeddings": [
               {
-                "token": "embedding:EasyNegative",
+                "token": "EasyNegative",
+                "asset_name": "EasyNegative",
+                "catalog_name": "EasyNegative.safetensors",
                 "name": "EasyNegative",
                 "target": "negative_prompt",
                 "strength": 1
@@ -599,7 +619,12 @@
             ]
           },
           "metadata": {
-            "source": "image.assets.embeddings_ti"
+            "source": "image.assets.embeddings_ti",
+            "provider_binding": {
+              "selected_profile_only": true,
+              "automatic_provider_fallback": false,
+              "visible_prompt_mutation": false
+            }
           }
         }
       }
@@ -619,8 +644,8 @@
       "items"
     ],
     "inputs_policy": "always_empty",
-    "params_policy": "items_only_after_legacy_migration",
-    "asset_policy": "selected_embeddings_metadata_only",
+    "params_policy": "canonical provider-neutral items only after legacy migration; provider syntax is never persisted as asset identity",
+    "asset_policy": "selected_embeddings contains portable catalog names and canonical trigger metadata only; absolute model paths remain server-side",
     "hidden_field_policy": "strip_from_clean_block_and_report_in_validation",
     "disabled_behavior": "no_active_params_no_assets_no_workflow_mutation",
     "allowed_item_keys": [
@@ -628,6 +653,8 @@
       "id",
       "source_record_id",
       "token",
+      "asset_name",
+      "catalog_name",
       "name",
       "strength",
       "target"
@@ -714,7 +741,8 @@
       "backend/library_store.py",
       "backend/library_scan.py",
       "backend/library_routes.py",
-      "backend/field_sources.py"
+      "backend/field_sources.py",
+      "backend/provider_serialization.py"
     ],
     "assets": []
   },
@@ -726,17 +754,18 @@
     "metadata": "backend/metadata.py",
     "replay": "backend/replay.py",
     "memory_event": "backend/memory_event.py",
-    "field_sources": "backend/field_sources.py"
+    "field_sources": "backend/field_sources.py",
+    "provider_serialization": "backend/provider_serialization.py"
   },
   "workflow_patch_contract": {
-    "phase": "G",
+    "phase": "9",
     "entrypoint": "backend/workflow_patch.py::apply_embeddings_ti_patch",
     "node": "none",
     "graph_node_mutation": false,
-    "applies_to": "Validated positive/negative prompt-token patching on available/experimental checkpoint routes.",
+    "applies_to": "Validated provider-aware positive/negative prompt compilation on available or experimental classic checkpoint routes.",
     "rewrites": [
-      "positive_prompt_text_nodes",
-      "negative_prompt_text_nodes"
+      "provider_compile_positive_prompt",
+      "provider_compile_negative_prompt"
     ],
     "never_mutates_when": [
       "extension disabled",
@@ -745,10 +774,17 @@
       "finish-only target in base compiler phase",
       "duplicate token already present"
     ],
-    "strategy": "classic_ti_prompt_token_append",
-    "prompt_patch": "implemented_phase_g",
+    "strategy": "provider_embedding_prompt_compile",
+    "prompt_patch": "provider_specific_compile_time_formatting",
     "graph_patch": "prompt_text_only",
-    "validation_gate": "validate_and_normalize_payload.workflow_patch_allowed"
+    "validation_gate": "validate_and_normalize_payload.workflow_patch_allowed",
+    "provider_serialization": {
+      "forge": "plain_trigger_compile_time",
+      "comfyui": "comfy_embedding_prefix_compile_time",
+      "visible_prompt_mutation": false,
+      "selected_profile_only": true,
+      "automatic_provider_fallback": false
+    }
   },
   "support_matrix_contract": {
     "phase": "D",
@@ -849,6 +885,16 @@
       "documentation contract added to the manifest so future phases know where authoritative docs live",
       "documentation tests added to prevent drift between manifest, extension docs, and mapped system records",
       "no runtime, route, UI, workflow, provider, mask, or canvas behavior changed in Phase L"
+    ],
+    "phase_9_features": [
+      "selected Image profile owns embedding catalog resolution",
+      "canonical provider-neutral trigger chips with positive, negative, and both targets",
+      "Forge plain-trigger serialization at compile time",
+      "ComfyUI embedding-prefix serialization at compile time",
+      "weighted and unweighted duplicate normalization across provider syntax variants",
+      "no permanent mutation of the visible positive or negative prompt",
+      "browser-safe library records without backend model roots",
+      "Forge finish-only embedding targets remain fail-closed"
     ]
   },
   "workspace_support": [
@@ -931,17 +977,17 @@
     }
   },
   "validation_contract": {
-    "phase": "I",
+    "phase": "9",
     "route_policy": "support_matrix_required_before_active_payload",
     "shape_policy": "unsupported_keys_reported_and_clean_block_strips_them",
     "stale_field_policy": "report_stripped_fields_and_disable_on_gated_routes",
-    "semantic_policy": "normalize_tokens_targets_strengths_and_warn_on_dropped_items",
-    "workflow_policy": "workflow_patch_allowed_only_for_active_routes_with_classic_ti_prompt_token_append",
+    "semantic_policy": "normalize paths, legacy embedding prefixes, weighted wrappers, targets, and strengths into canonical provider-neutral embedding identities",
+    "workflow_policy": "compile only through the selected provider; Forge plain triggers and ComfyUI embedding-prefix tokens are rendered at submission time",
     "node_policy": "non_node_based_no_required_nodes",
     "replay_policy": "revalidate_route_and_payload_before_enable"
   },
   "test_contract": {
-    "phase": "L",
+    "phase": "9",
     "suite": "neo_extensions/built_in/image.embeddings_ti/tests",
     "required_coverage": [
       "manifest and built-in mount contract",
@@ -953,7 +999,13 @@
       "metadata, replay, assistant summary, and memory-readiness slots",
       "combined LoRA Stack + Embeddings/TI + CFG Fix runtime ordering",
       "runtime log shape where Embeddings/TI token is already in the prompt",
-      "documentation map and Phase L source-of-truth records"
+      "documentation map and Phase L source-of-truth records",
+      "selected-profile-only provider catalog resolution",
+      "Forge plain-trigger and ComfyUI embedding-prefix serialization",
+      "positive, negative, and both target compilation",
+      "weighted/unweighted provider-syntax duplicate prevention",
+      "browser path redaction and portable catalog names",
+      "fallback extension UI provider-binding contract"
     ],
     "required_commands": [
       "PYTHONPATH=. pytest -q neo_extensions/built_in/image.embeddings_ti/tests",
@@ -961,7 +1013,8 @@
       "PYTHONPATH=. pytest -q neo_extensions/built_in/image.lora_stack/tests/test_lora_stack_phase_c_ui.py",
       "node --check neo_app/static/js/neo.js",
       "node --check neo_extensions/built_in/image.embeddings_ti/ui/embeddings_panel.js",
-      "python -m py_compile neo_app/extensions/workflow_hooks.py neo_app/image/output_records.py neo_extensions/built_in/image.embeddings_ti/backend/*.py"
+      "python -m py_compile neo_app/extensions/workflow_hooks.py neo_app/image/output_records.py neo_extensions/built_in/image.embeddings_ti/backend/*.py",
+      "PYTHONPATH=. pytest -q tests/test_embedding_provider_formatting_phase9.py"
     ],
     "status_policy": {
       "mutated_prompt_text": "used",
@@ -971,7 +1024,7 @@
     }
   },
   "documentation_contract": {
-    "phase": "L",
+    "phase": "9",
     "canonical_extension_docs": [
       "neo_extensions/built_in/image.embeddings_ti/docs/EMBEDDINGS_TI_CONTRACT.md",
       "neo_extensions/built_in/image.embeddings_ti/docs/EMBEDDINGS_TI_MIGRATION_REPORT.md"
@@ -987,6 +1040,27 @@
     ],
     "source_of_truth_policy": "Extension-specific behavior lives in the extension docs and manifest; global runtime rules are summarized only in mapped neo_system_records.",
     "no_duplicate_docs_policy": true,
-    "runtime_change": false
+    "runtime_change": true
+  },
+  "forge_extension_compatibility": {
+    "phase": "Phase 9",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_capability_snapshot",
+    "fail_closed": true,
+    "contract": "forge.embedding.token.v2",
+    "supported_targets": [
+      "positive_prompt",
+      "negative_prompt",
+      "both"
+    ],
+    "catalog_contract": "neo.embeddings_ti.provider_catalog.v1",
+    "catalog_policy": "selected_profile_only",
+    "automatic_provider_fallback": false,
+    "serialization": "plain_trigger_compile_time",
+    "visible_prompt_mutation": false,
+    "unsupported_targets": [
+      "finish_positive",
+      "finish_negative"
+    ]
   }
 }

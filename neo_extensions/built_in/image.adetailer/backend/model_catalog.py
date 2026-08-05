@@ -497,6 +497,88 @@ def _classify_custom_detector_files(path: Path | None) -> tuple[list[str], list[
 
 def list_detailer_models(detector_root: str = '', sam_root: str = '', object_info: dict[str, Any] | None = None, backend_details: dict[str, Any] | None = None) -> dict[str, Any]:
     backend_details = backend_details if isinstance(backend_details, dict) else {}
+    if str(backend_details.get('provider_id') or '').strip() == 'forge':
+        # ADetailer's native Forge model map keys are basenames and currently
+        # load custom detectors from .pt files. Keep Forge suggestions separate
+        # from Comfy's typed filesystem identifiers while preserving the same
+        # user-facing Neo extension.
+        all_forge_names = _dedupe([
+            Path(str(item or '')).name
+            for item in backend_details.get('forge_adetailer_models', [])
+            if str(item or '').strip().casefold().endswith('.pt')
+        ])
+        coverage_known = bool(backend_details.get('forge_adetailer_model_coverage_known'))
+        covered_forge_names = _dedupe([
+            Path(str(item or '')).name
+            for item in backend_details.get('forge_adetailer_covered_models', [])
+            if str(item or '').strip().casefold().endswith('.pt')
+        ])
+        uncovered_forge_names = _dedupe([
+            Path(str(item or '')).name
+            for item in backend_details.get('forge_adetailer_uncovered_models', [])
+            if str(item or '').strip().casefold().endswith('.pt')
+        ])
+        # Only offer models proven to live inside Forge ADetailer's active native
+        # or extra-model directories. Older snapshots without per-model coverage
+        # metadata retain the prior all-model behavior for compatibility.
+        forge_names = covered_forge_names if coverage_known else all_forge_names
+        bbox_models: list[str] = []
+        segm_models: list[str] = []
+        for name in forge_names:
+            if _detector_pool_for_identifier(name) == 'segm':
+                segm_models.append(name)
+            else:
+                bbox_models.append(name)
+        ready = bool(backend_details.get('forge_adetailer_extra_model_dirs_ready'))
+        shared_status = str(backend_details.get('forge_adetailer_shared_status') or 'not_discovered')
+        warnings: list[str] = []
+        if forge_names and not ready:
+            warnings.append('forge_adetailer_shared_paths_partial')
+        if uncovered_forge_names:
+            warnings.append('forge_adetailer_uncovered_models_hidden')
+        if not forge_names:
+            warnings.append('forge_adetailer_catalog_not_exposed')
+        return {
+            'ok': True,
+            'comfy_root': '',
+            'models_root': '',
+            'ultralytics_dir': '',
+            'bbox_dir': '',
+            'segm_dir': '',
+            'adetailer_dir': '',
+            'onnx_dir': '',
+            'sam_dir': '',
+            'custom_detector_root': '',
+            'custom_sam_root': '',
+            'bbox_models': bbox_models,
+            'segm_models': segm_models,
+            'onnx_models': [],
+            'sam_models': [],
+            'default_detector_model': _preferred_detector(bbox_models) or _preferred_detector(segm_models),
+            'default_bbox_model': _preferred_detector(bbox_models),
+            'default_segm_model': _preferred_detector(segm_models),
+            'default_onnx_model': '',
+            'model_exts': ['.pt'],
+            'sam_presets': [],
+            'sources': ['forge_shared_model_paths'] if forge_names else [],
+            'counts': {'bbox': len(bbox_models), 'segm': len(segm_models), 'onnx': 0, 'sam': 0},
+            'diagnostics': {
+                'schema_id': 'neo.image.adetailer.catalog_diagnostics.v1',
+                'profile_id': str(backend_details.get('profile_id') or ''),
+                'provider_id': 'forge',
+                'forge_shared_model_paths': {
+                    'status': shared_status,
+                    'extra_model_dirs_ready': ready,
+                    'shared_model_count': len(all_forge_names),
+                    'covered_model_count': len(forge_names),
+                    'uncovered_model_count': len(uncovered_forge_names),
+                    'coverage_known': coverage_known,
+                    'reason': str(backend_details.get('forge_adetailer_shared_reason') or ''),
+                },
+                'warnings': warnings,
+                'path_policy': 'absolute_paths_server_side_only',
+            },
+        }
     roots = _detailer_roots_for_backend(backend_details)
     standard_bbox_models = _scan_model_dir(_safe_path(roots.get('bbox_dir')), recursive=True)
     standard_segm_models = _scan_model_dir(_safe_path(roots.get('segm_dir')), recursive=True)

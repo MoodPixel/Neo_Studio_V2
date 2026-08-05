@@ -10,6 +10,12 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = EXTENSION_DIR / "extension_manifest.json"
 SUPPORT_MATRIX_DATA_PATH = EXTENSION_DIR / "backend" / "support_matrix_data.json"
 
+# The shared Comfy support matrix owns Comfy route states, while the extension
+# manifest must continue advertising the existing Forge-native adapter contract.
+# Manifest sync therefore unions the matrix backends with Forge instead of
+# silently deleting a public backend whenever the Comfy matrix is regenerated.
+SUPPORTED_EXTENSION_BACKENDS = tuple(dict.fromkeys((*support_matrix.SUPPORTED_BACKENDS, "forge")))
+
 
 def build_manifest_updates() -> dict[str, Any]:
     """Return the manifest fields owned by support_matrix.py.
@@ -19,11 +25,14 @@ def build_manifest_updates() -> dict[str, Any]:
     aliases, workspace keys, and checksum metadata in one generated bundle.
     """
     return {
-        "supported_backends": list(support_matrix.SUPPORTED_BACKENDS),
+        "supported_backends": list(SUPPORTED_EXTENSION_BACKENDS),
         "supported_families": list(support_matrix.SUPPORTED_FAMILIES),
         "supported_loaders": list(support_matrix.SUPPORTED_LOADERS),
         "workflow_modes": list(support_matrix.SUPPORTED_MODES),
+        "supported_engines": list(support_matrix.SUPPORTED_ENGINES),
+        "compatibility_dimensions": {"backend": True, "family": True, "loader": True, "workflow_mode": True, "engine": False},
         "route_states": support_matrix.manifest_route_states(),
+        "route_policies": support_matrix.manifest_route_policies(),
         "support_matrix_contract": support_matrix.manifest_sync_contract(),
     }
 
@@ -31,10 +40,10 @@ def build_manifest_updates() -> dict[str, Any]:
 def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
     updated = dict(manifest)
     updated.update(build_manifest_updates())
-    updated["version"] = "0.1.0-p10-l6-family-enablements"
+    updated["version"] = "0.1.0-p12-global-lora-engine-decoupling"
     updated["description"] = (
-        "Built-in Image LoRA Stack extension with L6 family-by-family experimental enablement. "
-        "Assets is the only editable UI mount; Generation submission still collects the applied Assets payload with other Image workspace extensions."
+        "Built-in Image LoRA Stack extension with engine-independent compatibility. Phase 12 resolves support from backend, family, loader and workflow mode; Native Inpaint and LanPaint share the same LoRA policy while each compiler retains its own graph anchors. "
+        "Assets is the only editable UI mount; Generation submission still collects the explicitly applied optional stack with other Image workspace extensions."
     )
     updated["workspace_apps"] = ["assets"]
     updated["mount_slots"] = ["image.assets.lora_stack"]
@@ -49,7 +58,7 @@ def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
         }
     ]
     ui_schema = dict(updated.get("ui_schema") or {})
-    ui_schema["phase"] = "L6"
+    ui_schema["phase"] = "L12"
     features = list(ui_schema.get("phase_l2_features") or [])
     for item in [
         "backend-prefixed route state keys",
@@ -99,17 +108,34 @@ def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
     ui_schema["phase_l1_features"] = l1_features
 
     l6_features = list(ui_schema.get("phase_l6_features") or [])
+    l6_features = [item for item in l6_features if item not in {
+        "engine-aware LoRA route identity with legacy native compatibility",
+        "Krea 2 Turbo GGUF LanPaint inpaint model-only LoRA route",
+        "native Krea 2 inpaint remains gated independently from LanPaint",
+        "engine-specific LoraLoader validation for AuraFlow LanPaint overlays",
+    }]
     for item in [
         "family-by-family experimental LoRA route enablement",
-        "Flux / Flux 2 Klein compiler-profile-backed LoRA routes",
-        "Qwen Image / Rapid AIO / Edit 2509 compiler-profile-backed LoRA routes",
-        "ZImage / ZImage Turbo compiler-profile-backed LoRA routes",
-        "HiDream txt2img only with image modes kept gated",
-        "Wan and Hunyuan provider-specific gates preserved",
+        "compiler-owned model/clip patch profiles",
+        "Krea 2 model-only LoRA policy",
+        "Qwen and Z-Image model+CLIP LoRA policy",
     ]:
         if item not in l6_features:
             l6_features.append(item)
     ui_schema["phase_l6_features"] = l6_features
+
+    l12_features = list(ui_schema.get("phase_l12_features") or [])
+    for item in [
+        "engine-independent LoRA compatibility identity",
+        "Native Inpaint and LanPaint compatibility parity",
+        "workflow-engine metadata retained only in compiler patch profiles",
+        "manifest route policies publish model-only versus model+CLIP mode",
+        "saved LoRA rows survive engine switching without implicit execution",
+        "missing LoRA nodes block only explicit LoRA requests",
+    ]:
+        if item not in l12_features:
+            l12_features.append(item)
+    ui_schema["phase_l12_features"] = l12_features
     updated["ui_schema"] = ui_schema
     bundle = dict(updated.get("asset_bundle") or {})
     python_assets = list(bundle.get("python") or [])
@@ -124,13 +150,20 @@ def apply_manifest_updates(manifest: dict[str, Any]) -> dict[str, Any]:
             optional_nodes.append(node_name)
     node_requirements["optional"] = optional_nodes
     node_requirements["source"] = "standard_comfy_nodes"
-    notes = list(node_requirements.get("notes") or [])
+    notes = [
+        note for note in list(node_requirements.get("notes") or [])
+        if note != "L6 promotes only compiler-profile-backed family routes to experimental; available remains reserved for physically validated checkpoint routes."
+    ]
     l5_note = "L5 supports standard Comfy LoraLoader and LoraLoaderModelOnly through route/strategy-gated compiler patch profiles."
     if l5_note not in notes:
         notes.append(l5_note)
-    l6_note = "L6 promotes only compiler-profile-backed family routes to experimental; available remains reserved for physically validated checkpoint routes."
+    l6_note = "L6 promotes only compiler-profile-backed family routes to experimental; available remains reserved for physically validated routes."
     if l6_note not in notes:
         notes.append(l6_note)
+    notes = [note for note in notes if "engine=lanpaint" not in note and "engine-specific" not in note and "native Krea 2 inpaint does not inherit" not in note]
+    phase12_note = "Phase 12 makes LoRA compatibility independent of Native Inpaint versus LanPaint. Compiler patch profiles still own engine-specific graph anchors and lineage."
+    if phase12_note not in notes:
+        notes.append(phase12_note)
     node_requirements["notes"] = notes
     updated["node_requirements"] = node_requirements
     updated["asset_bundle"] = bundle

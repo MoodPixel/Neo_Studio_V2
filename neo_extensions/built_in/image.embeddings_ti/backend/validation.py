@@ -107,13 +107,13 @@ def _collect_normalization_warnings(raw: dict[str, Any], block: dict[str, Any]) 
 
 def validation_contract() -> dict[str, Any]:
     return {
-        "phase": "I",
+        "phase": "9",
         "extension_id": EXTENSION_ID,
         "route_policy": "support_matrix_required_before_active_payload",
         "shape_policy": "unsupported_keys_reported_and_clean_block_strips_them",
         "stale_field_policy": "report_stripped_fields_and_disable_on_gated_routes",
-        "semantic_policy": "normalize_tokens_targets_strengths_and_warn_on_dropped_items",
-        "workflow_policy": "workflow_patch_allowed_only_for_active_routes_with_classic_ti_prompt_token_append",
+        "semantic_policy": "normalize provider syntax paths weighted wrappers targets strengths and warn on dropped items",
+        "workflow_policy": "selected-provider compile only; Comfy prompt patch uses embedding prefix and Forge compiler uses plain trigger",
         "node_policy": "non_node_based_no_required_nodes",
     }
 

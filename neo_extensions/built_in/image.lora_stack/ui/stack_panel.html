@@ -1,9 +1,15 @@
-<section class="neo-extension-panel neo-lora-stack-panel" data-extension-id="lora_stack" data-route-aware="true" data-phase="C">
+<section class="neo-extension-panel neo-lora-stack-panel" data-extension-id="lora_stack" data-route-aware="true" data-phase="8">
   <header class="neo-lora-panel-header">
     <h3>LoRA Stack</h3>
-    <span class="neo-chip" data-lora-stack-status>Route-aware UI</span>
+    <span class="neo-chip" data-lora-stack-status>Selected-provider catalog</span>
   </header>
-  <p class="neo-muted">Route-aware V1 parity UI for ordered LoRA rows, strength, pass targeting, Scene Director apply targets, duplicate cleanup, and clean payload preview.</p>
+  <p class="neo-muted">Provider-neutral LoRA rows. Add LoRA opens the selected Image profile catalog; Forge prompt tags are rendered only during submission and Comfy keeps workflow-loader execution.</p>
+  <div data-lora-stack-picker hidden>
+    <input type="search" data-lora-stack-picker-search placeholder="Search selected-provider LoRAs">
+    <select data-lora-stack-picker-select></select>
+    <input type="number" min="-4" max="4" step="0.05" value="0.8" data-lora-stack-picker-strength>
+    <button type="button" data-lora-stack-picker-add>Add selected LoRA</button>
+  </div>
   <div data-lora-stack-rows></div>
-  <button type="button" data-lora-stack-add-row>Add LoRA Row</button>
+  <button type="button" data-lora-stack-add-row>Add LoRA</button>
 </section>

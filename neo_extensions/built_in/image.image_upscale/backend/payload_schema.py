@@ -32,8 +32,8 @@ REPLAY_RESTORE_POLICY = "revalidate_route_nodes_image_upscale_source_assets_and_
 PROFILE_DEFAULT = "preserve_2x"
 VALID_PROFILES = {"custom", "preserve_2x", "preserve_4x", "portrait_restore_2x"}
 VALID_RESIZE_METHODS = {"lanczos", "bicubic", "bilinear", "area", "nearest-exact"}
-VALID_RESTORE_ASSISTS = {"off", "codeformer"}
-VALID_SOURCE_MODES = {"selected_result", "upload", "batch", "selected_result_or_upload"}
+VALID_RESTORE_ASSISTS = {"off", "codeformer", "gfpgan"}
+VALID_SOURCE_MODES = {"selected_result", "upload", "batch", "selected_result_or_upload", "uploaded-batch", "single-upload-staged-source", "preview-action-staged-output", "selected-result"}
 VALID_UPSCALE_ENGINES = {"basic", "seedvr2"}
 
 DEFAULTS: dict[str, Any] = {
@@ -46,7 +46,17 @@ DEFAULTS: dict[str, Any] = {
     "restore_model": "",
     "restore_fidelity": 0.65,
     "restore_detection": "retinaface_resnet50",
+    "restore_visibility": 1.0,
+    "forge_resize_mode": "scale",
+    "target_width": 1024,
+    "target_height": 1024,
+    "upscaling_crop": False,
+    "secondary_upscale_model": "None",
+    "secondary_visibility": 0.0,
+    "upscale_first": False,
     "source_mode": "selected_result_or_upload",
+    "source_width": 0,
+    "source_height": 0,
     "seedvr2_dit_model": SEEDVR2_DIT_DEFAULT,
     "seedvr2_vae_model": SEEDVR2_VAE_DEFAULT,
     "seedvr2_sizing_mode": "scale_factor",
@@ -93,6 +103,16 @@ V1_KEY_ALIASES = {
     "image_upscale_restore_model": "restore_model",
     "image_upscale_restore_fidelity": "restore_fidelity",
     "image_upscale_restore_detection": "restore_detection",
+    "image_upscale_restore_visibility": "restore_visibility",
+    "image_upscale_forge_resize_mode": "forge_resize_mode",
+    "image_upscale_target_width": "target_width",
+    "image_upscale_target_height": "target_height",
+    "image_upscale_upscaling_crop": "upscaling_crop",
+    "image_upscale_secondary_model": "secondary_upscale_model",
+    "image_upscale_secondary_visibility": "secondary_visibility",
+    "image_upscale_upscale_first": "upscale_first",
+    "image_upscale_source_width": "source_width",
+    "image_upscale_source_height": "source_height",
     "seedvr2_dit_model": "seedvr2_dit_model",
     "seedvr2_vae_model": "seedvr2_vae_model",
     "seedvr2_sizing_mode": "seedvr2_sizing_mode",
@@ -249,6 +269,12 @@ def _normalize_restore_assist(value: Any) -> str:
     return assist if assist in VALID_RESTORE_ASSISTS else DEFAULTS["restore_assist"]
 
 
+def _normalize_forge_resize_mode(value: Any) -> str:
+    mode = _text(value, DEFAULTS["forge_resize_mode"]).lower().replace("-", "_").replace(" ", "_")
+    if mode in {"exact", "exact_dimensions", "dimensions", "target_dimensions", "width_height"}:
+        return "exact"
+    return "scale"
+
 
 def _normalize_seedvr2_sizing_mode(value: Any) -> str:
     mode = _text(value, DEFAULTS["seedvr2_sizing_mode"]).lower().replace("-", "_").replace(" ", "_")
@@ -372,6 +398,15 @@ def normalize_settings(settings: dict[str, Any] | str | None = None) -> dict[str
     clean["upscale_model"] = _text(raw.get("upscale_model", DEFAULTS["upscale_model"]))
     clean["restore_assist"] = _normalize_restore_assist(raw.get("restore_assist", DEFAULTS["restore_assist"]))
     clean["source_mode"] = _normalize_source_mode(raw.get("source_mode", DEFAULTS["source_mode"]))
+    clean["source_width"] = max(0, _int(raw.get("source_width", DEFAULTS["source_width"]), DEFAULTS["source_width"]))
+    clean["source_height"] = max(0, _int(raw.get("source_height", DEFAULTS["source_height"]), DEFAULTS["source_height"]))
+    clean["forge_resize_mode"] = _normalize_forge_resize_mode(raw.get("forge_resize_mode", DEFAULTS["forge_resize_mode"]))
+    clean["target_width"] = max(1, min(_int(raw.get("target_width", DEFAULTS["target_width"]), DEFAULTS["target_width"]), 16384))
+    clean["target_height"] = max(1, min(_int(raw.get("target_height", DEFAULTS["target_height"]), DEFAULTS["target_height"]), 16384))
+    clean["upscaling_crop"] = _bool(raw.get("upscaling_crop", DEFAULTS["upscaling_crop"]), DEFAULTS["upscaling_crop"])
+    clean["secondary_upscale_model"] = _text(raw.get("secondary_upscale_model", DEFAULTS["secondary_upscale_model"])) or "None"
+    clean["secondary_visibility"] = round(_clamp(_float(raw.get("secondary_visibility", DEFAULTS["secondary_visibility"]), DEFAULTS["secondary_visibility"]), 0.0, 1.0), 4)
+    clean["upscale_first"] = _bool(raw.get("upscale_first", DEFAULTS["upscale_first"]), DEFAULTS["upscale_first"])
 
     # Keep source linkage as inputs, but only when present. These are safe
     # replay/source references, not workflow mutation flags.
@@ -379,11 +414,14 @@ def normalize_settings(settings: dict[str, Any] | str | None = None) -> dict[str
         value = _text(raw.get(link_key))
         if value:
             clean[link_key] = value
+    if isinstance(raw.get("_neo_derived_action"), dict):
+        clean["_neo_derived_action"] = deepcopy(raw["_neo_derived_action"])
 
-    # Hidden-field cleanup: restore details only survive when CodeFormer is on.
-    if clean["restore_assist"] == "codeformer":
+    # Hidden-field cleanup: restore details survive only for an enabled face-restoration route.
+    if clean["restore_assist"] in {"codeformer", "gfpgan"}:
         clean["restore_model"] = _text(raw.get("restore_model", DEFAULTS["restore_model"]))
         clean["restore_fidelity"] = round(_clamp(_float(raw.get("restore_fidelity", DEFAULTS["restore_fidelity"]), DEFAULTS["restore_fidelity"]), 0.0, 1.0), 4)
+        clean["restore_visibility"] = round(_clamp(_float(raw.get("restore_visibility", DEFAULTS["restore_visibility"]), DEFAULTS["restore_visibility"]), 0.0, 1.0), 4)
         detection = _text(raw.get("restore_detection", DEFAULTS["restore_detection"])) or DEFAULTS["restore_detection"]
         clean["restore_detection"] = detection if detection in CODEFORMER_FACE_DETECTION_OPTIONS else DEFAULTS["restore_detection"]
 
@@ -440,7 +478,7 @@ def split_payload_parts(settings: dict[str, Any] | str | None = None, *, source_
     return {"inputs": inputs, "params": params, "assets": assets}
 
 
-def validate_payload_settings(settings: dict[str, Any] | str | None = None, *, require_source: bool = False, source_images: Any = None) -> dict[str, Any]:
+def validate_payload_settings(settings: dict[str, Any] | str | None = None, *, require_source: bool = False, source_images: Any = None, provider_id: str = "") -> dict[str, Any]:
     parts = split_payload_parts(settings, source_images=source_images)
     params = parts["params"]
     inputs = parts["inputs"]
@@ -448,9 +486,13 @@ def validate_payload_settings(settings: dict[str, Any] | str | None = None, *, r
     errors: list[str] = []
     warnings: list[str] = []
 
+    provider_key = str(provider_id or "").strip().lower()
+    forge_provider = provider_key == "forge"
     force_rgba = params.get("upscale_engine") == "seedvr2" and params.get("seedvr2_alpha_mode") == "preserve"
-    if params.get("restore_assist") == "codeformer" and not params.get("restore_model") and not force_rgba:
+    if params.get("restore_assist") == "codeformer" and not forge_provider and not params.get("restore_model") and not force_rgba:
         errors.append("CodeFormer restore requires a restore_model before Image Upscale can queue. Place CodeFormer models in ComfyUI/models/facerestore_models/.")
+    if params.get("restore_assist") == "gfpgan" and not forge_provider:
+        errors.append("GFPGAN restore is available only when the selected Forge profile reports it through Forge Extras.")
     if params.get("upscale_engine") == "seedvr2":
         if not params.get("seedvr2_dit_model"):
             errors.append("Choose a SeedVR2 DiT model before queueing SeedVR2. Models live in ComfyUI/models/SEEDVR2/.")
@@ -460,6 +502,13 @@ def validate_payload_settings(settings: dict[str, Any] | str | None = None, *, r
             warnings.append("CodeFormer restore will be skipped because Force Preserve RGBA is active and the current restore route is not alpha-safe.")
         elif params.get("seedvr2_alpha_mode") == "auto" and params.get("restore_assist") == "codeformer":
             warnings.append("Auto Preserve applies CodeFormer only to opaque sources and skips it per job when real transparency is detected.")
+    if forge_provider:
+        if params.get("upscale_engine") == "seedvr2":
+            errors.append("SeedVR2 is Comfy-only and cannot run through Forge Extras.")
+        if params.get("forge_resize_mode") == "exact" and (int(params.get("target_width") or 0) < 1 or int(params.get("target_height") or 0) < 1):
+            errors.append("Forge exact-size upscale requires positive target width and height.")
+        if params.get("secondary_visibility", 0) > 0 and str(params.get("secondary_upscale_model") or "None").casefold() == "none":
+            warnings.append("Secondary-upscaler visibility is above zero but no secondary upscaler is selected; Forge will ignore the blend.")
     has_source_ref = bool(inputs.get("source_output_id") or inputs.get("source_image_name") or assets.get("source_images"))
     if require_source and not has_source_ref:
         errors.append("Pick at least one source image for Image Upscale.")

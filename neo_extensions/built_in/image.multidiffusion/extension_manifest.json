@@ -1,0 +1,64 @@
+{
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "image",
+  "supported_backends": [
+    "forge"
+  ],
+  "depends_on": [],
+  "extends": [],
+  "id": "image.multidiffusion",
+  "name": "Image \u00b7 MultiDiffusion",
+  "version": "0.1.0",
+  "description": "Neo-managed Forge MultiDiffusion tiled diffusion controls for conservative SD 1.5/SDXL img2img-family routes.",
+  "subtabs": [
+    "generations"
+  ],
+  "workflow_modes": [
+    "img2img",
+    "inpaint",
+    "outpaint"
+  ],
+  "workspace_apps": [
+    "generations"
+  ],
+  "mount_slots": [
+    "image.generations.multidiffusion"
+  ],
+  "mount_targets": [
+    {
+      "surface": "image",
+      "workspace_app": "generations",
+      "workflow_mode": null,
+      "slot": "image.generations.multidiffusion",
+      "route_states": [
+        "available",
+        "experimental_available"
+      ]
+    }
+  ],
+  "supported_families": [
+    "sdxl",
+    "sd15"
+  ],
+  "supported_loaders": [
+    "checkpoint"
+  ],
+  "route_states": {
+    "forge:sdxl:*:img2img": "experimental_available",
+    "forge:sdxl:*:inpaint": "experimental_available",
+    "forge:sdxl:*:outpaint": "experimental_available",
+    "forge:sd15:*:img2img": "experimental_available",
+    "forge:sd15:*:inpaint": "experimental_available",
+    "forge:sd15:*:outpaint": "experimental_available",
+    "*": "unsupported"
+  },
+  "forge_extension_compatibility": {
+    "phase": "E2",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_script_schema",
+    "contract": "forge.multidiffusion.integrated.v1",
+    "physical_validation": "required",
+    "modern_families": "gated_pending_physical_validation"
+  }
+}

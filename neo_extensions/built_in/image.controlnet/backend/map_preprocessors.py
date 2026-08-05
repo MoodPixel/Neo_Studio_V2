@@ -248,8 +248,22 @@ def list_preprocessor_options(
 ) -> dict[str, Any]:
     node_status = inspect_nodes(object_info, backend_details=backend_details)
     options = []
+    forge_backend = str(node_status.get("provider_id") or "").strip().lower() == "forge"
     for mode in ["none", "canny", "depth", "openpose", "dwpose", "lineart", "lineart_anime", "softedge", "scribble", "normalbae", "tile"]:
-        status = map_mode_status(mode, node_status.get("preprocessors") or {})
+        lookup = "openpose" if mode == "dwpose" else mode
+        if mode == "none":
+            status = {"mode": mode, "state": "available", "backend": "identity", "node": None, "reason": "Using the supplied control image directly as a map."}
+        elif forge_backend:
+            provider_state = dict((node_status.get("preprocessor_states") or {}).get(lookup) or {})
+            status = {
+                "mode": mode,
+                "state": provider_state.get("state") or "provider_gated",
+                "backend": provider_state.get("backend") or "forge_module_missing",
+                "node": provider_state.get("node"),
+                "reason": provider_state.get("reason") or "",
+            }
+        else:
+            status = map_mode_status(mode, node_status.get("preprocessors") or {})
         options.append({
             "id": mode,
             "label": {

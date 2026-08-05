@@ -3,9 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .support_matrix import graph_patch_strategy, normalize_workflow_mode, route_support
+from .support_matrix import graph_patch_strategy, normalize_route_engine, normalize_workflow_mode, route_support
 
-PATCH_PROFILE_SCHEMA_VERSION = "neo.image.lora_stack.patch_profile.v1"
+PATCH_PROFILE_SCHEMA_VERSION = "neo.image.lora_stack.patch_profile.v2"
+LEGACY_PATCH_PROFILE_SCHEMA_VERSIONS = {"neo.image.lora_stack.patch_profile.v1"}
 DEFAULT_LOADER_NODE_CLASS = "LoraLoader"
 MODEL_ONLY_LOADER_NODE_CLASS = "LoraLoaderModelOnly"
 MODEL_ONLY_STRATEGIES = {"lora_loader_model_only_chain", "lora_loader_model_only_consumer_rewire"}
@@ -46,13 +47,29 @@ def _clean_route(route: dict[str, Any] | None) -> dict[str, Any]:
     family = str(route.get("family") or "")
     loader = str(route.get("loader") or "")
     mode = normalize_workflow_mode(str(route.get("workflow_mode") or route.get("mode") or "generate"))
+    normalized_engine = normalize_route_engine(route.get("workflow_engine") or route.get("engine") or route.get("inpaint_engine"))
+    workflow_engine = normalized_engine or "native"
+    compatibility_route_key = f"{family}:{loader}:{mode}"
+    default_workflow_route_key = compatibility_route_key + (f":{normalized_engine}" if normalized_engine and normalized_engine != "native" else "")
+    workflow_route_key = str(
+        route.get("workflow_route_key")
+        or route.get("graph_route_key")
+        or route.get("route_key")
+        or default_workflow_route_key
+    )
     return {
         "backend": backend,
         "family": family,
         "loader": loader,
         "workflow_mode": mode,
         "mode": mode,
-        "route_key": str(route.get("route_key") or f"{family}:{loader}:{mode}"),
+        "engine": workflow_engine,
+        "workflow_engine": workflow_engine,
+        "engine_explicit": bool(normalized_engine),
+        "compatibility_engine_independent": True,
+        "route_key": compatibility_route_key,
+        "compatibility_route_key": compatibility_route_key,
+        "workflow_route_key": workflow_route_key,
         "route_state": str(route.get("route_state") or route.get("state") or "unknown"),
     }
 
@@ -93,6 +110,10 @@ def build_lora_patch_profile(
         "source": str(source or "compiler"),
         "route": clean_route,
         "route_key": clean_route["route_key"],
+        "compatibility_route_key": clean_route["compatibility_route_key"],
+        "workflow_route_key": clean_route["workflow_route_key"],
+        "workflow_engine": clean_route["workflow_engine"],
+        "compatibility_engine_independent": True,
         "strategy": resolved_strategy,
         "loader_node_class": resolved_loader,
         "requires_model": resolved_requires_model,
@@ -143,11 +164,20 @@ def normalize_lora_patch_profile(profile: dict[str, Any] | None, *, route: dict[
         errors.append("clip_ref_missing")
     if not loader_node_class:
         errors.append("loader_node_class_missing")
+    source_schema_version = str(profile.get("schema_version") or PATCH_PROFILE_SCHEMA_VERSION)
+    legacy_schema_migrated = source_schema_version in LEGACY_PATCH_PROFILE_SCHEMA_VERSIONS
     normalized_profile = {
-        "schema_version": str(profile.get("schema_version") or PATCH_PROFILE_SCHEMA_VERSION),
+        "schema_version": PATCH_PROFILE_SCHEMA_VERSION,
+        "source_schema_version": source_schema_version,
+        "legacy_schema_migrated": legacy_schema_migrated,
         "source": str(profile.get("source") or "compiler"),
         "route": profile_route,
-        "route_key": str(profile.get("route_key") or profile_route["route_key"]),
+        "route_key": profile_route["compatibility_route_key"],
+        "compatibility_route_key": profile_route["compatibility_route_key"],
+        "workflow_route_key": str(profile.get("workflow_route_key") or profile.get("graph_route_key") or profile_route["workflow_route_key"]),
+        "engine": str(profile_route.get("workflow_engine") or "native"),
+        "workflow_engine": str(profile_route.get("workflow_engine") or "native"),
+        "compatibility_engine_independent": True,
         "strategy": strategy,
         "loader_node_class": loader_node_class,
         "requires_model": requires_model,
@@ -184,6 +214,14 @@ def profile_metadata(profile_result: dict[str, Any] | None) -> dict[str, Any]:
         "required": bool(result.get("required")),
         "reason": str(result.get("reason") or ""),
         "source": str(profile.get("source") or ""),
+        "source_schema_version": str(profile.get("source_schema_version") or profile.get("schema_version") or ""),
+        "legacy_schema_migrated": bool(profile.get("legacy_schema_migrated", False)),
+        "route_key": str(profile.get("compatibility_route_key") or profile.get("route_key") or ""),
+        "compatibility_route_key": str(profile.get("compatibility_route_key") or profile.get("route_key") or ""),
+        "workflow_route_key": str(profile.get("workflow_route_key") or (profile.get("route") or {}).get("workflow_route_key") or ""),
+        "engine": str(profile.get("workflow_engine") or profile.get("engine") or (profile.get("route") or {}).get("workflow_engine") or (profile.get("route") or {}).get("engine") or "native"),
+        "workflow_engine": str(profile.get("workflow_engine") or profile.get("engine") or (profile.get("route") or {}).get("workflow_engine") or (profile.get("route") or {}).get("engine") or "native"),
+        "compatibility_engine_independent": True,
         "strategy": str(profile.get("strategy") or ""),
         "loader_node_class": str(profile.get("loader_node_class") or ""),
         "requires_model": bool(profile.get("requires_model", True)),

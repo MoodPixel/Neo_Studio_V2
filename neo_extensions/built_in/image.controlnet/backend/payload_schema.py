@@ -27,7 +27,7 @@ VALID_WEIGHT_PRESETS = {"balanced", "prompt_strong", "control_strong", "soft", "
 VALID_ADVANCED_ENGINES = {"auto", "standard", "advanced_controlnet"}
 VALID_PARAM_KEYS = {"advanced_controlnet_requested", "batch_policy", "controlnet_task", "qwen_controlnet_adapter", "controlnet_qwen_adapter", "qwen_cn_adapter", "flux_controlnet_adapter", "controlnet_flux_adapter", "flux_cn_adapter", "flux_klein_controlnet_adapter"}
 VALID_ASSET_KEYS = {"control_images", "control_masks", "generated_maps", "source_images", "source_masks", "inpaint_source_images", "inpaint_masks", "outpaint_source_images", "outpaint_canvas_images", "outpaint_masks", "padded_images", "padded_masks"}
-VALID_METADATA_KEYS = {"schema", "route", "route_state", "ui_source", "reason", "requested", "payload_hardening", "legacy_migrated", "controlnet_task", "asset_resolver_phase"}
+VALID_METADATA_KEYS = {"schema", "route", "route_state", "ui_source", "reason", "requested", "payload_hardening", "legacy_migrated", "controlnet_task", "asset_resolver_phase", "preview_reference_handoff"}
 
 COMMON_UNIT_KEYS = {
     "uid",

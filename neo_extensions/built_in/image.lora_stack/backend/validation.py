@@ -13,7 +13,7 @@ from .payload_schema import (
     sanitize_block,
     validate_payload_block_shape,
 )
-from .support_matrix import route_state as declared_route_state, support_reason
+from .support_matrix import normalize_route_engine, route_state as declared_route_state, support_reason
 
 
 def _route_context(route: dict[str, Any] | None) -> dict[str, Any]:
@@ -22,15 +22,24 @@ def _route_context(route: dict[str, Any] | None) -> dict[str, Any]:
     family = route.get("family") or "sdxl"
     loader = route.get("loader") or "checkpoint"
     mode = route.get("workflow_mode") or route.get("mode") or "generate"
+    engine = normalize_route_engine(route.get("workflow_engine") or route.get("engine") or route.get("inpaint_engine"))
     state = route.get("route_state") or declared_route_state(str(backend), str(family), str(loader), str(mode))
     reason = route.get("reason") or support_reason(str(backend), str(family), str(loader), str(mode))
+    compatibility_route_key = f"{family}:{loader}:{mode}"
+    workflow_route_key = str(route.get("workflow_route_key") or route.get("graph_route_key") or route.get("route_key") or compatibility_route_key + (f":{engine}" if engine and engine != "native" else ""))
     return {
         "backend": str(backend),
         "family": str(family),
         "loader": str(loader),
         "workflow_mode": str(mode),
         "mode": str(mode),
-        "route_key": route.get("route_key") or f"{family}:{loader}:{mode}",
+        "engine": engine or "native",
+        "workflow_engine": engine or "native",
+        "engine_explicit": bool(engine),
+        "compatibility_engine_independent": True,
+        "route_key": compatibility_route_key,
+        "compatibility_route_key": compatibility_route_key,
+        "workflow_route_key": workflow_route_key,
         "route_state": str(state),
         "reason": str(reason or ""),
     }
@@ -111,7 +120,7 @@ def validate_and_normalize_payload(
             "params": deepcopy(block.get("params", {})),
             "assets": deepcopy(block.get("assets", {})),
             "route": route_ctx,
-            "node_status": {"required": [], "available": True, "reason": "LoRA Stack uses standard Comfy LoraLoader when the compiler route supports it."},
+            "node_status": {"required": [], "available": True, "reason": "LoRA Stack uses the family-compatible Comfy LoRA loader declared by the active compiler patch profile."},
             "validation": all_validation,
             "errors": error_messages,
             "warnings": warning_messages,

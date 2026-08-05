@@ -2934,7 +2934,41 @@
     "comfyui_portable:z_image_turbo:native:outpaint": "unsupported",
     "comfyui_portable:z_image_turbo:native:outpaint:inpaint_control": "unsupported",
     "comfyui_portable:z_image_turbo:native:outpaint:map_control": "unsupported",
-    "comfyui_portable:z_image_turbo:native:outpaint:outpaint_control": "unsupported"
+    "comfyui_portable:z_image_turbo:native:outpaint:outpaint_control": "unsupported",
+    "forge:sdxl:checkpoint:txt2img": "experimental_available",
+    "forge:sdxl:checkpoint:txt2img:map_control": "experimental_available",
+    "forge:sdxl:checkpoint:txt2img:inpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:txt2img:outpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:generate": "experimental_available",
+    "forge:sdxl:checkpoint:generate:map_control": "experimental_available",
+    "forge:sdxl:checkpoint:generate:inpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:generate:outpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:img2img": "experimental_available",
+    "forge:sdxl:checkpoint:img2img:map_control": "experimental_available",
+    "forge:sdxl:checkpoint:img2img:inpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:img2img:outpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:inpaint": "experimental_available",
+    "forge:sdxl:checkpoint:inpaint:map_control": "experimental_available",
+    "forge:sdxl:checkpoint:inpaint:inpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:inpaint:outpaint_control": "provider_gated",
+    "forge:sdxl:checkpoint:outpaint": "provider_gated",
+    "forge:sd15:checkpoint:txt2img": "experimental_available",
+    "forge:sd15:checkpoint:txt2img:map_control": "experimental_available",
+    "forge:sd15:checkpoint:txt2img:inpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:txt2img:outpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:generate": "experimental_available",
+    "forge:sd15:checkpoint:generate:map_control": "experimental_available",
+    "forge:sd15:checkpoint:generate:inpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:generate:outpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:img2img": "experimental_available",
+    "forge:sd15:checkpoint:img2img:map_control": "experimental_available",
+    "forge:sd15:checkpoint:img2img:inpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:img2img:outpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:inpaint": "experimental_available",
+    "forge:sd15:checkpoint:inpaint:map_control": "experimental_available",
+    "forge:sd15:checkpoint:inpaint:inpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:inpaint:outpaint_control": "provider_gated",
+    "forge:sd15:checkpoint:outpaint": "provider_gated"
   },
   "subtabs": [
     "reference"
@@ -2942,7 +2976,8 @@
   "support_matrix_contract": "P9.3-controlnet-flux-klein-enablement",
   "supported_backends": [
     "comfyui",
-    "comfyui_portable"
+    "comfyui_portable",
+    "forge"
   ],
   "supported_families": [
     "sdxl",
@@ -3158,5 +3193,20 @@
   },
   "workspace_apps": [
     "reference"
-  ]
+  ],
+  "forge_extension_compatibility": {
+    "phase": "Phase 5",
+    "provider": "forge",
+    "runtime_gate": "selected_profile_live_capability_snapshot",
+    "fail_closed": true,
+    "contract": "forge.controlnet.unit.v1",
+    "supported_tasks": [
+      "map_control"
+    ],
+    "requires": [
+      "ControlNet always-on script",
+      "/controlnet/model_list",
+      "/controlnet/module_list"
+    ]
+  }
 }
