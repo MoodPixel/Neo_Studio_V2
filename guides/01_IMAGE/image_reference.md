@@ -28,8 +28,8 @@ tags:
   - route aware
   - loader aware
 priority: 119
-version: 2
-updated: 2026-07-18
+version: 3
+updated: 2026-08-02
 ---
 
 # Image Reference Workspace
@@ -47,6 +47,16 @@ Use this guide when the user asks about the **Reference** subtab, ControlNet, IP
 | **Preview action routing** | Sends a previous output into a reference tool from Preview/Results actions. | Use this guide plus the target extension guide. |
 
 Reference tools are not the same as Assets tools. Assets tools store reusable model/prompt assets such as LoRAs and embeddings. Reference tools use images/maps to guide a specific generation job.
+
+## Preview action ownership
+
+The **ControlNet** and **IP Adapter** preview buttons are declared in the shared backend-owned preview-action registry. Preview and Output Inspector therefore use the same action IDs, labels, extension requirements, and group order instead of maintaining separate frontend inventories.
+
+The registry defines what the action is. `GET /api/image/preview-actions/evaluate` evaluates that definition against exactly the selected Image profile and publishes provider ID, dispatch type, execution mode, required capability, route state, visibility, enabled state, and a disabled reason. It never uses a second provider as an automatic fallback.
+
+For Forge, ControlNet and Standard IP Adapter preview actions now stage into the selected Forge profile through the live Integrated ControlNet catalogs. They do not switch to Comfy. ControlNet and IP Adapter share Forge's discovered unit-slot limit, so Neo refuses a new reference when every shared slot is occupied. Comfy reference actions keep their existing node/workflow route.
+
+Every Preview/Output Inspector reference handoff uses `neo.image.preview_reference_handoff.v1`. The contract binds the source, selected profile/provider, target extension, and target unit. Backend validation rejects stale cross-provider/profile contracts, source/asset mismatches, overwrite requests, and auto-run requests. Disabled extensions may retain the staged contract without blocking unrelated generation.
 
 ## Reference vs Generation vs Assets
 
@@ -80,8 +90,9 @@ Never tell the user that a Reference extension will run just because its card is
 4. Check the route status badge: Ready, Experimental, Planned, Provider gated, Unsupported, or Disabled.
 5. Attach the needed image/reference assets.
 6. Set strength and timing values.
-7. Validate or generate.
-8. Review Output Inspector metadata to confirm whether the extension actually patched the graph.
+7. Review the staged unit; reference actions never auto-generate.
+8. Validate or generate explicitly.
+9. Review Output Inspector metadata to confirm whether the extension actually patched the graph.
 
 ## Common user questions
 
@@ -117,12 +128,6 @@ Use **IP Adapter / FaceID** when the important thing is reference identity or vi
 - same general composition from a reference image.
 
 For strict character/person preservation, FaceID/IP Adapter often needs ControlNet or Scene Director too. FaceID helps identity; ControlNet helps body/pose/layout.
-
-When ADetailer is also enabled, IP Adapter/FaceID remains upstream reference
-conditioning. ADetailer repairs the generated/current image after sampling; it
-does not use the FaceID portrait as its pixel source. Use ADetailer's **Face
-only** Reference Lock when the local repair should retain the already-applied
-FaceID identity conditioning.
 
 ## Assistant behavior
 

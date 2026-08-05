@@ -13,113 +13,114 @@ applies_to:
   - prompt token
   - negative prompt
   - positive prompt
-  - sdxl
-  - sd15
+  - forge
+  - comfyui
 tags:
   - image
   - assets
   - embeddings
   - textual inversion
-  - prompt token
-  - civitai
+  - provider aware
+  - selected profile
   - route aware
-  - loader aware
 priority: 114
-version: 1
-updated: 2026-07-09
+version: 2
+updated: 2026-08-02
 ---
 
 # Embeddings / Textual Inversion
 
-**Embeddings / Textual Inversion** is a built-in Image **Assets** extension. It manages prompt-token assets such as `embedding:name`.
-
-Unlike a LoRA, Textual Inversion does not add a loader node to the Comfy graph. It works by inserting or preserving prompt tokens that the route's text encoder can understand.
-
-## Where it lives
+**Embeddings / Textual Inversion** is a built-in Image **Assets** extension. It stores a canonical embedding identity and lets the selected Image provider decide how that identity is written into the submitted prompt.
 
 ```text
 Image → Assets → Embeddings / Textual Inversion
 ```
 
-This card is an asset/prompt-token manager, not a Generation extension.
+It is not a LoRA loader and does not add a dedicated Comfy node. It is a prompt asset whose syntax depends on the provider.
 
-## Core fields
+## Provider formatting
 
-| Field / control | What it does | Advice |
+Neo stores a plain canonical trigger:
+
+```text
+EasyNegative
+```
+
+At submission time it renders the provider syntax:
+
+| Provider | Strength 1 | Strength 1.2 |
 |---|---|---|
-| **Apply Embeddings/TI** | Enables Embeddings/TI chips for this workflow. | Keep disabled until at least one token/chip is selected. |
-| **Scan Folder** | Scans a local embeddings folder and adds discovered records to Neo's Embeddings/TI browser. | Use this when the connected backend catalog does not list embeddings automatically. |
-| **Refresh** | Refreshes Embeddings/TI records from the active backend/catalog. | Use after connecting ComfyUI or adding new embedding files. |
-| **Records badge** | Shows how many Embeddings/TI records Neo can currently see. | `0 records` usually means the backend catalog/folder has not been scanned or no files exist. |
-| **Embeddings folder** | Manual path to a folder such as `ComfyUI/models/embeddings`. | Use when auto-catalog discovery is unavailable. |
-| **Search** | Filters the available Embeddings/TI records. | Useful when the folder contains many `.pt`, `.safetensors`, or similar TI files. |
-| **Embedding** | Selects a discovered embedding record. | Selecting a record fills the prompt token when possible. |
-| **Prompt token** | The actual token to insert, usually `embedding:name`. | If the token does not start with `embedding:`, Neo normalizes file-like names into that format. |
-| **Target** | Chooses where the token should go. Normal mode exposes **Positive prompt** and **Negative prompt**. Expert mode can also show finish-pass targets. | Negative prompt is common for bad/anatomy embeddings. Positive prompt is for style/subject/detail embeddings. |
-| **Strength** | Optional token weight. A strength of `1` emits `embedding:name`; other values emit weighted syntax like `(embedding:name:0.8)`. | Start at `1`. Lower if it overpowers the prompt. |
-| **Add Embedding** | Adds the selected/manual token as a chip and attempts to append it to the selected prompt target. | Chips are also saved into metadata/replay payloads. |
-| **Preview** | Shows a preview image if the embedding metadata contains one. | Not every embedding has a preview. |
-| **CivitAI link** | URL used to pull metadata for the selected TI/embedding record. | Use a CivitAI model or model-version URL when available. |
-| **Merge mode** | Controls how CivitAI metadata merges with local metadata. | `fill missing` is safest; overwrite modes are more aggressive. |
-| **Pull from CivitAI** | Imports tags, prompts, preview data, and model details when available. | Metadata enrichment does not download or install the embedding model itself unless the backend implementation explicitly supports that later. |
-| **Applied Embeddings** | Shows the current active chips. | Remove chips here when they should not affect the next generation. |
-| **Status line** | Reports Ready, Disabled, Route gated, scan errors, CivitAI status, or library messages. | Read this before assuming the asset will affect generation. |
+| **Forge Neo** | `EasyNegative` | `(EasyNegative:1.2)` |
+| **ComfyUI** | `embedding:EasyNegative` | `(embedding:EasyNegative:1.2)` |
 
-## Prompt-token behavior
+The visible positive and negative prompt fields are not permanently rewritten when a chip is added. Provider syntax exists only in the compiled request or Comfy workflow copy.
 
-Neo normalizes embedding tokens like this:
+## Selected-profile catalog ownership
+
+The currently selected Image profile is authoritative:
 
 ```text
-my_bad_hands.pt → embedding:my_bad_hands
-embedding:my_bad_hands → embedding:my_bad_hands
+Selected Forge profile → Forge embedding catalog
+Selected Comfy profile → Comfy embedding catalog
 ```
 
-If strength is not `1`, Neo may format the token with weight:
+Neo does not borrow an embedding catalog from another connected profile. The saved default Image profile is used only by older callers that do not provide a selected profile ID.
+
+Catalog records sent to the browser contain portable names only. Absolute model roots and personal paths remain server-side.
+
+## Core controls
+
+| Control | Behavior |
+|---|---|
+| **Apply Embeddings/TI** | Enables the canonical embedding chips for the current workflow. |
+| **Refresh** | Reloads the selected provider's embedding catalog. |
+| **Scan Folder** | Optionally imports metadata from a local embeddings folder when provider discovery is incomplete. |
+| **Search** | Filters saved and selected-provider records. |
+| **Embedding** | Chooses a provider catalog or saved-library record. |
+| **Canonical trigger** | Plain provider-neutral identity such as `EasyNegative`. Legacy `embedding:` prefixes and file extensions are normalized away. |
+| **Target** | Applies to Positive prompt, Negative prompt, or both. Expert finish targets remain visible only where supported. |
+| **Strength** | Sets prompt weighting from `0` to `2`. |
+| **Add Embedding** | Adds or updates one canonical chip. It does not modify the visible prompt. |
+| **CivitAI link** | Enriches metadata and previews; it does not install the model. |
+
+## Identity normalization and duplicate handling
+
+These values resolve to the same embedding identity:
 
 ```text
-(embedding:my_bad_hands:0.8)
+EasyNegative
+embedding:EasyNegative
+(EasyNegative:1.2)
+(embedding:EasyNegative:1.2)
+folder/EasyNegative.safetensors
+<EMBEDDINGS_ROOT>/EasyNegative.pt
 ```
+
+Neo deduplicates by canonical identity and prompt target. An existing weighted or unweighted Forge/Comfy variant is not appended a second time.
+
+## Target behavior
+
+- **Positive prompt** — style, subject, detail, or concept embeddings.
+- **Negative prompt** — artifact/anatomy suppression embeddings.
+- **Positive + negative** — compiles the same canonical asset into both prompt targets.
+- **Finish positive / finish negative** — retained for expert/replay compatibility, but Forge finish-only TI routing remains fail-closed until a separate native finish-prompt contract exists.
 
 ## Route support
 
-Embeddings/TI support depends on text-encoder compatibility, not custom node discovery.
+| Provider / route | State | Notes |
+|---|---|---|
+| Forge Neo SDXL/SD1.5 checkpoint | Available when the selected profile exposes the embedding catalog/capability | Uses plain Forge trigger syntax. |
+| ComfyUI SDXL checkpoint | Available | Uses `embedding:` syntax in prompt text nodes. |
+| ComfyUI SD1.5 checkpoint | Experimental | Same compile path, but visual parity should be checked per model. |
+| Component, UNet, GGUF, Flux, Qwen, Z-Image, HiDream | Gated unless the active route explicitly validates TI | Neo does not assume classic textual inversion works with modern tokenizers. |
+| Cloud/API Image profiles | Provider-gated | A word accepted by an API prompt is not proof that a local TI file was loaded. |
 
-| Family / loader | Generate | Img2Img | Inpaint | Outpaint | Notes |
-|---|---:|---:|---:|---:|---|
-| **SDXL + checkpoint** | Ready | Ready | Ready | Ready | Main validated route. |
-| **SD 1.5 + checkpoint** | Experimental | Experimental | Experimental | Experimental | Works like classic TI paths but should be validated per model. |
-| **SDXL / SD1.5 component, UNet, or GGUF loaders** | Planned/gated | Planned/gated | Planned/gated | Planned/gated | Text encoder prompt-token compatibility is not promoted yet. |
-| **Flux / Qwen / ZImage / HiDream component or GGUF routes** | Planned/gated | Planned/gated | Planned/gated | Planned/gated | Do not assume SD-style TI tokens work on modern text encoders. |
-| **Cloud/API profiles such as Grok Imagine** | Unsupported/provider gated | Unsupported/provider gated | Unsupported/provider gated | Unsupported/provider gated | API prompt text may accept words, but Neo should not promise local TI embedding execution. |
+## Troubleshooting
 
-## Common usage patterns
+**The list is empty:** verify the selected backend profile, refresh its Admin capability snapshot, then refresh the library. A manual folder scan is a fallback for metadata discovery, not permission to switch providers.
 
-### Negative embedding
+**The prompt field did not change:** correct. Phase 9 keeps the visible prompt clean and adds provider syntax during compilation.
 
-Use when a negative TI is designed to suppress artifacts:
+**Forge generated without the expected effect:** confirm the embedding is installed in the selected Forge process and appears in that profile's `/sdapi/v1/embeddings` capability snapshot.
 
-```text
-Target: Negative prompt
-Token: embedding:bad-hands
-Strength: 1
-```
-
-### Positive style/subject embedding
-
-Use when the embedding is designed as a positive style/subject cue:
-
-```text
-Target: Positive prompt
-Token: embedding:my-style
-Strength: 0.8–1.0
-```
-
-## Assistant answer rules
-
-When a user asks about Embeddings/TI:
-
-- Say it belongs under **Image → Assets**.
-- Explain that it is a prompt-token asset, not a LoRA and not a node-loader extension.
-- Check the route state before saying it will execute.
-- If the user has `0 records`, suggest connecting/testing ComfyUI, refreshing, or scanning `ComfyUI/models/embeddings`.
-- If the user is using Qwen/Flux/ZImage/HiDream/Grok, say TI is currently gated/unsupported unless the live route explicitly says Ready.
+**Comfy did not load it:** confirm the embedding is in the selected Comfy installation's embeddings folder and the active route is a validated checkpoint prompt-token route.

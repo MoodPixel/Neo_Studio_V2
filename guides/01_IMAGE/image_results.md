@@ -24,8 +24,8 @@ tags:
   - reuse
   - delete
 priority: 112
-version: 1
-updated: 2026-07-09
+version: 3
+updated: 2026-08-02
 ---
 
 # Image Results Workspace
@@ -33,6 +33,19 @@ updated: 2026-07-09
 The **Image → Results** workspace is the saved-output manager. It reads Neo-owned files from `neo_data`, shows saved output cards, loads metadata sidecars, exposes replay/reuse actions, and handles safe deletion.
 
 Results is not the live Preview panel. Preview is for live/final viewing while generating. Results is for saved output inspection and management.
+
+## Shared Preview/Results action registry
+
+The live Preview toolbar and Output Inspector now read their button inventory from one backend-owned registry. The canonical group order is:
+
+1. **Source** — Img2Img, Inpaint, Outpaint.
+2. **Reference** — ControlNet, IP Adapter.
+3. **LayerDiffuse** — Source, Background, Foreground, Replace Target slots.
+4. **Finish** — High-Res Lab, ADetailer, Identity Rescue, Image Upscale.
+
+The browser no longer keeps a second hardcoded copy of these action definitions. Labels, icons, extension ownership, capability requirements, handler identities, and group order come from `neo_app/image/preview_actions.py` through `/api/image/preview-actions/registry`.
+
+Provider capability and action enablement are evaluated by `GET /api/image/preview-actions/evaluate` against exactly the currently selected Image backend profile. The response publishes provider ownership, intended dispatch, route/capability state, Bridge requirements, implementation readiness, visibility, enabled state, and a disabled reason. Neo does not search another profile to make an action available.
 
 ## Results & Save Details
 
@@ -103,6 +116,8 @@ The selected result can be reused as:
 | **Outpaint** | Sends the selected output into outpaint/canvas workflow. |
 | **ImgUpscale** | Sends the selected output to Image Upscale. |
 
+Source actions are selected-profile operations. Neo keeps the active Image backend profile, stages a provider-neutral `neo.image.preview_source_handoff.v1` contract, clears stale backend upload/mask ownership, switches modes, and waits for the user to click Generate. Inpaint opens a fresh mask editor; Outpaint clears old canvas/padding state and opens the outpaint editor. URL-only previews are first copied into Neo-owned validated source storage. Provider/profile mismatches fail before compilation instead of falling back to another backend. See `image_source_actions.md`.
+
 The Post-Fix Selected Output panel can stage a result for:
 
 - High-Res Lab;
@@ -110,7 +125,9 @@ The Post-Fix Selected Output panel can stage a result for:
 - Identity Rescue / FaceID;
 - Image Upscale.
 
-Cloud/API outputs can be staged as source images, but local finish tools still need a compatible local Comfy Image backend.
+Cloud/API outputs can be staged as source images. A local Finish operation must use a local finishing profile that the user explicitly selects; Neo must not silently choose a Comfy profile merely because one is installed or connected.
+
+Preview and Output Inspector use the same `previewActionDispatchFinish(...)` boundary. An executable Finish action writes `neo.image.derived_action.v2` with the selected finishing provider/profile, source/parent lineage, dispatch type, and `append_derived` output policy. The generation and standalone-upscale APIs independently validate that the contract reached the correct execution boundary. See `image_finish_dispatch.md`.
 
 ## Replay / regenerate behavior
 
@@ -157,3 +174,17 @@ When the user asks about Results:
 - distinguish Preview vs Results clearly;
 - explain that Results works from saved `neo_data` outputs;
 - for delete questions, explain preview/cascade safety and shared-asset skipping.
+
+## Phase 11 — replay sanitization and lineage
+
+Saved Results now expose `provider_binding`, `lineage`, and `state_cleanup` in reuse payloads. Replay restores canonical prompts, model settings, source assets, and provider-neutral extension settings only. Preview action contracts, Forge/Comfy upload aliases, and staged Reference/Finish handoffs are removed before the draft is restored.
+
+Replay selects the recorded Image profile when available. When that profile is missing, Neo blocks execution until the user explicitly selects a replacement. Derived outputs keep an immediate-parent chain plus stable root/depth/ancestor metadata through `neo.image.output_lineage.v1`.
+
+## Phase 12 — provider-aware action diagnostics
+
+Preview and Output Inspector now show the selected Image provider/profile directly in the shared action toolbar. Guided mode uses plain route badges such as **Diffusion**, **Repair**, **Identity**, and **Pixel**. Expert mode shows the concrete provider execution route and blocked requirement checks.
+
+Unavailable actions now explain missing Bridge capabilities, extensions, models, preprocessors, detectors, upscalers, runtime connectivity, or family/loader/mode mappings. Provider-unsupported actions stay hidden in Guided mode and remain available as diagnostics in Expert mode.
+
+Output Inspector also exposes a visible output-lineage chain with parent, root, source, depth, action, and dispatch information. Replay binding and restored-extension revalidation notices use the same status language as the live Preview toolbar. See `provider_aware_preview_diagnostics.md`.

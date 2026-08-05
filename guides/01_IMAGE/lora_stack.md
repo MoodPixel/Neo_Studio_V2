@@ -32,8 +32,8 @@ tags:
   - route aware
   - loader aware
 priority: 115
-version: 2
-updated: 2026-07-09
+version: 4
+updated: 2026-08-05
 ---
 
 # LoRA Stack and LoRA Library
@@ -60,10 +60,10 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | Field / control | What it does | Advice |
 |---|---|---|
 | **Apply LoRA Stack** | Enables the active rows for this generation. | Keep off if no rows are needed. Enable after adding at least one valid LoRA row. |
-| **Add LoRA Row** | Adds another LoRA slot. | Use multiple rows only when the LoRAs are compatible. Too many can muddy style/identity. |
+| **Add LoRA** | Opens a searchable picker populated by the currently selected Image provider/profile. | Select one LoRA and strength, then add it. Multiple compatible LoRAs can still be stacked. |
 | **Clean Empty/Disabled** | Removes rows that are empty or disabled. | Use this before saving/replaying a clean setup. |
 | **Use** | Enables/disables a row without deleting it. | Good for A/B testing. |
-| **LoRA** | Chooses the LoRA file/name from the connected Comfy catalog or library record. | If a LoRA shows missing from Comfy, connect/test Comfy or verify the file is in the backend LoRA folder. |
+| **LoRA** | Chooses the provider-neutral catalog name stored in the stack. | The dropdown is rebuilt from the selected provider. Missing entries are shown honestly and are never borrowed from another profile. |
 | **Strength** | Controls LoRA influence. Values are clamped roughly from `-4` to `4`. | Start around `0.6–0.9` for style/character LoRAs. Lower if it overpowers the base model. |
 | **Pass** | Chooses **Both passes**, **Base only**, or **Finish / redraw only**. | Both is normal. Finish-only is for later finishing/redraw paths and may be preserved without direct graph execution on gated routes. |
 | **Target** | Shows global or Scene Director regional target. | LoRA Stack defaults to global. Regional assignment is owned by Scene Director → Advanced Region Control → Extension Routing. |
@@ -75,8 +75,8 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 
 | Field / control | What it does | Advice |
 |---|---|---|
-| **Search Comfy LoRAs** | Filters LoRA names from the connected Comfy backend catalog. | Connect/test Comfy first so `LoraLoader.lora_name` choices are populated. |
-| **Comfy LoRA** | Selects a LoRA catalog record. | Selection focuses metadata; use **Add selected LoRA to stack** to apply it to generation. |
+| **Search provider LoRAs** | Filters LoRA names reported by the selected Image profile. | Forge uses its Extra Networks/shared catalog; Comfy uses `LoraLoader.lora_name`. |
+| **Provider LoRA** | Selects a LoRA record from the active provider catalog. | Selection focuses metadata; use **Add selected LoRA to stack** to apply it. |
 | **Preview carousel** | Shows saved/CivitAI/local preview images when available. | Useful to identify the LoRA before adding it. |
 | **Positive triggers** | Trigger words that should usually be added to the positive prompt. | Append when the LoRA needs activation tokens. |
 | **Positive keywords** | Extra positive words from metadata or CivitAI. | Use selectively; do not blindly dump every tag into the prompt. |
@@ -87,6 +87,36 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | **CivitAI link** | URL for metadata enrichment. | Use a CivitAI model/model-version/download URL. |
 | **CivitAI merge mode** | Controls how fetched metadata merges with local data. | **fill_missing** is safest. **overwrite_selected** is aggressive. |
 | **Pull from CivitAI** | Fetches triggers, tags, prompts, previews, base model info, etc. | If CivitAI returns no usable metadata, Neo should report that honestly. |
+
+
+## Provider-aware catalog and serialization
+
+Neo stores LoRA rows in a provider-neutral form:
+
+```json
+{
+  "name": "characters/hero.safetensors",
+  "strength": 0.8,
+  "target": "both",
+  "apply_to": "global"
+}
+```
+
+The selected Image profile owns both catalog discovery and execution.
+
+| Provider | Catalog authority | Execution serialization |
+|---|---|---|
+| **Forge Neo** | Live `/sdapi/v1/loras` when available, supplemented only by verified shared model paths referenced by that Forge process. | Compiles at submission into the positive prompt, for example `<lora:hero:0.8>`. The visible prompt is not modified. |
+| **ComfyUI** | The selected profile's `LoraLoader.lora_name` choices. | Keeps the canonical row and applies it through compiler-owned LoRA loader nodes. No prompt tag is inserted. |
+
+Rules:
+
+- The currently selected Image profile takes priority over the saved default.
+- Neo does not search another provider when the selected profile has no LoRAs.
+- Switching providers preserves canonical LoRA rows but changes the displayed provider syntax.
+- Existing Forge prompt tags are deduplicated against stack rows using path-, extension-, and case-insensitive identity matching.
+- Absolute backend paths stay server-side. Browser records and saved public metadata use portable catalog names only.
+- Forge supports global base/both rows. Regional and finish-only rows remain preserved but fail closed for direct Forge base generation.
 
 ## Route support
 
@@ -110,6 +140,7 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 - LoRA Library metadata does not apply a LoRA by itself. The LoRA must be in the LoRA Stack and enabled.
 - Regional LoRA targets are preserved in payload/replay, but Scene Director owns region assignment.
 - If the route is gated, Neo may preserve the user's LoRA intent in metadata without mutating the graph.
+- Forge prompt syntax is generated only during provider compilation; do not manually duplicate generated tags in the visible prompt.
 - Do not mix SDXL LoRAs with incompatible model families unless the user is intentionally testing and understands the risk.
 
 ## How to explain it to users
@@ -117,5 +148,38 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 Good answer pattern:
 
 ```text
-Go to Image → Assets. Use LoRA Library to find and enrich the LoRA, then click Add selected LoRA to stack. In LoRA Stack, enable the row, choose strength, and keep Pass on Both passes for normal generations. On your current route it is [ready/experimental/gated], so direct graph execution is [available/not available].
+Go to Image → Assets. Use Add LoRA or LoRA Library to select from the active provider catalog, then add it to the stack. In LoRA Stack, enable the row, choose strength, and keep Pass on Both passes for normal generations. On your current route it is [ready/experimental/gated], so direct graph execution is [available/not available].
 ```
+
+
+## Phase 19 exact Comfy catalog binding
+
+Neo stores a portable LoRA identity but ComfyUI validates `lora_name` against the exact enum value published by the selected loader node in live `object_info`.
+
+```text
+Saved/replay identity:  Krea2/Style.safetensors
+Live Comfy enum:        Krea2\Style.safetensors
+Submitted graph value:  Krea2\Style.safetensors
+```
+
+The portable value is used for presets, replay, migration, and public metadata. It is never assumed to be safe for direct Comfy graph submission. Immediately before graph mutation Neo now resolves every explicitly enabled row against the exact live catalog belonging to the selected loader class:
+
+- `LoraLoader` for model-and-CLIP routes;
+- `LoraLoaderModelOnly` for model-only routes.
+
+Matching may normalize slash direction and case only to find the provider entry. The graph always receives the original exact provider string. Basename-only fallback, adjacent-profile borrowing, and cross-loader catalog borrowing are forbidden.
+
+An explicit LoRA request is fail-closed across Generate, Img2Img, Native Inpaint, LanPaint Inpaint, and Outpaint. If the exact entry, loader node, compiler patch profile, or graph anchor cannot be proven, Neo blocks before queueing instead of silently running the base workflow.
+
+Successful execution metadata records:
+
+- portable requested name;
+- exact submitted provider name;
+- loader class and node IDs;
+- strength values;
+- original and patched model/CLIP references;
+- rewired consumers;
+- provider/profile, family, loader, workflow mode, and inpaint engine;
+- catalog verification and execution state.
+
+Replay keeps only the portable identity and rebinds it against the current live provider catalog. A provider/profile switch or changed Comfy catalog therefore requires revalidation.

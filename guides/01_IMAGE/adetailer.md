@@ -22,8 +22,8 @@ tags:
   - detailer
   - impact pack
 priority: 111
-version: 2
-updated: 2026-07-17
+version: 3
+updated: 2026-08-01
 ---
 
 # Image ADetailer
@@ -40,10 +40,12 @@ ADetailer is a finish-stage extension. It should run after the base generation a
 | ComfyUI / ComfyUI Portable + SDXL checkpoint + Outpaint | Planned/gated |
 | ComfyUI / ComfyUI Portable + SD 1.5 checkpoint + Generate/Img2Img/Inpaint | Experimental |
 | ComfyUI / ComfyUI Portable + SD 1.5 checkpoint + Outpaint | Planned/gated |
-| Flux/Qwen/ZImage/HiDream component or GGUF routes | Unsupported/gated in the current ADetailer graph contract |
-| xAI Grok / cloud API routes | Not a local Comfy ADetailer graph |
+| Forge Neo + verified ADetailer script + supported txt2img/img2img/inpaint route | Available through Forge-native ADetailer always-on script |
+| Forge Neo + manual boxes / Reference Lock / target ordering / area filters / ONNX detector | Gated in the current Forge remap |
+| Flux/Qwen/ZImage/HiDream component or GGUF routes | Route-dependent; Comfy ADetailer graph remains gated and Forge requires a live executable route plus verified ADetailer script |
+| xAI Grok / cloud API routes | Not a local ADetailer execution route |
 
-ADetailer depends on local detection/detailer nodes and detector assets. Impact Pack/SEGS-style paths and detector models must be installed and discoverable.
+ADetailer keeps one Neo extension surface. Comfy execution depends on local detector/detailer nodes such as Impact Pack/SEGS. Forge execution uses the running Forge ADetailer script contract and Forge-native detector loading.
 
 ## Detector model discovery
 
@@ -116,7 +118,11 @@ Shared defaults affect the whole detailer stack and are inherited by pass cards 
 
 ## Detector model scan
 
-The Detector model list is built from the active Comfy backend rather than a Neo-specific custom path field. Neo merges:
+The Detector model list is backend-aware while the **ADetailer panel remains the same extension**. Comfy and Forge use their own native model-loading rules underneath that panel.
+
+### ComfyUI detector discovery
+
+For ComfyUI, Neo merges:
 
 - the local-only **Admin → Models → Paths → ComfyUI models root** setting, which is the authoritative filesystem source for URL-only Comfy profiles;
 - `ComfyUI/models/ultralytics/bbox/`;
@@ -128,13 +134,27 @@ The Detector model list is built from the active Comfy backend rather than a Neo
 
 Set **ComfyUI models root** to the parent models directory, not directly to its `adetailer` child. Neo derives `adetailer`, `ultralytics/bbox`, `ultralytics/segm`, `onnx`, and `sams` beneath that root. It also reads Comfy's registered `/models` folder endpoints so a URL-only local profile is not limited to the small list returned by one provider node.
 
-For Comfy Portable, Neo also reuses **Admin → Extensions → Node Manager**. The `custom_nodes` parent identifies the inner Comfy application root, while the saved portable wrapper remains eligible to own a sibling `extra_model_paths.yaml`. You do not need to enter the YAML location again in Neo, but Comfy's YAML must explicitly register the detector folder. A mixed detector library normally uses `adetailer: adetailer`; typed layouts may use `ultralytics_bbox` and `ultralytics_segm`. After editing the YAML, restart or refresh Comfy as needed and click **Refresh models**. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete shared-model template and key reference.
+For Comfy Portable, Neo also reuses **Admin → Extensions → Node Manager**. The `custom_nodes` parent identifies the inner Comfy application root, while the saved portable wrapper remains eligible to own a sibling `extra_model_paths.yaml`. You do not need to enter the YAML path again or add an ADetailer-specific path. After editing that YAML, restart or refresh Comfy as needed and click **Refresh models**.
 
 The selected Detector type controls the dropdown. BBox, Segmentation, and ONNX lists remain separate so a face bounding-box model is not shown as a valid segmentation choice. Refresh models after Comfy starts or after changing model-path configuration. If live Comfy discovery is temporarily unavailable, the backend keeps filesystem models and records safe source/count/error diagnostics without returning absolute machine paths.
 
 The loaded status reports total BBox, Segmentation, ONNX, and SAM choices. When diagnostics are available, it also reports **folder files** separately from **Comfy registered** choices. This distinction makes a folder-resolution problem visible without exposing the absolute folder path.
 
-Face, Hands, Person, and Custom detector targets do not filter the model list. They describe the repair intent. The selected Detector type alone chooses the BBox, Segmentation, or ONNX pool.
+The selected Detector type first chooses the BBox, Segmentation, or ONNX pool. Within that typed pool, Face, Hands, and Person narrow the visible suggestions by portable filename signals; Custom shows the complete typed pool. When a target has no filename match, Neo falls back to the complete typed pool instead of presenting an empty selector.
+
+### Forge Neo detector discovery and shared folders
+
+Forge does not reuse Comfy detector nodes. The same `image.adetailer` extension switches to Forge's verified ADetailer always-on script. Neo can still use the centralized Comfy-style library as the discovery authority:
+
+1. Set **Admin → Models → Paths → ComfyUI models root** to the centralized `models` directory.
+2. If the library uses extra folders, set **Shared extra_model_paths.yaml** to that Comfy YAML.
+3. Launch Forge Neo with either `--forge-ref-comfy-yaml <same YAML path>` or a `--model-ref <shared models root>` value that matches the configured central models root.
+4. Add any detector directories not already covered by Forge's native `<model-ref>/adetailer` folder to ADetailer's `ad_extra_models_dir`; one parent directory may recursively cover several detector folders.
+5. Restart Forge after changing model references or ADetailer directories, then refresh Forge Admin and ADetailer models in Neo.
+
+Neo discovers Forge ADetailer suggestions from the centralized `models/adetailer`, `models/ultralytics`, and supported detector keys in `extra_model_paths.yaml`. Current Forge ADetailer custom-model loading is restricted to `.pt` detector files and uses detector basenames. ONNX, `.pth`, and `.safetensors` detector selections remain gated for Forge.
+
+Forge's standard API does not expose a complete ADetailer model map. Therefore the Forge detector field is a real shared-library selector plus a **Type exact Forge-local name…** action for names absent from Neo's suggestions. When a selected model is one of Neo's shared suggestions, Neo fails closed unless Forge's native `<model-ref>/adetailer` folder or `ad_extra_models_dir` covers that detector directory. This prevents a model visible to Neo from being falsely presented as executable by Forge.
 
 ### Path privacy boundary
 
@@ -193,11 +213,18 @@ Switching the Image backend automatically resolves a separate scan. A successful
 
 ### Typed model recovery
 
-BBox, Segmentation, and ONNX are separate executable pools. The Face, Hands, Person, and Custom target labels do not narrow those pools. Most normal person, hand, face, and custom YOLO checkpoints are BBox models unless they are stored under an explicit `segm` folder or clearly identify segmentation/mask behavior.
+BBox, Segmentation, and ONNX remain separate executable pools. Inside the selected pool, **Detail target** now narrows the suggestion list by portable model-name signals:
 
-Each pass card shows BBox, Segm, and ONNX counts. A saved detector from a preset or draft is inactive when it is not present in the selected type. Neo shows where the model was found and provides an explicit type-switch action. It does not keep the stale value looking selected, and it does not silently switch the detector type during preset restoration.
+- Face prefers face/head/eye/facial detectors;
+- Hands prefers hand/finger detectors;
+- Person prefers person/body/human/pose detectors;
+- Custom detector exposes the complete typed pool.
 
-Changing **Detector type** intentionally selects a valid model from the new pool or clears the model when that pool is empty. A mismatched saved detector blocks validation until it is recovered or replaced.
+When no model in the selected pool carries a reliable target signal, Neo shows the complete typed pool instead of presenting an empty selector. Most normal person, hand, face, and custom YOLO checkpoints are BBox models unless they are stored under an explicit `segm` folder or clearly identify segmentation/mask behavior.
+
+Each pass card shows BBox, Segm, and ONNX counts. Changing **Detail target** or **Detector type** keeps a compatible current model where possible; otherwise it selects the best matching discovered model. A saved detector from a preset or draft is inactive when it is not present in the selected type. Neo shows where the model was found and provides an explicit type-switch action.
+
+For Forge profiles, discovered shared `.pt` models are rendered as a real selector instead of a browser datalist, so an existing face filename cannot hide hand/person choices. When Forge uses `--model-ref`, its native `<model-ref>/adetailer` directory counts as active ADetailer coverage without requiring a duplicate `ad_extra_models_dir` entry. **Type exact Forge-local name…** remains available for models that Forge knows but its standard API does not publish.
 
 ## Detailer pass cards
 
@@ -274,3 +301,30 @@ When the user asks about ADetailer:
 - recommend lower denoise for identity/face preservation;
 - use manual boxes when auto detection misses the region;
 - do not suggest it for cloud/API-only execution unless a local Comfy finish backend is connected.
+
+## Forge partial detector coverage
+
+Forge ADetailer may have access to only part of Neo's shared detector library. For example, `--model-ref` automatically activates `<model-ref>/adetailer`, while a separate shared `ultralytics` folder may still require `ad_extra_models_dir`.
+
+Neo therefore validates the **selected detector model**, not every shared detector folder:
+
+- models inside Forge's active native or extra-model directories appear in the Forge selector and may compile;
+- shared models outside those directories are omitted from the normal selector;
+- an explicitly restored uncovered model fails before provider submission with a model-specific correction message;
+- one unrelated uncovered detector folder does not block a covered model such as `face_yolo11s.pt`.
+
+Changing `ad_extra_models_dir` still requires a complete Forge restart because ADetailer builds its custom model map at startup.
+
+## Forge provider-owned output pass — Phase 7
+
+When Forge Neo is the selected Image profile, Preview and Output Inspector **ADetailer** now execute as a Forge-owned derived Img2Img job.
+
+- The selected output becomes the Img2Img source.
+- Neo preserves the selected Forge profile and never falls back to ComfyUI.
+- The source dimensions are restored when recorded, batch size/count are forced to one, and the outer Img2Img denoise is clamped to a conservative repair range.
+- The existing `image.adetailer` settings remain canonical. Forge compilation requires at least one enabled auto-detect pass, a detector proven readable by the selected Forge profile, and the live ADetailer always-on script contract.
+- The detector pass uses its own ADetailer denoise/steps; the outer Img2Img pass is only the provider boundary required to process the selected image.
+- The result is saved as a derived output linked to the original output/job.
+
+Manual-box passes and detector files outside Forge's active native or `ad_extra_models_dir` coverage remain fail-closed.
+

@@ -19,10 +19,11 @@ tags:
   - comfyui
   - grok
   - xai
+  - forge
   - connection
 priority: 85
-version: 6
-updated: 2026-07-19
+version: 8
+updated: 2026-07-30
 ---
 
 # Backend Profiles and Connection State
@@ -36,7 +37,7 @@ Use the shipped profile for the required surface whenever possible. Users normal
 ## Surface profiles
 
 - **Text**: Text, Assistant, Roleplay, and Prompt/Captioning backends.
-- **Image**: ComfyUI and cloud Image profiles such as Grok Imagine.
+- **Image**: ComfyUI, Forge Neo Admin, and cloud Image profiles such as Grok Imagine.
 - **Video**: ComfyUI Video profiles and Grok Imagine Video.
 - **Voice** and **Music / Audio**: provider-specific local/cloud profiles.
 - **Provider Diagnostics**: read-only profile/default/capability diagnostics.
@@ -45,7 +46,7 @@ Typical seeded profiles include:
 
 | Surface | Examples |
 |---|---|
-| Image | ComfyUI Local, ComfyUI Portable, Grok Imagine |
+| Image | ComfyUI Local, ComfyUI Portable, Forge / Forge Neo, Grok Imagine |
 | Video | Video · ComfyUI Local, Video · ComfyUI Portable, Grok Imagine Video |
 | Text | KoboldCpp Local |
 
@@ -83,6 +84,25 @@ video.xai_grok_imagine
 They share the same `xai_grok` provider and can share `XAI_API_KEY`. The Video profile links to the Image profile for manual credential resolution, so users do not need to paste the key twice. The raw key is never copied into repository profile JSON.
 
 The profiles are separate only because Neo selects/defaults backends by surface. They do not create duplicate Grok workspaces or provider implementations.
+
+## Forge Neo Admin profile
+
+The seeded `image.forge` profile supports live Admin connection diagnostics and capability discovery when Forge Neo is launched with `--api`. Neo can inspect models, modules, samplers, schedulers, settings, scripts, extensions, and memory without hardcoding the current Forge catalog.
+
+Admin discovery and Image execution remain separate capability checks. A reachable `connected` or `connected_with_warnings` profile is necessary but not sufficient: Neo enables Forge Image routes only when the required generation, progress, and interrupt API endpoints are available and the selected family/loader/mode route is supported. Optional diagnostic failures such as `/sdapi/v1/cmd-flags` do not by themselves block generation.
+
+The current executable Forge core covers SD 1.5 and SDXL checkpoint `txt2img`, `img2img`, and `inpaint`. Forge outpaint, modern model families/loaders, and unmapped script-backed extensions remain gated.
+
+The profile's Bridge mode is explicit: `auto` prefers a compatible Bridge and falls back to standard SDAPI, `standard` never selects the Bridge, and `required` blocks execution unless the Bridge handshake succeeds. The Bridge changes lifecycle ownership only; it does not unlock routes or extensions.
+
+Forge and Neo Studio must use different listening ports. A common local layout is Forge on `7860` and Neo Studio on `7870`; the backend profile always points to Forge's actual URL.
+
+Runtime discovery is sanitized and cached below `neo_data/provider_cache/`. Absolute backend paths and credentials must not cross the public API or enter repository records. See:
+
+```text
+guides/07_ADMIN/forge_neo_admin.md
+guides/01_IMAGE/forge_neo_image_job_lifecycle.md
+```
 
 ## Existing installation migration
 
@@ -126,3 +146,7 @@ For Caption Studio, a reachable text profile still needs effective vision and
 captioning support. KoboldCpp should expose a multimodal model and the required
 projector/mmproj when the loaded model requires one. A connection failure and a
 vision-capability failure are separate diagnostics.
+
+## Forge Phase 5 extension refresh
+
+Forge script-backed extension availability is profile-scoped runtime data. After changing ControlNet, ADetailer, embeddings, or upscalers in Forge, refresh the Forge backend profile before relying on Image extension controls. Neo stores only sanitized names, schema metadata, and slot counts; backend filesystem paths remain server-side.

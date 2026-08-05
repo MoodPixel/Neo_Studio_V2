@@ -38,8 +38,8 @@ tags:
   - route aware
   - loader aware
 priority: 126
-version: 2
-updated: 2026-07-23
+version: 3
+updated: 2026-08-01
 ---
 
 # Scene Director
@@ -49,6 +49,19 @@ updated: 2026-07-23
 Use this guide when the user asks about Scene Director, region boxes, Character Lock, V054 roles, background/character regions, regional LoRA/IPAdapter/ControlNet routing, character-local pose authority, or why Scene Director is disabled for a selected Image route.
 
 Scene Director does **not** replace the main Positive/Negative Prompt fields by default. The current V054 default is **Global context + Scene Director structure**: Neo's main prompts own scene mood, environment, style, lighting, and camera context, while Scene Director owns subject count, identities, relationships, poses, and exact object/region placement. The advanced **Scene Director only** mode explicitly excludes the Neo core positive/negative conditioning from the V054 node.
+
+
+## Shared Region Canvas runtime
+
+Scene Director's Region Canvas now consumes Neo Studio's shared normalized Region Canvas component. The visible behavior remains Scene Director-owned: regions still save as `{x, y, w, h}`, region cards remain the exact-field editor, and Scene Director payload compilation is unchanged.
+
+The shared component provides bounded drag, eight edge/corner resize handles, aspect-ratio-aware portrait/landscape/square canvases, selection synchronization, and pointer-capture cleanup. ForgeCouple Advanced and Mask modes use the same frontend engine through separate adapters; this does not allow Scene Director and ForgeCouple to run together in one generation.
+
+The RC2-A fitted-frame contract constrains each canvas by both available panel width and a maximum display height. The wrapper remains border-box and reserves padding for selected outlines and resize handles, preventing landscape canvases or edge handles from being clipped by the Scene Director card.
+
+RC2-B adds measured post-layout refitting. When the workspace sidebar, extension accordion, or browser width changes, the shared canvas recalculates its explicit fitted width and height from the real wrapper content box. Scene Director payload coordinates are unchanged.
+
+RC2-C adds shared fit-groups for surfaces that must remain pixel-aligned. ForgeCouple's saved-mask view and active painter use this feature; Scene Director continues to use the same measured frame engine without any payload or interaction change.
 
 ## Current V054 simplification
 
@@ -758,3 +771,12 @@ When answering Scene Director questions:
 4. For prompt help, produce a practical region setup: global prompt, region labels/roles, region prompts, negatives, and any useful Background Space / Character Lock settings. Include Character-local Pose fields only when Character Lock is enabled.
 5. For Basic multi-character issues, recommend tighter separated boxes, one Character per region, exact-count Prompt Rules, and a multi-person-capable checkpoint. Recommend Pose and explicit Character Trait Lock only after Character Lock is enabled.
 6. For regional LoRA/IPAdapter/ControlNet, explain owner-extension dependency: LoRA Stack/IP Adapter/ControlNet own assets; Scene Director owns regional assignment.
+
+## Shared canvas RC2-D note
+
+ForgeCouple Mask now reuses the same shared region-box image contract already available to Advanced. Scene Director continues to use its existing adapter and `{x, y, w, h}` payload without behavior changes.
+
+
+## Shared interaction context — RC2-E
+
+The shared Region Canvas now reports whether an interaction is a translation or a handle-based resize and cancels pointer-aborted edits without committing. Scene Director continues to own its `{x, y, w, h}` state and payload; the RC2-E Mask pixel rules are ForgeCouple-specific.

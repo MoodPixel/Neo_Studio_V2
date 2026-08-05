@@ -23,8 +23,8 @@ tags:
   - reuse
   - repair
 priority: 112
-version: 5
-updated: 2026-07-15
+version: 7
+updated: 2026-08-02
 ---
 
 # Image Finish Workspace
@@ -38,6 +38,23 @@ The **Image → Finish** workspace owns finishing, repair, upscale, and post-out
 - **Results** reviews saved outputs, metadata, replay, cleanup, and deletion.
 
 Finish tools are route-aware. A card can be visible but disabled when the selected backend, model family, loader, workflow mode, custom node set, or source image does not support the tool.
+
+## Shared Finish action registry
+
+Preview and Output Inspector obtain the Finish action inventory from the same backend registry. The locked order is:
+
+1. High-Res Lab
+2. ADetailer
+3. Identity Rescue / FaceID
+4. Image Upscale
+
+The browser does not define these actions independently. The registry owns labels, icons, required extensions/capabilities, destination panels, handler identities, and metadata-preservation policy. `GET /api/image/preview-actions/evaluate` then evaluates those definitions against exactly the selected Image backend profile. It publishes capability truth separately from `dispatch_ready`, so a physically available Forge capability cannot activate a Finish button before Neo's matching provider-owned dispatcher is implemented.
+
+## Provider-owned Finish dispatcher
+
+Preview and Output Inspector now call the same provider-owned Finish dispatcher. Executable actions stage `neo.image.derived_action.v2`, lock the selected finishing provider/profile, preserve source and parent lineage, and save through the `append_derived` lane. Backend validation rejects provider, profile, dispatch, source, runtime-mode, and unconfirmed cross-provider mismatches.
+
+Neo does not temporarily switch Forge to Comfy. A cloud or other-provider output may cross into a local finishing backend only after the user explicitly chooses that finishing profile. The compatibility profile-list route cannot automatically select one. See `guides/01_IMAGE/image_finish_dispatch.md`.
 
 ## Shared image and mask preparation
 
@@ -78,12 +95,12 @@ Examples:
 
 ## Route and family behavior
 
-| Family / backend route | High-Res Lab | ADetailer | Image Upscale | Final Polish Lab |
+| Selected backend route | High-Res Lab | ADetailer | Image Upscale | Final Polish Lab |
 |---|---|---|---|---|
-| **ComfyUI SDXL checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Available for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | Camera Finish/Layer Polish can run image-only; IC-Light Relight stays unavailable because it requires SD 1.5. |
-| **ComfyUI SD 1.5 checkpoint** | Available for Generate/Img2Img/Inpaint/Outpaint. | Experimental for Generate/Img2Img/Inpaint; Outpaint is gated/planned. | Available as standalone utility. | Standalone lanes, fixed-order chains, and up-to-20-source batches are available when every enabled lane dependency is ready. |
-| **Flux / Flux 2 / Qwen / ZImage / HiDream local routes** | Gated or hidden unless the route matrix says otherwise. | Unsupported/gated for the current checkpoint-style detailer graph. | Available if a connected Comfy backend can accept uploaded/selected image sources. | Usually provider-gated/planned unless the external extension says available. |
-| **xAI Grok / cloud API** | Not a local Comfy finish graph. Use API result as a source and stage it into a compatible local Comfy finish route if needed. | Not a local Comfy detailer graph. | Can use a Grok output as a source only if a compatible local Comfy image backend is connected. | Not a direct API render path in the current extension contract. |
+| **ComfyUI SDXL checkpoint** | Existing Comfy derived finish route when its extension/capability route is ready. | Existing Comfy detailer finish route where supported. | Existing Comfy standalone utility route. | Camera Finish/Layer Polish can run image-only; IC-Light Relight stays unavailable because it requires SD 1.5. |
+| **ComfyUI SD 1.5 checkpoint** | Existing Comfy derived finish route when ready. | Experimental where the current detailer route permits it. | Existing Comfy standalone utility route. | Standalone lanes, fixed-order chains, and bounded batches are available when every enabled lane dependency is ready. |
+| **Forge / Forge Neo** | Native selected-image Hires is available through `run_forge_native_hires` when the selected Forge profile exposes Bridge capability `native_post_hires`. | Forge-owned derived Img2Img with the selected profile's verified ADetailer always-on script. | Provider-owned Forge Extras `/sdapi/v1/extra-single-image` is available when the selected Forge profile reports Extras plus at least one upscaler. Exact sizing, secondary blending, and reported face restoration are supported. | Provider-gated unless that external extension publishes a validated Forge contract. |
+| **xAI Grok / cloud API** | Cloud outputs may be sources, but local finishing requires an explicitly selected local finishing profile. | Same explicit local-profile rule. | Same explicit local-profile rule. | Not a direct API render path in the current extension contract. |
 
 ## Output source behavior
 
@@ -94,7 +111,7 @@ Finish tools can get a source from:
 - an uploaded image file;
 - a staged output sent from Results/Post-Fix actions.
 
-When a saved output is staged from Results, Neo should preserve the selected image as the source. It should not silently re-run the original base generation unless the user chooses replay/regenerate.
+When a saved output is staged from Results, Neo should preserve the selected image as the source. It should not silently re-run the original base generation unless the user chooses replay/regenerate. It must also preserve the selected backend profile; cross-provider finishing is an explicit user choice, never an availability fallback.
 
 ## Assistant rules
 
@@ -125,3 +142,37 @@ Final Polish replay restoration also does not submit automatically. **Reuse same
 polish** waits for a new source; **Polish this output again** binds to the owning
 saved Neo result. Original-source and batch restore must revalidate recorded
 assets, and batch restore requires confirmation.
+
+## Forge derived Finish passes — Phase 7
+
+Forge now owns two additional output-derived Finish routes:
+
+- **ADetailer** — selected output → Forge Img2Img → verified ADetailer always-on script.
+- **Identity Rescue** — selected output → Forge Img2Img → verified FaceID/InstantID Integrated ControlNet unit.
+
+Both use `neo.image.derived_action.v2`, preserve the selected provider/profile, force a single derived result, clamp outer denoise, and append lineage metadata. Missing detector, FaceID model, preprocessor, reference image, or route capacity blocks execution. Neither route may fall back to ComfyUI.
+
+
+
+## Forge Image Upscale — Phase 10
+
+Image Upscale now completes the Forge Finish set through `run_provider_extras`.
+
+- The selected Forge profile remains selected from click through queue and result polling.
+- The panel renders Forge Extras controls only; SeedVR2 and Comfy workflow/node controls are hidden.
+- Primary/secondary upscalers come from the selected profile.
+- Scale and exact-dimension modes are supported.
+- CodeFormer and GFPGAN appear only when reported by that Forge instance.
+- The operation uses `/sdapi/v1/extra-single-image`, not Img2Img, native Hires, or Comfy.
+- Derived outputs keep `neo.image.derived_action.v2` source and parent lineage.
+
+## Provider-aware Finish diagnostics — Phase 12
+
+The Preview and Output Inspector Finish toolbars now show the selected provider/profile and the real class of each operation:
+
+- **High-Res Fix** — diffusion second pass;
+- **ADetailer** — automatic repair;
+- **Identity Rescue** — identity-guided repair;
+- **Image Upscale** — pixel/post-processing upscale.
+
+Guided mode shows concise missing-requirement guidance. Expert mode shows the exact provider execution route and failed checks. Replay profile binding, restored-extension revalidation, and output parent/root/depth lineage are visible on both surfaces. These diagnostics do not authorize provider fallback; the selected Image profile remains the sole execution owner. See `provider_aware_preview_diagnostics.md`.

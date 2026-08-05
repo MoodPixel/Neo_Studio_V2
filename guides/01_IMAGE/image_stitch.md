@@ -7,7 +7,7 @@ status: implemented
 
 # Image Stitching
 
-Stitch Images is a shared source-conditioning capability in the Image workspace. It combines two uploaded images with the installed ComfyUI stitch node and routes the result into the selected model family without hardcoding a machine path.
+Stitch Images is a shared source-conditioning capability in the Image workspace. Neo keeps one Stitch UI, then maps it to the selected provider: Comfy can build a physical composite through stitch nodes, while Forge E1 can supply the pair as model reference images through `ImageStitch Integrated` on explicitly supported routes.
 
 ## Where it appears
 
@@ -49,6 +49,21 @@ Neo selects the installed `ImageStitch` or `AILab_ImageStitch` class from the li
 For the shared-source routes, Neo first lets the family compiler construct its normal VAE, latent, mask, and canvas branch. It then replaces only the source `LoadImage` node with the stitch node. This keeps each family’s latent and mask contract intact. Inpaint still requires a compatible mask; Outpaint still requires padding.
 
 For Qwen Rapid AIO Img2Img/Edit, the route instead connects each stitch result to a free Qwen image-conditioning lane. Direct source lanes and Stitch output lanes cannot silently overwrite each other.
+
+
+## Forge Neo E1 contract
+
+When Forge is selected, Neo does **not** use the Comfy stitch-node graph. On supported Qwen Image Edit 2509 and Flux.2 Klein img2img/edit routes, the existing Stitch group becomes reference input for Forge's built-in `ImageStitch Integrated` always-on script. Image 1 remains the main img2img source.
+
+Neo verifies the exact current script shape before showing the Forge Stitch control:
+
+```text
+[enable boolean, Reference Image(s), Maximum Side Length]
+```
+
+The references compile into `alwayson_scripts`; they are not pre-composited. Schema drift, a missing script, or an unsupported family hides the control and fails closed before Forge submission. Single-source Qwen Edit remains available.
+
+E1 deliberately does not generalize this contract to Flux.1 Kontext, Wan or other Forge families until their Neo route identity and physical behavior are separately validated.
 
 ## Upload, provider handoff, and replay boundary
 

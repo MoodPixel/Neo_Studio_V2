@@ -25,8 +25,8 @@ tags:
   - transparent png
   - alpha preservation
 priority: 110
-version: 1
-updated: 2026-07-11
+version: 2
+updated: 2026-07-31
 ---
 
 # Image Upscale
@@ -44,13 +44,14 @@ Use it when the user wants to upscale an existing saved output or uploaded image
 
 ## Supported route shape
 
-Image Upscale needs a connected Comfy-compatible image backend because it queues a local utility graph.
+Image Upscale needs either a connected Comfy-compatible backend or a connected Forge profile exposing the native Extras/upscaler contract. The Neo panel stays the same while the provider path changes.
 
 | Route | State |
 |---|---|
 | ComfyUI / ComfyUI Portable image backend | Available as a standalone finish utility. |
-| Forge / A1111 / cloud API only | Provider gated unless a local Comfy backend is also connected. |
-| xAI Grok output | Can be used as a source image only after staging into a compatible local Comfy Image Upscale route. |
+| Forge / Forge Neo | Available when `/sdapi/v1/extra-single-image` and the live upscaler catalog are discovered. Uses Forge Extras; SeedVR2 is hidden. |
+| A1111 / cloud API only | Provider gated unless a compatible local Comfy/Forge Image Upscale route is connected. |
+| xAI Grok output | Can be staged into a compatible local Comfy or Forge Image Upscale route without rerunning Grok. |
 
 ## Source controls
 
@@ -69,12 +70,12 @@ Image Upscale needs a connected Comfy-compatible image backend because it queues
 | **Enable Image Upscale utility** | Enables the utility panel. |
 | **Preset** | Quick setup such as Preserve 2×, Preserve 4×, or Portrait restore 2×. |
 | **Target scale** | Scale multiplier. 2× is a common starter. |
-| **Upscale engine** | `Basic / ESRGAN / interpolation` or `SeedVR2 experimental`. |
-| **Upscale model** | Optional model from Comfy upscale model catalog. If empty, the route can fall back to interpolation-only behavior. |
-| **Resize method** | Lanczos, Bicubic, Bilinear, Area, or Nearest-exact. |
-| **Restore assist** | Off or CodeFormer restore. |
-| **CodeFormer model** | Face restore model discovered from `ComfyUI/models/facerestore_models/`. |
-| **CodeFormer fidelity** | Higher preserves original identity more; lower lets restore change more. |
+| **Upscale engine** | Comfy: `Basic / ESRGAN / interpolation` or `SeedVR2 experimental`. Forge: native `Forge Extras upscale`. |
+| **Upscale model** | Comfy model/interpolation option or a live Forge `/sdapi/v1/upscalers` entry, depending on the selected backend. |
+| **Resize method** | Comfy-only interpolation/model correction choice. Forge uses its live Extras upscaler catalog instead. |
+| **Restore assist** | Comfy: Off or CodeFormer. Forge: only Off, CodeFormer, and/or GFPGAN when the selected profile reports those face restorers. |
+| **CodeFormer model** | Comfy uses the discovered face-restorer model path; Forge uses its built-in CodeFormer control and does not expose a separate model picker. |
+| **CodeFormer fidelity** | CodeFormer weight. Forge also exposes a separate restore visibility value. |
 | **Face detection** | Detection backend used by restore assist. |
 
 ## SeedVR2 experimental controls
@@ -97,7 +98,9 @@ When **Upscale engine** is SeedVR2 experimental, extra controls appear:
 | **Tile size / Tile overlap** | Tiled processing controls. |
 | **Swap I/O components / Encode tiled / Decode tiled / Cache models / Debug logs** | Runtime safety/performance toggles. |
 
-SeedVR2 is experimental and expects `ComfyUI-SeedVR2_VideoUpscaler` plus models in `ComfyUI/models/SEEDVR2/`. External shared folders can be registered through `extra_model_paths.yaml` using `upscale_models`, `facerestore_models`, and `SEEDVR2` as appropriate. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md).
+SeedVR2 is experimental and expects `ComfyUI-SeedVR2_VideoUpscaler` plus models in `ComfyUI/models/SEEDVR2/`.
+
+SeedVR2 remains Comfy-only in E1. When Forge is selected, Neo coerces the panel to the Basic/Forge Extras engine instead of trying to translate SeedVR2 nodes into Forge.
 
 ## Transparent PNG and RGBA upscaling
 
@@ -142,7 +145,40 @@ Face detection: RetinaFace if available
 When the user asks about Image Upscale:
 
 - explain it as a standalone utility, not a normal Image generation pass;
-- check for a connected Comfy backend;
+- check the currently selected Image profile; Forge and Comfy catalogs must never be borrowed from another profile;
 - tell the user uploaded/staged files have priority over current preview;
 - use High-Res Lab instead when the user wants prompt-guided diffusion refine;
 - do not promise SeedVR2 unless the needed custom node/models are installed.
+
+
+## Phase 10 — Forge Extras provider UI and execution
+
+When the selected Image profile is Forge Neo, the same Image Upscale extension becomes a Forge-native Extras panel. It does not expose Comfy workflow/node controls.
+
+The selected Forge profile supplies:
+
+- primary and secondary upscaler names from `/sdapi/v1/upscalers`;
+- optional face-restorer names from `/sdapi/v1/face-restorers`;
+- the standalone execution boundary `/sdapi/v1/extra-single-image`.
+
+Forge controls include:
+
+| Control | Forge Extras field |
+|---|---|
+| Scale factor / Exact dimensions | `resize_mode`, `upscaling_resize`, `upscaling_resize_w`, `upscaling_resize_h` |
+| Crop to exact size | `upscaling_crop` |
+| Primary upscaler | `upscaler_1` |
+| Secondary upscaler | `upscaler_2` |
+| Secondary visibility | `extras_upscaler_2_visibility` |
+| CodeFormer/GFPGAN visibility | `codeformer_visibility` / `gfpgan_visibility` |
+| CodeFormer fidelity | `codeformer_weight` |
+| Upscale before restore | `upscale_first` |
+
+Rules:
+
+- the selected profile is the only catalog and execution authority;
+- no connected profile search or Forge-to-Comfy fallback is allowed;
+- SeedVR2 and Comfy node/model controls stay hidden under Forge;
+- face restoration appears only when the selected Forge profile reports it;
+- the output is appended as a derived result with source/parent lineage;
+- Image Upscale remains a pixel-processing Extras operation and is not Forge native High-Res Fix.

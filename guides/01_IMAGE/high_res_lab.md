@@ -100,3 +100,45 @@ When the user asks about High-Res Lab:
 - distinguish High-Res Lab from Image Upscale;
 - recommend conservative denoise before high denoise;
 - warn that cloud/API outputs need to be staged into a compatible local Comfy finish route.
+
+## Forge Neo native post-generation Hires — Phase 6
+
+When Forge Neo is the selected Image provider, the Preview/Output Inspector ✨ action uses Forge's native selected-image Hires path through **Neo Forge Bridge 1.2.1+**.
+
+Execution contract:
+
+```text
+run_forge_native_hires
+→ native_txt2img_upscale
+→ firstpass_image = selected output
+→ enable_hr = true
+→ txt2img_upscale = true
+```
+
+This operation stays on the selected Forge profile and uses the selected image's real dimensions as the first-pass dimensions. It does not generate a new low-resolution first pass. The original seed is reused when available, while the current High-Res Lab scale, upscaler, denoise, second-pass steps, sampler/scheduler, model/module overrides, prompts, LoRAs, embeddings, and compatible always-on scripts are compiled into the native request.
+
+The action is disabled when the Bridge is missing, unselected, outdated, or does not advertise `native_post_hires`. Neo does not fall back to Comfy. PiD Integrated and High-Res Lab remain mutually exclusive.
+
+## Forge selected-output size enforcement — Hotfix 07
+
+Forge Preview/Output Inspector High-Res Fix now uses **Neo Forge Bridge 1.2.1+** and the size contract `neo.forge_bridge.native_hires_size.v2`.
+
+For scale mode, the selected image remains the first-pass source and Neo computes the final target from the decoded source image:
+
+```text
+source: 896×1344
+scale: 1.5×
+target: 1344×2016
+```
+
+The one-shot Preview action temporarily enables the current High-Res Lab settings without permanently changing the user's extension toggle. Scale mode clears stale explicit target fields before compilation. The Bridge then resolves and forces the exact target dimensions into Forge, and rejects a returned primary image whose dimensions do not match the expected target.
+
+Required selected Bridge capabilities:
+
+```text
+native_post_hires: true
+native_operations includes native_txt2img_upscale
+native_post_hires_size_contract: true
+```
+
+An older or incomplete Bridge fails closed. Replace the bundled Bridge files, restart Forge Neo, and refresh the selected Forge profile in Admin.

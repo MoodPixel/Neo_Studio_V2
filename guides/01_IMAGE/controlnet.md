@@ -38,8 +38,8 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 5
-updated: 2026-07-23
+version: 6
+updated: 2026-08-02
 ---
 
 # ControlNet
@@ -62,6 +62,19 @@ Good uses:
 - use tile/detail guidance during refinement;
 - help inpaint/outpaint follow an existing mask/canvas route where the selected family supports it.
 
+## Preview / Output Inspector reference handoff
+
+Selecting **ControlNet** on an output does not run generation. Neo:
+
+1. keeps the currently selected Image profile;
+2. materializes URL-only output previews into Neo-owned source storage;
+3. refreshes the selected profile's live ControlNet/IP Adapter catalogs when stale;
+4. stages the image into the first empty ControlNet unit;
+5. creates a new unit only when the provider has capacity;
+6. opens Image → Reference for model, preprocessor, strength, and timing review.
+
+Neo never overwrites an occupied unit silently. Forge ControlNet and IP Adapter share the same discovered Integrated ControlNet slot pool, so capacity is counted across both extensions. The staged payload carries `neo.image.preview_reference_handoff.v1`; the API rejects a provider/profile/source mismatch rather than rerouting through Comfy.
+
 ## Main fields
 
 | Field | What it does | Practical note |
@@ -69,7 +82,7 @@ Good uses:
 | **Apply ControlNet** | Enables ControlNet for the current generation. | If unchecked, Neo stores the draft but does not patch ControlNet into the workflow. |
 | **+ Add Unit** | Adds another ControlNet unit. | Multiple units can combine pose + depth + edges, but too many can over-constrain output. |
 | **Clean Disabled** | Removes inactive/disabled units. | Use before saving presets or debugging. |
-| **Refresh Nodes** | Refreshes Comfy node discovery and the ControlNet model list. | Neo checks the selected Comfy profile's live loader choices and configured model folders. Use it after installing models or restarting ComfyUI. |
+| **Refresh Nodes** | Refreshes the selected provider's ControlNet catalog. | Comfy reads live node/model sources; Forge reads the selected profile's verified Integrated ControlNet models, modules, and slot limits. |
 | **Batch Build Maps** | Builds generated maps for multiple units when possible. | Useful after setting source images and preprocessors. |
 | **Use unit** | Enables an individual ControlNet unit. | Disabled units remain in the draft but do not apply. |
 | **Type** | Semantic control type, such as Canny, Depth, OpenPose, Lineart, SoftEdge, Scribble, NormalBae, or Tile. | This tells Neo what kind of structural control the unit represents. |
@@ -187,7 +200,7 @@ built at runtime from the selected Comfy profile and these additive sources:
 1. live `ControlNetLoader` choices from Comfy `/object_info`;
 2. the registered Comfy `/models/controlnet` folder when available;
 3. files under the configured `<Comfy models root>/controlnet` directory;
-4. ControlNet folders declared by `extra_model_paths.yaml` under the canonical `controlnet` key or a supported alias. See [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete shared-model template.
+4. ControlNet folders declared by `extra_model_paths.yaml`.
 
 Nested directories are preserved in the dropdown because Comfy loaders use the
 relative filename. Put normal ControlNet loader files in:

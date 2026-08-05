@@ -87,12 +87,6 @@ neo_data/cache/model_installed_index.json
 
 Do not commit user model paths, API tokens, download jobs, installed model scans, partial downloads, or downloaded model files.
 
-## Shared Comfy model folders
-
-When Comfy models live outside the active installation, configure them in Comfy's local `extra_model_paths.yaml`. Neo reuses the Comfy roots stored under **Admin → Extensions → Node Manager**; it does not need another personal YAML path field.
-
-The YAML must explicitly register every folder family you expect Comfy or Neo to discover. A `base_path` alone does not make arbitrary child folders visible. Use the complete placeholder-only reference in [Comfy extra model paths](comfy_extra_model_paths.md), including core Comfy keys and optional Neo/custom-node keys such as `ipadapter`, `adetailer`, `sams`, `BiRefNet`, `facerestore_models`, and `SEEDVR2`.
-
 ## Category normalization
 
 Category normalization maps messy source tags into controlled Neo categories.
@@ -828,3 +822,20 @@ Important support notes:
 - **HF Transformers / safetensors LLM repos** are manifest-only for now. They usually require downloading the whole repository snapshot, not one file. Neo's current download manager is single-file oriented, so automated snapshot install should be a later phase.
 - **Pose/detection models** such as ONNX ViTPose/YOLO assets are routed as utility/detection models, not regular ControlNet weights.
 - **Wan 2.2 HighNoise/LowNoise GGUF sources** are separate entries and should be installed as matched pairs for the relevant T2V/I2V workflow.
+
+
+---
+
+## 2026-08-01 — One shared Comfy model-path authority for Forge Neo
+
+When ComfyUI and Forge Neo use the same centralized model library, do not create a second model tree just for Forge. Use **Admin → Models → Paths** as follows:
+
+1. Point **ComfyUI models root** at the centralized Comfy-style `models` directory.
+2. Set **Shared extra_model_paths.yaml** to the YAML that describes any external model folders.
+3. Keep the Forge-specific root fields available for Forge's own normal installation/inventory needs; they are not a duplicate shared-YAML authority.
+4. Launch Forge Neo with `--forge-ref-comfy-yaml <same YAML path>`. Neo detects whether the running Forge process references the same YAML but does not modify launch files.
+5. For Forge ADetailer only, register the shared detector directories—or a parent directory that recursively contains them—in ADetailer's native `ad_extra_models_dir` and restart Forge after changes.
+
+The shared YAML can feed any Forge Neo model category supported by Forge's native Comfy-reference loader. Neo extension adapters still use live backend capability catalogs before allowing execution. In particular, IP-Adapter remains governed by Forge Integrated ControlNet's live model/preprocessor catalog, while ADetailer shared suggestions are `.pt` basenames and are checked against its native extra-model-directory registration.
+
+Absolute local paths remain in ignored `neo_data/config/model_paths.json` and server-side provider resolution only. Public guides, capability snapshots, extension state, and generation payloads must not contain contributor-specific paths.

@@ -29,8 +29,8 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 7
-updated: 2026-07-18
+version: 8
+updated: 2026-08-02
 ---
 
 # IP Adapter / FaceID
@@ -60,7 +60,7 @@ The card can show a node-readiness panel and a **Check nodes / refresh dropdowns
 
 If Standard nodes are ready but FaceID nodes are missing, standard reference can work while FaceID is unavailable. If FaceID nodes are ready but Standard nodes are missing, FaceID can be usable while Standard is unavailable. The UI may show **partial** readiness in those cases.
 
-Model dropdowns are populated from the selected Comfy profile's live loader choices, registered model folders, configured primary models root, and supported `extra_model_paths.yaml` entries. Neo does not require a hardcoded user path or a separately maintained catalog. Register shared folders with `ipadapter` and `clip_vision`; see [Comfy extra model paths](../07_ADMIN/comfy_extra_model_paths.md) for the complete template.
+Model dropdowns are populated from the selected Comfy profile's live loader choices, registered model folders, configured primary models root, and supported `extra_model_paths.yaml` entries. Neo does not require a hardcoded user path or a separately maintained catalog.
 
 ## Model discovery and placement
 
@@ -262,6 +262,12 @@ Always check the live route badge. Guide-level support:
 | Composition reference | Standard IP Adapter, composition/linear weight type, pair with ControlNet for stronger layout |
 | Weak influence | lower weight to `0.25–0.45` or shorten End at |
 
+## Provider-aware Preview / Output Inspector handoff
+
+Selecting **IP Adapter** on a Preview or Output Inspector image stages that output into the first empty IP Adapter unit for the currently selected Image profile. Neo materializes URL-only outputs into Neo-owned source storage, refreshes the selected profile's live catalog, stores `neo.image.preview_reference_handoff.v1`, and opens Image → Reference for review. It does not run generation.
+
+Under Forge Neo, Standard IP Adapter is discovered through Integrated ControlNet and shares its live unit-slot capacity with ordinary ControlNet units. Neo refuses to overwrite occupied units or switch to Comfy when the selected Forge profile is unavailable. Provider/profile/unit/source mismatches fail closed before compilation. FaceID remains subject to its separate model-family and runtime dependency gates.
+
 ## Common mistakes
 
 - Expecting FaceID to fix pose/body layout. Use ControlNet or Scene Director for pose/layout.
@@ -296,3 +302,34 @@ When answering IP Adapter / FaceID questions:
 5. Give direct settings recommendations for the user's goal.
 6. Do not promise identity execution on unsupported routes.
 7. Do not dump payload JSON unless the user asks for debugging.
+
+## Forge Identity Rescue — Phase 7
+
+Forge Identity Rescue is available only when the selected Forge profile's live Integrated ControlNet catalog verifies all of the following:
+
+- an SD 1.5 or SDXL FaceID/InstantID model;
+- a compatible InsightFace/FaceID preprocessor exposed by Forge;
+- an Img2Img ControlNet unit slot;
+- one durable reference image.
+
+The Preview/Output Inspector Identity Rescue action stages the selected output as both the repair source and the FaceID reference, selects a compatible live model when available, clamps outer Img2Img denoise to `0.12–0.35`, and queues through `/sdapi/v1/img2img` without changing providers. Standard ControlNet and FaceID units share Forge's ControlNet unit capacity.
+
+Forge executes the verified model/preprocessor pair through its Integrated ControlNet contract. Comfy-specific FaceID unified-loader fields such as provider choice, optional FaceID LoRA strength, and preset implementation are retained for UI/replay context but are not emitted as fake Forge runtime controls.
+
+If the live model/preprocessor pair is missing, the button and unit remain provider-gated with a corrective reason. Neo never silently substitutes Standard IP Adapter or ComfyUI.
+## Comfy panel render and enablement hotfix — 2026-08-03
+
+The IP Adapter / FaceID panel now resolves its provider badge from the currently selected Image profile before rendering. This removes the `provider is not defined` render-isolation failure that could hide the otherwise valid Comfy panel.
+
+For `comfyui` and `comfyui_portable`, the validated SDXL checkpoint routes remain provider-owned:
+
+- Preview action: `extension.ip_adapter`
+- Dispatch: `stage_reference`
+- Execution mode: `comfy_ip_adapter`
+- Target: first empty IP Adapter unit in Image → Reference
+- Catalog: selected profile only
+- Automatic provider fallback: disabled
+- Automatic generation: disabled
+
+The panel publishes its selected provider/profile binding as diagnostic data attributes. Catalog refresh still rejects responses from a different profile or provider before staging.
+

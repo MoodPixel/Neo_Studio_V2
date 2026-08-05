@@ -15,8 +15,8 @@ tags:
   - public repository
   - runtime data
 priority: 92
-version: 1
-updated: 2026-07-14
+version: 3
+updated: 2026-08-03
 ---
 
 # Public Path Hygiene
@@ -48,6 +48,23 @@ Use portable roles:
 
 Do not publish a contributor's drive letter, home directory, username, personal image name, private model folder, or captured installed-node inventory.
 
+## Public runtime export boundary
+
+Neo maintains a larger internal source-of-truth tree than the first public runtime repository/export. A clean public export must omit:
+
+- `neo_data/` and all user/runtime state;
+- Python caches, test caches, logs, temporary files, and local databases;
+- `neo_system_records/`, `scripts/`, and `tests/`;
+- `neo_extensions/installed/` and extension cache folders;
+- nested source/extension test trees and extension implementation docs;
+- internal release tooling that normal users do not need.
+
+Use `scripts/build_clean_release.py` from the internal source tree to build the public archive. The archive audit is the final gate. Generated manifests must identify the repository root as `.` and the output by filename only; they must not store a developer machine path.
+
+## Patch-only delivery rule
+
+Implementation delivery ZIPs contain only changed and newly added files, preserving repository-relative paths. They must not contain cache folders, compiled Python files, databases, runtime data, generated media, or a copied full repository snapshot. Any required deletion is listed in the associated validation record.
+
 ## Release check
 
 Before publishing source:
@@ -60,3 +77,22 @@ Before publishing source:
 6. Package only intentional changed files; never include local runtime data.
 
 Developer-only tests may use synthetic absolute paths when the path parser itself is under test. Those fixtures must be obviously fictional and must never be loaded as defaults or returned to users.
+
+
+## Provider-action Phase 14 audit
+
+The provider-action release audit builds a temporary public archive through the canonical release builder and then checks:
+
+- excluded runtime/developer entries;
+- non-allowlisted absolute user/backend paths in release-facing text;
+- obvious private-key and live credential formats;
+- Bridge release compatibility;
+- release documentation and action-table completeness.
+
+Run:
+
+```text
+python scripts/audit_provider_action_release_phase14.py
+```
+
+A clearly synthetic path fixture inside dedicated redaction validation code may be allowlisted. User-facing guides, templates, manifests, browser payloads, and normal runtime code are not exempt.
