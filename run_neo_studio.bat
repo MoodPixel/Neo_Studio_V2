@@ -13,11 +13,12 @@ set "VENV_PY=.venv\Scripts\python.exe"
 set "ORIGINAL_ARGS=%*"
 
 if not defined NEO_HOST set "NEO_HOST=127.0.0.1"
-if not defined NEO_PORT set "NEO_PORT=7860"
+if not defined NEO_PORT set "NEO_PORT=7870"
 if not defined NEO_BACKEND_BASE_URL set "NEO_BACKEND_BASE_URL=http://localhost:5001"
 
 call :parse_args %*
 set "NEO_URL=http://%NEO_HOST%:%NEO_PORT%"
+set "NEO_BROWSER_URL=%NEO_URL%/?neo_startup=ir6_2"
 
 if not exist "%VENV_PY%" (
     echo.
@@ -48,7 +49,7 @@ echo.
 set "NEO_LAUNCHER_PRINTED=1"
 
 REM Open browser shortly after the backend starts.
-start "%APP_NAME% Browser Opener" cmd /c "timeout /t 3 /nobreak >nul && start "" "%NEO_URL%""
+start "%APP_NAME% Browser Opener" cmd /c "timeout /t 3 /nobreak >nul && start "" "%NEO_BROWSER_URL%""
 
 REM Start the app. Keep this window open while Neo Studio V2 is running.
 "%VENV_PY%" -m neo_app.main %ORIGINAL_ARGS%

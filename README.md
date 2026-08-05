@@ -2,7 +2,7 @@
 
 **Neo Studio V2** is a local-first AI creative workspace for controlling image, video, prompt, roleplay, assistant, and project-memory workflows from one structured interface.
 
-Neo Studio does **not** include AI models or third-party backend engines. It connects to tools you install separately, such as **ComfyUI Portable** for image/video workflows and **KoboldCPP** for local text/chat/roleplay workflows.
+Neo Studio does **not** include AI models or third-party backend engines. It connects to tools you install separately, such as **ComfyUI Portable** or **Forge Neo** for image workflows, **ComfyUI Portable** for video workflows, and **KoboldCPP** for local text/chat/roleplay workflows.
 
 ---
 
@@ -10,13 +10,13 @@ Neo Studio does **not** include AI models or third-party backend engines. It con
 
 Local AI tools are powerful, but they are also scattered.
 
-A creator may need ComfyUI for image generation, KoboldCPP for local chat, separate tools for video, captioning, prompt testing, memory, workflows, models, custom nodes, and backend launching. Each tool has its own setup process, interface, file structure, and workflow logic.
+A creator may need ComfyUI or Forge Neo for image generation, KoboldCPP for local chat, and separate tools for video, captioning, prompt testing, memory, workflows, models, extensions, custom nodes, and backend launching. Each tool has its own setup process, interface, file structure, and workflow logic.
 
 ComfyUI is extremely flexible, but node-based workflows can become complex fast, especially when working with advanced pipelines like ControlNet, IPAdapter, inpainting, video generation, LoRAs, upscaling, metadata, and reusable presets.
 
 Neo Studio was created to make local AI usage more streamlined.
 
-The goal is not to replace tools like ComfyUI or KoboldCPP. Instead, Neo Studio acts as a structured control layer on top of them, helping creators use local AI systems through a cleaner, more organized workspace.
+The goal is not to replace tools like ComfyUI, Forge Neo, or KoboldCPP. Instead, Neo Studio acts as a structured control layer on top of them, helping creators use local AI systems through a cleaner, more organized workspace.
 
 Neo Studio is built to:
 
@@ -94,7 +94,7 @@ In short: **Neo Studio exists to turn scattered local AI tools into one streamli
 
 ### ⚙️ Admin / Control Tower
 
-- Configure and launch local backends such as ComfyUI Portable and KoboldCPP.
+- Configure and launch local backends such as ComfyUI Portable, Forge Neo, and KoboldCPP.
 - Manage backend profiles, provider capability checks, connection tests, extension panels, and custom node setup.
 - Runtime/user settings are stored under `neo_data/`, not inside the main source folders.
 - Model Guide / Model Manifest support for browsing curated model sources, checking local installed models, planning model downloads, and organizing Image, Video, LLM, LoRA, ControlNet, VAE, encoder, and utility model assets.
@@ -125,6 +125,33 @@ Still evolving:
 ---
 
 ## 🛠️ Updates
+
+**August/05/2026 - LanPaint Capability Discovery Repair**
+
+| System | Update | Details |
+|---|---|---|
+| LanPaint / ComfyUI | ✅ Registry-driven node discovery | LanPaint readiness now derives its `/object_info` scope from every selectable family adapter instead of a static Krea-era list. SD, Flux, HiDream, Qwen Edit, Anima, Ideogram 4, and other active routes can discover their exact loader, encoder, sampling, and sampler nodes. |
+| Backend capability cache | ✅ Stale snapshot detection | Capability snapshots now carry registry and route fingerprints. Old matrices show **Refresh required** and instruct users to Reconnect/Test the selected profile instead of falsely reporting that LanPaint is not installed. |
+| Diagnostics | ✅ Exact missing class reporting | Genuine route failures identify the actual missing node or custom-node pack, including the difference between `LanPaint_KSampler` and Ideogram 4's `LanPaint_SamplerCustomAdvanced`. |
+
+
+**August/05/2026 - Z-Image LanPaint Inpainting**
+
+| System | Update | Details |
+|---|---|---|
+| Z-Image Base | ✅ LanPaint Route | Added explicit safetensors/component and GGUF LanPaint inpainting routes under the canonical `z_image` family, with Base-owned conditioning, sampling, stability, capability, and replay contracts. |
+| Z-Image Turbo | ✅ Separate LanPaint Route | Added separate safetensors/component and GGUF routes for `z_image_turbo`; Turbo does not inherit Base negative conditioning, steps, CFG, or LanPaint thinking defaults. |
+| LoRA | ✅ Exact Catalog + Graph Proof | Phase 19 exact live Comfy catalog binding now applies to Z-Image LanPaint routes and verifies model/CLIP consumer rewiring. Explicit failures stop before queueing. |
+| Route Safety | ✅ Fail-Closed | Missing GGUF loaders, model/encoder/AE assets, AuraFlow, LanPaint, or crop/stitch nodes block the selected route. The duplicate `z_image_base` alias remains unavailable. |
+
+**August/03/2026 - Forge Neo Backend Support**
+
+| System | Update | Details |
+|---|---|---|
+| Image Backend | ✅ Forge Neo Profile | Added **Forge Neo** as a supported Image backend option alongside ComfyUI and Grok Imagine. Neo keeps Preview, Output Inspector, replay, provider capability checks, and Finish actions bound to the selected Forge Neo profile without silently switching to ComfyUI. |
+| Forge Neo Built-ins | ✅ Built-in Coverage | Neo Studio covers the Forge Neo built-in image features and extensions exposed through the provider integration, including source workflows, ControlNet/IP Adapter routes, native High-Res Fix, LoRA, Embeddings/TI, and Forge Extras upscaling where the selected Forge installation reports the required capabilities. |
+| Forge Neo External Extensions | ✅ Current Coverage | The currently covered Forge Neo external extensions are **ADetailer** and **Forge Couple**. Additional third-party Forge extensions may require separate provider mappings before Neo can control them safely. |
+| Forge Launch Contract | ✅ API Startup | Forge Neo must be started with API access enabled. Shared model roots, ComfyUI extra-model YAML reuse, and CUDA allocator flags are optional and should only be added when needed. |
 
 **July/18/2026 - Image Reference and ADetailer Reliability**
 
@@ -184,6 +211,7 @@ Each tab in Neo Studio is designed as a focused system:
 - Git.
 - Recommended local backends:
   - ComfyUI Portable.
+  - Forge Neo.
   - KoboldCPP.
 
 ### Setup
@@ -224,7 +252,7 @@ Neo already ships with seeded backend profiles for the main surfaces. In most ca
 
 | Surface | Pre-created profiles | Used For | What you usually need to add |
 |---|---|---|---|
-| **Image** | ComfyUI Local, ComfyUI Portable, Grok Imagine | Image generation, image edit, Comfy workflows, cloud image generation/edit | Comfy path/launcher if local, or xAI API key for Grok |
+| **Image** | ComfyUI Local, ComfyUI Portable, Forge Neo, Grok Imagine | Image generation, image edit, Comfy workflows, Forge Neo workflows, cloud image generation/edit | Comfy/Forge path or launcher if local, or xAI API key for Grok |
 | **Video** | Video · ComfyUI Local, Video · ComfyUI Portable | Video generation, video finishing, source-frame workflows | Comfy path/launcher if using local video routes |
 | **Text** | KoboldCpp Local | Assistant, Roleplay, Prompting, Captioning, local chat workflows | KoboldCPP launcher/path and model setup |
 | **Voice** | Chatterbox, Kokoro Preview, Fish Speech HQ, Zonos, Custom TTS Adapter | Voice/TTS-related future or early workflows | Only needed if you are testing voice workflows |
@@ -234,15 +262,18 @@ Supported backend tools:
 
 | Backend | Used For | Link |
 |---|---|---|
+| **Forge / Forge Neo** | Local image generation through Forge Neo, built-in Forge features, ADetailer, Forge Couple, provider-aware Preview/Finish actions | https://github.com/Haoming02/sd-webui-forge-classic |
 | **ComfyUI / ComfyUI Portable** | Local image generation, video generation, Comfy workflows, custom nodes, live preview, metadata/replay workflows | https://github.com/Comfy-Org/ComfyUI |
+| **Forge Neo** | Local image generation and image finishing through Forge Neo APIs, built-in Forge features, provider-aware Preview/Output Inspector actions, and supported Forge extensions | https://github.com/Haoming02/sd-webui-forge-classic/tree/neo |
 | **KoboldCPP** | Local text backend for Assistant, Roleplay, Prompting, Captioning, and chat workflows | https://github.com/LostRuins/koboldcpp/releases |
 | **xAI Grok Imagine API** | Cloud image generation and image edit workflows through the seeded Image backend profile | https://docs.x.ai/ |
 
 Suggested local backend folder style:
 
 ```text
-F:\Backends\ComfyUI_windows_portable\
-F:\Backends\KoboldCPP\
+<backend-root>/ComfyUI_windows_portable/
+<backend-root>/Forge_Neo/
+<backend-root>/KoboldCPP/
 ```
 
 Cloud API profiles do not need a local backend folder, but they do need a valid API key.
@@ -254,7 +285,7 @@ Cloud API profiles do not need a local backend folder, but they do need a valid 
 1. Open **Neo Studio**.
 2. Go to **Admin → Backends**.
 3. Choose the surface tab you need:
-   - **Image** for ComfyUI image profiles or Grok Imagine.
+   - **Image** for ComfyUI, Forge Neo, or Grok Imagine profiles.
    - **Video** for ComfyUI video profiles.
    - **Text** for KoboldCPP / local LLM profiles.
 4. Select the existing profile that matches your backend.
@@ -269,21 +300,104 @@ Cloud API profiles do not need a local backend folder, but they do need a valid 
 
 ### Local backend profile setup
 
-For ComfyUI or KoboldCPP, the seeded profiles already include the usual default URLs. Check these first before changing anything:
+For ComfyUI, Forge Neo, or KoboldCPP, the seeded profiles already include the usual default URLs. Check these first before changing anything:
 
 ```text
 ComfyUI:    http://127.0.0.1:8188
+Forge Neo:  http://127.0.0.1:7860
 KoboldCPP:  http://127.0.0.1:5001
 ```
+
+> Forge and Neo Studio must not bind the same local port. Keep Forge Neo on its own backend port, such as `7860`, and run Neo Studio on the separate URL shown by Neo's launcher.
 
 For launcher-based profiles, update only the machine-specific launcher fields:
 
 - **Portable Path**
 - **Launch Command**
 
-Use the same launcher file or command you normally use to start ComfyUI or KoboldCPP manually.
+Use the same launcher file or command you normally use to start ComfyUI, Forge Neo, or KoboldCPP manually.
 
 If your backend runs on the default URL and you start it manually outside Neo, you may only need to click **Test Connection**.
+
+---
+
+### Forge Neo setup for Image generation
+
+Neo Studio V2 includes a seeded **Forge Neo** backend profile under the **Image** backend tab. Use this profile for local Forge Neo image generation, image editing, provider-aware reference workflows, and supported finishing actions.
+
+### Current Forge Image support
+
+Neo currently supports Forge Neo image routes through the selected Forge profile, including checkpoint-based SD 1.5/SDXL workflows and provider-mapped routes such as Flux.2 Klein component or GGUF where the selected Forge installation publishes the required models, modules, and API capabilities. See `guides/01_IMAGE/forge_neo_complete_support.md` for the current route matrix and limitations.
+
+Offline Forge validation does not replace physical GPU/model testing. Model loading, VRAM behavior, visual output quality, and third-party extension compatibility must still be verified on the target Forge installation.
+
+Current Forge Neo extension coverage:
+
+| Extension type | Coverage |
+|---|---|
+| **Forge Neo built-in extensions/features** | Covered through Neo's Forge provider integration when the selected Forge installation reports the required API capability, model, module, script, or upscaler. |
+| **External extension: ADetailer** | Covered for provider-owned Forge Img2Img detail-repair passes. |
+| **External extension: Forge Couple** | Covered through the Forge Neo external-extension mapping. |
+
+> Third-party Forge extensions that are not listed above are not automatically assumed to be compatible. They may require a dedicated Neo capability and payload mapping.
+
+For the full provider-aware integration, install or update the bundled **Neo Forge Bridge** as documented in:
+
+```text
+neo_integrations/forge_neo_bridge/README.md
+```
+
+Restart Forge Neo after installing or updating the Bridge, then refresh/test the selected Forge Neo profile in Neo Studio.
+
+#### Recommended Forge Neo startup BAT
+
+Forge Neo should run with API access enabled. The minimal recommended launcher is:
+
+```bat
+@echo off
+call webui.bat --api --uv
+```
+
+Optional flags can be added when your installation needs them:
+
+```bat
+@echo off
+call webui.bat --api --uv --cuda-malloc --model-ref "<SHARED_MODEL_ROOT>" --forge-ref-comfy-yaml "<COMFYUI_ROOT>\extra_model_paths.yaml"
+```
+
+| Flag | Requirement | Purpose |
+|---|---|---|
+| `--api` | Required for Neo | Enables the Forge API used by the Neo Studio backend profile. |
+| `--uv` | Recommended launch option | Starts Forge Neo using its UV-managed environment. |
+| `--cuda-malloc` | Optional | Use only when you want or need Forge's CUDA memory-allocation mode. |
+| `--model-ref "<SHARED_MODEL_ROOT>"` | Optional | Reuses models from a separate shared model root. Omit it when Forge uses only its own model folders. |
+| `--forge-ref-comfy-yaml "<COMFYUI_ROOT>\extra_model_paths.yaml"` | Optional | Lets Forge reuse model locations declared in a ComfyUI `extra_model_paths.yaml` file. Omit it when you do not share ComfyUI model paths. |
+
+Do not copy another user's drive paths. Replace placeholders only with folders that exist on your machine.
+
+#### Connect Forge Neo in Neo Studio
+
+1. Install Forge Neo separately from Neo Studio.
+2. Start Forge Neo using the API-enabled BAT command above.
+3. Open **Neo Studio**.
+4. Go to:
+
+```text
+Admin → Backends → Image
+```
+
+5. Select the existing **Forge Neo** profile.
+6. Set the Forge Neo folder or launcher only if it differs from the seeded profile.
+7. Confirm the API URL, normally:
+
+```text
+http://127.0.0.1:7860
+```
+
+8. Click **Save Profile**.
+9. Click **Test Connection**.
+10. Refresh provider capabilities after installing/updating Forge extensions or the Neo Forge Bridge.
+11. Click **Set Default** only if you want the Image workspace to use Forge Neo by default.
 
 ---
 
@@ -369,6 +483,8 @@ For detailed troubleshooting, refer to:
 
 ```text
 guides/00_GLOBAL/backend_profiles.md
+guides/01_IMAGE/forge_neo_complete_support.md
+guides/07_ADMIN/forge_neo_admin.md
 guides/01_IMAGE/xai_grok_imagine.md
 ```
 
@@ -384,7 +500,7 @@ guides/01_IMAGE/xai_grok_imagine.md
 ### Important backend notes
 
 - Neo Studio does not ship with AI models.
-- Neo Studio does not ship with ComfyUI, KoboldCPP, or xAI credentials.
+- Neo Studio does not ship with ComfyUI, Forge Neo, KoboldCPP, or xAI credentials.
 - Neo already includes seeded backend profile templates, so users usually only need to add local paths or API keys.
 - Local backend folders should stay outside the Neo repo.
 - User/runtime data should stay under `neo_data/`.
@@ -449,7 +565,7 @@ ComfyUI/custom_nodes/
 Example:
 
 ```text
-F:\ComfyUI_windows_portable\ComfyUI\custom_nodes
+<ComfyUI-portable-root>/ComfyUI/custom_nodes
 ```
 
 4. Set **Python executable for pip installs**.
@@ -457,7 +573,7 @@ F:\ComfyUI_windows_portable\ComfyUI\custom_nodes
 Example:
 
 ```text
-F:\ComfyUI_windows_portable\python_embeded\python.exe
+<ComfyUI-portable-root>/python_embeded/python.exe
 ```
 
 5. Save settings.
@@ -701,8 +817,11 @@ Recommended starting points:
 | Global overview | `guides/00_GLOBAL/neo_overview.md` |
 | Backend profiles | `guides/00_GLOBAL/backend_profiles.md` |
 | Admin Model Guide | `guides/07_ADMIN/model_guide.md` |
+| Forge Neo complete support | `guides/01_IMAGE/forge_neo_complete_support.md` |
+| Forge Neo Admin setup | `guides/07_ADMIN/forge_neo_admin.md` |
 | xAI Grok Imagine backend | `guides/01_IMAGE/xai_grok_imagine.md` |
 | Image overview | `guides/01_IMAGE/image_tab_overview.md` |
+| Provider-action release integration | `guides/01_IMAGE/provider_action_release_integration.md` |
 | Image parameters | `guides/01_IMAGE/image_parameters.md` |
 | Image model families | `guides/01_IMAGE/image_model_families.md` |
 | Qwen Rapid AIO | `guides/01_IMAGE/qwen_rapid_aio.md` |
