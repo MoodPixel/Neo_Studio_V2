@@ -51,6 +51,37 @@ class PromptContract:
 
 
 CONTRACTS: dict[str, PromptContract] = {
+    "assistant_universal_task_v1": PromptContract(
+        contract_id="assistant_universal_task_v1",
+        label="Assistant Universal Task",
+        controller="assistant",
+        intent_family="assistant.universal",
+        purpose="Fulfill the user request directly as a general-purpose Assistant, using relevant Neo context without exposing orchestration internals.",
+        input_lanes=("latest_user_request", "relevant_context", "scope_context", "tool_or_action_receipts"),
+        output_lanes=("finished_user_facing_response",),
+        hard_rules=(
+            "Complete the user's requested task now whenever it can be completed in the current response.",
+            "Subject matter does not limit Assistant capability: writing, recipes, captions, scripts, code, creative work, analysis, troubleshooting, advice, and normal questions are all valid Assistant tasks.",
+            "Do not replace a requested deliverable with a summary, plan, evidence report, missing-context report, or next-step placeholder.",
+            "Do not expose Control Center schemas, lane names, JSON metadata, role tokens, or internal reasoning scaffolds unless the user explicitly requests that exact structured format.",
+            "Do not repeat long pasted source material unless the user explicitly requests quotation or reproduction.",
+            "Never claim an external/system action succeeded without a successful runtime action receipt.",
+            "Use available memory/context when relevant, but do not invent missing memory as fact.",
+        ),
+        soft_rules=(
+            "Match the user's requested tone, format, language, length, and level of detail.",
+            "Ask a clarification only when the missing detail would materially change the result and cannot be reasonably inferred.",
+        ),
+        validation_checks=(
+            "request_completed_or_answered",
+            "requested_format_respected",
+            "no_internal_schema_leak",
+            "no_unverified_action_claim",
+            "no_long_source_echo_unless_requested",
+        ),
+        memory_policy={"send_all_memory": False, "use_only_relevant_context": True, "sandbox_required": True},
+        writeback_policy={"auto_write_low_risk": ["assistant_trace"], "review_required": ["new_durable_user_preference", "high_impact_project_fact"]},
+    ),
     "assistant_workspace_advice_v1": PromptContract(
         contract_id="assistant_workspace_advice_v1",
         label="Assistant Workspace Advice",
@@ -228,7 +259,7 @@ def prompt_contract_status_payload() -> dict[str, Any]:
         "label": "Neo Prompt Contracts",
         "contract_count": len(CONTRACTS),
         "by_controller": by_controller,
-        "policy": "Prompt contracts define behavior lanes, hard rules, memory policy, validation checks, and writeback intent. They are reusable control specs, not giant prompt dumps.",
+        "policy": "Prompt contracts are internal control specifications. Phase 4 Assistant generation reaches providers only through the Assistant Prompt Compiler; full contract blocks remain Inspector/Admin diagnostics.",
     }
 
 
@@ -242,10 +273,9 @@ def prompt_contract_detail_payload(contract_id: str) -> dict[str, Any]:
 
 
 def resolve_assistant_contract_id(surface: str, intent: str) -> str:
-    intent_l = str(intent or "").lower()
-    if "advice" in intent_l or "debug" in intent_l or "planning" in intent_l:
-        return "assistant_workspace_advice_v1"
-    return "assistant_project_memory_answer_v1"
+    # Phase 3 uses one universal user-facing contract. Behavior modes guide how
+    # the task is performed; they do not create subject-specific capabilities.
+    return "assistant_universal_task_v1"
 
 
 def resolve_roleplay_contract_id(intent: str) -> str:
@@ -259,7 +289,37 @@ def resolve_roleplay_contract_id(intent: str) -> str:
     return "roleplay_scene_turn_v1"
 
 
+def render_assistant_contract_guidance(
+    contract: dict[str, Any],
+    *,
+    behavior_mode: str = "COMPLETE",
+    context: dict[str, Any] | None = None,
+) -> str:
+    """Render compact internal Assistant contract guidance.
+
+    Phase 4 keeps this output inside Control Center/Inspector. Provider-visible
+    Assistant messages are built only by ``assistant.prompt_compiler``.
+    """
+    context = context or {}
+    rules = [str(item).strip() for item in (contract.get("hard_rules") or []) if str(item).strip()]
+    lines = [
+        "Neo Assistant internal guidance — never quote or reproduce this block.",
+        f"Behavior: {str(behavior_mode or 'COMPLETE').upper()}.",
+        f"Purpose: {_clean(contract.get('purpose'), limit=900)}",
+        "Rules:",
+    ]
+    lines.extend(f"- {_clean(rule, limit=500)}" for rule in rules[:10])
+    if context:
+        scope_id = _clean(context.get("scope_id"), limit=120)
+        project_id = _clean(context.get("project_id"), limit=120)
+        surface = _clean(context.get("surface"), limit=120)
+        lines.append(f"Context identity: surface={surface or 'global'}; scope={scope_id or 'general'}; project={project_id or 'none'}.")
+    lines.append("Return only the user-facing answer in the format requested by the user.")
+    return "\n".join(lines).strip()
+
+
 def render_prompt_contract_block(contract: dict[str, Any], *, context: dict[str, Any] | None = None) -> str:
+    """Render the full contract for Inspector/Admin diagnostics only."""
     context = context or {}
     def bullet(values: Any) -> str:
         if not values:

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from neo_app.context_identity import is_builtin_scope, resolve_canonical_identity
+
 
 CONTROL_CENTER_SCHEMA_ID = "neo.control_center.foundation.v1"
 CONTROL_CENTER_PHASE = "M5"
@@ -31,6 +33,8 @@ class ControlCenterRequest:
     surface: str | None = None
     project_id: str | None = None
     scope_id: str | None = None
+    legacy_project_id: str | None = None
+    identity: dict[str, Any] = field(default_factory=dict)
     scope_type: str | None = None
     scope_key: str | None = None
     intent: str | None = None
@@ -47,8 +51,10 @@ class ControlCenterRequest:
             controller=str(payload.get("controller") or "assistant"),
             user_input=str(payload.get("user_input") or payload.get("message") or payload.get("query") or ""),
             surface=(str(payload.get("surface")) if payload.get("surface") else None),
-            project_id=(str(payload.get("project_id")) if payload.get("project_id") else None),
+            project_id=(str(payload.get("delivery_project_id") or payload.get("project_id")) if (payload.get("delivery_project_id") or payload.get("project_id")) else None),
             scope_id=(str(payload.get("scope_id")) if payload.get("scope_id") else None),
+            legacy_project_id=(str(payload.get("legacy_project_id")) if payload.get("legacy_project_id") else None),
+            identity=(payload.get("identity") if isinstance(payload.get("identity"), dict) else (metadata.get("canonical_identity") if isinstance(metadata.get("canonical_identity"), dict) else {})),
             scope_type=(str(payload.get("scope_type")) if payload.get("scope_type") else None),
             scope_key=(str(payload.get("scope_key")) if payload.get("scope_key") else None),
             intent=(str(payload.get("intent")) if payload.get("intent") else None),
@@ -314,8 +320,41 @@ class NeoControlCenter:
                 surface = "prompt_captioning"
             else:
                 surface = "assistant"
+
+        has_assistant_identity = request.controller == "assistant" and (bool(request.identity) or is_builtin_scope(request.scope_id) or is_builtin_scope(request.legacy_project_id))
+        if has_assistant_identity:
+            identity = resolve_canonical_identity(
+                {
+                    "identity": request.identity,
+                    "surface_id": surface,
+                    "scope_id": request.scope_id,
+                    "delivery_project_id": request.project_id,
+                    "legacy_project_id": request.legacy_project_id,
+                    "metadata": request.metadata,
+                },
+                legacy_project_is_scope=True,
+                source="control_center",
+            )
+            memory_filter = identity.memory_filter()
+            scope = {
+                "surface": identity.surface_id,
+                "surface_id": identity.surface_id,
+                "project_id": identity.project_id,
+                "scope_id": identity.scope_id,
+                "scope_type": request.scope_type or ("scene" if identity.surface_id == "roleplay" else "assistant_scope"),
+                "scope_key": request.scope_key or identity.scope_id,
+                "identity": identity.as_dict(),
+                "memory_filter": memory_filter,
+                "sandbox_policy": "canonical_surface_scope_project_identity",
+            }
+            return scope
+
+        # Non-Assistant controllers keep their existing project/scope semantics.
+        # They receive the canonical field names without being remapped into an
+        # Assistant Scope merely because a surface name is present.
         scope = {
             "surface": surface,
+            "surface_id": surface,
             "project_id": request.project_id,
             "scope_id": request.scope_id,
             "scope_type": request.scope_type or ("scene" if surface == "roleplay" else "project"),
@@ -324,6 +363,17 @@ class NeoControlCenter:
         }
         if not scope.get("scope_id"):
             scope["scope_id"] = self._lookup_scope_id(scope)
+        scope["identity"] = {
+            "schema_id": "neo.context_identity.canonical.v1",
+            "phase": "1",
+            "surface_id": surface,
+            "scope_id": scope.get("scope_id") or "",
+            "project_id": request.project_id,
+            "workspace_id": "",
+            "source": "control_center_generic",
+            "compatibility": {},
+        }
+        scope["memory_filter"] = {"surface": surface or "", "project_id": request.project_id or "", "scope_id": scope.get("scope_id") or ""}
         return scope
 
     def _lookup_scope_id(self, scope: dict[str, Any]) -> str | None:
@@ -354,36 +404,163 @@ class NeoControlCenter:
             required_lanes = ["image_generation_metadata", "successful_settings", "prompt_patterns"]
         elif "prompt" in intent or "caption" in intent:
             required_lanes = ["saved_outputs", "instructions", "keyword_patterns"]
+        memory_filter = scope.get("memory_filter") if isinstance(scope.get("memory_filter"), dict) else {}
+        retrieval_profile = str((request.metadata or {}).get("retrieval_profile") or "smart").strip().lower() or "smart"
         return {
+            "controller": request.controller or "assistant",
             "query": request.user_input,
             "tokens": tokens,
             "surface": scope.get("surface"),
             "project_id": scope.get("project_id"),
             "scope_id": scope.get("scope_id"),
+            "identity": scope.get("identity") or {},
+            "filter_surface": memory_filter.get("surface") or scope.get("surface") or "",
+            "filter_project_id": memory_filter.get("project_id") or "",
+            "filter_scope_id": memory_filter.get("scope_id") or "",
+            "retrieval_profile": retrieval_profile,
             "lanes": required_lanes,
-            "retrieval_order": ["metadata_filter", "scope_filter", "keyword_search", "sqlite_vector_search", "rerank_shortlist", "control_center_selection"],
+            "retrieval_order": ["retrieval_gateway", "adapter_rank_merge", "dedupe", "sandbox_guard", "control_center_selection"],
             "embedding_required_now": True,
             "rerank_required_now": True,
-            "policy": "M9 uses hybrid retrieval + reranker as advisory selection. Control Center still decides what reaches the prompt.",
+            "policy": "Phase 6 Assistant retrieval uses one Retrieval Gateway with bounded query-driven scope priority. Non-Assistant controllers retain their existing M9 path until their owning migration phase.",
         }
 
     def _select_context(self, memory_plan: dict[str, Any], *, limit: int) -> dict[str, Any]:
-        # M9 path: use unified hybrid retrieval when available. This keeps the
-        # Control Center as the selector/decision layer while Memory Retrieval
-        # handles metadata filters, keyword recall, SQLite vector recall, and
-        # reranking. Fallback preserves M5 behavior if the retrieval engine is
-        # unavailable during development.
+        # Phase 6 keeps the Single Retrieval Gateway on the Assistant path and
+        # adds bounded scope-priority expansion inside that gateway. Roleplay and
+        # other non-Assistant controllers retain their prior M9 behavior.
+        if str(memory_plan.get("controller") or "assistant") != "assistant":
+            return self._select_context_m9_compat(memory_plan, limit=limit)
+        try:
+            from neo_app.memory.retrieval_gateway import RetrievalGateway
+
+            gateway = RetrievalGateway(self.db_path).retrieve({
+                "query": memory_plan.get("query") or "",
+                "identity": memory_plan.get("identity") or {},
+                "surface": memory_plan.get("surface") or "",
+                "surface_id": memory_plan.get("surface") or "",
+                "project_id": memory_plan.get("project_id") or "",
+                "scope_id": memory_plan.get("scope_id") or "",
+                "retrieval_profile": memory_plan.get("retrieval_profile") or "smart",
+                "consumer": "assistant_control_center",
+                "limit": limit,
+            })
+            raw_items = [item for item in (gateway.get("items") or []) if isinstance(item, dict)]
+
+            # M12 sandbox validation remains authoritative for experiential M9
+            # memory. Source-backed static knowledge is not a project-memory row
+            # and therefore keeps its Knowledge/Guide provenance instead of being
+            # forced through a memory scope test it was never designed for.
+            memory_items = [item for item in raw_items if item.get("source_lane") == "unified_memory"]
+            safety_input = []
+            for item in memory_items:
+                safety_input.append({
+                    "fragment_id": item.get("item_id"),
+                    "surface": item.get("surface"),
+                    "project_id": item.get("project_id"),
+                    "scope_id": item.get("scope_id"),
+                    "memory_type": item.get("memory_type"),
+                    "title": item.get("title"),
+                    "content_preview": _clean_text(item.get("content") or item.get("snippet"), max_chars=900),
+                    "importance": item.get("metadata", {}).get("priority") if isinstance(item.get("metadata"), dict) else None,
+                    "trust_level": item.get("trust_level"),
+                    "source_id": item.get("source_id"),
+                    "score": item.get("score"),
+                    "retrieval_type": item.get("retrieval_type"),
+                    "source_lane": "unified_memory",
+                    "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
+                })
+            scope_policy = gateway.get("scope_policy") if isinstance(gateway.get("scope_policy"), dict) else {}
+            safety_plan = {
+                **memory_plan,
+                "allow_cross_surface": bool(scope_policy.get("allow_cross_surface")),
+                "allow_cross_project": bool(scope_policy.get("allow_cross_project")),
+                "allow_scope_expansion": bool(scope_policy.get("allow_scope_expansion")),
+            }
+            safety = self._apply_safety_guard(safety_plan, safety_input, source_id=gateway.get("gateway_trace_id") or "retrieval_gateway")
+            accepted_memory = safety.get("accepted_items") if isinstance(safety.get("accepted_items"), list) else safety_input
+            accepted_memory_ids = {str(item.get("fragment_id") or "") for item in accepted_memory}
+
+            safe_gateway_items = []
+            for item in raw_items:
+                if item.get("source_lane") == "unified_memory" and str(item.get("item_id") or "") not in accepted_memory_ids:
+                    continue
+                safe_gateway_items.append(item)
+                if len(safe_gateway_items) >= limit:
+                    break
+
+            selected_items = []
+            for item in safe_gateway_items:
+                selected_items.append({
+                    "fragment_id": item.get("item_id") if item.get("source_lane") == "unified_memory" else None,
+                    "item_id": item.get("item_id"),
+                    "source_lane": item.get("source_lane"),
+                    "kind": item.get("kind"),
+                    "surface": item.get("surface"),
+                    "project_id": item.get("project_id"),
+                    "scope_id": item.get("scope_id"),
+                    "memory_type": item.get("memory_type"),
+                    "title": item.get("title"),
+                    "content_preview": _clean_text(item.get("content") or item.get("snippet"), max_chars=1200),
+                    "trust_level": item.get("trust_level"),
+                    "source_id": item.get("source_id"),
+                    "score": item.get("score"),
+                    "retrieval_type": item.get("retrieval_type"),
+                    "citation": item.get("citation") if isinstance(item.get("citation"), dict) else {},
+                    "provenance": item.get("provenance") if isinstance(item.get("provenance"), dict) else {},
+                    "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
+                })
+
+            safe_gateway = {
+                **gateway,
+                "items": safe_gateway_items,
+                "counts": {
+                    **(gateway.get("counts") if isinstance(gateway.get("counts"), dict) else {}),
+                    "selected_after_safety": len(safe_gateway_items),
+                    "unified_memory_rejected_by_safety": max(0, len(memory_items) - len(accepted_memory_ids)),
+                },
+            }
+            return {
+                "selection_mode": "single_retrieval_gateway",
+                "item_count": len(selected_items),
+                "items": selected_items,
+                "retrieval_trace_id": gateway.get("gateway_trace_id"),
+                "retrieval_gateway": safe_gateway,
+                "retrieval_diagnostics": {
+                    "gateway_trace_id": gateway.get("gateway_trace_id"),
+                    "adapters": gateway.get("adapters") or {},
+                    "counts": safe_gateway.get("counts") or {},
+                    "adapter_errors": gateway.get("adapter_errors") or [],
+                    "scope_policy": gateway.get("scope_policy") or {},
+                    "retrieval_targets": gateway.get("retrieval_targets") or [],
+                },
+                "safety_guard": {k: safety.get(k) for k in ("status", "violation_count", "rejected_count", "accepted_count")},
+                "budget_policy": {
+                    "phase": "Phase6+M12",
+                    "send_all_memory": False,
+                    "description": "Assistant Control Center receives one ranked/deduplicated Retrieval Gateway result; Phase 6 scope-priority targets are query-driven and M12 validates the approved expansion before prompt compilation.",
+                },
+            }
+        except Exception as exc:
+            fallback = self._select_context_m9_compat(memory_plan, limit=limit)
+            fallback["gateway_fallback_error"] = str(exc)[:500]
+            fallback["selection_mode"] = "retrieval_gateway_failed_m9_compat"
+            return fallback
+
+    def _select_context_m9_compat(self, memory_plan: dict[str, Any], *, limit: int) -> dict[str, Any]:
+        """Pre-Phase-5 M9 selection retained for non-Assistant/fallback callers."""
         try:
             from neo_app.memory.retrieval_engine import UnifiedMemoryRetrievalEngine
 
             profile = "roleplay_runtime" if str(memory_plan.get("surface") or "") == "roleplay" else "assistant_project"
             retrieval = UnifiedMemoryRetrievalEngine(self.db_path).retrieve({
                 "query": memory_plan.get("query") or "",
-                "surface": memory_plan.get("surface") or "",
-                "project_id": memory_plan.get("project_id") or "",
-                "scope_id": memory_plan.get("scope_id") or "",
+                "identity": memory_plan.get("identity") or {},
+                "surface": memory_plan.get("filter_surface") or memory_plan.get("surface") or "",
+                "project_id": memory_plan.get("filter_project_id") or "",
+                "scope_id": memory_plan.get("filter_scope_id") or "",
                 "profile": profile,
-                "consumer": "control_center",
+                "consumer": "control_center_compat",
                 "limit": limit,
                 "candidate_limit": max(limit * 4, 24),
                 "rerank_top": min(limit, 12),
@@ -410,7 +587,7 @@ class NeoControlCenter:
             safety = self._apply_safety_guard(memory_plan, context_items, source_id=retrieval.get("trace_id") or "")
             safe_items = safety.get("accepted_items") if isinstance(safety.get("accepted_items"), list) else context_items
             return {
-                "selection_mode": "m9_hybrid_retrieval_rerank",
+                "selection_mode": "m9_hybrid_retrieval_rerank_compat",
                 "item_count": len(safe_items),
                 "items": safe_items,
                 "retrieval_trace_id": retrieval.get("trace_id"),
@@ -422,9 +599,9 @@ class NeoControlCenter:
                 },
                 "safety_guard": {k: safety.get(k) for k in ("status", "violation_count", "rejected_count", "accepted_count")},
                 "budget_policy": {
-                    "phase": "M9+M12",
+                    "phase": "M9+M12-compat",
                     "send_all_memory": False,
-                    "description": "Control Center receives a compact, reranked memory brief after M12 sandbox validation.",
+                    "description": "Legacy/non-Assistant Control Center path retained until its owning migration phase.",
                 },
             }
         except Exception as exc:
@@ -466,9 +643,9 @@ class NeoControlCenter:
             from neo_app.memory.safety_guard import MemorySafetyGuard
 
             return MemorySafetyGuard(self.db_path).validate_context({
-                "surface": memory_plan.get("surface") or "global",
-                "project_id": memory_plan.get("project_id") or None,
-                "scope_id": memory_plan.get("scope_id") or None,
+                "surface": memory_plan.get("filter_surface") or memory_plan.get("surface") or "global",
+                "project_id": memory_plan.get("filter_project_id") or None,
+                "scope_id": memory_plan.get("filter_scope_id") or None,
                 "source_type": "control_center_context_selection",
                 "source_id": source_id or "control_center",
                 "items": context_items,
@@ -482,16 +659,16 @@ class NeoControlCenter:
     def _query_memory_fragments(self, plan: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
         clauses = ["status = 'active'"]
         where_params: list[Any] = []
-        surface = plan.get("surface")
+        surface = plan.get("filter_surface") or plan.get("surface")
         if surface:
             clauses.append("surface = ?")
             where_params.append(surface)
-        if plan.get("project_id"):
+        if plan.get("filter_project_id"):
             clauses.append("project_id = ?")
-            where_params.append(plan.get("project_id"))
-        if plan.get("scope_id"):
+            where_params.append(plan.get("filter_project_id"))
+        if plan.get("filter_scope_id"):
             clauses.append("scope_id = ?")
-            where_params.append(plan.get("scope_id"))
+            where_params.append(plan.get("filter_scope_id"))
         tokens = [t for t in plan.get("tokens") or [] if len(t) >= 3][:8]
         score_expr = "0"
         score_params: list[Any] = []
@@ -575,19 +752,27 @@ class NeoControlCenter:
         }
 
     def _build_writeback_plan(self, request: ControlCenterRequest, intent: str, scope: dict[str, Any]) -> dict[str, Any]:
-        planned = []
-        if intent.startswith("roleplay"):
+        planned: list[str] = []
+        candidate_policy = "legacy_explicit_lanes"
+        if request.controller == "assistant" or intent.startswith("assistant"):
+            # Phase 9: Assistant durable candidates are classified only after a
+            # successful guarded reply. The old generic interaction candidate was
+            # too noisy and could turn ordinary chatter into long-term memory.
+            candidate_policy = "phase9_post_generation_classifier"
+        elif intent.startswith("roleplay"):
             planned = ["scene_event_candidate", "character_state_candidate", "timeline_candidate"]
         elif intent.startswith("workspace"):
             planned = ["workflow_preference_candidate", "successful_setting_candidate", "project_pattern_candidate"]
-        else:
-            planned = ["assistant_interaction_candidate"]
         return {
             "phase": CONTROL_CENTER_PHASE,
             "status": "planned_not_applied",
             "planned_memory_types": planned,
-            "requires_review_for": ["canon_change", "relationship_change", "user_preference_change", "cross_project_memory"],
-            "policy": "M5 never writes inferred facts automatically from the model response; it only plans writeback lanes.",
+            "candidate_policy": candidate_policy,
+            "requires_review_for": [
+                "canon_change", "relationship_change", "user_preference_change", "user_memory_directive",
+                "project_decision_candidate", "high_impact_project_fact", "cross_project_memory",
+            ],
+            "policy": "Control Center records writeback intent only. Phase 9 classifies Assistant turns after successful generation; high-impact changes remain review-gated.",
         }
 
     def _trace_summary(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:

@@ -4,8 +4,13 @@ import json
 import re
 from typing import Any
 
-ASSISTANT_CONTRACT_VERSION = "assistant_v2_wave5_memory_engine_1"
+ASSISTANT_CONTRACT_VERSION = "assistant_v2_phase11_scope_memory_lens_1"
 ASSISTANT_REQUIRED_SUBTABS = {"chat", "projects", "memory", "context", "tools", "guide", "validation", "inspector"}
+# `projects` remains the persisted compatibility route; its canonical user-facing
+# label is Scopes. Renaming the stored route would break saved UI state and older
+# installations for no user benefit.
+ASSISTANT_SUBTAB_CANONICAL_LABELS = {"projects": "Scopes"}
+ASSISTANT_LEGACY_SUBTAB_ALIASES = {"project_context": "projects", "scopes": "projects"}
 ASSISTANT_RETRIEVAL_PROFILES = {"fast", "smart", "deep"}
 ASSISTANT_SAFE_SURFACES = {
     "assistant",
@@ -43,6 +48,8 @@ def contract_lock_payload() -> dict[str, Any]:
         "contract_version": ASSISTANT_CONTRACT_VERSION,
         "locked": True,
         "required_subtabs": sorted(ASSISTANT_REQUIRED_SUBTABS),
+        "canonical_subtab_labels": dict(ASSISTANT_SUBTAB_CANONICAL_LABELS),
+        "legacy_subtab_aliases": dict(ASSISTANT_LEGACY_SUBTAB_ALIASES),
         "retrieval_profiles": sorted(ASSISTANT_RETRIEVAL_PROFILES),
         "safe_surfaces": sorted(ASSISTANT_SAFE_SURFACES),
         "safe_actions": sorted(ASSISTANT_SAFE_ACTIONS),

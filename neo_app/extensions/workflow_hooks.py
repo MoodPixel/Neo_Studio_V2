@@ -625,6 +625,7 @@ def apply_comfy_workflow_extension_patches(
     sampler_node_id: str | int = "5",
     sampler_model_input: str = "model",
     lora_patch_profile: dict[str, Any] | None = None,
+    adetailer_route_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply registered Comfy workflow extension patches without provider-specific hardcoding.
 
@@ -642,8 +643,15 @@ def apply_comfy_workflow_extension_patches(
     replay_payloads: dict[str, Any] = {}
     assistant_summaries: dict[str, str] = {}
     memory_events: dict[str, Any] = {}
-    model_output_ref = list(model_ref) if isinstance(model_ref, (list, tuple)) else ["1", 0]
-    clip_output_ref = list(clip_ref) if isinstance(clip_ref, (list, tuple)) else ["1", 1]
+    explicit_model_ref = list(model_ref) if isinstance(model_ref, (list, tuple)) else None
+    explicit_clip_ref = list(clip_ref) if isinstance(clip_ref, (list, tuple)) else None
+    model_output_ref = explicit_model_ref or ["1", 0]
+    clip_output_ref = explicit_clip_ref or ["1", 1]
+    base_adetailer_route_contract = deepcopy(adetailer_route_contract) if isinstance(adetailer_route_contract, dict) else None
+    raw_adetailer_refs = adetailer_route_contract.get("refs") if isinstance(adetailer_route_contract, dict) and isinstance(adetailer_route_contract.get("refs"), dict) else {}
+    adetailer_model_ref = explicit_model_ref or (list(raw_adetailer_refs.get("model")) if isinstance(raw_adetailer_refs.get("model"), (list, tuple)) else None)
+    adetailer_clip_ref = explicit_clip_ref or (list(raw_adetailer_refs.get("clip")) if isinstance(raw_adetailer_refs.get("clip"), (list, tuple)) else None)
+    adetailer_image_ref = list(raw_adetailer_refs.get("image")) if isinstance(raw_adetailer_refs.get("image"), (list, tuple)) else None
     cfg_fix_applied_pre_scene_director_identity = False
     reference_context: dict[str, Any] = {
         "ip_adapter": {"applied": False, "faceid_active": False, "standard_active": False, "unit_count": 0},
@@ -689,8 +697,24 @@ def apply_comfy_workflow_extension_patches(
                     model_output_ref = ["5", 0]
                 sampler_model_input = "model"
                 clip_output_ref = ["1", 1]
+                adetailer_model_ref = list(model_output_ref)
+                adetailer_clip_ref = list(clip_output_ref)
                 graph = _sanitize_layerdiffuse_executable_graph(graph)
                 graph = _sync_layerdiffuse_prompt_nodes(graph, context)
+                layer_bindings = patch.get("output_bindings") if isinstance(patch.get("output_bindings"), dict) else {}
+                ordered_layer_outputs = [
+                    item for item in layer_bindings.values()
+                    if isinstance(item, dict) and item.get("role") == "primary"
+                ] + [
+                    item for item in layer_bindings.values()
+                    if isinstance(item, dict) and item.get("role") == "preview"
+                ]
+                for binding in ordered_layer_outputs:
+                    source_node_id = str(binding.get("source_node_id") or "").strip()
+                    source_output_index = binding.get("source_output_index")
+                    if source_node_id in graph and isinstance(source_output_index, int):
+                        adetailer_image_ref = [source_node_id, source_output_index]
+                        break
             patch_record = {
                 "extension_id": LAYERDIFFUSE_EXTENSION_ID,
                 "node_class": "LayeredDiffusionApply",
@@ -734,6 +758,11 @@ def apply_comfy_workflow_extension_patches(
         model_output_ref = result.get("model_ref", model_output_ref)
         clip_output_ref = result.get("clip_ref", clip_output_ref)
         patch = result.get("workflow_patch") or {}
+        if patch.get("applied"):
+            if isinstance(result.get("model_ref"), (list, tuple)):
+                adetailer_model_ref = list(result.get("model_ref"))
+            if isinstance(result.get("clip_ref"), (list, tuple)):
+                adetailer_clip_ref = list(result.get("clip_ref"))
         if isinstance(patch, dict) and patch.get("node_class") and not patch.get("node"):
             patch = {**patch, "node": patch.get("node_class")}
         patches.append(patch)
@@ -795,6 +824,10 @@ def apply_comfy_workflow_extension_patches(
                 "patch_order": "before_scene_director_regional_identity",
                 "ordering_reason": "Scene Director regional FaceID/IPAdapter must see the CFG Fix model wrapper before identity nodes are inserted.",
             }
+        if isinstance(patch, dict) and patch.get("applied"):
+            adetailer_model_ref = list(model_output_ref)
+        if isinstance(patch, dict) and patch.get("applied"):
+            adetailer_model_ref = list(model_output_ref)
         patches.append(patch)
         validation.extend(validation_result.get("validation") or [])
         block = validation_result.get("block") or {}
@@ -835,6 +868,11 @@ def apply_comfy_workflow_extension_patches(
         model_output_ref = result.get("model_ref", model_output_ref)
         clip_output_ref = result.get("clip_ref", clip_output_ref)
         patch = result.get("workflow_patch") or {}
+        if patch.get("applied"):
+            if isinstance(result.get("model_ref"), (list, tuple)):
+                adetailer_model_ref = list(result.get("model_ref"))
+            if isinstance(result.get("clip_ref"), (list, tuple)):
+                adetailer_clip_ref = list(result.get("clip_ref"))
         patches.append(patch)
         validation_result = result.get("validation") or {}
         validation.extend(validation_result.get("validation") or [])
@@ -873,6 +911,8 @@ def apply_comfy_workflow_extension_patches(
         graph = result["workflow"]
         model_output_ref = result.get("model_ref", model_output_ref)
         patch = result.get("workflow_patch") or {}
+        if patch.get("applied") and isinstance(result.get("model_ref"), (list, tuple)):
+            adetailer_model_ref = list(result.get("model_ref"))
         patches.append(patch)
         validation_result = result.get("validation") or {}
         active_ip_units = validation_result.get("active_units") if isinstance(validation_result.get("active_units"), list) else []
@@ -960,6 +1000,8 @@ def apply_comfy_workflow_extension_patches(
             sampler_node_id=sampler_node_id,
         )
         graph = result["workflow"]
+        if isinstance(result.get("output_image_ref"), (list, tuple)):
+            adetailer_image_ref = list(result.get("output_image_ref"))
         patch = result.get("workflow_patch") or {}
         patches.append(patch)
         validation_result = result.get("validation") or {}
@@ -974,9 +1016,20 @@ def apply_comfy_workflow_extension_patches(
         memory_events.update(highres_metadata.get("memory_events") or {})
 
     if _extension_payload_enabled(extensions, ADETAILER_EXTENSION_ID):
+        from neo_extensions.built_in.adetailer.backend.route_contract import rebase_adetailer_route_contract
         from neo_extensions.built_in.adetailer.backend.workflow_patch import apply_adetailer_patch
         from neo_extensions.built_in.adetailer.backend.metadata import build_output_extension_metadata
 
+        live_adetailer_route_contract = rebase_adetailer_route_contract(
+            adetailer_route_contract,
+            workflow=graph,
+            model_ref=adetailer_model_ref,
+            clip_ref=adetailer_clip_ref,
+            image_ref=adetailer_image_ref,
+            sampler_node_id=sampler_node_id,
+            refresh_sampler_refs=True,
+            lineage_reason="shared_extension_pipeline_before_adetailer",
+        )
         result = apply_adetailer_patch(
             graph,
             payload=extensions,
@@ -986,8 +1039,13 @@ def apply_comfy_workflow_extension_patches(
             clip_ref=clip_output_ref,
             sampler_node_id=sampler_node_id,
             reference_context=deepcopy(reference_context),
+            route_contract=live_adetailer_route_contract,
+            base_route_contract=base_adetailer_route_contract,
+            lora_patch_profile=lora_patch_profile,
         )
         graph = result["workflow"]
+        if isinstance(result.get("image_ref"), (list, tuple)):
+            adetailer_image_ref = list(result.get("image_ref"))
         patch = result.get("workflow_patch") or {}
         patches.append(patch)
         validation_result = result.get("validation") or {}

@@ -5,6 +5,13 @@ from pathlib import Path
 from typing import Any
 import json
 
+from .ownership import (
+    ADMIN_OWNERSHIP_CONTRACT,
+    CANONICAL_MEMORY_NAMESPACES,
+    MEMORY_ENGINE_GENERATION_KEYS,
+    MEMORY_ENGINE_SECTIONS,
+)
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENGINE_DATA_DIR = ROOT_DIR / "neo_data" / "admin" / "engine"
 VECTOR_STORE_DIR = ROOT_DIR / "neo_data" / "vector_store"
@@ -20,7 +27,7 @@ RUNTIME_DEFAULTS_PATH = ENGINE_DATA_DIR / "runtime_defaults.json"
 HEALTH_SNAPSHOT_PATH = ENGINE_DATA_DIR / "health_snapshot.json"
 
 ENGINE_SCHEMA_ID = "neo.admin.engine.v1"
-ENGINE_VERSION = "0.4.2-qwen3-provider-persistence"
+ENGINE_VERSION = "0.5.0-admin-ownership-phase2"
 
 
 def _now() -> str:
@@ -110,6 +117,25 @@ def _migrate_engine_profile_payload(path: Path, existing: dict[str, Any], defaul
         if merged != existing.get("supported_provider_ids"):
             existing["supported_provider_ids"] = merged
             changed = True
+    if path == RETRIEVAL_DEFAULTS_PATH:
+        merged_namespaces = _merge_unique_list(existing.get("namespaces"), list(CANONICAL_MEMORY_NAMESPACES))
+        if merged_namespaces != existing.get("namespaces"):
+            existing["namespaces"] = merged_namespaces
+            changed = True
+        if existing.get("namespace_policy") != "canonical_registered_surfaces":
+            existing["namespace_policy"] = "canonical_registered_surfaces"
+            changed = True
+    if path == RUNTIME_DEFAULTS_PATH:
+        compatibility_fields = {
+            "compatibility_only": True,
+            "generation_settings_owner": "admin.backends",
+            "deprecated_generation_keys": list(MEMORY_ENGINE_GENERATION_KEYS),
+            "note": "Compatibility bridge only. Generation sampling is owned by backend/task profiles and is no longer editable from Memory Engine.",
+        }
+        for key, value in compatibility_fields.items():
+            if existing.get(key) != value:
+                existing[key] = value
+                changed = True
     return existing, changed
 
 
@@ -143,7 +169,7 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
             "created_at": stamp,
             "updated_at": stamp,
             "policy": "Admin owns shared Memory Engine configuration. Surfaces consume this through bridge endpoints and should not duplicate embedding, reranker, vector, or retrieval controls.",
-            "lanes": ["overview", "text", "embeddings", "reranker", "vector_store", "retrieval", "indexing", "index_jobs", "runtime_defaults", "inspector"],
+            "lanes": list(MEMORY_ENGINE_SECTIONS),
         },
         "text_bridge": {
             "status": "ready",
@@ -197,7 +223,7 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
             "query_top_k": 12,
             "rerank_top_n": 6,
             "max_context_chars": 9000,
-            "namespaces": ["roleplay", "assistant", "global"],
+            "namespaces": list(CANONICAL_MEMORY_NAMESPACES),
             "scoring_policy": "embedding_then_optional_rerank",
             "filters": {"include_archived": False, "canon_priority": True},
         },
@@ -210,12 +236,12 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
         },
         "runtime_defaults": {
             "status": "ready",
-            "max_tokens": 480,
-            "temperature": 0.82,
-            "top_p": 0.92,
-            "top_k": 60,
+            "compatibility_only": True,
             "memory_window": "runtime_anchored",
             "continuity_mode": "checkpoint_first_then_session_then_storyline",
+            "generation_settings_owner": "admin.backends",
+            "deprecated_generation_keys": list(MEMORY_ENGINE_GENERATION_KEYS),
+            "note": "Compatibility bridge only. Generation sampling is owned by backend/task profiles and is no longer editable from Memory Engine.",
         },
         "health_snapshot": {
             "status": "ready",
@@ -289,6 +315,11 @@ def admin_engine_state_payload() -> dict[str, Any]:
         index_jobs = index_job_queue_state_payload()
     except Exception:
         index_jobs = {"status": "unavailable", "jobs": [], "summary": {}}
+    try:
+        from neo_app.memory.job_service import get_memory_job_service
+        memory_jobs = get_memory_job_service().list(limit=30)
+    except Exception:
+        memory_jobs = {"status": "unavailable", "jobs": [], "summary": {}}
 
     return {
         "schema_id": ENGINE_SCHEMA_ID,
@@ -309,6 +340,7 @@ def admin_engine_state_payload() -> dict[str, Any]:
         "retrieval_defaults": files["retrieval_defaults"],
         "indexing_state": files["indexing_state"],
         "index_jobs": index_jobs,
+        "memory_jobs": memory_jobs,
         "runtime_defaults": files["runtime_defaults"],
         "health_snapshot": health,
         "active_features": [
@@ -316,6 +348,7 @@ def admin_engine_state_payload() -> dict[str, Any]:
             "OpenAI-compatible embedding endpoint execution when configured",
             "external cross-encoder reranker execution when installed/configured",
             "OpenAI-compatible reranker endpoint execution when configured",
+            "Unified persistent memory background jobs with progress/cancel/retry",
             "SQLite vector index writes",
             "safe local hash embedding fallback",
             "safe lexical reranker fallback",
@@ -324,18 +357,37 @@ def admin_engine_state_payload() -> dict[str, Any]:
         "deferred_features": [
             "GPU/model health benchmark panel",
         ],
-        "memory_engine_policy": "Embedding, reranker, vector store, retrieval, and indexing settings are Admin-owned and consumed by Assistant, Roleplay, and surfaces through bridge/client APIs.",
+        "ownership": ADMIN_OWNERSHIP_CONTRACT["memory_engine"],
+        "compatibility": {
+            "runtime_defaults_endpoint": "/api/admin/engine/runtime-defaults",
+            "runtime_defaults_role": "read/legacy bridge only; generation sampling belongs to Admin → Backends",
+            "legacy_generation_keys": list(MEMORY_ENGINE_GENERATION_KEYS),
+        },
+        "memory_engine_policy": "Embedding, reranker, vector store, retrieval, indexing, sources, and engine diagnostics are Admin-owned. Generation sampling belongs to Admin → Backends; memory records/governance belong to Admin → Memory.",
     }
 
 
 def update_runtime_defaults(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Compatibility endpoint for Memory Engine runtime bridge fields.
+
+    Phase 2 removes generation sampling ownership from Memory Engine. Existing
+    max_tokens/temperature/top_p/top_k values remain readable for old installs,
+    but writes to those keys are ignored so Backend/task profiles remain the
+    canonical generation owner.
+    """
     files = ensure_admin_engine_foundation()
     current = dict(files["runtime_defaults"])
     incoming = payload or {}
-    for key in ("max_tokens", "temperature", "top_p", "top_k", "memory_window", "continuity_mode"):
+    for key in ("memory_window", "continuity_mode"):
         if key in incoming:
             current[key] = incoming[key]
-    current["status"] = "foundation"
+    ignored = [key for key in MEMORY_ENGINE_GENERATION_KEYS if key in incoming]
+    current["status"] = "ready"
+    current["compatibility_only"] = True
+    current["generation_settings_owner"] = "admin.backends"
+    current["deprecated_generation_keys"] = list(MEMORY_ENGINE_GENERATION_KEYS)
+    current["last_ignored_generation_keys"] = ignored
+    current["note"] = "Compatibility bridge only. Generation sampling is owned by backend/task profiles and is no longer editable from Memory Engine."
     current["updated_at"] = _now()
     _write_json(RUNTIME_DEFAULTS_PATH, current)
     return admin_engine_state_payload()
@@ -345,9 +397,14 @@ def update_retrieval_defaults(payload: dict[str, Any] | None) -> dict[str, Any]:
     files = ensure_admin_engine_foundation()
     current = dict(files["retrieval_defaults"])
     incoming = payload or {}
-    for key in ("query_top_k", "rerank_top_n", "max_context_chars", "namespaces", "scoring_policy", "filters"):
+    for key in ("query_top_k", "rerank_top_n", "max_context_chars", "scoring_policy", "filters"):
         if key in incoming:
             current[key] = incoming[key]
+    if "namespaces" in incoming:
+        current["namespaces"] = _merge_unique_list(incoming.get("namespaces"), list(CANONICAL_MEMORY_NAMESPACES))
+    else:
+        current["namespaces"] = _merge_unique_list(current.get("namespaces"), list(CANONICAL_MEMORY_NAMESPACES))
+    current["namespace_policy"] = "canonical_registered_surfaces"
     current["status"] = "foundation"
     current["updated_at"] = _now()
     _write_json(RETRIEVAL_DEFAULTS_PATH, current)

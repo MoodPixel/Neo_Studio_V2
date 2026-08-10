@@ -1,9 +1,14 @@
 {
-  "continuity_mode": "checkpoint_first_then_session_then_storyline",
-  "max_tokens": 480,
-  "memory_window": "runtime_anchored",
   "status": "ready",
-  "temperature": 0.82,
-  "top_k": 60,
-  "top_p": 0.92
+  "compatibility_only": true,
+  "memory_window": "runtime_anchored",
+  "continuity_mode": "checkpoint_first_then_session_then_storyline",
+  "generation_settings_owner": "admin.backends",
+  "deprecated_generation_keys": [
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k"
+  ],
+  "note": "Compatibility bridge only. Generation sampling is owned by backend/task profiles and is no longer editable from Memory Engine."
 }

@@ -1,5 +1,5 @@
 {
-  "admin_version": "0.4.0",
+  "admin_version": "0.4.1-phase2-admin-ownership",
   "global": {
     "ui_preferences": {
       "detail_mode": "guided",
@@ -58,24 +58,9 @@
       ]
     },
     "engine_resources": {
-      "status_endpoint": "/api/admin/engine/state",
-      "owner": "admin",
-      "data_root": "neo_data/admin/engine",
-      "vector_store_root": "neo_data/vector_store",
-      "sections": [
-        "overview",
-        "sources",
-        "text_bridge",
-        "embeddings",
-        "reranker",
-        "vector_store",
-        "retrieval",
-        "indexing",
-        "runtime_defaults",
-        "inspector"
-      ],
-      "policy": "Memory Engine settings are shared globally and consumed by Roleplay/Assistant/memory-aware surfaces through bridge endpoints.",
-      "label": "Memory Engine"
+      "compatibility_alias_of": "global.memory_engine_resources",
+      "deprecated": true,
+      "note": "Expanded at runtime by neo_app.admin.ownership.normalize_admin_config for legacy readers."
     },
     "control_center": {
       "status_endpoint": "/api/admin/control-center",
@@ -99,7 +84,7 @@
     },
     "memory_engine_resources": {
       "status_endpoint": "/api/admin/engine/state",
-      "owner": "admin",
+      "owner": "admin.memory_engine",
       "data_root": "neo_data/admin/engine",
       "vector_store_root": "neo_data/vector_store",
       "sections": [
@@ -111,10 +96,11 @@
         "vector_store",
         "retrieval",
         "indexing",
-        "runtime_defaults",
-        "inspector"
+        "index_jobs",
+        "memory_jobs",
+        "diagnostics"
       ],
-      "policy": "Memory Engine settings are shared globally and consumed by Roleplay/Assistant/memory-aware surfaces through bridge endpoints.",
+      "policy": "Memory Engine owns shared retrieval/index infrastructure. Generation sampling belongs to Admin → Backends; memory records/governance belong to Admin → Memory.",
       "label": "Memory Engine"
     },
     "model_guide": {
@@ -341,32 +327,8 @@
     "registry_endpoint": "/api/providers"
   },
   "memory_controls": {
-    "status_endpoint": "/api/memory/status",
-    "events_endpoint": "/api/memory/events",
-    "search_endpoint": "/api/memory/search",
-    "actions": [
-      "view_status",
-      "record_event",
-      "list_events",
-      "search_events",
-      "check_optional_dependencies"
-    ],
-    "required_layer": "sqlite",
-    "optional_layers": [
-      "chromadb",
-      "sentence-transformers",
-      "transformers"
-    ],
-    "namespaces": [
-      "global",
-      "image",
-      "video",
-      "voice",
-      "prompt_captioning",
-      "roleplay",
-      "assistant",
-      "board",
-      "admin"
-    ]
+    "derived_from": "global.memory_resources",
+    "compatibility_descriptor": true,
+    "note": "Runtime endpoints/actions/namespaces are derived by the Admin config normalizer; this is not a second memory configuration source."
   }
 }

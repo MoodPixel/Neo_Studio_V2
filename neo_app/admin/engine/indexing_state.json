@@ -15,5 +15,14 @@
   ],
   "running_jobs": [],
   "status": "ready",
-  "write_enabled": true
+  "write_enabled": true,
+  "job_queue_authority": "neo_memory_jobs",
+  "job_service_schema": "neo.memory.jobs.phase10.v1",
+  "supported_background_job_types": [
+    "project_brain_rebuild",
+    "memory_consolidation",
+    "embedding_reindex",
+    "memory_writeback",
+    "roleplay_memory_vectors"
+  ]
 }

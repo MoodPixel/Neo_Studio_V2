@@ -156,10 +156,10 @@ def _finalize_manifest_defaults(manifest: ExtensionManifest, origin: str | None 
     if origin:
         # Folder origin is authoritative. User-installed/external packages may not self-declare as built-in.
         manifest.extension_origin = origin
-    if not manifest.workflow_modes and manifest.subtabs:
+    if manifest.surface == "image" and not manifest.workflow_modes and manifest.subtabs:
         manifest.workflow_modes = [normalize_workflow_mode(item) or item for item in manifest.subtabs]
     if not manifest.workspace_apps:
-        manifest.workspace_apps = infer_workspace_apps(manifest.workflow_modes, manifest.subtabs)
+        manifest.workspace_apps = infer_workspace_apps(manifest.workflow_modes, manifest.subtabs, surface=manifest.surface)
     if not manifest.mount_targets and manifest.mount_slots:
         targets = []
         for slot in manifest.mount_slots:
@@ -168,7 +168,7 @@ def _finalize_manifest_defaults(manifest: ExtensionManifest, origin: str | None 
             targets.append({
                 "surface": manifest.surface,
                 "workflow_mode": workflow_mode,
-                "workspace_app": infer_workspace_apps([workflow_mode] if workflow_mode else manifest.workflow_modes, [workflow_mode] if workflow_mode else manifest.subtabs)[0] if infer_workspace_apps([workflow_mode] if workflow_mode else manifest.workflow_modes, [workflow_mode] if workflow_mode else manifest.subtabs) else None,
+                "workspace_app": infer_workspace_apps([workflow_mode] if workflow_mode else manifest.workflow_modes, [workflow_mode] if workflow_mode else manifest.subtabs, surface=manifest.surface)[0] if infer_workspace_apps([workflow_mode] if workflow_mode else manifest.workflow_modes, [workflow_mode] if workflow_mode else manifest.subtabs, surface=manifest.surface) else None,
                 "slot": slot,
             })
         try:
@@ -630,14 +630,14 @@ def get_surface_extension_payload(
 ) -> dict[str, Any]:
     records = []
     mode = normalize_workflow_mode(workflow_mode or subtab_id)
-    app = normalize_workspace_app(workspace_app)
+    app = normalize_workspace_app(workspace_app, surface=surface_id)
     for record in get_extension_records():
         manifest = record.manifest
         if manifest.surface != surface_id:
             continue
         if subtab_id and manifest.subtabs and subtab_id not in manifest.subtabs and mode not in manifest.workflow_modes:
             continue
-        if app and manifest.workspace_apps and app not in [normalize_workspace_app(item) for item in manifest.workspace_apps]:
+        if app and manifest.workspace_apps and app not in [normalize_workspace_app(item, surface=surface_id) for item in manifest.workspace_apps]:
             continue
         records.append(_record_with_ui_contract(record))
     records = [record for record in records if not is_ui_hidden_extension_id(record.get("id") or record.get("manifest", {}).get("id"))]
@@ -816,6 +816,7 @@ def resolve_extension_manifest_route_state(
     loader: str | None = None,
     workflow_mode: str | None = None,
     workspace_app: str | None = None,
+    surface: str = "image",
 ) -> str | None:
     """Resolve an extension manifest route-state declaration with V25.9.20 Pass J keys.
 
@@ -831,7 +832,7 @@ def resolve_extension_manifest_route_state(
     families = [str(family or "*").strip() or "*", "*"]
     loaders = [str(loader or "*").strip() or "*", "*"]
     modes = _route_state_mode_aliases(workflow_mode) + ["*"]
-    apps = [normalize_workspace_app(workspace_app), "*"]
+    apps = [normalize_workspace_app(workspace_app, surface=surface), "*"]
     candidates: list[str] = []
     for b in backends:
         for f in families:
@@ -856,49 +857,93 @@ def resolve_extension_manifest_route_state(
             return states[key]
     return None
 
+def _route_status_to_extension_state(route_status: str | None) -> str | None:
+    value = str(route_status or "").strip().lower()
+    if value in {"enabled", "available", "active", "ready"}:
+        return "available"
+    if value in {"experimental", "experimental_available"}:
+        return "experimental_available"
+    if value in {"planned", "future", "implementation_target"}:
+        return "planned_gated"
+    if value in {"unsupported", "unavailable", "disabled"}:
+        return "unsupported"
+    return None
+
+
+def _normalized_backend_for_compatibility(request: ExtensionCompatibilityRequest) -> str | None:
+    backend = str(request.backend_id or "").strip()
+    if backend:
+        return backend
+    provider = str(request.provider_id or "").strip()
+    return provider or None
+
+
 def check_extension_compatibility(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate extension compatibility against a surface-owned route snapshot.
+
+    Phase 3 keeps the existing Image contract intact while allowing Video to pass
+    its own backend/family/loader/generation route without any Image-derived
+    defaults.  Workspace aliases are also normalized per surface.
+    """
     request = model_from_dict(ExtensionCompatibilityRequest, payload)
     records = get_extension_records()
     selected = request.extension_ids or [record.manifest.id for record in records if record.enabled]
     results = []
     ok = True
+    request_mode = normalize_workflow_mode(request.generation_type or request.workflow_mode or request.subtab)
+    request_workspace = normalize_workspace_app(request.workspace_app, surface=request.surface)
+    request_backend = _normalized_backend_for_compatibility(request)
+    base_route_state = request.route_state or _route_status_to_extension_state(request.route_status)
+
     for extension_id in selected:
         record = next((item for item in records if item.manifest.id == extension_id), None)
         if not record:
             ok = False
             results.append({"extension_id": extension_id, "ok": False, "errors": ["Extension is not installed or is removed."]})
             continue
+
         manifest = record.manifest
         errors = list(record.errors)
         warnings = list(record.warnings)
         if manifest.surface != request.surface:
             errors.append(f"Extension targets surface {manifest.surface}, not {request.surface}.")
-        request_mode = normalize_workflow_mode(request.workflow_mode or request.subtab)
-        request_workspace = request.workspace_app
+
+        manifest_apps = [normalize_workspace_app(item, surface=manifest.surface) for item in manifest.workspace_apps]
         if request.subtab and manifest.subtabs and request.subtab not in manifest.subtabs and request_mode not in manifest.workflow_modes:
             errors.append(f"Extension does not mount into subtab {request.subtab}.")
-        if request_mode and manifest.workflow_modes and request_mode not in manifest.workflow_modes:
+        if request_mode and manifest.workflow_modes and request_mode not in [normalize_workflow_mode(item) for item in manifest.workflow_modes]:
             errors.append(f"Extension does not support workflow mode {request_mode}.")
-        if request_workspace and manifest.workspace_apps and request_workspace not in manifest.workspace_apps:
+        if request_workspace and manifest_apps and request_workspace not in manifest_apps:
             errors.append(f"Extension does not mount into workspace app {request_workspace}.")
-        declared_state = None
-        if request.route_state:
-            declared_state = resolve_extension_manifest_route_state(
-                manifest.route_states,
-                backend=request.provider_id,
-                family=request.family,
-                loader=request.loader,
-                workflow_mode=request_mode,
-                workspace_app=request.workspace_app,
-            )
-            if declared_state and declared_state != request.route_state:
-                warnings.append(f"Extension route state declaration is {declared_state}, active route is {request.route_state}.")
-        if request.provider_id and manifest.supported_backends and request.provider_id not in manifest.supported_backends:
-            errors.append(f"Backend {request.provider_id} is not supported.")
+
+        declared_state = resolve_extension_manifest_route_state(
+            manifest.route_states,
+            backend=request_backend,
+            family=request.family,
+            loader=request.loader,
+            workflow_mode=request_mode,
+            workspace_app=request_workspace,
+            surface=request.surface,
+        )
+
+        supported_backends = [_route_state_backend_aliases(item) for item in manifest.supported_backends]
+        flattened_backends = {alias for group in supported_backends for alias in group}
+        active_backend_aliases = set(_route_state_backend_aliases(request_backend))
+        if request_backend and flattened_backends and not (active_backend_aliases & flattened_backends):
+            errors.append(f"Backend {request_backend} is not supported.")
         if request.family and manifest.supported_families and request.family not in manifest.supported_families:
             errors.append(f"Family {request.family} is not supported.")
         if request.loader and manifest.supported_loaders and request.loader not in manifest.supported_loaders:
             errors.append(f"Loader {request.loader} is not supported.")
+
+        route_scope = getattr(manifest, "route_context_scope", "generation_route") or "generation_route"
+        effective_route_state = declared_state or base_route_state
+        if route_scope == "workspace" and declared_state:
+            effective_route_state = declared_state
+        if effective_route_state in {"planned_gated", "provider_gated", "unsupported", "implementation_target"}:
+            warnings.append(f"Active extension route is {effective_route_state}.")
+        if declared_state and base_route_state and declared_state != base_route_state and route_scope != "workspace":
+            warnings.append(f"Extension route state declaration is {declared_state}, active route is {base_route_state}.")
 
         matched_profiles = []
         for profile_id, profile in manifest.capability_profiles.items():
@@ -912,16 +957,16 @@ def check_extension_compatibility(payload: dict[str, Any]) -> dict[str, Any]:
                 continue
             if request.loader and profile_loaders and request.loader not in profile_loaders:
                 continue
-            profile_mode = normalize_workflow_mode(request.workflow_mode or request.subtab)
-            route_mode_key = f"{request.family or '*'}:{request.loader or '*'}:{profile_mode}" if profile_mode else None
-            if profile_mode and profile.modes and profile_mode not in profile.modes and route_mode_key not in profile.modes:
+            route_mode_key = f"{request.family or '*'}:{request.loader or '*'}:{request_mode}" if request_mode else None
+            if request_mode and profile.modes and request_mode not in profile.modes and route_mode_key not in profile.modes:
                 continue
             matched_profiles.append(profile_id)
 
         if (request.family or request.loader) and manifest.capability_profiles and not matched_profiles:
             warnings.append("No capability profile matched the requested family/loader/subtab combination.")
 
-        extension_ok = record.enabled and not errors
+        route_blocks_execution = request.surface == "video" and effective_route_state in {"implementation_target", "planned_gated", "provider_gated", "unsupported"}
+        extension_ok = record.enabled and not errors and not route_blocks_execution
         if not extension_ok:
             ok = False
         results.append({
@@ -936,7 +981,22 @@ def check_extension_compatibility(payload: dict[str, Any]) -> dict[str, Any]:
             "mount_slots": manifest.mount_slots,
             "mount_targets": [model_to_dict(target) if hasattr(target, "dict") or hasattr(target, "model_dump") else target for target in manifest.mount_targets],
             "capability_profiles": matched_profiles,
+            "route_context": {
+                "surface": request.surface,
+                "provider_id": request.provider_id,
+                "backend_id": request_backend,
+                "profile_id": request.profile_id,
+                "family": request.family,
+                "loader": request.loader,
+                "generation_type": request_mode,
+                "workspace_app": request_workspace,
+                "route_id": request.route_id,
+                "route_status": request.route_status,
+                "base_route_state": base_route_state,
+                "route_context_scope": route_scope,
+            },
             "route_state_declaration": declared_state,
+            "effective_route_state": effective_route_state,
             "errors": errors,
             "warnings": warnings,
         })

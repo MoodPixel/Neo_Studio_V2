@@ -5,22 +5,67 @@ import re
 from typing import Any, Iterator
 from uuid import uuid4
 
-from neo_app.assistant.context_pack import build_context_pack, compact_context_messages
+from neo_app.assistant.context_pack import build_context_pack, compact_context_messages  # compatibility export; Phase 4 compiler does not use it
 from neo_app.assistant.attachments import (
     attachment_context_payload,
     image_attachment_content_part,
     resolve_payload_attachments,
 )
-from neo_app.control_center.assistant_controller import get_assistant_control_center
+from neo_app.control_center.assistant_controller import DEFAULT_DB_PATH as ASSISTANT_MEMORY_DB_PATH, get_assistant_control_center
 from neo_app.assistant.store import assistant_profile, create_session_payload, get_session, now_iso, save_session_payload, session_summary
 from neo_app.providers.profiles import get_backend_profile, get_backend_profile_for_live_task, get_backend_profile_payload, is_backend_profile_connected_for_task
 from neo_app.assistant.brain_workspace import resolve_assistant_brain_chat_payload, get_assistant_brain_workspace
 from neo_app.prompt_captioning.providers_koboldcpp import run_chat as run_koboldcpp_chat, run_chat_stream as run_koboldcpp_chat_stream
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
+from neo_app.assistant.prompt_compiler import compile_assistant_prompt
+from neo_app.memory.writeback_engine import MemoryWritebackEngine
+from neo_app.assistant.universal_contract import (
+    action_receipt_succeeded,
+    assess_assistant_output,
+    requested_word_target,
+    resolve_assistant_behavior_mode,
+    universal_contract_instruction,
+    user_requested_structured_output,
+)
 
 
 TEXT_PROVIDER_IDS = {"koboldcpp", "openai_compatible_text", "ollama", "local_gguf_text", "local_gguf_vision"}
 TEXT_SURFACES = {"assistant", "text", "prompt_captioning", "roleplay"}
+
+
+def _capture_durable_assistant_memory(
+    *,
+    assistant_control: dict[str, Any],
+    trace_id: str,
+    user_text: str,
+    assistant_text: str,
+    behavior_mode: str,
+    source_id: str,
+) -> dict[str, Any]:
+    """Best-effort Phase 9 durable writeback after a successful guarded reply.
+
+    Ordinary chat remains searchable session history only. The classifier emits
+    candidates only for durable preference/decision/workflow signals, and M11/M12
+    review gates still decide whether those candidates become active memory.
+    """
+    try:
+        plan = assistant_control.get("plan") if isinstance(assistant_control.get("plan"), dict) else {}
+        identity = plan.get("identity") if isinstance(plan.get("identity"), dict) else {}
+        compatibility = identity.get("compatibility") if isinstance(identity.get("compatibility"), dict) else {}
+        result = MemoryWritebackEngine(ASSISTANT_MEMORY_DB_PATH).capture_assistant_turn({
+            "trace_id": trace_id,
+            "source_id": source_id or trace_id,
+            "surface": compatibility.get("memory_surface_id") or identity.get("surface_id") or plan.get("surface") or "assistant",
+            "scope_id": identity.get("scope_id") or "general",
+            "project_id": compatibility.get("memory_project_id") or identity.get("project_id") or None,
+            "canonical_project_id": identity.get("project_id") or None,
+            "user_text": user_text,
+            "assistant_text": assistant_text,
+            "behavior_mode": behavior_mode,
+        })
+        return result if isinstance(result, dict) else {"ok": False, "status": "invalid_writeback_result"}
+    except Exception as exc:
+        return {"ok": False, "status": "writeback_error", "error": str(exc)[:500]}
 
 
 def _profile_supports_text(profile: dict[str, Any]) -> bool:
@@ -133,22 +178,18 @@ def _provider_run_chat_stream(profile: dict[str, Any], messages: list[dict[str, 
 
 
 
+def assistant_behavior_mode(user_text: str = "", payload: dict[str, Any] | None = None) -> str:
+    """Canonical Phase 3 behavior mode used by Assistant runtime and Control Center."""
+    return resolve_assistant_behavior_mode(user_text, payload)
+
+
 def assistant_answer_mode(user_text: str = "", payload: dict[str, Any] | None = None) -> str:
-    data = payload if isinstance(payload, dict) else {}
-    if data.get("continue_response") or str(data.get("mode") or "").lower() in {"continue_response", "continue"}:
-        return "continue_response"
-    text = str(user_text or data.get("message") or data.get("text") or "").lower()
-    if any(term in text for term in ("client reply", "client response", "reply to this", "respond to this", "write a response")):
-        return "client_message"
-    if "prompt" in text and any(term in text for term in ("give", "write", "create", "make", "need", "image edit", "qwen")):
-        return "direct_prompt"
-    if any(term in text for term in ("settings", "suggest", "best", "parameter", "cfg", "steps", "seed", "sampler")):
-        return "settings_recommendation"
-    if any(term in text for term in ("error", "bug", "broken", "not working", "failed", "fix", "diagnose")):
-        return "debug_plan"
-    if any(term in text for term in ("how do i", "how to", "what model", "model families", "supports", "supported", "guide", "use the", "this tab", "image tab", "video tab", "roleplay")):
-        return "surface_help"
-    return "general_chat"
+    """Compatibility alias for older callers.
+
+    Phase 3 deliberately replaces domain-specific answer modes with broad behavior
+    modes. The lower-case value is kept for diagnostics/API compatibility.
+    """
+    return assistant_behavior_mode(user_text, payload).lower()
 
 
 def _json_from_candidate(candidate: str) -> Any:
@@ -160,7 +201,7 @@ def _json_from_candidate(candidate: str) -> Any:
 
 def _extract_lane_from_object(parsed: Any) -> tuple[str, str]:
     if isinstance(parsed, dict):
-        for key in ("answer", "content", "reply", "response", "text", "message", "prompt"):
+        for key in ("answer", "content", "reply", "response", "text", "message", "prompt", "finished_response"):
             value = parsed.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip(), key
@@ -176,6 +217,9 @@ def _strip_noise_headings(text: str, *, answer_mode: str = "") -> str:
         return ""
     noisy_headings = {
         "detailed response",
+        "assistant response",
+        "assistant",
+        "response",
         "answer",
         "final answer",
         "finalize the response",
@@ -187,23 +231,116 @@ def _strip_noise_headings(text: str, *, answer_mode: str = "") -> str:
         clean = re.sub(r"^#{1,6}\s*", "", line).strip().lower().rstrip(":")
         if clean in noisy_headings:
             continue
-        if answer_mode in {"direct_prompt", "client_message", "continue_response"} and re.match(r"^#{1,6}\s*step\s+\d+\b", line.strip(), flags=re.I):
-            continue
         lines.append(line)
     return "\n".join(lines).strip()
 
-def clean_assistant_reply_text(text: str, answer_mode: str = "") -> tuple[str, dict[str, Any]]:
-    """Return natural Assistant text when a backend emits control/schema wrappers.
 
-    Handles pure JSON, fenced JSON, and mixed markdown+JSON blocks. Local text
-    models often treat Control Center lanes as an output schema; chat UX should
-    preserve the useful answer while hiding metadata wrappers.
+def _strip_internal_sections(text: str) -> tuple[str, list[str]]:
+    """Remove user-facing leakage of internal planning/metadata sections."""
+    value = str(text or "")
+    if not value:
+        return "", []
+    drop_headings = {
+        "evidence_summary",
+        "evidence summary",
+        "missing_context",
+        "missing context",
+        "next_step",
+        "next step",
+        "metadata",
+        "final json",
+        "final_json",
+        "final thoughts",
+        "control center",
+        "prompt contract",
+        "validation checks",
+        "writeback plan",
+        "output lanes",
+        "input lanes",
+    }
+    removed: list[str] = []
+    kept: list[str] = []
+    dropping = False
+    for line in value.splitlines():
+        heading_match = re.match(r"^\s*#{1,6}\s*(.*?)\s*$", line)
+        if heading_match:
+            heading = heading_match.group(1).strip().lower().rstrip(":")
+            if heading in drop_headings:
+                dropping = True
+                removed.append(heading)
+                continue
+            dropping = False
+        if dropping:
+            continue
+        if re.match(r"^\s*<\|[^|>]{1,100}\|>\s*$", line):
+            removed.append("role_token")
+            continue
+        if re.match(r"^\s*\\</?[A-Za-z0-9_.@-]{2,80}>\s*$", line) or re.match(r"^\s*</?(?:assistant|response|answer|user)>\s*$", line, flags=re.I):
+            removed.append("role_tag")
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip(), removed
+
+
+def _remove_probable_source_echoes(text: str, user_text: str) -> tuple[str, int]:
+    """Remove paragraphs that are near-verbatim copies of long pasted source blocks."""
+    from difflib import SequenceMatcher
+
+    output = str(text or "")
+    source = str(user_text or "")
+    if not output or not source or re.search(r"\b(?:quote|repeat|verbatim|copy exactly)\b", source, flags=re.I):
+        return output.strip(), 0
+
+    def canon(value: str) -> str:
+        value = value.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+        return re.sub(r"\s+", " ", value).strip().lower()
+
+    source_blocks = [block.strip() for block in re.split(r"\n\s*\n", source) if len(canon(block)) >= 120]
+    if not source_blocks:
+        return output.strip(), 0
+    removed = 0
+    kept_blocks: list[str] = []
+    for block in re.split(r"\n\s*\n", output):
+        block_clean = block.strip()
+        canonical = canon(block_clean)
+        is_echo = False
+        if len(canonical) >= 120:
+            for source_block in source_blocks:
+                source_canonical = canon(source_block)
+                if canonical == source_canonical or canonical in source_canonical or source_canonical in canonical:
+                    is_echo = True
+                    break
+                if SequenceMatcher(None, canonical, source_canonical).ratio() >= 0.90:
+                    is_echo = True
+                    break
+        if is_echo:
+            removed += 1
+        elif block_clean:
+            kept_blocks.append(block_clean)
+    return "\n\n".join(kept_blocks).strip(), removed
+
+
+def clean_assistant_reply_text(text: str, answer_mode: str = "", user_text: str = "") -> tuple[str, dict[str, Any]]:
+    """Return user-facing Assistant text without model/control scaffolding.
+
+    The cleaner is a fallback guard, not the primary behavior engine. It keeps
+    explicitly requested structured output intact and otherwise hides common
+    local-model schema leakage before chat/history persistence.
     """
     raw = str(text or "").strip()
-    mode = str(answer_mode or "general_chat")
-    diagnostics: dict[str, Any] = {"schema_id": "neo.assistant.reply_cleanup.v2", "changed": False, "mode": "plain_text", "answer_mode": mode}
+    mode = str(answer_mode or "complete").lower()
+    diagnostics: dict[str, Any] = {
+        "schema_id": "neo.assistant.reply_cleanup.v3",
+        "changed": False,
+        "mode": "plain_text",
+        "answer_mode": mode,
+        "structured_output_requested": user_requested_structured_output(user_text),
+    }
     if not raw:
         return "", diagnostics
+
+    if diagnostics["structured_output_requested"]:
+        return raw, diagnostics
 
     candidate = raw
     if candidate.startswith("```"):
@@ -215,60 +352,66 @@ def clean_assistant_reply_text(text: str, answer_mode: str = "") -> tuple[str, d
     parsed = _json_from_candidate(candidate) if candidate[:1] in {"{", "["} else None
     cleaned, extracted_key = _extract_lane_from_object(parsed)
     if cleaned:
-        diagnostics.update({"changed": cleaned != raw, "mode": "json_lane_extracted", "extracted_key": extracted_key, "available_keys": sorted(str(k) for k in parsed.keys()) if isinstance(parsed, dict) else []})
+        cleaned, removed_sections = _strip_internal_sections(cleaned)
+        cleaned, source_echo_count = _remove_probable_source_echoes(cleaned, user_text)
+        diagnostics.update({
+            "changed": cleaned != raw,
+            "mode": "json_lane_extracted",
+            "extracted_key": extracted_key,
+            "available_keys": sorted(str(k) for k in parsed.keys()) if isinstance(parsed, dict) else [],
+            "removed_internal_sections": removed_sections,
+            "removed_source_echoes": source_echo_count,
+        })
         return _strip_noise_headings(cleaned, answer_mode=mode), diagnostics
 
-    # Mixed Markdown + fenced JSON metadata, e.g. "### Detailed Response ... ```json {content: ...}```".
+    # Mixed Markdown + fenced JSON metadata.
     fence_matches = list(re.finditer(r"```(?:json)?\s*\n(.*?)\n```", raw, flags=re.I | re.S))
+    rewritten = raw
     if fence_matches:
         extracted_values: list[str] = []
-        rewritten = raw
         for match in fence_matches:
-            block = match.group(1).strip()
-            parsed_block = _json_from_candidate(block)
-            value, key = _extract_lane_from_object(parsed_block)
+            parsed_block = _json_from_candidate(match.group(1).strip())
+            value, _key = _extract_lane_from_object(parsed_block)
             if value:
                 extracted_values.append(value)
                 rewritten = rewritten.replace(match.group(0), value)
-        if extracted_values and mode in {"direct_prompt", "client_message", "continue_response"}:
-            cleaned = extracted_values[-1].strip()
-            diagnostics.update({"changed": cleaned != raw, "mode": "fenced_json_lane_extracted", "extracted_key": "content_or_answer"})
-            return _strip_noise_headings(cleaned, answer_mode=mode), diagnostics
-        if extracted_values:
-            cleaned = _strip_noise_headings(rewritten, answer_mode=mode)
-            diagnostics.update({"changed": cleaned != raw, "mode": "fenced_json_rewritten", "extracted_key": "content_or_answer"})
-            return cleaned, diagnostics
+        if extracted_values and mode in {"complete", "continue"}:
+            rewritten = extracted_values[-1].strip()
+            diagnostics["mode"] = "fenced_json_lane_extracted"
+        elif extracted_values:
+            diagnostics["mode"] = "fenced_json_rewritten"
 
-    cleaned = _strip_noise_headings(raw, answer_mode=mode)
+    cleaned, removed_sections = _strip_internal_sections(rewritten)
+    cleaned = _strip_noise_headings(cleaned, answer_mode=mode)
+    cleaned, source_echo_count = _remove_probable_source_echoes(cleaned, user_text)
     if cleaned != raw:
-        diagnostics.update({"changed": True, "mode": "noise_headings_removed"})
+        diagnostics.update({
+            "changed": True,
+            "mode": diagnostics.get("mode") if diagnostics.get("mode") != "plain_text" else "internal_scaffolding_removed",
+            "removed_internal_sections": removed_sections,
+            "removed_source_echoes": source_echo_count,
+        })
     return cleaned, diagnostics
 
 
-def _natural_reply_instruction_message() -> dict[str, str]:
-    return {
-        "role": "system",
-        "content": (
-            "Assistant final reply rule: respond in natural chat text. Do not output JSON, dictionaries, "
-            "schema objects, title/description/content objects, control lanes, or metadata unless the user explicitly asks for JSON. "
-            "Use the Control Center lanes internally, then write the answer as normal prose. "
-            "Do not dump raw metadata paths or index JSON; synthesize the answer."
-        ),
-    }
+def _natural_reply_instruction_message(behavior_mode: str = "COMPLETE") -> dict[str, str]:
+    return {"role": "system", "content": universal_contract_instruction(behavior_mode)}
 
 
 def _answer_mode_instruction_message(answer_mode: str) -> dict[str, str]:
-    mode = str(answer_mode or "general_chat")
+    """Compatibility message name; content now follows broad Phase 3 behavior."""
+    mode = str(answer_mode or "complete").upper()
+    if mode not in {"COMPLETE", "RECALL", "ANALYZE", "ADVISE", "ACT", "CONTINUE"}:
+        mode = "COMPLETE"
     rules = {
-        "direct_prompt": "The user is asking for a usable prompt/draft. Output the final prompt directly first. Do not explain steps, do not wrap it in JSON, and do not repeat the user request as analysis.",
-        "client_message": "The user is asking for a message draft. Output the draft directly first. Keep notes minimal and outside the draft only if needed.",
-        "settings_recommendation": "The user wants settings advice. Use built-in guides first, then live snapshot values. Give practical recommended values and explain tradeoffs briefly.",
-        "surface_help": "The user wants help with a Neo surface. Use built-in Neo guides first. Explain what is supported/available without dumping metadata indexes.",
-        "debug_plan": "The user wants a fix. Give diagnosis, likely cause, and implementation/validation steps. Keep raw traces summarized.",
-        "continue_response": "Continue exactly from where the last assistant response stopped. Do not restart, recap, or repeat earlier sections unless one short bridge phrase is necessary.",
-        "general_chat": "Answer directly and naturally. Use context only when it helps the current request.",
+        "COMPLETE": "Produce the requested result now. A request to write/create/draft is satisfied by the finished artifact, not a summary of what it should contain.",
+        "RECALL": "Use available memory/context to answer the recall request; distinguish remembered evidence from uncertainty.",
+        "ANALYZE": "Inspect and explain the material directly; give concrete conclusions rather than a generic plan.",
+        "ADVISE": "Recommend a practical choice and explain the most relevant tradeoffs.",
+        "ACT": "Only report successful execution when the runtime supplied a successful action receipt.",
+        "CONTINUE": "Continue from the previous response without restarting or recapping completed content.",
     }
-    return {"role": "system", "content": f"Assistant answer mode: {mode}. {rules.get(mode, rules['general_chat'])}"}
+    return {"role": "system", "content": f"Neo Assistant behavior: {mode}. {rules[mode]}"}
 
 
 def _attachment_context_messages(attachment_context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -305,6 +448,143 @@ def _build_history_messages_with_attachments(messages: list[dict[str, Any]], cur
                 continue
         history_messages.append({"role": role, "content": content_text})
     return history_messages
+
+
+def _assistant_generation_params(
+    user_text: str,
+    behavior_mode: str,
+    params: dict[str, Any] | None,
+    profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Apply task-aware runtime floors without changing backend profile defaults."""
+    clean = dict(params or {})
+    defaults = (profile or {}).get("generation_defaults") if isinstance((profile or {}).get("generation_defaults"), dict) else {}
+    if "max_tokens" not in clean:
+        try:
+            default_max = int(float(defaults.get("max_tokens") or 512))
+        except (TypeError, ValueError):
+            default_max = 512
+        wanted = max(1, min(default_max, 8192))
+        if str(behavior_mode or "").upper() == "COMPLETE":
+            wanted = max(wanted, 768)
+        target_words = requested_word_target(user_text)
+        if target_words:
+            # English prose commonly needs ~1.3-1.7 tokens/word. This leaves room
+            # for punctuation/formatting while staying under the provider clamp.
+            wanted = max(wanted, min(8192, int(target_words * 1.9) + 160))
+        clean["max_tokens"] = wanted
+
+    if not user_requested_structured_output(user_text):
+        existing = clean.get("stop_sequences")
+        stop_sequences = list(existing) if isinstance(existing, list) else ([str(existing)] if existing else [])
+        for marker_text in (
+            "\n### Final JSON",
+            "\n## Final JSON",
+            "\n## evidence_summary",
+            "\n## missing_context",
+            "\n## next_step",
+        ):
+            if marker_text not in stop_sequences:
+                stop_sequences.append(marker_text)
+        clean["stop_sequences"] = stop_sequences
+    return clean
+
+
+def _repair_assistant_output(
+    profile: dict[str, Any],
+    base_messages: list[dict[str, Any]],
+    params: dict[str, Any],
+    *,
+    user_text: str,
+    behavior_mode: str,
+    issues: list[str],
+) -> dict[str, Any]:
+    """Run one corrective pass when the first model answer clearly did not do the task."""
+    issue_text = ", ".join(issues[:8]) or "incomplete answer"
+    repair_messages = list(base_messages)
+    repair_messages.append({
+        "role": "system",
+        "content": (
+            "Correction pass. The previous attempt failed Neo's user-facing completion guard "
+            f"({issue_text}). Complete the user's ORIGINAL request now. Do not discuss the failure, "
+            "do not summarize what you intend to do, do not repeat long pasted source material, and do not output internal headings, role tokens, JSON metadata, or planning lanes. "
+            "Return only the finished answer in the format/length the user requested."
+        ),
+    })
+    repair_messages.append({"role": "user", "content": "Correct the previous attempt and complete my original request now."})
+    return _provider_run_chat(profile, repair_messages, params)
+
+
+def _finalize_assistant_output(
+    *,
+    profile: dict[str, Any],
+    request_messages: list[dict[str, Any]],
+    params: dict[str, Any],
+    user_text: str,
+    behavior_mode: str,
+    payload: dict[str, Any],
+    raw_text: str,
+) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    """Clean, assess, and if needed repair one Assistant generation."""
+    cleaned, cleanup = clean_assistant_reply_text(raw_text, answer_mode=behavior_mode.lower(), user_text=user_text)
+    assessment = assess_assistant_output(
+        user_text=user_text,
+        raw_text=raw_text,
+        cleaned_text=cleaned,
+        behavior_mode=behavior_mode,
+        action_succeeded=action_receipt_succeeded(payload),
+    )
+    severe = {
+        "empty_output",
+        "task_deferred_instead_of_completed",
+        "requested_length_missed",
+        "long_source_echo",
+        "unverified_action_claim",
+        "meta_summary_instead_of_deliverable",
+    }
+    first_issues = list(assessment.get("issues") or [])
+    should_repair = bool(severe.intersection(first_issues))
+    diagnostics: dict[str, Any] = {
+        "schema_id": "neo.assistant.output_guard.v1",
+        "cleanup": cleanup,
+        "assessment": assessment,
+        "repair_attempted": False,
+        "repair_used": False,
+    }
+    if not should_repair:
+        return cleaned, diagnostics, None
+
+    repair_result = _repair_assistant_output(
+        profile,
+        request_messages,
+        params,
+        user_text=user_text,
+        behavior_mode=behavior_mode,
+        issues=first_issues,
+    )
+    diagnostics["repair_attempted"] = True
+    diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
+    if not repair_result.get("ok"):
+        return cleaned, diagnostics, repair_result
+
+    repaired_raw = str(repair_result.get("text") or repair_result.get("partial_text") or "").strip()
+    repaired, repaired_cleanup = clean_assistant_reply_text(repaired_raw, answer_mode=behavior_mode.lower(), user_text=user_text)
+    repaired_assessment = assess_assistant_output(
+        user_text=user_text,
+        raw_text=repaired_raw,
+        cleaned_text=repaired,
+        behavior_mode=behavior_mode,
+        action_succeeded=action_receipt_succeeded(payload),
+    )
+    diagnostics["repair_cleanup"] = repaired_cleanup
+    diagnostics["repair_assessment"] = repaired_assessment
+
+    first_score = int(assessment.get("issue_count") or 0)
+    repair_score = int(repaired_assessment.get("issue_count") or 0)
+    if repaired and (repair_score < first_score or not cleaned):
+        diagnostics["repair_used"] = True
+        return repaired, diagnostics, repair_result
+    return cleaned, diagnostics, repair_result
 
 
 def _assistant_chat_log_summary(
@@ -344,6 +624,15 @@ def _safe_log_assistant_event(event: str, *, run_id: str = "", payload: dict[str
         pass
 
 
+def _retrieval_gateway_result_from_control(assistant_control: dict[str, Any] | None) -> dict[str, Any] | None:
+    control = assistant_control if isinstance(assistant_control, dict) else {}
+    control_center = control.get("control_center") if isinstance(control.get("control_center"), dict) else {}
+    plan = control_center.get("plan") if isinstance(control_center.get("plan"), dict) else {}
+    selected = plan.get("selected_context") if isinstance(plan.get("selected_context"), dict) else {}
+    gateway = selected.get("retrieval_gateway") if isinstance(selected.get("retrieval_gateway"), dict) else None
+    return gateway if isinstance(gateway, dict) and gateway.get("schema_id") else None
+
+
 
 def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     payload = resolve_assistant_brain_chat_payload(payload or {})
@@ -354,7 +643,8 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         text = "Please review the attached file(s)."
     if not text and (payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"}):
         text = "Continue the previous Assistant response from where it stopped."
-    answer_mode = assistant_answer_mode(text, payload)
+    behavior_mode = assistant_behavior_mode(text, payload)
+    answer_mode = behavior_mode.lower()
     if not text:
         try:
             record_surface_error("assistant", "Assistant message is required.", payload={"payload_keys": sorted((payload or {}).keys())}, run_id=str(payload.get("session_id") or "assistant_chat"))
@@ -385,6 +675,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "session_id": session_id,
         "project_id": project_id,
         "retrieval_profile": retrieval_profile,
+        "behavior_mode": behavior_mode,
     }, persist=True)
     context_pack = build_context_pack(
         session_id=session_id,
@@ -393,6 +684,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
         surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
+        retrieval_gateway_result=_retrieval_gateway_result_from_control(assistant_control),
     )
     profile = resolve_assistant_backend_profile(payload)
     available, reason = _backend_available(profile or {})
@@ -419,6 +711,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "backend_status": "available" if available else "provider_gated",
         "backend_reason": reason,
         "answer_mode": answer_mode,
+        "behavior_mode": behavior_mode,
     }
     if not available:
         saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
@@ -431,26 +724,26 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "status": "provider_gated", "message": reason, "session": saved["session"], "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics}
 
     history_messages = _build_history_messages_with_attachments(messages, str(user_message.get("message_id") or ""), attachment_context)
-    control_messages = assistant_control.get("messages") if isinstance(assistant_control.get("messages"), list) else []
-    request_messages = [_natural_reply_instruction_message(), _answer_mode_instruction_message(answer_mode)] + control_messages + compact_context_messages(context_pack) + _attachment_context_messages(attachment_context) + history_messages
-    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
-    result = _provider_run_chat(profile or {}, request_messages, params)
-    diagnostics["provider_result"] = {k: result.get(k) for k in ("ok", "recoverable", "error_type", "finish_reason", "warning", "model") if k in result}
+    compiled_prompt = compile_assistant_prompt(
+        user_text=text,
+        behavior_mode=behavior_mode,
+        assistant_control=assistant_control,
+        context_pack=context_pack,
+        attachment_context=attachment_context,
+        history_messages=history_messages,
+    )
+    request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
+    diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
     try:
-        get_assistant_control_center().record_generation_result(
+        get_assistant_control_center().record_prompt_compilation(
             diagnostics.get("assistant_control_trace_id") or "",
-            {
-                "ok": bool(result.get("ok")),
-                "status": "completed" if result.get("ok") else "provider_error",
-                "backend_profile_id": (profile or {}).get("profile_id") or "",
-                "provider_id": (profile or {}).get("provider_id") or "",
-                "model": result.get("model") or (profile.get("connection") or {}).get("model") if profile else "",
-                "text": result.get("text") or result.get("partial_text") or "",
-            },
+            diagnostics.get("prompt_compiler") or {},
         )
     except Exception:
         pass
-
+    params = _assistant_generation_params(text, behavior_mode, payload.get("params") if isinstance(payload.get("params"), dict) else {}, profile)
+    result = _provider_run_chat(profile or {}, request_messages, params)
+    diagnostics["provider_result"] = {k: result.get(k) for k in ("ok", "recoverable", "error_type", "finish_reason", "warning", "model") if k in result}
     if not result.get("ok"):
         saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
         summary = _assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="provider_error", profile=profile, diagnostics=diagnostics, result=result)
@@ -462,13 +755,27 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "status": "provider_error", "message": result.get("error") or "Assistant backend failed.", "session": saved["session"], "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics, "provider_result": result}
 
     raw_assistant_text = str(result.get("text") or result.get("partial_text") or "").strip()
-    assistant_text, cleanup_diagnostics = clean_assistant_reply_text(raw_assistant_text, answer_mode=answer_mode)
-    diagnostics["reply_cleanup"] = cleanup_diagnostics
+    assistant_text, output_guard, repair_result = _finalize_assistant_output(
+        profile=profile or {},
+        request_messages=request_messages,
+        params=params,
+        user_text=text,
+        behavior_mode=behavior_mode,
+        payload=payload,
+        raw_text=raw_assistant_text,
+    )
+    diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
+    diagnostics["output_guard"] = output_guard
+    if repair_result is not None:
+        diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
+    if not assistant_text:
+        saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
+        return {"ok": False, "status": "empty_response", "message": "Assistant backend did not produce a usable user-facing reply.", "session": saved["session"], "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics, "provider_result": result}
     assistant_message = {
         "message_id": uuid4().hex,
         "role": "assistant",
         "text": assistant_text,
-        "raw_text": raw_assistant_text if cleanup_diagnostics.get("changed") else "",
+        "raw_text": raw_assistant_text if (output_guard.get("cleanup") or {}).get("changed") or output_guard.get("repair_used") else "",
         "created_at": now_iso(),
         "source": "assistant_chat_runtime",
         "backend_profile_id": profile.get("profile_id") or "",
@@ -477,6 +784,29 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "diagnostics": diagnostics,
         "source_grounding": context_pack.get("source_grounding") or {},
     }
+    try:
+        get_assistant_control_center().record_generation_result(
+            diagnostics.get("assistant_control_trace_id") or "",
+            {
+                "ok": True,
+                "status": "completed_repaired" if output_guard.get("repair_used") else "completed",
+                "backend_profile_id": (profile or {}).get("profile_id") or "",
+                "provider_id": (profile or {}).get("provider_id") or "",
+                "model": assistant_message.get("model") or "",
+                "text": assistant_text,
+            },
+        )
+    except Exception:
+        pass
+    diagnostics["durable_writeback"] = _capture_durable_assistant_memory(
+        assistant_control=assistant_control,
+        trace_id=diagnostics.get("assistant_control_trace_id") or "",
+        user_text=text,
+        assistant_text=assistant_text,
+        behavior_mode=behavior_mode,
+        source_id=str(user_message.get("message_id") or ""),
+    )
+    assistant_message["diagnostics"] = diagnostics
     messages.append(assistant_message)
     saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
     summary = _assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="completed", profile=profile, diagnostics=diagnostics, result=result)
@@ -498,7 +828,8 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         text = "Please review the attached file(s)."
     if not text and (payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"}):
         text = "Continue the previous Assistant response from where it stopped."
-    answer_mode = assistant_answer_mode(text, payload)
+    behavior_mode = assistant_behavior_mode(text, payload)
+    answer_mode = behavior_mode.lower()
     if not text:
         yield {"type": "error", "ok": False, "status": "missing_message", "message": "Assistant message is required."}
         yield {"type": "done", "ok": False, "status": "missing_message", "message": "Assistant message is required."}
@@ -528,6 +859,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "session_id": session_id,
         "project_id": project_id,
         "retrieval_profile": retrieval_profile,
+        "behavior_mode": behavior_mode,
     }, persist=True)
     context_pack = build_context_pack(
         session_id=session_id,
@@ -536,6 +868,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
         surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
+        retrieval_gateway_result=_retrieval_gateway_result_from_control(assistant_control),
     )
     profile = resolve_assistant_backend_profile(payload)
     available, reason = _backend_available(profile or {})
@@ -563,6 +896,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "backend_status": "available" if available else "provider_gated",
         "backend_reason": reason,
         "answer_mode": answer_mode,
+        "behavior_mode": behavior_mode,
         "streaming": True,
         "run_id": run_id,
     }
@@ -580,9 +914,24 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         return
 
     history_messages = _build_history_messages_with_attachments(messages, str(user_message.get("message_id") or ""), attachment_context)
-    control_messages = assistant_control.get("messages") if isinstance(assistant_control.get("messages"), list) else []
-    request_messages = [_natural_reply_instruction_message(), _answer_mode_instruction_message(answer_mode)] + control_messages + compact_context_messages(context_pack) + _attachment_context_messages(attachment_context) + history_messages
-    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    compiled_prompt = compile_assistant_prompt(
+        user_text=text,
+        behavior_mode=behavior_mode,
+        assistant_control=assistant_control,
+        context_pack=context_pack,
+        attachment_context=attachment_context,
+        history_messages=history_messages,
+    )
+    request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
+    diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
+    try:
+        get_assistant_control_center().record_prompt_compilation(
+            diagnostics.get("assistant_control_trace_id") or "",
+            diagnostics.get("prompt_compiler") or {},
+        )
+    except Exception:
+        pass
+    params = _assistant_generation_params(text, behavior_mode, payload.get("params") if isinstance(payload.get("params"), dict) else {}, profile)
     raw_parts: list[str] = []
     provider_meta: dict[str, Any] = {}
     yield {"type": "status", "status": "backend_streaming", "session_id": session_id, "run_id": run_id, "message": "Streaming Assistant reply…"}
@@ -594,13 +943,16 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         elif event_type == "token":
             token = str(event.get("text") or "")
             if token:
+                # Phase 3 protected streaming: buffer provider tokens until the
+                # universal output guard has removed schema/source leakage.
                 raw_parts.append(token)
-                yield {"type": "delta", "status": "streaming", "session_id": session_id, "run_id": run_id, "text": token, "token": token}
         elif event_type == "error":
             partial = "".join(raw_parts) or str(event.get("partial_text") or "")
+            safe_partial, partial_cleanup = clean_assistant_reply_text(partial, answer_mode=answer_mode, user_text=text)
+            diagnostics["reply_cleanup"] = partial_cleanup
             diagnostics["provider_result"] = {"ok": False, "error_type": event.get("status") or "provider_stream_error", "error": event.get("error") or "Assistant stream failed.", "partial_chars": len(partial)}
             saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
-            error_event = {"type": "error", "ok": False, "status": str(event.get("status") or "provider_stream_error"), "message": event.get("error") or "Assistant stream failed.", "session_id": session_id, "run_id": run_id, "partial_text": partial, "session": saved.get("session"), "sessions": saved.get("sessions", []), "diagnostics": diagnostics}
+            error_event = {"type": "error", "ok": False, "status": str(event.get("status") or "provider_stream_error"), "message": event.get("error") or "Assistant stream failed.", "session_id": session_id, "run_id": run_id, "partial_text": safe_partial, "session": saved.get("session"), "sessions": saved.get("sessions", []), "diagnostics": diagnostics}
             yield error_event
             yield {**error_event, "type": "done"}
             return
@@ -610,8 +962,19 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
                 raw_parts.append(str(event.get("text") or ""))
 
     raw_assistant_text = "".join(raw_parts).strip()
-    assistant_text, cleanup_diagnostics = clean_assistant_reply_text(raw_assistant_text, answer_mode=answer_mode)
-    diagnostics["reply_cleanup"] = cleanup_diagnostics
+    assistant_text, output_guard, repair_result = _finalize_assistant_output(
+        profile=profile or {},
+        request_messages=request_messages,
+        params=params,
+        user_text=text,
+        behavior_mode=behavior_mode,
+        payload=payload,
+        raw_text=raw_assistant_text,
+    )
+    diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
+    diagnostics["output_guard"] = output_guard
+    if repair_result is not None:
+        diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
     diagnostics["provider_result"] = {"ok": bool(assistant_text), "finish_reason": "stream_complete", **provider_meta}
     if not assistant_text:
         saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
@@ -620,11 +983,16 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         yield {**error_event, "type": "done"}
         return
 
+    if output_guard.get("repair_attempted"):
+        yield {"type": "status", "status": "response_guard_repaired", "session_id": session_id, "run_id": run_id, "message": "Neo corrected an incomplete model reply before displaying it."}
+    # Never stream raw provider scaffolding. Emit only the guarded user-facing text.
+    yield {"type": "delta", "status": "streaming", "session_id": session_id, "run_id": run_id, "text": assistant_text, "token": assistant_text}
+
     assistant_message = {
         "message_id": uuid4().hex,
         "role": "assistant",
         "text": assistant_text,
-        "raw_text": raw_assistant_text if cleanup_diagnostics.get("changed") else "",
+        "raw_text": raw_assistant_text if (output_guard.get("cleanup") or {}).get("changed") or output_guard.get("repair_used") else "",
         "created_at": now_iso(),
         "source": "assistant_chat_stream_runtime",
         "backend_profile_id": profile.get("profile_id") or "",
@@ -643,7 +1011,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
             diagnostics.get("assistant_control_trace_id") or "",
             {
                 "ok": True,
-                "status": "completed_stream",
+                "status": "completed_stream_repaired" if output_guard.get("repair_used") else "completed_stream",
                 "backend_profile_id": (profile or {}).get("profile_id") or "",
                 "provider_id": (profile or {}).get("provider_id") or "",
                 "model": assistant_message.get("model") or "",
@@ -652,4 +1020,14 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         )
     except Exception:
         pass
+    diagnostics["durable_writeback"] = _capture_durable_assistant_memory(
+        assistant_control=assistant_control,
+        trace_id=diagnostics.get("assistant_control_trace_id") or "",
+        user_text=text,
+        assistant_text=assistant_text,
+        behavior_mode=behavior_mode,
+        source_id=str(user_message.get("message_id") or ""),
+    )
+    assistant_message["diagnostics"] = diagnostics
+    saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
     yield {"type": "done", "ok": True, "schema_id": "neo.assistant.chat_stream.v1", "status": "completed", "session_id": session_id, "run_id": run_id, "reply": assistant_text, "assistant_message": assistant_message, "session": saved.get("session"), "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics}

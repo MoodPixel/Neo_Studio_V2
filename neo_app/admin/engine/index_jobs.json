@@ -2,14 +2,14 @@
   "active_job_id": "",
   "jobs": [],
   "notes": [
-    "Admin owns background indexing jobs.",
-    "Roleplay requests indexing through Admin Engine and keeps direct synchronous indexing as fallback."
+    "Compatibility projection only: neo_memory_jobs is the Phase 10 authority.",
+    "Legacy Admin index-job routes remain available while Roleplay vector indexing runs through the unified Memory Job Service."
   ],
   "paths": {
     "jobs_state": "neo_data\\admin\\engine\\index_jobs.json",
     "logs_root": "neo_data\\admin\\engine\\index_job_logs"
   },
-  "schema_id": "neo.admin.engine.index_jobs.v1",
+  "schema_id": "neo.admin.engine.index_jobs.v2",
   "status": "ready",
   "supported_job_types": [
     "roleplay_memory_vectors"
@@ -19,5 +19,6 @@
     "force_reindex"
   ],
   "updated_at": "2026-06-16T15:42:50.694742+00:00",
-  "version": "0.1.0-background-indexing"
+  "version": "phase10-unified-memory-jobs-bridge",
+  "legacy_schema_id": "neo.admin.engine.index_jobs.v1"
 }

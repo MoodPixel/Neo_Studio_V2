@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from neo_app.runtime_data import ASSISTANT_BUILTIN_SCOPES, ensure_assistant_scope_seed
+from neo_app.context_identity import resolve_canonical_identity
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 from neo_app.assistant.contracts import (
     MAX_CONTEXT_TEXT_CHARS,
@@ -58,8 +59,10 @@ DEFAULT_PROFILE: dict[str, Any] = {
 }
 
 DEFAULT_PROJECT: dict[str, Any] = {
-    "project_id": "general",
+    "project_id": "general",  # legacy Assistant Scope alias
     "scope_id": "general",
+    "surface_id": "global",
+    "delivery_project_id": "",
     "name": "General Assistant",
     "type": "assistant_workspace",
     "description": "Default Assistant workspace for uncategorized questions, planning, and cross-surface coordination.",
@@ -211,8 +214,19 @@ def create_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if project_id in existing:
         project_id = f"{base_id}_{uuid4().hex[:8]}"
     stamp = now_iso()
+    identity = resolve_canonical_identity(
+        {**payload, "project_id": project_id, "scope_id": payload.get("scope_id") or project_id},
+        surface_id=payload.get("surface_id") or payload.get("surface") or "assistant",
+        scope_id=payload.get("scope_id") or project_id,
+        project_id=payload.get("delivery_project_id") or payload.get("linked_project_id") or "",
+        legacy_project_is_scope=True,
+        source="assistant_scope_create",
+    )
     project = {
-        "project_id": project_id,
+        "project_id": project_id,  # compatibility alias for Assistant Scope storage
+        "scope_id": identity.scope_id,
+        "surface_id": identity.surface_id,
+        "delivery_project_id": identity.project_id or "",
         "name": name,
         "type": str(payload.get("type") or "general"),
         "description": str(payload.get("description") or ""),
@@ -220,6 +234,12 @@ def create_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "status": "active",
         "created_at": stamp,
         "updated_at": stamp,
+        "metadata": {
+            **(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}),
+            "assistant_scope": True,
+            "scope_model": "assistant_internal_scope",
+            "canonical_identity": identity.as_dict(),
+        },
     }
     projects = [p for p in list_projects() if p.get("project_id") != project_id]
     projects.append(project)
@@ -238,9 +258,29 @@ def save_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if key in payload:
             current[key] = payload[key]
     current.setdefault("name", project_id)
+    identity = resolve_canonical_identity(
+        {**current, **payload, "project_id": project_id, "scope_id": payload.get("scope_id") or current.get("scope_id") or project_id},
+        surface_id=payload.get("surface_id") or payload.get("surface") or current.get("surface_id") or "assistant",
+        scope_id=payload.get("scope_id") or current.get("scope_id") or project_id,
+        project_id=payload.get("delivery_project_id") or payload.get("linked_project_id") or current.get("delivery_project_id") or "",
+        legacy_project_is_scope=True,
+        source="assistant_scope_save",
+    )
+    current["scope_id"] = identity.scope_id
+    current["surface_id"] = identity.surface_id
+    current["delivery_project_id"] = identity.project_id or ""
+    metadata = current.get("metadata") if isinstance(current.get("metadata"), dict) else {}
+    incoming_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    current["metadata"] = {
+        **metadata,
+        **incoming_metadata,
+        "assistant_scope": True,
+        "scope_model": "assistant_internal_scope",
+        "canonical_identity": identity.as_dict(),
+    }
     current["updated_at"] = now_iso()
     projects = [p for p in list_projects() if p.get("project_id") != project_id]
-    projects.append({k: current.get(k) for k in ("project_id", "name", "type", "description", "notes", "status", "created_at", "updated_at")})
+    projects.append({k: current.get(k) for k in ("project_id", "scope_id", "surface_id", "delivery_project_id", "name", "type", "description", "notes", "status", "created_at", "updated_at", "metadata")})
     _write_projects(projects)
     write_json(_safe_record_path(PROJECTS_DIR, project_id, "project"), current)
     _safe_log_assistant_store_event("assistant.scope.saved", run_id=project_id, payload=_assistant_store_log_summary(current, action="scope_saved"))
@@ -413,6 +453,46 @@ def _refresh_assistant_memory_engine_index(limit: int | None = None) -> dict[str
     except Exception as exc:
         return {"ok": False, "status": "index_failed", "message": str(exc)[:500]}
 
+
+def _canonical_identity_for_assistant_record(project_id: str, surface: str = "") -> dict[str, Any]:
+    """Resolve Scope/Surface/Delivery Project without changing legacy store IDs."""
+    scope = get_project(project_id) or {}
+    nested_identity = scope.get("identity") if isinstance(scope.get("identity"), dict) else {}
+    delivery_project_id = str(
+        scope.get("delivery_project_id")
+        or scope.get("linked_project_id")
+        or nested_identity.get("project_id")
+        or ""
+    ).strip()
+    identity = resolve_canonical_identity(
+        {
+            "project_id": project_id or "general",
+            "scope_id": scope.get("scope_id") or project_id or "general",
+            "surface": surface or scope.get("surface_id") or scope.get("surface") or "assistant",
+            "delivery_project_id": delivery_project_id,
+            "workspace_id": scope.get("workspace_id") or "",
+        },
+        legacy_project_is_scope=True,
+        source="assistant_store_phase7",
+    )
+    return identity.as_dict()
+
+
+def _ingest_scope_knowledge_canonical(record: dict[str, Any], *, identity: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from neo_app.memory.project_brain_ingestion import get_project_brain_ingestion_service
+        return get_project_brain_ingestion_service().ingest_scope_knowledge(record, identity=identity)
+    except Exception as exc:
+        return {"ok": False, "status": "canonical_ingestion_failed", "error": str(exc)[:800]}
+
+
+def _ingest_manual_capture_canonical(record: dict[str, Any], *, identity: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from neo_app.memory.project_brain_ingestion import get_project_brain_ingestion_service
+        return get_project_brain_ingestion_service().ingest_manual_capture(record, identity=identity)
+    except Exception as exc:
+        return {"ok": False, "status": "canonical_ingestion_failed", "error": str(exc)[:800]}
+
 def manual_memory_capture_payload(payload: dict[str, Any]) -> dict[str, Any]:
     ensure_assistant_storage()
     text = str(payload.get("text") or payload.get("content") or "").strip()
@@ -420,11 +500,16 @@ def manual_memory_capture_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Memory capture text is required")
     stamp = now_iso()
     capture_id = slugify(payload.get("capture_id") or f"capture_{uuid4().hex[:12]}", "capture")
+    project_id = str(payload.get("project_id") or "general")
+    identity = _canonical_identity_for_assistant_record(project_id, str(payload.get("surface") or ""))
     record = {
         "capture_id": capture_id,
         "title": str(payload.get("title") or text[:80] or "Assistant memory capture"),
         "text": text,
-        "project_id": str(payload.get("project_id") or "general"),
+        "project_id": project_id,  # legacy Assistant Scope alias
+        "scope_id": identity.get("scope_id") or project_id,
+        "surface_id": identity.get("surface_id") or "assistant",
+        "delivery_project_id": identity.get("project_id") or "",
         "session_id": str(payload.get("session_id") or ""),
         "namespace": str(payload.get("namespace") or "assistant"),
         "source": "assistant_manual_capture",
@@ -432,21 +517,37 @@ def manual_memory_capture_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "updated_at": stamp,
     }
     write_json(_safe_record_path(CAPTURES_DIR, capture_id, "capture"), record)
-    admin_memory = {"ok": False, "message": "Centralized memory bridge unavailable."}
+
+    # Phase 7: Unified Memory is retrieval-authoritative. The older event bridge
+    # and assistant_memory document index remain compatibility projections only.
+    canonical_memory = _ingest_manual_capture_canonical(record, identity=identity)
+    admin_memory = {"ok": False, "message": "Legacy centralized memory bridge unavailable."}
     try:
         from neo_app.assistant.memory_adapter import record_assistant_capture
         admin_memory = record_assistant_capture(record)
     except Exception as exc:
-        admin_memory = {"ok": False, "message": f"Centralized memory write failed: {exc}"}
+        admin_memory = {"ok": False, "message": f"Legacy centralized memory write failed: {exc}"}
     record["admin_memory_event_id"] = ((admin_memory.get("event") or {}).get("event_id") if isinstance(admin_memory, dict) else "") or ""
+    record["canonical_memory"] = {
+        "schema_id": canonical_memory.get("schema_id") or "",
+        "fragment_ids": canonical_memory.get("fragment_ids") or [],
+        "event_id": canonical_memory.get("event_id") or "",
+        "status": canonical_memory.get("status") or "",
+    }
     write_json(_safe_record_path(CAPTURES_DIR, capture_id, "capture"), record)
     memory_engine_index = _refresh_assistant_memory_engine_index(limit=5)
     return {
         "ok": True,
         "capture": record,
+        "canonical_memory": canonical_memory,
         "admin_memory": admin_memory,
         "memory_engine_index": memory_engine_index,
-        "message": "Saved to Assistant memory and refreshed the Memory Engine index." if memory_engine_index.get("ok") else "Saved locally. Memory Engine index needs attention.",
+        "compatibility": {
+            "legacy_event_bridge": True,
+            "legacy_assistant_memory_index_refresh": True,
+            "retrieval_authority": "unified_memory",
+        },
+        "message": "Saved to canonical Neo Memory. Legacy Assistant memory projections were refreshed for compatibility.",
     }
 
 
@@ -493,6 +594,17 @@ def assistant_bootstrap_payload() -> dict[str, Any]:
     sessions = list_sessions()
     projects = list_projects()
     active_session = get_session(sessions[0]["session_id"]) if sessions else None
+    selected_scope_id = str((active_session or {}).get("project_id") or profile.get("default_project_id") or "general")
+    try:
+        from neo_app.assistant.memory_lens import assistant_memory_lens_payload
+        selected_scope = get_project(selected_scope_id) or {}
+        memory_lens = assistant_memory_lens_payload(
+            project_id=selected_scope_id,
+            surface=str(selected_scope.get("surface_id") or selected_scope.get("surface") or ""),
+            limit=12,
+        )
+    except Exception as exc:
+        memory_lens = {"ok": False, "schema_id": "neo.assistant.memory_lens.phase11.v1", "status": "unavailable", "error": str(exc)[:500]}
     return {
         "ok": True,
         "profile": profile,
@@ -500,6 +612,7 @@ def assistant_bootstrap_payload() -> dict[str, Any]:
         "sessions": sessions,
         "active_session": active_session,
         "memory_captures": list_memory_captures(30),
+        "memory_lens": memory_lens,
         "context_items": list_context_items(limit=40),
         "surface_context": list_surface_context_payload(limit=30).get("surface_context", []),
         "storage": {
@@ -535,6 +648,11 @@ def assistant_bootstrap_payload() -> dict[str, Any]:
             "project_state_capture": True,
             "project_metadata_indexing": True,
             "project_file_uploads": True,
+            "project_brain_canonical_ingestion": True,
+            "project_brain_shared_document_extraction": True,
+            "project_brain_idempotent_rebuild": True,
+            "assistant_memory_lens": True,
+            "assistant_scope_first_ux": True,
         },
         "thinking_layer": {
             "model_runtime_bridge": True,
@@ -577,7 +695,7 @@ def _coerce_tags(value: Any) -> list[str]:
 
 
 def save_context_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Save a project/thread knowledge card for Assistant context packs."""
+    """Save Scope Knowledge; Unified Memory is canonical, JSON is projection."""
     ensure_assistant_storage()
     text = trim_text(payload.get("text") or payload.get("content") or payload.get("body") or "", MAX_CONTEXT_TEXT_CHARS)
     if not text:
@@ -585,17 +703,26 @@ def save_context_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
     stamp = now_iso()
     context_id = slugify(payload.get("context_id") or f"context_{uuid4().hex[:12]}", "context")
     project_id = str(payload.get("project_id") or "general").strip() or "general"
+    surface = normalize_surface_id(payload.get("surface") or "assistant")
+    identity = _canonical_identity_for_assistant_record(project_id, surface)
+    projection_only = bool(payload.get("canonical_projection_only"))
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    if projection_only:
+        metadata = {**metadata, "canonical_projection_only": True}
     record = {
         "context_id": context_id,
         "title": trim_text(payload.get("title") or text[:80] or "Assistant context item", MAX_TITLE_CHARS),
         "text": text,
-        "project_id": project_id,
+        "project_id": project_id,  # legacy Assistant Scope alias
+        "scope_id": identity.get("scope_id") or project_id,
+        "surface_id": identity.get("surface_id") or surface,
+        "delivery_project_id": identity.get("project_id") or "",
         "session_id": str(payload.get("session_id") or ""),
-        "surface": normalize_surface_id(payload.get("surface") or "assistant"),
+        "surface": surface,
         "source": str(payload.get("source") or "assistant_context_import"),
         "kind": normalize_surface_id(payload.get("kind") or "project_knowledge", default="project_knowledge"),
         "tags": _coerce_tags(payload.get("tags") or []),
-        "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+        "metadata": metadata,
         "created_at": stamp,
         "updated_at": stamp,
     }
@@ -608,14 +735,39 @@ def save_context_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
         project["context_item_ids"] = linked[-100:]
         project.setdefault("name", project_id)
         save_project_payload(project)
+
+    canonical_memory = {"ok": True, "status": "compatibility_projection_only", "fragment_ids": []}
+    if not projection_only:
+        canonical_memory = _ingest_scope_knowledge_canonical(record, identity=identity)
+        record["canonical_memory"] = {
+            "schema_id": canonical_memory.get("schema_id") or "",
+            "fragment_ids": canonical_memory.get("fragment_ids") or [],
+            "event_id": canonical_memory.get("event_id") or "",
+            "status": canonical_memory.get("status") or "",
+        }
+        write_json(_safe_record_path(CONTEXT_DIR, context_id, "context"), record)
+
+    # Compatibility-only source index. Phase 5+ Retrieval Gateway reads the
+    # canonical Unified Memory fragment first; old consumers may still use this.
     memory_engine_index = _refresh_assistant_memory_engine_index(limit=5)
-    summary = _assistant_store_log_summary(record, action="scope_knowledge_saved")
+    summary = _assistant_store_log_summary(record, action="scope_knowledge_saved", extra={"canonical_projection_only": projection_only})
     _safe_log_assistant_store_event("assistant.scope_knowledge.saved", run_id=project_id or record.get("context_id") or "assistant", payload=summary)
     try:
         record_surface_snapshot("assistant", "neo_last_scope_knowledge.json", summary, run_id=project_id or record.get("context_id") or "assistant")
     except Exception:
         pass
-    return {"ok": True, "context_item": record, "context_items": list_context_items(project_id=project_id), "memory_engine_index": memory_engine_index}
+    return {
+        "ok": True,
+        "context_item": record,
+        "context_items": list_context_items(project_id=project_id),
+        "canonical_memory": canonical_memory,
+        "memory_engine_index": memory_engine_index,
+        "compatibility": {
+            "projection_only": projection_only,
+            "legacy_assistant_memory_index_refresh": True,
+            "retrieval_authority": "unified_memory",
+        },
+    }
 
 
 def list_context_items(project_id: str = "", session_id: str = "", surface: str = "", limit: int = 80) -> list[dict[str, Any]]:

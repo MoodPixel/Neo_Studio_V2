@@ -16,6 +16,7 @@ ExtensionStatus = Literal[
 ExtensionOrigin = Literal["built_in", "external"]
 ExtensionDetailMode = Literal["compact", "guided", "expert", "Compact", "Guided", "Expert"]
 VALID_IMAGE_WORKSPACE_APPS = {"generations", "assets", "reference", "finish", "results"}
+VALID_VIDEO_WORKSPACE_APPS = {"generation", "assets", "reference", "finish", "results"}
 VALID_ROUTE_STATES = {"available", "experimental_available", "implementation_target", "planned_gated", "provider_gated", "unsupported"}
 VALID_EXTENSION_RUNTIME_PERMISSIONS = {
     "custom_ui",
@@ -137,6 +138,7 @@ class ExtensionManifest(BaseModel):
     supported_families: list[str] = Field(default_factory=list)
     supported_loaders: list[str] = Field(default_factory=list)
     route_states: dict[str, str] = Field(default_factory=dict)
+    route_context_scope: Literal["generation_route", "workspace"] = "generation_route"
     depends_on: list[str] = Field(default_factory=list)
     extends: list[str] = Field(default_factory=list)
     required_nodes: dict[str, list[str]] = Field(default_factory=dict)
@@ -167,8 +169,13 @@ class ExtensionCompatibilityRequest(BaseModel):
     subtab: str | None = None
     workspace_app: str | None = None
     workflow_mode: str | None = None
+    generation_type: str | None = None
+    route_id: str | None = None
+    route_status: str | None = None
     route_state: str | None = None
     provider_id: str | None = None
+    backend_id: str | None = None
+    profile_id: str | None = None
     family: str | None = None
     loader: str | None = None
     extension_ids: list[str] = Field(default_factory=list)

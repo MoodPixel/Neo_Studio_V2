@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+from .ownership import normalize_admin_config
+
 ADMIN_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = ADMIN_DIR / "admin_config.json"
 
@@ -12,7 +14,7 @@ CONFIG_PATH = ADMIN_DIR / "admin_config.json"
 @lru_cache(maxsize=1)
 def get_admin_config() -> dict[str, Any]:
     """Load the V2 Admin control tower config."""
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    return normalize_admin_config(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
 
 
 def get_admin_payload() -> dict[str, Any]:
@@ -23,6 +25,9 @@ def get_admin_payload() -> dict[str, Any]:
         "surfaces": config.get("surfaces", {}),
         "extension_controls": config.get("extension_controls", {}),
         "provider_controls": config.get("provider_controls", {}),
+        "memory_controls": config.get("memory_controls", {}),
+        "ownership_contract": config.get("ownership_contract", {}),
+        "config_contract": config.get("config_contract", {}),
     }
 
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from neo_app.assistant.contracts import compact_json_payload, normalize_surface_id, trim_text
+from neo_app.context_identity import SCOPE_SURFACE_ALIASES, SURFACE_SCOPE_ALIASES
 from neo_app.assistant.store import assistant_profile, get_project, list_context_items, list_surface_context_payload
 from neo_app.runtime.surface_state import normalize_surface_runtime
 from neo_app.services.ui_state import read_ui_state
@@ -14,22 +15,16 @@ from neo_app.providers.profiles import get_backend_profile, get_backend_profile_
 SURFACE_PROJECT_CONTEXT_SCHEMA_ID = "neo.assistant.surface_project_context.v1"
 
 PROJECT_SURFACE_MAP = {
-    "image_workspace": "image",
-    "prompt_captioning_workspace": "prompt_captioning",
-    "roleplay_workspace": "roleplay",
-    "voice_workspace": "voice",
-    "video_workspace": "video",
-    "neo_development_workspace": "admin",
+    key: value
+    for key, value in SCOPE_SURFACE_ALIASES.items()
+    if key in {"image_workspace", "prompt_captioning_workspace", "roleplay_workspace", "voice_workspace", "video_workspace", "neo_development_workspace"}
 }
 
 SURFACE_CONTEXT_PROJECT_IDS = {
-    "image": "image_workspace",
-    "prompt_captioning": "prompt_captioning_workspace",
-    "roleplay": "roleplay_workspace",
-    "voice": "voice_workspace",
-    "video": "video_workspace",
+    **SURFACE_SCOPE_ALIASES,
     "admin": "neo_development_workspace",
 }
+
 
 IMAGE_PARAMETER_KEYS = (
     "family",

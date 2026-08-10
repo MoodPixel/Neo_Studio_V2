@@ -5,12 +5,19 @@
   },
   "max_context_chars": 9000,
   "namespaces": [
+    "global",
+    "image",
+    "video",
+    "voice",
+    "prompt_captioning",
     "roleplay",
     "assistant",
-    "global"
+    "board",
+    "admin"
   ],
   "query_top_k": 12,
   "rerank_top_n": 6,
   "scoring_policy": "embedding_then_optional_rerank",
-  "status": "ready"
+  "status": "ready",
+  "namespace_policy": "canonical_registered_surfaces"
 }

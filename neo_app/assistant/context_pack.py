@@ -3,16 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 from neo_app.assistant.contracts import contract_lock_payload, clamp_retrieval_profile
-from neo_app.assistant.memory_adapter import memory_health_payload, retrieve_assistant_memory_engine, search_assistant_memory
-from neo_app.assistant.source_grounded import build_source_grounded_context
+from neo_app.assistant.memory_adapter import memory_health_payload, retrieve_assistant_memory_engine, search_assistant_memory  # compatibility exports; Phase 5 normal path does not call them
+from neo_app.assistant.source_grounded import build_source_grounded_context  # compatibility export; Phase 5 normal path projects grounding from Retrieval Gateway
 from neo_app.assistant.store import assistant_profile, get_project, get_session, list_memory_captures, list_context_items
 from neo_app.assistant.surface_project_context import build_surface_project_context, resolve_surface_project_context_surface, surface_project_context_text
-from neo_app.assistant.guides import search_guides, guides_context_text
 from neo_app.assistant.project_brain import project_brain_context_text
+from neo_app.context_identity import resolve_canonical_identity
+from neo_app.memory.retrieval_gateway import gateway_grounding_payload, render_gateway_context, retrieve_context
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 
 
 MAX_THREAD_MESSAGES = 10
+# Deprecated compatibility labels retained for Inspector/tests only. Phase 5
+# normal Assistant retrieval no longer queries these source lists directly.
 ASSISTANT_SCOPE_MEMORY_SOURCES = ["assistant_memory", "system_records", "neo_codebase", "prompt_libraries", "admin_config"]
 LEGACY_PROJECT_WORKSPACE_SOURCE = "project_workspace"
 LEGACY_PROJECT_WORKSPACE_PHRASES = (
@@ -80,6 +83,39 @@ def _format_engine_results(memory_result: dict[str, Any]) -> str:
         score_hint = f" · score {score}" if score is not None else ""
         rows.append(f"- [{retrieval_type}{score_hint}] {title} ({source_path}{line_hint}): {_text(snippet, 900)}")
     return "\n".join(rows)
+
+
+def _gateway_items(result: dict[str, Any], lane: str = "") -> list[dict[str, Any]]:
+    items = [item for item in (result.get("items") if isinstance(result, dict) else []) or [] if isinstance(item, dict)]
+    if lane:
+        items = [item for item in items if str(item.get("source_lane") or "") == lane]
+    return items
+
+
+def _format_gateway_items(result: dict[str, Any], lane: str = "", *, limit: int = 12) -> str:
+    rows: list[str] = []
+    for item in _gateway_items(result, lane)[:limit]:
+        title = item.get("title") or item.get("source_id") or "Retrieved context"
+        source_lane = item.get("source_lane") or "context"
+        citation = item.get("citation") if isinstance(item.get("citation"), dict) else {}
+        cite = f" [{citation.get('index')}]" if citation.get("index") else ""
+        score = item.get("score")
+        score_hint = f" · score {score}" if score is not None else ""
+        source_path = citation.get("source_path") or item.get("source_id") or ""
+        source_hint = f" ({source_path})" if source_path else ""
+        snippet = item.get("content") or item.get("snippet") or ""
+        rows.append(f"- [{source_lane}{score_hint}]{cite} {title}{source_hint}: {_text(snippet, 1100)}")
+    return "\n".join(rows)
+
+
+def _format_gateway_guides(result: dict[str, Any]) -> str:
+    rows: list[str] = []
+    for item in _gateway_items(result, "guide_index"):
+        citation = item.get("citation") if isinstance(item.get("citation"), dict) else {}
+        label = citation.get("source_path") or item.get("source_id") or ""
+        cite = f" [{citation.get('index')}]" if citation.get("index") else ""
+        rows.append(f"{cite} {item.get('title') or 'Neo guide'} ({label}): {_text(item.get('content') or item.get('snippet'), 1400)}")
+    return "\n\n".join(rows)
 
 
 def _message_requests_legacy_project_workspace(message: str) -> bool:
@@ -179,6 +215,7 @@ def build_context_pack(
     active_surface: str = "",
     surface_context_snapshot: dict[str, Any] | None = None,
     active_surface_context: dict[str, Any] | None = None,
+    retrieval_gateway_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     retrieval_profile = clamp_retrieval_profile(retrieval_profile)
     profile = assistant_profile()
@@ -226,32 +263,54 @@ def build_context_pack(
     query_parts = [message, project.get("name"), project.get("description"), project.get("notes")]
     memory_query = " ".join(str(part or "") for part in query_parts).strip()
 
-    guide_payload = search_guides(memory_query or message, surface=resolved_surface, project_id=resolved_project_id, limit={"fast": 4, "smart": 7, "deep": 12}.get(str(retrieval_profile or "smart"), 7))
-    guide_text = guides_context_text(guide_payload)
     project_brain_text, project_brain_diag = project_brain_context_text(resolved_project_id, surface=resolved_surface, limit={"fast": 3, "smart": 5, "deep": 8}.get(str(retrieval_profile or "smart"), 5), query=message)
     limit = {"fast": 4, "smart": 8, "deep": 14}.get(str(retrieval_profile or "smart"), 8)
-    memory_sources = list(ASSISTANT_SCOPE_MEMORY_SOURCES)
-    if legacy_workspace_included:
-        memory_sources.append(LEGACY_PROJECT_WORKSPACE_SOURCE)
-    memory_result = retrieve_assistant_memory_engine(
-        memory_query,
-        resolved_project_id,
-        profile=retrieval_profile,
-        limit=limit,
-        semantic=retrieval_profile != "fast",
-        sources=memory_sources,
+
+    identity = resolve_canonical_identity(
+        {
+            "identity": project.get("identity") if isinstance(project.get("identity"), dict) else {},
+            "scope_id": project.get("scope_id") or resolved_project_id,
+            "legacy_project_id": resolved_project_id,
+            "surface_id": resolved_surface,
+            "delivery_project_id": project.get("delivery_project_id") or project.get("actual_project_id") or "",
+        },
+        legacy_project_is_scope=True,
+        source="assistant_context_pack",
     )
-    grounding = build_source_grounded_context({
-        "question": memory_query or message,
+    gateway_reused = bool(isinstance(retrieval_gateway_result, dict) and retrieval_gateway_result.get("schema_id"))
+    retrieval_gateway = dict(retrieval_gateway_result or {}) if gateway_reused else retrieve_context({
+        "query": memory_query,
+        "identity": identity.as_dict(),
+        "legacy_project_id": resolved_project_id,
         "retrieval_profile": retrieval_profile,
-        "limit": min(limit, 10),
-        "sources": memory_sources,
-    }) if (memory_query or message) else {"ok": False, "evidence": []}
-    memory_text = _format_engine_results(memory_result)
-    legacy_event_memory = {}
-    if not memory_text:
-        legacy_event_memory = search_assistant_memory(memory_query, resolved_project_id, limit=min(limit, 6), semantic=retrieval_profile != "fast")
-        memory_text = _format_memories(legacy_event_memory)
+        "consumer": "assistant_context_pack",
+        "limit": limit,
+    })
+    grounding = gateway_grounding_payload(retrieval_gateway, question=memory_query or message)
+    gateway_text = render_gateway_context(retrieval_gateway)
+    memory_items = _gateway_items(retrieval_gateway, "unified_memory")
+    knowledge_items = _gateway_items(retrieval_gateway, "knowledge_index")
+    guide_items = _gateway_items(retrieval_gateway, "guide_index")
+    memory_text = _format_gateway_items(retrieval_gateway, "unified_memory")
+    knowledge_text = _format_gateway_items(retrieval_gateway, "knowledge_index")
+    guide_text = _format_gateway_guides(retrieval_gateway)
+    guide_payload = {
+        "ok": True,
+        "count": len(guide_items),
+        "surface": identity.surface_id,
+        "guides": guide_items,
+        "source": "retrieval_gateway",
+    }
+    # Compatibility shape retained for older context-pack diagnostics/tests. The
+    # normal Assistant path no longer calls MemoryService.retrieve here.
+    memory_result = {
+        "ok": bool(retrieval_gateway.get("ok")),
+        "results": memory_items,
+        "backend_used": "retrieval_gateway",
+        "memory_engine_profile": retrieval_profile,
+        "trace_id": retrieval_gateway.get("gateway_trace_id") or "",
+    }
+    legacy_event_memory: dict[str, Any] = {}
 
     scope_text = "\n".join([
         f"Assistant scope: {project.get('name') or 'General Assistant'}",
@@ -270,11 +329,11 @@ def build_context_pack(
     persona_text = "\n".join([
         "You are Neo Assistant, the user-facing intelligence layer for Neo Studio.",
         "Respect the active Assistant scope and current request above older memory.",
-        "Use centralized Memory Engine retrieval as context, not as unquestionable truth.",
+        "Use the single Retrieval Gateway result as context, not as unquestionable truth.",
         "Do not silently pull legacy Project Workspace context into Assistant scopes unless explicitly requested.",
         "For questions about how Neo works, supported options, model families, parameters, or tabs, prefer built-in Neo guides first.",
         "Use live surface snapshots for current loaded values and indexed metadata only when the user asks about previous outputs, saved prompts, history, sidecars, replay, or inspection.",
-        "When source-grounded evidence is available, cite it inline using bracket citations like [1], but do not dump source paths or raw metadata unless the user asks for trace/debug detail.",
+        "When Retrieval Gateway source-grounded evidence is available, cite it inline using bracket citations like [1], but do not dump source paths or raw metadata unless the user asks for trace/debug detail.",
         "Use built-in Neo guides, live surface snapshots, indexed project data, and uploaded project context before saying context is missing.",
         "If a surface workspace is active, questions about that surface are inside scope; explain from guides when live values are missing.",
         "Do not present uncited memory claims as facts; state uncertainty when context is thin.",
@@ -286,9 +345,12 @@ def build_context_pack(
         _section("persona", "Assistant persona and rules", persona_text, source="assistant"),
         _section("current_message", "Current user message", current_text, source="composer"),
         _section("project", "Active Assistant scope", scope_text, source="assistant_scope"),
-        _section("built_in_guides", "Built-in Neo guides", guide_text, source="neo_guides", items=int(guide_payload.get("count") or 0)),
         _section("active_surface_context", "Live surface project context", live_surface_text or "No live surface project context attached for this Assistant scope.", source="assistant_surface_context_provider", items=1 if live_surface_text else 0),
-        _section("project_brain", "Assistant project brain snapshots and indexed data", project_brain_text, source="assistant_project_brain", items=int(project_brain_diag.get("snapshot_count") or 0) + int(project_brain_diag.get("index_count") or 0)),
+        _section("retrieval_gateway", "Retrieval Gateway context", gateway_text or "No matching Retrieval Gateway context found.", source="retrieval_gateway", items=len(retrieval_gateway.get("items", []) if isinstance(retrieval_gateway, dict) else [])),
+        # Compatibility projections remain visible to Inspector/routes but are all
+        # derived from the same gateway result; they do not execute extra searches.
+        _section("built_in_guides", "Built-in Neo guides", guide_text or "No built-in Neo guides matched this turn.", source="retrieval_gateway_guide_projection", items=len(guide_items)),
+        _section("project_brain", "Assistant Scope Project Brain snapshots and indexed data", project_brain_text, source="assistant_project_brain", items=int(project_brain_diag.get("snapshot_count") or 0) + int(project_brain_diag.get("index_count") or 0)),
         _section("project_knowledge", "Assistant scope knowledge and saved surface handoffs", scope_knowledge_text or "No Assistant scope knowledge or surface handoffs attached yet.", source="assistant_context_items", items=len(context_items)),
     ]
     if legacy_workspace_included:
@@ -301,9 +363,9 @@ def build_context_pack(
         ))
     sections.extend([
         _section("thread", "Recent thread context", thread_text or "No previous thread messages.", source="assistant_session", items=len(messages[-MAX_THREAD_MESSAGES:])),
-        _section("memory_engine", "Memory Engine retrieval", memory_text or "No matching Memory Engine context found.", source="memory_engine", items=len(memory_result.get("results", []) if isinstance(memory_result, dict) else [])),
-        _section("source_grounding", "Source-grounded evidence", (grounding.get("evidence_block") if isinstance(grounding, dict) else "") or "No source-grounded evidence retrieved.", source="memory_search_ux", items=len(grounding.get("evidence", []) if isinstance(grounding, dict) else [])),
-        _section("admin_memory", "Legacy centralized memory events", _format_memories(legacy_event_memory) if legacy_event_memory else "Memory Engine handled this context pack.", source="memory_engine_legacy_events", items=len(legacy_event_memory.get("results", []) if isinstance(legacy_event_memory, dict) else 0)),
+        _section("memory_engine", "Unified Memory projection", memory_text or "No matching Unified Memory context found.", source="retrieval_gateway_unified_projection", items=len(memory_items)),
+        _section("source_grounding", "Source-grounded evidence", (grounding.get("evidence_block") if isinstance(grounding, dict) else "") or "No source-grounded evidence retrieved.", source="retrieval_gateway_evidence_projection", items=len(grounding.get("evidence", []) if isinstance(grounding, dict) else [])),
+        _section("admin_memory", "Legacy centralized memory events", "Retrieval Gateway is canonical for this turn; the legacy event-search fallback was not queried.", source="retrieval_gateway_legacy_compat", items=0),
         _section("local_captures", "Assistant local captures", local_capture_text or "No local captures for this scope yet.", source="assistant_local", items=len(local_captures)),
     ])
     prompt_block = "\n\n".join([f"## {s['title']}\n{s['content']}" for s in sections if s.get("content")]).strip()
@@ -313,12 +375,18 @@ def build_context_pack(
         "scope_id": project.get("scope_id") or project.get("project_id") or resolved_project_id,
         "session_id": (session or {}).get("session_id") or session_id,
         "retrieval_profile": retrieval_profile or "smart",
-        "memory_source": "memory_engine",
-        "legacy_memory_source": "admin_engine",
-        "memory_backend_used": memory_result.get("backend_used") if isinstance(memory_result, dict) else "unknown",
-        "memory_engine_profile": memory_result.get("memory_engine_profile") if isinstance(memory_result, dict) else "unknown",
-        "memory_trace_id": memory_result.get("trace_id") if isinstance(memory_result, dict) else "",
-        "memory_sources": memory_sources,
+        "memory_source": "retrieval_gateway",
+        "legacy_memory_source": "compatibility_only_not_queried",
+        "memory_backend_used": "retrieval_gateway",
+        "memory_engine_profile": retrieval_profile or "smart",
+        "memory_trace_id": retrieval_gateway.get("gateway_trace_id") if isinstance(retrieval_gateway, dict) else "",
+        "memory_sources": sorted({str((item.get("source_id") or item.get("source_lane") or "")) for item in (retrieval_gateway.get("items") or []) if isinstance(item, dict) and (item.get("source_id") or item.get("source_lane"))} | ({LEGACY_PROJECT_WORKSPACE_SOURCE} if legacy_workspace_included else set())),
+        "retrieval_gateway_schema_id": retrieval_gateway.get("schema_id") if isinstance(retrieval_gateway, dict) else "",
+        "retrieval_gateway_trace_id": retrieval_gateway.get("gateway_trace_id") if isinstance(retrieval_gateway, dict) else "",
+        "retrieval_gateway_reused_from_control_center": gateway_reused,
+        "retrieval_gateway_counts": retrieval_gateway.get("counts") if isinstance(retrieval_gateway.get("counts") if isinstance(retrieval_gateway, dict) else None, dict) else {},
+        "retrieval_gateway_adapters": retrieval_gateway.get("adapters") if isinstance(retrieval_gateway.get("adapters") if isinstance(retrieval_gateway, dict) else None, dict) else {},
+        "retrieval_gateway_adapter_errors": retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway, dict) else None, list) else [],
         "assistant_scope_context_primary": True,
         "global_project_workspace_decoupled": True,
         "legacy_project_workspace_policy": "excluded_by_default_unless_explicit",
@@ -342,7 +410,10 @@ def build_context_pack(
         "source_grounding_trace_id": grounding.get("trace_id") if isinstance(grounding, dict) else "",
         "source_grounding_evidence_count": len(grounding.get("evidence", []) if isinstance(grounding, dict) else []),
         "semantic_available": bool((health.get("semantic_available") if isinstance(health, dict) else False)),
-        "memory_item_count": len(memory_result.get("results", []) if isinstance(memory_result, dict) else []),
+        "memory_item_count": len(retrieval_gateway.get("items", []) if isinstance(retrieval_gateway, dict) else []),
+        "unified_memory_item_count": len(memory_items),
+        "knowledge_index_item_count": len(knowledge_items),
+        "guide_gateway_item_count": len(guide_items),
         "local_memory_capture_count": len(local_captures),
         "project_context_item_count": len(context_items),
         # Backward-compatible counters now refer only to explicit legacy inclusion.
@@ -354,10 +425,10 @@ def build_context_pack(
         "section_count": len(sections),
         "chars": len(prompt_block),
         "memory_health": health,
-        "precedence": ["current_message", "built_in_guides", "active_surface_context", "project_brain", "assistant_scope", "scope_knowledge", "source_grounding", "memory_engine", "thread", "persona", "legacy_project_workspace_explicit_only"],
+        "precedence": ["current_message", "active_surface_context", "retrieval_gateway", "source_grounding", "built_in_guides", "project_brain", "assistant_scope", "scope_knowledge", "thread", "persona", "legacy_project_workspace_explicit_only"],
         "lock": contract_lock_payload(),
     }
-    pack = {"ok": True, "sections": sections, "prompt_block": prompt_block, "diagnostics": diagnostics, "source_grounding": grounding}
+    pack = {"ok": True, "sections": sections, "prompt_block": prompt_block, "diagnostics": diagnostics, "source_grounding": grounding, "retrieval_gateway": retrieval_gateway}
     run_id = str((session or {}).get("session_id") or session_id or resolved_project_id or "context_pack")
     summary = _assistant_context_log_summary(
         session_id=run_id,

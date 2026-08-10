@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from neo_app.extensions.schema import VALID_IMAGE_WORKSPACE_APPS, VALID_ROUTE_STATES
+from neo_app.extensions.schema import VALID_IMAGE_WORKSPACE_APPS, VALID_ROUTE_STATES, VALID_VIDEO_WORKSPACE_APPS
 
 WORKFLOW_MODE_ALIASES = {
     "txt2img": "generate",
@@ -17,7 +17,7 @@ WORKFLOW_MODE_ALIASES = {
     "history": "history",
 }
 
-WORKFLOW_TO_DEFAULT_WORKSPACE_APP = {
+IMAGE_WORKFLOW_TO_DEFAULT_WORKSPACE_APP = {
     "generate": "generations",
     "txt2img": "generations",
     "img2img": "reference",
@@ -28,11 +28,26 @@ WORKFLOW_TO_DEFAULT_WORKSPACE_APP = {
     "batch": "assets",
     "history": "results",
 }
+VIDEO_WORKFLOW_TO_DEFAULT_WORKSPACE_APP = {
+    "txt2vid": "generation",
+    "img2vid": "generation",
+    "first_last_frame": "generation",
+    "multiscene": "generation",
+    "extend": "generation",
+    "vid2vid": "generation",
+    "depth_motion": "generation",
+    "prompt_schedule": "generation",
+    "audio_video": "generation",
+    "interpolate": "finish",
+    "upscale": "finish",
+    "repair": "finish",
+    "results": "results",
+}
 
 DETAIL_MODES = {"compact", "guided", "expert"}
 
 
-WORKSPACE_APP_ALIASES = {
+IMAGE_WORKSPACE_APP_ALIASES = {
     "generation": "generations",
     "generations": "generations",
     "asset": "assets",
@@ -42,12 +57,33 @@ WORKSPACE_APP_ALIASES = {
     "results": "results",
 }
 
+VIDEO_WORKSPACE_APP_ALIASES = {
+    "workspace": "generation",
+    "generation": "generation",
+    "generations": "generation",
+    "asset": "assets",
+    "assets": "assets",
+    "reference": "reference",
+    "finish": "finish",
+    "results": "results",
+}
 
-def normalize_workspace_app(app: str | None) -> str | None:
+
+def normalize_workspace_app(app: str | None, *, surface: str = "image") -> str | None:
+    """Normalize workspace ids without leaking Image aliases into other surfaces.
+
+    Image intentionally uses ``generations`` while Video intentionally uses
+    ``generation``.  Phase 3 makes that distinction part of the shared extension
+    contract instead of relying on the old Image-first global alias table.
+    """
     if not app:
         return None
     value = app.strip().lower()
-    return WORKSPACE_APP_ALIASES.get(value, value)
+    if surface == "video":
+        return VIDEO_WORKSPACE_APP_ALIASES.get(value, value)
+    if surface == "image":
+        return IMAGE_WORKSPACE_APP_ALIASES.get(value, value)
+    return {"asset": "assets"}.get(value, value)
 
 
 def extension_ui_mount_kind(origin: str | None) -> str:
@@ -69,10 +105,11 @@ def extension_matches_workspace(
 ) -> bool:
     if manifest.get("surface") != surface:
         return False
-    canonical_app = normalize_workspace_app(workspace_app)
+    canonical_app = normalize_workspace_app(workspace_app, surface=surface)
     mode = normalize_workflow_mode(workflow_mode)
-    workspace_apps = [normalize_workspace_app(item) for item in (manifest.get("workspace_apps") or [])]
-    workflow_modes = [normalize_workflow_mode(item) for item in (manifest.get("workflow_modes") or manifest.get("subtabs") or [])]
+    workspace_apps = [normalize_workspace_app(item, surface=surface) for item in (manifest.get("workspace_apps") or [])]
+    workflow_source = manifest.get("workflow_modes") or ([] if surface == "video" else manifest.get("subtabs") or [])
+    workflow_modes = [normalize_workflow_mode(item) for item in workflow_source]
     if canonical_app and workspace_apps and canonical_app not in workspace_apps:
         return False
     if mode and workflow_modes and mode not in workflow_modes:
@@ -81,7 +118,7 @@ def extension_matches_workspace(
     if targets:
         matched_target = False
         for target in targets:
-            target_app = normalize_workspace_app(target.get("workspace_app"))
+            target_app = normalize_workspace_app(target.get("workspace_app"), surface=surface)
             target_mode = normalize_workflow_mode(target.get("workflow_mode"))
             target_states = target.get("route_states") or []
             if canonical_app and target_app and target_app != canonical_app:
@@ -165,24 +202,27 @@ def normalize_workflow_mode(mode: str | None) -> str | None:
     return WORKFLOW_MODE_ALIASES.get(value, value)
 
 
-def infer_workspace_apps(workflow_modes: list[str] | None = None, subtabs: list[str] | None = None) -> list[str]:
+def infer_workspace_apps(workflow_modes: list[str] | None = None, subtabs: list[str] | None = None, *, surface: str = "image") -> list[str]:
     modes = workflow_modes or subtabs or []
     apps: list[str] = []
+    mapping = VIDEO_WORKFLOW_TO_DEFAULT_WORKSPACE_APP if surface == "video" else IMAGE_WORKFLOW_TO_DEFAULT_WORKSPACE_APP
     for mode in modes:
-        app = WORKFLOW_TO_DEFAULT_WORKSPACE_APP.get(normalize_workflow_mode(mode) or mode)
+        app = mapping.get(normalize_workflow_mode(mode) or mode)
         if app and app not in apps:
             apps.append(app)
     return apps
 
 
 def validate_workspace_apps(workspace_apps: list[str], *, surface: str = "image") -> list[str]:
-    if surface != "image":
-        return []
     errors = []
+    valid_apps = VALID_VIDEO_WORKSPACE_APPS if surface == "video" else VALID_IMAGE_WORKSPACE_APPS if surface == "image" else None
+    if valid_apps is None:
+        return errors
+    label = "Video" if surface == "video" else "Image"
     for app in workspace_apps:
-        canonical = normalize_workspace_app(app)
-        if canonical not in VALID_IMAGE_WORKSPACE_APPS:
-            errors.append(f"Unknown Image workspace app: {app}.")
+        canonical = normalize_workspace_app(app, surface=surface)
+        if canonical not in valid_apps:
+            errors.append(f"Unknown {label} workspace app: {app}.")
     return errors
 
 
@@ -270,7 +310,7 @@ def infer_extension_panel_type(manifest: dict[str, Any]) -> str:
     declared = _clean_text(ui_schema.get("panel_type") or ui_schema.get("type")).lower()
     if declared in ALLOWED_EXTENSION_PANEL_TYPES:
         return declared
-    workspace_apps = {normalize_workspace_app(item) for item in (manifest.get("workspace_apps") or [])}
+    workspace_apps = {normalize_workspace_app(item, surface=str(manifest.get("surface") or "image")) for item in (manifest.get("workspace_apps") or [])}
     if "finish" in workspace_apps:
         return "finishing_tool"
     if "reference" in workspace_apps:
@@ -382,8 +422,8 @@ def normalize_extension_ui_contract(manifest: dict[str, Any], detail_mode: str =
         "panel_type": infer_extension_panel_type(manifest),
         "detail_mode": mode,
         "mount": {
-            "workspace_apps": [normalize_workspace_app(item) or item for item in (manifest.get("workspace_apps") or [])],
-            "workflow_modes": [normalize_workflow_mode(item) or item for item in (manifest.get("workflow_modes") or manifest.get("subtabs") or [])],
+            "workspace_apps": [normalize_workspace_app(item, surface=str(manifest.get("surface") or "image")) or item for item in (manifest.get("workspace_apps") or [])],
+            "workflow_modes": [normalize_workflow_mode(item) or item for item in (manifest.get("workflow_modes") or ([] if str(manifest.get("surface") or "image") == "video" else manifest.get("subtabs") or []))],
             "slots": mount_slots,
             "targets": mount_targets,
         },

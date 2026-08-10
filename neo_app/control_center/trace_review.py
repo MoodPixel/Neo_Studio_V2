@@ -307,8 +307,10 @@ class ControlCenterTraceReviewEngine:
         if self._table_exists(conn, "neo_memory_writebacks"):
             rows = conn.execute(
                 """
-                SELECT writeback_id, source_trace_id, source_type, source_id, surface, project_id, scope_id, memory_type, title,
-                       content, risk_level, status, confidence, importance, created_at, updated_at, applied_event_id, applied_fragment_id
+                SELECT writeback_id, source_trace_id, source_type, source_id, surface, project_id, scope_id, memory_type, candidate_class,
+                       durable_key, title, content, risk_level, status, decision_reason, support_count, support_threshold,
+                       contradiction_state, supersedes_writeback_id, superseded_by_writeback_id, confidence, importance,
+                       created_at, updated_at, applied_event_id, applied_fragment_id
                 FROM neo_memory_writebacks
                 WHERE source_trace_id=? OR source_id=?
                 ORDER BY created_at DESC

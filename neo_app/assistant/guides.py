@@ -5,20 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from neo_app.assistant.contracts import normalize_surface_id, trim_text
+from neo_app.context_identity import SCOPE_SURFACE_ALIASES
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 GUIDES_DIR = ROOT_DIR / "guides"
 GUIDE_SCHEMA_ID = "neo.assistant.guides.v1"
 
-SURFACE_PROJECT_MAP = {
-    "image_workspace": "image",
-    "video_workspace": "video",
-    "voice_workspace": "voice",
-    "prompt_captioning_workspace": "prompt_captioning",
-    "roleplay_workspace": "roleplay",
-    "neo_development_workspace": "admin",
-    "general": "global",
-}
+SURFACE_PROJECT_MAP = dict(SCOPE_SURFACE_ALIASES)
+
 
 _LIST_FIELD_NAMES = {"applies_to", "tags"}
 
