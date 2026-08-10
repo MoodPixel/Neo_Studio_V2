@@ -18,7 +18,7 @@ from neo_app.image.lanpaint_family_adapter import (
 )
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
-from neo_app.image.lanpaint_route_contract import ROUTE_FAMILY_ID, normalize_lanpaint_route_contract
+from neo_app.image.lanpaint_route_contract import ROUTE_FAMILY_ID, SUPPORTED_MODES, normalize_lanpaint_route_contract
 from neo_app.image.lanpaint_ui_state import PHASE7_STATE, normalize_lanpaint_ui_state
 from neo_app.image.lanpaint_replay import PHASE11_STATE, refresh_lanpaint_replay_contract, validate_lanpaint_replay_request
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
@@ -670,9 +670,11 @@ def validate_lanpaint_comfy_compile_plan(plan: Mapping[str, Any] | None) -> list
     if payload.get("route_family_id") != ROUTE_FAMILY_ID:
         issues.append({"level": "error", "field": "route_family_id", "message": f"Expected {ROUTE_FAMILY_ID}."})
 
+    identity = _mapping(payload.get("identity"))
     compiler = _mapping(payload.get("compiler"))
-    if compiler.get("compiler_id") != COMPILER_ID or compiler.get("workflow_type") != WORKFLOW_TYPE:
-        issues.append({"level": "error", "field": "compiler", "message": "Compiler identity does not match the Phase 4 LanPaint boundary."})
+    expected_workflow_type = f"image.{identity.get('mode') or 'inpaint'}.lanpaint"
+    if compiler.get("compiler_id") != COMPILER_ID or compiler.get("workflow_type") != expected_workflow_type:
+        issues.append({"level": "error", "field": "compiler", "message": "Compiler identity does not match the LanPaint masked-edit boundary."})
     if compiler.get("state") != COMPILER_STATE:
         issues.append({"level": "error", "field": "compiler.state", "message": f"Expected {COMPILER_STATE}."})
     if compiler.get("graph_emitted") is not False or compiler.get("backend_prompt") is not None:
@@ -682,11 +684,10 @@ def validate_lanpaint_comfy_compile_plan(plan: Mapping[str, Any] | None) -> list
     if execution.get("enabled") is not False or execution.get("selectable") is not False:
         issues.append({"level": "error", "field": "execution", "message": "Phase 4 compiler plans must remain non-selectable and execution-disabled."})
 
-    identity = _mapping(payload.get("identity"))
     if identity.get("provider_id") not in SUPPORTED_PROVIDERS:
         issues.append({"level": "error", "field": "identity.provider_id", "message": "Only local Comfy providers may bind this compiler."})
-    if identity.get("mode") != "inpaint" or identity.get("engine") != "lanpaint":
-        issues.append({"level": "error", "field": "identity", "message": "The compiler boundary only accepts LanPaint inpaint routes."})
+    if identity.get("mode") not in SUPPORTED_MODES or identity.get("engine") != "lanpaint":
+        issues.append({"level": "error", "field": "identity", "message": "The compiler boundary accepts LanPaint inpaint/outpaint routes only."})
 
     stage_bindings = payload.get("stage_bindings") or []
     expected_order = lanpaint_workflow_abstraction_template()["stage_order"]
@@ -825,7 +826,7 @@ def build_lanpaint_comfy_compile_plan(
         },
         "compiler": {
             "compiler_id": COMPILER_ID,
-            "workflow_type": WORKFLOW_TYPE,
+            "workflow_type": f"image.{identity.get('mode') or 'inpaint'}.lanpaint",
             "state": COMPILER_STATE,
             "graph_emitted": False,
             "backend_prompt": None,
@@ -856,7 +857,7 @@ def build_lanpaint_comfy_compile_plan(
             "execution_ready": False,
             "state": COMPILER_STATE,
             "compiler_id": COMPILER_ID,
-            "workflow_type": WORKFLOW_TYPE,
+            "workflow_type": f"image.{identity.get('mode') or 'inpaint'}.lanpaint",
             "reason": "Phase 4 binds the provider/compiler boundary but does not emit or dispatch a runnable Comfy graph.",
         },
     }
@@ -1058,13 +1059,13 @@ def _validate_phase5_graph_signatures(
     return mismatches
 
 
-def _lanpaint_route_request(provider_id: str, params: Mapping[str, Any], *, loader_id: str = "gguf") -> dict[str, Any]:
+def _lanpaint_route_request(provider_id: str, params: Mapping[str, Any], *, loader_id: str = "gguf", mode: str = "inpaint") -> dict[str, Any]:
     return {
         "identity": {
             "provider_id": provider_id,
             "family": "krea2_turbo",
             "loader": loader_id,
-            "mode": "inpaint",
+            "mode": str(mode or "inpaint"),
             "engine": "lanpaint",
             "variant": PHASE5_VARIANT,
         },
@@ -1137,12 +1138,13 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
     """
 
     params = dict(job.params or {})
+    runtime_mode = str(route.mode or job.mode or "inpaint").strip().lower()
     loader_id = str(route.loader or job.loader or "gguf").strip()
     if loader_id not in {"gguf", "diffusion_model"}:
         validation.errors.append(f"Krea 2 Turbo LanPaint does not support loader {loader_id!r}.")
         validation.ok = False
     for replay_error in validate_lanpaint_replay_request(
-        params, provider_id=provider_id, family="krea2_turbo", loader=loader_id, mode="inpaint", engine="lanpaint"
+        params, provider_id=provider_id, family="krea2_turbo", loader=loader_id, mode=runtime_mode, engine="lanpaint"
     ):
         validation.errors.append(replay_error)
         validation.ok = False
@@ -1210,7 +1212,7 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
     elif compatibility.compatible is None and compatibility.message:
         validation.warnings.append(compatibility.message)
 
-    route_contract, contract_issues = normalize_lanpaint_route_contract(_lanpaint_route_request(provider_id, params, loader_id=loader_id))
+    route_contract, contract_issues = normalize_lanpaint_route_contract(_lanpaint_route_request(provider_id, params, loader_id=loader_id, mode=runtime_mode))
     for issue in contract_issues:
         message = str(issue.get("message") or "LanPaint route contract validation failed.")
         if issue.get("level") == "error":
@@ -1286,30 +1288,32 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
         json.dumps(ui_state_fingerprint_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
 
-    requested_seed = int(_param(params, "requested_seed", "seed", default=-1) or -1)
-    seed = int(_param(params, "actual_seed", "seed", default=requested_seed) or requested_seed)
+    requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
+    seed = int(_param(params, "actual_seed", "seed", default=requested_seed))
     if seed < 0:
         seed = int(time.time() * 1000) % 2147483647
     conditioning_mode = normalize_prompt_conditioning_mode(params.get("prompt_conditioning_mode", params.get("clamp", "raw")))
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
 
-    padding = int(crop.get("padding_px") or 152)
-    process_width = int(processing_size.get("width") or 768)
-    process_height = int(processing_size.get("height") or 768)
-    resize_method = str(crop.get("resize_method") or "lanczos")
-    sample_expand = int(sampling_mask.get("expand_px") or 0)
-    sample_blur = float(sampling_mask.get("blur_radius") or 0.0)
-    stitch_expand = int(stitch_mask.get("expand_px") or 0)
-    stitch_blur = float(stitch_mask.get("blur_radius") or 0.0)
-    steps = int(sampler_policy.get("steps") or 8)
-    cfg = float(sampler_policy.get("cfg") or 1.0)
-    sampler_name = str(sampler_policy.get("sampler_name") or "euler")
-    scheduler = str(sampler_policy.get("scheduler") or "simple")
-    denoise = float(sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0)
-    thinking_steps = int(sampler_policy.get("lanpaint_thinking_steps") or 10)
-    prompt_mode = "Prompt First" if str(sampler_policy.get("prompt_mode") or "image_first") == "prompt_first" else "Image First"
-    restore_method = str(stitch_policy.get("resize_method") or resize_method)
+    padding = int(_param(params, "lanpaint_crop_padding", "crop_padding", default=crop.get("padding_px") if crop.get("padding_px") is not None else 152))
+    process_width = int(_param(params, "lanpaint_processing_width", default=processing_size.get("width") if processing_size.get("width") is not None else 768))
+    process_height = int(_param(params, "lanpaint_processing_height", default=processing_size.get("height") if processing_size.get("height") is not None else 768))
+    resize_method = str(_param(params, "lanpaint_resize_method", default=crop.get("resize_method") or "lanczos"))
+    sample_expand = int(_param(params, "lanpaint_sampling_mask_expand", default=sampling_mask.get("expand_px") if sampling_mask.get("expand_px") is not None else 0))
+    sample_blur = float(_param(params, "lanpaint_sampling_mask_blur", default=sampling_mask.get("blur_radius") if sampling_mask.get("blur_radius") is not None else 0.0))
+    stitch_expand = int(_param(params, "lanpaint_stitch_mask_expand", default=stitch_mask.get("expand_px") if stitch_mask.get("expand_px") is not None else 0))
+    stitch_blur = float(_param(params, "lanpaint_stitch_mask_blur", default=stitch_mask.get("blur_radius") if stitch_mask.get("blur_radius") is not None else 0.0))
+    steps = int(_param(params, "steps", "lanpaint_steps", default=sampler_policy.get("steps") if sampler_policy.get("steps") is not None else 8))
+    cfg = float(_param(params, "cfg", "lanpaint_cfg", default=sampler_policy.get("cfg") if sampler_policy.get("cfg") is not None else 1.0))
+    sampler_name = str(_param(params, "sampler", "lanpaint_sampler", default=sampler_policy.get("sampler_name") or "euler"))
+    scheduler = str(_param(params, "scheduler", "lanpaint_scheduler", default=sampler_policy.get("scheduler") or "simple"))
+    denoise = float(_param(params, "denoise", "lanpaint_denoise", default=sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
+    thinking_steps = int(_param(params, "lanpaint_thinking_steps", default=sampler_policy.get("lanpaint_thinking_steps") if sampler_policy.get("lanpaint_thinking_steps") is not None else 10))
+    requested_prompt_mode = str(_param(params, "lanpaint_prompt_mode", default=sampler_policy.get("prompt_mode") or "image_first")).strip().lower().replace(" ", "_")
+    prompt_mode = "Prompt First" if requested_prompt_mode in {"prompt_first", "prompt"} else "Image First"
+    restore_method = str(_param(params, "lanpaint_stitch_resize_method", default=stitch_policy.get("resize_method") or resize_method))
 
     workflow: dict[str, Any] = {}
     node_roles: dict[str, str] = {}
@@ -1403,6 +1407,12 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
             "multiplier": 1.0,
         }, "family_model_transform")
         next_id += 1
+        latent_ref = [str(differential_id), 1]
+        if batch_count > 1:
+            repeat_id = next_id
+            add(repeat_id, "RepeatLatentBatch", {"samples": list(latent_ref), "amount": batch_count}, "latent_batch_repeat")
+            latent_ref = [str(repeat_id), 0]
+            next_id += 1
         sampler_id = next_id
         add(sampler_id, "LanPaint_KSampler", {
             "model": [str(differential_id), 0],
@@ -1413,7 +1423,7 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
             "scheduler": scheduler,
             "positive": [str(positive_id), 0],
             "negative": [str(negative_id), 0],
-            "latent_image": [str(differential_id), 1],
+            "latent_image": latent_ref,
             "denoise": denoise,
             "LanPaint_NumSteps": thinking_steps,
             "LanPaint_PromptMode": prompt_mode,
@@ -1476,10 +1486,10 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
         "provider_id": provider_id,
         "family": "krea2_turbo",
         "loader": loader_id,
-        "workflow_mode": "inpaint",
-        "mode": "inpaint",
+        "workflow_mode": runtime_mode,
+        "mode": runtime_mode,
         "engine": "lanpaint",
-        "route_key": f"krea2_turbo:{loader_id}:inpaint:lanpaint",
+        "route_key": f"krea2_turbo:{loader_id}:{runtime_mode}:lanpaint",
         "route_state": "experimental_available",
     }
     lora_patch_profile = build_lora_patch_profile(
@@ -1497,7 +1507,7 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
         patch_clip_consumers=False,
         validated=False,
         notes=[
-            f"Phase 14 route lock: Krea 2 Turbo {loader_id} inpaint with engine=lanpaint only.",
+            f"Krea 2 Turbo {loader_id} {runtime_mode} with engine=lanpaint.",
             "Rewire the selected model consumer before DifferentialDiffusionAdvanced; do not patch Krea 2 CLIP conditioning.",
             "Physical Comfy validation is required before promotion from experimental_available.",
         ],
@@ -1525,6 +1535,7 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
         "seed": seed,
         "actual_seed": seed,
         "requested_seed": requested_seed,
+        "batch_count": batch_count,
         "source_image_name": source_name,
         "mask_image_name": mask_name,
         "gguf_model": model_name if loader_id == "gguf" else "",
@@ -1568,7 +1579,7 @@ def compile_lanpaint_krea2_turbo_gguf_inpaint(
         "lanpaint_family_adapter_fingerprint": adapter.get("adapter_fingerprint"),
         "_neo_lanpaint_phase13_state": PHASE13_STATE,
         "_neo_lanpaint_phase14_state": PHASE14_STATE,
-        "lanpaint_loader_parity_group": "krea2_turbo:inpaint:lanpaint",
+        "lanpaint_loader_parity_group": f"krea2_turbo:{runtime_mode}:lanpaint",
         "lanpaint_node_roles": node_roles,
         "lanpaint_selected_assets": selected_assets,
         "lanpaint_phase5_signature_mismatches": phase5_signature_mismatches,

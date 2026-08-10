@@ -140,14 +140,14 @@ _CANONICAL_TOOLS: list[dict[str, Any]] = [
     },
     {
         "tool_id": "operator.plan",
-        "label": "Plan Neo Operator command",
+        "label": "Plan structured Operator actions",
         "category": "operator",
         "action_type": "operator_plan",
         "risk_level": "read_only",
         "permission": "allow",
         "requires_confirmation": False,
-        "description": "Detect intent, select retrieval profile, and plan safe/gated actions.",
-        "endpoints": ["/api/operator/plan"],
+        "description": "Apply Operator permission policy to an Assistant/Control Center structured action request. The legacy /api/operator/plan text adapter remains compatible.",
+        "endpoints": ["/api/operator/actions/plan", "/api/operator/plan"],
     },
     {
         "tool_id": "operator.run_safe",
@@ -157,8 +157,8 @@ _CANONICAL_TOOLS: list[dict[str, Any]] = [
         "risk_level": "read_only",
         "permission": "allow",
         "requires_confirmation": False,
-        "description": "Run read-only retrieval/context actions through Neo Operator.",
-        "endpoints": ["/api/operator/run"],
+        "description": "Execute registered read-only actions from a structured action request and return execution receipts.",
+        "endpoints": ["/api/operator/actions/execute", "/api/operator/run"],
     },
     {
         "tool_id": "operator.run_confirmed",
@@ -168,8 +168,8 @@ _CANONICAL_TOOLS: list[dict[str, Any]] = [
         "risk_level": "medium",
         "permission": "confirm",
         "requires_confirmation": True,
-        "description": "Run confirmation-required Operator actions such as indexing or approved external access.",
-        "endpoints": ["/api/operator/run"],
+        "description": "Execute confirmed registered actions and return ledger-backed execution receipts. Operator does not infer the requested action.",
+        "endpoints": ["/api/operator/actions/execute", "/api/operator/run"],
     },
     {
         "tool_id": "admin.diagnostics.read",
@@ -427,8 +427,10 @@ def annotate_action_with_tool_policy(action: dict[str, Any]) -> dict[str, Any]:
     item = deepcopy(action)
     tool = tool_for_action_type(str(item.get("action_type") or ""))
     if not tool:
-        item.setdefault("tool_policy", {"tool_id": None, "permission_mode": "confirm", "reason": "unregistered_action_type"})
-        item["requires_confirmation"] = True
+        item.setdefault("tool_policy", {"tool_id": None, "permission_mode": "block", "reason": "unregistered_action_type"})
+        item["status"] = "blocked"
+        item["requires_confirmation"] = False
+        item["reason"] = item.get("reason") or "unregistered_action_type"
         return item
     mode = str(tool.get("permission_mode") or "confirm")
     item["tool_id"] = tool.get("tool_id")

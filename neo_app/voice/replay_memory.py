@@ -6,6 +6,7 @@ from typing import Any
 import json
 
 from .output_paths import ROOT_DIR, get_voice_output_paths, sanitize_path_part
+from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
 
 VOICE_REPLAY_SCHEMA = "neo.voice.replay_metadata.v15"
 VOICE_MEMORY_EVENT_SCHEMA = "neo.voice.memory_event.v15"
@@ -165,10 +166,35 @@ def build_voice_memory_event(job: dict[str, Any], replay: dict[str, Any] | None 
 
 
 def index_voice_memory_event(job: dict[str, Any], replay: dict[str, Any] | None = None) -> dict[str, Any]:
+    replay = replay or build_voice_replay_metadata(job)
     event = build_voice_memory_event(job, replay)
     items = [item for item in _read_index() if item.get("event_id") != event.get("event_id")]
     items.append(event)
     _write_index(items)
+    try:
+        backend = replay.get("backend_settings") if isinstance(replay.get("backend_settings"), dict) else {}
+        voice_profile = replay.get("voice_profile_fact") if isinstance(replay.get("voice_profile_fact"), dict) else {}
+        script_fragment = replay.get("script_fragment") if isinstance(replay.get("script_fragment"), dict) else {}
+        job_type = str(job.get("job_type") or "render")
+        event_type = "voice.preview.completed" if "preview" in job_type else ("voice.dialogue.completed" if "dialogue" in job_type else "voice.render.completed")
+        canonical = ingest_surface_memory_event("voice", {
+            "event_type": event_type,
+            "status": "completed",
+            "source_id": str(job.get("job_id") or event.get("event_id") or ""),
+            "job_id": str(job.get("job_id") or ""),
+            "title": f"Voice {job_type} · {job.get('job_id') or ''}",
+            "summary": str(replay.get("memory_summary") or event.get("memory_summary") or script_fragment.get("text") or "Voice task completed."),
+            "output_text": str(script_fragment.get("text") or ""),
+            "model": str(backend.get("model_id") or backend.get("model") or voice_profile.get("model_id") or job.get("model_id") or ""),
+            "backend_profile_id": str(backend.get("profile_id") or job.get("backend_profile_id") or ""),
+            "settings": replay.get("backend_settings") if isinstance(replay.get("backend_settings"), dict) else (job.get("params") if isinstance(job.get("params"), dict) else {}),
+            "source": {"profile_id": voice_profile.get("profile_id") or voice_profile.get("voice_id") or ""},
+            "result": {"voice_profile": voice_profile, "output": replay.get("output_file_object") or {}},
+            "identity": {"surface_id": "voice", "scope_id": "voice_workspace"},
+        })
+        event["canonical_memory"] = {k: canonical.get(k) for k in ("status", "event_id", "fragment_id", "fact_ids") if canonical.get(k)}
+    except Exception:
+        pass
     return event
 
 

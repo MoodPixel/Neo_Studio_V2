@@ -6,6 +6,11 @@ from uuid import uuid4
 
 from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.models.route_matrix import resolve_model_backend_route
+from neo_app.image.parameter_integrity import (
+    concrete_mismatches,
+    finalize_provider_parameter_integrity,
+    mismatch_message,
+)
 from neo_app.providers.base import BaseProvider
 from neo_app.providers.forge_neo_bridge import decide_forge_bridge
 from neo_app.providers.forge_neo_capabilities import forge_backend_capabilities, forge_discovered_models, forge_snapshot_for_profile
@@ -337,6 +342,31 @@ class ForgeNeoProvider(BaseProvider):
         job_id = job.job_id or f"forge-{uuid4().hex[:12]}"
         prepared_job = job.model_copy(update={"job_id": job_id}) if job.job_id != job_id else job
         compiled = self.compile_job(prepared_job)
+        integrity_source = (prepared_job.params or {}).get("_neo_parameter_integrity") if isinstance(prepared_job.params, dict) else None
+        if isinstance(integrity_source, dict) and isinstance(compiled.backend_payload, dict):
+            actual_params = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+            provider_payload = compiled.backend_payload.get("payload") if isinstance(compiled.backend_payload.get("payload"), dict) else {}
+            parameter_integrity = finalize_provider_parameter_integrity(
+                integrity_source,
+                actual_params=actual_params,
+                provider_payload=provider_payload,
+            )
+            compiled.backend_payload["actual_params"] = {**actual_params, "_neo_parameter_integrity": parameter_integrity}
+            compiled.backend_payload["parameter_integrity"] = parameter_integrity
+            if concrete_mismatches(parameter_integrity):
+                return ProviderRunResult(
+                    job_id=job_id,
+                    provider_id=self.manifest.provider_id,
+                    status="failed",
+                    message=mismatch_message(parameter_integrity),
+                    outputs=[],
+                    runtime={
+                        "phase": "forge_image_job_lifecycle",
+                        "execution_state": "blocked_parameter_integrity",
+                        "actual_params": compiled.backend_payload["actual_params"],
+                        "parameter_integrity": parameter_integrity,
+                    },
+                )
         if compiled.compile_status != "compiled":
             validation = (compiled.backend_payload or {}).get("validation") or {}
             errors = validation.get("errors") if isinstance(validation, dict) else []

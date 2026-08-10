@@ -205,6 +205,19 @@ def compile_lanpaint_family_inpaint(
 
     family = str(route.family or job.family or "").strip()
     loader = str(route.loader or job.loader or "").strip()
+    mode = str(route.mode or job.mode or "inpaint").strip().lower()
+    if mode == "outpaint":
+        # Existing family emitters were authored around an explicit mask-file lane.
+        # Outpaint owns its mask structurally via ImagePadForOutpaint, so provide a
+        # compile-time placeholder only to satisfy those legacy graph constructors.
+        # The Phase 3 masked-edit wrapper rewires to the generated pad mask and
+        # prunes this placeholder node before Comfy queue submission.
+        shim_params = dict(job.params or {})
+        if not (shim_params.get("comfy_mask_image_name") or shim_params.get("mask_image_name") or shim_params.get("mask_image")):
+            shim_params["comfy_mask_image_name"] = "__neo_generated_outpaint_mask__.png"
+            shim_params["mask_image_name"] = "__neo_generated_outpaint_mask__.png"
+            shim_params["_neo_lanpaint_outpaint_mask_placeholder"] = True
+            job = job.model_copy(update={"params": shim_params})
     if family == "hidream":
         from .lanpaint_hidream import compile_lanpaint_hidream_i1_inpaint
         return compile_lanpaint_hidream_i1_inpaint(
@@ -438,8 +451,8 @@ def compile_lanpaint_family_inpaint(
         required_signatures["InvertMask"] = ("mask",)
     signature_mismatches = _signature_gate(validation, backend, required_signatures)
 
-    requested_seed = int(_param(params, "requested_seed", "seed", default=-1) or -1)
-    seed = int(_param(params, "actual_seed", "seed", default=requested_seed) or requested_seed)
+    requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
+    seed = int(_param(params, "actual_seed", "seed", default=requested_seed))
     if seed < 0:
         seed = int(time.time() * 1000) % 2147483647
     conditioning_mode = normalize_prompt_conditioning_mode(params.get("prompt_conditioning_mode", params.get("clamp", "raw")))
@@ -447,22 +460,24 @@ def compile_lanpaint_family_inpaint(
     effective_prompt = conditioning.get("effective_positive") or job.prompt or ""
     effective_negative = conditioning.get("effective_negative") or job.negative_prompt or ""
 
-    padding = int(crop.get("padding_px") or 152)
-    process_width = int(processing.get("width") or 768)
-    process_height = int(processing.get("height") or 768)
-    resize_method = str(crop.get("resize_method") or "lanczos")
-    restore_method = str(stitch_policy.get("resize_method") or resize_method)
-    sample_expand = int(sample_mask.get("expand_px") or 0)
-    sample_blur = float(sample_mask.get("blur_radius") or 0.0)
-    stitch_expand = int(stitch_mask.get("expand_px") or 0)
-    stitch_blur = float(stitch_mask.get("blur_radius") or 0.0)
-    steps = int(sampler_policy.get("steps") or 20)
-    cfg = float(sampler_policy.get("cfg") if sampler_policy.get("cfg") is not None else 4.0)
-    sampler_name = str(sampler_policy.get("sampler_name") or "euler")
-    scheduler = str(sampler_policy.get("scheduler") or "simple")
-    denoise = float(sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0)
-    thinking_steps = int(sampler_policy.get("lanpaint_thinking_steps") or 5)
-    prompt_mode = "Prompt First" if str(sampler_policy.get("prompt_mode") or "image_first") == "prompt_first" else "Image First"
+    padding = int(_param(params, "lanpaint_crop_padding", "crop_padding", default=crop.get("padding_px") if crop.get("padding_px") is not None else 152))
+    process_width = int(_param(params, "lanpaint_processing_width", default=processing.get("width") if processing.get("width") is not None else 768))
+    process_height = int(_param(params, "lanpaint_processing_height", default=processing.get("height") if processing.get("height") is not None else 768))
+    resize_method = str(_param(params, "lanpaint_resize_method", default=crop.get("resize_method") or "lanczos"))
+    restore_method = str(_param(params, "lanpaint_stitch_resize_method", default=stitch_policy.get("resize_method") or resize_method))
+    sample_expand = int(_param(params, "lanpaint_sampling_mask_expand", default=sample_mask.get("expand_px") if sample_mask.get("expand_px") is not None else 0))
+    sample_blur = float(_param(params, "lanpaint_sampling_mask_blur", default=sample_mask.get("blur_radius") if sample_mask.get("blur_radius") is not None else 0.0))
+    stitch_expand = int(_param(params, "lanpaint_stitch_mask_expand", default=stitch_mask.get("expand_px") if stitch_mask.get("expand_px") is not None else 0))
+    stitch_blur = float(_param(params, "lanpaint_stitch_mask_blur", default=stitch_mask.get("blur_radius") if stitch_mask.get("blur_radius") is not None else 0.0))
+    steps = int(_param(params, "steps", "lanpaint_steps", default=sampler_policy.get("steps") if sampler_policy.get("steps") is not None else 20))
+    cfg = float(_param(params, "cfg", "lanpaint_cfg", default=sampler_policy.get("cfg") if sampler_policy.get("cfg") is not None else 4.0))
+    sampler_name = str(_param(params, "sampler", "lanpaint_sampler", default=sampler_policy.get("sampler_name") or "euler"))
+    scheduler = str(_param(params, "scheduler", "lanpaint_scheduler", default=sampler_policy.get("scheduler") or "simple"))
+    denoise = float(_param(params, "denoise", "lanpaint_denoise", default=sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
+    thinking_steps = int(_param(params, "lanpaint_thinking_steps", default=sampler_policy.get("lanpaint_thinking_steps") if sampler_policy.get("lanpaint_thinking_steps") is not None else 5))
+    requested_prompt_mode = str(_param(params, "lanpaint_prompt_mode", default=sampler_policy.get("prompt_mode") or "image_first")).strip().lower().replace(" ", "_")
+    prompt_mode = "Prompt First" if requested_prompt_mode in {"prompt_first", "prompt"} else "Image First"
     stability_policy = _mapping(adapter.get("stability_policy"))
     family_variant = _mapping(adapter.get("family_variant"))
     if family == "z_image" and thinking_steps > int(stability_policy.get("maximum_default_thinking_steps") or 3):
@@ -522,6 +537,12 @@ def compile_lanpaint_family_inpaint(
         noise_mask_id = next_id
         add(noise_mask_id, "SetLatentNoiseMask", {"samples": [str(encode_id), 0], "mask": [str(sample_mask_id), 0]}, "latent_noise_mask")
         next_id += 1
+        latent_ref = [str(noise_mask_id), 0]
+        if batch_count > 1:
+            repeat_id = next_id
+            add(repeat_id, "RepeatLatentBatch", {"samples": list(latent_ref), "amount": batch_count}, "latent_batch_repeat")
+            latent_ref = [str(repeat_id), 0]
+            next_id += 1
         model_loader_id = next_id
         add(model_loader_id, model_loader, _model_loader_inputs(model_loader, loader_policy, model_name), "family_model_loader")
         next_id += 1
@@ -563,7 +584,7 @@ def compile_lanpaint_family_inpaint(
             "model": [str(aura_id), 0], "seed": seed, "steps": steps, "cfg": cfg,
             "sampler_name": sampler_name, "scheduler": scheduler,
             "positive": [str(positive_id), 0], "negative": [str(negative_id), 0],
-            "latent_image": [str(noise_mask_id), 0], "denoise": denoise,
+            "latent_image": latent_ref, "denoise": denoise,
             "LanPaint_NumSteps": thinking_steps, "LanPaint_PromptMode": prompt_mode,
             "LanPaint_Info": "LanPaint KSampler.", "Inpainting_mode": "🖼️ Image Inpainting",
         }, "lanpaint_sample")
@@ -648,7 +669,7 @@ def compile_lanpaint_family_inpaint(
     actual_params = {
         **params,
         "inpaint_engine": "lanpaint", "workflow_type": WORKFLOW_TYPE,
-        "seed": seed, "actual_seed": seed, "requested_seed": requested_seed,
+        "seed": seed, "actual_seed": seed, "requested_seed": requested_seed, "batch_count": batch_count,
         "source_image_name": source_name, "mask_image_name": mask_name,
         "diffusion_model": model_name if loader == "diffusion_model" else "",
         "gguf_model": model_name if loader == "gguf" else "",

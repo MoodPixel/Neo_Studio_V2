@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Final
 
 from neo_app.video.performance_profiles import PERFORMANCE_PROFILES, normalize_video_performance_profile
-from neo_app.video.route_matrix import find_video_route, normalize_video_family, normalize_video_generation_type, normalize_video_loader
+from neo_app.video.route_matrix import find_video_route, normalize_video_family, normalize_video_generation_type, normalize_video_loader, route_parameter_profile
 
 
 @dataclass(frozen=True)
@@ -153,32 +153,6 @@ RAPID_AIO_ROUTE_IDS: Final[frozenset[str]] = frozenset({
     "wan22.rapid_aio_gguf.img2vid",
 })
 
-ROUTE_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
-    "wan22.unet.txt2vid": {"width": 832, "height": 480, "frames": 41, "fps": 16, "steps": 20, "guidance": 5, "sampler": "uni_pc", "scheduler": "simple", "decode_mode": "standard", "tile_size": 512},
-    "wan22.unet.img2vid": {"width": 832, "height": 480, "frames": 41, "fps": 16, "steps": 20, "guidance": 5, "sampler": "uni_pc", "scheduler": "simple", "source_image_required": True, "image_strength": 0.7, "decode_mode": "standard"},
-    "wan22.gguf.img2vid_14b_dual_noise": {"width": 640, "height": 360, "frames": 49, "fps": 16, "steps": 12, "guidance": 3.5, "split_step": 6, "first_test_preset": {"width": 512, "height": 288, "frames": 25, "fps": 12, "steps": 4, "guidance": 1.0, "split_step": 2}, "sampler": "euler", "scheduler": "simple", "source_image_required": True, "image_strength": 0.7, "resize_mode": "fit_crop", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "dual_noise_models_required": True, "high_noise_model": "", "low_noise_model": "", "dual_noise_mapping": "explicit_high_low_pair", "template": "wan22_i2v14_dual_noise_native", "enable_video_lora": False, "video_lora_mode": "off", "video_lora_strength": 0.8, "video_lora_target": "both", "enable_lightx2v": False, "high_noise_lora_strength": 1.0, "low_noise_lora_strength": 1.0},
-    "wan22.rapid_aio_gguf.txt2vid": {"width": 480, "height": 848, "frames": 121, "fps": 16, "steps": 4, "guidance": 1.0, "sampler": "euler", "scheduler": "simple", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "rapid_aio_model": "", "rapid_aio_text_encoder": "provider_default", "rapid_aio_vae": "provider_default", "performance_profile": "safe_12gb", "auto_resolve_vace_dimensions": True, "enable_sage_attention": False, "sage_attention_mode": "auto", "enable_teacache": False, "teacache_profile": "conservative", "enable_cpu_offload": False, "enable_vae_offload": False, "enable_block_swap": False, "block_swap_blocks": 12},
-    "wan22.rapid_aio_gguf.img2vid": {"width": 480, "height": 848, "frames": 121, "fps": 16, "steps": 4, "guidance": 1.0, "sampler": "euler", "scheduler": "simple", "source_image_required": True, "image_strength": 0.7, "resize_mode": "fit_crop", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "rapid_aio_model": "", "rapid_aio_text_encoder": "provider_default", "rapid_aio_vae": "provider_default", "performance_profile": "safe_12gb", "auto_resolve_vace_dimensions": True, "enable_sage_attention": False, "sage_attention_mode": "auto", "enable_teacache": False, "teacache_profile": "conservative", "enable_cpu_offload": False, "enable_vae_offload": False, "enable_block_swap": False, "block_swap_blocks": 12},
-    "ltx23.gguf.txt2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.img2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_image_required": True, "image_strength": 0.7, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.txt2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.img2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_image_required": True, "image_strength": 0.7, "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.first_last_frame": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "first_image_required": True, "last_image_required": True, "transition_strength": 0.75, "first_strength": 0.75, "last_strength": 0.75, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.first_last_frame": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "first_image_required": True, "last_image_required": True, "transition_strength": 0.75, "first_strength": 0.75, "last_strength": 0.75, "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.multiscene": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "segment_images_required": True, "segment_count_min": 2, "segment_count_max": 4, "image_strength": 0.7, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.multiscene": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "segment_images_required": True, "segment_count_min": 2, "segment_count_max": 4, "image_strength": 0.7, "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.extend": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "continuation_strength": 0.75, "extraction_mode": "last_frame", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.extend": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "continuation_strength": 0.75, "extraction_mode": "last_frame", "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.vid2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "denoise_strength": 0.45, "motion_strength": 0.85, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.vid2vid": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "denoise_strength": 0.45, "motion_strength": 0.85, "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.prompt_schedule": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "prompt_events_required": True, "motion_events_supported": True, "schedule_mode": "metadata_guided", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.prompt_schedule": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "prompt_events_required": True, "motion_events_supported": True, "schedule_mode": "metadata_guided", "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.depth_motion": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "control_type": "depth", "control_strength": 0.65, "motion_strength": 0.8, "depth_engine": "auto", "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.depth_motion": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "source_video_required": True, "control_type": "depth", "control_strength": 0.65, "motion_strength": 0.8, "depth_engine": "auto", "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.gguf.audio_video": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "audio_prompt_required": True, "audio_latent": True, "audio_mode": "prompted", "audio_strength": 0.75, "sync_strength": 0.6, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-    "ltx23.unet.audio_video": {"width": 768, "height": 512, "frames": 97, "fps": 24, "steps": 8, "guidance": 1, "sampler": "euler_ancestral", "scheduler": "ltxv", "audio_prompt_required": True, "audio_latent": True, "audio_mode": "prompted", "audio_strength": 0.75, "sync_strength": 0.6, "decode_mode": "tiled", "tile_size": 512, "temporal_tile_size": 4096, "tiled_vae_decode": True, "chunk_feed_forward": 2},
-}
-
 VRAM_OVERRIDES: Final[dict[str, dict[str, Any]]] = {
     "low": {"width": 832, "height": 480, "frames": 41, "fps": 12, "steps": 16, "batch_count": 1, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096},
     "balanced": {"batch_count": 1, "decode_mode": "tiled"},
@@ -229,7 +203,7 @@ def video_parameter_profile_payload(family: str | None = None, loader: str | Non
     route_id = route.route_id if route else "wan22.unet.txt2vid"
 
     defaults: dict[str, Any] = {field.field_id: field.default for field in BASE_FIELDS}
-    defaults.update(ROUTE_DEFAULTS.get(route_id, {}))
+    defaults.update(route_parameter_profile(route_id))
     perf_id = normalize_video_performance_profile(defaults.get("performance_profile"))
     perf_defaults = dict(PERFORMANCE_PROFILES[perf_id].defaults)
     defaults.update(perf_defaults)
@@ -238,7 +212,7 @@ def video_parameter_profile_payload(family: str | None = None, loader: str | Non
     # WAN 2.2 14B GGUF is registered for 12GB testing; keep its route-specific draft
     # budget below the generic WAN low-VRAM ceiling until the native compiler lands.
     if route_id == "wan22.gguf.img2vid_14b_dual_noise" and vp_id == "low":
-        defaults.update(ROUTE_DEFAULTS.get(route_id, {}))
+        defaults.update(route_parameter_profile(route_id))
     defaults["vram_profile"] = vp_id
     defaults["output_format"] = "webm"
     defaults = _clamp(defaults, profile)

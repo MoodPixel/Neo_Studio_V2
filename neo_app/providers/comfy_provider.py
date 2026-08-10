@@ -36,11 +36,25 @@ from neo_app.providers.comfy_workflows.lanpaint import (
     PHASE5_GRAPH_STATE,
 )
 from neo_app.providers.comfy_workflows.lanpaint_family import compile_lanpaint_family_inpaint
+from neo_app.providers.comfy_workflows.masked_edit_engine import patch_masked_edit_workflow
+from neo_app.providers.comfy_workflows.multi_ksampler import MultiKSamplerError, patch_multi_ksampler_workflow, verify_multi_ksampler_workflow
+from neo_app.providers.comfy_workflows.res4lyf_sampler import (
+    CLOWNSHARK_NODE_CANDIDATES,
+    Res4lyfSamplerError,
+    inspect_res4lyf_sampler,
+    patch_res4lyf_sampler_backend,
+    res4lyf_sampler_requested,
+)
 from neo_app.providers.comfy_workflows.qwen_gguf import compile_qwen_gguf_txt2img
 from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_txt2img
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
 from neo_app.providers.comfy_workflows.qwen_stitch_handoff import record_qwen_stitch_comfy_handoff
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload
+from neo_app.image.source_visibility_mask import (
+    SourceVisibilityMaskError,
+    apply_source_visibility_mask,
+    normalize_source_visibility_mask,
+)
 from neo_app.image.flux2_klein_contract import (
     check_flux2_klein_compatibility,
     reconcile_flux2_klein_encoder_params,
@@ -53,6 +67,15 @@ from neo_app.image.flux1_krea_contract import (
     resolve_flux1_variant,
 )
 from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
+from neo_app.image.parameter_integrity import (
+    concrete_mismatches,
+    finalize_comfy_parameter_integrity,
+    mismatch_message,
+)
+from neo_app.image.family_compatibility import (
+    build_image_family_compatibility_matrix,
+    validate_image_feature_request,
+)
 from neo_app.image.lanpaint_capabilities import evaluate_lanpaint_route_capabilities
 from neo_app.image.lanpaint_capability_discovery import (
     build_lanpaint_capability_snapshot_metadata,
@@ -75,6 +98,9 @@ from neo_app.image.state_boundary import sanitize_image_params_for_state_boundar
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.output_records import build_route_metadata, build_route_snapshot, normalize_latent_capture_request
 from neo_app.image.lanpaint_replay import refresh_lanpaint_replay_contract
+from neo_extensions.built_in.adetailer.backend.route_contract import build_adetailer_route_contract
+from neo_extensions.built_in.adetailer.backend.support_matrix import support_for_route as adetailer_support_for_route
+from neo_extensions.built_in.high_res_lab.backend.support_matrix import is_route_active as high_res_lab_route_active
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 from neo_extensions.built_in.background_removal.backend.context_latent import (
     build_context_latent_catalog,
@@ -557,6 +583,7 @@ class ComfyProvider(BaseProvider):
             (
                 str((item.get("identity") or {}).get("family") or ""),
                 str((item.get("identity") or {}).get("loader") or ""),
+                str((item.get("identity") or {}).get("mode") or "inpaint"),
             )
             for item in active_adapters
         ]
@@ -564,6 +591,7 @@ class ComfyProvider(BaseProvider):
             (
                 str((item.get("identity") or {}).get("family") or ""),
                 str((item.get("identity") or {}).get("loader") or ""),
+                str((item.get("identity") or {}).get("mode") or "inpaint"),
             ): item
             for item in active_adapters
         }
@@ -575,15 +603,15 @@ class ComfyProvider(BaseProvider):
         )
         object_info_scope = tuple(discovery_contract["required_node_classes"])
 
-        def evaluate_route(capabilities: dict[str, Any], family: str, loader: str) -> dict[str, Any]:
+        def evaluate_route(capabilities: dict[str, Any], family: str, loader: str, mode: str = "inpaint") -> dict[str, Any]:
             return evaluate_lanpaint_route_capabilities(
                 capabilities,
                 provider_id=self.manifest.provider_id,
                 family=family,
                 loader=loader,
-                mode="inpaint",
+                mode=mode,
                 engine="lanpaint",
-                family_adapter=adapters_by_route.get((family, loader)),
+                family_adapter=adapters_by_route.get((family, loader, mode)),
                 adapter_registry=adapter_registry,
                 expansion_registry=expansion_registry,
             )
@@ -610,9 +638,22 @@ class ComfyProvider(BaseProvider):
             )
             payload["lanpaint_route_capabilities"] = evaluate_route(payload, "krea2_turbo", "gguf")
             payload["lanpaint_route_capability_matrix"] = {
-                f"{family}:{loader}:inpaint:lanpaint": evaluate_route(payload, family, loader)
-                for family, loader in active_routes
+                f"{family}:{loader}:{mode}:lanpaint": evaluate_route(payload, family, loader, mode)
+                for family, loader, mode in active_routes
             }
+            payload["masked_edit_node_diagnostics"] = {
+                "available_nodes": [],
+                "crop_stitch_available": False,
+                "required_crop_stitch_pack": "ComfyUI-Inpaint-CropAndStitch",
+                "required_crop_stitch_nodes": ["InpaintCropImproved", "InpaintStitchImproved"],
+                "native_core_nodes": ["InpaintModelConditioning", "DifferentialDiffusion", "ImagePadForOutpaint"],
+            }
+            payload["res4lyf_sampler_diagnostics"] = inspect_res4lyf_sampler({})
+            payload["image_family_compatibility"] = build_image_family_compatibility_matrix(
+                provider_id=self.manifest.provider_id,
+                object_info={},
+                backend_reachable=False,
+            )
             payload["lanpaint_node_diagnostics"] = {
                 "compiler_id": "comfy.lanpaint.family_aware.v1",
                 "available_nodes": [],
@@ -651,12 +692,22 @@ class ComfyProvider(BaseProvider):
             "ReferenceLatentMask",
             "KontextReferenceLatentMask",
         ]
+        masked_edit_optional_nodes = [
+            "InpaintCropImproved",
+            "InpaintStitchImproved",
+            "InpaintModelConditioning",
+            "DifferentialDiffusion",
+            "ImagePadForOutpaint",
+        ]
+        res4lyf_sampler_nodes = list(CLOWNSHARK_NODE_CANDIDATES)
         payload["object_info_node_inputs"] = {
             node_name: self._node_input_names(info, node_name)
             for node_name in [
                 *qwen_edit_nodes,
                 *stitch_nodes,
                 *context_latent_nodes,
+                *masked_edit_optional_nodes,
+                *res4lyf_sampler_nodes,
                 *object_info_scope,
             ]
             if isinstance(info.get(node_name), dict)
@@ -687,7 +738,7 @@ class ComfyProvider(BaseProvider):
                 {
                     "family": str((item.get("identity") or {}).get("family") or ""),
                     "loader": str((item.get("identity") or {}).get("loader") or ""),
-                    "mode": "inpaint",
+                    "mode": str((item.get("identity") or {}).get("mode") or "inpaint"),
                     "engine": "lanpaint",
                     "adapter_id": str((item.get("identity") or {}).get("adapter_id") or ""),
                     "adapter_fingerprint": str(item.get("adapter_fingerprint") or ""),
@@ -698,14 +749,28 @@ class ComfyProvider(BaseProvider):
         }
         payload["lanpaint_route_capabilities"] = evaluate_route(payload, "krea2_turbo", "gguf")
         payload["lanpaint_route_capability_matrix"] = {
-            f"{family}:{loader}:inpaint:lanpaint": evaluate_route(payload, family, loader)
-            for family, loader in active_routes
+            f"{family}:{loader}:{mode}:lanpaint": evaluate_route(payload, family, loader, mode)
+            for family, loader, mode in active_routes
         }
         payload["lanpaint_node_diagnostics"]["route_status"] = payload["lanpaint_route_capabilities"]["status"]
         payload["lanpaint_node_diagnostics"]["selectable"] = payload["lanpaint_route_capabilities"]["selectable"]
         payload["lanpaint_node_diagnostics"]["blockers"] = deepcopy(payload["lanpaint_route_capabilities"]["blockers"])
         payload["lanpaint_node_diagnostics"]["remediation"] = list(payload["lanpaint_route_capabilities"]["remediation"])
         payload["lanpaint_node_diagnostics"]["note"] = "Phase 8 publishes one fail-closed route capability report; the UI must not infer readiness from family/loader identity alone."
+        masked_available = [node for node in masked_edit_optional_nodes if node in payload["object_info_node_inputs"]]
+        payload["masked_edit_node_diagnostics"] = {
+            "available_nodes": masked_available,
+            "crop_stitch_available": all(node in payload["object_info_node_inputs"] for node in ("InpaintCropImproved", "InpaintStitchImproved")),
+            "required_crop_stitch_pack": "ComfyUI-Inpaint-CropAndStitch",
+            "required_crop_stitch_nodes": ["InpaintCropImproved", "InpaintStitchImproved"],
+            "native_core_nodes": ["InpaintModelConditioning", "DifferentialDiffusion", "ImagePadForOutpaint"],
+        }
+        payload["res4lyf_sampler_diagnostics"] = inspect_res4lyf_sampler(info)
+        payload["image_family_compatibility"] = build_image_family_compatibility_matrix(
+            provider_id=self.manifest.provider_id,
+            object_info=info,
+            backend_reachable=True,
+        )
         payload["context_latent"] = build_context_latent_catalog(info)
         payload["qwen_edit_node_diagnostics"] = {
             "available_nodes": list(payload["object_info_node_inputs"].keys()),
@@ -1215,7 +1280,7 @@ class ComfyProvider(BaseProvider):
     def _non_checkpoint_patch_extensions(
         cls,
         extensions: object,
-        allowed_extension_ids: tuple[str, ...] = ("lora_stack", "image.controlnet"),
+        allowed_extension_ids: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return only extension blocks approved for non-checkpoint graph patching.
 
@@ -1231,6 +1296,30 @@ class ComfyProvider(BaseProvider):
             if block:
                 payloads[extension_id] = block
         return {"payloads": payloads} if payloads else {}
+
+    @staticmethod
+    def _non_checkpoint_allowed_extension_ids(route_payload: dict[str, Any]) -> tuple[str, ...]:
+        """Resolve provider-owned extension patches from exact route support.
+
+        LoRA Stack and ControlNet remain the established non-checkpoint owners.
+        Krea 2 may additionally receive High-Res Lab when its exact route profile
+        is active, followed by ADetailer when its Finish support row is active.
+        Unsupported routes never receive a submitted extension block by accident.
+        """
+        normalized_route = {
+            **dict(route_payload or {}),
+            "workspace": "image",
+            "workspace_app": "finish",
+            "subtab": "finish",
+        }
+        allowed = ["lora_stack", "image.controlnet"]
+        family = str(normalized_route.get("family") or "").strip()
+        if family in {"krea2", "krea2_turbo"} and high_res_lab_route_active(normalized_route):
+            allowed.append("image.high_res_lab")
+        support = adetailer_support_for_route(normalized_route)
+        if bool(support.get("workflow_patch_allowed")):
+            allowed.append("image.adetailer")
+        return tuple(allowed)
 
     @staticmethod
     def _find_final_latent_source(workflow: dict[str, Any]) -> list[Any] | None:
@@ -1914,6 +2003,62 @@ class ComfyProvider(BaseProvider):
     def _extra_qwen_source_image_value(params: dict[str, Any], lane: int) -> str:
         return ComfyProvider._extra_source_image_value(params, lane)
 
+    @staticmethod
+    def _source_visibility_mask_payload(params: dict[str, Any]) -> dict[str, Any]:
+        nested = params.get("source_visibility_mask")
+        if isinstance(nested, dict):
+            return normalize_source_visibility_mask(nested)
+        return normalize_source_visibility_mask({
+            "enabled": params.get("source_visibility_mask_enabled"),
+            "path": params.get("source_visibility_mask_path"),
+            "url": params.get("source_visibility_mask_url"),
+            "name": params.get("source_visibility_mask_name"),
+            "fill_mode": params.get("source_visibility_mask_fill_mode"),
+        })
+
+    def _prepare_visibility_masked_source(
+        self,
+        source_ref: str,
+        mask_payload: dict[str, Any] | None,
+        *,
+        run_id: str,
+        field: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        normalized = normalize_source_visibility_mask(mask_payload)
+        if not normalized.get("enabled"):
+            return source_ref, None
+        source_path = self._resolve_neo_image_ref_path(source_ref)
+        mask_path = self._resolve_neo_image_ref_path(str(normalized.get("ref") or ""))
+        if source_path is None:
+            raise SourceVisibilityMaskError(f"{field} source image could not be resolved from Neo storage.")
+        if mask_path is None:
+            raise SourceVisibilityMaskError(f"{field} visibility mask could not be resolved from Neo storage.")
+        result = apply_source_visibility_mask(
+            source_path,
+            mask_path,
+            output_dir=self._neo_source_image_dir() / "masked_sources",
+            fill_mode=str(normalized.get("fill_mode") or "black"),
+        )
+        metadata = {
+            **normalized,
+            **result.metadata,
+            "field": field,
+            "original_source_name": source_path.name,
+            "masked_source_name": result.output_path.name,
+        }
+        log_image_event(
+            "source_visibility_mask_applied",
+            run_id=run_id,
+            payload={
+                "field": field,
+                "source_name": source_path.name,
+                "mask_name": mask_path.name,
+                "output_name": result.output_path.name,
+                "fill_mode": metadata.get("fill_mode"),
+            },
+        )
+        return str(result.output_path), metadata
+
     def _prepare_image_stitch_handoff(self, params: dict[str, Any], *, run_id: str, family: str, loader: str, mode: str) -> dict[str, Any]:
         """Upload shared Stitch inputs and prepare a safe compile-time source placeholder."""
 
@@ -1944,10 +2089,24 @@ class ComfyProvider(BaseProvider):
                 ).strip()
                 if not source:
                     continue
-                comfy_name = cache.get(source)
+                upload_source = source
+                visibility_metadata = None
+                visibility_payload = raw.get("visibility_mask") if isinstance(raw.get("visibility_mask"), dict) else None
+                if visibility_payload:
+                    upload_source, visibility_metadata = self._prepare_visibility_masked_source(
+                        source,
+                        visibility_payload,
+                        run_id=run_id,
+                        field=f"stitch.{group.get('id') or 'group'}.{side}",
+                    )
+                cache_key = f"{upload_source}|{(visibility_metadata or {}).get('mask_name', '')}"
+                comfy_name = cache.get(cache_key)
                 if not comfy_name:
-                    comfy_name = self._upload_image_to_comfy_input(source, require_verified=True)
-                    cache[source] = comfy_name
+                    comfy_name = self._upload_image_to_comfy_input(upload_source, require_verified=True)
+                    cache[cache_key] = comfy_name
+                if visibility_metadata:
+                    raw["visibility_mask"] = visibility_metadata
+                    raw["original_ref"] = source
                 raw["comfy_ref"] = comfy_name
                 raw["ref"] = comfy_name
                 raw["stored_filename"] = comfy_name
@@ -2057,6 +2216,11 @@ class ComfyProvider(BaseProvider):
         """
         return Path.cwd() / "neo_data" / "inputs" / "image"
 
+    def _neo_mask_image_dir(self) -> Path:
+        """Return Neo's local mask input directory."""
+
+        return Path.cwd() / "neo_data" / "inputs" / "image_masks"
+
     def _resolve_neo_output_file_url_path(self, raw: str) -> Path | None:
         """Resolve Neo output-file API URLs back to persisted output files.
 
@@ -2110,6 +2274,7 @@ class ComfyProvider(BaseProvider):
             candidates.append(Path(raw).expanduser())
         if name:
             candidates.append(self._neo_source_image_dir() / name)
+            candidates.append(self._neo_mask_image_dir() / name)
         for candidate in candidates:
             try:
                 if candidate.exists() and candidate.is_file():
@@ -2962,7 +3127,8 @@ class ComfyProvider(BaseProvider):
         job: NeoJob,
         route: Any,
         *,
-        allowed_extension_ids: tuple[str, ...] = ("lora_stack", "image.controlnet"),
+        # Historical source-lock anchor: allowed_extension_ids: tuple[str, ...] = ("lora_stack", "image.controlnet")
+        allowed_extension_ids: tuple[str, ...] | None = None,
         fail_closed_on_unapplied_lora: bool = True,
     ) -> CompiledJob:
         """Apply shared workflow extension hooks to family-specific Comfy compilers.
@@ -2974,6 +3140,13 @@ class ComfyProvider(BaseProvider):
         compatibility matrix allows it, the active compiler emits valid graph anchors,
         and Comfy exposes the required LoRA loader node.
         """
+        if str(getattr(route, "mode", "") or job.mode or "").strip().lower() in {"inpaint", "outpaint"}:
+            compiled = patch_masked_edit_workflow(
+                compiled,
+                job=job,
+                route=route,
+                backend_capabilities=self.discover_backend_capabilities(),
+            )
         if not has_comfy_workflow_extension_requests(job.extensions):
             return compiled
         backend_payload = dict(compiled.backend_payload or {})
@@ -2985,7 +3158,7 @@ class ComfyProvider(BaseProvider):
             **route.as_dict(),
             "comfy_base_url": self.base_url,
             "workflow_mode": "generate" if route.mode == "txt2img" else route.mode,
-            "engine": str(actual_params.get("inpaint_engine") or getattr(route, "engine", "") or "native"),
+            "engine": str(actual_params.get("masked_edit_engine") or actual_params.get("inpaint_engine") or getattr(route, "engine", "") or "native"),
             "route_state": "available" if route.status == "available" else route.status,
             "params": actual_params,
             "actual_params": actual_params,
@@ -3001,15 +3174,17 @@ class ComfyProvider(BaseProvider):
             "denoise": actual_params.get("denoise"),
             "model": actual_params.get("model"),
         }
-        # Do not run every shared extension hook here. CFG Fix / Dynamic
-        # Thresholding, ADetailer, High-Res, LayerDiffuse, IP Adapter, and
-        # Scene Director remain route-owned until each declares non-checkpoint
-        # family support. This path now supports LoRA Stack plus ControlNet for
-        # active Flux/Qwen txt2img/img2img routes.
+        # Do not run every shared extension hook here. Each extension enters this
+        # provider-owned path only when its exact family/loader/mode contract is
+        # active. Krea 2 High-Res Lab runs before ADetailer so the detail pass can
+        # consume the refined image without borrowing another family compiler.
+        if allowed_extension_ids is None:
+            allowed_extension_ids = self._non_checkpoint_allowed_extension_ids(route_payload)
         patch_extensions = self._non_checkpoint_patch_extensions(job.extensions, allowed_extension_ids=allowed_extension_ids)
         if not patch_extensions:
             return compiled
         lora_patch_profile = actual_params.get("_neo_lora_patch_profile") if isinstance(actual_params.get("_neo_lora_patch_profile"), dict) else backend_payload.get("_neo_lora_patch_profile")
+        adetailer_route_contract = actual_params.get("_neo_adetailer_route_contract") if isinstance(actual_params.get("_neo_adetailer_route_contract"), dict) else backend_payload.get("_neo_adetailer_route_contract")
         if tuple(allowed_extension_ids) == ("lora_stack",) and isinstance(lora_patch_profile, dict):
             profile_route = lora_patch_profile.get("route") if isinstance(lora_patch_profile.get("route"), dict) else {}
             compatibility_route_key = str(
@@ -3051,6 +3226,7 @@ class ComfyProvider(BaseProvider):
             sampler_node_id=sampler_node_id,
             sampler_model_input=str((lora_patch_profile or {}).get("sampler_model_input") or "model"),
             lora_patch_profile=lora_patch_profile if isinstance(lora_patch_profile, dict) else None,
+            adetailer_route_contract=adetailer_route_contract if isinstance(adetailer_route_contract, dict) else None,
         )
         backend_payload["prompt"] = patch_result.get("workflow", workflow)
         extension_metadata = patch_result.get("extensions") or {"used": [], "payloads": {}, "workflow_patches": [], "validation": []}
@@ -3297,7 +3473,7 @@ class ComfyProvider(BaseProvider):
                 validation=validation,
                 route=route,
                 capabilities=self.feature_capability_payload(),
-                backend_capabilities=self.discover_backend_capabilities() if route.compiler_id == "comfy.krea2_gguf" else {},
+                backend_capabilities=self.discover_backend_capabilities(),
             )
             return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
 
@@ -3665,6 +3841,11 @@ class ComfyProvider(BaseProvider):
                 },
             }
 
+        batch_count = int(params.get("batch_count", params.get("batch_size", 1)))
+        if (is_img2img or is_inpaint or is_outpaint) and batch_count > 1:
+            workflow["90"] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_source), "amount": batch_count}}
+            latent_source = ["90", 0]
+
         workflow.update({
             "5": {
                 "class_type": "KSampler",
@@ -3697,6 +3878,34 @@ class ComfyProvider(BaseProvider):
             if is_img2img or is_inpaint or is_outpaint:
                 workflow["10"]["inputs"]["vae"] = ["8", 0]
 
+        if is_inpaint or is_outpaint:
+            masked_compiled = patch_masked_edit_workflow(
+                CompiledJob(
+                    provider_id=self.manifest.provider_id,
+                    compile_status="compiled" if validation.ok else "mock_compiled",
+                    backend_payload={
+                        "prompt": workflow,
+                        "actual_params": actual_params,
+                        "validation": model_to_dict(validation),
+                    },
+                ),
+                job=job,
+                route=route,
+                backend_capabilities=self.discover_backend_capabilities(),
+            )
+            masked_payload = dict(masked_compiled.backend_payload or {})
+            workflow = masked_payload.get("prompt") if isinstance(masked_payload.get("prompt"), dict) else workflow
+            actual_params = masked_payload.get("actual_params") if isinstance(masked_payload.get("actual_params"), dict) else actual_params
+            masked_validation = masked_payload.get("validation") if isinstance(masked_payload.get("validation"), dict) else {}
+            for message in masked_validation.get("errors") or []:
+                if message not in validation.errors:
+                    validation.errors.append(str(message))
+            for message in masked_validation.get("warnings") or []:
+                if message not in validation.warnings:
+                    validation.warnings.append(str(message))
+            if masked_compiled.compile_status == "mock_compiled" or masked_validation.get("ok") is False:
+                validation.ok = False
+
         route_payload = {
             **route.as_dict(),
             "comfy_base_url": self.base_url,
@@ -3728,6 +3937,24 @@ class ComfyProvider(BaseProvider):
             validated=True,
         )
         actual_params["_neo_lora_patch_profile"] = checkpoint_lora_patch_profile
+        checkpoint_vae_ref = ["8", 0] if "8" in workflow and workflow.get("8", {}).get("class_type") == "VAELoader" else ["1", 2]
+        checkpoint_adetailer_route_contract = build_adetailer_route_contract(
+            route=route_payload,
+            image_ref=list(actual_params.get("_neo_masked_edit_output_ref") or ["6", 0]),
+            model_ref=["1", 0],
+            clip_ref=["1", 1],
+            vae_ref=checkpoint_vae_ref,
+            positive_ref=["2", 0],
+            negative_ref=["3", 0],
+            sampler_node_id="5",
+            model_sampling_ref=["1", 0],
+            model_sampling_state="passthrough",
+            source="comfy_provider.checkpoint_compiler",
+            compiler_id=str(route_payload.get("compiler_id") or "comfy.checkpoint_sd"),
+            validated=True,
+            notes=["Phase 1 explicit route contract; no inferred checkpoint fallbacks are permitted downstream."],
+        )
+        actual_params["_neo_adetailer_route_contract"] = checkpoint_adetailer_route_contract
         runtime_extensions = self._extensions_with_legacy_controlnet_params(job.extensions, actual_params)
         extension_patch_result = apply_comfy_workflow_extension_patches(
             workflow,
@@ -3740,6 +3967,7 @@ class ComfyProvider(BaseProvider):
             sampler_node_id="5",
             sampler_model_input="model",
             lora_patch_profile=checkpoint_lora_patch_profile,
+            adetailer_route_contract=checkpoint_adetailer_route_contract,
         )
         workflow = extension_patch_result["workflow"]
         extension_metadata = extension_patch_result.get("extensions") or {"used": [], "payloads": {}, "workflow_patches": [], "validation": [], "replay_payloads": {}, "assistant_summaries": {}, "memory_events": {}}
@@ -3762,6 +3990,7 @@ class ComfyProvider(BaseProvider):
                 sampler_node_id="5",
                 sampler_model_input="model",
                 lora_patch_profile=checkpoint_lora_patch_profile,
+                adetailer_route_contract=checkpoint_adetailer_route_contract,
             )
             workflow = forced_controlnet_result.get("workflow", workflow)
             extension_metadata = self._merge_extension_metadata(extension_metadata, forced_controlnet_result.get("extensions") or {})
@@ -3845,26 +4074,57 @@ class ComfyProvider(BaseProvider):
             params["_neo_route_validation_warnings"] = sorted(set(stale_warnings))
         if runtime_job.mode in {"img2img", "image_to_image", "inpaint", "outpaint", "edit"}:
             source_image = self._source_image_value(params)
+            source_visibility = self._source_visibility_mask_payload(params)
+            if source_image and source_visibility.get("enabled"):
+                try:
+                    original_source_image = source_image
+                    source_image, visibility_metadata = self._prepare_visibility_masked_source(
+                        source_image,
+                        source_visibility,
+                        run_id=run_id,
+                        field="source_image",
+                    )
+                    params["source_image_original"] = original_source_image
+                    params["source_image"] = source_image
+                    params["source_image_path"] = source_image
+                    params["source_image_name"] = Path(source_image).name
+                    params["source_visibility_mask"] = visibility_metadata or source_visibility
+                    params.pop("comfy_source_image_name", None)
+                except Exception as exc:  # noqa: BLE001
+                    record_generation_error(run_id=run_id, message="Failed to apply the source visibility mask.", exc=exc, payload={"source_image": source_image, "source_visibility_mask": source_visibility})
+                    raise
             if source_image and not params.get("comfy_source_image_name"):
                 try:
                     comfy_name = self._upload_image_to_comfy_input(source_image)
                     params["comfy_source_image_name"] = comfy_name
                     params["source_image_uploaded_to_comfy"] = bool(comfy_name)
-                    log_image_event("source_image_handoff", run_id=run_id, payload={"source_image": source_image, "comfy_source_image_name": comfy_name})
+                    log_image_event("source_image_handoff", run_id=run_id, payload={"source_image": source_image, "comfy_source_image_name": comfy_name, "visibility_mask_applied": bool(source_visibility.get("enabled"))})
                 except Exception as exc:  # noqa: BLE001
                     record_generation_error(run_id=run_id, message="Failed to upload source image to Comfy input.", exc=exc, payload={"source_image": source_image})
                     raise
+            krea2_identity_stack_active = (
+                runtime_job.family in {"krea2", "krea2_turbo"}
+                and runtime_job.loader in {"diffusion_model", "gguf"}
+                and runtime_job.mode in {"img2img", "edit", "inpaint", "outpaint"}
+                and str(params.get("krea2_edit_engine") or params.get("edit_engine") or "").strip().lower().replace("-", "_") in {"identity_edit", "krea2_identity_edit", "identity"}
+            )
             extra_source_stack_active = (
                 runtime_job.family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and runtime_job.loader in {"diffusion_model", "gguf"} and runtime_job.mode in {"img2img", "edit"}
             ) or (
                 runtime_job.family in {"qwen_rapid_aio"} and runtime_job.loader == "gguf" and runtime_job.mode == "img2img"
             ) or (
                 runtime_job.family == "flux" and runtime_job.loader == "gguf" and runtime_job.mode in {"img2img", "inpaint", "outpaint"}
-            )
+            ) or krea2_identity_stack_active
             if extra_source_stack_active:
-                stack_label = "qwen_reference_image_handoff" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "flux_reference_image_handoff"
-                family_label = "Qwen" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "Flux"
-                for lane in (2, 3):
+                if krea2_identity_stack_active:
+                    stack_label = "krea2_identity_reference_handoff"
+                    family_label = "Krea 2 Identity Edit"
+                    source_lanes = (2,)
+                else:
+                    stack_label = "qwen_reference_image_handoff" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "flux_reference_image_handoff"
+                    family_label = "Qwen" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "Flux"
+                    source_lanes = (2, 3)
+                for lane in source_lanes:
                     extra_source = self._extra_source_image_value(params, lane)
                     comfy_key = f"comfy_source_image_{lane}_name"
                     if extra_source and not params.get(comfy_key):
@@ -3907,9 +4167,171 @@ class ComfyProvider(BaseProvider):
             runtime_job = runtime_job.copy(update={"extensions": runtime_extensions})
         compiled_payload_for_error: dict[str, Any] | None = None
         queue_payload_for_error: dict[str, Any] | None = None
+        phase7_object_info: dict[str, Any] | None = None
+        phase7_preflight = validate_image_feature_request(runtime_job, object_info=None, backend_reachable=True)
+        if not phase7_preflight.get("ok"):
+            message = "; ".join(str(item) for item in (phase7_preflight.get("errors") or [])) or "Image family compatibility preflight failed."
+            record_generation_error(run_id=run_id, message=message, payload={"family_compatibility": phase7_preflight})
+            return ProviderRunResult(
+                job_id=run_id,
+                provider_id=self.manifest.provider_id,
+                status="failed",
+                message=message,
+                runtime={"debug_logs": {"run_id": run_id}, "family_compatibility": phase7_preflight},
+            )
+        multi_request = (runtime_job.params or {}).get("multi_ksampler") if isinstance(runtime_job.params, dict) else {}
+        live_phase7_check = bool(
+            res4lyf_sampler_requested(runtime_job.params if isinstance(runtime_job.params, dict) else {})
+            or (isinstance(multi_request, dict) and multi_request.get("enabled"))
+            or (
+                str(runtime_job.mode or "").strip().lower() in {"inpaint", "outpaint"}
+                and bool((runtime_job.params or {}).get("crop_stitch_enabled") or (runtime_job.params or {}).get("masked_crop_stitch_enabled"))
+            )
+        )
+        if live_phase7_check:
+            try:
+                raw_phase7_info = self._get_json("/object_info")
+                phase7_object_info = raw_phase7_info if isinstance(raw_phase7_info, dict) else {}
+            except Exception:
+                phase7_object_info = {}
+            phase7_preflight = validate_image_feature_request(runtime_job, object_info=phase7_object_info, backend_reachable=bool(phase7_object_info))
+            if not phase7_preflight.get("ok"):
+                message = "; ".join(str(item) for item in (phase7_preflight.get("errors") or [])) or "Image family compatibility preflight failed."
+                record_generation_error(run_id=run_id, message=message, payload={"family_compatibility": phase7_preflight})
+                return ProviderRunResult(
+                    job_id=run_id,
+                    provider_id=self.manifest.provider_id,
+                    status="failed",
+                    message=message,
+                    runtime={"debug_logs": {"run_id": run_id}, "family_compatibility": phase7_preflight},
+                )
+        phase7_params = dict(runtime_job.params or {})
+        if str(runtime_job.surface or "image").strip().lower() == "image":
+            phase7_params["_neo_family_compatibility"] = phase7_preflight.get("compatibility") or {}
+            runtime_job = runtime_job.copy(update={"params": phase7_params})
+        params = phase7_params
         try:
             compiled = self.compile_job(runtime_job)
             compiled = self._patch_compiled_image_stitch(compiled, runtime_job)
+            if isinstance(compiled.backend_payload, dict) and isinstance(compiled.backend_payload.get("prompt"), dict):
+                try:
+                    multi_graph, multi_actual, multi_meta = patch_multi_ksampler_workflow(
+                        compiled.backend_payload.get("prompt"),
+                        actual_params=compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else dict(runtime_job.params or {}),
+                        params=runtime_job.params if isinstance(runtime_job.params, dict) else {},
+                    )
+                    compiled.backend_payload["prompt"] = multi_graph
+                    compiled.backend_payload["actual_params"] = multi_actual
+                    compiled.backend_payload["multi_ksampler"] = multi_meta
+                    if multi_meta.get("enabled"):
+                        notes = list(compiled.backend_payload.get("phase_notes") or [])
+                        notes.append(f"Multi-KSampler applied as {multi_meta.get('stage_count')} sequential latent refinement stages.")
+                        compiled.backend_payload["phase_notes"] = notes
+                except MultiKSamplerError as exc:
+                    record_generation_error(
+                        run_id=run_id,
+                        message="Multi-KSampler validation blocked before Comfy queue.",
+                        payload={"error": str(exc), "params": (runtime_job.params or {}).get("multi_ksampler") if isinstance(runtime_job.params, dict) else {}},
+                    )
+                    return ProviderRunResult(
+                        job_id=run_id,
+                        provider_id=self.manifest.provider_id,
+                        status="failed",
+                        message=str(exc),
+                        runtime={"debug_logs": {"run_id": run_id}, "multi_ksampler": {"enabled": True, "state": "blocked", "error": str(exc)}},
+                    )
+                if res4lyf_sampler_requested(runtime_job.params if isinstance(runtime_job.params, dict) else {}):
+                    try:
+                        live_object_info = phase7_object_info if isinstance(phase7_object_info, dict) and phase7_object_info else self._get_json("/object_info")
+                        res_graph, res_actual, res_meta = patch_res4lyf_sampler_backend(
+                            compiled.backend_payload.get("prompt"),
+                            actual_params=compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else dict(runtime_job.params or {}),
+                            params=runtime_job.params if isinstance(runtime_job.params, dict) else {},
+                            object_info=live_object_info if isinstance(live_object_info, dict) else {},
+                        )
+                        compiled.backend_payload["prompt"] = res_graph
+                        compiled.backend_payload["actual_params"] = res_actual
+                        compiled.backend_payload["res4lyf_sampler"] = res_meta
+                        notes = list(compiled.backend_payload.get("phase_notes") or [])
+                        notes.append(f"RES4LYF ClownsharKSampler applied to stage(s): {', '.join(str(row.get('stage')) for row in (res_meta.get('stages') or []))}.")
+                        compiled.backend_payload["phase_notes"] = notes
+                    except Exception as exc:
+                        # Keep this fail-closed: a selected custom sampler backend must never
+                        # degrade silently to core KSampler when RES4LYF is missing or changed.
+                        record_generation_error(
+                            run_id=run_id,
+                            message="RES4LYF ClownsharKSampler validation blocked before Comfy queue.",
+                            payload={"error": str(exc), "sampler_backend": (runtime_job.params or {}).get("sampler_backend") if isinstance(runtime_job.params, dict) else ""},
+                        )
+                        return ProviderRunResult(
+                            job_id=run_id,
+                            provider_id=self.manifest.provider_id,
+                            status="failed",
+                            message=str(exc),
+                            runtime={"debug_logs": {"run_id": run_id}, "res4lyf_sampler": {"enabled": True, "state": "blocked", "error": str(exc)}},
+                        )
+                multi_actual_for_verify = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+                multi_meta_for_verify = multi_actual_for_verify.get("multi_ksampler") if isinstance(multi_actual_for_verify.get("multi_ksampler"), dict) else {}
+                if multi_meta_for_verify.get("enabled"):
+                    multi_verification = verify_multi_ksampler_workflow(
+                        compiled.backend_payload.get("prompt") if isinstance(compiled.backend_payload.get("prompt"), dict) else {},
+                        multi_actual_for_verify,
+                    )
+                    multi_actual_for_verify = dict(multi_actual_for_verify)
+                    multi_meta_for_verify = dict(multi_actual_for_verify.get("multi_ksampler") or {})
+                    multi_meta_for_verify["integrity"] = multi_verification
+                    multi_actual_for_verify["multi_ksampler"] = multi_meta_for_verify
+                    compiled.backend_payload["actual_params"] = multi_actual_for_verify
+                    compiled.backend_payload["multi_ksampler"] = multi_meta_for_verify
+                    if multi_verification.get("status") == "mismatch":
+                        error_rows = multi_verification.get("mismatches") or []
+                        message = "Multi-KSampler final graph integrity mismatch before Comfy queue."
+                        if error_rows:
+                            first = error_rows[0]
+                            message += f" {first.get('field')}: {first.get('expected')} -> {first.get('observed')}."
+                        record_generation_error(
+                            run_id=run_id,
+                            message=message,
+                            payload={"multi_ksampler_integrity": multi_verification},
+                        )
+                        return ProviderRunResult(
+                            job_id=run_id,
+                            provider_id=self.manifest.provider_id,
+                            status="failed",
+                            message=message,
+                            runtime={"debug_logs": {"run_id": run_id}, "multi_ksampler": multi_meta_for_verify},
+                        )
+            integrity_source = (runtime_job.params or {}).get("_neo_parameter_integrity") if isinstance(runtime_job.params, dict) else None
+            if isinstance(integrity_source, dict) and isinstance(compiled.backend_payload, dict):
+                integrity_actual = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else dict(runtime_job.params or {})
+                integrity_workflow = compiled.backend_payload.get("prompt") if isinstance(compiled.backend_payload.get("prompt"), dict) else {}
+                parameter_integrity = finalize_comfy_parameter_integrity(
+                    integrity_source,
+                    actual_params=integrity_actual,
+                    workflow=integrity_workflow,
+                )
+                integrity_actual = {**integrity_actual, "_neo_parameter_integrity": parameter_integrity}
+                compiled.backend_payload["actual_params"] = integrity_actual
+                compiled.backend_payload["parameter_integrity"] = parameter_integrity
+                integrity_mismatches = concrete_mismatches(parameter_integrity)
+                if integrity_mismatches:
+                    message = mismatch_message(parameter_integrity)
+                    record_generation_error(
+                        run_id=run_id,
+                        message="Parameter integrity mismatch blocked before Comfy queue.",
+                        payload={"parameter_integrity": parameter_integrity, "backend_payload": compiled.backend_payload},
+                    )
+                    return ProviderRunResult(
+                        job_id=run_id,
+                        provider_id=self.manifest.provider_id,
+                        status="failed",
+                        message=message,
+                        runtime={
+                            "debug_logs": {"run_id": run_id},
+                            "parameter_integrity": parameter_integrity,
+                            "actual_params": integrity_actual,
+                        },
+                    )
             compiled_payload_for_error = compiled.backend_payload
             record_compiled_workflow(run_id=run_id, provider_id=self.manifest.provider_id, backend_payload=compiled.backend_payload)
             validation = compiled.backend_payload.get("validation") or {}
@@ -4138,7 +4560,7 @@ class ComfyProvider(BaseProvider):
                 message="Queued in ComfyUI.",
                 outputs=[],
                 client_id=compiled.backend_payload.get("client_id"),
-                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary},
+                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "parameter_integrity": actual_params.get("_neo_parameter_integrity") if isinstance(actual_params, dict) else None, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary},
             )
         except Exception as exc:  # noqa: BLE001
             error_payload: dict[str, Any] = {"job": model_to_dict(runtime_job)}

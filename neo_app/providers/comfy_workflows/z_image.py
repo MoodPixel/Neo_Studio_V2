@@ -11,6 +11,7 @@ from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
@@ -357,30 +358,9 @@ def compile_z_image_txt2img(
         steps_default = int(_param(params, "steps", default=steps_default) or steps_default)
     steps = int(_param(params, "steps", default=steps_default))
     cfg = float(_param(params, "cfg", default=cfg_default))
+    # Parameter Truth: low-step / low-CFG experiments are valid explicit requests.
+    # Recommended family ranges remain defaults only; no queue-time clamping.
     runtime_default_adjustments: list[dict[str, Any]] = []
-    if route_family == "z_image" and not image_mode and not turbo_mode:
-        if steps < defaults.base_min_steps:
-            previous_steps = steps
-            steps = defaults.base_steps
-            runtime_default_adjustments.append(
-                {
-                    "field": "steps",
-                    "from": previous_steps,
-                    "to": steps,
-                    "reason": "Base ZImage txt2img steps clamped away from Turbo range.",
-                }
-            )
-        if cfg < defaults.base_min_cfg:
-            previous_cfg = cfg
-            cfg = defaults.base_cfg
-            runtime_default_adjustments.append(
-                {
-                    "field": "cfg",
-                    "from": previous_cfg,
-                    "to": cfg,
-                    "reason": "Base ZImage txt2img CFG clamped away from Turbo range.",
-                }
-            )
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
     batch_count = int(_param(params, "batch_count", "batch_size", default=1))
@@ -545,8 +525,10 @@ def compile_z_image_txt2img(
         })
         route_notes.append(f"{'P6 ZImage Turbo' if is_turbo_family else 'P5 ZImage'} outpaint uses ImagePadForOutpaint + VAEEncode + SetLatentNoiseMask on the native ZImage stack.")
 
-    workflow[str(next_id)] = {"class_type": defaults.sampling_node, "inputs": {"model": ["1", 0], "shift": aura_shift}}
-    model_ref = [str(next_id), 0]
+    aura_sampling_id = str(next_id)
+    workflow[aura_sampling_id] = {"class_type": defaults.sampling_node, "inputs": {"model": ["1", 0], "shift": aura_shift}}
+    model_ref = [aura_sampling_id, 0]
+    model_sampling_nodes = [aura_sampling_id]
     next_id += 1
 
     if mode in {"img2img", "edit"} and source_ref is not None:
@@ -578,8 +560,10 @@ def compile_z_image_txt2img(
         workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref)}}
         latent_ref = [str(next_id), 0]
         next_id += 1
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
-        model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
+        model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
         actual_params.update({
             "mask_image_name": mask_name,
@@ -598,11 +582,18 @@ def compile_z_image_txt2img(
         workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref or ["0", 0])}}
         latent_ref = [str(next_id), 0]
         next_id += 1
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
-        model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
+        model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
     elif latent_ref is None:
         workflow[str(next_id)] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+
+    if image_mode and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
         latent_ref = [str(next_id), 0]
         next_id += 1
 
@@ -648,6 +639,25 @@ def compile_z_image_txt2img(
         notes=["ZImage compiler owns model/clip refs; non-generate modes remain LoRA matrix implementation targets until validated."],
     )
 
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["4", 0],
+        negative_ref=["5", 0],
+        sampler_node_id=sampler_id,
+        source=compiler,
+        compiler_id=compiler,
+        model_sampling_state="patched",
+        model_sampling_ref=model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 5 Z-Image Base/Turbo publishes AuraFlow/DifferentialDiffusion lineage and final composite ownership."],
+    )
+
     return CompiledJob(
         provider_id=provider_id,
         compile_status="compiled" if validation.ok else "mock_compiled",
@@ -666,7 +676,7 @@ def compile_z_image_txt2img(
             "phase_notes": [
                 "P5/P6 promote ZImage base/Turbo Safetensors / Components img2img/inpaint/outpaint as real selectable workflows.",
                 "ZImage routes use Qwen3 text encoder via CLIPLoader type=lumina2, AE/VAE, ModelSamplingAuraFlow, KSampler, and route-specific latent source branches.",
-                "P6 Turbo image modes keep family-forced Turbo defaults and zeroed negative conditioning, without falling back to base ZImage high-step defaults.",
+                "P6 Turbo image modes keep zeroed negative conditioning and Turbo recommendations as defaults only; explicit user Parameters remain authoritative without base ZImage fallback.",
                 "Implemented image modes do not fallback to Flux, Flux Fill, Qwen Image Edit, SD checkpoint, or GGUF compilers.",
                 *route_notes,
                 f"Prompt conditioning mode: {conditioning_mode}.",

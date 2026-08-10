@@ -1,4 +1,5 @@
-window.__NEO_STATIC_ASSET_REVISION__ = 'lanpaint_anima_ideogram4_phase22_20260805';
+window.__NEO_STATIC_ASSET_REVISION__ = 'ux_transparency_phase8_20260807_v14';
+window.__NEO_PARAMETER_TRUTH_BASE_REVISION__ = 'image_parameter_truth_20260807_v7';
 window.__NEO_LANPAINT_RELEASE_REVISIONS__ = Object.freeze(['lanpaint_ui_state_20260804', 'lanpaint_capabilities_20260804', 'lanpaint_qwen_zimage_20260804', 'lanpaint_replay_lineage_20260804', 'lanpaint_capability_transport_hotfix_20260804', 'lanpaint_lora_independence_hotfix_20260804', 'global_lora_engine_decoupling_20260805', 'lanpaint_family_adapter_v2_20260805', 'lanpaint_route_parity_phase14_20260805', 'lanpaint_sd_family_phase15_20260805', 'lanpaint_flux1_family_phase16_20260805', 'lanpaint_flux2_family_phase17_20260805', 'lanpaint_qwen_edit_variants_phase18_20260805', 'lanpaint_z_image_phase20_20260805', 'lanpaint_hidream_phase21_20260805', 'lanpaint_anima_ideogram4_phase22_20260805']);
 let promptCaptioningBatchPollTimer = null;
 const backendProfileSelectionRequestEpochBySurface = {};
@@ -42,6 +43,7 @@ const state = {
   memoryConsolidation: { query: "", sourceId: "", plan: null, lastRun: null, selectedGroupId: "" },
   memoryRetention: { query: "", sourceId: "", plan: null, lastRun: null, selectedIds: [] },
   memorySearch: { query: "", profile: "smart", sourceId: "", results: null, selectedCitation: null, related: null, comparison: null },
+  memoryWriteback: { lastReview: null },
   operator: { status: null, lastPlan: null, lastRun: null, command: "" },
   voiceInput: { status: null, lastPrepare: null, lastRun: null, transcript: "" },
   voiceSurfaceContract: null,
@@ -89,6 +91,16 @@ const state = {
   videoLastUpscale: null,
   videoLastRepair: null,
   videoSourceResults: [],
+  videoOutputInspector: null,
+  videoOutputInspectorLoading: false,
+  videoOutputInspectorError: '',
+  videoOutputSettings: null,
+  videoOutputSettingsError: '',
+  videoReplayStorage: null,
+  videoReplayStorageError: '',
+  videoReplayStorageCleaning: false,
+  videoResultsCategory: 'all',
+  videoResultsSort: 'newest',
   videoFinishSources: { interpolate: null, upscale: null },
   videoFinishSourceUploadStatus: {},
   videoRunProgress: null,
@@ -100,6 +112,8 @@ const state = {
   videoLivePreviewFrameCount: 0,
   videoExternalNodeManager: null,
   videoBackendProbe: null,
+  videoRouteMatrix: null,
+  videoParameterProfile: null,
   videoDraft: {
     family: 'wan22',
     loader: 'unet',
@@ -281,7 +295,7 @@ const state = {
   activeWorkspaceAppId: 'generations',
   surfaceRuntime: {
     image: { schema_id: 'neo.ui.surface_runtime.v25_5', workspace_app: 'generations', workflow_mode: 'generate', subtab: 'generate' },
-    video: { schema_id: 'neo.ui.surface_runtime.v25_5', workspace_app: 'workspace', generation_mode: 'txt2vid', subtab: 'workspace' },
+    video: { schema_id: 'neo.ui.surface_runtime.v25_5', workspace_app: 'generation', generation_mode: 'txt2vid', subtab: 'generation' },
     prompt_captioning: { schema_id: 'neo.ui.surface_runtime.v25_5', workspace_app: 'prompt_builder', workspace_mode: 'prompt_builder', child_tab: 'prompt_preset_details', subtab: 'prompt_builder' },
     voice: { schema_id: 'neo.ui.surface_runtime.v25_5', workspace_app: 'generation', workflow_mode: 'quick_preview', subtab: 'generation' },
   },
@@ -315,6 +329,9 @@ const state = {
       selectedSavedPromptId: '',
       selectedCharacterId: '',
       providerProfileId: '',
+      generationMode: 'prompt_generate',
+      promptStyle: 'cinematic',
+      profile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'transformative', analysis_scope: 'full_image', output_format: 'natural_prompt', target_media: 'image', prompt_task: 'text_to_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 512, cleanup_enabled: true },
       history: [],
       lastPayload: null,
@@ -338,7 +355,8 @@ const state = {
       runStartedAt: '',
       runFinishedAt: '',
       batchQueue: [],
-      batch: { workflowMode: 'dataset', inputFolder: '', outputFolder: '', includeExtensions: 'png,jpg,jpeg,webp,bmp,gif', recursive: false, postAction: 'none', datasetCaptionImages: true, datasetSaveTxt: true, datasetRenameImages: true, datasetTransferMode: 'copy', datasetConfirmMove: false, datasetExternalOutputConfirmed: false, datasetSkipProcessed: true, datasetOverwriteExisting: false, datasetLogFormat: 'csv', datasetPrefix: 'character', datasetPattern: '{prefix}_{num}', datasetNumberStart: 1, datasetNumberPadding: 4, libraryCategory: 'General', libraryCategoryNew: '', libraryBaseName: 'caption', libraryNumberStart: 1, librarySkipDuplicates: true, currentJobId: '', status: '', log: '', previewFiles: [] },
+      singleProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'balanced', analysis_scope: 'full_image', output_format: 'descriptive_caption', target_media: 'image', prompt_task: 'caption_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
+      batch: { workflowMode: 'dataset', inputFolder: '', outputFolder: '', includeExtensions: 'png,jpg,jpeg,webp,bmp,gif', recursive: false, postAction: 'none', datasetCaptionImages: true, datasetSaveTxt: true, datasetRenameImages: true, datasetTransferMode: 'copy', datasetConfirmMove: false, datasetExternalOutputConfirmed: false, datasetSkipProcessed: true, datasetOverwriteExisting: false, datasetLogFormat: 'csv', datasetPrefix: 'character', datasetPattern: '{prefix}_{num}', datasetNumberStart: 1, datasetNumberPadding: 4, libraryCategory: 'General', libraryCategoryNew: '', libraryBaseName: 'caption', libraryNumberStart: 1, librarySkipDuplicates: true, datasetInstruction: '', libraryInstruction: '', datasetTriggerToken: '', datasetProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'strict', analysis_scope: 'full_image', output_format: 'dataset_caption', target_media: 'image', prompt_task: 'dataset_prepare' }, libraryProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'balanced', analysis_scope: 'full_image', output_format: 'image_generation_prompt', target_media: 'image', prompt_task: 'library_caption' }, datasetParams: { temperature: 0.25, top_p: 0.85, max_tokens: 256 }, libraryParams: { temperature: 0.45, top_p: 0.9, max_tokens: 320 }, currentJobId: '', status: '', log: '', previewFiles: [] },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 256, caption_mode: 'full_image', detail_level: 'detailed' },
       history: [],
       lastPayload: null,
@@ -383,6 +401,9 @@ const state = {
     flux_variant: 'dev',
     vae: 'automatic',
     sampler: 'provider_default',
+    sampler_backend: 'standard',
+    res4lyf_eta: 0.5,
+    res4lyf_bongmath: true,
     scheduler: 'provider_default',
     sampling_preset_id: '',
     output_intent: 'none',
@@ -395,6 +416,12 @@ const state = {
     cfg: 7.0,
     seed: -1,
     batch_count: 1,
+    multi_ksampler: {
+      enabled: false,
+      stage_count: 2,
+      stage2: { backend: 'inherit', steps: 12, cfg: 'inherit', sampler: 'inherit', scheduler: 'inherit', denoise: 0.25, seed_policy: 'same', transition: { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 } },
+      stage3: { backend: 'inherit', steps: 8, cfg: 'inherit', sampler: 'inherit', scheduler: 'inherit', denoise: 0.15, seed_policy: 'same', transition: { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 } },
+    },
     latent_capture_mode: 'off',
     denoise: 1.0,
     clip_skip: 1,
@@ -408,6 +435,7 @@ const state = {
     source_image: '',
     source_image_url: '',
     source_image_name: '',
+    source_visibility_mask: { schema: 'neo.image.source_visibility_mask.v1', enabled: false, path: '', url: '', name: '', preview_url: '', fill_mode: 'black', white_hides: true },
     source_image_1_role: 'main_subject',
     source_image_2: '',
     source_image_2_url: '',
@@ -428,6 +456,16 @@ const state = {
     mask_mode: 'paint',
     inpaint_selection_target: 'masked_area',
     inpaint_engine: 'native',
+    krea2_edit_engine: 'native',
+    krea2_identity_edit_lora: '',
+    krea2_identity_edit_lora_strength: 1.0,
+    krea2_identity_edit_ref_boost: 4.0,
+    krea2_identity_edit_ref_boost_a: 1.0,
+    krea2_identity_edit_fit_mode: 'fit',
+    krea2_identity_edit_grounding_px: 768,
+    krea2_identity_edit_system_prompt: '',
+    native_crop_stitch_enabled: false,
+    lanpaint_crop_stitch_enabled: true,
     inpaint_context_mode: 'masked_region_focus',
     lanpaint_ui_state_version: 1,
     lanpaint_crop_padding: 152,
@@ -508,7 +546,7 @@ const state = {
   imageLivePreviewLastSignature: '',
   imageZoomModal: { open: false, src: '', label: '', scale: 1, offsetX: 0, offsetY: 0, dragging: false, dragStartX: 0, dragStartY: 0 },
   imageDeleteModal: { open: false, loading: false, deleting: false, error: '', preview: null, resultId: '', filename: '' },
-  imageMaskEditor: { open: false, drawing: false, lastX: 0, lastY: 0, initializedFor: '', cursorVisible: false, cursorX: 0, cursorY: 0 },
+  imageMaskEditor: { open: false, drawing: false, lastX: 0, lastY: 0, initializedFor: '', loadedMaskFor: '', cursorVisible: false, cursorX: 0, cursorY: 0, target: null },
   imageOutpaintEditor: { open: false, dragging: false, dragEdge: '', startX: 0, startY: 0, startValues: null, autoOpenedFor: '', dismissedFor: '' },
   uiPresetsBySurface: {},
   activeUiPresetIds: {},
@@ -549,6 +587,9 @@ function normalizePromptCaptioningState(saved = {}) {
       selectedSavedPromptId: '',
       selectedCharacterId: '',
       providerProfileId: '',
+      generationMode: 'prompt_generate',
+      promptStyle: 'cinematic',
+      profile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'transformative', analysis_scope: 'full_image', output_format: 'natural_prompt', target_media: 'image', prompt_task: 'text_to_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 512, cleanup_enabled: true },
       history: [],
       lastPayload: null,
@@ -572,7 +613,8 @@ function normalizePromptCaptioningState(saved = {}) {
       runStartedAt: '',
       runFinishedAt: '',
       batchQueue: [],
-      batch: { workflowMode: 'dataset', inputFolder: '', outputFolder: '', includeExtensions: 'png,jpg,jpeg,webp,bmp,gif', recursive: false, postAction: 'none', datasetCaptionImages: true, datasetSaveTxt: true, datasetRenameImages: true, datasetTransferMode: 'copy', datasetConfirmMove: false, datasetExternalOutputConfirmed: false, datasetSkipProcessed: true, datasetOverwriteExisting: false, datasetLogFormat: 'csv', datasetPrefix: 'character', datasetPattern: '{prefix}_{num}', datasetNumberStart: 1, datasetNumberPadding: 4, libraryCategory: 'General', libraryCategoryNew: '', libraryBaseName: 'caption', libraryNumberStart: 1, librarySkipDuplicates: true, currentJobId: '', status: '', log: '', previewFiles: [] },
+      singleProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'balanced', analysis_scope: 'full_image', output_format: 'descriptive_caption', target_media: 'image', prompt_task: 'caption_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
+      batch: { workflowMode: 'dataset', inputFolder: '', outputFolder: '', includeExtensions: 'png,jpg,jpeg,webp,bmp,gif', recursive: false, postAction: 'none', datasetCaptionImages: true, datasetSaveTxt: true, datasetRenameImages: true, datasetTransferMode: 'copy', datasetConfirmMove: false, datasetExternalOutputConfirmed: false, datasetSkipProcessed: true, datasetOverwriteExisting: false, datasetLogFormat: 'csv', datasetPrefix: 'character', datasetPattern: '{prefix}_{num}', datasetNumberStart: 1, datasetNumberPadding: 4, libraryCategory: 'General', libraryCategoryNew: '', libraryBaseName: 'caption', libraryNumberStart: 1, librarySkipDuplicates: true, datasetInstruction: '', libraryInstruction: '', datasetTriggerToken: '', datasetProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'strict', analysis_scope: 'full_image', output_format: 'dataset_caption', target_media: 'image', prompt_task: 'dataset_prepare' }, libraryProfile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'balanced', analysis_scope: 'full_image', output_format: 'image_generation_prompt', target_media: 'image', prompt_task: 'library_caption' }, datasetParams: { temperature: 0.25, top_p: 0.85, max_tokens: 256 }, libraryParams: { temperature: 0.45, top_p: 0.9, max_tokens: 320 }, currentJobId: '', status: '', log: '', previewFiles: [] },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 256, caption_mode: 'full_image', detail_level: 'detailed' },
       history: [],
       lastPayload: null,
@@ -597,8 +639,8 @@ function normalizePromptCaptioningState(saved = {}) {
     activeWorkspaceMode,
     activeChildTabsByMode,
     // isRunning: false is applied after each run; normalization preserves live in-memory running state.
-    promptBuilder: { ...base.promptBuilder, ...(clean.promptBuilder || {}), isRunning: Boolean((clean.promptBuilder || {}).isRunning), params: { ...base.promptBuilder.params, ...((clean.promptBuilder || {}).params || {}) } },
-    captioning: { ...base.captioning, ...(clean.captioning || {}), isRunning: Boolean((clean.captioning || {}).isRunning), params: { ...base.captioning.params, ...((clean.captioning || {}).params || {}) }, batch: { ...base.captioning.batch, ...(((clean.captioning || {}).batch) || {}) }, batchQueue: Array.isArray((clean.captioning || {}).batchQueue) ? clean.captioning.batchQueue : [] },
+    promptBuilder: { ...base.promptBuilder, ...(clean.promptBuilder || {}), isRunning: Boolean((clean.promptBuilder || {}).isRunning), params: { ...base.promptBuilder.params, ...((clean.promptBuilder || {}).params || {}) }, profile: { ...base.promptBuilder.profile, ...(((clean.promptBuilder || {}).profile) || {}) } },
+    captioning: { ...base.captioning, ...(clean.captioning || {}), isRunning: Boolean((clean.captioning || {}).isRunning), params: { ...base.captioning.params, ...((clean.captioning || {}).params || {}) }, singleProfile: { ...base.captioning.singleProfile, ...(((clean.captioning || {}).singleProfile) || {}) }, batch: { ...base.captioning.batch, ...(((clean.captioning || {}).batch) || {}), datasetProfile: { ...base.captioning.batch.datasetProfile, ...((((clean.captioning || {}).batch) || {}).datasetProfile || {}) }, libraryProfile: { ...base.captioning.batch.libraryProfile, ...((((clean.captioning || {}).batch) || {}).libraryProfile || {}) }, datasetParams: { ...base.captioning.batch.datasetParams, ...((((clean.captioning || {}).batch) || {}).datasetParams || {}) }, libraryParams: { ...base.captioning.batch.libraryParams, ...((((clean.captioning || {}).batch) || {}).libraryParams || {}) } }, batchQueue: Array.isArray((clean.captioning || {}).batchQueue) ? clean.captioning.batchQueue : [] },
     library: { ...base.library, ...(clean.library || {}) },
     ui: { ...base.ui, ...(clean.ui || {}), collapsedSections: { ...base.ui.collapsedSections, ...(((clean.ui || {}).collapsedSections) || {}) } },
   };
@@ -944,7 +986,7 @@ function applyUiState(saved = {}) {
     activeSurfaceId: snapshot.activeSurfaceId || state.activeSurfaceId,
     activeSubtabId: snapshot.activeSubtabId || state.activeSubtabId,
     activeSubtabsBySurface: snapshot.activeSubtabsBySurface || state.activeSubtabsBySurface,
-    activeWorkspaceAppId: normalizeWorkspaceAppId(snapshot.activeWorkspaceAppId || state.activeWorkspaceAppId),
+    activeWorkspaceAppId: normalizeSurfaceWorkspaceAppId(snapshot.activeSurfaceId || state.activeSurfaceId || 'image', snapshot.activeWorkspaceAppId || state.activeWorkspaceAppId),
     surfaceRuntime: snapshot.surfaceRuntime && typeof snapshot.surfaceRuntime === 'object' ? { ...(state.surfaceRuntime || {}), ...snapshot.surfaceRuntime } : (state.surfaceRuntime || {}),
     activeBackendProfileId: snapshot.activeBackendProfileId || state.activeBackendProfileId,
     activeBackendProfileIdsBySurface: snapshot.activeBackendProfileIdsBySurface && typeof snapshot.activeBackendProfileIdsBySurface === 'object' ? snapshot.activeBackendProfileIdsBySurface : (state.activeBackendProfileIdsBySurface || {}),
@@ -2087,6 +2129,8 @@ function qwenSourceRoleOptions(lane) {
     { id: 'scene_reference', label: 'Scene reference' },
     { id: 'object_prop_reference', label: 'Object / prop reference' },
     { id: 'composition_guide', label: 'Composition guide' },
+    { id: 'pose_reference', label: 'Pose reference' },
+    { id: 'pose_map', label: 'Generated pose map' },
   ];
   if (Number(lane) === 1) return base;
   return base.filter((item) => item.id !== 'main_subject');
@@ -2114,19 +2158,35 @@ function flux2KleinMultiReferenceActive() {
 function cloudMultiImageEditActive(profile = activeImageProfile()) {
   return isCloudImageProfile(profile) && activeImageMode() === 'img2img' && imageProfileSupportsCapability('multi_image_edit', profile);
 }
+function krea2IdentityEditActive() {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = activeImageMode();
+  return ['krea2', 'krea2_turbo'].includes(family)
+    && ['diffusion_model', 'gguf'].includes(loader)
+    && ['img2img', 'inpaint', 'outpaint'].includes(mode)
+    && String(state.imageDraft.krea2_edit_engine || 'native') === 'identity_edit';
+}
+function imageMultiReferenceSlotLimit(profile = activeImageProfile()) {
+  return krea2IdentityEditActive() ? 2 : 3;
+}
 function imageMultiReferenceActive(profile = activeImageProfile()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('multi_source_panel', false)) return false;
-  return qwenGgufMultiReferenceActive() || fluxGgufSourceStackActive() || cloudMultiImageEditActive(profile);
+  return krea2IdentityEditActive() || qwenGgufMultiReferenceActive() || fluxGgufSourceStackActive() || cloudMultiImageEditActive(profile);
 }
 function imageMultiReferenceLabel(profile = activeImageProfile()) {
+  if (controlNetPoseTransferActive()) return 'Qwen pose transfer';
   if (cloudMultiImageEditActive(profile)) return 'Grok multi-image edit';
+  if (krea2IdentityEditActive()) return 'Krea 2 Identity Edit';
   if (qwenGgufMultiReferenceActive()) return 'Qwen multi-source';
   if (flux2KleinMultiReferenceActive()) return 'Flux 2 Klein multi-source';
   if (fluxGgufSourceStackActive()) return 'Flux source stack';
   return 'Multi-source edit';
 }
 function imageMultiReferenceHelpText(profile = activeImageProfile()) {
+  if (controlNetPoseTransferActive()) return 'Pose Transfer uses Image 1 as the subject, Image 2 as the human pose reference, and Image 3 as a runtime-generated DWPose map. Image 3 must stay free while this method is enabled.';
   if (cloudMultiImageEditActive(profile)) return 'Grok receives up to 3 source images through the image edit API. Roles are saved into Neo metadata for audit/replay.';
+  if (krea2IdentityEditActive()) return 'Krea 2 Identity Edit v1.2 uses Image 1 as scene/context and optional Image 2 as the subject/identity reference. Image 2 is the final reference block, matching the trained subject-reference order. Image 3 is intentionally unavailable.';
   if (qwenGgufMultiReferenceActive()) return 'This Qwen workflow receives Image 1 plus optional Image 2/Image 3 through the Qwen image edit encoder for img2img/edit. Inpaint and outpaint are implemented as single-source mask/canvas workflows.';
   if (flux2KleinMultiReferenceActive()) return 'Flux 2 Klein GGUF exposes Image 1 plus optional Image 2/Image 3 as source-stack lanes; component/P4 routes keep Image 2/Image 3 hidden and use Image 1 as the active Flux2 latent anchor.';
   if (fluxGgufSourceStackActive()) return 'Flux GGUF uses Image 1 as the latent anchor. Image 2 and Image 3 are submitted, uploaded to Comfy, and saved as reference lanes for metadata/replay and future adapter routing.';
@@ -2134,10 +2194,12 @@ function imageMultiReferenceHelpText(profile = activeImageProfile()) {
 }
 function qwenVisibleSourceSlotCount() {
   const requested = Number(state.imageDraft.qwen_source_slot_count || 1);
-  let count = Number.isFinite(requested) ? Math.max(1, Math.min(3, requested)) : 1;
+  const slotLimit = imageMultiReferenceSlotLimit();
+  let count = Number.isFinite(requested) ? Math.max(1, Math.min(slotLimit, requested)) : 1;
+  if (controlNetPoseTransferActive()) count = 3;
   if (state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url) count = Math.max(count, 2);
-  if (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url) count = Math.max(count, 3);
-  return count;
+  if (slotLimit >= 3 && (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url)) count = Math.max(count, 3);
+  return Math.min(controlNetPoseTransferActive() ? 3 : slotLimit, count);
 }
 function qwenStitchRouteActive(mode = activeImageMode()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('stitch_images', false)) return false;
@@ -2190,6 +2252,63 @@ function qwenStitchNodeAvailable(profile = activeImageProfile()) {
   const nodeMap = qwenStitchBackendCapabilities(profile)?.object_info_node_inputs;
   if (!nodeMap || !Object.keys(nodeMap).length) return true;
   return Boolean(nodeMap.ImageStitch || nodeMap.AILab_ImageStitch);
+}
+function emptySourceVisibilityMask() {
+  return { schema: 'neo.image.source_visibility_mask.v1', enabled: false, path: '', url: '', name: '', preview_url: '', fill_mode: 'black', white_hides: true };
+}
+function normalizeSourceVisibilityMask(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const path = String(raw.path || raw.ref || raw.mask || '');
+  const url = String(raw.url || raw.preview_url || '');
+  const name = String(raw.name || basename(path || url || '') || '');
+  const fillMode = ['black', 'white', 'mid_gray'].includes(String(raw.fill_mode || raw.fill || 'black')) ? String(raw.fill_mode || raw.fill || 'black') : 'black';
+  return {
+    schema: String(raw.schema || 'neo.image.source_visibility_mask.v1'),
+    enabled: raw.enabled !== false && Boolean(path || url),
+    path,
+    ref: path,
+    url,
+    preview_url: String(raw.preview_url || url),
+    name,
+    fill_mode: fillMode,
+    white_hides: true,
+  };
+}
+function sourceVisibilityMaskSupported(profile = activeImageProfile(), mode = activeImageMode()) {
+  const providerId = String(profile?.provider_id || profile?.backend || '').trim().toLowerCase();
+  const connectionType = String(profile?.connection_type || '').trim().toLowerCase();
+  const comfy = ['comfyui', 'comfyui_portable'].includes(providerId) || providerId.startsWith('comfy') || connectionType.includes('comfy');
+  return comfy && ['img2img', 'edit'].includes(String(mode || '').trim().toLowerCase());
+}
+function sourceVisibilityMaskDraft() {
+  const normalized = normalizeSourceVisibilityMask(state.imageDraft.source_visibility_mask);
+  state.imageDraft.source_visibility_mask = normalized;
+  return normalized;
+}
+function sourceVisibilityMaskReady(value = sourceVisibilityMaskDraft()) {
+  return Boolean(value?.enabled && (value.path || value.url || value.ref));
+}
+function resetSourceVisibilityMaskDraft() {
+  state.imageDraft.source_visibility_mask = emptySourceVisibilityMask();
+  if (state.imageMaskEditor?.target?.kind === 'source_visibility') {
+    state.imageMaskEditor.open = false;
+    state.imageMaskEditor.target = null;
+  }
+}
+function qwenStitchInputVisibilityMask(group, side) {
+  return normalizeSourceVisibilityMask(qwenStitchGroupInput(group, side)?.visibility_mask);
+}
+function qwenStitchSetInputVisibilityMask(groupId, side, mask) {
+  qwenStitchUpdateGroup(groupId, (group) => {
+    group.inputs = group.inputs || {};
+    const current = qwenStitchGroupInput(group, side);
+    group.inputs[side] = { ...current, visibility_mask: normalizeSourceVisibilityMask(mask) };
+  });
+}
+function qwenStitchClearInputVisibilityMask(groupId, side) {
+  qwenStitchSetInputVisibilityMask(groupId, side, emptySourceVisibilityMask());
+  saveUiState();
+  render();
 }
 function qwenStitchGroupInput(group, side) {
   const value = group?.inputs?.[side];
@@ -2326,17 +2445,23 @@ function renderQwenStitchInput(group, side, label) {
   const value = qwenStitchGroupInput(group, side);
   const name = value.name || basename(value.path || value.url || '') || 'No image selected';
   const domId = qwenStitchDomId(qwenStitchGroupId(group));
+  const groupId = qwenStitchGroupId(group);
   const hasImage = Boolean(value.path || value.url || value.ref || value.name);
+  const visibilityMask = qwenStitchInputVisibilityMask(group, side);
+  const hasVisibilityMask = sourceVisibilityMaskReady(visibilityMask);
+  const visibilitySupported = sourceVisibilityMaskSupported();
   const preview = value.url
-    ? `<img class="neo-qwen-stitch-input-preview" src="${escapeAttr(value.url)}" alt="${escapeAttr(label)}">`
+    ? `<span class="neo-qwen-stitch-preview-stack"><img class="neo-qwen-stitch-input-image" src="${escapeAttr(value.url)}" alt="${escapeAttr(label)}">${hasVisibilityMask && visibilityMask.preview_url ? `<img class="neo-source-visibility-mask-preview" src="${escapeAttr(visibilityMask.preview_url)}" alt="Hidden-area mask"><span class="neo-source-mask-chip">Hidden areas</span>` : ''}</span>`
     : `<span class="neo-qwen-stitch-input-empty">${hasImage ? escapeHtml(name) : 'Drop or choose an image'}</span>`;
   return `<div class="neo-qwen-stitch-input" data-testid="qwen-stitch-input-${domId}-${side}">
     <div class="neo-qwen-stitch-input-head"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(name)}</span></div>
-    <div class="neo-qwen-stitch-input-preview" data-neo-image-dropzone="true" data-neo-image-kind="qwen-stitch" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" data-qwen-stitch-input="imageQwenStitch${domId}${side}File">${preview}</div>
-    <div class="neo-source-actions">
-      <label class="neo-source-file-label neo-file-action">Replace<input id="imageQwenStitch${domId}${side}File" data-qwen-stitch-file="true" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"></label>
-      <button class="neo-btn secondary" type="button" data-qwen-stitch-clear="true" data-qwen-stitch-group="${escapeAttr(qwenStitchGroupId(group))}" data-qwen-stitch-side="${escapeAttr(side)}" ${hasImage ? '' : 'disabled'}>Clear</button>
+    <div class="neo-qwen-stitch-input-preview" data-neo-image-dropzone="true" data-neo-image-kind="qwen-stitch" data-qwen-stitch-group="${escapeAttr(groupId)}" data-qwen-stitch-side="${escapeAttr(side)}" data-qwen-stitch-input="imageQwenStitch${domId}${side}File">${preview}</div>
+    <div class="neo-source-actions neo-source-visibility-actions">
+      <label class="neo-source-file-label neo-file-action">Replace<input id="imageQwenStitch${domId}${side}File" data-qwen-stitch-file="true" data-qwen-stitch-group="${escapeAttr(groupId)}" data-qwen-stitch-side="${escapeAttr(side)}" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"></label>
+      <button class="neo-btn secondary" type="button" data-qwen-stitch-clear="true" data-qwen-stitch-group="${escapeAttr(groupId)}" data-qwen-stitch-side="${escapeAttr(side)}" ${hasImage ? '' : 'disabled'}>Clear</button>
+      ${visibilitySupported ? `<button class="neo-btn secondary" type="button" data-qwen-stitch-visibility-edit="true" data-qwen-stitch-group="${escapeAttr(groupId)}" data-qwen-stitch-side="${escapeAttr(side)}" ${hasImage ? '' : 'disabled'}>${hasVisibilityMask ? 'Edit Hidden Areas' : 'Hide Parts'}</button><button class="neo-btn ghost" type="button" data-qwen-stitch-visibility-clear="true" data-qwen-stitch-group="${escapeAttr(groupId)}" data-qwen-stitch-side="${escapeAttr(side)}" ${hasVisibilityMask ? '' : 'disabled'}>Clear Hidden Mask</button>` : ''}
     </div>
+    ${visibilitySupported ? `<p class="neo-muted neo-source-visibility-note">White mask areas are replaced with black before this image enters ImageStitch.</p>` : ''}
   </div>`;
 }
 function renderQwenStitchSection() {
@@ -2944,69 +3069,32 @@ function activeImageMode() {
 }
 
 function applyQwenGgufStabilityPresetIfNeeded() {
+  // Parameter Truth: route recommendations must never rewrite explicit user inputs.
+  // Defaults belong to profile initialization; generation-time route sync is metadata-only.
   const mode = activeImageMode();
-  const key = `${state.imageDraft.family || 'sdxl'}:${state.imageDraft.loader || 'checkpoint'}:${mode}`;
-  if (state.imageDraft._last_route_preset_key === key) return;
-  state.imageDraft._last_route_preset_key = key;
-  if (['qwen_image', 'qwen_rapid_aio'].includes(state.imageDraft.family) && state.imageDraft.loader === 'gguf') {
-    if (mode === 'inpaint') {
-      state.imageDraft.steps = 8;
-      state.imageDraft.denoise = 0.9;
-      state.imageDraft.mask_grow = 3;
-      state.imageDraft.mask_blur = 0;
-      state.imageDraft.qwen_inpaint_composite_feather = 10;
-    }
-  }
-  saveUiState();
+  state.imageDraft._last_route_preset_key = `${state.imageDraft.family || 'sdxl'}:${state.imageDraft.loader || 'checkpoint'}:${mode}`;
 }
 
 function applyZImageRuntimeDefaultsIfNeeded({ force = false } = {}) {
+  // Parameter Truth: Z-Image route selection may annotate the route, but must not
+  // clamp or replace steps/CFG entered by the user.
   const family = state.imageDraft.family || imageCommandValue('family') || '';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
   const mode = activeImageMode();
-  const key = `${family}:${loader}:${mode}`;
-  if (!force && state.imageDraft._last_z_image_route_default_key === key) return;
   if (!['z_image', 'z_image_turbo'].includes(family)) return;
-  state.imageDraft._last_z_image_route_default_key = key;
-  if (family === 'z_image') {
-    if (mode !== 'txt2img') return;
-    const steps = Number(state.imageDraft.steps);
-    const cfg = Number(state.imageDraft.cfg);
-    if (!Number.isFinite(steps) || steps < 28) state.imageDraft.steps = 35;
-    if (!Number.isFinite(cfg) || cfg < 2.5) state.imageDraft.cfg = 3.5;
-    state.imageDraft.turbo_mode = false;
-  }
-  if (family === 'z_image_turbo') {
-    const steps = Number(state.imageDraft.steps);
-    const cfg = Number(state.imageDraft.cfg);
-    if (!Number.isFinite(steps) || steps > 12 || steps < 1) state.imageDraft.steps = 9;
-    if (!Number.isFinite(cfg) || cfg > 1.5 || cfg < 0.1) state.imageDraft.cfg = Number('1.0');
-    state.imageDraft.turbo_mode = true;
-  }
-  saveUiState();
+  state.imageDraft._last_z_image_route_default_key = `${family}:${loader}:${mode}`;
+  state.imageDraft.turbo_mode = family === 'z_image_turbo';
 }
 
 function applyQwenRapidAioRuntimeDefaultsIfNeeded({ force = false } = {}) {
+  // Parameter Truth: keep the user's current CFG untouched. The saved value is
+  // only a convenience cache for route switching and is never authoritative.
   const family = state.imageDraft.family || imageCommandValue('family') || '';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
   if (family !== 'qwen_rapid_aio' || loader !== 'checkpoint_aio') return;
-  const key = `${family}:${loader}`;
-  const lastKey = state.imageDraft._last_qwen_rapid_aio_defaults_key || '';
-  const savedRaw = state.imageDraft._qwen_rapid_aio_cfg;
-  const savedCfg = Number(savedRaw);
+  state.imageDraft._last_qwen_rapid_aio_defaults_key = `${family}:${loader}`;
   const currentCfg = Number(state.imageDraft.cfg);
-  const hasSavedCfg = savedRaw !== undefined && savedRaw !== null && savedRaw !== '' && Number.isFinite(savedCfg);
-  if (!force && lastKey === key && hasSavedCfg) return;
-  state.imageDraft._last_qwen_rapid_aio_defaults_key = key;
-  if (hasSavedCfg) {
-    state.imageDraft.cfg = savedCfg;
-  } else if (!force && Number.isFinite(currentCfg) && currentCfg !== 7) {
-    state.imageDraft._qwen_rapid_aio_cfg = currentCfg;
-  } else {
-    state.imageDraft.cfg = 1.0;
-    state.imageDraft._qwen_rapid_aio_cfg = 1.0;
-  }
-  saveUiState();
+  if (Number.isFinite(currentCfg)) state.imageDraft._qwen_rapid_aio_cfg = currentCfg;
 }
 
 function profileMatches(profile, family, loader, mode) {
@@ -3032,10 +3120,20 @@ function familyLoaderModeStatus(familyId = '', loaderId = '', modeId = '') {
   const loaderModes = family?.loader_mode_support?.[loader] || {};
   return loaderModes[mode] || family?.mode_support?.[mode] || null;
 }
+const IMAGE_EXECUTABLE_FAMILY_MODE_STATES = new Set([
+  'available', 'native', 'experimental', 'experimental_available',
+  'experimental_source_latent', 'experimental_single_source_mask', 'experimental_single_source_canvas',
+  'single_source_native', 'single_source_native_mask', 'single_source_native_canvas', 'multi_source_native',
+  'native_source_latent', 'native_single_source_mask', 'native_single_source_canvas',
+  'native_turbo', 'turbo_native_source_latent', 'turbo_native_single_source_mask', 'turbo_native_single_source_canvas',
+  'mmproj_required', 'single_source_mmproj_required', 'multi_source_mmproj_required', 'lanpaint',
+]);
+function imageFamilyModeStatusExecutable(status = '') {
+  return IMAGE_EXECUTABLE_FAMILY_MODE_STATES.has(String(status || '').trim().toLowerCase());
+}
 function routeModeAllowsTxt2imgProfileFallback(familyId, loaderId, modeId) {
   if (!modeId || modeId === 'txt2img') return true;
-  const status = familyLoaderModeStatus(familyId, loaderId, modeId);
-  return !['gated', 'provider_required', 'variant_required', 'unsupported'].includes(status || '');
+  return imageFamilyModeStatusExecutable(familyLoaderModeStatus(familyId, loaderId, modeId));
 }
 function activeImageParameterFields() {
   const profile = activeImageParameterProfile();
@@ -3103,26 +3201,8 @@ function syncKrea2State({ persist = true } = {}) {
     state.imageDraft.text_encoder_1 = canonical;
     state.imageDraft.text_encoder_primary = canonical;
   }
-  state.imageDraft.text_encoder_2 = '';
-  state.imageDraft.gguf_text_encoder_1 = '';
-  state.imageDraft.gguf_text_encoder_primary = '';
-  state.imageDraft.gguf_text_encoder_2 = '';
-  state.imageDraft.gguf_text_encoder_secondary = '';
-  state.imageDraft.qwen_text_encoder = '';
-  state.imageDraft.qwen3_text_encoder = '';
-  state.imageDraft.qwen_mmproj = '';
-  state.imageDraft.mmproj = '';
-  state.imageDraft.mmproj_name = '';
-  state.imageDraft.flux_variant = '';
-  state.imageDraft.flux_guidance = 0;
-  if (family === 'krea2_turbo') {
-    state.imageDraft.steps = 8;
-    state.imageDraft.cfg = 1.0;
-    state.imageDraft.negative_prompt = '';
-  } else if (family === 'krea2') {
-    if (!Number(state.imageDraft.steps) || Number(state.imageDraft.steps) === 8) state.imageDraft.steps = 52;
-    if (!Number(state.imageDraft.cfg) || Number(state.imageDraft.cfg) === 1) state.imageDraft.cfg = 3.5;
-  }
+  // Parameter Truth: profile pruning decides which fields are submitted. Do not
+  // erase inactive-family values or rewrite Krea RAW/Turbo sampling inputs here.
   state.imageDraft._neo_krea2_state = {
     schema: 'neo.image.krea2.state.v1',
     active: true, family, variant, selected_model: krea2SelectedModelName(),
@@ -3575,85 +3655,27 @@ const IMAGE_WORKSPACE_APPS = [
 ];
 
 const VIDEO_WORKSPACE_APPS = [
-  { id: 'workspace', label: 'Workspace', sections: ['summary', 'backend', 'outputs'], description: 'Video route contract, backend readiness, and output-path safety.' },
-  { id: 'generation', label: 'Generation', sections: ['builtins', 'external'], description: 'Txt2Vid / Img2Vid workspace shell using the Image tab structure.' },
-  { id: 'assets', label: 'Assets', sections: ['source_assets', 'frames'], description: 'Source videos, image references, frames, and reusable generation assets.' },
-  { id: 'reference', label: 'Reference', sections: ['motion_reference', 'depth_reference'], description: 'Motion, image, depth, and prompt references for controlled video workflows.' },
-  { id: 'finish', label: 'Finish', sections: ['interpolate', 'upscale', 'repair', 'export'], description: 'Post-generation finishing lanes: interpolation, upscale, repair, and export.' },
-  { id: 'results', label: 'Results', sections: ['output_ledger', 'replay'], description: 'Video output history, preview, metadata, replay, and memory export.' },
+  { id: 'generation', label: 'Generation', sections: ['prompt', 'preview', 'source', 'parameters', 'builtins', 'external'], description: 'Create Video jobs with the active provider, canonical family route, prompt/source inputs, parameters, and compatible generation tools.' },
+  { id: 'assets', label: 'Assets', sections: ['source_assets', 'frames', 'references'], description: 'Prepare and review source images, source videos, frames, and reusable inputs without exposing generation parameters.' },
+  { id: 'reference', label: 'Reference', sections: ['motion_reference', 'depth_reference', 'image_reference', 'external'], description: 'Prepare route-specific motion, depth, and image reference inputs for controlled Video generation.' },
+  { id: 'finish', label: 'Finish', sections: ['source', 'presets', 'interpolate', 'upscale', 'repair', 'external'], description: 'Post-process an existing Neo-owned video with interpolation, upscale, repair/cleanup, and compatible finish extensions.' },
+  { id: 'results', label: 'Results', sections: ['output_ledger', 'preview', 'replay', 'external'], description: 'Review Video history, selected output playback, replay metadata, memory export, and result-scoped extensions.' },
 ];
 
-const VIDEO_MODEL_FAMILY_OPTIONS = [
-  { id: 'wan22', label: 'WAN 2.2', status: 'active', description: 'Primary low/mid-VRAM foundation route for the first video compiler.' },
-  { id: 'ltx23', label: 'LTX 2.3', status: 'active', description: 'Advanced cinematic route with GGUF/safetensors support.' },
-];
-const VIDEO_FUTURE_MODEL_FAMILY_OPTIONS = [
-  { id: 'hunyuan_video', label: 'HunyuanVideo' },
-  { id: 'mochi', label: 'Mochi' },
-  { id: 'cogvideox', label: 'CogVideoX' },
-  { id: 'animatediff', label: 'AnimateDiff' },
-  { id: 'svd', label: 'Stable Video Diffusion' },
-];
-const VIDEO_LOADER_OPTIONS = [
-  { id: 'unet', label: 'UNET / Diffusion', status: 'active', description: 'Transformer/UNET safetensors loaded through diffusion/UNET style nodes.' },
-  { id: 'gguf', label: 'GGUF', status: 'active', description: 'Quantized model route for lower-VRAM LTX-compatible workflows.' },
-  { id: 'rapid_aio_gguf', label: 'WAN Rapid AIO GGUF', status: 'active', description: 'WAN 2.2 Rapid All-in-One GGUF production route with dynamic Comfy catalogs.' },
-  { id: 'native_workflow', label: 'Native Workflow', status: 'active', description: 'Imported ComfyUI workflow template with Neo field mapping.' },
-];
+const VIDEO_ROUTE_MATRIX_ENDPOINT = '/api/video/route-matrix';
+const VIDEO_PARAMETER_PROFILE_ENDPOINT = '/api/video/parameter-profile';
+const VIDEO_ROUTE_SELECTABLE_STATUSES = new Set(['enabled', 'experimental']);
+const VIDEO_ROUTE_RUNNABLE_STATUSES = new Set(['enabled', 'experimental']);
+
 const VIDEO_WAN_MODEL_MODE_OPTIONS = [
   { id: 'standard', label: 'Standard WAN route' },
   { id: 'dual_noise_gguf', label: 'WAN Dual Noise GGUF' },
   { id: 'rapid_aio_gguf', label: 'WAN Rapid AIO GGUF' },
 ];
-const VIDEO_FUTURE_LOADER_OPTIONS = [
-  { id: 'checkpoint', label: 'Checkpoint', description: 'Only valid where a true checkpoint-style video loader exists.' },
-];
-const VIDEO_GENERATION_MODE_OPTIONS = [
-  { id: 'txt2vid', label: 'Txt2Vid', status: 'active', description: 'Text prompt to video.' },
-  { id: 'img2vid', label: 'Img2Vid', status: 'active', description: 'Source image plus prompt to video.' },
-  { id: 'first_last_frame', label: 'First / Last Frame', status: 'active', description: 'Two source images into a controlled LTX transition.' },
-  { id: 'multiscene', label: 'Multi-Image / MultiScene', status: 'active', description: '2-4 image segment cards into one LTX sequence.' },
-  { id: 'extend', label: 'Extend', status: 'active', description: 'Continue an existing Neo-owned video using its last frame.' },
-  { id: 'vid2vid', label: 'Video-to-Video', status: 'active', description: 'Restyle or clean up an existing Neo-owned video.' },
-  { id: 'depth_motion', label: 'Depth / Motion Control', status: 'active', description: 'Use depth or motion preprocessors from a Neo-owned source video.' },
-  { id: 'prompt_schedule', label: 'Prompt / Motion Schedule', status: 'active', description: 'Timeline-style prompt and motion beats for LTX generation.' },
-  { id: 'audio_video', label: 'Audio-Video', status: 'active', description: 'LTX audio-video generation with audio prompt, dialogue, and soundscape metadata.' },
-];
-const VIDEO_FUTURE_GENERATION_MODE_OPTIONS = [
-];
 const VIDEO_RAPID_AIO_FRAME_MODE_OPTIONS = [
   { id: 'start_frame', label: 'Start frame only', description: 'Use one source image as the first frame / I2V start image.' },
   { id: 'start_end_frame', label: 'Start + end frame', description: 'Use source image as the start frame and second image as the target end frame.' },
   { id: 'end_frame', label: 'End frame only', description: 'Guide generation toward a supplied final/last frame.' },
-];
-const VIDEO_ROUTE_MATRIX = [
-  { route_id: 'wan22.unet.txt2vid', family: 'wan22', loader: 'unet', mode: 'txt2vid', status: 'enabled', recommended_first: true, notes: ['Best first compiler target for low/mid VRAM.', 'Runtime Generate is enabled for WAN 2.2 Txt2Vid.'] },
-  { route_id: 'wan22.unet.img2vid', family: 'wan22', loader: 'unet', mode: 'img2vid', status: 'enabled', notes: ['Same WAN route with a connected source image latent.', 'Source image upload and handoff are guarded until this route is ready.'] },
-  { route_id: 'wan22.gguf.img2vid_14b_dual_noise', family: 'wan22', loader: 'gguf', mode: 'img2vid', status: 'enabled', notes: ['GGUF-first WAN 2.2 14B Img2Vid route for 12GB VRAM testing.', 'Native GGUF workflow compiler adapter is active with dual-noise mapping, Video LoRA / LightX2V, and V-G13 Sage/TeaCache/low-VRAM performance adapters.', 'V-G9 imports completed Comfy history outputs into Neo-owned playback files.'] },
-  { route_id: 'wan22.rapid_aio_gguf.txt2vid', family: 'wan22', loader: 'rapid_aio_gguf', mode: 'txt2vid', status: 'experimental', notes: ['Experimental WAN 2.2 Rapid AIO GGUF route.', 'Model, text encoder, and VAE dropdowns are dynamic from Comfy/Admin catalogs.', 'Uses Rapid AIO MEGA native VACE text-only generation when Workflow Mode is Txt2Vid; invalid VACE dimensions can be auto-resolved.'] },
-  { route_id: 'wan22.rapid_aio_gguf.img2vid', family: 'wan22', loader: 'rapid_aio_gguf', mode: 'img2vid', status: 'experimental', notes: ['Experimental WAN 2.2 Rapid AIO GGUF Img2Vid route with MEGA frame-source modes.', 'Uses Auto text encoder and VAE selections from live Comfy/Admin catalogs.', 'Img2Vid supports start frame, start + end frame, and end frame only source modes; native VACE dimensions are auto-resolved when needed.'] },
-  { route_id: 'wan22.native_workflow.txt2vid', family: 'wan22', loader: 'native_workflow', mode: 'txt2vid', status: 'planned', notes: ['Native workflow template mapping comes after the direct route compiler.'] },
-  { route_id: 'wan22.native_workflow.img2vid', family: 'wan22', loader: 'native_workflow', mode: 'img2vid', status: 'planned', notes: ['Native workflow template mapping comes after source handling exists.'] },
-  { route_id: 'ltx23.gguf.txt2vid', family: 'ltx23', loader: 'gguf', mode: 'txt2vid', status: 'enabled', notes: ['Advanced low-VRAM LTX route using GGUF/text-encoder connector patterns.'] },
-  { route_id: 'ltx23.gguf.img2vid', family: 'ltx23', loader: 'gguf', mode: 'img2vid', status: 'enabled', notes: ['Advanced LTX image-guided route with guide/crop handling.'] },
-  { route_id: 'ltx23.unet.txt2vid', family: 'ltx23', loader: 'unet', mode: 'txt2vid', status: 'enabled', notes: ['Safetensors diffusion/UNET LTX path.'] },
-  { route_id: 'ltx23.unet.img2vid', family: 'ltx23', loader: 'unet', mode: 'img2vid', status: 'enabled', notes: ['Safetensors diffusion/UNET LTX image-guided path.'] },
-  { route_id: 'ltx23.gguf.first_last_frame', family: 'ltx23', loader: 'gguf', mode: 'first_last_frame', status: 'enabled', notes: ['Controlled LTX transition between first and last images.'] },
-  { route_id: 'ltx23.unet.first_last_frame', family: 'ltx23', loader: 'unet', mode: 'first_last_frame', status: 'enabled', notes: ['Safetensors LTX first/last frame transition path.'] },
-  { route_id: 'ltx23.native_workflow.txt2vid', family: 'ltx23', loader: 'native_workflow', mode: 'txt2vid', status: 'planned', notes: ['Native LTX workflow template mapping later.'] },
-  { route_id: 'ltx23.native_workflow.img2vid', family: 'ltx23', loader: 'native_workflow', mode: 'img2vid', status: 'planned', notes: ['Native LTX workflow template mapping later.'] },
-  { route_id: 'ltx23.gguf.multiscene', family: 'ltx23', loader: 'gguf', mode: 'multiscene', status: 'enabled', notes: ['Segment cards, image guides, frame math, and LTXVAddGuideMulti are active in V16.'] },
-  { route_id: 'ltx23.unet.multiscene', family: 'ltx23', loader: 'unet', mode: 'multiscene', status: 'enabled', notes: ['Safetensors LTX MultiScene path with 2-4 image guides.'] },
-  { route_id: 'ltx23.gguf.extend', family: 'ltx23', loader: 'gguf', mode: 'extend', status: 'enabled', notes: ['Extends a Neo-owned source video with LTX using the last frame as the continuation guide.'] },
-  { route_id: 'ltx23.unet.extend', family: 'ltx23', loader: 'unet', mode: 'extend', status: 'enabled', notes: ['Safetensors LTX Extend path using selected result video as source.'] },
-  { route_id: 'ltx23.gguf.vid2vid', family: 'ltx23', loader: 'gguf', mode: 'vid2vid', status: 'enabled', notes: ['Restyles a Neo-owned source video using encoded source latents.'] },
-  { route_id: 'ltx23.unet.vid2vid', family: 'ltx23', loader: 'unet', mode: 'vid2vid', status: 'enabled', notes: ['Safetensors LTX Video-to-Video path using selected result video as source.'] },
-  { route_id: 'ltx23.gguf.depth_motion', family: 'ltx23', loader: 'gguf', mode: 'depth_motion', status: 'enabled', notes: ['Uses external depth/motion preprocessors as LTX guidance from a selected Neo-owned video.'] },
-  { route_id: 'ltx23.unet.depth_motion', family: 'ltx23', loader: 'unet', mode: 'depth_motion', status: 'enabled', notes: ['Safetensors LTX Depth / Motion Control path using selected result video as guidance source.'] },
-  { route_id: 'ltx23.gguf.prompt_schedule', family: 'ltx23', loader: 'gguf', mode: 'prompt_schedule', status: 'enabled', notes: ['Timeline-style prompt and motion scheduling for LTX.'] },
-  { route_id: 'ltx23.unet.prompt_schedule', family: 'ltx23', loader: 'unet', mode: 'prompt_schedule', status: 'enabled', notes: ['Safetensors LTX Prompt/Motion Schedule path.'] },
-  { route_id: 'ltx23.gguf.audio_video', family: 'ltx23', loader: 'gguf', mode: 'audio_video', status: 'enabled', notes: ['LTX Audio-Video route using audio prompt, dialogue, soundscape, and sync metadata.'] },
-  { route_id: 'ltx23.unet.audio_video', family: 'ltx23', loader: 'unet', mode: 'audio_video', status: 'enabled', notes: ['Safetensors LTX Audio-Video route using audio prompt metadata.'] },
 ];
 const VIDEO_VRAM_PROFILE_OPTIONS = [
   { id: 'low', label: 'Low VRAM Draft' },
@@ -3681,6 +3703,7 @@ const VIDEO_TEACACHE_PROFILE_OPTIONS = [
   { id: 'aggressive', label: 'Aggressive' },
 ];
 const VIDEO_OUTPUT_FILE_ENDPOINT = '/api/video/output-file';
+const VIDEO_OUTPUT_INSPECTOR_SCHEMA = 'neo.video.output_inspector.v1';
 const VIDEO_VRAM_ENGINE_ENDPOINT = '/api/video/vram-engine';
 const VIDEO_VRAM_PREFLIGHT_ENDPOINT = '/api/video/vram-preflight';
 const VIDEO_PERFORMANCE_PROFILE_ENDPOINT = '/api/video/performance-profile';
@@ -3752,25 +3775,6 @@ const VIDEO_VRAM_PROFILE_CONSTRAINTS = {
   quality: { label: 'Quality', target: '16GB+', max_width: 1280, max_height: 704, max_short_side: 704, max_long_side: 1280, max_frames: 121, max_steps: 40, tile_size: 512, notes: ['Slower', 'Still keep batch count at 1'] },
   manual: { label: 'Manual / Experimental', target: 'advanced', max_width: 2048, max_height: 1152, max_short_side: 1152, max_long_side: 2048, max_frames: 241, max_steps: 80, tile_size: 512, notes: ['Expert overrides', 'Still preflight before compiler runs'] },
 };
-const VIDEO_ROUTE_PARAMETER_DEFAULTS = {
-  'wan22.unet.txt2vid': { wan_model_mode: 'standard', width: 832, height: 480, frames: 41, fps: 16, steps: 20, guidance: 5, sampler: 'uni_pc', scheduler: 'simple', decode_mode: 'standard', tile_size: 512, temporal_tile_size: 4096 },
-  'wan22.unet.img2vid': { wan_model_mode: 'standard', width: 832, height: 480, frames: 41, fps: 16, steps: 20, guidance: 5, sampler: 'uni_pc', scheduler: 'simple', source_image_required: true, image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'standard', tile_size: 512, temporal_tile_size: 4096 },
-  'wan22.gguf.img2vid_14b_dual_noise': { wan_model_mode: 'dual_noise_gguf', width: 640, height: 360, frames: 49, fps: 16, steps: 12, guidance: 3.5, split_step: 6, sampler: 'euler', scheduler: 'simple', source_image_required: true, image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, dual_noise_models_required: true, high_noise_model: '', low_noise_model: '', dual_noise_mapping: 'explicit_high_low_pair', template: 'wan22_i2v14_dual_noise_native', enable_video_lora: false, video_lora_mode: 'off', video_lora_model: '', video_lora_strength: 0.8, video_lora_target: 'both', enable_lightx2v: false, high_noise_lora: '', low_noise_lora: '', high_noise_lora_strength: 1.0, low_noise_lora_strength: 1.0, performance_profile: 'safe_12gb', enable_sage_attention: false, sage_attention_mode: 'auto', sage_attention_target: 'both', enable_teacache: false, teacache_profile: 'conservative', teacache_target: 'both', enable_cpu_offload: false, enable_vae_offload: false, enable_block_swap: false, block_swap_target: 'both', block_swap_blocks: 12, enable_torch_compile: false },
-  'wan22.rapid_aio_gguf.txt2vid': { wan_model_mode: 'rapid_aio_gguf', width: 480, height: 848, frames: 121, fps: 16, steps: 4, guidance: 1.0, sampler: 'euler', scheduler: 'simple', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, rapid_aio_model: '', rapid_aio_text_encoder: 'provider_default', rapid_aio_vae: 'provider_default', performance_profile: 'safe_12gb', auto_resolve_vace_dimensions: true, enable_sage_attention: false, sage_attention_mode: 'auto', enable_teacache: false, teacache_profile: 'conservative', enable_cpu_offload: false, enable_vae_offload: false, enable_block_swap: false, block_swap_blocks: 12 },
-  'wan22.rapid_aio_gguf.img2vid': { wan_model_mode: 'rapid_aio_gguf', width: 480, height: 848, frames: 121, fps: 16, steps: 4, guidance: 1.0, sampler: 'euler', scheduler: 'simple', source_image_required: true, image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, rapid_aio_model: '', rapid_aio_text_encoder: 'provider_default', rapid_aio_vae: 'provider_default', performance_profile: 'safe_12gb', auto_resolve_vace_dimensions: true, enable_sage_attention: false, sage_attention_mode: 'auto', enable_teacache: false, teacache_profile: 'conservative', enable_cpu_offload: false, enable_vae_offload: false, enable_block_swap: false, block_swap_blocks: 12 },
-  'ltx23.gguf.txt2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.gguf.img2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', source_image_required: true, image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.unet.txt2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.unet.img2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', source_image_required: true, image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.gguf.multiscene': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true, segment_count_min: 2, segment_count_max: 4 },
-  'ltx23.unet.multiscene': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', image_strength: 0.7, resize_mode: 'fit_crop', decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true, segment_count_min: 2, segment_count_max: 4 },
-  'ltx23.gguf.extend': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', continuation_strength: 0.75, extraction_mode: 'last_frame', decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.unet.extend': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', continuation_strength: 0.75, extraction_mode: 'last_frame', decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.gguf.vid2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', denoise_strength: 0.45, motion_strength: 0.85, decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.unet.vid2vid': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', denoise_strength: 0.45, motion_strength: 0.85, decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.gguf.depth_motion': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', control_type: 'depth', control_strength: 0.65, motion_strength: 0.8, decode_mode: 'tiled', tile_size: 384, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-  'ltx23.unet.depth_motion': { width: 768, height: 512, frames: 97, fps: 24, steps: 8, guidance: 1, sampler: 'euler_ancestral', scheduler: 'ltxv', control_type: 'depth', control_strength: 0.65, motion_strength: 0.8, decode_mode: 'tiled', tile_size: 512, temporal_tile_size: 4096, fps_sync: true, audio_latent: false, spatial_upscaler: true, chunk_feed_forward: 2, tiled_vae_decode: true },
-};
 const VIDEO_PARAMETER_FIELD_DEFS = [
   { field_id: 'vram_profile', label: 'VRAM Profile', section: 'profile', type: 'select', options: VIDEO_VRAM_PROFILE_OPTIONS, description: 'Safe profile that constrains size, frames, steps, and decode behavior.' },
   { field_id: 'performance_profile', label: 'Performance Profile', section: 'performance', type: 'select', options: VIDEO_PERFORMANCE_PROFILE_OPTIONS, description: 'Shared WAN/LTX optimizer profile. V-G13 can mutate Sage, TeaCache, and WAN low-VRAM adapters.' },
@@ -3839,10 +3843,17 @@ function normalizeWorkspaceAppId(value) {
   return value || 'generations';
 }
 function normalizeVideoWorkspaceAppId(value) {
-  if (value === 'generations') return 'generation';
+  if (value === 'workspace' || value === 'generations') return 'generation';
   if (value === 'asset') return 'assets';
   const allowed = VIDEO_WORKSPACE_APPS.map((app) => app.id);
-  return allowed.includes(value) ? value : 'workspace';
+  return allowed.includes(value) ? value : 'generation';
+}
+function normalizeExtensionWorkspaceAppId(surfaceId, value) {
+  const surface = String(surfaceId || 'image').trim().toLowerCase();
+  if (surface === 'video') return normalizeVideoWorkspaceAppId(value);
+  if (surface === 'image') return normalizeWorkspaceAppId(value);
+  if (value === 'asset') return 'assets';
+  return value || 'workspace';
 }
 
 const SURFACE_RUNTIME_SCHEMA_ID = 'neo.ui.surface_runtime.v25_5';
@@ -3899,7 +3910,7 @@ function imageCommandValue(role = '') { return commandValue('image', role); }
 function videoCommandValue(role = '') { return commandValue('video', role); }
 const SURFACE_RUNTIME_DEFAULTS = Object.freeze({
   image: Object.freeze({ workspace_app: 'generations', workflow_mode: 'generate', subtab: 'generate' }),
-  video: Object.freeze({ workspace_app: 'workspace', generation_mode: 'txt2vid', subtab: 'workspace' }),
+  video: Object.freeze({ workspace_app: 'generation', generation_mode: 'txt2vid', subtab: 'generation' }),
   prompt_captioning: Object.freeze({ workspace_app: 'prompt_builder', workspace_mode: 'prompt_builder', child_tab: 'prompt_preset_details', subtab: 'prompt_builder' }),
   voice: Object.freeze({ workspace_app: 'generation', workflow_mode: 'quick_preview', subtab: 'generation' }),
 });
@@ -3934,7 +3945,7 @@ function syncLegacySurfaceState(surfaceId = state.activeSurfaceId, runtime = nul
     return;
   }
   if (id === 'video') {
-    state.activeWorkspaceAppId = normalizeSurfaceWorkspaceAppId('video', current.workspace_app || current.subtab || 'workspace');
+    state.activeWorkspaceAppId = normalizeSurfaceWorkspaceAppId('video', current.workspace_app || current.subtab || 'generation');
     state.activeSubtabId = state.activeWorkspaceAppId;
     state.activeSubtabsBySurface.video = state.activeSubtabId;
     return;
@@ -3966,7 +3977,7 @@ function ensureSurfaceRuntime(surfaceId = state.activeSurfaceId || 'image') {
     state.imageDraft.workflow_mode = runtime.workflow_mode;
   } else if (id === 'video') {
     const legacyWorkspace = id === state.activeSurfaceId ? state.activeWorkspaceAppId : state.activeSubtabsBySurface?.video;
-    runtime.workspace_app = normalizeSurfaceWorkspaceAppId('video', runtime.workspace_app || runtime.subtab || legacyWorkspace || 'workspace');
+    runtime.workspace_app = normalizeSurfaceWorkspaceAppId('video', runtime.workspace_app || runtime.subtab || legacyWorkspace || 'generation');
     runtime.generation_mode = runtime.generation_mode || state.videoDraft?.mode || 'txt2vid';
     runtime.subtab = runtime.workspace_app;
     state.videoDraft.mode = runtime.generation_mode;
@@ -4042,7 +4053,7 @@ function setVideoGenerationMode(mode = 'txt2vid') {
 
 function setSurfaceSubtabId(surfaceId = state.activeSurfaceId || 'image', subtabId = '') {
   if (surfaceId === 'image') return setImageWorkflowMode(subtabId || 'generate');
-  if (surfaceId === 'video') return setSurfaceWorkspaceAppId('video', subtabId || 'workspace');
+  if (surfaceId === 'video') return setSurfaceWorkspaceAppId('video', subtabId || 'generation');
   const runtime = ensureSurfaceRuntime(surfaceId);
   runtime.subtab = subtabId || runtime.subtab || '';
   runtime.workspace_app = runtime.workspace_app || runtime.subtab || 'workspace';
@@ -4065,9 +4076,20 @@ function activeVideoWorkspaceApp() {
   setSurfaceWorkspaceAppId('video', VIDEO_WORKSPACE_APPS[0].id);
   return VIDEO_WORKSPACE_APPS[0];
 }
+function videoRouteCatalog() {
+  const payload = state.videoRouteMatrix;
+  if (!payload || !Array.isArray(payload.routes)) return { families: [], loaders: [], generation_types: [], routes: [] };
+  return payload;
+}
+function videoRouteStatusSelectable(status = '') { return VIDEO_ROUTE_SELECTABLE_STATUSES.has(String(status || '').toLowerCase()); }
+function videoRouteStatusRunnable(status = '') { return VIDEO_ROUTE_RUNNABLE_STATUSES.has(String(status || '').toLowerCase()); }
+function videoCatalogOptions(key = '') {
+  const rows = videoRouteCatalog()?.[key];
+  return Array.isArray(rows) ? rows : [];
+}
 function videoRouteRecords({ family = null, loader = null, mode = null, includePlanned = true } = {}) {
-  return VIDEO_ROUTE_MATRIX.filter((route) => {
-    if (!includePlanned && route.status !== 'enabled') return false;
+  return (videoRouteCatalog().routes || []).map((route) => ({ ...route, mode: route.mode || route.generation_type || '' })).filter((route) => {
+    if (!includePlanned && !videoRouteStatusSelectable(route.status)) return false;
     if (family && route.family !== family) return false;
     if (loader && route.loader !== loader) return false;
     if (mode && route.mode !== mode) return false;
@@ -4076,6 +4098,47 @@ function videoRouteRecords({ family = null, loader = null, mode = null, includeP
 }
 function videoFindRoute(family = state.videoDraft.family, loader = state.videoDraft.loader, mode = state.videoDraft.mode, includePlanned = true) {
   return videoRouteRecords({ family, loader, mode, includePlanned })[0] || null;
+}
+function videoFamilyOptions() {
+  const routes = videoRouteRecords({ includePlanned: true });
+  const options = videoCatalogOptions('families').map((option) => {
+    const familyRoutes = routes.filter((route) => route.family === option.id);
+    const selectable = familyRoutes.some((route) => videoRouteStatusSelectable(route.status));
+    return { ...option, disabled: !selectable, title: option.description || (selectable ? '' : 'No selectable Video route is available yet.') };
+  });
+  if (options.length) return options;
+  return [{ id: state.videoDraft.family || 'wan22', label: 'Route catalog unavailable', disabled: true, title: 'Reconnect Neo backend to load /api/video/route-matrix.' }];
+}
+function videoCatalogLabel(kind = '', id = '') {
+  return videoCatalogOptions(kind).find((item) => item.id === id)?.label || id || '';
+}
+function videoGenerationTypeLabel(id = state.videoDraft.mode) { return videoCatalogLabel('generation_types', id) || humanize(id || 'txt2vid'); }
+async function refreshVideoRouteCatalog({ applyDefaults = false } = {}) {
+  const payload = await loadJson(VIDEO_ROUTE_MATRIX_ENDPOINT, null);
+  if (payload?.routes && Array.isArray(payload.routes)) state.videoRouteMatrix = payload;
+  const route = ensureVideoRouteSelectable();
+  if (applyDefaults && route) await refreshVideoParameterProfile({ applyDefaults: true, force: false });
+  return state.videoRouteMatrix;
+}
+function videoParameterProfileMatchesActive(payload = state.videoParameterProfile) {
+  if (!payload) return false;
+  const route = videoFindRoute();
+  const request = payload.request || {};
+  return Boolean(route && payload.route?.route_id === route.route_id && String(request.vram_profile || '') === normalizeVideoVramProfile(state.videoDraft.vram_profile));
+}
+async function refreshVideoParameterProfile({ applyDefaults = false, force = false } = {}) {
+  const route = videoFindRoute();
+  if (!route) { state.videoParameterProfile = null; return null; }
+  const params = new URLSearchParams({
+    family: route.family,
+    loader: route.loader,
+    generation_type: route.mode,
+    vram_profile: normalizeVideoVramProfile(state.videoDraft.vram_profile),
+  });
+  const payload = await loadJson(`${VIDEO_PARAMETER_PROFILE_ENDPOINT}?${params.toString()}`, null);
+  if (payload?.route?.route_id === route.route_id) state.videoParameterProfile = payload;
+  if (applyDefaults && state.videoParameterProfile) applyVideoParameterDefaults({ force });
+  return state.videoParameterProfile;
 }
 
 function normalizeVideoVramProfile(value) {
@@ -4196,10 +4259,29 @@ function videoParameterFieldsForRoute(route = videoFindRoute()) {
     return !field.scopes || field.scopes.includes(family) || field.scopes.includes(mode) || field.scopes.includes(routeId);
   });
 }
-function activeVideoParameterProfile(route = videoFindRoute()) {
+function videoBackendParameterFieldToUi(field = {}, defaults = {}) {
+  const ui = VIDEO_PARAMETER_FIELD_DEFS.find((item) => item.field_id === field.field_id) || {};
+  const valueType = String(field.value_type || '').toLowerCase();
+  const mappedType = ['int', 'float', 'number'].includes(valueType) ? 'number' : valueType === 'bool' ? 'boolean' : (valueType || ui.type || 'text');
+  return {
+    ...ui,
+    field_id: field.field_id || ui.field_id || '',
+    label: field.label || ui.label || field.field_id || 'Parameter',
+    section: field.section || ui.section || 'output',
+    type: ui.type || mappedType,
+    min: field.minimum ?? ui.min,
+    max: field.maximum ?? ui.max,
+    step: field.step ?? ui.step,
+    unit: field.unit || ui.unit || '',
+    readonly: field.editable === false || ui.readonly === true,
+    description: field.description || ui.description || '',
+    value: state.videoDraft[field.field_id] ?? defaults[field.field_id] ?? field.default ?? '',
+  };
+}
+function videoFallbackParameterProfile(route = videoFindRoute()) {
   const vramId = normalizeVideoVramProfile(state.videoDraft.vram_profile);
   const vram = VIDEO_VRAM_PROFILE_CONSTRAINTS[vramId] || VIDEO_VRAM_PROFILE_CONSTRAINTS.balanced;
-  const routeDefaults = VIDEO_ROUTE_PARAMETER_DEFAULTS[route?.route_id || 'wan22.unet.txt2vid'] || VIDEO_ROUTE_PARAMETER_DEFAULTS['wan22.unet.txt2vid'];
+  const routeDefaults = route?.parameter_profile && typeof route.parameter_profile === 'object' ? route.parameter_profile : {};
   const defaults = { vram_profile: vramId, output_format: 'webm', batch_count: 1, seed: -1, ...routeDefaults };
   defaults.wan_model_mode = videoWanModelModeValue(route);
   if (vramId === 'low') Object.assign(defaults, { width: Math.min(defaults.width || 832, vram.max_width), height: Math.min(defaults.height || 480, vram.max_height), frames: Math.min(defaults.frames || 41, vram.max_frames), fps: Math.min(defaults.fps || 16, vram.fps || 12), steps: Math.min(defaults.steps || 20, vram.max_steps), decode_mode: 'tiled', tile_size: vram.tile_size });
@@ -4207,13 +4289,36 @@ function activeVideoParameterProfile(route = videoFindRoute()) {
   if (vramId === 'quality') Object.assign(defaults, { width: Math.min(Math.max(defaults.width || 960, 960), vram.max_width), height: Math.min(Math.max(defaults.height || 544, 544), vram.max_height), frames: Math.min(Math.max(defaults.frames || 97, 97), vram.max_frames), fps: Math.max(defaults.fps || 24, 24), steps: Math.min(Math.max(defaults.steps || 30, 30), vram.max_steps), decode_mode: 'tiled', tile_size: defaults.tile_size || vram.tile_size });
   defaults.batch_count = 1;
   const fields = videoParameterFieldsForRoute(route).map((field) => ({ ...field, value: state.videoDraft[field.field_id] ?? defaults[field.field_id] ?? '' }));
-  const warnings = [];
-  if (!route) warnings.push('No compatible route exists; using WAN 2.2 UNET Txt2Vid parameter fallback.');
-  if ((route?.mode || state.videoDraft.mode) === 'img2vid') warnings.push('Img2Vid generate stays disabled until a source image is selected.');
-  if ((route?.mode || state.videoDraft.mode) === 'extend') warnings.push('Extend uses the selected Video result as a source and creates a child output under extend.');
-  if ((route?.family || state.videoDraft.family) === 'ltx23') warnings.push('LTX profile includes FPS sync, tiled decode, and chunk feed-forward controls.');
-  if (vramId === 'manual') warnings.push('Manual profile is experimental. Neo should still preflight VRAM before runtime jobs.');
-  return { schema_version: 'neo.video.parameter_profile.v10', releaseStage: 'ready', route, vram_profile: vram, defaults, fields, warnings, vram_engine: true };
+  return {
+    schema_version: 'neo.video.parameter_profile.fallback',
+    releaseStage: 'degraded',
+    route,
+    vram_profile: vram,
+    defaults,
+    fields,
+    warnings: ['Canonical parameter profile is unavailable; using route-matrix fallback values until /api/video/parameter-profile is reachable.'],
+    vram_engine: true,
+  };
+}
+function activeVideoParameterProfile(route = videoFindRoute()) {
+  if (!videoParameterProfileMatchesActive()) return videoFallbackParameterProfile(route);
+  const payload = state.videoParameterProfile || {};
+  const rawVram = payload.vram_profile || {};
+  const vram = { ...rawVram, ...(rawVram.constraints || {}) };
+  const defaults = { ...(payload.defaults || {}) };
+  defaults.wan_model_mode = videoWanModelModeValue(route);
+  defaults.batch_count = 1;
+  const fields = (Array.isArray(payload.fields) ? payload.fields : []).map((field) => videoBackendParameterFieldToUi(field, defaults));
+  return {
+    ...payload,
+    releaseStage: 'ready',
+    route: route || (payload.route ? { ...payload.route, mode: payload.route.generation_type || payload.route.mode || '' } : null),
+    vram_profile: vram,
+    defaults,
+    fields,
+    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    vram_engine: true,
+  };
 }
 
 function activeVideoBackendProbe() {
@@ -4373,6 +4478,31 @@ function isVideoFinishSourceRecord(record = {}) {
   const generationType = String(record?.generation_type || record?.parameters?.generation_type || '').toLowerCase();
   return category === 'source' || routeId === 'finish.source_video_upload' || generationType === 'source_video';
 }
+async function refreshVideoOutputInspector({ resultId = state.videoActiveResultId || '', renderAfter = true } = {}) {
+  const cleanId = String(resultId || '').trim();
+  if (!cleanId) {
+    state.videoOutputInspector = null;
+    state.videoOutputInspectorError = '';
+    state.videoOutputInspectorLoading = false;
+    if (renderAfter) render();
+    return null;
+  }
+  state.videoOutputInspectorLoading = true;
+  state.videoOutputInspectorError = '';
+  const payload = await loadJson(`/api/video/results/${encodeURIComponent(cleanId)}/inspector`, null);
+  state.videoOutputInspectorLoading = false;
+  if (payload?.ok && payload?.inspector) {
+    state.videoOutputInspector = payload;
+    state.videoOutputInspectorError = '';
+  } else {
+    state.videoOutputInspector = null;
+    state.videoOutputInspectorError = payload?.error || 'Video Output Inspector could not load this result.';
+  }
+  recordMemoryEvent('video.output_inspector.loaded', 'video', { result_id: cleanId, ok: Boolean(payload?.ok), schema: payload?.schema_version || VIDEO_OUTPUT_INSPECTOR_SCHEMA });
+  if (renderAfter) render();
+  return payload;
+}
+
 async function refreshVideoResults({ renderAfter = true } = {}) {
   const payload = await loadJson('/api/video/results?limit=50', { records: [] });
   const records = Array.isArray(payload?.records) ? payload.records : [];
@@ -4380,6 +4510,7 @@ async function refreshVideoResults({ renderAfter = true } = {}) {
   state.videoResults = records.filter((item) => !isVideoFinishSourceRecord(item));
   if (state.videoActiveResultId && !state.videoResults.some((item) => item.result_id === state.videoActiveResultId)) state.videoActiveResultId = '';
   if (!state.videoActiveResultId && state.videoResults.length) state.videoActiveResultId = state.videoResults[0].result_id;
+  await refreshVideoOutputInspector({ resultId: state.videoActiveResultId || '', renderAfter: false });
   saveUiState();
   recordMemoryEvent('video.results.loaded', 'video', { count: state.videoResults.length, source_count: state.videoSourceResults.length, active_result_id: state.videoActiveResultId || '' });
   if (renderAfter) render();
@@ -4492,6 +4623,7 @@ async function loadActiveVideoReplayMetadata() {
   }
   saveUiState();
   recordMemoryEvent('video.result.replay_metadata_loaded', 'video', { result_id: record.result_id, ok: Boolean(payload?.ok) });
+  await refreshVideoOutputInspector({ resultId: state.videoActiveResultId || record.result_id, renderAfter: false });
   render();
   return payload;
 }
@@ -4508,6 +4640,7 @@ async function exportActiveVideoResultMemory() {
   }
   saveUiState();
   recordMemoryEvent('video.result.memory_exported', 'video', { result_id: record.result_id, ok: Boolean(payload?.ok), count: Number(payload?.exports?.length || 0) });
+  await refreshVideoOutputInspector({ resultId: state.videoActiveResultId || record.result_id, renderAfter: false });
   render();
   return payload;
 }
@@ -5343,16 +5476,19 @@ function videoFinishPipelinePresetsHtml() {
   const policy = videoFinishMotionTimingPolicy();
   const speed = videoFinishMotionSpeedMultiplier();
   const speedPercent = Math.round((speed - 1) * 100);
-  return `<div class="neo-ui-card neo-video-finish-pipeline-presets" data-testid="video-finish-pipeline-presets" data-motion-schema="${escapeAttr(VIDEO_FINISH_MOTION_TIMING_SCHEMA)}" data-preset-schema="${escapeAttr(VIDEO_FINISH_PIPELINE_PRESET_SCHEMA)}">
-    <strong>Motion Timing + Finish Presets</strong>
-    <p>Use this for Lightning/LightX2V-style slow-motion repair. Presets configure the lanes; they do not auto-chain jobs yet.</p>
-    <div class="neo-ui-field-grid four compact">
-      <label>Pipeline Preset<select id="videoFinishPipelinePreset">${videoFinishPipelinePresetOptionsHtml()}</select></label>
-      <label>Motion Timing<select id="videoFinishMotionTimingPolicy"><option value="same_duration" ${policy === 'same_duration' ? 'selected' : ''}>Normal / same duration</option><option value="motion_speed_repair" ${policy === 'motion_speed_repair' ? 'selected' : ''}>Speed repair</option><option value="slow_motion" ${policy === 'slow_motion' ? 'selected' : ''}>Slow motion</option></select></label>
-      <label>Speed Multiplier<input id="videoFinishMotionSpeedMultiplier" type="number" min="0.25" max="4" step="0.05" value="${escapeAttr(speed)}"></label>
-      <label>Apply<button type="button" class="neo-btn secondary" id="videoApplyFinishPipelinePresetBtn">Apply Preset</button></label>
+  return `<div class="neo-ui-card neo-video-finish-pipeline-presets neo-video-modern-card" data-testid="video-finish-pipeline-presets" data-motion-schema="${escapeAttr(VIDEO_FINISH_MOTION_TIMING_SCHEMA)}" data-preset-schema="${escapeAttr(VIDEO_FINISH_PIPELINE_PRESET_SCHEMA)}">
+    <div class="neo-video-modern-head">
+      <div class="neo-video-modern-title"><span class="neo-video-modern-dot"></span><div><strong>Motion Timing + Finish Presets</strong><span>Control timing behavior before interpolation, upscale, and repair passes.</span></div></div>
+      <span class="neo-video-modern-chip">finish presets</span>
     </div>
-    ${NeoUI.badgeRow([`Preset: ${preset.label}`, policy === 'motion_speed_repair' ? `Speed +${speedPercent}%` : policy === 'slow_motion' ? 'Slow motion FPS policy' : 'Normal duration', 'Interpolation FPS stays multiplier-aware', 'Upscale can retime by numeric FPS when source FPS is known'])}
+    <p class="neo-video-modern-copy">Use this for Lightning/LightX2V-style slow-motion repair. Presets configure the finish lanes; they never auto-chain jobs.</p>
+    <div class="neo-ui-field-grid four compact neo-video-modern-field-grid">
+      <label><span>Pipeline Preset</span><select id="videoFinishPipelinePreset">${videoFinishPipelinePresetOptionsHtml()}</select></label>
+      <label><span>Motion Timing</span><select id="videoFinishMotionTimingPolicy"><option value="same_duration" ${policy === 'same_duration' ? 'selected' : ''}>Normal / same duration</option><option value="motion_speed_repair" ${policy === 'motion_speed_repair' ? 'selected' : ''}>Speed repair</option><option value="slow_motion" ${policy === 'slow_motion' ? 'selected' : ''}>Slow motion</option></select></label>
+      <label><span>Speed Multiplier</span><input id="videoFinishMotionSpeedMultiplier" type="number" min="0.25" max="4" step="0.05" value="${escapeAttr(speed)}"></label>
+      <label class="neo-video-modern-action-field"><span>Apply</span><button type="button" class="neo-btn secondary" id="videoApplyFinishPipelinePresetBtn">Apply Preset</button></label>
+    </div>
+    <div class="neo-video-modern-status-row">${NeoUI.badgeRow([`Preset: ${preset.label}`, policy === 'motion_speed_repair' ? `Speed +${speedPercent}%` : policy === 'slow_motion' ? 'Slow motion FPS policy' : 'Normal duration', 'Interpolation FPS stays multiplier-aware', 'Upscale can retime by numeric FPS when source FPS is known'])}</div>
   </div>`;
 }
 
@@ -6189,7 +6325,7 @@ function videoBackendProbeSummaryHtml() {
 function applyVideoParameterDefaults({ force = false } = {}) {
   const route = videoFindRoute();
   const profile = activeVideoParameterProfile(route);
-  Object.entries(profile.defaults).forEach(([key, value]) => {
+  Object.entries(profile.defaults || {}).forEach(([key, value]) => {
     if (force || state.videoDraft[key] === undefined || state.videoDraft[key] === null || state.videoDraft[key] === '') state.videoDraft[key] = value;
   });
   state.videoDraft.vram_profile = normalizeVideoVramProfile(state.videoDraft.vram_profile);
@@ -6198,36 +6334,51 @@ function applyVideoParameterDefaults({ force = false } = {}) {
   return profile;
 }
 function videoLoaderOptions(family = state.videoDraft.family) {
-  const loaderIds = [...new Set(videoRouteRecords({ family, includePlanned: true }).filter((route) => ['txt2vid', 'img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion', 'prompt_schedule', 'audio_video'].includes(route.mode)).map((route) => route.loader))];
-  return VIDEO_LOADER_OPTIONS.filter((option) => loaderIds.includes(option.id));
+  const routes = videoRouteRecords({ family, includePlanned: true });
+  const loaderIds = new Set(routes.map((route) => route.loader));
+  return videoCatalogOptions('loaders').filter((option) => loaderIds.has(option.id)).map((option) => {
+    const related = routes.filter((route) => route.loader === option.id);
+    const selectable = related.some((route) => videoRouteStatusSelectable(route.status));
+    return { ...option, disabled: !selectable, title: option.description || (selectable ? '' : 'This loader is known for the family but its routes are still planned.') };
+  });
 }
 function videoGenerationOptions(family = state.videoDraft.family, loader = state.videoDraft.loader) {
-  const modeIds = [...new Set(videoRouteRecords({ family, loader, includePlanned: true }).filter((route) => ['txt2vid', 'img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion', 'prompt_schedule', 'audio_video'].includes(route.mode)).map((route) => route.mode))];
-  return VIDEO_GENERATION_MODE_OPTIONS.filter((option) => modeIds.includes(option.id));
+  const routes = videoRouteRecords({ family, loader, includePlanned: true });
+  const modeIds = new Set(routes.map((route) => route.mode));
+  return videoCatalogOptions('generation_types').filter((option) => modeIds.has(option.id)).map((option) => {
+    const related = routes.filter((route) => route.mode === option.id);
+    const selectable = related.some((route) => videoRouteStatusSelectable(route.status));
+    const experimental = related.some((route) => route.status === 'experimental');
+    return { ...option, label: experimental ? `${option.label} · Experimental` : option.label, disabled: !selectable, title: option.description || (selectable ? '' : 'This generation type is planned for the selected family + loader.') };
+  });
 }
 function ensureVideoRouteSelectable() {
-  const familyIds = VIDEO_MODEL_FAMILY_OPTIONS.map((item) => item.id);
-  if (!familyIds.includes(state.videoDraft.family)) state.videoDraft.family = 'wan22';
-  const loaders = videoLoaderOptions(state.videoDraft.family);
-  if (!loaders.some((item) => item.id === state.videoDraft.loader)) state.videoDraft.loader = loaders[0]?.id || 'unet';
-  const modes = videoGenerationOptions(state.videoDraft.family, state.videoDraft.loader);
-  if (!modes.some((item) => item.id === state.videoDraft.mode)) state.videoDraft.mode = modes[0]?.id || 'txt2vid';
-  const route = videoFindRoute(state.videoDraft.family, state.videoDraft.loader, state.videoDraft.mode, true);
-  applyVideoParameterDefaults({ force: false });
-  return route;
+  const selectableRoutes = videoRouteRecords({ includePlanned: false });
+  if (!selectableRoutes.length) return null;
+  const recommended = selectableRoutes.find((route) => route.recommended_first) || selectableRoutes[0];
+  const familyRoutes = selectableRoutes.filter((route) => route.family === state.videoDraft.family);
+  if (!familyRoutes.length) state.videoDraft.family = recommended.family;
+  const activeFamilyRoutes = selectableRoutes.filter((route) => route.family === state.videoDraft.family);
+  if (!activeFamilyRoutes.some((route) => route.loader === state.videoDraft.loader)) state.videoDraft.loader = activeFamilyRoutes[0]?.loader || recommended.loader;
+  const activeLoaderRoutes = activeFamilyRoutes.filter((route) => route.loader === state.videoDraft.loader);
+  if (!activeLoaderRoutes.some((route) => route.mode === state.videoDraft.mode)) state.videoDraft.mode = activeLoaderRoutes[0]?.mode || recommended.mode;
+  if (state.surfaceRuntime?.video) state.surfaceRuntime.video.generation_mode = state.videoDraft.mode;
+  return videoFindRoute(state.videoDraft.family, state.videoDraft.loader, state.videoDraft.mode, false);
 }
 function videoRouteStateLabel(route = videoFindRoute()) {
-  if (!route) return 'Incompatible route';
+  if (!route) return 'Route catalog unavailable';
   if (route.status === 'enabled') return 'Ready for selected route';
-  return 'Planned route';
+  if (route.status === 'experimental') return 'Experimental route';
+  if (route.status === 'planned') return 'Planned route';
+  return humanize(route.status || 'unavailable');
 }
 function videoRouteBadges() {
   ensureVideoRouteSelectable();
   const route = videoFindRoute();
-  const family = VIDEO_MODEL_FAMILY_OPTIONS.find((item) => item.id === state.videoDraft.family)?.label || state.videoDraft.family;
-  const loader = videoLoaderOptions().find((item) => item.id === state.videoDraft.loader)?.label || state.videoDraft.loader;
-  const mode = videoGenerationOptions().find((item) => item.id === state.videoDraft.mode)?.label || state.videoDraft.mode;
-  const routeBadge = route ? `Route: ${route.route_id}` : 'Route: incompatible';
+  const family = videoCatalogLabel('families', state.videoDraft.family) || state.videoDraft.family;
+  const loader = videoCatalogLabel('loaders', state.videoDraft.loader) || state.videoDraft.loader;
+  const mode = videoGenerationTypeLabel(state.videoDraft.mode);
+  const routeBadge = route ? `Route: ${route.route_id}` : 'Route: unavailable';
   return [`Family: ${family}`, `Loader: ${loader}`, `Type: ${mode}`, routeBadge, videoRouteStateLabel(route), `VRAM: ${humanize(state.videoDraft.vram_profile || 'balanced')}`];
 }
 function activeVideoWorkspaceSummary(subtab = null) {
@@ -6237,10 +6388,11 @@ function activeVideoWorkspaceSummary(subtab = null) {
     workspace_label: app.label,
     workspace_description: app.description,
     generation_mode: state.videoDraft.mode || 'txt2vid',
-    generation_label: VIDEO_GENERATION_MODE_OPTIONS.find((item) => item.id === state.videoDraft.mode)?.label || 'Txt2Vid',
+    generation_label: videoGenerationTypeLabel(state.videoDraft.mode) || 'Txt2Vid',
     subtab_id: subtab?.subtab_id || app.id,
   };
 }
+
 function activeImageWorkspaceWorkflowSummary(subtab = null) {
   const app = activeWorkspaceApp();
   const workflowMode = normalizeImageWorkflowMode(subtab?.subtab_id || getImageWorkflowMode() || 'generate');
@@ -6440,11 +6592,41 @@ async function createProjectMilestoneFromCurrentSurface() {
 }
 
 
+
+const ADMIN_UX_SUBTAB_ALIASES = Object.freeze({
+  memory_engine: 'engine',
+  delivery_projects: 'projects',
+  project_workspace: 'projects',
+  assistant: 'assistant_operator',
+  operator: 'assistant_operator',
+});
+
+const ADMIN_UX_CHILD_TAB_ALIASES = Object.freeze({
+  memory: { review: 'durable_review', writeback: 'durable_review', durable_memory: 'durable_review' },
+  engine: { background_jobs: 'index_jobs', jobs: 'index_jobs', memory_jobs: 'index_jobs' },
+  projects: { delivery_workspace: 'workspaces', linked_memory: 'project_memory', memory: 'project_memory' },
+  assistant_operator: { scope_readout: 'assistant_workspaces', assistant_scopes: 'assistant_workspaces', traces: 'control_center', ledger: 'execution_ledger' },
+});
+
+function adminResolveUxSubtabId(subtabId) {
+  const raw = String(subtabId || 'overview').trim().toLowerCase();
+  return ADMIN_UX_SUBTAB_ALIASES[raw] || raw;
+}
+
+function adminResolveUxChildTab(area, tabId) {
+  const raw = String(tabId || '').trim().toLowerCase();
+  return ADMIN_UX_CHILD_TAB_ALIASES[area]?.[raw] || raw;
+}
+
 function setActiveSubtab(surfaceId, subtabId) {
   state.activeSurfaceId = surfaceId || state.activeSurfaceId || 'admin';
-  setSurfaceSubtabId(state.activeSurfaceId, subtabId || state.activeSubtabId || null);
+  const resolvedSubtabId = state.activeSurfaceId === 'admin' ? adminResolveUxSubtabId(subtabId) : subtabId;
+  setSurfaceSubtabId(state.activeSurfaceId, resolvedSubtabId || state.activeSubtabId || null);
   saveUiState();
   render();
+  if (state.activeSurfaceId === 'assistant' && subtabId === 'memory') {
+    window.setTimeout(() => assistantRefreshMemoryLens().catch(() => {}), 0);
+  }
 }
 
 
@@ -6666,7 +6848,7 @@ function renderVideoCommandStrip(ctx = {}) {
   const canProbe = Boolean(ctx.videoHeaderCanProbe);
   const configHtml = `
       <div class="neo-workspace-row compact-row" data-testid="video-workspace-model-route-row" data-command-role="video-route">
-        <label>Model Family${optionSelect('videoWorkspaceFamily', VIDEO_MODEL_FAMILY_OPTIONS, state.videoDraft.family || 'wan22')}</label>
+        <label>Model Family${optionSelect('videoWorkspaceFamily', videoFamilyOptions(), state.videoDraft.family || 'wan22')}</label>
         <label>Loader${optionSelect('videoWorkspaceLoader', videoLoaderOptions(state.videoDraft.family || 'wan22'), state.videoDraft.loader || 'unet')}</label>
         <label>Workflow Mode <span class="neo-field-hint">generation type</span>${optionSelect('videoGenerationMode', videoGenerationOptions(state.videoDraft.family || 'wan22', state.videoDraft.loader || 'unet'), state.videoDraft.mode || 'txt2vid')}</label>
       </div>
@@ -6999,19 +7181,19 @@ function renderWorkspaceHeader(surface, subtab) {
 
   const videoFamilySelect = document.getElementById('videoWorkspaceFamily');
   if (videoFamilySelect && surface.surface_id === 'video') {
-    videoFamilySelect.addEventListener('change', (event) => {
+    videoFamilySelect.addEventListener('change', async (event) => {
       state.videoDraft.family = event.target.value;
       ensureVideoRouteSelectable();
       state.videoDraft.wan_model_mode = videoWanModelModeValue(videoFindRoute());
-      applyVideoParameterDefaults({ force: true });
+      await refreshVideoParameterProfile({ applyDefaults: true, force: true });
       saveUiState();
       render();
-      recordMemoryEvent('video.family.changed', 'video', { family: state.videoDraft.family, loader: state.videoDraft.loader, parameter_profile: 'neo.video.parameter_profile.v3' });
+      recordMemoryEvent('video.family.changed', 'video', { family: state.videoDraft.family, loader: state.videoDraft.loader, route_matrix: state.videoRouteMatrix?.schema_version || '', parameter_profile: state.videoParameterProfile?.schema_version || '' });
     });
   }
   const videoLoaderSelect = document.getElementById('videoWorkspaceLoader');
   if (videoLoaderSelect && surface.surface_id === 'video') {
-    videoLoaderSelect.addEventListener('change', (event) => {
+    videoLoaderSelect.addEventListener('change', async (event) => {
       state.videoDraft.loader = event.target.value;
       state.videoDraft.model_name = 'provider_default';
       state.videoDraft.clip_name = 'provider_default';
@@ -7021,10 +7203,10 @@ function renderWorkspaceHeader(surface, subtab) {
       state.videoDraft.vae_name = 'automatic';
       ensureVideoRouteSelectable();
       state.videoDraft.wan_model_mode = videoWanModelModeValue(videoFindRoute());
-      applyVideoParameterDefaults({ force: true });
+      await refreshVideoParameterProfile({ applyDefaults: true, force: true });
       saveUiState();
       render();
-      recordMemoryEvent('video.loader.changed', 'video', { family: state.videoDraft.family, loader: state.videoDraft.loader, parameter_profile: 'neo.video.parameter_profile.v3' });
+      recordMemoryEvent('video.loader.changed', 'video', { family: state.videoDraft.family, loader: state.videoDraft.loader, route_matrix: state.videoRouteMatrix?.schema_version || '', parameter_profile: state.videoParameterProfile?.schema_version || '' });
     });
   }
 
@@ -7036,7 +7218,7 @@ function renderWorkspaceHeader(surface, subtab) {
         ? document.getElementById('promptCaptioningWorkspaceMode')
         : document.getElementById('surfaceWorkspaceMode');
   if (modeSelect) {
-    modeSelect.addEventListener('change', (event) => {
+    modeSelect.addEventListener('change', async (event) => {
       if (surface.surface_id === 'prompt_captioning') {
         promptCaptioningSetWorkspaceMode(event.target.value);
         saveUiState();
@@ -7059,10 +7241,10 @@ function renderWorkspaceHeader(surface, subtab) {
         setVideoGenerationMode(event.target.value);
         ensureVideoRouteSelectable();
         state.videoDraft.wan_model_mode = videoWanModelModeValue(videoFindRoute());
-        applyVideoParameterDefaults({ force: true });
+        await refreshVideoParameterProfile({ applyDefaults: true, force: true });
         saveUiState();
         render();
-        recordMemoryEvent('video.workflow_mode.changed', 'video', { mode: state.videoDraft.mode, workspace_app: state.activeWorkspaceAppId, parameter_profile: 'neo.video.parameter_profile.v3' });
+        recordMemoryEvent('video.workflow_mode.changed', 'video', { mode: state.videoDraft.mode, workspace_app: state.activeWorkspaceAppId, route_matrix: state.videoRouteMatrix?.schema_version || '', parameter_profile: state.videoParameterProfile?.schema_version || '' });
         return;
       }
       if (surface.surface_id === 'image') {
@@ -7113,12 +7295,12 @@ function renderSubtabs(surface) {
   if (surface.surface_id === 'video') {
     el.subtabNav.setAttribute('aria-label', 'Video Workspace navigation');
     el.subtabNav.dataset.navKind = 'video-workspace';
-    if (!VIDEO_WORKSPACE_APPS.some((app) => app.id === getSurfaceWorkspaceAppId('video'))) setSurfaceWorkspaceAppId('video', 'workspace');
+    if (!VIDEO_WORKSPACE_APPS.some((app) => app.id === getSurfaceWorkspaceAppId('video'))) setSurfaceWorkspaceAppId('video', 'generation');
     VIDEO_WORKSPACE_APPS.forEach((app) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = app.label;
-      button.title = `Open ${app.label} workspace — generation type stays ${VIDEO_GENERATION_MODE_OPTIONS.find((item) => item.id === state.videoDraft.mode)?.label || 'Txt2Vid'}.`;
+      button.title = `Open ${app.label} workspace — generation type stays ${videoGenerationTypeLabel(state.videoDraft.mode) || 'Txt2Vid'}.`;
       button.setAttribute('aria-label', `${app.label} workspace`);
       button.dataset.videoWorkspaceApp = app.id;
       button.setAttribute('data-video-workspace-app', app.id);
@@ -8073,12 +8255,13 @@ function extensionId(record) {
 
 function canonicalExtensionWorkspaceApp(record = null) {
   const manifest = record?.manifest || {};
-  const apps = Array.isArray(manifest.workspace_apps) ? manifest.workspace_apps.map(normalizeWorkspaceAppId).filter(Boolean) : [];
+  const surface = manifest.surface || state.activeSurfaceId || 'image';
+  const apps = Array.isArray(manifest.workspace_apps) ? manifest.workspace_apps.map((item) => normalizeExtensionWorkspaceAppId(surface, item)).filter(Boolean) : [];
   if (apps.length) return apps[0];
   const targets = Array.isArray(manifest.mount_targets) ? manifest.mount_targets : [];
   const target = targets.find((item) => item && item.workspace_app);
-  if (target?.workspace_app) return normalizeWorkspaceAppId(target.workspace_app);
-  return activeWorkspaceApp().id;
+  if (target?.workspace_app) return normalizeExtensionWorkspaceAppId(surface, target.workspace_app);
+  return surface === 'video' ? activeVideoWorkspaceApp().id : activeWorkspaceApp().id;
 }
 function currentGenerationWorkflowMode() {
   const raw = String(state.imageDraft?.workflow_mode || getImageWorkflowMode() || 'generate').toLowerCase();
@@ -8087,8 +8270,16 @@ function currentGenerationWorkflowMode() {
 }
 function currentExtensionWorkflowContext(record = null) {
   const manifest = record?.manifest || {};
+  const surface = manifest.surface || state.activeSurfaceId || 'image';
+  if (surface === 'video') {
+    return {
+      surface,
+      workspace_app: canonicalExtensionWorkspaceApp(record),
+      workflow_mode: getVideoGenerationMode() || state.videoDraft?.mode || 'txt2vid',
+    };
+  }
   return {
-    surface: manifest.surface || state.activeSurfaceId || 'image',
+    surface,
     // Use the extension owner workspace, not the currently visible workspace.
     // This allows Finish tools (High-Res Lab) to stack with Generations/Reference/Assets tools
     // during one generation submit instead of treating Finish as a separate isolated pass.
@@ -8100,12 +8291,26 @@ function currentExtensionWorkflowContext(record = null) {
 function extensionWorkflowApplicationKey(record, context = null) {
   const extId = extensionId(record);
   const ctx = context || currentExtensionWorkflowContext(record);
-  return [ctx.surface || 'image', normalizeWorkspaceAppId(ctx.workspace_app || 'generations'), ctx.workflow_mode || 'generate', extId].join(':');
+  const surface = ctx.surface || 'image';
+  const fallbackApp = surface === 'video' ? 'generation' : 'generations';
+  const fallbackMode = surface === 'video' ? 'txt2vid' : 'generate';
+  return [surface, normalizeExtensionWorkspaceAppId(surface, ctx.workspace_app || fallbackApp), ctx.workflow_mode || fallbackMode, extId].join(':');
+}
+
+function legacyVideoExtensionApplicationKeys(record, context = null) {
+  const ctx = context || currentExtensionWorkflowContext(record);
+  if ((ctx.surface || '') !== 'video') return [];
+  const extId = extensionId(record);
+  const oldApp = normalizeWorkspaceAppId(ctx.workspace_app || 'generation');
+  const legacyModes = ['generate', 'img2img', 'inpaint', 'outpaint', 'edit', 'upscale', 'batch', 'history'];
+  return legacyModes.map((mode) => ['video', oldApp, mode, extId].join(':'));
 }
 
 function extensionWorkflowApplied(record, context = null) {
   const key = extensionWorkflowApplicationKey(record, context);
-  return Boolean(state.extensionWorkflowApplications?.[key]);
+  const applications = state.extensionWorkflowApplications || {};
+  if (applications[key]) return true;
+  return legacyVideoExtensionApplicationKeys(record, context).some((legacyKey) => Boolean(applications[legacyKey]));
 }
 
 function extensionWorkflowAppliedById(extensionIdValue) {
@@ -8151,13 +8356,14 @@ function extensionBackendAliases(backend) {
 }
 function extensionManifestRouteState(manifest = {}, route = {}) {
   const routeStates = manifest.route_states || {};
-  const family = route.family || state.imageDraft.family || imageCommandValue('family') || 'sdxl';
-  const loader = route.loader || state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
-  const mode = route.workflow_mode || currentGenerationWorkflowMode();
+  const surface = route.surface || manifest.surface || state.activeSurfaceId || 'image';
+  const family = route.family || (surface === 'video' ? state.videoDraft?.family : (state.imageDraft.family || imageCommandValue('family'))) || (surface === 'video' ? '' : 'sdxl');
+  const loader = route.loader || (surface === 'video' ? state.videoDraft?.loader : (state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family))) || '';
+  const mode = route.workflow_mode || (surface === 'video' ? (getVideoGenerationMode() || state.videoDraft?.mode || 'txt2vid') : currentGenerationWorkflowMode());
   const engine = String(route.engine || route.inpaint_engine || '').trim().toLowerCase();
   const engineIndependent = manifest?.compatibility_dimensions?.engine === false
     || manifest?.support_matrix_contract?.compatibility_dimensions?.engine === false;
-  const workspace = normalizeWorkspaceAppId(route.workspace_app || manifest.workspace_apps?.[0] || activeWorkspaceApp().id || 'generations');
+  const workspace = normalizeExtensionWorkspaceAppId(surface, route.workspace_app || manifest.workspace_apps?.[0] || (surface === 'video' ? activeVideoWorkspaceApp().id : activeWorkspaceApp().id));
   const backends = extensionBackendAliases(route.backend);
   const families = [...new Set([family, '*'].filter(Boolean))];
   const loaders = [...new Set([loader, '*'].filter(Boolean))];
@@ -8199,7 +8405,78 @@ function extensionManifestRouteState(manifest = {}, route = {}) {
   const key = candidates.find((item) => Object.prototype.hasOwnProperty.call(routeStates, item));
   return { state: key ? routeStates[key] : 'planned_gated', key: key || '', engine, engine_independent: engineIndependent, route_states_count: Object.keys(routeStates).length };
 }
-function extensionActiveRouteSnapshot(record = null) {
+function videoExtensionBaseRouteState(routeStatus = '') {
+  const status = String(routeStatus || '').trim().toLowerCase();
+  if (status === 'enabled' || status === 'available') return 'available';
+  if (status === 'experimental' || status === 'experimental_available') return 'experimental_available';
+  if (status === 'planned' || status === 'future' || status === 'implementation_target') return 'planned_gated';
+  if (status === 'unsupported' || status === 'unavailable' || status === 'disabled') return 'unsupported';
+  return 'planned_gated';
+}
+function videoExtensionRouteContext(record = null) {
+  const manifest = record?.manifest || {};
+  const profile = videoActiveBackendProfile() || {};
+  const cloud = isCloudVideoProfile(profile);
+  const route = cloud ? null : videoFindRoute();
+  const providerId = String(profile?.provider_id || '').trim() || (cloud ? 'cloud_api' : 'comfyui');
+  const backend = cloud ? 'cloud_api' : normalizeRouteBackend(profile?.provider_id || profile?.backend || profile?.connection_type || 'comfyui');
+  const workflowMode = cloud ? ensureCloudVideoMode() : (route?.mode || getVideoGenerationMode() || state.videoDraft?.mode || 'txt2vid');
+  const routeStatus = cloud
+    ? (videoProfileSupportsCapability(workflowMode, profile) ? 'enabled' : 'unavailable')
+    : (route?.status || 'unavailable');
+  return {
+    surface: 'video',
+    provider_id: providerId,
+    profile_id: profile?.profile_id || '',
+    backend,
+    family: route?.family || state.videoDraft?.family || '',
+    loader: route?.loader || state.videoDraft?.loader || '',
+    workflow_mode: workflowMode,
+    generation_type: workflowMode,
+    workspace_app: canonicalExtensionWorkspaceApp(record),
+    route_id: route?.route_id || (cloud ? `cloud:${providerId}:${workflowMode}` : ''),
+    route_status: routeStatus,
+    base_route_state: videoExtensionBaseRouteState(routeStatus),
+  };
+}
+function extensionSupportedBackendMatches(manifest = {}, backend = '') {
+  const declared = Array.isArray(manifest.supported_backends) ? manifest.supported_backends : [];
+  if (!declared.length) return true;
+  const active = new Set(extensionBackendAliases(backend));
+  return declared.some((item) => extensionBackendAliases(item).some((alias) => active.has(alias)));
+}
+function videoExtensionActiveRouteSnapshot(record = null) {
+  const manifest = record?.manifest || {};
+  const context = videoExtensionRouteContext(record);
+  const explicit = extensionManifestRouteState(manifest, context);
+  const routeScope = manifest.route_context_scope || 'generation_route';
+  let manifestState = explicit.route_states_count ? explicit.state : context.base_route_state;
+  let reason = explicit.route_states_count ? `Extension matrix key: ${explicit.key || 'fallback'}` : `Video route ${context.route_id || 'unresolved'} is ${context.route_status || 'unknown'}.`;
+
+  if (!extensionSupportedBackendMatches(manifest, context.backend)) {
+    manifestState = 'provider_gated';
+    reason = `${manifest.name || extensionId(record) || 'Extension'} does not support the active Video backend ${context.backend}.`;
+  } else if (Array.isArray(manifest.supported_families) && manifest.supported_families.length && !manifest.supported_families.includes(context.family)) {
+    manifestState = 'unsupported';
+    reason = `${manifest.name || extensionId(record) || 'Extension'} does not support Video family ${context.family || 'unknown'}.`;
+  } else if (Array.isArray(manifest.supported_loaders) && manifest.supported_loaders.length && !manifest.supported_loaders.includes(context.loader)) {
+    manifestState = 'unsupported';
+    reason = `${manifest.name || extensionId(record) || 'Extension'} does not support Video loader ${context.loader || 'unknown'}.`;
+  } else {
+    const modes = Array.isArray(manifest.workflow_modes) ? manifest.workflow_modes : [];
+    if (modes.length && !modes.includes(context.workflow_mode)) {
+      manifestState = 'unsupported';
+      reason = `${manifest.name || extensionId(record) || 'Extension'} does not support Video generation type ${context.workflow_mode}.`;
+    }
+  }
+
+  const routeState = routeScope === 'workspace' && explicit.route_states_count
+    ? manifestState
+    : (extensionRouteStateRank(context.base_route_state) > extensionRouteStateRank(manifestState) ? context.base_route_state : manifestState);
+  if (routeState === context.base_route_state && routeState !== manifestState) reason = `Base Video route is ${context.base_route_state}.`;
+  return { ...context, route_context_scope: routeScope, route_state: routeState, manifest_route_state: manifestState, manifest_route_key: explicit.key, reason };
+}
+function imageExtensionActiveRouteSnapshot(record = null) {
   const manifest = record?.manifest || {};
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
   const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family);
@@ -8207,12 +8484,18 @@ function extensionActiveRouteSnapshot(record = null) {
   const backend = activeRouteBackend();
   const baseEntry = routeEntryForSelection(family, loader, workflowMode, backend);
   const workspaceApp = canonicalExtensionWorkspaceApp(record);
-  const declared = extensionManifestRouteState(manifest, { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp });
+  const declared = extensionManifestRouteState(manifest, { surface: 'image', backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp });
   const baseState = baseEntry?.state || 'planned_gated';
   const routeState = extensionRouteStateRank(baseState) > extensionRouteStateRank(declared.state) ? baseState : declared.state;
   const reason = baseEntry?.reason && routeState === baseState ? baseEntry.reason : (routeState === declared.state ? `Extension matrix key: ${declared.key || 'fallback'}` : 'Route gated by base model route.');
-  return { backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp, base_route_state: baseState, route_state: routeState, manifest_route_state: declared.state, manifest_route_key: declared.key, reason };
+  return { surface: 'image', backend, family, loader, workflow_mode: workflowMode, workspace_app: workspaceApp, base_route_state: baseState, route_state: routeState, manifest_route_state: declared.state, manifest_route_key: declared.key, reason };
 }
+function extensionActiveRouteSnapshot(record = null) {
+  const surface = record?.manifest?.surface || state.activeSurfaceId || 'image';
+  if (surface === 'video') return videoExtensionActiveRouteSnapshot(record);
+  return imageExtensionActiveRouteSnapshot(record);
+}
+
 function extensionRouteStateChip(record) {
   const route = extensionActiveRouteSnapshot(record);
   const policy = extensionRouteStatePolicy(route.route_state);
@@ -13385,16 +13668,17 @@ const HIGH_RES_LAB_PROFILE_PRESETS = {
 const HIGH_RES_LAB_DEFAULTS = { profile: 'balanced_finish', ...HIGH_RES_LAB_PROFILE_PRESETS.balanced_finish, enabled: false, enable_origin: '' };
 const HIGH_RES_LAB_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
 const HIGH_RES_LAB_ROUTE_PROFILE_STAGE = 'public_preview';
+// Historical source-lock text retained only as a non-rendered regression marker:
+// Controls are shown disabled until the route becomes available.
 const HIGH_RES_LAB_UI_POLICY = {
   available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Available', tone: 'success' },
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
   // Keep route-profile targets/gated routes visible as disabled diagnostics.
   // Otherwise the built-in looks installed but empty while the family rollout is pending.
-  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Implementation target', tone: 'warning' },
-  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Implementation target', tone: 'warning' },
-  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Planned', tone: 'warning' },
-  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Provider gated', tone: 'warning' },
-  unsupported: { visible: false, diagnostic: false, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
+  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Backend required', tone: 'warning' },
+  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not compatible', tone: 'danger' },
 };
 function highResLabSettings() {
   const raw = state.imageDraft?.[HIGH_RES_LAB_EXTENSION_ID] || {};
@@ -13454,10 +13738,10 @@ function highResLabActiveRoute(record) {
   const routeState = matrixState && order[matrixState] > order[manifestState] ? matrixState : manifestState;
   let reason = entry?.reason || '';
   if (!reason) {
-    if (routeState === 'implementation_target') reason = 'High-Res Lab has a route profile for this family/loader, but the family enablement pass has not promoted it yet.';
-    if (routeState === 'planned_gated') reason = 'This Image route is planned/gated, so High-Res Lab controls are visible but disabled until workflow patch validation is available.';
-    if (routeState === 'provider_gated') reason = 'High-Res Lab needs the Comfy workflow graph adapter. Select a Comfy backend/profile to enable these controls.';
-    if (routeState === 'unsupported') reason = 'This route does not expose a compatible image finish surface for High-Res Lab.';
+    if (routeState === 'implementation_target') reason = 'High-Res Lab is not available for this model and loader yet.';
+    if (routeState === 'planned_gated') reason = 'High-Res Lab is not available for this model and image mode yet.';
+    if (routeState === 'provider_gated') reason = 'Connect a compatible ComfyUI backend to use High-Res Lab.';
+    if (routeState === 'unsupported') reason = 'High-Res Lab is not compatible with this model setup.';
   }
   return { backend, family, loader, workflow_mode: workflowMode, route_mode: routeMode, route_key: routeKey, route_state: routeState, reason };
 }
@@ -13483,7 +13767,7 @@ function highResLabParameterVisibility(route, settings = highResLabSettings(), r
   const ultimateState = highResLabOptionalCapabilityState(record, 'ultimate_sd_upscale');
   const family = String(route?.family || '');
   const routeBlocksUltimate = ['flux', 'flux2_klein', 'krea2', 'krea2_turbo', 'qwen_image', 'qwen_rapid_aio', 'qwen_image_edit_2509', 'z_image', 'z_image_turbo'].includes(family) || family === 'flux2_dev';
-  const routeHidesCfg = ['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev';
+  const routeHidesCfg = ['flux', 'flux2_klein', 'krea2', 'krea2_turbo'].includes(family) || family === 'flux2_dev';
   const providerGated = ['implementation_target', 'planned_gated', 'provider_gated'].includes(route?.route_state);
   const unsupported = route?.route_state === 'unsupported';
   // Provider/planned-gated routes still render the controls in disabled form so
@@ -13497,14 +13781,14 @@ function highResLabParameterVisibility(route, settings = highResLabSettings(), r
     scale: { visible: normalVisible, disabled: !activeRoute, reason: '' },
     steps: { visible: normalVisible, disabled: !activeRoute, reason: '' },
     denoise: { visible: normalVisible, disabled: !activeRoute, reason: '' },
-    cfg: { visible: normalVisible && !routeHidesCfg, disabled: !activeRoute, reason: routeHidesCfg ? 'CFG is hidden for this route profile; High-Res Lab preserves the base sampler CFG.' : '' },
+    cfg: { visible: normalVisible && !routeHidesCfg, disabled: !activeRoute, reason: routeHidesCfg ? 'CFG is managed by the selected model, so High-Res Lab keeps the current sampler value.' : '' },
     sampler: { visible: normalVisible, disabled: !activeRoute, reason: '' },
     scheduler: { visible: normalVisible, disabled: !activeRoute, reason: '' },
-    upscaler: { visible: normalVisible && mode === 'image_upscale', disabled: !activeRoute || modelUpscaleState === 'provider_gated', reason: modelUpscaleState === 'provider_gated' ? 'Optional model-upscale nodes are missing; ImageScale fallback remains available.' : '' },
+    upscaler: { visible: normalVisible && mode === 'image_upscale', disabled: !activeRoute || modelUpscaleState === 'provider_gated', reason: modelUpscaleState === 'provider_gated' ? 'The optional upscaler nodes are not installed. Standard image scaling is still available.' : '' },
     tiled_vae: { visible: normalVisible, disabled: !activeRoute, reason: '' },
-    tile_size: { visible: normalVisible && tiledRequested, disabled: !activeRoute || tiledVaeState === 'provider_gated', reason: tiledVaeState === 'provider_gated' ? 'VAEDecodeTiled is missing; standard VAEDecode fallback remains available.' : '' },
-    tile_overlap: { visible: normalVisible && tiledRequested, disabled: !activeRoute || tiledVaeState === 'provider_gated', reason: tiledVaeState === 'provider_gated' ? 'VAEDecodeTiled is missing; standard VAEDecode fallback remains available.' : '' },
-    ultimate_sd_upscale: { visible: expert && normalVisible && !routeBlocksUltimate, disabled: !activeRoute || ultimateState !== 'available', reason: routeBlocksUltimate ? 'Ultimate SD Upscale is blocked for this route profile.' : (ultimateState === 'available' ? '' : 'Ultimate SD Upscale is optional and unavailable for this route/node set.') },
+    tile_size: { visible: normalVisible && tiledRequested, disabled: !activeRoute || tiledVaeState === 'provider_gated', reason: tiledVaeState === 'provider_gated' ? 'Tiled VAE decoding is not installed. Standard VAE decoding is still available.' : '' },
+    tile_overlap: { visible: normalVisible && tiledRequested, disabled: !activeRoute || tiledVaeState === 'provider_gated', reason: tiledVaeState === 'provider_gated' ? 'Tiled VAE decoding is not installed. Standard VAE decoding is still available.' : '' },
+    ultimate_sd_upscale: { visible: expert && normalVisible && !routeBlocksUltimate, disabled: !activeRoute || ultimateState !== 'available', reason: routeBlocksUltimate ? 'Ultimate SD Upscale is not compatible with this model setup.' : (ultimateState === 'available' ? '' : 'Install the required Ultimate SD Upscale nodes to use this option.') },
     unsupported_route: { visible: expert && unsupported, disabled: true, reason: route?.reason || 'Unsupported route.' },
   };
 }
@@ -13628,7 +13912,7 @@ function highResLabPayloadPreview(record, appliedOverride = null) {
           workflow_patch_deferred_to_phase: '',
           safe_replay_payload: true,
           ui_parity_pass_count: Array.isArray(params.detailer_passes) ? params.detailer_passes.length : 1,
-          ui_parity_features: ['shared_defaults','smart_presets','detailer_cards','manual_target_maker','drag_canvas_editor','prompt_mapper','live_report'],
+          ui_parity_features: ['shared_defaults','detailer_model_source','smart_presets','detailer_cards','manual_target_maker','drag_canvas_editor','prompt_mapper','live_report'],
         },
       },
     },
@@ -13750,7 +14034,7 @@ const IMAGE_UPSCALE_UI_POLICY = {
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
   planned_gated: { visible: false, diagnostic: true, controls_enabled: false, badge: 'Planned', tone: 'warning' },
   provider_gated: { visible: false, diagnostic: true, controls_enabled: false, badge: 'Provider gated', tone: 'warning' },
-  unsupported: { visible: false, diagnostic: false, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
+  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
 };
 function imageUpscaleSettings() {
   const raw = state.imageDraft?.[IMAGE_UPSCALE_EXTENSION_ID] || {};
@@ -15254,7 +15538,7 @@ function imageUpscalePanel(record) {
     ${restoreActive ? `${forgeUpscale ? '' : `<label>CodeFormer model${imageUpscaleOptionSelect('imageUpscaleRestoreModel', imageUpscaleFaceRestoreOptions(settings.restore_model), settings.restore_model || '', locked)}</label>`}${effectiveRestoreAssist === 'codeformer' ? `<label>CodeFormer fidelity<input id="imageUpscaleRestoreFidelity" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_fidelity)}" ${locked ? 'disabled' : ''}></label>` : ''}<label>Restore visibility<input id="imageUpscaleRestoreVisibility" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.restore_visibility)}" ${locked ? 'disabled' : ''}></label>${forgeUpscale ? (imageUpscaleModelCatalogState.supports_upscale_first ? `<label class="neo-toggle-row"><input id="imageUpscaleUpscaleFirst" type="checkbox" ${settings.upscale_first ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Upscale before face restoration</span></label>` : '') : `<label>Face detection${imageUpscaleOptionSelect('imageUpscaleRestoreDetection', imageUpscaleFaceDetectionOptions(settings.restore_detection || 'retinaface_resnet50'), settings.restore_detection || 'retinaface_resnet50', locked)}</label>`}${codeFormerHelp}` : ''}
   `;
   const body = `<section class="neo-image-upscale-panel" data-extension-id="${IMAGE_UPSCALE_EXTENSION_ID}" data-stage="J6" data-runtime-active="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-cfg-fix-panel__header"><div><strong>Image Upscale</strong>${!compact ? '<span class="neo-muted">Built-in Finish extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled && controlsEnabled)}<span class="neo-state-pill ${policy.tone || ''}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(policy.badge)}</span></div></header>
+    <header class="neo-cfg-fix-panel__header"><div><strong>Image Upscale</strong>${!compact ? '<span class="neo-muted">Upscale and refine</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled && controlsEnabled)}<span class="neo-state-pill ${policy.tone || ''}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(policy.badge)}</span></div></header>
     ${details}
     <div class="neo-cfg-fix-toggle-row"><label class="neo-toggle-row"><input id="imageUpscaleEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Enable Image Upscale utility</span></label></div>
     <div class="neo-image-upscale-source-row">
@@ -17418,7 +17702,7 @@ const IP_ADAPTER_ROUTE_UI_POLICY = {
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
   planned_gated: { visible: false, diagnostic: true, controls_enabled: false, badge: 'Planned', tone: 'warning' },
   provider_gated: { visible: false, diagnostic: true, controls_enabled: false, badge: 'Provider gated', tone: 'warning' },
-  unsupported: { visible: false, diagnostic: false, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
+  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
 };
 const IP_ADAPTER_MODE_OPTIONS = [
   { id: 'standard', label: 'Standard IP Adapter' },
@@ -18753,10 +19037,10 @@ const CONTROLNET_ACTIVE_STATES = ['available', 'experimental_available'];
 const CONTROLNET_UI_POLICY = {
   available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Available', tone: 'success' },
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
-  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Implementation target', tone: 'warning' },
-  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Planned', tone: 'warning' },
-  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Provider gated', tone: 'warning' },
-  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
+  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Backend required', tone: 'warning' },
+  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not compatible', tone: 'danger' },
 };
 const CONTROLNET_UNIT_OPTIONS = [
   { id: 'auto', label: 'Auto / match model' },
@@ -18875,6 +19159,14 @@ const CONTROLNET_DEFAULT_UNIT = {
   openpose_body: true,
   openpose_hand: false,
   openpose_face: false,
+  pose_method: 'controlnet',
+  pose_reference_lane: 2,
+  pose_map_lane: 3,
+  pose_base_lora: '',
+  pose_helper_lora: '',
+  pose_base_strength: 0.70,
+  pose_helper_strength: 0.70,
+  pose_prompt_instruction: 'Make the person in image 1 match the exact pose from image 2. Use image 3 as the extracted pose map. Preserve identity, clothing, background, lighting, and style unless the prompt explicitly requests a change.',
   advanced_enabled: false,
   advanced_engine: 'auto',
   strength_schedule: 'flat',
@@ -18931,7 +19223,7 @@ function controlNetDomUnits() {
     root.querySelectorAll('[data-controlnet-unit-field]').forEach((node) => {
       const field = node.getAttribute('data-controlnet-unit-field');
       if (!field) return;
-      const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high']);
+      const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high', 'pose_base_strength', 'pose_helper_strength']);
       const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'sliding_context']);
       if (checkboxFields.has(field)) unit[field] = Boolean(node.checked);
       else if (numericFields.has(field)) unit[field] = Number(node.value);
@@ -18975,6 +19267,34 @@ function syncControlNetDomToDraft() {
   const next = { ...settings, units: domUnits, enabled: Boolean(settings.enabled) };
   state.imageDraft[CONTROLNET_EXTENSION_ID] = next;
   return next;
+}
+
+function controlNetPoseTransferRouteSupported(route = null) {
+  const active = route || controlNetActiveRoute(null);
+  const backend = normalizeRouteBackend(active?.backend || activeRouteBackend());
+  const mode = controlNetWorkflowMode(active?.workflow_mode || getImageWorkflowMode());
+  return ['comfyui', 'comfyui_portable'].includes(backend)
+    && active?.family === 'qwen_image_edit_2511'
+    && ['diffusion_model', 'gguf'].includes(active?.loader || '')
+    && ['img2img', 'edit'].includes(mode);
+}
+function controlNetPoseTransferUnits(settings = null) {
+  const source = settings || (state.imageDraft?.[CONTROLNET_EXTENSION_ID] || {});
+  const units = Array.isArray(source.units) ? source.units : [];
+  return units.filter((unit) => unit?.enabled !== false && unit?.unit === 'openpose' && unit?.pose_method === 'qwen_transfer');
+}
+function controlNetPoseTransferActive(settings = null) {
+  return controlNetPoseTransferUnits(settings).length > 0;
+}
+function controlNetPoseTransferHasImage3Conflict() {
+  return Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
+}
+function controlNetPoseTransferLaneSummary() {
+  return {
+    subject: Boolean(state.imageDraft.source_image || state.imageDraft.source_image_url),
+    pose_reference: Boolean(state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url),
+    pose_map_conflict: controlNetPoseTransferHasImage3Conflict(),
+  };
 }
 
 function controlNetActiveRoute(record) {
@@ -19056,9 +19376,12 @@ function controlNetRouteForTask(route, task = 'map_control') {
   };
 }
 function controlNetStatusLabel(route, applied, units = []) {
+  const cleanUnits = controlNetCleanUnits(units, route);
+  const poseTransfer = cleanUnits.some((unit) => unit.pose_method === 'qwen_transfer');
+  if (poseTransfer && controlNetPoseTransferRouteSupported(route)) return applied ? 'Experimental' : 'Disabled';
   if (!applied && controlNetRouteControlsEnabled(route)) return 'Disabled';
   if (!controlNetRouteControlsEnabled(route)) return controlNetRouteBadge(route);
-  const activeCount = controlNetCleanUnits(units, route).length;
+  const activeCount = cleanUnits.length;
   if (!activeCount) return 'No active units';
   if (route.route_state === 'experimental_available') return 'Experimental';
   return 'Ready';
@@ -19245,7 +19568,22 @@ function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
     mask_mode: ['none', 'control_mask', 'inpaint_mask'].includes(data.mask_mode) ? data.mask_mode : 'none',
     batch_mode: ['auto', 'repeat', 'clamp', 'strict'].includes(data.batch_mode) ? data.batch_mode : 'auto',
     sliding_context: Boolean(data.sliding_context),
+    pose_method: unit === 'openpose' && ['controlnet', 'qwen_transfer'].includes(data.pose_method) ? data.pose_method : 'controlnet',
+    pose_reference_lane: 2,
+    pose_map_lane: 3,
+    pose_base_lora: String(data.pose_base_lora || '').trim(),
+    pose_helper_lora: String(data.pose_helper_lora || '').trim(),
+    pose_base_strength: Math.max(0, Math.min(2, Number(data.pose_base_strength ?? 0.70) || 0.70)),
+    pose_helper_strength: Math.max(0, Math.min(2, Number(data.pose_helper_strength ?? 0.70) || 0.70)),
+    pose_prompt_instruction: String(data.pose_prompt_instruction || CONTROLNET_DEFAULT_UNIT.pose_prompt_instruction).trim().slice(0, 2000),
   };
+  if (clean.pose_method === 'qwen_transfer') {
+    clean.preprocessor = 'dwpose';
+    clean.model = '';
+    clean.advanced_enabled = false;
+    clean.advanced_engine = 'auto';
+    clean.mask_mode = 'none';
+  }
   if (data.control_image || data.source_image || data.image || data.input_image) clean.control_image = String(data.control_image || data.source_image || data.image || data.input_image).trim();
   if (data.control_image_name || data.source_image_name || data.image_name) clean.control_image_name = String(data.control_image_name || data.source_image_name || data.image_name).trim();
   if (data.control_image_url) clean.control_image_url = String(data.control_image_url).trim();
@@ -19299,6 +19637,10 @@ function controlNetAssetsForUnits(units = [], settings = controlNetSettings()) {
   const controlMasks = {};
   const generatedMaps = {};
   units.forEach((unit, index) => {
+    // Qwen Pose Transfer owns its reference lanes through Image 1/2/3 and builds
+    // DWPose inside the runtime graph. Do not serialize preview-map artifacts as
+    // ControlNet inputs for that path.
+    if (unit?.pose_method === 'qwen_transfer') return;
     const source = (settings.units || [])[index] || {};
     if (source.control_image || source.control_image_name || source.source_image) controlImages[unit.uid] = source.control_image_asset || source.control_image || source.control_image_name || source.source_image;
     if (source.generated_map || unit.generated_map) generatedMaps[unit.uid] = source.generated_map || unit.generated_map;
@@ -19320,7 +19662,9 @@ function controlNetPayloadPreview(record) {
   // Master-gate rule: unit data may remain checked/saved, but the parent
   // ControlNet checkbox is the only source allowed to activate payload/workflow effects.
   const applied = appliedOverride === null ? Boolean(settings.enabled) : Boolean(appliedOverride);
-  const active = Boolean(settings.enabled) && applied && cleanUnits.length > 0 && controlNetRouteControlsEnabled(route);
+  const poseTransferActive = cleanUnits.some((unit) => unit.pose_method === 'qwen_transfer') && controlNetPoseTransferRouteSupported(route);
+  const active = Boolean(settings.enabled) && applied && cleanUnits.length > 0 && (controlNetRouteControlsEnabled(route) || poseTransferActive);
+  const effectiveRouteState = poseTransferActive ? 'experimental_available' : route.route_state;
   return {
     extensions: {
       [CONTROLNET_EXTENSION_ID]: {
@@ -19342,7 +19686,6 @@ function controlNetPayloadPreview(record) {
           reason: active ? '' : controlNetStatusLabel(route, applied, settings.units),
           controlnet_task: selectedTask,
           preview_reference_handoff: settings.preview_reference_handoff || null,
-          ui_phase: 'M-task-selector-ui',
         },
       },
     },
@@ -19358,13 +19701,28 @@ function controlNetValidationPreview(record) {
   const cleanUnits = controlNetCleanUnits(settings.units, route);
   const items = [];
   if (!applied) {
-    items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'enabled', message: 'ControlNet is disabled for this workflow.' });
+    items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'enabled', message: 'Control / Pose is disabled for this workflow.' });
     return items;
   }
-  if (!controlNetRouteControlsEnabled(route)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
-  if (!cleanUnits.length) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'units', message: 'No active ControlNet units selected.' });
+  const poseTransferUnits = cleanUnits.filter((unit) => unit.pose_method === 'qwen_transfer');
+  const normalControlUnits = cleanUnits.filter((unit) => unit.pose_method !== 'qwen_transfer');
+  const poseTransferActive = poseTransferUnits.length > 0;
+  if (poseTransferUnits.length > 1) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'inputs.units', message: 'Use one Pose Transfer unit per generation.' });
+  if (poseTransferActive && normalControlUnits.length) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'inputs.units', message: 'Choose either Pose Transfer or normal ControlNet units for this generation. Stacking both pose systems is not enabled yet.' });
+  if (!controlNetRouteControlsEnabled(route) && !(poseTransferActive && controlNetPoseTransferRouteSupported(route))) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
+  if (!cleanUnits.length) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'units', message: 'No active control or pose units selected.' });
   cleanUnits.forEach((unit, index) => {
     const source = (settings.units || [])[index] || {};
+    if (unit.pose_method === 'qwen_transfer') {
+      const laneState = controlNetPoseTransferLaneSummary();
+      if (!controlNetPoseTransferRouteSupported(route)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].pose_method`, message: 'Pose Transfer currently requires Qwen Image Edit 2511 Img2Img/Edit on local ComfyUI with Safetensors/Components or GGUF.' });
+      if (!laneState.subject) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'source_image', message: 'Pose Transfer needs Image 1 as the subject.' });
+      if (!laneState.pose_reference) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'source_image_2', message: 'Pose Transfer needs Image 2 as the pose reference.' });
+      if (laneState.pose_map_conflict) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'source_image_3', message: 'Clear Image 3. Pose Transfer reserves Image 3 for the generated DWPose map.' });
+      if (!unit.pose_base_lora) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].pose_base_lora`, message: 'Select the AnyPose base LoRA.' });
+      if (!unit.pose_helper_lora) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].pose_helper_lora`, message: 'Select the AnyPose helper LoRA.' });
+      return;
+    }
     if (!unit.model) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: 'ControlNet model is not selected yet.' });
     if (!source.control_image && !controlNetAssetRefValue(source.generated_map)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: `assets.control_images.${unit.uid}`, message: 'Attach a control image or build a generated map before queueing.' });
   });
@@ -19374,14 +19732,66 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
   const unit = { ...CONTROLNET_DEFAULT_UNIT, ...(row || {}) };
   const showCanny = unit.unit === 'canny' || unit.preprocessor === 'canny';
   const showOpenPose = unit.unit === 'openpose' || ['openpose', 'dwpose'].includes(unit.preprocessor);
+  const isPoseTransfer = unit.unit === 'openpose' && unit.pose_method === 'qwen_transfer';
+  const poseTransferSupported = controlNetPoseTransferRouteSupported(route);
   const expert = state.detailMode === 'expert';
   const forgeRoute = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
   const prepOptions = controlNetPreprocessorOptions(unit.preprocessor);
-  return `<div class="neo-controlnet-unit" data-controlnet-unit-index="${index}">
+  const laneState = controlNetPoseTransferLaneSummary();
+  const posePreview = controlNetAssetPreviewValue(unit.generated_map, unit.generated_map_preview || '');
+  const poseMethodControl = unit.unit === 'openpose'
+    ? `<label>Pose method${controlNetOptionSelect(`controlNetPoseMethod${index}`, [
+        { id: 'controlnet', label: 'Pose Control · ControlNet' },
+        { id: 'qwen_transfer', label: 'Pose Transfer · Qwen 2511 + LoRAs' },
+      ], unit.pose_method || 'controlnet', locked, `data-controlnet-unit-field="pose_method" data-controlnet-unit-index="${index}"`)}</label>`
+    : '';
+  const standardConfig = isPoseTransfer
+    ? `<input type="hidden" data-controlnet-unit-field="preprocessor" data-controlnet-unit-index="${index}" value="dwpose">
+       <div class="neo-controlnet-pose-transfer-route ${poseTransferSupported ? 'is-ready' : 'is-gated'}">
+         <span class="neo-badge">DWPose</span><span class="neo-badge">Image 1 · subject</span><span class="neo-badge">Image 2 · pose reference</span><span class="neo-badge">Image 3 · generated pose map</span>
+       </div>`
+    : `<label>Preprocessor${controlNetOptionSelect(`controlNetPreprocessor${index}`, prepOptions, unit.preprocessor || unit.unit || 'canny', locked, `data-controlnet-unit-field="preprocessor" data-controlnet-unit-index="${index}"`)}</label>
+       <label>Model${controlNetOptionSelect(`controlNetModel${index}`, controlNetModelOptions(unit.model), unit.model || '', locked, `data-controlnet-unit-field="model" data-controlnet-unit-index="${index}"`)}</label>`;
+  const poseTransferCard = !isPoseTransfer ? '' : `<div class="neo-controlnet-pose-transfer-card" data-testid="qwen-2511-pose-transfer-unit">
+      <div class="neo-controlnet-pose-transfer-head">
+        <div><strong>Qwen Pose Transfer</strong><p class="neo-muted">Image 2 is analyzed by DWPose at runtime. Neo injects that generated map into Qwen Image 3, then applies both pose LoRAs to the model only.</p></div>
+        <span class="neo-state-pill ${poseTransferSupported ? 'warning' : 'danger'}">${poseTransferSupported ? 'Experimental' : 'Qwen 2511 required'}</span>
+      </div>
+      <div class="neo-badge-row">
+        <span class="neo-badge ${laneState.subject ? 'success' : 'warning'}">Image 1 ${laneState.subject ? 'ready' : 'missing'}</span>
+        <span class="neo-badge ${laneState.pose_reference ? 'success' : 'warning'}">Image 2 ${laneState.pose_reference ? 'ready' : 'missing'}</span>
+        <span class="neo-badge ${laneState.pose_map_conflict ? 'danger' : 'success'}">Image 3 ${laneState.pose_map_conflict ? 'must be cleared' : 'reserved for pose map'}</span>
+      </div>
+      <div class="neo-controlnet-config-row neo-controlnet-pose-loras">
+        <label>Base pose LoRA${controlNetOptionSelect(`controlNetPoseBaseLora${index}`, loraCatalogOptions(unit.pose_base_lora || ''), unit.pose_base_lora || '', locked, `data-controlnet-unit-field="pose_base_lora" data-controlnet-unit-index="${index}"`)}</label>
+        <label>Base strength<input type="number" min="0" max="2" step="0.05" data-controlnet-unit-field="pose_base_strength" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.pose_base_strength ?? 0.70)}" ${locked ? 'disabled' : ''}></label>
+        <label>Helper pose LoRA${controlNetOptionSelect(`controlNetPoseHelperLora${index}`, loraCatalogOptions(unit.pose_helper_lora || ''), unit.pose_helper_lora || '', locked, `data-controlnet-unit-field="pose_helper_lora" data-controlnet-unit-index="${index}"`)}</label>
+        <label>Helper strength<input type="number" min="0" max="2" step="0.05" data-controlnet-unit-field="pose_helper_strength" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.pose_helper_strength ?? 0.70)}" ${locked ? 'disabled' : ''}></label>
+      </div>
+      <label class="neo-controlnet-pose-prompt">Pose instruction<textarea rows="3" data-controlnet-unit-field="pose_prompt_instruction" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>${escapeHtml(unit.pose_prompt_instruction || CONTROLNET_DEFAULT_UNIT.pose_prompt_instruction)}</textarea></label>
+      <div class="neo-controlnet-assets-row neo-controlnet-pose-preview-row">
+        <div class="neo-controlnet-pose-preview">${posePreview ? `<img class="neo-controlnet-image-preview" src="${escapeAttr(posePreview)}" alt="Generated DWPose preview">` : `<div class="neo-controlnet-image-placeholder"><span class="neo-controlnet-image-icon">⌁</span><span class="neo-controlnet-image-title">Pose map preview</span><small>Preview is optional; generation builds a fresh DWPose map from Image 2.</small></div>`}</div>
+        <button class="neo-btn secondary" type="button" data-controlnet-unit-action="build-map" data-controlnet-unit-index="${index}" ${locked || !laneState.pose_reference ? 'disabled' : ''}>Preview Pose Map</button>
+        <button class="neo-btn ghost" type="button" data-controlnet-unit-action="refresh-loras" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>Refresh LoRAs</button>
+      </div>
+      ${laneState.pose_map_conflict ? '<p class="neo-warn">Image 3 already contains a user source. Clear it before generation; Pose Transfer reserves Image 3 for the generated pose map.</p>' : ''}
+    </div>`;
+  const standardAssets = isPoseTransfer ? '' : `<div class="neo-controlnet-assets-row">
+      ${controlNetImageBox('control_image', index, unit.control_image || '', 'Control image', 'Drop image, asset id, URL, or path', locked, unit.control_image_preview || '')}
+      ${controlNetImageBox('generated_map', index, unit.generated_map || '', 'Generated map', 'Map id/path from preview', locked, unit.generated_map_preview || '')}
+      <button class="neo-btn secondary" type="button" data-controlnet-unit-action="build-map" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>Build Map</button>
+    </div>
+    <div class="neo-controlnet-strength-row">
+      <label>Strength<input type="number" min="0" max="2" step="0.05" data-controlnet-unit-field="strength" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.strength ?? 0.45)}" ${locked ? 'disabled' : ''}></label>
+      <label>Start %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="start_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.start_percent ?? 0)}" ${locked ? 'disabled' : ''}></label>
+      <label>End %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="end_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.end_percent ?? 1)}" ${locked ? 'disabled' : ''}></label>
+      <label>Fit mode${controlNetOptionSelect(`controlNetFit${index}`, [{id:'contain',label:'Contain'}, {id:'cover',label:'Cover'}, {id:'stretch',label:'Stretch'}, {id:'native',label:'Native'}], unit.fit_mode || 'contain', locked, `data-controlnet-unit-field="fit_mode" data-controlnet-unit-index="${index}"`)}</label>
+    </div>`;
+  return `<div class="neo-controlnet-unit ${isPoseTransfer ? 'is-pose-transfer' : ''}" data-controlnet-unit-index="${index}">
     <div class="neo-controlnet-unit-header">
       <label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="enabled" data-controlnet-unit-index="${index}" ${unit.enabled !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use unit ${index + 1}</span></label>
       <div class="neo-unit-header-meta">
-        <span class="neo-badge">${escapeHtml(unit.unit || 'control')} · ${escapeHtml(formatMaybeNumber(unit.strength ?? 0.45))}</span>
+        <span class="neo-badge">${escapeHtml(isPoseTransfer ? 'pose transfer' : (unit.unit || 'control'))}${isPoseTransfer ? '' : ` · ${escapeHtml(formatMaybeNumber(unit.strength ?? 0.45))}`}</span>
         <div class="neo-unit-icon-actions neo-controlnet-unit-actions" aria-label="ControlNet unit actions">
           <button class="neo-icon-btn secondary" type="button" title="Move unit up" aria-label="Move unit up" data-controlnet-unit-action="up" data-controlnet-unit-index="${index}" ${locked || index === 0 ? 'disabled' : ''}>↑</button>
           <button class="neo-icon-btn secondary" type="button" title="Duplicate unit" aria-label="Duplicate unit" data-controlnet-unit-action="duplicate" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>⧉</button>
@@ -19392,20 +19802,11 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
     </div>
     <div class="neo-controlnet-config-row">
       <label>Type${controlNetOptionSelect(`controlNetUnit${index}`, CONTROLNET_UNIT_OPTIONS, unit.unit || 'canny', locked, `data-controlnet-unit-field="unit" data-controlnet-unit-index="${index}"`)}</label>
-      <label>Preprocessor${controlNetOptionSelect(`controlNetPreprocessor${index}`, prepOptions, unit.preprocessor || unit.unit || 'canny', locked, `data-controlnet-unit-field="preprocessor" data-controlnet-unit-index="${index}"`)}</label>
-      <label>Model${controlNetOptionSelect(`controlNetModel${index}`, controlNetModelOptions(unit.model), unit.model || '', locked, `data-controlnet-unit-field="model" data-controlnet-unit-index="${index}"`)}</label>
+      ${poseMethodControl}
+      ${standardConfig}
     </div>
-    ${`<div class="neo-controlnet-assets-row">
-      ${controlNetImageBox('control_image', index, unit.control_image || '', 'Control image', 'Drop image, asset id, URL, or path', locked, unit.control_image_preview || '')}
-      ${controlNetImageBox('generated_map', index, unit.generated_map || '', 'Generated map', 'Map id/path from preview', locked, unit.generated_map_preview || '')}
-      <button class="neo-btn secondary" type="button" data-controlnet-unit-action="build-map" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>Build Map</button>
-    </div>
-    <div class="neo-controlnet-strength-row">
-      <label>Strength<input type="number" min="0" max="2" step="0.05" data-controlnet-unit-field="strength" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.strength ?? 0.45)}" ${locked ? 'disabled' : ''}></label>
-      <label>Start %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="start_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.start_percent ?? 0)}" ${locked ? 'disabled' : ''}></label>
-      <label>End %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="end_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.end_percent ?? 1)}" ${locked ? 'disabled' : ''}></label>
-      <label>Fit mode${controlNetOptionSelect(`controlNetFit${index}`, [{id:'contain',label:'Contain'}, {id:'cover',label:'Cover'}, {id:'stretch',label:'Stretch'}, {id:'native',label:'Native'}], unit.fit_mode || 'contain', locked, `data-controlnet-unit-field="fit_mode" data-controlnet-unit-index="${index}"`)}</label>
-    </div>`}
+    ${poseTransferCard}
+    ${standardAssets}
     ${!showCanny ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="canny">
       <label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label>
       <label>Canny low<input type="number" min="0" max="255" data-controlnet-unit-field="canny_low" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.canny_low ?? 100)}" ${locked ? 'disabled' : ''}></label>
@@ -19413,7 +19814,7 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
     </div>`}
     ${showCanny ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="detect-resolution"><label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label></div>`}
     ${!showOpenPose ? '' : `<div class="neo-controlnet-unit-conditional" data-controlnet-visible-for="openpose"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_body" data-controlnet-unit-index="${index}" ${unit.openpose_body !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Body</span></label>${forgeRoute ? '' : `<label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_hand" data-controlnet-unit-index="${index}" ${unit.openpose_hand ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Hands</span></label><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_face" data-controlnet-unit-index="${index}" ${unit.openpose_face ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Face</span></label>`}</div>`}
-    ${expert ? (forgeRoute
+    ${expert && !isPoseTransfer ? (forgeRoute
       ? `<div class="neo-controlnet-unit-expert"><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}<p class="neo-muted">Forge exposes the standard ControlNet unit contract only, so experimental advanced toggles stay hidden here.</p></div>`
       : `<div class="neo-controlnet-unit-expert"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="advanced_enabled" data-controlnet-unit-index="${index}" ${unit.advanced_enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Advanced ControlNet</span></label><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}, {id:'inpaint_mask',label:'Inpaint mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}</div>`)
       : ''}
@@ -19426,24 +19827,25 @@ function controlNetPanel(record) {
   const route = controlNetRouteForTask(baseRoute, selectedTask);
   if (!controlNetRouteVisible(route)) return null;
   const applied = Boolean(settings.enabled);
-  const controlsEnabled = controlNetRouteControlsEnabled(route);
+  const poseTransferCapable = controlNetPoseTransferRouteSupported(route);
+  const controlsEnabled = controlNetRouteControlsEnabled(route) || poseTransferCapable;
   const locked = !controlsEnabled;
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
   const units = Array.isArray(settings.units) && settings.units.length ? settings.units : [{ ...CONTROLNET_DEFAULT_UNIT }];
   const cleanCount = controlNetCleanUnits(units).length;
   const status = controlNetStatusLabel(route, applied, units);
-  const routeBadge = controlNetRouteBadge(route);
+  const routeBadge = poseTransferCapable && controlNetPoseTransferActive(settings) ? 'Pose Transfer' : controlNetRouteBadge(route);
   const taskSelector = controlNetTaskSelector(baseRoute, settings);
   const qwenAdapterSelector = controlNetQwenAdapterSelector(route, settings, selectedTask);
   const fluxAdapterSelector = controlNetFluxAdapterSelector(route, settings, selectedTask);
   const explanation = controlsEnabled ? '' : controlNetRouteExplanation(route, applied);
   const controlsHtml = !controlsEnabled && !expert ? '' : `
-    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply ControlNet</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
+    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply Control / Pose</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
     <div class="neo-controlnet-units">${units.map((unit, index) => controlNetUnitHtml(unit, index, locked, compact, route)).join('')}</div>`;
   const body = `<section class="neo-controlnet-panel" data-extension-id="${CONTROLNET_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-controls-enabled="${controlsEnabled ? 'true' : 'false'}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-controlnet-panel__header"><div><strong>ControlNet</strong>${!compact ? '<span class="neo-muted">Built-in Reference extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${compact ? '' : `<p class="neo-muted">Guide generation with canny, depth, pose, lineart, softedge, tile, or other structural maps. Hidden unit-specific fields are stripped before payload emission.${normalizeRouteBackend(route.backend) === 'forge' ? ' Forge routes show only the verified standard unit controls and preserve generated-map assets across the backend remap.' : ''}</p>`}
+    <header class="neo-controlnet-panel__header"><div><strong>ControlNet & Pose</strong>${!compact ? '<span class="neo-muted">Structural control and Qwen pose transfer</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
+    ${compact ? '' : `<p class="neo-muted">Use ControlNet for structural maps, or choose Pose Transfer on Qwen Image Edit 2511 to drive pose with DWPose plus model-only pose LoRAs. Hidden unit-specific fields are stripped before payload emission.${normalizeRouteBackend(route.backend) === 'forge' ? ' Forge routes show only the verified standard unit controls and preserve generated-map assets across the backend remap.' : ''}</p>`}
     ${taskSelector}
     ${qwenAdapterSelector}
     ${fluxAdapterSelector}
@@ -19454,7 +19856,7 @@ function controlNetPanel(record) {
     ${expert && settings.map_status?.options ? `<p class="neo-muted">Preprocessors: ${escapeHtml(settings.map_status.options.map((item) => `${item.id}:${item.state}${item.node ? `:${item.node}` : ''}`).join(' · '))}</p>` : ''}
     ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `Backend: ${route.backend}`, `Base state: ${route.base_route_state || route.route_state}`, `Task: ${controlNetTaskLabel(route.controlnet_task || selectedTask)}`, `Task state: ${route.controlnet_task_state || route.route_state}`, controlsEnabled ? 'Workflow patch: queued' : 'Workflow patch: blocked'])}</div><pre>${escapeHtml(JSON.stringify(controlNetPayloadPreview(record), null, 2))}</pre></div>` : ''}
   </section>`;
-  return panel('ControlNet', body, false, status);
+  return panel('ControlNet & Pose', body, false, status);
 }
 function addControlNetUnit() {
   const settings = controlNetSettings();
@@ -19521,11 +19923,25 @@ async function controlNetRefreshMapStatus(options = {}) {
 async function controlNetBuildMap(index) {
   const settings = controlNetEffectiveSettings();
   const unit = settings.units[index] || { ...CONTROLNET_DEFAULT_UNIT, uid: `unit_${index + 1}` };
+  const previewUnit = unit.pose_method === 'qwen_transfer'
+    ? {
+        ...unit,
+        unit: 'openpose',
+        preprocessor: 'dwpose',
+        control_image: state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url || '',
+        control_image_preview: state.imageDraft.source_image_2_url || '',
+      }
+    : unit;
+  if (unit.pose_method === 'qwen_transfer' && !previewUnit.control_image) {
+    updateControlNetSettings({ map_error: 'Pose map preview needs Image 2 as the pose reference.' });
+    render();
+    return;
+  }
   try {
     const response = await fetch('/api/extensions/controlnet/maps/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ unit, profile_id: selectedBackendProfileIdForSurface('image') || state.backendProfiles?.defaults?.image || '' }),
+      body: JSON.stringify({ unit: previewUnit, profile_id: selectedBackendProfileIdForSurface('image') || state.backendProfiles?.defaults?.image || '' }),
     });
     const payload = await response.json();
     if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.reason || 'ControlNet map preview failed.');
@@ -19545,7 +19961,7 @@ async function controlNetBatchBuildMaps() {
     const response = await fetch('/api/extensions/controlnet/maps/batch-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ units: controlNetCleanUnits(settings.units), profile_id: selectedBackendProfileIdForSurface('image') || state.backendProfiles?.defaults?.image || '' }),
+      body: JSON.stringify({ units: controlNetCleanUnits(settings.units).map((unit) => unit.pose_method === 'qwen_transfer' ? { ...unit, unit: 'openpose', preprocessor: 'dwpose', control_image: state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url || '', control_image_preview: state.imageDraft.source_image_2_url || '' } : unit), profile_id: selectedBackendProfileIdForSurface('image') || state.backendProfiles?.defaults?.image || '' }),
     });
     const payload = await response.json();
     if (!response.ok || payload.ok === false) throw new Error(payload.detail?.reason || payload.detail || payload.reason || 'ControlNet batch map preview failed.');
@@ -19603,25 +20019,37 @@ function bindControlNetControls() {
     node.addEventListener(eventName, (event) => {
       const index = Number(node.getAttribute('data-controlnet-unit-index'));
       const field = node.getAttribute('data-controlnet-unit-field');
-      const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high']);
+      const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high', 'pose_base_strength', 'pose_helper_strength']);
       const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'sliding_context']);
       const value = checkboxFields.has(field) ? Boolean(event.target.checked) : (numericFields.has(field) ? Number(event.target.value) : event.target.value);
       const patch = { [field]: value };
       if (field === 'unit') {
         const fallbackPreprocessor = value === 'auto' ? 'none' : value;
         patch.preprocessor = fallbackPreprocessor;
+        if (value !== 'openpose') patch.pose_method = 'controlnet';
+      }
+      if (field === 'pose_method' && value === 'qwen_transfer') {
+        patch.preprocessor = 'dwpose';
+        patch.model = '';
+        patch.pose_reference_lane = 2;
+        patch.pose_map_lane = 3;
+        state.imageDraft.qwen_source_slot_count = 3;
+        state.imageDraft.source_image_1_role = 'main_subject';
+        state.imageDraft.source_image_2_role = 'pose_reference';
+        state.imageDraft.source_image_3_role = 'pose_map';
+        if (!loraStackSettings().library.backend_loaded && !loraStackSettings().library.backend_loading) loraLibraryFetchBrowser({ force: true });
       }
       updateControlNetUnit(index, patch);
       const effective = controlNetEffectiveSettings();
       const hasRunnable = controlNetCleanUnits(effective.units).some((unit, unitIndex) => {
         const source = (effective.units || [])[unitIndex] || {};
-        return Boolean(unit.enabled !== false && (unit.model || source.control_image || source.generated_map));
+        return Boolean(unit.enabled !== false && (unit.pose_method === 'qwen_transfer' ? (unit.pose_base_lora || unit.pose_helper_lora || state.imageDraft.source_image_2) : (unit.model || source.control_image || source.generated_map)));
       });
       if (hasRunnable) {
         state.imageDraft[CONTROLNET_EXTENSION_ID] = { ...controlNetSettings(), enabled: true };
         setWorkflowExtensionApplied(CONTROLNET_EXTENSION_ID, true);
       }
-      if (['unit', 'preprocessor', 'enabled', 'mask_mode', 'advanced_enabled'].includes(field)) render();
+      if (['unit', 'preprocessor', 'pose_method', 'pose_base_lora', 'pose_helper_lora', 'enabled', 'mask_mode', 'advanced_enabled'].includes(field)) render();
     });
   });
   document.querySelectorAll('[data-controlnet-drop-target]').forEach((zone) => {
@@ -19689,6 +20117,7 @@ function bindControlNetControls() {
     if (action === 'up') moveControlNetUnit(index, -1);
     if (action === 'down') moveControlNetUnit(index, 1);
     if (action === 'build-map') { controlNetBuildMap(index); return; }
+    if (action === 'refresh-loras') { loraLibraryFetchBrowser({ force: true }); return; }
     render();
   }));
 }
@@ -20011,6 +20440,7 @@ function loraProviderCatalogRecords() {
       provider_label: context.provider_label,
       catalog_source: context.catalog_source,
       source: context.provider_id === 'forge' ? 'forge_lora_catalog' : 'comfy_lora_loader',
+      catalog_available: true,
       base_model: 'Base unknown',
       category: `from ${context.provider_label}`,
       default_strength: 0.8,
@@ -20042,12 +20472,42 @@ function loraApplyTargetOptions() {
 function loraTargetOptions() {
   return [{ id: 'both', label: 'Both passes' }, { id: 'base', label: 'Base pass' }, { id: 'finish', label: 'Finish pass' }];
 }
+function loraCatalogIdentityKey(value) {
+  return loraPortableName(value).replace(/\\/g, '/').trim().toLowerCase();
+}
+function loraLiveProviderMatch(record, providerRecords = loraProviderCatalogRecords()) {
+  const exactKeys = new Set([record?.catalog_name, record?.name, record?.file]
+    .map((value) => loraCatalogIdentityKey(value))
+    .filter(Boolean));
+  const exact = providerRecords.filter((item) => exactKeys.has(loraCatalogIdentityKey(item.catalog_name || item.name || item.file || item.id || '')));
+  if (exact.length === 1) return exact[0];
+  const fuzzy = providerRecords.filter((item) => loraRecordMatchesName(record, item.catalog_name || item.name || item.file || item.id || ''));
+  return fuzzy.length === 1 ? fuzzy[0] : null;
+}
+function loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys) {
+  const live = loraLiveProviderMatch(record, providerRecords);
+  if (!live) return record;
+  const liveKey = loraCatalogIdentityKey(live.catalog_name || live.name || live.file || live.id || '');
+  if (liveKey) consumedLiveKeys.add(liveKey);
+  return {
+    ...live,
+    ...record,
+    id: record.id || live.id,
+    catalog_name: live.catalog_name || live.name || record.catalog_name || record.name || '',
+    provider_id: live.provider_id || record.provider_id || '',
+    provider_label: live.provider_label || record.provider_label || '',
+    catalog_source: live.catalog_source || record.catalog_source || '',
+    catalog_available: true,
+  };
+}
 function loraAllLibraryRecords() {
   const library = loraStackSettings().library;
   const saved = Array.isArray(library.records) ? library.records : [];
-  const savedKeys = new Set(saved.map((record) => loraPortableName(record.catalog_name || record.name || record.file || record.id || '').toLowerCase()));
-  const providerRecords = loraProviderCatalogRecords().filter((record) => !savedKeys.has(loraPortableName(record.catalog_name || record.name || record.file || record.id || '').toLowerCase()));
-  return [...saved, ...providerRecords];
+  const providerRecords = loraProviderCatalogRecords();
+  const consumedLiveKeys = new Set();
+  const reconciledSaved = saved.map((record) => loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys));
+  const providerOnly = providerRecords.filter((record) => !consumedLiveKeys.has(loraCatalogIdentityKey(record.catalog_name || record.name || record.file || record.id || '')));
+  return [...reconciledSaved, ...providerOnly];
 }
 function loraStackLibraryRecords() {
   const library = loraStackSettings().library;
@@ -20120,6 +20580,7 @@ async function loraLibrarySaveSelected() {
   const sample = document.getElementById('loraSamplePrompt');
   const civitaiUrl = document.getElementById('loraCivitaiUrl');
   const payload = {
+    profile_id: loraLibraryApiProfileId(),
     record: {
       ...record,
       example_prompt: sample ? sample.value : (record.example_prompt || ''),
@@ -20156,6 +20617,7 @@ async function loraLibraryPullCivitai() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.detail || result.error || 'CivitAI pull failed');
     loraLibraryMergeRecord(result.record);
+    await loraLibraryFetchBrowser({ force: true });
     const summary = result.import_summary || {};
     const previewCount = Number(summary.cached_previews ?? result.preview_cache?.count ?? 0);
     const changeCount = Number(summary.changed_count ?? 0);
@@ -20285,15 +20747,14 @@ function loraRowHtml(row, index, locked, selectedIndex = 0) {
       <label class="neo-toggle-row"><input type="checkbox" data-lora-row-field="enabled" data-lora-row-index="${index}" ${row.enabled !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use</span></label>
       <label class="neo-lora-field neo-lora-field-name">LoRA${select('name', loraCatalogOptions(row.name || ''), row.name || '')}</label>
       <label class="neo-lora-field neo-lora-field-strength">Strength<input type="number" min="-4" max="4" step="0.05" value="${escapeAttr(row.strength ?? 0.8)}" data-lora-row-field="strength" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}></label>
-      <span class="neo-badge neo-lora-provider-syntax" title="Provider rendering is applied only during submission">${escapeHtml(loraProviderSyntaxPreview(row.name || '', row.strength ?? 0.8))}</span>
       <div class="neo-lora-row-actions">
         <button class="neo-icon-btn" type="button" data-lora-row-action="up" data-lora-row-index="${index}" ${index === 0 || locked ? 'disabled' : ''}>↑</button>
         <button class="neo-icon-btn" type="button" data-lora-row-action="down" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}>↓</button>
         <button class="neo-icon-btn danger" type="button" data-lora-row-action="remove" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}>×</button>
       </div>
     </div>
-    ${`<div class="neo-lora-row-routing"><label class="neo-lora-field">Pass${select('target', loraTargetOptions(), row.target || 'both')}</label><span class="neo-badge">Target: ${escapeHtml(loraStackApplyToLabel(row.apply_to))}</span><p class="neo-muted neo-lora-assignment-note">Region assignment is owned by Scene Director → Advanced Region Control → Extension Routing.</p></div>`}
-    ${compact ? '' : `<p class="neo-muted neo-lora-row-summary">${escapeHtml(row.name || 'No LoRA selected')} · ${escapeHtml(row.target || 'both')} · ${escapeHtml(loraStackApplyToLabel(row.apply_to))} target preserved</p>`}
+    ${`<div class="neo-lora-row-routing"><label class="neo-lora-field">Pass${select('target', loraTargetOptions(), row.target || 'both')}</label><span class="neo-badge">Target: ${escapeHtml(loraStackApplyToLabel(row.apply_to))}</span>${state.detailMode === 'expert' ? '<p class="neo-muted neo-lora-assignment-note">Regional targeting is configured in Scene Director.</p>' : ''}</div>`}
+    ${compact ? '' : `<p class="neo-muted neo-lora-row-summary">${escapeHtml(row.name || 'No LoRA selected')} · ${escapeHtml(row.target || 'both')} · ${escapeHtml(loraStackApplyToLabel(row.apply_to))}</p>`}
   </div>`;
 }
 function loraPickerRecords(settings = loraStackSettings()) {
@@ -20313,6 +20774,15 @@ function loraPickerSelectedRecord(settings = loraStackSettings()) {
   const selectedId = String(settings.library?.selected_record_id || '');
   return records.find((record) => String(record.id || '') === selectedId) || records[0] || null;
 }
+function loraStackUserRouteMessage(route = {}) {
+  const stateId = String(route.route_state || '').toLowerCase();
+  if (stateId === 'implementation_target') return 'LoRA execution is not ready for this model/workflow yet.';
+  if (stateId === 'planned_gated') return 'LoRA execution is not available for this workflow yet.';
+  if (stateId === 'provider_gated') return 'The selected backend does not expose LoRA execution for this workflow.';
+  if (stateId === 'unsupported') return 'This workflow does not support LoRA Stack.';
+  return 'LoRA Stack is unavailable for the selected route.';
+}
+
 function loraStackPanel(record) {
   const route = loraStackActiveRoute(record);
   if (!loraStackRouteVisible(route)) return null;
@@ -20342,15 +20812,15 @@ function loraStackPanel(record) {
       <label>LoRA<select id="loraStackPickerSelect">${pickerOptions || '<option value="">No LoRAs reported by selected provider</option>'}</select></label>
       <label>Strength<input id="loraStackPickerStrength" type="number" min="-4" max="4" step="0.05" value="${escapeAttr(pickerStrength)}"></label>
     </div>
-    <div class="neo-chipline"><span class="neo-badge">${escapeHtml(loraProviderSyntaxPreview(pickerName, pickerStrength, provider.provider_id))}</span><span class="neo-muted">${provider.provider_id === 'forge' ? 'Compiled into the submitted positive prompt only.' : 'Applied through the provider workflow loader.'}</span></div>
+    <div class="neo-chipline"><span class="neo-muted">Selected from ${escapeHtml(provider.provider_label)}.</span>${state.detailMode === 'expert' ? `<span class="neo-badge">${escapeHtml(loraProviderSyntaxPreview(pickerName, pickerStrength, provider.provider_id))}</span>` : ''}</div>
     <div class="neo-lora-library-actions"><button class="neo-btn primary" type="button" id="loraStackPickerAdd" ${pickerSelected && !locked ? '' : 'disabled'}>Add selected LoRA</button><button class="neo-btn secondary" type="button" id="loraStackPickerCancel">Cancel</button></div>
   </div>` : '';
   const body = `<section class="neo-lora-stack-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-lora-panel-header">
-      <div><strong>LoRA Stack</strong>${!compact ? '<span class="neo-muted">Built-in global Image extension · canonical owner: Assets</span>' : ''}</div>
-      <div class="neo-extension-status-line neo-cfg-fix-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span><span class="neo-badge">LoRA mode: ${escapeHtml(loraModeBadge)}</span><span class="neo-badge">${escapeHtml(provider.provider_label)}</span></div>
+      <div><strong>LoRA Stack</strong>${!compact ? '<span class="neo-muted">Choose, order, and tune LoRAs for this generation.</span>' : ''}</div>
+      <div class="neo-extension-status-line neo-cfg-fix-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span>${state.detailMode === 'expert' ? `<span class="neo-badge">${escapeHtml(routeBadge)}</span><span class="neo-badge">${escapeHtml(loraModeBadge)}</span><span class="neo-badge">${escapeHtml(provider.provider_label)}</span>` : ''}</div>
     </header>
-    ${compact ? '' : `<p class="neo-muted">LoRA is optional and its compatibility is independent from Native Inpaint or LanPaint. The selected engine changes graph anchors only. Plain LanPaint runs without any LoRA. Native Inpaint also runs without any LoRA. ${provider.provider_id === 'forge' ? 'Forge renders tags such as <code>&lt;lora:name:0.8&gt;</code> only at submission; the visible prompt stays clean.' : 'Comfy applies enabled rows through the route-compatible LoRA loader only when this switch is on.'}</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`}
+    ${locked ? `<p class="neo-warn neo-lora-route-warning">${escapeHtml(loraStackUserRouteMessage(route))}</p>` : ''}
     <div class="neo-lora-stack-toolbar">
       <label class="neo-toggle-row"><input id="loraStackEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply LoRA Stack (optional)</span></label>
       <button class="neo-btn secondary" type="button" id="loraStackAddRow" ${locked ? 'disabled' : ''}>+ Add LoRA</button>
@@ -21974,17 +22444,21 @@ function bindStyleStackControls() {
 
 function extensionWorkflowModes(record) {
   const manifest = record?.manifest || {};
-  return manifest.workflow_modes?.length ? manifest.workflow_modes : (manifest.subtabs || []);
+  if (manifest.workflow_modes?.length) return manifest.workflow_modes;
+  // Image manifests historically used subtabs as workflow aliases. Video subtabs
+  // are workspace locations (Generation/Finish/Results), not generation types.
+  return manifest.surface === 'video' ? [] : (manifest.subtabs || []);
 }
 function extensionWorkspaceApps(record) {
   const manifest = record?.manifest || {};
-  return (manifest.workspace_apps || []).map(normalizeWorkspaceAppId);
+  const surface = manifest.surface || state.activeSurfaceId || 'image';
+  return (manifest.workspace_apps || []).map((item) => normalizeExtensionWorkspaceAppId(surface, item));
 }
 function extensionMatchesWorkspace(record, surfaceId, workspaceAppId, workflowMode) {
   const manifest = record?.manifest || {};
   if (manifest.surface !== surfaceId) return false;
-  const app = normalizeWorkspaceAppId(workspaceAppId);
-  const mode = workflowMode === 'txt2img' ? 'generate' : workflowMode;
+  const app = normalizeExtensionWorkspaceAppId(surfaceId, workspaceAppId);
+  const mode = surfaceId === 'image' && workflowMode === 'txt2img' ? 'generate' : workflowMode;
   const apps = extensionWorkspaceApps(record);
   if (app && apps.length && !apps.includes(app)) return false;
   const modes = extensionWorkflowModes(record).map((item) => item === 'txt2img' ? 'generate' : item);
@@ -21992,8 +22466,8 @@ function extensionMatchesWorkspace(record, surfaceId, workspaceAppId, workflowMo
   const targets = manifest.mount_targets || [];
   if (targets.length) {
     return targets.some((target) => {
-      const targetApp = normalizeWorkspaceAppId(target.workspace_app);
-      const targetMode = target.workflow_mode === 'txt2img' ? 'generate' : target.workflow_mode;
+      const targetApp = normalizeExtensionWorkspaceAppId(surfaceId, target.workspace_app);
+      const targetMode = surfaceId === 'image' && target.workflow_mode === 'txt2img' ? 'generate' : target.workflow_mode;
       return (!targetApp || targetApp === app) && (!targetMode || targetMode === mode);
     });
   }
@@ -22027,6 +22501,19 @@ function allImageWorkflowExtensionRecords() {
   const records = state.extensions?.extensions || [];
   return records.filter((record) => record?.enabled !== false && record?.manifest?.surface === 'image');
 }
+function allSurfaceWorkflowExtensionRecords(surfaceId = state.activeSurfaceId || 'image') {
+  const records = state.extensions?.extensions || [];
+  return records.filter((record) => record?.enabled !== false && record?.manifest?.surface === surfaceId);
+}
+function extensionAllowedForActiveSurface(record) {
+  const surface = record?.manifest?.surface || state.activeSurfaceId || 'image';
+  if (surface === 'image') return imageExtensionAllowedForActiveProfile(record);
+  if (surface === 'video') {
+    const route = extensionActiveRouteSnapshot(record);
+    return { allowed: extensionRouteStateActive(route.route_state), reason: route.reason || `Video extension route is ${route.route_state}.`, route };
+  }
+  return { allowed: true, reason: '' };
+}
 
 function extensionWorkflowAppliedAnyContext(record) {
   const extId = extensionId(record);
@@ -22041,16 +22528,21 @@ function extensionWorkflowAppliedAnyContext(record) {
 
 function setWorkflowExtensionApplied(extensionIdValue, applied) {
   const currentRecords = allCurrentWorkspaceExtensions();
-  const imageRecords = allImageWorkflowExtensionRecords();
-  const record = [...currentRecords, ...imageRecords].find((item) => extensionId(item) === extensionIdValue);
+  const surfaceRecords = allSurfaceWorkflowExtensionRecords(state.activeSurfaceId || 'image');
+  const record = [...currentRecords, ...surfaceRecords].find((item) => extensionId(item) === extensionIdValue);
   if (!record) return;
-  const gate = imageExtensionAllowedForActiveProfile(record);
+  const gate = extensionAllowedForActiveSurface(record);
   if (applied && !gate.allowed) {
-    window.alert(gate.reason || 'This extension is not supported by the selected backend profile.');
+    window.alert(gate.reason || 'This extension is not supported by the active surface route.');
     return;
   }
   const key = extensionWorkflowApplicationKey(record);
-  state.extensionWorkflowApplications = { ...(state.extensionWorkflowApplications || {}), [key]: Boolean(applied) };
+  const nextApplications = { ...(state.extensionWorkflowApplications || {}) };
+  if (record?.manifest?.surface === 'video') {
+    legacyVideoExtensionApplicationKeys(record).forEach((legacyKey) => { delete nextApplications[legacyKey]; });
+  }
+  nextApplications[key] = Boolean(applied);
+  state.extensionWorkflowApplications = nextApplications;
   if (extensionIdValue === CONTROLNET_EXTENSION_ID) {
     const settings = controlNetSettings();
     state.imageDraft[CONTROLNET_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
@@ -22645,7 +23137,18 @@ function imageExtensionSubmitRouteSnapshot(extensionIdValue, record = null) {
   return extensionActiveRouteSnapshot(targetRecord);
 }
 function imageExtensionSubmitRouteGate(extensionIdValue, record = null) {
-  const route = imageExtensionSubmitRouteSnapshot(extensionIdValue, record);
+  const extId = String(extensionIdValue || '').trim();
+  const route = imageExtensionSubmitRouteSnapshot(extId, record);
+  if (extId === CONTROLNET_EXTENSION_ID) {
+    const settings = controlNetEffectiveSettings();
+    if (Boolean(settings.enabled) && controlNetPoseTransferActive(settings) && controlNetPoseTransferRouteSupported(route)) {
+      return {
+        allowed: true,
+        route: { ...(route || {}), route_state: 'experimental_available', pose_method: 'qwen_transfer' },
+        reason: '',
+      };
+    }
+  }
   const allowed = extensionRouteStateActive(route?.route_state || 'available');
   return {
     allowed,
@@ -22965,10 +23468,14 @@ function activeWorkflowExtensionMetadata(sceneDirectorSnapshotOverride = null, s
     const settings = controlNetEffectiveSettings();
     const cleanUnits = controlNetCleanUnits(settings.units);
     const hasRunnableControlNetUnit = cleanUnits.some((unit, index) => {
+      if (unit?.pose_method === 'qwen_transfer') {
+        const lanes = controlNetPoseTransferLaneSummary();
+        return Boolean(unit.enabled !== false && lanes.subject && lanes.pose_reference && !lanes.pose_map_conflict && unit.pose_base_lora && unit.pose_helper_lora);
+      }
       const source = (settings.units || [])[index] || {};
       return Boolean(unit.enabled !== false && unit.model && (controlNetAssetRefValue(source.generated_map) || source.control_image || controlNetAssetRefValue(unit.generated_map)));
     });
-    if (controlNetRecord && Boolean(settings.enabled)) {
+    if (controlNetRecord && Boolean(settings.enabled) && hasRunnableControlNetUnit) {
       const routeGate = imageExtensionSubmitRouteGate(CONTROLNET_EXTENSION_ID, controlNetRecord);
       if (!routeGate.allowed) {
         validation.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'route_state', message: routeGate.reason || `ControlNet route gated: ${routeGate.route?.route_state || 'planned_gated'}.` });
@@ -23105,7 +23612,7 @@ function highResLabPanel(record) {
   const mountedButHidden = !highResLabRouteVisible(route);
   if (mountedButHidden && route.route_state === 'unsupported' && state.detailMode !== 'expert') {
     const reason = route.reason || 'This selected image route is unsupported for High-Res Lab.';
-    const body = `<section class="neo-high-res-lab-panel neo-high-res-lab-panel--route-hidden" data-extension-id="${HIGH_RES_LAB_EXTENSION_ID}" data-stage="route-hidden" data-route-state="${escapeAttr(route.route_state)}"><p class="neo-muted">High-Res Lab is installed and mounted under Image → Finish, but this selected route is unsupported.</p><p class="neo-warn">${escapeHtml(reason)}</p><p class="neo-muted">Switch to a supported Comfy route, or use Expert mode to inspect route details.</p></section>`;
+    const body = `<section class="neo-high-res-lab-panel neo-high-res-lab-panel--route-hidden" data-extension-id="${HIGH_RES_LAB_EXTENSION_ID}" data-stage="route-hidden" data-route-state="${escapeAttr(route.route_state)}"><p class="neo-muted">High-Res Lab is not compatible with the selected model setup.</p><p class="neo-warn">${escapeHtml(reason)}</p><p class="neo-muted">Switch to a compatible ComfyUI model setup.</p></section>`;
     return panel('High-Res Lab', body, false, 'Unsupported route');
   }
   const settings = highResLabSettings();
@@ -23133,18 +23640,18 @@ function highResLabPanel(record) {
   const resizeOptions = ['lanczos', 'bicubic', 'bilinear', 'area', 'nearest-exact'].map((id) => ({ id, label: id }));
   const samplerOptions = [{ id: '', label: 'Reuse main sampler' }, { id: 'euler', label: 'Euler' }, { id: 'heun', label: 'Heun' }, { id: 'dpmpp_2m', label: 'DPM++ 2M' }, { id: 'dpmpp_2m_sde', label: 'DPM++ 2M SDE' }];
   const schedulerOptions = [{ id: '', label: 'Reuse main scheduler' }, { id: 'normal', label: 'Normal' }, { id: 'karras', label: 'Karras' }, { id: 'simple', label: 'Simple' }, { id: 'sgm_uniform', label: 'SGM uniform' }];
-  const badge = highResLabRouteUiPolicy(route).badge || 'Route gated';
-  const details = compact ? '' : `<p class="neo-muted">Finish pass for cleaner larger delivery sizes. P7 adds Forge-like pixel refine, latent aspect preservation, and selected-output source-only refinement.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
-  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `State: ${route.route_state}`, 'Route-aware UI: ready', 'Parameter visibility: active'])}</div><pre>${escapeHtml(JSON.stringify(highResLabUiPreview(record), null, 2))}</pre></div>` : '';
+  const badge = highResLabRouteUiPolicy(route).badge || 'Unavailable';
+  const details = compact ? '' : `<p class="neo-muted">Finish pass for cleaner larger delivery sizes with pixel refinement, aspect preservation, and selected-output source-only refinement.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
+  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Model: ${route.family}`, `Loader: ${route.loader}`, `Mode: ${route.mode}`, `Status: ${badge}`])}</div><p class="neo-muted">These details show which model route will perform the upscale and refinement.</p></div>` : '';
   const stagedSource = settings.staged_preview_source || null;
   const stagedSourceLabel = highResLabStagedPreviewSourceLabel();
   const stagedSourceBlock = stagedSource ? `<div class="neo-preview-action-staged-source neo-preview-action-staged-source--highres"><span>✨ Staged source</span><strong>${escapeHtml(stagedSourceLabel)}</strong><button id="highResLabClearPreviewSource" type="button" class="neo-mini-btn">Clear</button></div>` : '';
-  const body = `<section class="neo-high-res-lab-panel" data-extension-id="${HIGH_RES_LAB_EXTENSION_ID}" data-stage="P7" data-runtime-active="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-cfg-fix-panel__header"><div><strong>High-Res Lab</strong>${!compact ? '<span class="neo-muted">Built-in Finish extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled)}<span class="neo-state-pill ${status === 'Enabled' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(badge)}</span></div></header>
+  const body = `<section class="neo-high-res-lab-panel" data-extension-id="${HIGH_RES_LAB_EXTENSION_ID}" data-runtime-active="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
+    <header class="neo-cfg-fix-panel__header"><div><strong>High-Res Lab</strong>${!compact ? '<span class="neo-muted">Upscale and refine</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled)}<span class="neo-state-pill ${status === 'Enabled' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(badge)}</span></div></header>
     ${details}
     ${stagedSourceBlock}
-    ${!controlsEnabled ? `<p class="neo-warn">${escapeHtml(route.reason || 'This route is gated. Controls are shown disabled until the route becomes available.')}</p>` : ''}
-    ${visibility.enabled.visible ? `<div class="neo-cfg-fix-toggle-row"><label class="neo-toggle-row"><input id="highResLabEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${highResLabControlDisabled(visibility, 'enabled') ? 'disabled' : ''}> <span>Enable High-Res Lab payload</span></label></div>` : ''}
+    ${!controlsEnabled ? `<p class="neo-warn">${escapeHtml(route.reason || 'High-Res Lab is unavailable for the selected model setup. Your settings remain saved.')}</p>` : ''}
+    ${visibility.enabled.visible ? `<div class="neo-cfg-fix-toggle-row"><label class="neo-toggle-row"><input id="highResLabEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${highResLabControlDisabled(visibility, 'enabled') ? 'disabled' : ''}> <span>Enable High-Res Lab</span></label></div>` : ''}
     <div class="neo-cfg-fix-control-grid neo-cfg-fix-control-grid--main" data-visible-controls="${escapeAttr(visibleControlIds.join(','))}">
       ${visibility.profile.visible ? `<label>Profile${highResLabOptionSelect('highResLabProfile', profileOptions, settings.profile, highResLabControlDisabled(visibility, 'profile'))}</label>` : ''}
       ${visibility.mode.visible ? `<label>High-res mode${highResLabOptionSelect('highResLabMode', modeOptions, mode, highResLabControlDisabled(visibility, 'mode'))}</label>` : ''}
@@ -23160,7 +23667,7 @@ function highResLabPanel(record) {
       ${visibility.tile_size.visible ? `<label>Tile size<input id="highResLabTileSize" type="number" min="64" max="4096" step="64" value="${escapeAttr(settings.tile_size)}" ${highResLabControlDisabled(visibility, 'tile_size') ? 'disabled' : ''}></label>` : ''}
       ${visibility.tile_overlap.visible ? `<label>Tile overlap<input id="highResLabTileOverlap" type="number" min="0" max="1024" step="32" value="${escapeAttr(settings.tile_overlap)}" ${highResLabControlDisabled(visibility, 'tile_overlap') ? 'disabled' : ''}></label>` : ''}
     </div>
-    ${!compact ? `<p class="neo-muted">${escapeHtml(settings.enabled ? `${settings.profile || 'custom'} · ${settings.strategy || 'standard'} · ${mode} · ${settings.scale}× · ${settings.steps} steps · denoise ${settings.denoise}` : 'High-Res Lab settings are off. Hidden route-specific fields will be stripped before generation.')}</p>` : ''}
+    ${!compact ? `<p class="neo-muted">${escapeHtml(settings.enabled ? `${settings.profile || 'custom'} · ${settings.strategy || 'standard'} · ${mode} · ${settings.scale}× · ${settings.steps} steps · denoise ${settings.denoise}` : 'High-Res Lab is off. Enable it to apply these settings after generation.')}</p>` : ''}
     ${expertBlock}
   </section>`;
   return panel('High-Res Lab', body, false, status);
@@ -23185,8 +23692,88 @@ const ADETAILER_DEFAULT_PASS = {
   positive_prompt: '',
   negative_prompt: '',
 };
+const ADETAILER_FAMILY_PRESET_MODES = ['auto_family', 'manual', 'legacy_manual'];
+const ADETAILER_FAMILY_ALIASES = {
+  'sd1.5': 'sd15', sd_1_5: 'sd15', stable_diffusion_1_5: 'sd15', sd_xl: 'sdxl', stable_diffusion_xl: 'sdxl',
+  flux1: 'flux', flux_1: 'flux', 'flux.1': 'flux', qwen: 'qwen_image', qwen_image_base: 'qwen_image',
+  qwen_rapid: 'qwen_rapid_aio', qwen_image_rapid: 'qwen_rapid_aio', qwen_2509: 'qwen_image_edit_2509',
+  qwen_image_edit: 'qwen_image_edit_2509', qwen_2511: 'qwen_image_edit_2511', zimage: 'z_image', zimage_turbo: 'z_image_turbo',
+};
+const ADETAILER_FAMILY_PRESETS = {
+  sdxl: { id: 'sdxl_balanced_v1', label: 'SDXL Balanced', status: 'Available', values: { steps: 16, cfg: 5.5, denoise: 0.25, sampler_name: 'dpmpp_2m_sde', scheduler: 'karras', guide_size: 768, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: [] },
+  sd15: { id: 'sd15_balanced_v1', label: 'SD 1.5 Balanced', status: 'Experimental', values: { steps: 16, cfg: 6.0, denoise: 0.28, sampler_name: 'dpmpp_2m', scheduler: 'karras', guide_size: 768, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: [] },
+  qwen_image: { id: 'qwen_image_route_owned_v1', label: 'Qwen Image Route-Owned', status: 'Experimental', values: { steps: 20, cfg: 1.0, denoise: 0.24, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','cfg','sampler_name','scheduler'] },
+  qwen_rapid_aio: { id: 'qwen_rapid_low_step_v1', label: 'Qwen Rapid Low-Step', status: 'Experimental', values: { steps: 4, cfg: 1.0, denoise: 0.24, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: [] },
+  flux: { id: 'flux_route_owned_v1', label: 'FLUX.1 Route-Owned', status: 'Experimental', values: { steps: 20, cfg: 1.0, denoise: 0.24, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','sampler_name','scheduler'] },
+  z_image: { id: 'z_image_route_owned_v1', label: 'Z-Image Base Route-Owned', status: 'Experimental', values: { steps: 20, cfg: 1.0, denoise: 0.24, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','cfg','sampler_name','scheduler'] },
+  z_image_turbo: { id: 'z_image_turbo_low_step_v1', label: 'Z-Image Turbo Low-Step', status: 'Experimental', values: { steps: 9, cfg: 1.0, denoise: 0.22, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: [] },
+  krea2: { id: 'krea2_raw_route_owned_v1', label: 'Krea 2 RAW Route-Owned', status: 'Experimental', values: { steps: 52, cfg: 3.5, denoise: 0.22, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','cfg','sampler_name','scheduler'] },
+  krea2_turbo: { id: 'krea2_turbo_route_owned_v1', label: 'Krea 2 Turbo Route-Owned', status: 'Experimental', values: { steps: 8, cfg: 1.0, denoise: 0.20, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','cfg','sampler_name','scheduler'] },
+  qwen_image_edit_2509: { id: 'qwen_edit_2509_identity_safe_v1', label: 'Qwen Edit 2509 Identity-Safe', status: 'Experimental', values: { steps: 20, cfg: 1.0, denoise: 0.22, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 20 }, route_owned: ['steps','cfg','sampler_name','scheduler'], warning: 'A compatible detailer-only identity LoRA is recommended.' },
+  qwen_image_edit_2511: { id: 'qwen_edit_2511_identity_safe_v1', label: 'Qwen Edit 2511 Identity-Safe', status: 'Experimental', values: { steps: 20, cfg: 1.0, denoise: 0.20, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 20 }, route_owned: ['steps','cfg','sampler_name','scheduler'], warning: 'A compatible detailer-only identity LoRA is recommended.' },
+  hidream: { id: 'hidream_route_owned_v1', label: 'HiDream Route-Owned', status: 'Scaffolded · gated', values: { steps: 20, cfg: 1.0, denoise: 0.24, sampler_name: 'euler', scheduler: 'simple', guide_size: 1024, max_size: 1024, noise_mask: true, force_inpaint: true, noise_mask_feather: 16 }, route_owned: ['steps','cfg','sampler_name','scheduler'] },
+};
+function adetailerNormalizeFamilyPresetMode(value = '') {
+  const token = String(value || '').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  const aliases = { '': 'auto_family', auto: 'auto_family', family: 'auto_family', family_auto: 'auto_family', recommended: 'auto_family', custom: 'manual', legacy: 'legacy_manual' };
+  const resolved = aliases[token] || token;
+  return ADETAILER_FAMILY_PRESET_MODES.includes(resolved) ? resolved : 'auto_family';
+}
+function adetailerNormalizePresetFamily(value = '') {
+  const token = String(value || '').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  return ADETAILER_FAMILY_ALIASES[token] || token;
+}
+function adetailerEffectivePresetFamily(settings = adetailerSettings(), route = adetailerActiveRoute(null)) {
+  return settings.model_source === 'dedicated_checkpoint'
+    ? adetailerNormalizePresetFamily(settings.detailer_model_family)
+    : adetailerNormalizePresetFamily(route?.family || '');
+}
+function adetailerFamilyPresetPlan(settings = adetailerSettings(), route = adetailerActiveRoute(null)) {
+  const mode = adetailerNormalizeFamilyPresetMode(settings.family_preset_mode);
+  const family = adetailerEffectivePresetFamily(settings, route);
+  const preset = ADETAILER_FAMILY_PRESETS[family] || null;
+  return { mode, family, preset, ready: mode !== 'auto_family' || Boolean(preset), family_source: settings.model_source === 'dedicated_checkpoint' ? 'dedicated_detailer_family' : 'generation_route_family' };
+}
+const ADETAILER_IDENTITY_MODES = ['none', 'detailer_identity_lora', 'dedicated_detailer_model'];
+const ADETAILER_IDENTITY_LORA_REVISIONS = ['route_family', 'qwen_image_edit_2509', 'qwen_image_edit_2511', 'both'];
+function adetailerNormalizeIdentityProtection(value = '') {
+  const token = String(value || '').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  const aliases = { '': 'none', off: 'none', disabled: 'none', no_protection: 'none', identity_lora: 'detailer_identity_lora', detailer_lora: 'detailer_identity_lora', lora: 'detailer_identity_lora', dedicated: 'dedicated_detailer_model', dedicated_model: 'dedicated_detailer_model', dedicated_checkpoint: 'dedicated_detailer_model' };
+  const resolved = aliases[token] || token || 'none';
+  return ADETAILER_IDENTITY_MODES.includes(resolved) ? resolved : 'none';
+}
+function adetailerNormalizeIdentityLoraRevision(value = '') {
+  const token = String(value || '').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  const aliases = { '': 'route_family', auto: 'route_family', current: 'route_family', current_route: 'route_family', route: 'route_family', '2509': 'qwen_image_edit_2509', qwen_2509: 'qwen_image_edit_2509', '2511': 'qwen_image_edit_2511', qwen_2511: 'qwen_image_edit_2511', all: 'both', either: 'both' };
+  const resolved = aliases[token] || token || 'route_family';
+  return ADETAILER_IDENTITY_LORA_REVISIONS.includes(resolved) ? resolved : 'route_family';
+}
+function adetailerIsQwenEditFamily(family = '') {
+  return ['qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(adetailerNormalizePresetFamily(family));
+}
 const ADETAILER_DEFAULTS = {
   enabled: false,
+  family_preset_mode: 'auto_family',
+  sampler_name: '',
+  scheduler: '',
+  guide_size: 768,
+  max_size: 1024,
+  noise_mask: true,
+  noise_mask_feather: 16,
+  model_source: 'generation_model',
+  detailer_model_family: 'sdxl',
+  detailer_checkpoint: '',
+  detailer_vae: 'automatic',
+  identity_protection: 'none',
+  identity_lora_revision: 'route_family',
+  lora_inheritance: 'inherit_all',
+  inherit_lora_uids: [],
+  detailer_lora_enabled: false,
+  detailer_lora: '',
+  detailer_lora_strength_model: 0.8,
+  detailer_lora_strength_clip: 0.8,
+  detailer_lora_trigger: '',
+  detailer_loras: [],
   custom_detector_root: '',
   custom_sam_root: '',
   sam_preset: '',
@@ -23224,7 +23811,7 @@ const ADETAILER_DEFAULTS = {
 const ADETAILER_DRAFT_STORAGE_KEY = 'neo.image.adetailer.draft.v1';
 const ADETAILER_SELECTED_PRESET_KEY = 'neo.image.adetailer.selectedPreset.v1';
 const ADETAILER_ACTIVE_ROUTE_STATES = ['available', 'experimental_available'];
-const ADETAILER_RUNTIME_CATALOG_KEYS = ['model_catalog', 'catalog_bbox_models', 'catalog_segm_models', 'catalog_onnx_models', 'catalog_sam_models'];
+const ADETAILER_RUNTIME_CATALOG_KEYS = ['model_catalog', 'catalog_bbox_models', 'catalog_segm_models', 'catalog_onnx_models', 'catalog_sam_models', 'catalog_detailer_checkpoints', 'catalog_detailer_vaes', 'catalog_detailer_loras'];
 const ADETAILER_CATALOG_RETRY_DELAYS_MS = [0, 750];
 const adetailerModelCatalogByProfile = new Map();
 const adetailerModelCatalogInFlight = new Map();
@@ -23232,10 +23819,10 @@ let adetailerModelCatalogRequestId = 0;
 const ADETAILER_UI_POLICY = {
   available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Available', tone: 'success' },
   experimental_available: { visible: true, diagnostic: false, controls_enabled: true, badge: 'Experimental', tone: 'warning' },
-  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Implementation target', tone: 'warning' },
-  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Planned', tone: 'warning' },
-  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Provider gated', tone: 'warning' },
-  unsupported: { visible: false, diagnostic: false, controls_enabled: false, badge: 'Unsupported', tone: 'danger' },
+  implementation_target: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  planned_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not ready', tone: 'warning' },
+  provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Backend required', tone: 'warning' },
+  unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not compatible', tone: 'danger' },
 };
 function adetailerNormalizePass(raw = {}, index = 0) {
   const src = raw && typeof raw === 'object' ? raw : {};
@@ -23299,7 +23886,10 @@ function adetailerPrimaryPassFromSettings(settings = {}) {
   }, 0);
 }
 function adetailerNormalizeSettings(raw = {}) {
-  const merged = { ...ADETAILER_DEFAULTS, ...(raw || {}) };
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const hasPresetMode = Object.prototype.hasOwnProperty.call(source, 'family_preset_mode');
+  const legacyDraft = Object.keys(source).length > 0 && !hasPresetMode;
+  const merged = { ...ADETAILER_DEFAULTS, ...source };
   const existing = Array.isArray(merged.detailer_passes) ? merged.detailer_passes : [];
   const primary = adetailerNormalizePass(existing[0] || merged, 0);
   const extras = existing.slice(1).map((pass, index) => adetailerNormalizePass(pass, index + 1));
@@ -23308,6 +23898,27 @@ function adetailerNormalizeSettings(raw = {}) {
     ...merged,
     ...primary,
     enabled: Boolean(merged.enabled),
+    family_preset_mode: legacyDraft ? 'legacy_manual' : adetailerNormalizeFamilyPresetMode(merged.family_preset_mode),
+    sampler_name: String(merged.sampler_name || '').trim(),
+    scheduler: String(merged.scheduler || '').trim(),
+    guide_size: adetailerClampNumber(merged.guide_size, ADETAILER_DEFAULTS.guide_size, 64, 4096, true),
+    max_size: adetailerClampNumber(merged.max_size, ADETAILER_DEFAULTS.max_size, 64, 8192, true),
+    noise_mask: merged.noise_mask !== false,
+    noise_mask_feather: adetailerClampNumber(merged.noise_mask_feather, ADETAILER_DEFAULTS.noise_mask_feather, 0, 128, true),
+    model_source: ['generation_model', 'dedicated_checkpoint'].includes(String(merged.model_source || '').toLowerCase()) ? String(merged.model_source).toLowerCase() : 'generation_model',
+    detailer_model_family: String(merged.detailer_model_family || '').toLowerCase() === 'sd15' ? 'sd15' : 'sdxl',
+    detailer_checkpoint: String(merged.detailer_checkpoint || '').trim(),
+    detailer_vae: String(merged.detailer_vae || 'automatic').trim() || 'automatic',
+    identity_protection: adetailerNormalizeIdentityProtection(merged.identity_protection),
+    identity_lora_revision: adetailerNormalizeIdentityLoraRevision(merged.identity_lora_revision),
+    lora_inheritance: ['inherit_all', 'inherit_selected', 'inherit_none'].includes(String(merged.lora_inheritance || '').toLowerCase()) ? String(merged.lora_inheritance).toLowerCase() : 'inherit_all',
+    inherit_lora_uids: [...new Set((Array.isArray(merged.inherit_lora_uids) ? merged.inherit_lora_uids : String(merged.inherit_lora_uids || '').split(',')).map((item) => String(item || '').trim()).filter(Boolean))],
+    detailer_lora_enabled: Boolean(merged.detailer_lora_enabled),
+    detailer_lora: String(merged.detailer_lora || '').trim(),
+    detailer_lora_strength_model: adetailerClampNumber(merged.detailer_lora_strength_model, 0.8, -4, 4),
+    detailer_lora_strength_clip: adetailerClampNumber(merged.detailer_lora_strength_clip, 0.8, -4, 4),
+    detailer_lora_trigger: String(merged.detailer_lora_trigger || '').trim(),
+    detailer_loras: Array.isArray(merged.detailer_loras) ? merged.detailer_loras.filter((item) => item && typeof item === 'object') : [],
     custom_detector_root: '',
     custom_sam_root: '',
     sam_preset: String(merged.sam_preset || '').trim(),
@@ -23340,6 +23951,24 @@ function updateAdetailerSettings(patch = {}) {
   adetailerPersistDraftBackend(next);
   saveUiState();
 }
+function adetailerReplayMetadata(settings = adetailerSettings()) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const recipe = source.execution_recipe && typeof source.execution_recipe === 'object' ? source.execution_recipe : null;
+  const metadata = {};
+  if (recipe) metadata.execution_recipe = recipe;
+  if (source.execution_recipe_fingerprint) metadata.execution_recipe_fingerprint = String(source.execution_recipe_fingerprint);
+  if (source.replay_contract_schema_id) metadata.replay_contract_schema_id = String(source.replay_contract_schema_id);
+  if (source.replay_recipe_locked !== undefined) metadata.replay_recipe_locked = Boolean(source.replay_recipe_locked);
+  if (source.revalidation_required !== undefined) metadata.revalidation_required = Boolean(source.revalidation_required);
+  if (source.ready_to_auto_enable !== undefined) metadata.ready_to_auto_enable = Boolean(source.ready_to_auto_enable);
+  if (source.restore_policy) metadata.restore_policy = String(source.restore_policy);
+  if (source.restore_state) metadata.restore_state = String(source.restore_state);
+  if (source.restored_from_output) metadata.restored_from_output = String(source.restored_from_output);
+  if (source.restored_from_replay !== undefined) metadata.restored_from_replay = Boolean(source.restored_from_replay);
+  if (source.source_phase) metadata.source_phase = String(source.source_phase);
+  return metadata;
+}
+
 function adetailerPresetSnapshot(settings = adetailerSettings()) {
   const params = adetailerCleanParams(settings);
   return {
@@ -23350,6 +23979,9 @@ function adetailerPresetSnapshot(settings = adetailerSettings()) {
     assets: {
       detector_models: (params.detailer_passes || []).map((pass) => pass.detector_model).filter(Boolean),
       sam_model: params.sam_model || '',
+      detailer_checkpoint: params.detailer_checkpoint || '',
+      detailer_vae: params.detailer_vae || '',
+      detailer_loras: [params.detailer_lora, ...(params.detailer_loras || []).map((item) => item?.name || '')].filter(Boolean),
     },
     metadata: {
       extension_id: ADETAILER_EXTENSION_ID,
@@ -23357,6 +23989,7 @@ function adetailerPresetSnapshot(settings = adetailerSettings()) {
       source_releaseStage: 'ready',
       draft_replay_safe: true,
       restore_policy: 'restore_disabled_until_route_nodes_detector_models_pass_cards_and_manual_boxes_validate',
+      ...adetailerReplayMetadata(settings),
     },
   };
 }
@@ -23451,9 +24084,9 @@ function adetailerActiveRoute(record) {
   if (!['available', 'experimental_available', 'planned_gated', 'provider_gated', 'unsupported'].includes(routeState)) routeState = 'planned_gated';
   let reason = entry?.reason || '';
   if (!reason) {
-    if (routeState === 'planned_gated') reason = 'ADetailer is planned/gated for this Image route until mode-specific graph safety is validated.';
-    if (routeState === 'provider_gated') reason = 'ADetailer needs ComfyUI Impact Pack nodes and cannot run on this provider route.';
-    if (routeState === 'unsupported') reason = 'No safe Impact Pack ADetailer patch path is proven for this family/loader route.';
+    if (routeState === 'planned_gated') reason = 'ADetailer is not available for this model and image mode yet.';
+    if (routeState === 'provider_gated') reason = 'Connect ComfyUI with the required Impact Pack detector nodes to use ADetailer.';
+    if (routeState === 'unsupported') reason = 'ADetailer is not compatible with this model and loader combination.';
   }
   return { backend, family, loader, workflow_mode: workflowMode, route_mode: routeMode, route_key: routeKey, route_state: routeState, reason };
 }
@@ -23479,6 +24112,27 @@ function adetailerCleanParams(settings = {}) {
   const primary = { ...(activePasses[0] || passes[0] || adetailerNormalizePass({}, 0)), enabled: true };
   const params = {
     enabled: Boolean(cleanSettings.enabled),
+    family_preset_mode: cleanSettings.family_preset_mode,
+    sampler_name: cleanSettings.sampler_name,
+    scheduler: cleanSettings.scheduler,
+    guide_size: cleanSettings.guide_size,
+    max_size: cleanSettings.max_size,
+    noise_mask: cleanSettings.noise_mask,
+    noise_mask_feather: cleanSettings.noise_mask_feather,
+    model_source: cleanSettings.model_source,
+    detailer_model_family: cleanSettings.detailer_model_family,
+    detailer_checkpoint: cleanSettings.detailer_checkpoint,
+    detailer_vae: cleanSettings.detailer_vae,
+    identity_protection: cleanSettings.identity_protection,
+    identity_lora_revision: cleanSettings.identity_lora_revision,
+    lora_inheritance: cleanSettings.lora_inheritance,
+    inherit_lora_uids: cleanSettings.inherit_lora_uids,
+    detailer_lora_enabled: cleanSettings.detailer_lora_enabled,
+    detailer_lora: cleanSettings.detailer_lora,
+    detailer_lora_strength_model: cleanSettings.detailer_lora_strength_model,
+    detailer_lora_strength_clip: cleanSettings.detailer_lora_strength_clip,
+    detailer_lora_trigger: cleanSettings.detailer_lora_trigger,
+    detailer_loras: cleanSettings.detailer_loras,
     sam_preset: cleanSettings.sam_preset,
     provider: cleanSettings.provider,
     sam_model: cleanSettings.sam_model,
@@ -23510,6 +24164,26 @@ function adetailerCleanParams(settings = {}) {
   };
   if (!params.sam_model) delete params.sam_model;
   if (!params.custom_classes) delete params.custom_classes;
+  if (params.identity_protection === 'detailer_identity_lora') {
+    params.model_source = 'generation_model';
+    params.detailer_lora_enabled = true;
+  } else if (params.identity_protection === 'dedicated_detailer_model') {
+    params.model_source = 'dedicated_checkpoint';
+    params.lora_inheritance = 'inherit_none';
+    params.inherit_lora_uids = [];
+  }
+  if (params.model_source !== 'dedicated_checkpoint') {
+    params.detailer_checkpoint = '';
+    params.detailer_vae = 'automatic';
+  } else {
+    params.lora_inheritance = 'inherit_none';
+    params.inherit_lora_uids = [];
+  }
+  if (!params.detailer_lora_enabled || !params.detailer_lora) {
+    params.detailer_lora_enabled = false;
+    params.detailer_lora = '';
+    params.detailer_lora_trigger = '';
+  }
   return params;
 }
 function adetailerDisabledPayload(reason, route) {
@@ -23549,6 +24223,10 @@ function adetailerPayloadPreview(record, appliedOverride = null) {
   const assets = {};
   if (params.detector_model) assets.detector_model = params.detector_model;
   if (params.sam_model) assets.sam_model = params.sam_model;
+  if (params.model_source === 'dedicated_checkpoint' && params.detailer_checkpoint) assets.detailer_checkpoint = params.detailer_checkpoint;
+  if (params.model_source === 'dedicated_checkpoint' && params.detailer_vae && params.detailer_vae !== 'automatic') assets.detailer_vae = params.detailer_vae;
+  const selectedDetailerLoras = [params.detailer_lora, ...(params.detailer_loras || []).map((item) => item?.name || '')].filter(Boolean);
+  if (selectedDetailerLoras.length) assets.detailer_loras = [...new Set(selectedDetailerLoras)];
   return {
     extensions: {
       [ADETAILER_EXTENSION_ID]: {
@@ -23578,6 +24256,7 @@ function adetailerPayloadPreview(record, appliedOverride = null) {
           workflow_patch_ready: true,
           workflow_patch_deferred_to_phase: '',
           safe_replay_payload: true,
+          ...adetailerReplayMetadata(settings),
           ui_parity_pass_count: Array.isArray(params.detailer_passes) ? params.detailer_passes.length : 1,
           ui_parity_features: ['shared_defaults','smart_presets','detailer_cards','manual_target_maker','drag_canvas_editor','prompt_mapper','live_report'],
         },
@@ -23616,7 +24295,55 @@ function adetailerValidationPreview(record, appliedOverride = null) {
     items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
     return items;
   }
+  const presetPlan = adetailerFamilyPresetPlan(settings, route);
+  if (presetPlan.mode === 'auto_family' && !presetPlan.preset) {
+    items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.family_preset_mode', message: `No ADetailer family preset is registered for ${presetPlan.family || 'the selected detailer family'}. Neo will not fall back to SDXL sampling.` });
+  }
+  if (presetPlan.mode === 'legacy_manual') {
+    items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.family_preset_mode', message: 'This draft uses legacy manual sampling compatibility. Review the values and switch to an automatic family preset or explicit manual mode.' });
+  }
+  if (adetailerIsQwenEditFamily(route.family)) {
+    if (clean.identity_protection === 'none') {
+      const message = route.family === 'qwen_image_edit_2509'
+        ? 'Qwen Image Edit 2509 native detailing can change facial identity. Select a compatible identity LoRA or a dedicated detailer model when identity consistency matters.'
+        : 'Qwen Image Edit 2511 improves character consistency, but FaceDetailer identity preservation is not guaranteed. Use a compatible identity LoRA or dedicated detailer model for critical identity work.';
+      items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.identity_protection', message });
+    } else if (clean.identity_protection === 'detailer_identity_lora') {
+      if (clean.model_source !== 'generation_model') items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.model_source', message: 'Qwen Edit identity-LoRA mode requires Detailer model source = Use generation model.' });
+      if (!clean.detailer_lora_enabled || !clean.detailer_lora) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_lora', message: 'Select a detailer-only identity LoRA before queueing.' });
+      if (!['route_family', 'both', route.family].includes(clean.identity_lora_revision)) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.identity_lora_revision', message: 'The declared identity-LoRA revision does not match the active Qwen Image Edit route.' });
+      items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.identity_lora_revision', message: 'Neo can verify the installed LoRA filename and declared Qwen revision, but identity-preservation quality still requires the exact model card and physical image validation.' });
+    } else if (clean.identity_protection === 'dedicated_detailer_model') {
+      if (clean.model_source !== 'dedicated_checkpoint') items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.model_source', message: 'Dedicated identity mode requires Detailer model source = Use dedicated checkpoint.' });
+      items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.identity_protection', message: 'A dedicated SDXL/SD1.5 detailer avoids native Qwen Edit resampling, but visual identity is still not guaranteed.' });
+    }
+  }
   if (!clean.detector_model) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'warning', field: 'params.detector_model', message: 'Select a detector model before queueing.' });
+  if (clean.model_source === 'dedicated_checkpoint') {
+    const catalog = adetailerCatalogPayloadForProfile();
+    const checkpoint = String(clean.detailer_checkpoint || '').trim();
+    const vae = String(clean.detailer_vae || 'automatic').trim();
+    if (!checkpoint) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_checkpoint', message: 'Select a dedicated SDXL or SD 1.5 checkpoint before queueing.' });
+    else if (adetailerModelCatalogState().loaded && !(catalog.detailer_checkpoints || []).some((item) => String(item || '').toLowerCase() === checkpoint.toLowerCase())) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_checkpoint', message: 'The dedicated checkpoint is not in the active Comfy checkpoint catalog.' });
+    if (!['', 'automatic', 'auto', 'baked', 'checkpoint', 'provider_default'].includes(vae.toLowerCase()) && adetailerModelCatalogState().loaded && !(catalog.detailer_vaes || []).some((item) => String(item || '').toLowerCase() === vae.toLowerCase())) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_vae', message: 'The dedicated VAE is not in the active Comfy VAE catalog.' });
+    if (!clean.use_main_prompt) {
+      (clean.detailer_passes || []).forEach((pass, index) => {
+        if (!String(pass.positive_prompt || '').trim()) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: `params.detailer_passes[${index}].positive_prompt`, message: `${pass.label || `Pass ${index + 1}`}: dedicated model mode needs a positive repair prompt when Use main prompts is off.` });
+      });
+    }
+  }
+  const generationLoras = adetailerGenerationLoraRows();
+  if (clean.model_source !== 'dedicated_checkpoint' && clean.lora_inheritance === 'inherit_selected') {
+    if (!(clean.inherit_lora_uids || []).length) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.inherit_lora_uids', message: 'Select at least one active generation LoRA or choose another inheritance policy.' });
+    const activeUids = new Set(generationLoras.map((row) => row.uid));
+    const missing = (clean.inherit_lora_uids || []).filter((uid) => !activeUids.has(uid));
+    if (missing.length) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.inherit_lora_uids', message: 'One or more selected generation LoRAs are no longer active in LoRA Stack.' });
+  }
+  if (clean.detailer_lora_enabled) {
+    const catalog = adetailerCatalogPayloadForProfile();
+    if (!clean.detailer_lora) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_lora', message: 'Select a detailer-only LoRA before queueing.' });
+    else if (adetailerModelCatalogState().loaded && !(catalog.detailer_loras || []).some((item) => String(item || '').toLowerCase() === String(clean.detailer_lora || '').toLowerCase())) items.push({ extension_id: ADETAILER_EXTENSION_ID, level: 'error', field: 'params.detailer_lora', message: 'The detailer-only LoRA is not in the active Comfy LoRA catalog.' });
+  }
   (settings.detailer_passes || []).filter((pass, index) => index === 0 || pass.enabled !== false).forEach((pass, index) => {
     const catalogRuntime = adetailerModelCatalogState();
     const catalog = adetailerCatalogPayloadForProfile();
@@ -23644,6 +24371,260 @@ function adetailerStatusLabel(route, settings) {
 }
 function adetailerOptionSelect(id, options, value, disabled = false, attrs = '') {
   return `<select id="${id}" ${attrs} ${disabled ? 'disabled' : ''}>${options.map((opt) => `<option value="${escapeAttr(opt.id)}" ${String(opt.id) === String(value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}</select>`;
+}
+function adetailerFamilyPresetValueLabel(preset, key) {
+  if (!preset) return 'Unavailable';
+  if ((preset.route_owned || []).includes(key)) return 'Route-owned';
+  const value = preset.values?.[key];
+  if (typeof value === 'boolean') return value ? 'On' : 'Off';
+  return String(value ?? '');
+}
+
+function adetailerIdentityControls(settings = adetailerSettings(), route = adetailerActiveRoute(null), disabled = false) {
+  const family = adetailerNormalizePresetFamily(route?.family || '');
+  if (!adetailerIsQwenEditFamily(family)) return '';
+  const mode = adetailerNormalizeIdentityProtection(settings.identity_protection);
+  const revision = adetailerNormalizeIdentityLoraRevision(settings.identity_lora_revision);
+  const loraMode = mode === 'detailer_identity_lora';
+  const dedicatedMode = mode === 'dedicated_detailer_model';
+  const warning = family === 'qwen_image_edit_2509'
+    ? 'Qwen Image Edit 2509 can drift facial identity during a FaceDetailer resample.'
+    : 'Qwen Image Edit 2511 improves character consistency, but FaceDetailer identity preservation is not guaranteed.';
+  const statusLabel = mode === 'none' ? 'Identity risk' : loraMode ? 'LoRA-assisted experimental' : 'Dedicated-model fallback';
+  const statusTone = mode === 'none' ? 'warning' : 'warning';
+  const modeOptions = [
+    { id: 'none', label: 'None — show identity-risk warning' },
+    { id: 'detailer_identity_lora', label: 'Detailer identity LoRA' },
+    { id: 'dedicated_detailer_model', label: 'Dedicated detailer model' },
+  ];
+  const revisionOptions = [
+    { id: 'route_family', label: 'Match current Qwen Edit revision' },
+    { id: 'qwen_image_edit_2509', label: 'Qwen Image Edit 2509 only' },
+    { id: 'qwen_image_edit_2511', label: 'Qwen Image Edit 2511 only' },
+    { id: 'both', label: 'Declared compatible with 2509 + 2511' },
+  ];
+  const detail = loraMode
+    ? '<p class="neo-muted">Neo requires the generation model, a compatible model-only LoRA, and a matching installed LoRA entry. Qwen sampling behavior is preserved, but visual identity is not guaranteed.</p>'
+    : dedicatedMode
+      ? '<p class="neo-muted">Dedicated mode switches the repair branch to the selected SDXL/SD1.5 checkpoint and does not claim guaranteed identity preservation.</p>'
+      : '<p class="neo-muted">The pass may run natively, but no identity-preservation claim is active.</p>';
+  return `<section class="neo-adetailer-identity-policy" data-adetailer-identity-mode="${escapeAttr(mode)}" data-adetailer-qwen-revision="${escapeAttr(family)}"><div class="neo-adetailer-subhead"><div><strong>Qwen Edit identity protection</strong><p class="neo-muted">Explicit policy for native Qwen Image Edit 2509/2511 FaceDetailer passes.</p></div><span class="neo-state-pill ${statusTone}">${escapeHtml(statusLabel)}</span></div><div class="neo-cfg-fix-control-grid"><label>Identity protection${adetailerOptionSelect('adetailerIdentityProtection', modeOptions, mode, disabled)}</label>${loraMode ? `<label>Identity-LoRA revision${adetailerOptionSelect('adetailerIdentityLoraRevision', revisionOptions, revision, disabled)}</label>` : ''}</div><p class="neo-warn">${escapeHtml(warning)}</p>${detail}</section>`;
+}
+
+function adetailerFamilyPresetControls(settings = adetailerSettings(), route = adetailerActiveRoute(null), disabled = false) {
+  const plan = adetailerFamilyPresetPlan(settings, route);
+  const modeOptions = [
+    { id: 'auto_family', label: 'Automatic family preset' },
+    { id: 'manual', label: 'Manual sampling' },
+    { id: 'legacy_manual', label: 'Legacy manual compatibility' },
+  ];
+  const preset = plan.preset;
+  const auto = plan.mode === 'auto_family';
+  const summary = preset ? [
+    `Steps ${adetailerFamilyPresetValueLabel(preset, 'steps')}`,
+    `CFG ${adetailerFamilyPresetValueLabel(preset, 'cfg')}`,
+    `Denoise ${adetailerFamilyPresetValueLabel(preset, 'denoise')}`,
+    `Sampler ${adetailerFamilyPresetValueLabel(preset, 'sampler_name')}`,
+    `Scheduler ${adetailerFamilyPresetValueLabel(preset, 'scheduler')}`,
+    `Guide ${adetailerFamilyPresetValueLabel(preset, 'guide_size')}`,
+    `Max ${adetailerFamilyPresetValueLabel(preset, 'max_size')}`,
+    `Feather ${adetailerFamilyPresetValueLabel(preset, 'noise_mask_feather')}`,
+  ] : [];
+  const status = preset ? `<span class="neo-state-pill ${preset.status === 'Available' ? 'success' : 'warning'}">${escapeHtml(preset.status)}</span>` : '<span class="neo-state-pill warning">No preset</span>';
+  const unknown = auto && !preset ? `<p class="neo-warn">No ADetailer preset is registered for <strong>${escapeHtml(plan.family || 'unknown family')}</strong>. Neo will block instead of falling back to SDXL sampling.</p>` : '';
+  const legacy = plan.mode === 'legacy_manual' ? '<p class="neo-warn">Legacy compatibility preserves settings saved by older Neo Studio builds. Switch to Automatic family preset or Manual sampling after reviewing the values.</p>' : '';
+  const identity = auto && preset?.warning ? `<p class="neo-warn">${escapeHtml(preset.warning)}</p>` : '';
+  return `<section class="neo-adetailer-family-preset" data-adetailer-family-preset-mode="${escapeAttr(plan.mode)}" data-adetailer-family="${escapeAttr(plan.family)}" data-adetailer-family-preset-ready="${plan.ready ? 'true' : 'false'}"><div class="neo-adetailer-subhead"><div><strong>Family sampling profile</strong><p class="neo-muted">Owned by the model that performs the repair: the route family in generation-model mode, or the selected SDXL/SD1.5 family in dedicated-checkpoint mode.</p></div>${status}</div><div class="neo-cfg-fix-control-grid"><label>Sampling profile${adetailerOptionSelect('adetailerFamilyPresetMode', modeOptions, plan.mode, disabled)}</label><label>Effective detailer family<input value="${escapeAttr(plan.family || 'unknown')}" readonly disabled></label>${preset ? `<label>Preset<input value="${escapeAttr(preset.label)}" readonly disabled></label>` : ''}</div>${auto && preset ? `<div class="neo-badge-row">${badgeRow(summary)}</div><p class="neo-muted">${(preset.route_owned || []).length ? `Route-owned fields: ${(preset.route_owned || []).map((key) => escapeHtml(key)).join(', ')}. Neo keeps their exact values from the selected model route.` : 'All sampling values come from this family preset.'}</p>` : '<p class="neo-muted">Manual modes submit the visible sampling controls below. They do not borrow defaults from another family.</p>'}${unknown}${legacy}${identity}</section>`;
+}
+function adetailerDetailerModelSourceControls(settings = adetailerSettings(), disabled = false) {
+  const catalog = adetailerCatalogPayloadForProfile();
+  const checkpoints = [...new Set((catalog.detailer_checkpoints || []).map((item) => String(item || '').trim()).filter(Boolean))];
+  const vaes = [...new Set((catalog.detailer_vaes || []).map((item) => String(item || '').trim()).filter(Boolean))];
+  const dedicated = settings.model_source === 'dedicated_checkpoint';
+  const checkpointValue = String(settings.detailer_checkpoint || '');
+  const vaeValue = String(settings.detailer_vae || 'automatic');
+  const checkpointKnown = !checkpointValue || checkpoints.some((item) => item.toLowerCase() === checkpointValue.toLowerCase());
+  const vaeKnown = ['automatic', 'auto', 'baked', 'checkpoint', 'provider_default', ''].includes(vaeValue.toLowerCase()) || vaes.some((item) => item.toLowerCase() === vaeValue.toLowerCase());
+  const warning = dedicated && !checkpointValue
+    ? '<p class="neo-warn">Select a dedicated SDXL or SD 1.5 checkpoint before queueing.</p>'
+    : dedicated && !checkpointKnown
+      ? '<p class="neo-warn">The saved dedicated checkpoint is not in the active Comfy checkpoint catalog. Refresh models or select an installed checkpoint.</p>'
+      : dedicated && !vaeKnown
+        ? '<p class="neo-warn">The saved dedicated VAE is not in the active Comfy VAE catalog.</p>'
+        : '';
+  return `<section class="neo-adetailer-model-source" data-adetailer-model-source="${escapeAttr(settings.model_source)}"><div class="neo-cfg-fix-control-grid">
+    <label>Detailer model source${adetailerOptionSelect('adetailerModelSource', [{id:'generation_model',label:'Use generation model'}, {id:'dedicated_checkpoint',label:'Use dedicated checkpoint'}], settings.model_source, disabled)}</label>
+    ${dedicated ? `<label>Dedicated family${adetailerOptionSelect('adetailerModelFamily', [{id:'sdxl',label:'SDXL'}, {id:'sd15',label:'SD 1.5'}], settings.detailer_model_family, disabled)}</label><label>Dedicated checkpoint<input id="adetailerDetailerCheckpoint" value="${escapeAttr(checkpointValue)}" list="adetailerCheckpointList" placeholder="Select installed checkpoint" ${disabled ? 'disabled' : ''}></label><label>Dedicated VAE<input id="adetailerDetailerVae" value="${escapeAttr(vaeValue)}" list="adetailerVaeList" placeholder="automatic" ${disabled ? 'disabled' : ''}></label>` : ''}
+  </div><p class="neo-muted">The generated/current image remains the repair source. This setting controls only the MODEL, CLIP, and VAE used inside the ADetailer repair branch.${dedicated ? ' Dedicated mode re-encodes each pass prompt with the selected checkpoint CLIP.' : ''}</p>${warning}</section>`;
+}
+
+
+function adetailerGenerationLoraRows() {
+  const stack = loraStackSettings();
+  if (!stack.execution_enabled) return [];
+  return loraStackBaseGraphRows(stack.rows || []);
+}
+function adetailerFinishLoraRows() {
+  const stack = loraStackSettings();
+  if (!stack.execution_enabled) return [];
+  return loraStackCleanRows(stack.rows || []).filter((row) => loraStackNormalizeApplyTo(row.apply_to) === 'global' && row.target === 'finish');
+}
+function adetailerLoraBranchControls(settings = adetailerSettings(), disabled = false) {
+  const catalog = adetailerCatalogPayloadForProfile();
+  const loras = [...new Set((catalog.detailer_loras || []).map((item) => String(item || '').trim()).filter(Boolean))];
+  const generationRows = adetailerGenerationLoraRows();
+  const finishRows = adetailerFinishLoraRows();
+  const dedicated = settings.model_source === 'dedicated_checkpoint';
+  const inheritance = dedicated ? 'inherit_none' : settings.lora_inheritance;
+  const selected = new Set(settings.inherit_lora_uids || []);
+  const selectedRows = inheritance === 'inherit_selected' ? `<div class="neo-adetailer-lora-selection"><strong>Select generation LoRAs</strong>${generationRows.length ? generationRows.map((row) => `<label class="neo-toggle-row"><input type="checkbox" data-adetailer-inherit-lora-uid="${escapeAttr(row.uid)}" ${selected.has(row.uid) ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>${escapeHtml(String(row.name || '').split('/').pop())} · ${escapeHtml(row.strength)} · ${escapeHtml(row.target)}</span></label>`).join('') : '<p class="neo-warn">No active global base/both rows are available in LoRA Stack. Enable LoRA Stack or choose another inheritance policy.</p>'}</div>` : '';
+  const directKnown = !settings.detailer_lora || loras.some((item) => item.toLowerCase() === String(settings.detailer_lora || '').toLowerCase());
+  const directWarning = settings.detailer_lora_enabled && !settings.detailer_lora
+    ? '<p class="neo-warn">Select an installed detailer-only LoRA before queueing.</p>'
+    : settings.detailer_lora_enabled && adetailerModelCatalogState().loaded && !directKnown
+      ? '<p class="neo-warn">The selected detailer-only LoRA is not in the active Comfy LoRA catalog.</p>'
+      : '';
+  const finishSummary = finishRows.length
+    ? `<div class="neo-adetailer-lora-finish-summary"><strong>LoRA Stack finish rows</strong><p class="neo-muted">${finishRows.map((row) => `${escapeHtml(String(row.name || '').split('/').pop())} · ${escapeHtml(row.strength)}`).join(' · ')}</p></div>`
+    : '<p class="neo-muted">No active LoRA Stack rows target Finish. Such rows are automatically appended to this isolated branch when the LoRA Stack master switch is on.</p>';
+  return `<section class="neo-adetailer-lora-branch" data-adetailer-lora-inheritance="${escapeAttr(inheritance)}"><div class="neo-adetailer-subhead"><div><strong>Detailer LoRA branch</strong><p class="neo-muted">Controls which generation LoRAs reach ADetailer and adds an optional LoRA that never rewires the main generation sampler.</p></div><span class="neo-badge">Isolated branch</span></div><div class="neo-cfg-fix-control-grid">
+    <label>Generation LoRA inheritance${adetailerOptionSelect('adetailerLoraInheritance', [{id:'inherit_all',label:'Inherit all generation LoRAs'}, {id:'inherit_selected',label:'Inherit selected generation LoRAs'}, {id:'inherit_none',label:'Do not inherit generation LoRAs'}], inheritance, disabled || dedicated)}</label>
+    <label class="neo-toggle-row"><input id="adetailerDetailerLoraEnabled" type="checkbox" ${settings.detailer_lora_enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Add detailer-only LoRA</span></label>
+    ${settings.detailer_lora_enabled ? `<label>Detailer-only LoRA<input id="adetailerDetailerLora" value="${escapeAttr(settings.detailer_lora || '')}" list="adetailerLoraList" placeholder="Select installed LoRA" ${disabled ? 'disabled' : ''}></label><label>Model strength<input id="adetailerDetailerLoraStrengthModel" type="number" min="-4" max="4" step="0.05" value="${escapeAttr(settings.detailer_lora_strength_model)}" ${disabled ? 'disabled' : ''}></label><label>CLIP strength<input id="adetailerDetailerLoraStrengthClip" type="number" min="-4" max="4" step="0.05" value="${escapeAttr(settings.detailer_lora_strength_clip)}" ${disabled ? 'disabled' : ''}></label><label>Trigger text<input id="adetailerDetailerLoraTrigger" value="${escapeAttr(settings.detailer_lora_trigger || '')}" placeholder="Optional trigger phrase" ${disabled ? 'disabled' : ''}></label>` : ''}
+  </div>${dedicated ? '<p class="neo-muted">Dedicated checkpoint mode does not inherit generation LoRAs. Detailer-only LoRAs are applied after the dedicated checkpoint loader.</p>' : selectedRows}${finishSummary}${directWarning}<datalist id="adetailerLoraList">${loras.map((item) => `<option value="${escapeAttr(item)}"></option>`).join('')}</datalist></section>`;
+}
+
+
+const ADETAILER_UX_STATUS_LABELS = {
+  available: { label: 'Available', tone: 'success' },
+  experimental_available: { label: 'Experimental', tone: 'warning' },
+  planned_gated: { label: 'Planned gated', tone: 'warning' },
+  provider_gated: { label: 'Missing nodes', tone: 'danger' },
+  unsupported: { label: 'Unsupported', tone: 'danger' },
+};
+const ADETAILER_UI_SECTION_STORAGE_KEY = 'neo.image.adetailer.ui.sections.v1';
+// Internal compatibility identifier; never rendered in the user interface.
+const ADETAILER_UI_CONTRACT = 'neo.image.adetailer.ui_ux.v1';
+let adetailerUiSectionState = (() => {
+  try {
+    const raw = sessionStorage.getItem(ADETAILER_UI_SECTION_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
+})();
+function adetailerSectionIsOpen(sectionId, fallback = false) {
+  if (Object.prototype.hasOwnProperty.call(adetailerUiSectionState, sectionId)) return Boolean(adetailerUiSectionState[sectionId]);
+  return Boolean(fallback);
+}
+function adetailerRememberSection(sectionId, open) {
+  adetailerUiSectionState = { ...adetailerUiSectionState, [sectionId]: Boolean(open) };
+  try { sessionStorage.setItem(ADETAILER_UI_SECTION_STORAGE_KEY, JSON.stringify(adetailerUiSectionState)); } catch (_) {}
+}
+function adetailerCatalogHasLora(payload = {}, name = '') {
+  const requested = String(name || '').trim().toLowerCase();
+  if (!requested) return false;
+  return (payload.detailer_loras || []).some((item) => String(item || '').trim().toLowerCase() === requested);
+}
+function adetailerUxStatuses(settings = adetailerSettings(), route = adetailerActiveRoute(null), catalogRuntime = adetailerModelCatalogState()) {
+  const payload = catalogRuntime.payload && typeof catalogRuntime.payload === 'object' ? catalogRuntime.payload : {};
+  const items = [];
+  const seen = new Set();
+  const push = (id, label, tone, message = '') => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    items.push({ id, label, tone, message });
+  };
+  const routeStatus = ADETAILER_UX_STATUS_LABELS[route.route_state] || { label: String(route.route_state || 'Unchecked').replaceAll('_', ' '), tone: 'muted' };
+  push(`route_${route.route_state}`, routeStatus.label, routeStatus.tone, route.reason || '');
+
+  const replayRecipe = settings.execution_recipe && typeof settings.execution_recipe === 'object' ? settings.execution_recipe : {};
+  const replayWarnings = replayRecipe.warnings && typeof replayRecipe.warnings === 'object' ? replayRecipe.warnings : {};
+  if (settings.replay_recipe_locked || replayRecipe?.replay?.locked) {
+    push('replay_recipe_locked', 'Replay locked', 'info', 'Exact effective ADetailer values are restored disabled and must match the recorded route before queueing.');
+  }
+  if (replayWarnings.reconfirmation_required) {
+    push('replay_warning_review', 'Review replay warnings', 'warning', 'The saved run contained warnings. Review them again before enabling this replay.');
+  }
+
+  if (settings.model_source === 'dedicated_checkpoint') {
+    push('dedicated_model_only', 'Dedicated-model only', 'info', 'ADetailer uses the selected SDXL/SD1.5 checkpoint branch; the source image and base sampler remain unchanged.');
+    if (!String(settings.detailer_checkpoint || '').trim()) push('missing_checkpoint', 'Missing checkpoint', 'danger', 'Select a dedicated checkpoint before queueing.');
+  }
+
+  const family = adetailerNormalizePresetFamily(route.family || '');
+  if (family === 'z_image_turbo') {
+    push('precision_warning', 'Precision warning', 'warning', 'Z-Image Turbo detailing is precision-sensitive and remains experimental. Stop and restart the backend after black or NaN output.');
+  }
+  if (adetailerIsQwenEditFamily(family)) {
+    const identityMode = adetailerNormalizeIdentityProtection(settings.identity_protection);
+    if (identityMode === 'none') {
+      push('identity_warning', 'Identity warning', 'warning', 'Native Qwen Edit FaceDetailer may change facial identity.');
+    } else if (identityMode === 'detailer_identity_lora') {
+      const selected = Boolean(settings.detailer_lora_enabled && String(settings.detailer_lora || '').trim());
+      const missingCatalog = selected && catalogRuntime.loaded && !adetailerCatalogHasLora(payload, settings.detailer_lora);
+      if (!selected || missingCatalog) push('missing_identity_lora', 'Missing LoRA', 'danger', 'Identity-LoRA mode requires an installed, catalog-bound detailer-only LoRA.');
+      else push('identity_lora_assisted', 'LoRA-assisted', 'warning', 'Identity assistance is active, but it is not a guarantee.');
+    }
+  } else if (settings.detailer_lora_enabled) {
+    const selected = String(settings.detailer_lora || '').trim();
+    if (!selected || (catalogRuntime.loaded && !adetailerCatalogHasLora(payload, selected))) {
+      push('missing_detailer_lora', 'Missing LoRA', 'danger', 'The selected detailer-only LoRA is missing from the active Comfy catalog.');
+    }
+  }
+
+  const diagnostics = Array.isArray(payload.diagnostics?.warnings) ? payload.diagnostics.warnings.map((value) => String(value || '')) : [];
+  if (route.route_state === 'provider_gated' || diagnostics.some((value) => value === 'detector_provider_nodes_not_found')) {
+    push('missing_nodes', 'Missing nodes', 'danger', 'Install/enable Impact Pack and Impact Subpack detector nodes, reconnect the backend, then refresh models.');
+  }
+
+  const enabledPasses = (settings.detailer_passes || []).filter((pass, index) => index === 0 || pass.enabled !== false);
+  if (catalogRuntime.loaded && ['comfyui', 'comfyui_portable'].includes(route.backend)) {
+    const missingDetector = enabledPasses.some((pass) => {
+      const name = String(pass.detector_model || '').trim();
+      return !name || !adetailerCatalogCanonicalModel(payload, pass.detector_type, name);
+    });
+    if (missingDetector) push('missing_detector', 'Missing detector', 'danger', 'One or more enabled passes do not have an active detector model for the selected detector type.');
+  }
+
+  if (settings.family_preset_mode === 'auto_family' && !adetailerFamilyPresetPlan(settings, route).ready) {
+    push('missing_family_preset', 'Missing preset', 'danger', 'No automatic family preset exists for the effective detailer model. Neo will fail closed.');
+  }
+  return items;
+}
+function adetailerStatusCenter(settings = adetailerSettings(), route = adetailerActiveRoute(null), catalogRuntime = adetailerModelCatalogState()) {
+  const statuses = adetailerUxStatuses(settings, route, catalogRuntime);
+  const blocking = statuses.filter((item) => item.tone === 'danger');
+  const warnings = statuses.filter((item) => item.tone === 'warning');
+  const active = adetailerRouteControlsEnabled(route);
+  const summary = blocking.length
+    ? blocking[0].message
+    : warnings.length
+      ? warnings[0].message
+      : active
+        ? 'ADetailer is ready. Neo will verify the required models and nodes when you generate.'
+        : 'This route is gated. Your ADetailer configuration is preserved and will return unchanged when you switch back to a supported route.';
+  const chips = statuses.map((item) => `<span class="neo-adetailer-status-chip ${escapeAttr(item.tone)}" data-adetailer-ux-status="${escapeAttr(item.id)}">${escapeHtml(item.label)}</span>`).join('');
+  const routeBits = [route.backend, route.family, route.loader, route.route_mode].filter(Boolean).join(' · ');
+  return `<section class="neo-adetailer-status-center" data-adetailer-status-count="${statuses.length}" data-adetailer-route-state="${escapeAttr(route.route_state)}" role="status" aria-live="polite"><div class="neo-adetailer-status-center__head"><div><strong>Compatibility and safety</strong><p class="neo-muted">${escapeHtml(routeBits || 'Route unresolved')}</p></div><div class="neo-adetailer-status-chips">${chips}</div></div><p class="${blocking.length ? 'neo-warn' : 'neo-muted'}">${escapeHtml(summary)}</p>${!active ? '<p class="neo-muted">Saved model, LoRA, detector, sampling, identity, and pass-card selections are not cleared while controls are gated.</p>' : ''}</section>`;
+}
+function adetailerSection(sectionId, title, subtitle, body, { open = false, badge = '', tone = 'muted', disabled = false } = {}) {
+  const expanded = adetailerSectionIsOpen(sectionId, open);
+  return `<details class="neo-adetailer-section" data-adetailer-section="${escapeAttr(sectionId)}" ${expanded ? 'open' : ''} ${disabled ? 'data-adetailer-section-disabled="true"' : ''}><summary><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle)}</small></span>${badge ? `<span class="neo-state-pill ${escapeAttr(tone)}">${escapeHtml(badge)}</span>` : ''}</summary><div class="neo-adetailer-section__body">${body}</div></details>`;
+}
+function adetailerDetectionControls(settings, disabled, catalogRuntime) {
+  const refreshDisabled = disabled || catalogRuntime.loading;
+  const refreshLabel = catalogRuntime.loading ? 'Refreshing…' : 'Refresh models';
+  const catalogStatusClass = catalogRuntime.error ? 'neo-warn' : 'neo-muted';
+  return `<section class="neo-adetailer-subpanel" data-adetailer-catalog-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-catalog-profile="${escapeAttr(adetailerCatalogProfileId())}" data-adetailer-model-scan-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-model-scan-profile="${escapeAttr(adetailerCatalogProfileId())}" aria-busy="${catalogRuntime.loading ? 'true' : 'false'}"><div class="neo-adetailer-subhead"><div><strong>Detection and model catalog</strong><p class="neo-muted">Detector provider, global detection thresholds, SAM refinement, and active Comfy model discovery.</p></div><div class="neo-adetailer-toolbar"><button class="btn btn-small" id="adetailerRefreshModels" type="button" ${refreshDisabled ? 'disabled' : ''}>${refreshLabel}</button><button class="btn btn-small" id="adetailerDownloadSam" type="button" ${disabled ? 'disabled' : ''}>Download SAM</button></div></div><div class="neo-cfg-fix-control-grid"><label>SAM preset${adetailerOptionSelect('adetailerSamPreset', [{id:'',label:'Pick SAM preset…'}, {id:'vit_b',label:'SAM ViT-B'}, {id:'vit_l',label:'SAM ViT-L'}, {id:'vit_h',label:'SAM ViT-H'}], settings.sam_preset, disabled)}</label><label>Detector provider${adetailerOptionSelect('adetailerProvider', [{id:'ultralytics',label:'Ultralytics'}, {id:'onnx',label:'ONNX'}], settings.provider, disabled)}</label><label>SAM refine model<input id="adetailerSamModel" type="text" value="${escapeAttr(settings.sam_model)}" placeholder="None" list="adetailerSamModelList" ${disabled ? 'disabled' : ''}></label><label>Custom classes / notes<input id="adetailerCustomClasses" type="text" value="${escapeAttr(settings.custom_classes)}" placeholder="person, face, left hand, clothing..." ${disabled ? 'disabled' : ''}></label><label>Confidence<input id="adetailerConfidence" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.confidence)}" ${disabled ? 'disabled' : ''}></label><label>Top-K<input id="adetailerTopK" type="number" min="0" step="1" value="${escapeAttr(settings.top_k)}" ${disabled ? 'disabled' : ''}></label><label>BBox grow<input id="adetailerBboxGrow" type="number" step="1" value="${escapeAttr(settings.bbox_grow)}" ${disabled ? 'disabled' : ''}></label><label>Mask blur<input id="adetailerMaskBlur" type="number" min="0" step="1" value="${escapeAttr(settings.mask_blur)}" ${disabled ? 'disabled' : ''}></label></div><p class="${catalogStatusClass}" id="adetailerCatalogStatus" role="status" aria-live="polite">${escapeHtml(adetailerCatalogStatusSummary())}</p><p class="neo-muted">Neo checks the selected detector and detailer model when you generate. Refresh Comfy nodes before refreshing this list.</p>${adetailerCatalogDatalist(settings)}</section>`;
+}
+function adetailerSamplingControls(settings, route, disabled) {
+  const samplingControlsDisabled = disabled || settings.family_preset_mode === 'auto_family';
+  return `${adetailerFamilyPresetControls(settings, route, disabled)}<section class="neo-adetailer-subpanel"><div class="neo-adetailer-subhead"><div><strong>Repair sampling</strong><p class="neo-muted">Automatic presets use model-specific settings. Manual mode lets you customize the repair sampler.</p></div><span class="neo-state-pill ${settings.family_preset_mode === 'auto_family' ? 'success' : 'warning'}">${escapeHtml(settings.family_preset_mode === 'auto_family' ? 'Automatic' : 'Manual')}</span></div><div class="neo-cfg-fix-control-grid"><label>Denoise<input id="adetailerDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.denoise)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label>Steps<input id="adetailerSteps" type="number" min="1" max="150" step="1" value="${escapeAttr(settings.steps)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label>CFG<input id="adetailerCfg" type="number" min="0" max="15" step="0.1" value="${escapeAttr(settings.cfg)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label>Sampler${adetailerOptionSelect('adetailerSamplerName', [{id:'',label:'Reuse route sampler'}, {id:'euler',label:'Euler'}, {id:'euler_ancestral',label:'Euler ancestral'}, {id:'heun',label:'Heun'}, {id:'dpmpp_2m',label:'DPM++ 2M'}, {id:'dpmpp_2m_sde',label:'DPM++ 2M SDE'}, {id:'deis',label:'DEIS'}], settings.sampler_name || '', samplingControlsDisabled)}</label><label>Scheduler${adetailerOptionSelect('adetailerScheduler', [{id:'',label:'Reuse route scheduler'}, {id:'normal',label:'Normal'}, {id:'karras',label:'Karras'}, {id:'simple',label:'Simple'}, {id:'sgm_uniform',label:'SGM uniform'}, {id:'beta',label:'Beta'}], settings.scheduler || '', samplingControlsDisabled)}</label><label>Guide size<input id="adetailerGuideSize" type="number" min="64" max="4096" step="64" value="${escapeAttr(settings.guide_size)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label>Max size<input id="adetailerMaxSize" type="number" min="64" max="8192" step="64" value="${escapeAttr(settings.max_size)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label>Noise-mask feather<input id="adetailerNoiseMaskFeather" type="number" min="0" max="128" step="1" value="${escapeAttr(settings.noise_mask_feather)}" ${samplingControlsDisabled ? 'disabled' : ''}></label><label class="neo-toggle-row"><input id="adetailerNoiseMask" type="checkbox" ${settings.noise_mask ? 'checked' : ''} ${samplingControlsDisabled ? 'disabled' : ''}> <span>Use noise mask</span></label><label class="neo-toggle-row"><input id="adetailerUseMainPrompt" type="checkbox" ${settings.use_main_prompt ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use main prompts</span></label><label class="neo-toggle-row"><input id="adetailerForceInpaint" type="checkbox" ${settings.force_inpaint ? 'checked' : ''} ${samplingControlsDisabled ? 'disabled' : ''}> <span>Force inpaint pass</span></label></div></section>`;
+}
+function adetailerIdentitySection(settings, route, disabled) {
+  const controls = adetailerIdentityControls(settings, route, disabled);
+  if (controls) return controls;
+  return `<section class="neo-adetailer-subpanel"><div class="neo-adetailer-subhead"><div><strong>Identity protection</strong><p class="neo-muted">Qwen Image Edit 2509/2511 expose explicit identity-risk modes. The current family does not require that policy.</p></div><span class="neo-state-pill muted">Not applicable</span></div><p class="neo-muted">Your saved Qwen Edit identity selection is preserved while another family is active.</p></section>`;
 }
 
 function adetailerCatalogProfileId() {
@@ -23686,7 +24667,7 @@ function adetailerCatalogListForType(payload = {}, detectorType = 'bbox') {
   }).filter(Boolean))];
 }
 function adetailerCatalogTotalModels(payload = adetailerCatalogPayloadForProfile()) {
-  return ['bbox_models', 'segm_models', 'onnx_models', 'sam_models'].reduce((total, key) => total + (Array.isArray(payload[key]) ? payload[key].length : 0), 0);
+  return ['bbox_models', 'segm_models', 'onnx_models', 'sam_models', 'detailer_checkpoints', 'detailer_vaes', 'detailer_loras'].reduce((total, key) => total + (Array.isArray(payload[key]) ? payload[key].length : 0), 0);
 }
 function adetailerModelScanSourceSummary(payload = adetailerCatalogPayloadForProfile()) {
   const filesystem = payload.diagnostics?.standard_filesystem || {};
@@ -24025,7 +25006,9 @@ function adetailerLiveReport(settings, route) {
   const manualCount = enabledPasses.reduce((sum, pass) => sum + adetailerManualBoxCount(pass.manual_boxes), 0);
   const sepCount = enabledPasses.reduce((sum, pass) => sum + Math.max(adetailerSepParts(pass.positive_prompt).length, adetailerSepParts(pass.negative_prompt).length), 0);
   const lockReady = enabledPasses.filter((pass) => String(pass.reference_lock || 'none') !== 'none' && adetailerReferenceLockDependency(pass).ready).length;
-  return `<section class="neo-adetailer-subpanel neo-adetailer-report"><div class="neo-adetailer-subhead"><div><strong>ADetailer report</strong><p class="neo-muted">Live summary of the current repair setup.</p></div><button class="btn btn-small" id="adetailerCopyReport" type="button">Copy report</button></div><div class="neo-badge-row">${badgeRow([`${enabledPasses.length} pass${enabledPasses.length === 1 ? '' : 'es'}`, `${manualCount} manual box${manualCount === 1 ? '' : 'es'}`, `${sepCount} [SEP] chunks`, `${lockReady} reference lock${lockReady === 1 ? '' : 's'} ready`, `route ${route.route_state}`, settings.provider || 'ultralytics'])}</div></section>`;
+  const modelSourceLabel = settings.model_source === 'dedicated_checkpoint' ? `dedicated ${String(settings.detailer_model_family || 'sdxl').toUpperCase()}` : 'generation model';
+  const identityLabel = adetailerIsQwenEditFamily(route?.family) ? `identity ${adetailerNormalizeIdentityProtection(settings.identity_protection).replaceAll('_', ' ')}` : '';
+  return `<section class="neo-adetailer-subpanel neo-adetailer-report"><div class="neo-adetailer-subhead"><div><strong>ADetailer report</strong><p class="neo-muted">Live summary of the current repair setup.</p></div><button class="btn btn-small" id="adetailerCopyReport" type="button">Copy report</button></div><div class="neo-badge-row">${badgeRow([`${enabledPasses.length} pass${enabledPasses.length === 1 ? '' : 'es'}`, modelSourceLabel, identityLabel, `${manualCount} manual box${manualCount === 1 ? '' : 'es'}`, `${sepCount} [SEP] chunks`, `${lockReady} reference lock${lockReady === 1 ? '' : 's'} ready`, `route ${route.route_state}`, settings.provider || 'ultralytics'])}</div></section>`;
 }
 function adetailerPanel(record) {
   const route = adetailerActiveRoute(record);
@@ -24033,10 +25016,6 @@ function adetailerPanel(record) {
   const settings = adetailerSettings();
   const policy = adetailerRouteUiPolicy(route);
   const controlsEnabled = adetailerRouteControlsEnabled(route);
-  if (!adetailerRouteVisible(route)) {
-    const body = `<section class="neo-adetailer-panel neo-adetailer-panel--route-hidden" data-extension-id="${ADETAILER_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}"><p class="neo-muted">ADetailer is installed and mounted under Image → Finish, but this selected route is unsupported.</p><p class="neo-warn">${escapeHtml(route.reason || 'Unsupported route.')}</p><p class="neo-muted">Use a supported SDXL/SD1.5 checkpoint route or Expert mode for diagnostics.</p></section>`;
-    return panel('ADetailer', body, false, 'Unsupported');
-  }
   const disabled = !controlsEnabled;
   const compact = state.detailMode === 'compact';
   const guided = state.detailMode !== 'expert';
@@ -24046,41 +25025,35 @@ function adetailerPanel(record) {
   const passCards = settings.detailer_passes.map((pass, index) => adetailerPassCard(pass, index, disabled, false)).join('');
   const manualToolsActive = adetailerHasManualTargetMode(settings);
   const manualTargetTools = manualToolsActive ? adetailerManualTargetMaker(settings, disabled) : adetailerManualToolsNotice(settings);
-  const promptMapperTools = '';
-  const refreshDisabled = disabled || catalogRuntime.loading;
-  const refreshLabel = catalogRuntime.loading ? 'Refreshing…' : 'Refresh models';
-  const catalogStatusClass = catalogRuntime.error ? 'neo-warn' : 'neo-muted';
-  const shared = `<section class="neo-adetailer-subpanel" data-adetailer-catalog-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-catalog-profile="${escapeAttr(adetailerCatalogProfileId())}" data-adetailer-model-scan-state="${catalogRuntime.loading ? 'loading' : catalogRuntime.error ? 'error' : catalogRuntime.loaded ? 'loaded' : 'idle'}" data-adetailer-model-scan-profile="${escapeAttr(adetailerCatalogProfileId())}" aria-busy="${catalogRuntime.loading ? 'true' : 'false'}"><div class="neo-adetailer-subhead"><div><strong>Shared defaults</strong><p class="neo-muted">These affect the whole detailer stack. Per-pass cards below inherit them.</p></div><button class="btn btn-small" id="adetailerRefreshModels" type="button" ${refreshDisabled ? 'disabled' : ''}>${refreshLabel}</button><button class="btn btn-small" id="adetailerDownloadSam" type="button" ${disabled ? 'disabled' : ''}>Download SAM</button></div><div class="neo-cfg-fix-control-grid">
-    <label>SAM preset${adetailerOptionSelect('adetailerSamPreset', [{id:'',label:'Pick SAM preset…'}, {id:'vit_b',label:'SAM ViT-B'}, {id:'vit_l',label:'SAM ViT-L'}, {id:'vit_h',label:'SAM ViT-H'}], settings.sam_preset, disabled)}</label>
-    <label>Detector provider${adetailerOptionSelect('adetailerProvider', [{id:'ultralytics',label:'Ultralytics'}, {id:'onnx',label:'ONNX'}], settings.provider, disabled)}</label>
-    <label>SAM refine model<input id="adetailerSamModel" type="text" value="${escapeAttr(settings.sam_model)}" placeholder="None" list="adetailerSamModelList" ${disabled ? 'disabled' : ''}></label>
-    <label>Custom classes / notes<input id="adetailerCustomClasses" type="text" value="${escapeAttr(settings.custom_classes)}" placeholder="person, face, left hand, clothing..." ${disabled ? 'disabled' : ''}></label>
-    <label>Confidence<input id="adetailerConfidence" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.confidence)}" ${disabled ? 'disabled' : ''}></label>
-    <label>Top-K<input id="adetailerTopK" type="number" min="0" step="1" value="${escapeAttr(settings.top_k)}" ${disabled ? 'disabled' : ''}></label>
-    <label>BBox grow<input id="adetailerBboxGrow" type="number" step="1" value="${escapeAttr(settings.bbox_grow)}" ${disabled ? 'disabled' : ''}></label>
-    <label>Mask blur<input id="adetailerMaskBlur" type="number" min="0" step="1" value="${escapeAttr(settings.mask_blur)}" ${disabled ? 'disabled' : ''}></label>
-    <label>Denoise<input id="adetailerDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(settings.denoise)}" ${disabled ? 'disabled' : ''}></label>
-    <label>Steps<input id="adetailerSteps" type="number" min="1" step="1" value="${escapeAttr(settings.steps)}" ${disabled ? 'disabled' : ''}></label>
-    <label>CFG cap<input id="adetailerCfg" type="number" min="0" max="15" step="0.1" value="${escapeAttr(settings.cfg)}" ${disabled ? 'disabled' : ''}></label>
-    <label class="neo-toggle-row"><input id="adetailerUseMainPrompt" type="checkbox" ${settings.use_main_prompt ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use main prompts</span></label>
-    <label class="neo-toggle-row"><input id="adetailerForceInpaint" type="checkbox" ${settings.force_inpaint ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Force inpaint pass</span></label>
-  </div><p class="${catalogStatusClass}" id="adetailerCatalogStatus" role="status" aria-live="polite">${escapeHtml(adetailerCatalogStatusSummary())}</p><p class="neo-muted">At queue time Neo verifies the exact detector value against the active Comfy provider. After adding or moving detector files, refresh Comfy nodes and then Refresh models here.</p>${adetailerCatalogDatalist(settings)}</section>`;
-  const details = compact ? '' : `<p class="neo-muted">Selective local repair using Impact Pack-style ADetailer nodes, with draft persistence, replay-safe restore, multi-pass execution, and drag-to-draw manual targets.</p>${route.reason && disabled ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
   const stagedSource = settings.staged_preview_source || null;
   const stagedSourceLabel = adetailerStagedPreviewSourceLabel();
   const stagedSourceBlock = stagedSource ? `<div class="neo-preview-action-staged-source neo-preview-action-staged-source--adetailer"><span>🩹+ Staged source</span><strong>${escapeHtml(stagedSourceLabel)}</strong><button id="adetailerClearPreviewSource" type="button" class="neo-mini-btn">Clear</button></div>` : '';
-  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Route: ${route.route_key}`, `State: ${route.route_state}`, 'Mount: image.finish.adetailer', 'Workflow hook: active', 'UI controls: ready'])}</div><pre>${escapeHtml(JSON.stringify(adetailerPayloadPreview(record), null, 2))}</pre></div>` : '';
-  const body = `<section class="neo-adetailer-panel" data-extension-id="${ADETAILER_EXTENSION_ID}" data-stage="G3" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-cfg-fix-panel__header"><div><strong>ADetailer</strong>${!compact ? '<span class="neo-muted">Built-in Finish extension</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled)}<span class="neo-state-pill ${status === 'Enabled' ? 'success' : (status === 'Experimental' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${details}
+  const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Model: ${route.family}`, `Loader: ${route.loader}`, `Mode: ${route.mode}`, `Status: ${routeBadge}`])}</div><p class="neo-muted">These details show the active model route used for this repair setup.</p></div>` : '';
+  const qwenIdentity = adetailerIsQwenEditFamily(route.family);
+  const sectionStatuses = adetailerUxStatuses(settings, route, catalogRuntime);
+  const dangerCount = sectionStatuses.filter((item) => item.tone === 'danger').length;
+  const warningCount = sectionStatuses.filter((item) => item.tone === 'warning').length;
+  const summaryBadge = dangerCount ? `${dangerCount} blocked` : warningCount ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : 'Ready';
+  const summaryTone = dangerCount ? 'danger' : warningCount ? 'warning' : 'success';
+
+  const targetBody = `<section class="neo-adetailer-subpanel"><div class="neo-adetailer-subhead"><div><strong>Detailer pass cards</strong><p class="neo-muted">Primary and additional face, hand, person, or custom-region repair passes.</p></div><button class="btn btn-small" id="adetailerAddPass" type="button" ${disabled ? 'disabled' : ''}>＋ Add pass</button></div><div id="adetailerPassList" class="neo-adetailer-pass-list">${passCards}</div></section>`;
+  const advancedBody = `${manualTargetTools}${adetailerLiveReport(settings, route)}${expertBlock}`;
+  const body = `<section class="neo-adetailer-panel" data-extension-id="${ADETAILER_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode)}" data-selection-preservation="route_safe">
+    <header class="neo-cfg-fix-panel__header"><div><strong>ADetailer</strong>${!compact ? '<span class="neo-muted">Upscale and refine</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(settings.enabled)}<span class="neo-state-pill ${status === 'Enabled' ? 'success' : (route.route_state === 'experimental_available' ? 'warning' : '')}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
+    ${!compact ? '<p class="neo-muted">Selective local repair with model-aware presets, isolated LoRA options, and clear identity or precision warnings.</p>' : ''}
     ${stagedSourceBlock}
-    <div class="neo-cfg-fix-toggle-row"><label class="neo-toggle-row"><input id="adetailerEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use ADetailer for this generation</span></label></div>
-    ${shared}
-    <section class="neo-adetailer-subpanel"><div class="neo-adetailer-subhead"><div><strong>Detailer pass cards</strong><p class="neo-muted">Primary + additional passes. Each card can target faces, hands, people, or custom/manual regions.</p></div><button class="btn btn-small" id="adetailerAddPass" type="button" ${disabled ? 'disabled' : ''}>＋ Add pass</button></div><div id="adetailerPassList" class="neo-adetailer-pass-list">${passCards}</div></section>
-    ${manualTargetTools}
-    ${adetailerLiveReport(settings, route)}
-    ${guided ? `<p class="neo-muted">${escapeHtml(settings.enabled ? `${(settings.detailer_passes || []).length} pass(es) staged · denoise ${settings.denoise} · ${settings.steps} steps` : 'ADetailer is ready. Enable it to add the repair pass to this generation.')}</p>` : ''}
-    ${expertBlock}
+    ${adetailerStatusCenter(settings, route, catalogRuntime)}
+    <div class="neo-cfg-fix-toggle-row"><label class="neo-toggle-row"><input id="adetailerEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}> <span>Use ADetailer for this generation</span></label>${disabled ? '<span class="neo-muted">Configuration preserved while this route is gated.</span>' : ''}</div>
+    <div class="neo-adetailer-section-stack">
+      ${adetailerSection('detection', 'Detection', 'Detector model, confidence, SAM and mask controls', adetailerDetectionControls(settings, disabled, catalogRuntime), { open: guided, badge: catalogRuntime.error ? 'Scan error' : catalogRuntime.loading ? 'Scanning' : catalogRuntime.loaded ? 'Catalog ready' : 'Catalog idle', tone: catalogRuntime.error ? 'danger' : catalogRuntime.loaded ? 'success' : 'muted', disabled })}
+      ${adetailerSection('model', 'Detailer model', 'Generation-model reuse or isolated SDXL/SD1.5 checkpoint', adetailerDetailerModelSourceControls(settings, disabled), { open: settings.model_source === 'dedicated_checkpoint' || expert, badge: settings.model_source === 'dedicated_checkpoint' ? 'Dedicated-model only' : 'Generation model', tone: settings.model_source === 'dedicated_checkpoint' ? 'warning' : 'muted', disabled })}
+      ${adetailerSection('sampling', 'Sampling', 'Model-matched preset or custom repair sampling', adetailerSamplingControls(settings, route, disabled), { open: settings.family_preset_mode !== 'auto_family' || expert, badge: adetailerFamilyPresetPlan(settings, route).preset?.label || 'No preset', tone: adetailerFamilyPresetPlan(settings, route).ready ? 'success' : 'danger', disabled })}
+      ${adetailerSection('target', 'Target', 'Pass cards, prompts, detector target and ordering', targetBody, { open: true, badge: `${settings.detailer_passes.length} pass${settings.detailer_passes.length === 1 ? '' : 'es'}`, tone: 'success', disabled })}
+      ${adetailerSection('lora', 'LoRA policy', 'Generation LoRA inheritance and detailer-only LoRA', adetailerLoraBranchControls(settings, disabled), { open: settings.detailer_lora_enabled || settings.lora_inheritance !== 'inherit_all' || expert, badge: settings.detailer_lora_enabled ? 'Detailer LoRA' : settings.lora_inheritance.replaceAll('_', ' '), tone: settings.detailer_lora_enabled ? 'warning' : 'muted', disabled })}
+      ${adetailerSection('identity', 'Identity protection', 'Qwen Edit identity risk, identity LoRA, or dedicated fallback', adetailerIdentitySection(settings, route, disabled), { open: qwenIdentity, badge: qwenIdentity ? adetailerNormalizeIdentityProtection(settings.identity_protection).replaceAll('_', ' ') : 'Not applicable', tone: qwenIdentity ? 'warning' : 'muted', disabled })}
+      ${adetailerSection('advanced', 'Advanced', 'Manual target canvas, live report, and compatibility details', advancedBody, { open: expert || manualToolsActive, badge: summaryBadge, tone: summaryTone, disabled })}
+    </div>
+    ${guided ? `<p class="neo-muted">${escapeHtml(settings.enabled ? `${(settings.detailer_passes || []).length} pass(es) staged · ${settings.model_source === 'dedicated_checkpoint' ? `dedicated ${String(settings.detailer_model_family || 'sdxl').toUpperCase()}` : 'generation model'} · selections persist across family, loader, and backend changes` : 'ADetailer is configured but disabled. Enable it when this route is ready.')}</p>` : ''}
   </section>`;
   return panel('ADetailer', body, false, status);
 }
@@ -26458,6 +27431,20 @@ function adminEngineIndexJobsHtml(engine) {
   const queue = state.adminIndexJobs || engine?.index_jobs || {};
   const jobs = queue.jobs || [];
   const summary = queue.summary || {};
+  const memoryQueue = engine?.memory_jobs || {};
+  const memoryJobs = memoryQueue.jobs || [];
+  const memorySummary = memoryQueue.summary || {};
+  const unifiedRows = memoryJobs.length ? memoryJobs.slice(0, 12).map((job) => {
+    const progress = job.progress || {};
+    const status = job.status || 'queued';
+    const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+    const badgeClass = status === 'completed' ? 'success' : (status === 'failed' || status === 'cancelled') ? 'danger' : status === 'running' ? 'warn' : '';
+    const actions = `${job.can_cancel ? `<button type="button" class="neo-btn admin-engine-btn small" onclick="cancelAdminMemoryJob('${escapeAttr(job.job_id || '')}')">Cancel</button>` : ''}${job.can_retry ? `<button type="button" class="neo-btn admin-engine-btn small" onclick="retryAdminMemoryJob('${escapeAttr(job.job_id || '')}')">Retry</button>` : ''}`;
+    const warnings = Array.isArray(progress.warnings) ? progress.warnings : [];
+    const errors = Array.isArray(progress.errors) ? progress.errors : [];
+    const elapsed = Number(job.elapsed_seconds || 0);
+    return `<div class="neo-ui-record-card admin-engine-record-card compact admin-memory-job-card"><div class="neo-ui-section-head admin-engine-row-between"><div><strong>${escapeHtml(job.title || job.job_type || 'Memory job')}</strong><small>${escapeHtml(job.job_id || '')} · ${escapeHtml(job.job_type || '')}</small></div><span class="neo-badge ${badgeClass}">${escapeHtml(status)}</span></div><div class="admin-index-progress"><span style="width:${percent}%"></span></div>${listItems([`Phase: ${progress.phase || status}`, `Progress: ${percent}%${progress.total ? ` · ${progress.current || 0}/${progress.total}` : ''}`, `Elapsed: ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s` : `${elapsed.toFixed(1)}s`}`, `Warnings: ${warnings.length}`, `Errors: ${errors.length}`, `Surface: ${job.surface || 'global'} · Scope: ${job.scope_id || 'none'}`, `Message: ${progress.message || ''}`])}<div class="neo-ui-toolbar admin-engine-badge-row">${actions}</div></div>`;
+  }).join('') : `<div class="neo-ui-empty admin-engine-empty"><strong>No unified memory jobs yet.</strong><p>Long Project Brain, embedding, consolidation, writeback, and compatibility indexing jobs will appear here.</p></div>`;
   const rows = jobs.length ? jobs.slice(0, 8).map((job) => {
     const status = job.status || 'queued';
     const good = status === 'completed';
@@ -26475,7 +27462,13 @@ function adminEngineIndexJobsHtml(engine) {
   return `
     <div class="neo-ui-grid two admin-engine-grid two">
       <div class="neo-ui-card admin-engine-card wide">
-        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Background indexing job queue</strong><p>Queue Roleplay memory vector indexing from Memory Engine. This keeps large indexes away from blocking Scene/Studio interactions.</p></div><span class="neo-badge ${queue.status === 'ready' ? 'success' : ''}">${escapeHtml(queue.status || 'ready')}</span></div>
+        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Unified memory background jobs</strong><p>Persistent job state is stored in neo_memory_jobs. Jobs continue independently of the current Admin/Assistant tab and expose phase, progress, cancellation, retry, and results.</p></div><span class="neo-badge ${memoryQueue.status === 'ready' ? 'success' : ''}">${escapeHtml(memoryQueue.status || 'ready')}</span></div>
+        ${listItems([`Total: ${memorySummary.total ?? 0}`, `Queued: ${memorySummary.queued ?? 0}`, `Running: ${memorySummary.running ?? 0}`, `Completed: ${memorySummary.completed ?? 0}`, `Failed: ${memorySummary.failed ?? 0}`, `Cancelled: ${memorySummary.cancelled ?? 0}`])}
+        <div class="neo-ui-record-list admin-engine-record-list compact">${unifiedRows}</div>
+        <div class="neo-ui-toolbar admin-engine-badge-row"><button type="button" class="neo-btn admin-engine-btn" onclick="reloadAdminMemoryJobs()">Refresh unified jobs</button></div>
+      </div>
+      <div class="neo-ui-card admin-engine-card wide">
+        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Roleplay index compatibility bridge</strong><p>The historical Admin index-job routes now project the same unified memory job rows. This panel remains during migration compatibility.</p></div><span class="neo-badge ${queue.status === 'ready' ? 'success' : ''}">${escapeHtml(queue.status || 'ready')}</span></div>
         ${listItems([`Total: ${summary.total ?? 0}`, `Running: ${summary.running ?? 0}`, `Pending: ${summary.pending ?? 0}`, `Completed: ${summary.completed ?? 0}`, `Failed: ${summary.failed ?? 0}`, `Cancelled: ${summary.cancelled ?? 0}`])}
       </div>
       <div class="neo-ui-card admin-engine-card">
@@ -26560,17 +27553,13 @@ function adminEngineChromaCollectionsHtml() {
 
 function adminEngineRuntimeDefaultsHtml(engine) {
   const runtime = engine?.runtime_defaults || {};
-  return `
-    <div class="neo-ui-card admin-engine-card">
-      <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Runtime defaults</strong><p>Shared defaults for memory-backed runtime packets. Scene can read these later through the Roleplay bridge.</p></div><span class="neo-badge">active</span></div>
-      <div class="neo-ui-field-grid two compact admin-engine-form-grid two compact">
-        <div><label>Max tokens</label><input id="admin-engine-max-tokens" type="number" value="${escapeAttr(runtime.max_tokens ?? 480)}"></div>
-        <div><label>Temperature</label><input id="admin-engine-temperature" type="number" step="0.01" value="${escapeAttr(runtime.temperature ?? 0.82)}"></div>
-        <div><label>Top P</label><input id="admin-engine-top-p" type="number" step="0.01" value="${escapeAttr(runtime.top_p ?? 0.92)}"></div>
-        <div><label>Top K</label><input id="admin-engine-top-k" type="number" value="${escapeAttr(runtime.top_k ?? 60)}"></div>
-      </div>
-      <div class="neo-ui-toolbar admin-engine-badge-row"><button type="button" class="neo-btn primary admin-engine-btn" onclick="saveAdminEngineRuntimeDefaults()">Save runtime defaults</button><button type="button" class="neo-btn admin-engine-btn" onclick="reloadAdminEngineState()">Refresh Memory Engine</button></div>
-    </div>`;
+  const legacyKeys = Array.isArray(runtime.deprecated_generation_keys) ? runtime.deprecated_generation_keys : ['max_tokens', 'temperature', 'top_p', 'top_k'];
+  return NeoUI.card({
+    title: 'Legacy runtime defaults bridge',
+    description: 'Compatibility-only data for older Roleplay/Memory Engine bridges. Generation sampling is no longer configured here.',
+    badge: NeoUI.statusBadge('compatibility'),
+    body: `${NeoUI.metaList([`Memory window: ${runtime.memory_window || 'runtime_anchored'}`, `Continuity mode: ${runtime.continuity_mode || 'checkpoint_first_then_session_then_storyline'}`, `Generation owner: ${runtime.generation_settings_owner || 'admin.backends'}`, `Deprecated keys: ${legacyKeys.join(', ')}`])}<p class="neo-muted">Edit model temperature, top-p, top-k, token limits, and task sampling through Admin → Backends / the owning backend profile.</p>`
+  });
 }
 
 function adminEngineInspectorHtml(engine) {
@@ -26616,7 +27605,7 @@ function adminMemoryEngineOverviewPanel(center = null) {
   ];
   return `<div class="neo-admin-smart-split-overview neo-admin-memory-engine-overview-left">${NeoUI.card({
     title: 'Memory Engine overview',
-    description: 'Infrastructure control plane for text bridge, embeddings, reranker, vector store, indexing, retrieval profiles, sources, and runtime defaults.',
+    description: 'Infrastructure control plane for text bridge, embeddings, reranker, vector store, indexing, retrieval profiles, sources, and engine diagnostics.',
     badge: NeoUI.statusBadge(stats.status),
     body: `${NeoUI.badgeRow(chips)}${NeoUI.metaList(pathRows)}`,
     actions: `<button type="button" class="neo-btn primary" onclick="reloadAdminEngineState()">Refresh Memory Engine</button><button type="button" class="neo-btn secondary" onclick="setAdminMemoryEngineChildTab('diagnostics')">Open Diagnostics</button>`
@@ -26626,31 +27615,32 @@ function adminMemoryEngineOverviewPanel(center = null) {
     `Reranker ${stats.readiness.reranker_ready ? 'ready' : 'planned'}`,
     `Vector store ${stats.readiness.vector_store_ready ? 'ready' : 'planned'}`,
     `Indexing ${stats.readiness.indexing_ready ? 'ready' : 'planned'}`,
-  ]) })}${NeoUI.card({ title: 'Smart split boundary', description: 'This tab manages engine internals. Admin → Memory manages memory records, review, policies, conflicts, consolidation, retention, and citations.', body: NeoUI.metaList(['Memory Engine = SQLite/vector roots, embeddings, reranker, retrieval profiles, sources, indexes, runtime defaults', 'Memory = records, review, policies, conflict/canon, consolidation, retention, citations']) })}</div>`;
+  ]) })}${NeoUI.card({ title: 'Smart split boundary', description: 'This tab manages engine internals. Admin → Memory manages memory records, review, policies, conflicts, consolidation, retention, and citations.', body: NeoUI.metaList(['Memory Engine = SQLite/vector roots, embeddings, reranker, retrieval profiles, sources, indexes, and engine diagnostics', 'Memory = records, review, policies, conflict/canon, consolidation, retention, citations', 'Backends = provider/model profiles and generation sampling']) })}</div>`;
 }
 
 const ADMIN_MEMORY_ENGINE_CHILD_TABS = [
   { id: 'bridge', label: 'Bridge', description: 'Text backend bridge and profile surface handoff.' },
   { id: 'embeddings', label: 'Embeddings + Reranker', description: 'Embedding provider/model settings and reranker configuration.' },
   { id: 'vector', label: 'Vector Store', description: 'Vector retrieval, indexing defaults, and vector store settings.' },
-  { id: 'index_jobs', label: 'Index Jobs', description: 'Create, monitor, cancel, and inspect Memory Engine index jobs.' },
+  { id: 'index_jobs', label: 'Background Jobs', description: 'Monitor persistent unified memory jobs; legacy index-job routes remain compatibility aliases.' },
   { id: 'chroma', label: 'Chroma', description: 'Chroma collections, export/import, and collection diagnostics.' },
   { id: 'retrieval_profiles', label: 'Retrieval Profiles', description: 'Memory retrieval profile management and runtime retrieval presets.' },
   { id: 'sources', label: 'Sources', description: 'Memory Engine source plumbing and surface/source ownership.' },
-  { id: 'runtime_defaults', label: 'Runtime Defaults', description: 'Runtime defaults shared by memory-backed surfaces.' },
-  { id: 'diagnostics', label: 'Diagnostics', description: 'Inspector, search/citations diagnostics, and raw engine snapshot.' },
+  { id: 'diagnostics', label: 'Diagnostics', description: 'Engine inspector, ownership boundary, and raw infrastructure snapshot.' },
 ];
 
 function adminMemoryEngineActiveChildTab() {
   const allowed = ADMIN_MEMORY_ENGINE_CHILD_TABS.map((tab) => tab.id);
-  const active = allowed.includes(state.adminMemoryEngineChildTab) ? state.adminMemoryEngineChildTab : 'bridge';
+  const requested = adminResolveUxChildTab('engine', state.adminMemoryEngineChildTab);
+  const active = allowed.includes(requested) ? requested : 'bridge';
   state.adminMemoryEngineChildTab = active;
   return active;
 }
 
 function setAdminMemoryEngineChildTab(tabId) {
   const allowed = ADMIN_MEMORY_ENGINE_CHILD_TABS.map((tab) => tab.id);
-  state.adminMemoryEngineChildTab = allowed.includes(tabId) ? tabId : 'bridge';
+  const resolved = adminResolveUxChildTab('engine', tabId);
+  state.adminMemoryEngineChildTab = allowed.includes(resolved) ? resolved : 'bridge';
   render();
 }
 
@@ -26675,11 +27665,11 @@ function adminMemoryEngineDiagnosticsBody(center = null) {
   };
   return `<div class="neo-admin-memory-engine-diagnostics">${NeoUI.card({
     title: 'Memory Engine diagnostics',
-    description: 'Read-only diagnostics for engine infrastructure. Inspector and search/citation diagnostics are grouped here to avoid duplicate Admin → Memory ownership.',
+    description: 'Read-only diagnostics for Memory Engine infrastructure. User-facing memory search/citations stay under Admin → Memory.',
     badge: NeoUI.statusBadge(stats.warningCount ? 'warnings' : 'ready'),
     body: `${NeoUI.badgeRow([`Ready ${stats.readyCount}/${stats.readyTotal}`, `Warnings ${stats.warningCount}`, `Index jobs ${stats.indexJobs.length}`, `Chroma ${stats.chromaCollections.length}`])}${NeoUI.metaList([`Active child tab: ${raw.active_child_tab}`, `Engine root: ${stats.paths.data_root || 'neo_data/admin/engine'}`, `Vector root: ${stats.paths.vector_store_root || 'neo_data/vector_store'}`])}`,
     actions: '<button type="button" class="neo-btn primary" onclick="reloadAdminEngineState()">Refresh engine diagnostics</button>'
-  })}<div class="neo-ui-grid two"><div>${adminEngineInspectorHtml(engine)}</div><div>${adminMemorySearchUxHtml(adminControlCenter())}</div></div>${NeoUI.card({ title: 'Raw Memory Engine snapshot', description: 'Compact debug view for the smart split and engine state.', body: state.detailMode === 'expert' ? NeoUI.codeBlock(raw, 'neo-admin-memory-engine-diagnostics-code') : NeoUI.metaList(['Switch to Expert detail mode to view raw Memory Engine diagnostics JSON.', `Active child tab: ${raw.active_child_tab}`]) })}</div>`;
+  })}<div class="neo-ui-grid two"><div>${adminEngineInspectorHtml(engine)}</div><div>${NeoUI.card({ title: 'Ownership boundary', description: 'Search + Citations belongs to Admin → Memory. Memory Engine diagnostics show infrastructure only.', body: NeoUI.metaList(['Memory Engine: embeddings, reranker, vector store, retrieval profiles, sources, indexes, engine diagnostics', 'Memory: records, citations, review, conflicts/canon, consolidation, retention', 'Backends: generation sampling and provider/model profiles']), actions: `<button type="button" class="neo-btn" onclick="setActiveSubtab('admin', 'memory'); setAdminMemoryChildTab('search')">Open Memory Search + Citations</button>` })}</div></div>${NeoUI.card({ title: 'Raw Memory Engine snapshot', description: 'Compact debug view for the smart split and engine state.', body: state.detailMode === 'expert' ? NeoUI.codeBlock(raw, 'neo-admin-memory-engine-diagnostics-code') : NeoUI.metaList(['Switch to Expert detail mode to view raw Memory Engine diagnostics JSON.', `Active child tab: ${raw.active_child_tab}`]) })}</div>`;
 }
 
 function adminMemoryEngineChildTabBody(center = null) {
@@ -26692,7 +27682,6 @@ function adminMemoryEngineChildTabBody(center = null) {
   if (active === 'chroma') return adminEngineChromaCollectionsHtml();
   if (active === 'retrieval_profiles') return adminMemoryRetrievalProfilesHtml(adminControlCenter());
   if (active === 'sources') return adminMemoryEngineSourcesHtml(adminControlCenter());
-  if (active === 'runtime_defaults') return adminEngineRuntimeDefaultsHtml(engine);
   if (active === 'diagnostics') return adminMemoryEngineDiagnosticsBody(center);
   return adminEngineTextBridgeHtml(engine);
 }
@@ -26755,6 +27744,27 @@ async function reloadAdminEngineState() {
 
 async function reloadAdminIndexJobs() {
   state.adminIndexJobs = await loadJson('/api/admin/engine/index-jobs', null);
+  state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
+  render();
+}
+
+async function reloadAdminMemoryJobs() {
+  state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
+  render();
+}
+
+async function cancelAdminMemoryJob(jobId) {
+  if (!jobId) return;
+  const response = await fetch(`/api/memory/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+  if (!response.ok) { window.alert(`Cancel failed: ${await response.text()}`); return; }
+  state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
+  render();
+}
+
+async function retryAdminMemoryJob(jobId) {
+  if (!jobId) return;
+  const response = await fetch(`/api/memory/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+  if (!response.ok) { window.alert(`Retry failed: ${await response.text()}`); return; }
   state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
   render();
 }
@@ -26822,18 +27832,7 @@ async function importAdminChromaFromPath() {
 }
 
 async function saveAdminEngineRuntimeDefaults() {
-  const payload = {
-    max_tokens: Number(document.getElementById('admin-engine-max-tokens')?.value || 480),
-    temperature: Number(document.getElementById('admin-engine-temperature')?.value || 0.82),
-    top_p: Number(document.getElementById('admin-engine-top-p')?.value || 0.92),
-    top_k: Number(document.getElementById('admin-engine-top-k')?.value || 60),
-  };
-  const response = await fetch('/api/admin/engine/runtime-defaults', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  if (!response.ok) { window.alert(`Runtime defaults save failed: ${await response.text()}`); return; }
-  state.adminEngine = await response.json();
-  state.roleplayEngineBridge = await loadJson('/api/roleplay/engine-bridge/state', null);
-  state.roleplayStoryRestore = await loadJson('/api/roleplay/story-checkpoint-restore/state', state.roleplayStoryRestore || null);
-  render();
+  window.alert('Memory Engine runtime generation defaults are compatibility-only. Edit generation sampling in Admin → Backends / the owning backend profile.');
 }
 
 
@@ -27021,10 +28020,23 @@ function adminDashboardChildTabs() {
   return `<nav class="neo-subtabs neo-admin-dashboard-child-tabs" aria-label="Admin Dashboard child tabs">${ADMIN_DASHBOARD_CHILD_TABS.map((tab) => `<button type="button" class="${tab.id === active ? 'active' : ''}" title="${escapeAttr(tab.description)}" onclick="setAdminDashboardChildTab('${escapeAttr(tab.id)}')">${escapeHtml(tab.label)}</button>`).join('')}</nav>`;
 }
 
+function adminOwnershipMapHtml(center) {
+  const contract = center?.admin_ux_contract || {};
+  const areas = contract.areas || {};
+  const rows = Object.entries(areas).map(([routeId, area]) => `${area.label || routeId} · ${area.owner || 'owner'} · ${area.purpose || ''}`);
+  return NeoUI.card({
+    title: 'Admin ownership map',
+    description: 'Phase 12 boundary map. Use links between Admin areas instead of duplicating another area’s controls.',
+    badge: NeoUI.statusBadge(contract.status || 'active'),
+    body: `${NeoUI.badgeRow([`Phase ${contract.phase || 12}`, `${rows.length} primary areas`, contract.schema_id || 'ux contract'])}${rows.length ? NeoUI.metaList(rows, { code: false }) : NeoUI.emptyState('Admin UX contract is not loaded yet.', 'Refresh Admin Control Center.')}`,
+    actions: `<button type="button" class="neo-btn" onclick="setActiveSubtab('admin','memory')">Memory governance</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','engine')">Memory infrastructure</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','projects')">Delivery Projects</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','assistant_operator')">Assistant / Operator</button>`,
+    className: 'neo-admin-ownership-map-card',
+  });
+}
+
 function adminDashboardOverviewPanel(center) {
   const overview = center?.overview || {};
   const cockpit = center?.admin_cockpit || {};
-  const rc = {};
   const runtime = center?.runtime_hardening || state.runtimeHardening || {};
   const runtimeSummary = runtime.summary || {};
   const engineReady = `${overview.engine_ready_count || 0}/${overview.engine_check_count || 0}`;
@@ -27041,16 +28053,17 @@ function adminDashboardOverviewPanel(center) {
     `Runtime blockers: ${runtimeSummary.blocker_count || 0}`,
     `Memory namespaces: ${(overview.memory_namespaces || []).join(', ') || 'not loaded'}`,
     'Dashboard owns landing status, quick launch, and summary routing only.',
-    'Deep settings stay in Backends, Extensions, Memory, Memory Engine, Libraries, Storage, Diagnostics, Health, Logs, Projects, and Assistant / Operator.',
+    'Deep settings stay in Backends, Extensions, Memory, Memory Engine, Libraries, Storage, Diagnostics, Health, Logs, Delivery Projects, and Assistant / Operator.',
   ];
   return `<div class="neo-admin-dashboard-overview-left">
     ${NeoUI.card({
       title: 'Dashboard Overview',
-      description: 'Landing summary for Neo Admin after the smart-split cleanup. Use this panel to spot status and jump into the repaired Admin workspaces.',
+      description: 'Landing summary for Neo Admin after the ownership consolidation. Use this panel to spot status and jump into the owning Admin workspace.',
       badge: NeoUI.statusBadge(cockpit.status || center?.status || 'ready'),
       body: `${NeoUI.badgeRow(metrics)}${NeoUI.metaList(statusRows, { code: false })}`,
       actions: '<button type="button" class="neo-btn primary" onclick="reloadAdminControlCenter()">Refresh Dashboard</button><button type="button" class="neo-btn" onclick="setAdminDashboardChildTab(\'attention\')">Open Attention</button><button type="button" class="neo-btn" onclick="setAdminDashboardChildTab(\'quick_launch\')">Quick Launch</button>',
     })}
+    ${adminOwnershipMapHtml(center)}
   </div>`;
 }
 
@@ -27059,13 +28072,13 @@ function adminDashboardQuickLaunchBody(center) {
     ['Backends', 'backends', 'Backend profiles and provider connections'],
     ['Extensions', 'extensions', 'Registry, Image extensions, Node Manager'],
     ['Memory', 'memory', 'Memory records, policies, consolidation'],
-    ['Memory Engine', 'memory_engine', 'Embeddings, reranker, vector store, indexing'],
+    ['Memory Engine', 'engine', 'Embeddings, reranker, vector store, retrieval, background jobs'],
     ['Libraries', 'libraries', 'Library paths, keywords, wildcards, styles'],
     ['Storage', 'storage', 'Paths, outputs, cache, backups'],
     ['Health', 'health', 'User-facing health and repair actions'],
     ['Diagnostics', 'diagnostics', 'Deep cross-system diagnostics'],
     ['Logs', 'logs', 'Runtime log overview'],
-        ['Projects', 'projects', 'Project workspace administration'],
+        ['Delivery Projects', 'projects', 'Client/work delivery, assets, reviews, packages, linked memory'],
     ['Assistant / Operator', 'assistant_operator', 'Assistant, Operator, tools, permissions'],
   ];
   const cards = links.map(([label, subtab, description]) => NeoUI.card({
@@ -28308,7 +29321,7 @@ function adminNeoOperatorHtml(center) {
 
 
 const ADMIN_ASSISTANT_OPERATOR_CHILD_TABS = [
-  { id: 'assistant_workspaces', label: 'Assistant Workspaces', description: 'Assistant Brain workspaces, context assembly, and workspace activation.' },
+  { id: 'assistant_workspaces', label: 'Scope Readout', description: 'Read-only Assistant Scope/workspace diagnostics and context preview. Normal scope selection/editing stays in Assistant.' },
   { id: 'operator', label: 'Operator', description: 'Local operator command planning, safe reads, and confirmed actions.' },
   { id: 'voice_input', label: 'Voice Input', description: 'Voice transcript bridge into Neo Operator.' },
   { id: 'internet_api', label: 'Internet/API', description: 'Permission-gated external context and API access.' },
@@ -28320,14 +29333,16 @@ const ADMIN_ASSISTANT_OPERATOR_CHILD_TABS = [
 
 function adminAssistantOperatorActiveChildTab() {
   const allowed = ADMIN_ASSISTANT_OPERATOR_CHILD_TABS.map((tab) => tab.id);
-  const active = allowed.includes(state.adminAssistantOperatorChildTab) ? state.adminAssistantOperatorChildTab : 'assistant_workspaces';
+  const requested = adminResolveUxChildTab('assistant_operator', state.adminAssistantOperatorChildTab);
+  const active = allowed.includes(requested) ? requested : 'assistant_workspaces';
   state.adminAssistantOperatorChildTab = active;
   return active;
 }
 
 function setAdminAssistantOperatorChildTab(tabId) {
   const allowed = ADMIN_ASSISTANT_OPERATOR_CHILD_TABS.map((tab) => tab.id);
-  state.adminAssistantOperatorChildTab = allowed.includes(tabId) ? tabId : 'assistant_workspaces';
+  const resolved = adminResolveUxChildTab('assistant_operator', tabId);
+  state.adminAssistantOperatorChildTab = allowed.includes(resolved) ? resolved : 'assistant_workspaces';
   render();
 }
 
@@ -28363,11 +29378,11 @@ function adminAssistantOperatorOverviewPanel(center) {
   })}${NeoUI.card({
     title: 'Assistant / Operator boundaries',
     description: 'This tab manages orchestration, permissions, and audit visibility. Runtime providers and memory infrastructure stay in their owning Admin tabs.',
-    body: NeoUI.metaList(['Backends owns text/image/video/voice/audio profile configuration.', 'Memory and Memory Engine own record review and retrieval/index infrastructure.', 'Projects owns project workspaces and delivery objects.', 'Extensions owns extension registry and node management.', 'Diagnostics / Health / Logs / Records own cross-system evidence, status, logs, and Markdown records.'], { code: false })
+    body: NeoUI.metaList(['Backends owns text/image/video/voice/audio profile configuration.', 'Memory and Memory Engine own record review and retrieval/index infrastructure.', 'Delivery Projects owns client/work delivery objects; Assistant Scopes are separate.', 'Extensions owns extension registry and node management.', 'Diagnostics / Health / Logs / Records own cross-system evidence, status, logs, and Markdown records.'], { code: false })
   })}${NeoUI.card({
-    title: 'Current Assistant workspace route',
+    title: 'Current Assistant orchestration route',
     description: `Active child tab: ${active}`,
-    body: NeoUI.metaList([`Tool permission profiles: ${stats.profileCount}`, `Execution ledger events: ${stats.ledgerCount}`, `Warnings: ${stats.warningCount}`, 'Voice Input and Internet/API are separate child tabs now, not buried inside the Operator block.'])
+    body: NeoUI.metaList([`Tool permission profiles: ${stats.profileCount}`, `Execution ledger events: ${stats.ledgerCount}`, `Warnings: ${stats.warningCount}`, 'Voice Input and Internet/API are separate child tabs; Assistant scope editing remains on the Assistant surface.'])
   })}</div>`;
 }
 
@@ -28418,7 +29433,7 @@ function adminAssistantOperatorDiagnosticsBody(center) {
     title: 'Assistant / Operator diagnostics',
     description: 'Read-only snapshot for Assistant Brain, Operator, Voice Input, Internet/API, Control Center review, tools, permissions, and ledger state.',
     badge: NeoUI.statusBadge(stats.warningCount ? 'needs review' : 'ready'),
-    body: `${NeoUI.badgeRow([`Assistant ${raw.assistant_status}`, `Operator ${raw.operator_status}`, `Voice ${raw.voice_status}`, `Internet ${raw.internet_mode}`, `Tools ${raw.tool_count}`, `Traces ${raw.control_center_trace_count}`])}${NeoUI.metaList(['Assistant / Operator is orchestration and permission control.', 'Backends owns model/provider profiles.', 'Memory Engine owns retrieval infrastructure.', 'Projects owns project objects and delivery state.'], { code: false })}`,
+    body: `${NeoUI.badgeRow([`Assistant ${raw.assistant_status}`, `Operator ${raw.operator_status}`, `Voice ${raw.voice_status}`, `Internet ${raw.internet_mode}`, `Tools ${raw.tool_count}`, `Traces ${raw.control_center_trace_count}`])}${NeoUI.metaList(['Assistant / Operator is orchestration and permission control.', 'Backends owns model/provider profiles.', 'Memory Engine owns retrieval infrastructure.', 'Delivery Projects owns client/work project objects and delivery state; Assistant Scopes remain user-facing Assistant controls.'], { code: false })}`,
     actions: '<button type="button" class="neo-btn primary" onclick="reloadAdminControlCenter()">Refresh diagnostics</button>'
   })}${NeoUI.card({ title: 'Raw Assistant / Operator snapshot', description: 'Compact debug view for the smart split.', body: state.detailMode === 'expert' ? NeoUI.codeBlock(raw, 'admin-assistant-operator-diagnostics-code') : NeoUI.metaList(['Switch to Expert detail mode to view raw Assistant / Operator diagnostics JSON.', `Active child tab: ${raw.active_child_tab}`]) })}`;
 }
@@ -28466,10 +29481,10 @@ function adminProjectWorkspaceHtml(center) {
   const surfaceActions = state.projectWorkspace?.surfaceActions || center?.project_surface_actions || {};
   const surfaceActionRows = (Array.isArray(surfaceActions.actions) ? surfaceActions.actions : []).slice(0, 8).map((action) => `${action.title || action.action_id}: ${action.action_type || 'action'} · ${action.source_surface || 'surface'} · ${action.resource_type || 'resource'}`);
   return `${NeoUI.card({
-    title: 'Project Workspace Memory Layer',
-    description: 'Creator project profiles, active project context, project-scoped memory namespaces, and cross-surface resource links.',
+    title: 'Delivery Project Workspace',
+    description: 'Client/work delivery project profiles, active project context, cross-surface resource links, and compatibility memory namespace readout.',
     badge: NeoUI.statusBadge(status.status || 'ready'),
-    body: `${NeoUI.badgeRow([`Active: ${activeId}`, `${status.project_count || projects.length} project(s)`, `${status.context_count || 0} context`, `${status.link_count || 0} links`])}<div class="neo-ui-field-grid"><div><label>Active project</label><select id="admin-project-workspace-active">${options || '<option value="general">General</option>'}</select></div><div><label>New/Update project name</label><input id="admin-project-workspace-name" placeholder="Project name"></div><div><label>Type</label><input id="admin-project-workspace-type" placeholder="video / roleplay / client / prompt pack"></div><div><label>Tags</label><input id="admin-project-workspace-tags" placeholder="comma, separated"></div><div class="wide"><label>Description / notes</label><textarea id="admin-project-workspace-notes" rows="3" placeholder="Project purpose, client notes, creative direction, active workflow..."></textarea></div></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="setActiveProjectWorkspace()">Set active</button><button type="button" class="neo-btn primary" onclick="saveProjectWorkspace()">Save project</button><button type="button" class="neo-btn" onclick="loadProjectWorkspaceContext()">Load context</button><button type="button" class="neo-btn" onclick="indexProjectWorkspaceMemory()">Index workspace memory</button></div>${projectRows.length ? NeoUI.metaList(projectRows) : NeoUI.emptyState('No project workspaces loaded.', 'Create or refresh project workspaces.')}`
+    body: `${NeoUI.badgeRow([`Active: ${activeId}`, `${status.project_count || projects.length} project(s)`, `${status.context_count || 0} context`, `${status.link_count || 0} links`])}<div class="neo-ui-field-grid"><div><label>Active project</label><select id="admin-project-workspace-active">${options || '<option value="general">General</option>'}</select></div><div><label>New/Update project name</label><input id="admin-project-workspace-name" placeholder="Project name"></div><div><label>Type</label><input id="admin-project-workspace-type" placeholder="video / roleplay / client / prompt pack"></div><div><label>Tags</label><input id="admin-project-workspace-tags" placeholder="comma, separated"></div><div class="wide"><label>Description / notes</label><textarea id="admin-project-workspace-notes" rows="3" placeholder="Project purpose, client notes, creative direction, active workflow..."></textarea></div></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="setActiveProjectWorkspace()">Set active</button><button type="button" class="neo-btn primary" onclick="saveProjectWorkspace()">Save project</button><button type="button" class="neo-btn" onclick="loadProjectWorkspaceContext()">Load linked context</button></div>${projectRows.length ? NeoUI.metaList(projectRows) : NeoUI.emptyState('No project workspaces loaded.', 'Create or refresh project workspaces.')}`
   })}${NeoUI.card({ title: 'Cross-Surface Handoff', description: 'Send the active surface result, prompt, scene note, source evidence, or asset reference into the active project.', body: `<div class="neo-ui-field-grid"><div><label>Source surface</label><select id="project-handoff-source"><option value="assistant">Assistant</option><option value="prompt_captioning">Prompting & Captioning</option><option value="image">Image</option><option value="roleplay">Roleplay</option><option value="admin">Admin</option><option value="video">Video</option><option value="music">Music</option><option value="voice">Voice</option><option value="board">Board</option></select></div><div><label>Resource type</label><input id="project-handoff-type" placeholder="prompt / image_result / scene / source_evidence"></div><div><label>Title</label><input id="project-handoff-title" placeholder="What should this be called?"></div><div><label>Path or reference ID</label><input id="project-handoff-ref" placeholder="file path, output id, memory chunk id, scene id..."></div><div class="wide"><label>Context / notes</label><textarea id="project-handoff-content" rows="3" placeholder="Paste the useful text, prompt, caption, scene summary, or explanation here."></textarea></div></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="sendProjectWorkspaceHandoff()">Send to active project</button><button type="button" class="neo-btn" onclick="loadProjectAssetTray()">Refresh asset tray</button></div>${state.projectWorkspace?.lastHandoff ? `<p class="neo-muted">Last handoff: ${escapeHtml(state.projectWorkspace.lastHandoff.handoff?.title || state.projectWorkspace.lastHandoff.status || 'saved')}</p>` : ''}` })}${NeoUI.card({ title: 'Native Project Actions', description: 'Ledger for send/link/create actions triggered from actual Neo surfaces.', body: `${surfaceActionRows.length ? NeoUI.metaList(surfaceActionRows) : NeoUI.emptyState('No native surface actions yet.', 'Use any surface Project Asset Tray action to create one.')}<div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="sendCurrentSurfaceToActiveProject()">Send current surface</button><button type="button" class="neo-btn" onclick="createProjectDeliverableFromCurrentSurface()">Create deliverable from current surface</button><button type="button" class="neo-btn" onclick="createProjectMilestoneFromCurrentSurface()">Create milestone from current surface</button></div>` })}${NeoUI.card({ title: 'Project Asset Tray + Timeline', description: 'Project-scoped links, handoffs, and timeline events from every Neo surface.', body: `${trayRows.length ? NeoUI.metaList(trayRows) : NeoUI.emptyState('No linked project resources yet.')} ${handoffRows.length ? NeoUI.metaList(handoffRows) : ''} ${timelineRows.length ? NeoUI.metaList(timelineRows) : ''}` })}${projectActivityIntelligenceHtml()}${projectSmartBriefHtml()}${projectBriefExportHtml()}${projectBriefVersionHistoryHtml()}${projectMilestoneDeliverableTrackerHtml()}${projectReviewQueueApprovalHtml()}${projectPackageBuilderHtml()}${projectMemoryRegressionQaHtml()}${projectDeliveryDashboardHtml()}${NeoUI.card({ title: 'Project Context + Links', description: 'Recent project notes and linked surface resources available to Assistant and Memory Engine.', body: `${contextRows.length ? NeoUI.metaList(contextRows) : NeoUI.emptyState('No project context loaded.')} ${linkRows.length ? NeoUI.metaList(linkRows) : ''}` })}`;
 }
 
@@ -28612,44 +29627,46 @@ function adminProjectsOverviewPanel(center) {
     `Milestones: ${trackerSummary.milestone_count || 0} · Deliverables: ${trackerSummary.deliverable_count || 0}`,
     `Reviews: ${reviewSummary.pending_count || reviewSummary.pending_reviews || 0} pending · ${reviewSummary.approved_count || reviewSummary.approved_reviews || 0} approved`,
     `Surface actions: ${stats.surfaceActionCount}`,
-    'Projects owns workspace context, linked assets, briefs, timelines, reviews, packages, and project memory QA.',
+    'Delivery Projects owns client/work context, linked assets, briefs, timelines, reviews, packages, milestones, and deliverables.',
     'Assistant / Operator may use project context, but project management controls stay here.',
   ];
   return `<div class="neo-admin-smart-split-overview neo-admin-projects-overview-left">${NeoUI.card({
-    title: 'Projects overview',
-    description: 'Admin summary for active project, project memory, linked assets, briefs, delivery, and review workflow state.',
+    title: 'Delivery Projects overview',
+    description: 'Admin summary for active client/work delivery project, linked assets, briefs, milestones, deliverables, and review workflow state.',
     badge: NeoUI.statusBadge(stats.status.status || 'ready'),
     body: `${NeoUI.badgeRow(chips)}${NeoUI.metaList(rows)}`,
-    actions: '<button type="button" class="neo-btn primary" onclick="loadProjectWorkspaces()">Refresh Projects</button><button type="button" class="neo-btn secondary" onclick="setAdminProjectsChildTab(\'project_memory\')">Open Project Memory</button>'
+    actions: '<button type="button" class="neo-btn primary" onclick="loadProjectWorkspaces()">Refresh Delivery Projects</button><button type="button" class="neo-btn secondary" onclick="setAdminProjectsChildTab(\'project_memory\')">Open Linked Memory</button>'
   })}${NeoUI.card({
-    title: 'Projects ownership boundaries',
-    description: 'Keeps Projects focused instead of duplicating Assistant, Memory Engine, Storage, Records, or Logs.',
-    body: NeoUI.metaList(['Projects = workspaces, linked assets, briefs, timeline, milestones, delivery, reviews, packages, and project memory QA.', 'Assistant / Operator = project-aware planning and action permission flow.', 'Memory / Memory Engine = memory review, indexing, retrieval infrastructure, and source plumbing.', 'Storage / Records / Logs = physical paths, Markdown records, and runtime log files.'])
+    title: 'Delivery Projects ownership boundaries',
+    description: 'Keeps Delivery Projects focused instead of duplicating Assistant Scopes, Memory Engine, Storage, Records, or Logs.',
+    body: NeoUI.metaList(['Delivery Projects = client/work records, linked assets, briefs, timeline, milestones, delivery, reviews, approvals, and packages.', 'Assistant Scopes = AI context priority; Admin Assistant / Operator only inspects orchestration and permissions.', 'Memory / Memory Engine = memory review, indexing, retrieval infrastructure, and source plumbing.', 'Storage / Records / Logs = physical paths, Markdown records, and runtime log files.'])
   })}</div>`;
 }
 
 const ADMIN_PROJECTS_CHILD_TABS = [
-  { id: 'workspaces', label: 'Workspaces', description: 'Project profile, active project selector, cross-surface handoff, native actions, and project context links.' },
+  { id: 'workspaces', label: 'Delivery Workspace', description: 'Delivery project profile, active project selector, cross-surface handoff, native actions, and linked context.' },
   { id: 'asset_tray', label: 'Asset Tray', description: 'Linked assets, handoffs, surface actions, and project tray visibility.' },
   { id: 'briefs', label: 'Briefs', description: 'Smart project brief builder, export, and version history.' },
   { id: 'timeline', label: 'Timeline', description: 'Project activity intelligence, timeline, and operations map.' },
   { id: 'milestones_delivery', label: 'Milestones + Delivery', description: 'Milestone, deliverable, and client delivery dashboard controls.' },
   { id: 'review_approval', label: 'Review + Approval', description: 'Review queue and approval workflow.' },
   { id: 'packages', label: 'Packages', description: 'Project package builder and handoff/export package planning.' },
-  { id: 'project_memory', label: 'Project Memory', description: 'Project context links, memory namespace, and regression QA.' },
+  { id: 'project_memory', label: 'Linked Memory', description: 'Read-only delivery-project context links and memory relationship diagnostics. Memory indexing belongs to Memory Engine.' },
   { id: 'diagnostics', label: 'Diagnostics', description: 'Read-only project layout and status snapshot.' },
 ];
 
 function adminProjectsActiveChildTab() {
   const allowed = ADMIN_PROJECTS_CHILD_TABS.map((tab) => tab.id);
-  const active = allowed.includes(state.adminProjectsChildTab) ? state.adminProjectsChildTab : 'workspaces';
+  const requested = adminResolveUxChildTab('projects', state.adminProjectsChildTab);
+  const active = allowed.includes(requested) ? requested : 'workspaces';
   state.adminProjectsChildTab = active;
   return active;
 }
 
 function setAdminProjectsChildTab(tabId) {
   const allowed = ADMIN_PROJECTS_CHILD_TABS.map((tab) => tab.id);
-  state.adminProjectsChildTab = allowed.includes(tabId) ? tabId : 'workspaces';
+  const resolved = adminResolveUxChildTab('projects', tabId);
+  state.adminProjectsChildTab = allowed.includes(resolved) ? resolved : 'workspaces';
   render();
 }
 
@@ -28668,10 +29685,10 @@ function adminProjectsWorkspaceCoreBody(center) {
   const linkRows = stats.links.slice(0, 6).map((link) => `${link.title || link.link_id}: ${link.surface || 'surface'} · ${link.path || link.ref_id || ''}`);
   const surfaceActionRows = (Array.isArray(stats.surfaceActions.actions) ? stats.surfaceActions.actions : []).slice(0, 8).map((action) => `${action.title || action.action_id}: ${action.action_type || 'action'} · ${action.source_surface || 'surface'} · ${action.resource_type || 'resource'}`);
   return `<div class="neo-admin-projects-workspaces" data-admin-projects-child-tab="workspaces">${NeoUI.card({
-    title: 'Project Workspace Memory Layer',
-    description: 'Creator project profiles, active project context, project-scoped memory namespaces, and cross-surface resource links.',
+    title: 'Delivery Project Workspace',
+    description: 'Client/work delivery project profiles, active project context, cross-surface resource links, and compatibility memory namespace readout.',
     badge: NeoUI.statusBadge(stats.status.status || 'ready'),
-    body: `${NeoUI.badgeRow([`Active: ${activeId}`, `${stats.status.project_count || projects.length} project(s)`, `${stats.status.context_count || 0} context`, `${stats.status.link_count || 0} links`])}<div class="neo-ui-field-grid"><div><label>Active project</label><select id="admin-project-workspace-active">${options || '<option value="general">General</option>'}</select></div><div><label>New/Update project name</label><input id="admin-project-workspace-name" placeholder="Project name"></div><div><label>Type</label><input id="admin-project-workspace-type" placeholder="video / roleplay / client / prompt pack"></div><div><label>Tags</label><input id="admin-project-workspace-tags" placeholder="comma, separated"></div><div class="wide"><label>Description / notes</label><textarea id="admin-project-workspace-notes" rows="3" placeholder="Project purpose, client notes, creative direction, active workflow..."></textarea></div></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="setActiveProjectWorkspace()">Set active</button><button type="button" class="neo-btn primary" onclick="saveProjectWorkspace()">Save project</button><button type="button" class="neo-btn" onclick="loadProjectWorkspaceContext()">Load context</button><button type="button" class="neo-btn" onclick="indexProjectWorkspaceMemory()">Index workspace memory</button></div>${projectRows.length ? NeoUI.metaList(projectRows) : NeoUI.emptyState('No project workspaces loaded.', 'Create or refresh project workspaces.')}`
+    body: `${NeoUI.badgeRow([`Active: ${activeId}`, `${stats.status.project_count || projects.length} project(s)`, `${stats.status.context_count || 0} context`, `${stats.status.link_count || 0} links`])}<div class="neo-ui-field-grid"><div><label>Active project</label><select id="admin-project-workspace-active">${options || '<option value="general">General</option>'}</select></div><div><label>New/Update project name</label><input id="admin-project-workspace-name" placeholder="Project name"></div><div><label>Type</label><input id="admin-project-workspace-type" placeholder="video / roleplay / client / prompt pack"></div><div><label>Tags</label><input id="admin-project-workspace-tags" placeholder="comma, separated"></div><div class="wide"><label>Description / notes</label><textarea id="admin-project-workspace-notes" rows="3" placeholder="Project purpose, client notes, creative direction, active workflow..."></textarea></div></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="setActiveProjectWorkspace()">Set active</button><button type="button" class="neo-btn primary" onclick="saveProjectWorkspace()">Save project</button><button type="button" class="neo-btn" onclick="loadProjectWorkspaceContext()">Load linked context</button></div>${projectRows.length ? NeoUI.metaList(projectRows) : NeoUI.emptyState('No project workspaces loaded.', 'Create or refresh project workspaces.')}`
   })}${NeoUI.card({
     title: 'Cross-Surface Handoff',
     description: 'Send the active surface result, prompt, scene note, source evidence, or asset reference into the active project.',
@@ -28733,10 +29750,10 @@ function adminProjectsMemoryBody(center) {
   const contextRows = stats.contextItems.slice(0, 10).map((item) => `${item.title || item.context_id}: ${String(item.text || '').slice(0, 140)}`);
   const linkRows = stats.links.slice(0, 10).map((link) => `${link.title || link.link_id}: ${link.surface || 'surface'} · ${link.path || link.ref_id || ''}`);
   return `<div class="neo-admin-projects-memory" data-admin-projects-child-tab="project_memory">${NeoUI.card({
-    title: 'Project Memory Context',
-    description: 'Project context items and linked resources available to Assistant and Memory Engine.',
+    title: 'Linked Memory Context',
+    description: 'Read-only delivery-project context and linked resources. Memory indexing/rebuild actions belong to the shared Memory Engine / Assistant Project Brain pipeline.',
     badge: NeoUI.statusBadge(stats.status.status || 'ready'),
-    body: `${NeoUI.badgeRow([`Active ${stats.activeId}`, `${contextRows.length} context`, `${linkRows.length} links`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="loadProjectWorkspaceContext()">Load context</button><button type="button" class="neo-btn primary" onclick="indexProjectWorkspaceMemory()">Index workspace memory</button></div><div class="neo-project-activity-grid"><div><h4>Context</h4>${contextRows.length ? NeoUI.metaList(contextRows) : NeoUI.emptyState('No project context loaded.')}</div><div><h4>Links</h4>${linkRows.length ? NeoUI.metaList(linkRows) : NeoUI.emptyState('No project links loaded.')}</div></div>`
+    body: `${NeoUI.badgeRow([`Active ${stats.activeId}`, `${contextRows.length} context`, `${linkRows.length} links`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="loadProjectWorkspaceContext()">Refresh linked context</button></div><div class="neo-project-activity-grid"><div><h4>Context</h4>${contextRows.length ? NeoUI.metaList(contextRows) : NeoUI.emptyState('No project context loaded.')}</div><div><h4>Links</h4>${linkRows.length ? NeoUI.metaList(linkRows) : NeoUI.emptyState('No project links loaded.')}</div></div>`
   })}${projectMemoryRegressionQaHtml()}</div>`;
 }
 
@@ -28754,7 +29771,7 @@ function adminProjectsDiagnosticsBody(center) {
     timeline_count: stats.timeline.length,
     warning_count: stats.warningCount,
     child_tabs: ADMIN_PROJECTS_CHILD_TABS.map((tab) => tab.id),
-    boundary: 'Projects owns workspace/project workflow controls; Assistant, Memory Engine, Storage, Records, Logs, Diagnostics remain separate owners.',
+    boundary: 'Delivery Projects owns client/work delivery controls and linked-memory readout; Assistant Scopes, Memory Engine, Storage, Records, Logs, and Diagnostics remain separate owners.',
   };
   return `<div class="neo-admin-projects-diagnostics" data-admin-projects-child-tab="diagnostics">${NeoUI.card({
     title: 'Projects diagnostics',
@@ -29105,10 +30122,10 @@ function projectMemoryRegressionQaHtml() {
   const rows = checks.map((check) => `${check.ok ? 'OK' : (check.severity || 'error').toUpperCase()} · ${check.label || check.check_id}: ${check.detail || ''}`);
   const diagnostics = qa.diagnostics || {};
   return NeoUI.card({
-    title: 'Memory/Project QA + Regression Repair',
-    description: 'Read-only regression sweep for Memory Engine, Project Workspace, Assistant context packs, packages, and surface-action ledgers.',
+    title: 'Delivery Project Memory Link QA',
+    description: 'Read-only regression sweep for Delivery Project context links and compatibility projections. Rebuild/index actions belong to Assistant Project Brain or Memory Engine.',
     badge: NeoUI.statusBadge(qa.status || 'ready'),
-    body: `${NeoUI.badgeRow([`${summary.check_count || 0} checks`, `${summary.failed_count || 0} failed`, `${summary.warning_count || 0} warnings`, `${summary.project_index_sample_count || 0} index rows`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="loadProjectMemoryQa()">Run QA sweep</button><button type="button" class="neo-btn primary" onclick="repairProjectMemoryQa()">Refresh local indexes</button></div>${rows.length ? NeoUI.metaList(rows) : NeoUI.emptyState('No QA checks loaded yet.', 'Run the QA sweep.')}<p class="neo-muted">Context pack project: ${escapeHtml(diagnostics.context_pack_project_id || 'unknown')} · Workspace fallback: ${escapeHtml(String(diagnostics.workspace_fallback_used ?? 'unknown'))}</p>${state.projectWorkspace?.lastQaRepair ? `<p class="neo-muted">Last repair: ${escapeHtml(state.projectWorkspace.lastQaRepair.status || '')}</p>` : ''}`,
+    body: `${NeoUI.badgeRow([`${summary.check_count || 0} checks`, `${summary.failed_count || 0} failed`, `${summary.warning_count || 0} warnings`, `${summary.project_index_sample_count || 0} index rows`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn" onclick="loadProjectMemoryQa()">Run QA sweep</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','memory')">Open Memory</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','engine'); setAdminMemoryEngineChildTab('background_jobs')">Open Memory Jobs</button></div>${rows.length ? NeoUI.metaList(rows) : NeoUI.emptyState('No QA checks loaded yet.', 'Run the QA sweep.')}<p class="neo-muted">Context pack project: ${escapeHtml(diagnostics.context_pack_project_id || 'unknown')} · Workspace fallback: ${escapeHtml(String(diagnostics.workspace_fallback_used ?? 'unknown'))}</p>`,
     className: 'neo-project-memory-qa-card',
   });
 }
@@ -29635,7 +30652,33 @@ function adminMemoryPoliciesHtml(center) {
     description: 'Controls trust, canon/draft state, retention scope, visibility, approval, importance, and memory rejection rules before context reaches Assistant or Roleplay.',
     badge: NeoUI.statusBadge(payload.status || 'ready'),
     body: `${NeoUI.badgeRow([`${(allowed.retention_scopes || []).length} retention scopes`, `${(allowed.memory_states || []).length} memory states`, `${(allowed.trust_levels || []).length} trust levels`, `${(allowed.visibility_levels || []).length} visibility levels`])}${NeoUI.metaList(countLines.length ? countLines : ['No indexed policy counts yet. Index memory sources first.'])}`
-  })}<div class="neo-ui-record-list admin-memory-policy-list">${defaultCards || NeoUI.emptyState('No memory policy defaults registered.')}</div>`;
+  })}<div class="neo-ui-record-list admin-memory-policy-list">${defaultCards || NeoUI.emptyState('No memory policy defaults registered.')}</div>${NeoUI.card({ title: 'Governance boundary', description: 'Durable-memory approvals are now a dedicated Admin Memory child tab so policy configuration and review decisions are not mixed together.', body: NeoUI.metaList(['Policies = defaults, trust, visibility, approval rules, decay and retention behavior.', 'Durable Review = approve/reject long-term memory candidates and contradictions.', 'Search + Citations = inspect source-grounded memory evidence.', 'Memory Engine = retrieval/index infrastructure only.']), actions: `<button type="button" class="neo-btn" onclick="setAdminMemoryChildTab('durable_review')">Open Durable Review</button>` })}`;
+}
+
+function adminMemoryDurableReviewHtml(center) {
+  const writeback = center?.memory_engine?.memory_writeback || {};
+  const pending = Array.isArray(writeback.pending_review) ? writeback.pending_review : [];
+  const writebackCounts = Array.isArray(writeback.counts_by_status_risk) ? writeback.counts_by_status_risk : [];
+  const pendingCards = pending.slice(0, 16).map((item) => `<div class="neo-ui-record-card admin-memory-writeback-candidate"><strong>${escapeHtml(item.title || item.memory_type || item.writeback_id)}</strong><span>${escapeHtml(`${item.status || 'candidate'} · ${item.risk_level || 'risk'} · support ${item.support_count || 1}/${item.support_threshold || 1}`)}</span><small>${escapeHtml(item.decision_reason || item.content || '')}</small>${item.contradiction_state ? `<small>Conflict: ${escapeHtml(item.contradiction_state)}</small>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="reviewDurableWriteback('${escapeAttr(item.writeback_id)}','approve_and_apply')">Approve + apply</button><button type="button" class="neo-btn" onclick="reviewDurableWriteback('${escapeAttr(item.writeback_id)}','reject')">Reject</button></div></div>`).join('');
+  const writebackStatusLines = writebackCounts.length ? writebackCounts.map((item) => `${item.status || 'status'} · ${item.risk_level || 'risk'} · ${item.count || 0}`) : ['No durable-memory candidates recorded yet.'];
+  const policy = writeback.policy || {};
+  return `<div class="neo-admin-memory-durable-review" data-admin-memory-child-tab="durable_review">${NeoUI.card({
+    title: 'Durable Memory Writeback & Review',
+    description: 'Govern long-term memory promotion without mixing review decisions into Memory Engine infrastructure or normal Assistant chat.',
+    badge: NeoUI.statusBadge(pending.length ? 'needs review' : (writeback.status || 'ready')),
+    body: `${NeoUI.badgeRow([`${pending.length} pending`, `setting threshold ${policy.successful_setting_support_threshold || 2}`, `workflow threshold ${policy.workflow_preference_support_threshold || 2}`])}${NeoUI.metaList(writebackStatusLines)}${state.memoryWriteback?.lastReview ? `<p class="neo-muted">Last review: ${escapeHtml(state.memoryWriteback.lastReview.status || '')} · ${escapeHtml(String(state.memoryWriteback.lastReview.applied || 0))} applied</p>` : ''}`
+  })}${NeoUI.card({ title: 'Durable Review Queue', description: 'Preference changes, confirmed project decisions, canon/relationship changes, contradictions, and cross-project claims remain review-gated.', body: pendingCards || NeoUI.emptyState('No durable memory candidates need review.', 'Searchable history and low-risk repeated settings can exist without requiring a review action.') })}${NeoUI.card({ title: 'Ownership boundary', description: 'Assistant Memory Lens may show pending candidates, but approve/reject controls stay here under Admin → Memory.', body: NeoUI.metaList(['Assistant = view/understand remembered context.', 'Admin Memory = approve/reject durable memory and resolve conflicts.', 'Memory Engine = retrieval, indexes, embeddings, reranker, vector store, and jobs.']) })}</div>`;
+}
+
+async function reviewDurableWriteback(writebackId, decision) {
+  if (!writebackId) return;
+  const note = window.prompt('Review note for this durable memory?', decision || 'reviewed') || '';
+  const response = await fetch('/api/memory/writeback/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ writeback_ids: [writebackId], decision, note }) });
+  if (!response.ok) { window.alert(`Durable memory review failed: ${await response.text()}`); return; }
+  state.memoryWriteback.lastReview = await response.json();
+  state.adminControlCenter = await loadJson('/api/admin/control-center', state.adminControlCenter || {});
+  state.memory = await loadJson('/api/memory/status', state.memory || null);
+  render();
 }
 
 function adminMemoryRetrievalProfilesHtml(center) {
@@ -29919,17 +30962,23 @@ function adminAssistantBrainWorkspaceHtml(center) {
   const workspaceButtons = workspaces.map((workspace) => {
     const selected = active.workspace_id === workspace.workspace_id;
     const stats = workspace.memory_stats || {};
-    return `<button type="button" class="neo-ui-record-card ${selected ? 'selected' : ''}" onclick="selectAssistantBrainWorkspace('${escapeAttr(workspace.workspace_id || '')}')"><strong>${escapeHtml(workspace.name || workspace.workspace_id || 'Workspace')}</strong><span>${escapeHtml(workspace.surface || 'assistant')} · ${escapeHtml(workspace.project_id || 'project')} · ${stats.fragments || 0} fragments</span><small>${escapeHtml((workspace.memory_lanes || []).slice(0, 4).join(', '))}</small></button>`;
+    const surfaceId = workspace.surface_id || workspace.surface || 'assistant';
+    const scopeId = workspace.scope_id || workspace.project_id || 'general';
+    const deliveryProjectId = workspace.delivery_project_id || '';
+    return `<button type="button" class="neo-ui-record-card ${selected ? 'selected' : ''}" onclick="selectAssistantBrainWorkspace('${escapeAttr(workspace.workspace_id || '')}')"><strong>${escapeHtml(workspace.name || workspace.workspace_id || 'Scope')}</strong><span>${escapeHtml(surfaceId)} · scope ${escapeHtml(scopeId)}${deliveryProjectId ? ` · project ${escapeHtml(deliveryProjectId)}` : ''} · ${stats.fragments || 0} fragments</span><small>${escapeHtml((workspace.memory_lanes || []).slice(0, 4).join(', '))}</small></button>`;
   }).join('');
   const memoryLines = preview.slice(0, 8).map((item) => `${item.memory_type || 'memory'} · ${item.title || item.fragment_id || ''} · ${item.content_preview || ''}`);
   const traceLines = traces.slice(0, 6).map((trace) => `${trace.intent || 'intent'} · ${trace.context_count || 0} ctx · ${trace.status || 'status'} · ${trace.created_at || ''}`);
   const lastContext = brain.lastContext || {};
+  const surfaceId = active.surface_id || active.surface || 'assistant';
+  const scopeId = active.scope_id || active.project_id || 'general';
+  const deliveryProjectId = active.delivery_project_id || '';
   return `${NeoUI.card({
-    title: 'Assistant Brain Workspace',
-    description: 'Workspace-aware Assistant routing: built-in surface projects, scoped memory lanes, and Control Center handoff before backend generation.',
+    title: 'Assistant Scope Readout',
+    description: 'Read-only Admin diagnostics for Assistant Scopes, canonical identity, memory lanes, and Control Center context assembly. Select/edit the active Scope on the Assistant surface.',
     badge: NeoUI.statusBadge(status.status || 'ready'),
-    body: `${NeoUI.badgeRow([`workspaces ${status.workspace_count || workspaces.length || 0}`, `active ${active.name || 'none'}`, `surface ${active.surface || 'assistant'}`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="reloadAssistantBrainWorkspace()">Refresh brain workspaces</button><button type="button" class="neo-btn" onclick="activateAssistantBrainWorkspace()">Set active Assistant project</button><button type="button" class="neo-btn" onclick="buildAssistantBrainContext()">Build context preview</button></div>`
-  })}<div class="neo-ui-grid two"><div>${NeoUI.card({ title: 'Built-in workspaces', description: 'Each workspace is a sandboxed Assistant project mapped to a Neo surface.', body: workspaceButtons || NeoUI.emptyState('No Assistant brain workspaces loaded yet.', 'Refresh brain workspaces.') })}</div><div>${NeoUI.card({ title: active.name || 'Active workspace', description: active.description || 'Workspace details and scoped memory preview.', body: `${NeoUI.metaList([`Workspace: ${active.workspace_id || 'none'}`, `Project: ${active.project_id || 'none'}`, `Surface: ${active.surface || 'assistant'}`, `Memory lanes: ${(active.memory_lanes || []).join(', ') || 'none'}`])}${NeoUI.card({ title: 'Memory preview', description: 'Recent unified memory fragments available to this workspace.', body: memoryLines.length ? NeoUI.metaList(memoryLines) : NeoUI.emptyState('No memory fragments in this workspace yet.') })}${NeoUI.card({ title: 'Recent Assistant Control traces', description: 'Latest Control Center traces for this workspace.', body: traceLines.length ? NeoUI.metaList(traceLines) : NeoUI.emptyState('No traces for this workspace yet.') })}${lastContext.trace_id ? NeoUI.card({ title: 'Last context preview', description: 'Prompt/control brief generated for the selected workspace.', body: `${NeoUI.metaList([`Trace: ${lastContext.trace_id || ''}`, `Project: ${lastContext.diagnostics?.project_id || ''}`, `Surface: ${lastContext.diagnostics?.surface || ''}`])}${state.detailMode === 'expert' ? NeoUI.codeBlock(lastContext.prompt_block || '', 'assistant-brain-context-preview') : ''}` }) : ''}` })}</div></div>`;
+    body: `${NeoUI.badgeRow([`scopes ${status.workspace_count || workspaces.length || 0}`, `inspect ${active.name || 'none'}`, `surface ${surfaceId}`, `scope ${scopeId}`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="reloadAssistantBrainWorkspace()">Refresh scope readout</button><button type="button" class="neo-btn" onclick="buildAssistantBrainContext()">Build context preview</button><button type="button" class="neo-btn" onclick="setActiveSubtab('assistant','projects')">Open Assistant Scopes</button></div>`
+  })}<div class="neo-ui-grid two"><div>${NeoUI.card({ title: 'Inspectable scopes', description: 'Selecting a card changes only this Admin diagnostic preview; it does not activate or edit the user-facing Assistant Scope.', body: workspaceButtons || NeoUI.emptyState('No Assistant scopes loaded yet.', 'Refresh scope readout.') })}</div><div>${NeoUI.card({ title: active.name || 'Selected scope', description: active.description || 'Scope identity and scoped memory preview.', body: `${NeoUI.metaList([`Workspace compatibility ID: ${active.workspace_id || 'none'}`, `Scope ID: ${scopeId}`, `Surface ID: ${surfaceId}`, `Delivery project ID: ${deliveryProjectId || 'none'}`, `Memory lanes: ${(active.memory_lanes || []).join(', ') || 'none'}`])}${NeoUI.card({ title: 'Memory preview', description: 'Recent unified memory fragments visible to this diagnostic scope preview.', body: memoryLines.length ? NeoUI.metaList(memoryLines) : NeoUI.emptyState('No memory fragments in this scope yet.') })}${NeoUI.card({ title: 'Recent Assistant Control traces', description: 'Latest Control Center traces for this scope.', body: traceLines.length ? NeoUI.metaList(traceLines) : NeoUI.emptyState('No traces for this scope yet.') })}${lastContext.trace_id ? NeoUI.card({ title: 'Last context preview', description: 'Prompt/control brief generated for the selected diagnostic scope.', body: `${NeoUI.metaList([`Trace: ${lastContext.trace_id || ''}`, `Project: ${lastContext.diagnostics?.project_id || 'none'}`, `Scope: ${lastContext.diagnostics?.scope_id || scopeId}`, `Surface: ${lastContext.diagnostics?.surface_id || lastContext.diagnostics?.surface || surfaceId}`])}${state.detailMode === 'expert' ? NeoUI.codeBlock(lastContext.prompt_block || '', 'assistant-brain-context-preview') : ''}` }) : ''}` })}</div></div>`;
 }
 
 async function reloadAssistantBrainWorkspace() {
@@ -29957,13 +31006,15 @@ async function selectAssistantBrainWorkspace(workspaceId) {
 }
 
 async function activateAssistantBrainWorkspace() {
-  if (await neoTryAdminAction('activateAssistantBrainWorkspace')) return;
-  const workspaceId = state.assistantBrain.activeWorkspaceId || state.assistantBrain.dashboard?.active_workspace?.workspace_id || '';
-  if (!workspaceId) { window.alert('No Assistant Brain workspace selected.'); return; }
-  const response = await fetch('/api/assistant/brain/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId }) });
-  if (!response.ok) { window.alert(`Assistant Brain activation failed: ${await response.text()}`); return; }
-  state.assistantBrain.lastActivation = await response.json();
-  await reloadAssistantBrainWorkspace();
+  // Phase 12 compatibility shim: Admin no longer activates Assistant Scopes.
+  // Keep the historical callable symbol for old UI state/integrations, but
+  // route the user to the owning Assistant surface instead of mutating state.
+  state.assistantBrain.lastActivation = {
+    status: 'redirect_required',
+    owner: 'assistant.surface',
+    message: 'Admin Scope Readout is diagnostic only. Activate or edit Scopes in Assistant → Scopes.',
+  };
+  setActiveSubtab('assistant', 'projects');
 }
 
 async function buildAssistantBrainContext() {
@@ -30014,7 +31065,7 @@ function adminControlCenterReviewHtml(center) {
     ${NeoUI.card({ title: 'Retrieval diagnostics', description: 'Related retrieval access records and reranker trace linkage.', body: retrievalAccess.length ? NeoUI.metaList(retrievalAccess.slice(0, 6).map((item) => `${item.consumer || 'consumer'} · ${item.query || 'query'} · ${(item.result_ids || []).length} result(s) · ${item.created_at || ''}`)) : NeoUI.emptyState('No related retrieval access records found.') })}
     ${NeoUI.card({ title: 'Safety guard', description: 'Sandbox/cross-scope blocks related to this trace.', badge: NeoUI.statusBadge(violations.length ? 'needs review' : 'ready'), body: violations.length ? NeoUI.metaList(violations.slice(0, 6).map((item) => `${item.severity || 'warn'} · ${item.check_type || 'check'} · ${item.message || ''}`)) : NeoUI.emptyState('No related safety violations.') })}
     ${NeoUI.card({ title: 'Prompt contract + validation', description: 'The behavior contract selected before backend generation.', body: `${NeoUI.metaList([`Contract: ${selected.prompt_contract_id || 'none'}`, `Validation: ${selected.validation?.status || 'planned'}`, `Checks: ${(selected.validation?.checks || []).join(', ') || 'none'}`])}${state.detailMode === 'expert' ? NeoUI.codeBlock(selected.prompt_contract || {}, 'admin-control-center-review-contract') : ''}` })}
-    ${NeoUI.card({ title: 'Writeback candidates', description: 'Memory evolution candidates linked to this trace.', body: writebacks.length ? NeoUI.metaList(writebacks.slice(0, 8).map((item) => `${item.status || 'queued'} · ${item.risk_level || 'risk'} · ${item.memory_type || 'memory'} · ${item.title || item.writeback_id}`)) : NeoUI.emptyState('No writeback candidates linked yet.') })}
+    ${NeoUI.card({ title: 'Writeback candidates', description: 'Memory evolution candidates linked to this trace.', body: writebacks.length ? NeoUI.metaList(writebacks.slice(0, 8).map((item) => `${item.status || 'queued'} · ${item.risk_level || 'risk'} · ${item.memory_type || 'memory'} · support ${item.support_count || 1}/${item.support_threshold || 1}${item.contradiction_state ? ` · ${item.contradiction_state}` : ''} · ${item.title || item.writeback_id}`)) : NeoUI.emptyState('No writeback candidates linked yet.') })}
     ${NeoUI.card({ title: 'Review decision', description: 'Record an Admin review note without mutating memory content.', actions: `<button type="button" class="neo-btn" onclick="reviewControlCenterTrace('good')">Mark good</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('needs_fix')">Needs fix</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('scope_issue')">Scope issue</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('memory_gap')">Memory gap</button>`, body: selected.latest_review ? NeoUI.metaList([`Latest review: ${selected.latest_review.decision || 'reviewed'}`, `Note: ${selected.latest_review.note || ''}`, `At: ${selected.latest_review.created_at || ''}`]) : NeoUI.emptyState('No review recorded for this trace.') })}` : NeoUI.emptyState('No Control Center trace selected.', 'Run Assistant or Roleplay, then refresh the cockpit.');
   return `${NeoUI.card({
     title: 'Control Center Trace Review Cockpit',
@@ -30074,6 +31125,8 @@ function adminMemoryStats(center) {
   const consolidation = state.memoryConsolidation || {};
   const retention = state.memoryRetention || {};
   const diagnostics = state.memoryDiagnostics || {};
+  const writeback = center?.memory_engine?.memory_writeback || {};
+  const pendingDurable = Array.isArray(writeback.pending_review) ? writeback.pending_review.length : 0;
   const namespaces = overview.memory_namespaces || memory.namespaces || [];
   const chunks = inspector.results?.total ?? inspector.results?.chunks?.length ?? 0;
   const conflictsCount = conflicts.groups?.total ?? conflicts.groups?.groups?.length ?? 0;
@@ -30082,7 +31135,7 @@ function adminMemoryStats(center) {
   const retentionGroups = retention.plan?.total ?? retention.plan?.items?.length ?? 0;
   const diagnosticWarnings = diagnostics.warnings?.length ?? diagnostics.warning_count ?? 0;
   const status = memory.status || memory.mode || diagnostics.status || 'available';
-  return { memory, overview, namespaces, chunks, conflictsCount, canonCount, consolidationGroups, retentionGroups, diagnosticWarnings, status };
+  return { memory, overview, namespaces, chunks, conflictsCount, canonCount, consolidationGroups, retentionGroups, pendingDurable, diagnosticWarnings, status };
 }
 
 function adminMemoryOverviewPanel(center) {
@@ -30095,6 +31148,7 @@ function adminMemoryOverviewPanel(center) {
     `Canon ${stats.canonCount}`,
     `Consolidation ${stats.consolidationGroups}`,
     `Retention ${stats.retentionGroups}`,
+    `Durable review ${stats.pendingDurable}`,
     `Warnings ${stats.diagnosticWarnings}`,
   ];
   const namespaceBody = stats.namespaces.length ? NeoUI.badgeRow(stats.namespaces) : NeoUI.emptyState('No memory namespaces reported.', 'Refresh Admin or open Diagnostics if the memory status endpoint is unavailable.');
@@ -30115,7 +31169,8 @@ function adminMemoryOverviewPanel(center) {
 const ADMIN_MEMORY_CHILD_TABS = [
   { id: 'inspector', label: 'Inspector', description: 'Inspect memory chunks, traces, source lines, and provenance.' },
   { id: 'search', label: 'Search + Citations', description: 'Search memory with source-grounded citation previews.' },
-  { id: 'policies', label: 'Policies', description: 'Review write, approval, decay, and surface memory policies.' },
+  { id: 'policies', label: 'Policies', description: 'Review trust, approval, decay, retention, and surface memory policy defaults.' },
+  { id: 'durable_review', label: 'Durable Review', description: 'Approve/reject durable memory candidates, contradictions, and review-gated long-term changes.' },
   { id: 'conflicts', label: 'Conflicts + Canon', description: 'Resolve canon/draft collisions and promote reviewed memory.' },
   { id: 'consolidation', label: 'Consolidation', description: 'Plan and run memory consolidation/summarization.' },
   { id: 'retention', label: 'Retention', description: 'Plan retention, decay, archival, and lifecycle automation.' },
@@ -30124,14 +31179,16 @@ const ADMIN_MEMORY_CHILD_TABS = [
 
 function adminMemoryActiveChildTab() {
   const allowed = ADMIN_MEMORY_CHILD_TABS.map((tab) => tab.id);
-  const active = allowed.includes(state.adminMemoryChildTab) ? state.adminMemoryChildTab : 'inspector';
+  const requested = adminResolveUxChildTab('memory', state.adminMemoryChildTab);
+  const active = allowed.includes(requested) ? requested : 'inspector';
   state.adminMemoryChildTab = active;
   return active;
 }
 
 function setAdminMemoryChildTab(tabId) {
   const allowed = ADMIN_MEMORY_CHILD_TABS.map((tab) => tab.id);
-  state.adminMemoryChildTab = allowed.includes(tabId) ? tabId : 'inspector';
+  const resolved = adminResolveUxChildTab('memory', tabId);
+  state.adminMemoryChildTab = allowed.includes(resolved) ? resolved : 'inspector';
   render();
 }
 
@@ -30145,6 +31202,7 @@ function adminMemoryChildTabBody(center) {
   if (active === 'inspector') return adminMemoryInspectorHtml(center);
   if (active === 'search') return adminMemorySearchUxHtml(center);
   if (active === 'policies') return adminMemoryPoliciesHtml(center);
+  if (active === 'durable_review') return adminMemoryDurableReviewHtml(center);
   if (active === 'conflicts') return adminMemoryConflictResolverHtml(center);
   if (active === 'consolidation') return adminMemoryConsolidationHtml(center);
   if (active === 'retention') return adminMemoryRetentionHtml(center);
@@ -30284,7 +31342,7 @@ function adminBackendsPanel(center) {
 }
 
 function adminBackendsOverviewPanel(center) {
-  return `<div class="neo-admin-smart-split-overview neo-admin-backends-overview-left">${adminBackendsHtml(center)}</div>`;
+  return `<div class="neo-admin-smart-split-overview neo-admin-backends-overview-left">${adminBackendsHtml(center)}${NeoUI.card({ title: 'Backend ownership boundary', description: 'Provider/model profiles own generation behavior and sampling. Memory Engine does not own temperature, top-p, top-k, or token limits.', body: NeoUI.metaList(['Backends: providers, model/profile selection, task generation sampling', 'Memory Engine: retrieval/index infrastructure only', 'Memory: remembered content and governance']) })}</div>`;
 }
 
 const ADMIN_EXTENSIONS_CHILD_TABS = [
@@ -31815,7 +32873,7 @@ function adminModelsPanel() {
 function renderAdminPanels(subtab) {
   const columns = beginTwoColumnWorkspace();
   const admin = state.admin || {};
-  const id = subtab?.subtab_id || 'overview';
+  const id = adminResolveUxSubtabId(subtab?.subtab_id || 'overview');
   const center = adminControlCenter();
   const global = admin.global || {};
 
@@ -31856,8 +32914,8 @@ function renderAdminPanels(subtab) {
 
 
   if (id === 'projects') {
-    columns.left.appendChild(panel('Projects Overview', adminProjectsOverviewPanel(center), true, 'ready'));
-    columns.right.appendChild(panel('Project Tools', adminProjectsPanel(center), true, 'ready'));
+    columns.left.appendChild(panel('Delivery Projects Overview', adminProjectsOverviewPanel(center), true, 'ready'));
+    columns.right.appendChild(panel('Delivery Project Tools', adminProjectsPanel(center), true, 'ready'));
     return;
   }
 
@@ -32148,15 +33206,15 @@ function loraStackOutputInspectorDetails(payloads = {}, patches = [], validation
   const chips = [
     `Status · ${status}`,
     `Rows · ${rows.length}`,
-    applied ? `Patched · ${patch?.lora_count || rows.length}` : '',
-    node ? `Node · ${node}` : '',
-    patch?.route?.family ? `Family · ${patch.route.family}` : '',
-    patch?.route?.loader ? `Loader · ${patch.route.loader}` : '',
+    applied ? `Applied · ${patch?.lora_count || rows.length}` : '',
+    state.detailMode === 'expert' && node ? `Node · ${node}` : '',
+    state.detailMode === 'expert' && patch?.route?.family ? `Family · ${patch.route.family}` : '',
+    state.detailMode === 'expert' && patch?.route?.loader ? `Loader · ${patch.route.loader}` : '',
   ].filter(Boolean);
   const rowChips = rows.slice(0, 6).flatMap((row, index) => {
     const name = row?.name;
     if (!name) return [];
-    return [`LoRA ${index + 1} · ${basename(name)}`, row?.strength !== undefined ? `Strength · ${formatMaybeNumber(row.strength)}` : '', row?.target ? `Target · ${row.target}` : '', 'Region assignment · Scene Director'].filter(Boolean);
+    return [`LoRA ${index + 1} · ${basename(name)}`, row?.strength !== undefined ? `Strength · ${formatMaybeNumber(row.strength)}` : '', row?.target ? `Pass · ${row.target}` : ''].filter(Boolean);
   });
   const validationNotes = validation
     .filter((item) => item && item.extension_id === LORA_STACK_EXTENSION_ID && item.message)
@@ -32436,6 +33494,20 @@ function adetailerOutputInspectorDetails(payloads = {}, patches = [], validation
   const reason = metadata.reason || patch?.reason || event?.gated_reason || '';
   const nodeStatus = patch?.node_status || event?.node_availability || {};
   const optional = patch?.optional_capabilities || nodeStatus.capabilities || {};
+  const executionRecipe = metadata.execution_recipe && typeof metadata.execution_recipe === 'object'
+    ? metadata.execution_recipe
+    : (event?.execution_recipe && typeof event.execution_recipe === 'object'
+      ? event.execution_recipe
+      : (event?.outputs?.execution_recipe && typeof event.outputs.execution_recipe === 'object' ? event.outputs.execution_recipe : {}));
+  const recipeRoute = executionRecipe.route && typeof executionRecipe.route === 'object' ? executionRecipe.route : {};
+  const recipeSampling = executionRecipe.sampling && typeof executionRecipe.sampling === 'object' ? executionRecipe.sampling : {};
+  const recipeSamplingValues = recipeSampling.effective_values && typeof recipeSampling.effective_values === 'object' ? recipeSampling.effective_values : {};
+  const recipeReplay = executionRecipe.replay && typeof executionRecipe.replay === 'object' ? executionRecipe.replay : {};
+  const recipeLora = executionRecipe.lora_branch && typeof executionRecipe.lora_branch === 'object' ? executionRecipe.lora_branch : {};
+  const recipeWarnings = executionRecipe.warnings && typeof executionRecipe.warnings === 'object' ? executionRecipe.warnings : {};
+  const recipeGraph = executionRecipe.graph_signature && typeof executionRecipe.graph_signature === 'object' ? executionRecipe.graph_signature : {};
+  const recipeDetector = executionRecipe.detector && typeof executionRecipe.detector === 'object' ? executionRecipe.detector : {};
+  const recipeFingerprint = String(executionRecipe.fingerprint || metadata.execution_recipe_fingerprint || '');
   const normalization = metadata.normalization && typeof metadata.normalization === 'object' ? metadata.normalization : {};
   const runtimeUnits = Number(multi.runtime_unit_count || patch?.runtime_unit_count || passSummaries.length || 0);
   const enabledCards = Number(multi.enabled_detailer_pass_count || patch?.enabled_detailer_pass_count || normalization.enabled_detailer_pass_count || 0);
@@ -32444,8 +33516,26 @@ function adetailerOutputInspectorDetails(payloads = {}, patches = [], validation
   const sepUnits = Number(multi.sep_unit_count || passSummaries.filter((item) => item?.sep_target_total).length || 0);
   const faceUnits = Number(multi.face_detailer_unit_count || passSummaries.filter((item) => item?.patch_path === 'face_detailer').length || 0);
   const segsUnits = Number(multi.segs_detailer_unit_count || passSummaries.filter((item) => ['segs_detailer', 'manual_mask_to_segs'].includes(item?.patch_path)).length || 0);
+  const modelSource = patch?.detailer_model_source || metadata.detailer_model_source || event?.outputs?.detailer_model_source || {};
+  const identityPolicy = patch?.identity_policy || metadata.identity_policy || event?.outputs?.identity_policy || {};
+  const identityMode = String(params.identity_protection || identityPolicy.effective || identityPolicy.requested || 'none');
+  const identityChip = identityPolicy.applicable || adetailerIsQwenEditFamily(metadata.family || patch?.family || '')
+    ? `Identity · ${identityMode.replaceAll('_', ' ')}${identityPolicy.identity_claim ? ` · ${String(identityPolicy.identity_claim).replaceAll('_', ' ')}` : ''}`
+    : '';
+  const samplingReapply = identityPolicy.sampling_reapply || {};
+  const modelSourceChip = String(params.model_source || modelSource.source || 'generation_model') === 'dedicated_checkpoint'
+    ? `Model source · dedicated ${String(params.detailer_model_family || modelSource.family || 'sdxl').toUpperCase()} · ${basename(params.detailer_checkpoint || modelSource.checkpoint || '')}`
+    : 'Model source · generation model';
+  const recipeRouteLabel = [recipeRoute.backend, recipeRoute.family, recipeRoute.loader, recipeRoute.mode].filter(Boolean).join(' · ');
   const chips = [
     `Status · ${status}`,
+    recipeFingerprint ? `Recipe · ${recipeFingerprint.slice(0, 12)}` : '',
+    recipeRouteLabel ? `Route · ${recipeRouteLabel}` : '',
+    recipeReplay.locked ? `Replay · locked${recipeReplay.revalidation_required ? ' / revalidate' : ''}` : '',
+    recipeSampling.preset_id ? `Preset · ${recipeSampling.preset_id}` : '',
+    modelSourceChip,
+    identityChip,
+    samplingReapply.required ? `Qwen sampling · ${samplingReapply.applied ? 'reapplied' : 'required'}` : '',
     totalCards ? `Cards · ${enabledCards}/${totalCards} enabled` : '',
     runtimeUnits ? `Runtime units · ${runtimeUnits}` : '',
     patchPaths.length ? `Paths · ${patchPaths.map((item) => String(item).replaceAll('_', ' ')).join(' + ')}` : (patch?.patch_path ? `Path · ${String(patch.patch_path).replaceAll('_', ' ')}` : ''),
@@ -32485,6 +33575,48 @@ function adetailerOutputInspectorDetails(payloads = {}, patches = [], validation
     ].filter(Boolean);
     return `<div class="neo-output-extension-unit-card neo-output-extension-unit-card--muted" data-adetailer-skipped="${escapeAttr(String(index + 1))}">${outputChipRow(unitChips, 'unit')}</div>`;
   }).join('');
+  const recipeSamplingChips = [
+    recipeSampling.requested_mode ? `Requested mode · ${String(recipeSampling.requested_mode).replaceAll('_', ' ')}` : '',
+    recipeSampling.replay_mode ? `Replay mode · ${String(recipeSampling.replay_mode).replaceAll('_', ' ')}` : '',
+    recipeSampling.family ? `Detailer family · ${recipeSampling.family}` : '',
+    recipeSamplingValues.steps !== undefined ? `Steps · ${recipeSamplingValues.steps}` : '',
+    recipeSamplingValues.cfg !== undefined && recipeSamplingValues.cfg !== null ? `CFG · ${formatMaybeNumber(recipeSamplingValues.cfg)}` : '',
+    recipeSamplingValues.denoise !== undefined ? `Denoise · ${formatMaybeNumber(recipeSamplingValues.denoise)}` : '',
+    recipeSamplingValues.sampler_name ? `Sampler · ${recipeSamplingValues.sampler_name}` : '',
+    recipeSamplingValues.scheduler ? `Scheduler · ${recipeSamplingValues.scheduler}` : '',
+    recipeSamplingValues.guide_size ? `Guide · ${recipeSamplingValues.guide_size}` : '',
+    recipeSamplingValues.max_size ? `Max · ${recipeSamplingValues.max_size}` : '',
+  ].filter(Boolean);
+  const recipeLoraRows = Array.isArray(recipeLora.lora_rows) ? recipeLora.lora_rows : [];
+  const recipeLoraCards = recipeLoraRows.slice(0, 12).map((item, index) => {
+    const name = basename(item?.name || item?.provider_catalog_name || '') || `LoRA ${index + 1}`;
+    const rowChips = [
+      `#${index + 1}`,
+      item?.source ? `Scope · ${String(item.source).replaceAll('_', ' ')}` : '',
+      item?.strength_model !== undefined ? `MODEL · ${formatMaybeNumber(item.strength_model)}` : '',
+      item?.strength_clip !== undefined ? `CLIP · ${formatMaybeNumber(item.strength_clip)}` : '',
+      item?.trigger ? `Trigger · ${item.trigger}` : '',
+    ].filter(Boolean);
+    return `<div class="neo-output-extension-unit-card" data-adetailer-recipe-lora="${escapeAttr(String(index + 1))}"><div class="neo-output-extension-name">${escapeHtml(name)}</div>${outputChipRow(rowChips, 'unit')}</div>`;
+  }).join('');
+  const recipeDetectorPasses = Array.isArray(recipeDetector.runtime_passes) ? recipeDetector.runtime_passes : [];
+  const recipeDetectorChips = [
+    recipeDetector.provider ? `Provider · ${recipeDetector.provider}` : '',
+    recipeDetector.detector_type ? `Type · ${recipeDetector.detector_type}` : '',
+    recipeDetector.primary_detector ? `Primary · ${basename(recipeDetector.primary_detector)}` : '',
+    recipeDetectorPasses.length ? `Bound passes · ${recipeDetectorPasses.length}` : '',
+  ].filter(Boolean);
+  const graphChips = [
+    recipeGraph.output_rewire_ready !== undefined ? `Output rewire · ${recipeGraph.output_rewire_ready ? 'ready' : 'not ready'}` : '',
+    recipeGraph.main_sampler_isolated !== undefined ? `Main sampler · ${recipeGraph.main_sampler_isolated ? 'isolated' : 'not proven'}` : '',
+    recipeGraph.lora_loader_node_class ? `LoRA loader · ${recipeGraph.lora_loader_node_class}` : '',
+    Array.isArray(recipeGraph.sampling_reapply_classes) && recipeGraph.sampling_reapply_classes.length ? `Sampling reapply · ${recipeGraph.sampling_reapply_classes.join(' → ')}` : '',
+  ].filter(Boolean);
+  const warningCodes = Array.isArray(recipeWarnings.codes) ? recipeWarnings.codes : [];
+  const recipeWarningNote = recipeWarnings.reconfirmation_required
+    ? `<div class="neo-output-mini-note">Replay warning review required: ${escapeHtml(warningCodes.length ? warningCodes.join(', ') : 'the original run contained warnings')}.</div>`
+    : '';
+  const recipeBlock = recipeFingerprint ? `<div class="neo-output-extension-unit-list" data-adetailer-execution-recipe="true"><div class="neo-output-extension-unit-card"><div class="neo-output-extension-name">Exact execution recipe</div>${outputChipRow(recipeSamplingChips, 'unit')}${outputChipRow(recipeDetectorChips, 'unit')}${outputChipRow(graphChips, 'unit')}</div>${recipeLoraCards}</div>${recipeWarningNote}` : '';
   const targetChips = [
     normalization.sep_target_count ? `[SEP] targets · ${normalization.sep_target_count}` : '',
     normalization.manual_box_count ? `Manual boxes parsed · ${normalization.manual_box_count}` : '',
@@ -32497,8 +33629,9 @@ function adetailerOutputInspectorDetails(payloads = {}, patches = [], validation
     .slice(0, 4)
     .map((item) => item.message);
   const summary = metadata.assistant_summary || patch?.assistant_summary || event?.assistant_summary || '';
-  const body = `${reason ? `<div class="neo-output-mini-note">${escapeHtml(reason)}</div>` : ''}${summary ? `<div class="neo-output-mini-note">${escapeHtml(summary)}</div>` : ''}${outputChipRow(targetChips, 'items')}${passCards ? `<div class="neo-output-extension-unit-list">${passCards}</div>` : ''}${skippedCards ? `<div class="neo-output-extension-unit-list">${skippedCards}</div>` : ''}${outputChipRow(optionalChips, 'items')}${outputValidationNoteList(validationNotes)}`;
-  return outputExtensionDetailBlock('Image · ADetailer', chips, body, `data-extension-id="${ADETAILER_EXTENSION_ID}" data-adetailer-multipass="true"`);
+  const body = `${reason ? `<div class="neo-output-mini-note">${escapeHtml(reason)}</div>` : ''}${summary ? `<div class="neo-output-mini-note">${escapeHtml(summary)}</div>` : ''}${recipeBlock}${outputChipRow(targetChips, 'items')}${passCards ? `<div class="neo-output-extension-unit-list">${passCards}</div>` : ''}${skippedCards ? `<div class="neo-output-extension-unit-list">${skippedCards}</div>` : ''}${outputChipRow(optionalChips, 'items')}${outputValidationNoteList(validationNotes)}`;
+  const recipeAttrs = recipeFingerprint ? ` data-adetailer-recipe-fingerprint="${escapeAttr(recipeFingerprint)}" data-adetailer-replay-locked="${recipeReplay.locked ? 'true' : 'false'}"` : '';
+  return outputExtensionDetailBlock('Image · ADetailer', chips, body, `data-extension-id="${ADETAILER_EXTENSION_ID}" data-adetailer-multipass="true"${recipeAttrs}`);
 }
 
 function highResLabOutputInspectorDetails(payloads = {}, patches = [], validation = []) {
@@ -32752,7 +33885,7 @@ function renderExtensionInspector(extensions = {}) {
       ${highResLabOutputInspectorDetails(payloads, patches, validation)}
       ${imageUpscaleOutputInspectorDetails(payloads, patches, validation, memoryEvents)}
       ${backgroundRemovalOutputInspectorDetails(payloads, patches, validation, memoryEvents)}
-      ${payloadKeys.length ? `<div class="neo-output-mini-note">Payload keys: ${escapeHtml(payloadKeys.join(', '))}</div>` : ''}
+      ${state.detailMode === 'expert' && payloadKeys.length ? `<div class="neo-output-mini-note">Payload keys: ${escapeHtml(payloadKeys.join(', '))}</div>` : ''}
     </div>`;
 }
 
@@ -34023,6 +35156,144 @@ function renderOutputProviderReplayValidation(activeMetadata = {}) {
     </div>`;
 }
 
+
+function imageParameterIntegrityFromMetadata(activeMetadata = {}) {
+  const candidates = [
+    activeMetadata?.parameter_integrity,
+    activeMetadata?.runtime?.parameter_integrity,
+    activeMetadata?.params?._neo_parameter_integrity,
+    activeMetadata?.runtime?.actual_params?._neo_parameter_integrity,
+  ];
+  return candidates.find((item) => item && typeof item === 'object') || null;
+}
+
+function renderOutputParameterIntegrity(activeMetadata = {}) {
+  const trace = imageParameterIntegrityFromMetadata(activeMetadata);
+  if (!trace) return '';
+  const status = String(trace.status || 'tracing');
+  const summary = trace.summary && typeof trace.summary === 'object' ? trace.summary : {};
+  const mismatches = Array.isArray(trace.mismatches) ? trace.mismatches : [];
+  const unverified = Array.isArray(trace.unverified) ? trace.unverified : [];
+  const ok = !mismatches.length && ['verified', 'verified_with_untracked_boundaries', 'verified_to_last_available_boundary'].includes(status);
+  const stateClass = mismatches.length ? 'danger' : (ok ? 'success' : 'info');
+  const label = mismatches.length ? 'Mismatch blocked' : (status === 'verified' ? 'Verified' : status.replaceAll('_', ' '));
+  const rows = mismatches.length
+    ? mismatches.slice(0, 8).map((row) => `<div class="neo-output-replay-check" data-replay-check-state="blocked"><span>${escapeHtml(String(row.field || 'parameter'))}</span><small>${escapeHtml(`${row.requested} → ${row.observed} · ${row.from_stage || '?'} → ${row.to_stage || '?'}`)}</small></div>`).join('')
+    : `<div class="neo-output-replay-check" data-replay-check-state="available"><span>Parameter path</span><small>${escapeHtml(`${Number(summary.stage_count || 0)} boundaries checked · ${Number(summary.comparison_count || 0)} comparisons · ${Number(unverified.length || 0)} unverified boundary values`)}</small></div>`;
+  if (!mismatches.length && state.detailMode !== 'expert') return '';
+  return `
+    <div class="neo-output-provider-replay" data-output-parameter-integrity="true">
+      <div class="neo-output-provider-replay-head"><strong>Parameter Integrity</strong><span class="neo-state-pill ${stateClass}">${escapeHtml(label)}</span></div>
+      <p class="neo-output-provider-replay-summary">${escapeHtml(mismatches.length ? 'Neo detected a concrete parameter rewrite. The provider queue should have been blocked before generation.' : 'Tracks shared generation values from the Image Parameters UI through the provider-bound workflow.')}</p>
+      <div class="neo-output-chip-row">
+        <span class="neo-output-chip is-active">Last boundary · ${escapeHtml(summary.last_stage || 'unknown')}</span>
+        <span class="neo-output-chip">Mismatches · ${Number(summary.mismatch_count || mismatches.length || 0)}</span>
+        <span class="neo-output-chip">Unverified · ${Number(summary.unverified_count || unverified.length || 0)}</span>
+      </div>
+      <div class="neo-output-replay-check-grid">${rows}</div>
+      ${state.detailMode === 'expert' ? `<details class="neo-output-raw-details"><summary>Parameter trace JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(trace, null, 2))}</pre></details>` : ''}
+    </div>`;
+}
+
+
+function imageMultiKSamplerFromMetadata(activeMetadata = {}) {
+  const candidates = [
+    activeMetadata?.runtime?.actual_params?.multi_ksampler,
+    activeMetadata?.params?.multi_ksampler,
+    activeMetadata?.runtime?.multi_ksampler,
+    activeMetadata?.multi_ksampler,
+  ];
+  return candidates.find((item) => item && typeof item === 'object' && item.enabled) || null;
+}
+
+function renderOutputMultiKSampler(activeMetadata = {}) {
+  const multi = imageMultiKSamplerFromMetadata(activeMetadata);
+  if (!multi) return '';
+  const stageNodes = Array.isArray(multi.stage_nodes) ? multi.stage_nodes : [];
+  const resolved = Array.isArray(multi.resolved_stages) ? multi.resolved_stages : [];
+  const transitions = Array.isArray(multi.transition_nodes) ? multi.transition_nodes : [];
+  const integrity = multi.integrity && typeof multi.integrity === 'object' ? multi.integrity : {};
+  const integrityStatus = String(integrity.status || 'not verified');
+  const mismatchCount = Array.isArray(integrity.mismatches) ? integrity.mismatches.length : 0;
+  const statusClass = mismatchCount ? 'danger' : (integrityStatus === 'verified' ? 'success' : 'info');
+  const resolvedByStage = new Map(resolved.map((row) => [Number(row.stage || 0), row]));
+  const stageRows = stageNodes.map((row) => {
+    const stage = Number(row.stage || 0);
+    const detail = resolvedByStage.get(stage) || {};
+    const sampler = detail.sampler || (stage === 1 ? activeMetadata?.runtime?.actual_params?.sampler : '');
+    const steps = detail.steps ?? (stage === 1 ? activeMetadata?.runtime?.actual_params?.steps : '');
+    const denoise = detail.denoise ?? (stage === 1 ? activeMetadata?.runtime?.actual_params?.denoise : '');
+    const backend = String(row.backend || 'standard') === 'res4lyf_clownshark' ? 'ClownsharKSampler' : 'KSampler';
+    return `<div class="neo-output-replay-check" data-replay-check-state="available"><span>Stage ${stage} · ${escapeHtml(backend)}</span><small>${escapeHtml(`steps ${steps ?? '?'} · sampler ${sampler || '?'} · denoise ${denoise ?? '?'} · node ${row.node_id || '?'}`)}</small></div>`;
+  }).join('');
+  const transitionRows = transitions.filter((row) => String(row.operation || 'none') !== 'none').map((row) => `<div class="neo-output-replay-check" data-replay-check-state="available"><span>Before Stage ${Number(row.to_stage || 0)} · Latent Upscale</span><small>${escapeHtml(`${row.upscale_method || 'bislerp'} · ×${row.scale_by ?? '?'} · node ${row.node_id || '?'}`)}</small></div>`).join('');
+  if (!mismatchCount && state.detailMode !== 'expert') return '';
+  return `<div class="neo-output-provider-replay" data-output-multi-ksampler="true">
+    <div class="neo-output-provider-replay-head"><strong>Multi-KSampler</strong><span class="neo-state-pill ${statusClass}">${escapeHtml(integrityStatus.replaceAll('_', ' '))}</span></div>
+    <p class="neo-output-provider-replay-summary">${escapeHtml(`${Number(multi.stage_count || stageNodes.length || 1)} sampling stages · ${transitions.filter((row) => row.operation === 'latent_upscale').length} inter-stage latent upscale${transitions.filter((row) => row.operation === 'latent_upscale').length === 1 ? '' : 's'}. No automatic quality claim is attached.`)}</p>
+    <div class="neo-output-replay-check-grid">${stageRows}${transitionRows || '<div class="neo-output-replay-check" data-replay-check-state="available"><span>Inter-stage transform</span><small>Direct latent chaining</small></div>'}</div>
+    ${mismatchCount ? `<div class="neo-output-replay-check-grid">${integrity.mismatches.slice(0, 6).map((row) => `<div class="neo-output-replay-check" data-replay-check-state="blocked"><span>${escapeHtml(`Stage ${row.stage} · ${row.field}`)}</span><small>${escapeHtml(`${row.expected} → ${row.observed}`)}</small></div>`).join('')}</div>` : ''}
+    ${state.detailMode === 'expert' ? `<details class="neo-output-raw-details"><summary>Multi-KSampler runtime JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(multi, null, 2))}</pre></details>` : ''}
+  </div>`;
+}
+
+function outputGenerationSetupSummary(activeMetadata = {}) {
+  const params = activeMetadata?.runtime?.actual_params && typeof activeMetadata.runtime.actual_params === 'object'
+    ? activeMetadata.runtime.actual_params
+    : (activeMetadata?.params || {});
+  const model = activeMetadata?.model || {};
+  const job = activeMetadata?.job || {};
+  const family = String(model.family || params.family || job.family || '');
+  const loader = String(model.loader || params.loader || job.loader || '');
+  const mode = String(activeMetadata.mode || job.mode || params.workflow_mode || '');
+  const masked = ['inpaint', 'outpaint'].includes(mode);
+  const engine = masked ? String(params.masked_edit_engine || params.inpaint_engine || 'native').toLowerCase() : 'native';
+  const cropStitch = Boolean(params.crop_stitch_enabled || params.masked_crop_stitch_enabled);
+  const samplerBackend = String(params.sampler_backend || 'standard').toLowerCase();
+  const multi = imageMultiKSamplerFromMetadata(activeMetadata);
+  const stageCount = multi ? Number(multi.stage_count || (multi.stage_nodes || []).length || 1) : 1;
+  const transitions = multi && Array.isArray(multi.transition_nodes) ? multi.transition_nodes : [];
+  const upscaleCount = transitions.filter((row) => String(row.operation || '') === 'latent_upscale').length;
+  const integrity = imageParameterIntegrityFromMetadata(activeMetadata);
+  const mismatches = Array.isArray(integrity?.mismatches) ? integrity.mismatches.length : 0;
+  const verified = Boolean(integrity && !mismatches && ['verified', 'verified_with_untracked_boundaries', 'verified_to_last_available_boundary'].includes(String(integrity.status || '')));
+  const extPayloads = activeMetadata?.extensions?.payloads && typeof activeMetadata.extensions.payloads === 'object' ? activeMetadata.extensions.payloads : {};
+  const loraRows = Array.isArray(extPayloads?.[LORA_STACK_EXTENSION_ID]?.params?.loras) ? extPayloads[LORA_STACK_EXTENSION_ID].params.loras : [];
+  return { params, family, loader, mode, masked, engine, cropStitch, samplerBackend, stageCount, upscaleCount, integrity, mismatches, verified, loraCount: loraRows.length };
+}
+
+function renderOutputGenerationSetup(activeMetadata = {}) {
+  const setup = outputGenerationSetupSummary(activeMetadata);
+  if (!setup.family && !setup.mode && !setup.params.steps && !setup.params.sampler) return '';
+  const samplerEngine = setup.samplerBackend === 'res4lyf_clownshark' ? 'ClownsharKSampler' : 'Standard KSampler';
+  const integrityLabel = setup.mismatches ? 'Parameter mismatch' : (setup.verified ? 'Parameters verified' : 'Parameter trace recorded');
+  const integrityClass = setup.mismatches ? 'danger' : (setup.verified ? 'success' : 'info');
+  const chips = [
+    setup.family ? humanize(setup.family).replace(/Krea2/gi, 'Krea 2') : '',
+    setup.loader ? imageMainModelTypeLabel(setup.loader, setup.loader) : '',
+    setup.mode ? humanize(setup.mode) : '',
+    setup.masked ? `${setup.engine === 'lanpaint' ? 'LanPaint' : 'Native'}${setup.cropStitch ? ' + Crop & Stitch' : ''}` : '',
+    samplerEngine,
+    `${setup.stageCount} sampling stage${setup.stageCount === 1 ? '' : 's'}`,
+    setup.upscaleCount ? `${setup.upscaleCount} latent upscale${setup.upscaleCount === 1 ? '' : 's'}` : '',
+    setup.loraCount ? `${setup.loraCount} LoRA${setup.loraCount === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return `<div class="neo-output-generation-setup" data-output-generation-setup="true">
+    <div class="neo-output-provider-replay-head"><strong>Generation Setup</strong><span class="neo-state-pill ${integrityClass}">${escapeHtml(integrityLabel)}</span></div>
+    <div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>
+    <div class="neo-output-meta-grid neo-output-generation-values">
+      ${resultMetaTile('Size', setup.params.width && setup.params.height ? `${setup.params.width} × ${setup.params.height}` : '')}
+      ${resultMetaTile('Steps', setup.params.steps)}
+      ${resultMetaTile('CFG', setup.params.cfg)}
+      ${resultMetaTile('Sampler', setup.params.sampler)}
+      ${resultMetaTile('Scheduler', setup.params.scheduler)}
+      ${resultMetaTile('Denoise', setup.params.denoise)}
+      ${resultMetaTile('Seed', setup.params.actual_seed ?? setup.params.seed)}
+      ${resultMetaTile('Batch', setup.params.batch_count ?? setup.params.batch_size)}
+    </div>
+  </div>`;
+}
+
 function renderOutputLineagePanel(activeMetadata = {}) {
   const lineage = activeMetadata.lineage && typeof activeMetadata.lineage === 'object' ? activeMetadata.lineage : {};
   const hasLineage = Boolean(lineage.current_output_id || lineage.parent_output_id || lineage.root_output_id || Number(lineage.depth || 0));
@@ -34171,7 +35442,10 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
       </div>
       ${renderOutputReplayRegeneratePanel(activeSummary, metadata, media || activeFile || {})}
       ${renderOutputLatePassContinuationPanel(activeSummary, metadata)}
+      ${renderOutputGenerationSetup(metadata)}
       ${renderOutputProviderReplayValidation(metadata)}
+      ${renderOutputParameterIntegrity(metadata)}
+      ${renderOutputMultiKSampler(metadata)}
       ${renderOutputPreviewActionDiagnostics(buildInspectorPreviewActionSource(metadata, media || activeFile || {}))}
       ${renderImagePendingRevalidationNotice({ compact: false, resultId: metadata.result_id || '', placement: 'output_inspector' })}
       ${renderOutputLineagePanel(metadata)}
@@ -34203,10 +35477,10 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
         ${resultMetaTile('Clamped Tags', conditioning.clamped_tags ?? params.prompt_conditioning?.clamped_tags)}
       </div>
       ${renderExtensionInspector(extensions)}
-      <details class="neo-output-raw-details">
+      ${state.detailMode === 'expert' ? `<details class="neo-output-raw-details">
         <summary>Raw metadata JSON</summary>
         <pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>
-      </details>
+      </details>` : ''}
     </section>`;
 }
 
@@ -34652,7 +35926,9 @@ function restoreAdetailerSettingsFromReuse(reuse = {}) {
   const inputs = block.inputs && typeof block.inputs === 'object' ? block.inputs : {};
   const assets = block.assets && typeof block.assets === 'object' ? block.assets : {};
   const metadata = block.metadata && typeof block.metadata === 'object' ? block.metadata : {};
-  const routeState = metadata.route_state || '';
+  const executionRecipe = metadata.execution_recipe && typeof metadata.execution_recipe === 'object' ? metadata.execution_recipe : null;
+  const recordedRoute = executionRecipe?.route && typeof executionRecipe.route === 'object' ? executionRecipe.route : {};
+  const routeState = metadata.route_state || recordedRoute.state || '';
   const routeEnabled = !routeState || ADETAILER_ACTIVE_ROUTE_STATES.includes(routeState);
   const cleaned = adetailerCleanParams({ ...ADETAILER_DEFAULTS, ...params });
   const restored = adetailerNormalizeSettings({
@@ -34662,9 +35938,15 @@ function restoreAdetailerSettingsFromReuse(reuse = {}) {
     detection_snapshot: inputs.detection_snapshot || metadata.detection_snapshot || null,
     canvas_snapshot: inputs.canvas_snapshot || metadata.canvas_snapshot || null,
     preview_action_source: inputs.preview_action_source || metadata.preview_action_source || null,
-    restored_from_output: reuse.result_id || '',
-    restore_policy: metadata.restore_policy || extensions.extension_restore_policies?.[ADETAILER_EXTENSION_ID] || 'restore_disabled_until_route_nodes_detector_models_pass_cards_manual_boxes_and_impact_pack_validate',
-    restore_state: routeEnabled ? 'restored_disabled_pending_revalidation' : 'restored_gated_for_review',
+    restored_from_output: reuse.result_id || metadata.restored_from_output || '',
+    restored_from_replay: true,
+    source_phase: metadata.source_phase || executionRecipe?.source_phase || 'Phase 9',
+    execution_recipe: executionRecipe,
+    execution_recipe_fingerprint: metadata.execution_recipe_fingerprint || executionRecipe?.fingerprint || '',
+    replay_contract_schema_id: metadata.replay_contract_schema_id || executionRecipe?.replay?.schema_id || 'neo.image.adetailer.replay_contract.v1',
+    replay_recipe_locked: Boolean(metadata.replay_recipe_locked ?? executionRecipe?.replay?.locked ?? Boolean(executionRecipe)),
+    restore_policy: metadata.restore_policy || extensions.extension_restore_policies?.[ADETAILER_EXTENSION_ID] || 'restore_exact_effective_adetailer_recipe_disabled_then_revalidate_route_nodes_models_detectors_loras_identity_sampling_and_warnings',
+    restore_state: routeEnabled ? 'restored_disabled_pending_exact_recipe_revalidation' : 'restored_gated_for_recorded_route_review',
     revalidation_required: true,
     ready_to_auto_enable: false,
     restored_assets: assets,
@@ -35532,7 +36814,11 @@ function bindImageResultsWorkspace() {
 function renderQwenSourcePreviewSlot(lane, primaryPreview = '') {
   const label = sourceImageLaneLabel(lane);
   const url = sourceImageLaneUrl(lane);
-  const defaultRoleLabel = lane === 1 ? 'Main subject' : lane === 2 ? 'Secondary subject' : 'Composition guide';
+  const poseTransfer = controlNetPoseTransferActive();
+  const identityEdit = krea2IdentityEditActive();
+  const defaultRoleLabel = identityEdit
+    ? (lane === 1 ? 'Scene / context' : lane === 2 ? 'Subject / identity' : 'Unused')
+    : (poseTransfer ? (lane === 1 ? 'Main subject' : lane === 2 ? 'Pose reference' : 'Generated pose map') : (lane === 1 ? 'Main subject' : lane === 2 ? 'Secondary subject' : 'Composition guide'));
   if (lane === 1) {
     return `
       <div class="neo-source-stack-slot is-primary" data-testid="qwen-source-preview-slot-1">
@@ -35540,9 +36826,14 @@ function renderQwenSourcePreviewSlot(lane, primaryPreview = '') {
         <div class="neo-source-preview-wrap" data-neo-image-dropzone="true" data-neo-image-kind="source" data-neo-image-lane="1" data-neo-image-input="imageSourceFile">${primaryPreview}</div>
       </div>`;
   }
-  const preview = url
-    ? `<button class="neo-qwen-source-thumb neo-zoomable-preview" type="button" data-neo-image-dropzone="true" data-neo-image-kind="reference" data-neo-image-lane="${lane}" data-neo-image-input="imageQwenRef${lane}File" data-zoom-src="${escapeAttr(url)}" data-zoom-label="${escapeAttr(label)}" title="Open source image ${lane} zoom"><img src="${escapeAttr(url)}" alt="Selected source image ${lane}"></button>`
-    : `<label class="neo-qwen-source-empty" data-neo-image-dropzone="true" data-neo-image-kind="reference" data-neo-image-lane="${lane}" data-neo-image-input="imageQwenRef${lane}File"><span>Drop image ${lane} here</span><small>or click to choose</small></label>`;
+  const poseMapReserved = poseTransfer && Number(lane) === 3;
+  const preview = poseMapReserved
+    ? (url
+      ? `<button class="neo-qwen-source-thumb neo-zoomable-preview has-conflict" type="button" data-zoom-src="${escapeAttr(url)}" data-zoom-label="${escapeAttr(label)}" title="Image 3 conflicts with Pose Transfer"><img src="${escapeAttr(url)}" alt="Conflicting source image 3"><span class="neo-source-mask-chip">Clear for pose map</span></button>`
+      : `<div class="neo-qwen-source-empty is-reserved"><span>Generated at runtime</span><small>DWPose map from Image 2</small></div>`)
+    : (url
+      ? `<button class="neo-qwen-source-thumb neo-zoomable-preview" type="button" data-neo-image-dropzone="true" data-neo-image-kind="reference" data-neo-image-lane="${lane}" data-neo-image-input="imageQwenRef${lane}File" data-zoom-src="${escapeAttr(url)}" data-zoom-label="${escapeAttr(label)}" title="Open source image ${lane} zoom"><img src="${escapeAttr(url)}" alt="Selected source image ${lane}"></button>`
+      : `<label class="neo-qwen-source-empty" data-neo-image-dropzone="true" data-neo-image-kind="reference" data-neo-image-lane="${lane}" data-neo-image-input="imageQwenRef${lane}File"><span>Drop image ${lane} here</span><small>or click to choose</small></label>`);
   return `
     <div class="neo-source-stack-slot" data-testid="qwen-source-preview-slot-${lane}">
       <div class="neo-source-stack-slot-head"><strong>Image ${lane}</strong><span>${escapeHtml(defaultRoleLabel)}</span></div>
@@ -35559,18 +36850,35 @@ function renderQwenSourcePreviewStack(primaryPreview) {
 function renderQwenSourceCard(lane) {
   const hasImage = Boolean(sourceImageLanePath(lane) || sourceImageLaneUrl(lane));
   const label = sourceImageLaneLabel(lane);
-  const defaultRole = lane === 2 ? 'secondary_subject' : 'composition_guide';
+  const poseTransfer = controlNetPoseTransferActive();
+  const poseMapReserved = poseTransfer && Number(lane) === 3;
+  const poseReference = poseTransfer && Number(lane) === 2;
+  const defaultRole = poseReference ? 'pose_reference' : (poseMapReserved ? 'pose_map' : (lane === 2 ? 'secondary_subject' : 'composition_guide'));
   const roleKey = `source_image_${lane}_role`;
+  const identityEditSubject = krea2IdentityEditActive() && Number(lane) === 2;
+  if (poseMapReserved) {
+    return `
+      <article class="neo-qwen-source-card is-reserved-pose-map ${hasImage ? 'has-conflict' : ''}" data-testid="qwen-source-card-${lane}">
+        <div class="neo-qwen-source-card-head">
+          <strong>Source Image 3 · Pose Map</strong>
+          ${hasImage ? `<button class="neo-btn secondary" id="imageClearQwenRef3Btn" type="button">Clear Image 3</button>` : '<span class="neo-badge success">Generated automatically</span>'}
+        </div>
+        <div class="neo-qwen-source-fields">
+          <div class="neo-source-meta"><span class="neo-badge">DWPose output</span><span class="neo-badge">Input: Image 2</span></div>
+          <p class="${hasImage ? 'neo-warn' : 'neo-muted'}">${hasImage ? 'A user image is already stored in Image 3. Clear it before generation so Neo can reserve this lane for the generated pose map.' : 'No upload is needed. Neo generates this map inside the Comfy workflow from Image 2 and sends it to Qwen as image 3.'}</p>
+        </div>
+      </article>`;
+  }
   return `
-    <article class="neo-qwen-source-card" data-testid="qwen-source-card-${lane}">
+    <article class="neo-qwen-source-card ${poseReference ? 'is-pose-reference' : ''}" data-testid="qwen-source-card-${lane}">
       <div class="neo-qwen-source-card-head">
-        <strong>Source Image ${lane}</strong>
+        <strong>Source Image ${lane}${poseReference ? ' · Pose Reference' : ''}</strong>
         <button class="neo-btn ghost" id="imageRemoveQwenRef${lane}Btn" type="button">Remove</button>
       </div>
       <div class="neo-qwen-source-fields">
-        <label class="neo-source-file-label">Role
+        ${identityEditSubject ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="main_subject"><div class="neo-source-meta"><span class="neo-badge">Role: Subject / identity</span></div>` : (poseReference ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="pose_reference"><div class="neo-source-meta"><span class="neo-badge">Role: Pose reference</span></div>` : `<label class="neo-source-file-label">Role
           ${optionSelect(`imageQwenSourceRole${lane}`, qwenSourceRoleOptions(lane), state.imageDraft[roleKey] || defaultRole)}
-        </label>
+        </label>`)}
         <div class="neo-source-actions">
           <label class="neo-source-file-label neo-file-action">Replace
             <input id="imageQwenRef${lane}File" type="file" accept="image/png,image/jpeg,image/webp,image/bmp">
@@ -35987,11 +37295,11 @@ function imageLanpaintRouteContext(p = {}) {
   const family = String(p.family || state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
   const loader = String(p.loader || state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
   const mode = activeImageMode();
-  const requestedEngine = String(p.inpaint_engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  const requestedEngine = String(p.masked_edit_engine || p.inpaint_engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
   const fallbackPolicy = IMAGE_LANPAINT_FAMILY_UI_FALLBACKS?.[family]?.[loader] || null;
   const adapter = imageLanpaintAdapterForRoute(profile, { family, loader, mode, engine: 'lanpaint' });
   const policy = imageLanpaintPolicyFromAdapter(adapter, fallbackPolicy);
-  const contractEligible = mode === 'inpaint' && backend === 'comfyui' && Boolean(adapter?.binding?.selectable);
+  const contractEligible = ['inpaint', 'outpaint'].includes(mode) && backend === 'comfyui' && Boolean(adapter?.binding?.selectable);
   const capability = imageLanpaintCapabilityEvaluation({ contractEligible, family, loader, mode, policy });
   const eligible = contractEligible && capability.selectable;
   const active = eligible && requestedEngine === 'lanpaint';
@@ -36048,6 +37356,19 @@ function imageLanpaintControlDefaults(route = imageLanpaintRouteContext()) {
 function imageLanpaintControlValue(field, p = {}) {
   const route = imageLanpaintRouteContext(p);
   const defaults = imageLanpaintControlDefaults(route);
+  const sharedParameterField = {
+    lanpaint_steps: 'steps',
+    lanpaint_cfg: 'cfg',
+    lanpaint_sampler: 'sampler',
+    lanpaint_scheduler: 'scheduler',
+    lanpaint_denoise: 'denoise',
+  }[field] || '';
+  if (sharedParameterField) {
+    const sharedDraft = state.imageDraft?.[sharedParameterField];
+    if (sharedDraft !== undefined && sharedDraft !== null && sharedDraft !== '') return sharedDraft;
+    const sharedParam = p?.[sharedParameterField];
+    if (sharedParam !== undefined && sharedParam !== null && sharedParam !== '') return sharedParam;
+  }
   const draftValue = state.imageDraft?.[field];
   if (draftValue !== undefined && draftValue !== null && draftValue !== '') return draftValue;
   const paramValue = p?.[field];
@@ -36176,11 +37497,36 @@ function imageLanpaintUiStatePayload(p = {}) {
   };
 }
 
+function imageMaskedCropStitchEnabled(engine = null) {
+  const selected = String(engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  return selected === 'lanpaint'
+    ? state.imageDraft.lanpaint_crop_stitch_enabled !== false
+    : Boolean(state.imageDraft.native_crop_stitch_enabled);
+}
+
+function imageMaskedCropStitchDiagnostics(route = imageLanpaintRouteContext()) {
+  const caps = imageLanpaintBackendCapabilities(activeImageProfile());
+  const diag = caps?.masked_edit_node_diagnostics || {};
+  const engine = String(state.imageDraft.inpaint_engine || 'native').toLowerCase();
+  if (engine === 'lanpaint') return { available: true, provider: 'LanPaint internal crop/stitch', missing: [] };
+  return {
+    available: diag.crop_stitch_available === true,
+    provider: diag.required_crop_stitch_pack || 'ComfyUI-Inpaint-CropAndStitch',
+    missing: Array.isArray(diag.required_crop_stitch_nodes) ? diag.required_crop_stitch_nodes.filter((node) => !(diag.available_nodes || []).includes(node)) : [],
+  };
+}
+
 function imageInpaintEngineOptions(route = imageLanpaintRouteContext()) {
   const reason = route.capability?.blockers?.[0]?.message || 'LanPaint requirements are not available on the selected backend.';
+  const nativeCompat = imageFamilyCompatibilityFeature('native_masked_edit', { engine: 'native' });
+  const nativeAvailable = nativeCompat ? nativeCompat.available === true : true;
+  const nativeReason = nativeCompat?.reason || 'Native masked workflow availability is determined by the selected family compiler.';
+  const lanpaintCompat = imageFamilyCompatibilityFeature('lanpaint', { engine: 'lanpaint' });
+  const lanpaintRouteAvailable = lanpaintCompat ? lanpaintCompat.available === true : true;
+  const lanpaintAvailable = Boolean(route.selectable && lanpaintRouteAvailable);
   return [
-    { id: 'native', label: 'Native Inpaint' },
-    { id: 'lanpaint', label: route.selectable ? 'LanPaint' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`, disabled: !route.selectable, title: reason },
+    { id: 'native', label: nativeAvailable ? `Native ${activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint'}` : `Native ${activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint'} — unavailable`, disabled: !nativeAvailable, title: nativeReason },
+    { id: 'lanpaint', label: lanpaintAvailable ? 'LanPaint' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`, disabled: !lanpaintAvailable, title: lanpaintCompat?.reason || reason },
   ];
 }
 
@@ -36232,18 +37578,27 @@ function renderLanpaintControlPanel(p = {}) {
   const capabilityPolicy = imageLanpaintCapabilityPolicy(route.route_state);
   const stateBadge = capabilityPolicy.label;
   const loraText = `${lora.base} active base LoRA${lora.base === 1 ? '' : 's'}${lora.deferred ? ` · ${lora.deferred} deferred` : ''}`;
-  return `<section class="neo-lanpaint-panel" data-testid="image-lanpaint-panel" data-route-key="${escapeAttr(route.route_key)}" data-route-state="${escapeAttr(route.route_state)}">
-    <header class="neo-lanpaint-panel-head">
-      <div><strong>LanPaint Inpaint</strong><p class="neo-muted">Route-aware crop, mask, sampler-thinking, and source-space stitch controls.</p></div>
-      <div class="neo-badge-row neo-lanpaint-route-badges"><span class="neo-badge">${escapeHtml(route.provider_label)}</span><span class="neo-badge">${escapeHtml(route.family_label)}</span><span class="neo-badge">${escapeHtml(route.loader_label)}</span><span class="neo-badge">LanPaint</span><span class="neo-state-pill ${escapeAttr(capabilityPolicy.tone)}">${escapeHtml(stateBadge)}</span></div>
-    </header>
-    <div class="neo-lanpaint-grid">
-      <fieldset class="neo-lanpaint-control-group"><legend>Crop + Processing</legend>
+  const cropStitch = imageMaskedCropStitchEnabled('lanpaint');
+  const modeLabel = route.mode === 'outpaint' ? 'Outpaint' : 'Inpaint';
+  const cropControls = cropStitch ? `<fieldset class="neo-lanpaint-control-group"><legend>Crop + Processing</legend>
         <label>Crop Padding<input id="imageLanpaintCropPadding" type="number" min="0" max="4096" step="8" value="${escapeAttr(v('lanpaint_crop_padding'))}"></label>
         <label>Process Width<input id="imageLanpaintProcessingWidth" type="number" min="64" max="8192" step="8" value="${escapeAttr(v('lanpaint_processing_width'))}"></label>
         <label>Process Height<input id="imageLanpaintProcessingHeight" type="number" min="64" max="8192" step="8" value="${escapeAttr(v('lanpaint_processing_height'))}"></label>
         <label>Resize${optionSelect('imageLanpaintResizeMethod', imageLanpaintResizeOptions(), String(v('lanpaint_resize_method') || 'lanczos'))}</label>
-      </fieldset>
+      </fieldset>` : '';
+  const stitchControls = cropStitch ? `<fieldset class="neo-lanpaint-control-group"><legend>Stitch + Output</legend>
+        <label>Stitch Expand<input id="imageLanpaintStitchMaskExpand" type="number" min="0" max="1024" step="1" value="${escapeAttr(v('lanpaint_stitch_mask_expand'))}"></label>
+        <label>Stitch Blur<input id="imageLanpaintStitchMaskBlur" type="number" min="0" max="1024" step="0.1" value="${escapeAttr(v('lanpaint_stitch_mask_blur'))}"></label>
+        <label>Restore Resize${optionSelect('imageLanpaintStitchResizeMethod', imageLanpaintResizeOptions(), String(v('lanpaint_stitch_resize_method') || 'lanczos'))}</label>
+        <p class="neo-muted">The decoded crop is restored and composited into the source canvas.</p>
+      </fieldset>` : '';
+  return `<section class="neo-lanpaint-panel" data-testid="image-lanpaint-panel" data-route-key="${escapeAttr(route.route_key)}" data-route-state="${escapeAttr(route.route_state)}">
+    <header class="neo-lanpaint-panel-head">
+      <div><strong>LanPaint ${escapeHtml(modeLabel)}</strong><p class="neo-muted">Masked generation with optional crop/stitch context and LanPaint sampler-thinking controls.</p></div>
+      <div class="neo-badge-row neo-lanpaint-route-badges"><span class="neo-badge">${escapeHtml(route.provider_label)}</span><span class="neo-badge">${escapeHtml(route.family_label)}</span><span class="neo-badge">${escapeHtml(route.loader_label)}</span><span class="neo-badge">LanPaint</span><span class="neo-state-pill ${escapeAttr(capabilityPolicy.tone)}">${escapeHtml(stateBadge)}</span></div>
+    </header>
+    <div class="neo-lanpaint-grid">
+      ${cropControls}
       <fieldset class="neo-lanpaint-control-group"><legend>Sampling Mask</legend>
         <label>Expand<input id="imageLanpaintSamplingMaskExpand" type="number" min="0" max="1024" step="1" value="${escapeAttr(v('lanpaint_sampling_mask_expand'))}"></label>
         <label>Blur Radius<input id="imageLanpaintSamplingMaskBlur" type="number" min="0" max="1024" step="0.1" value="${escapeAttr(v('lanpaint_sampling_mask_blur'))}"></label>
@@ -36252,15 +37607,10 @@ function renderLanpaintControlPanel(p = {}) {
       <fieldset class="neo-lanpaint-control-group"><legend>LanPaint Behavior</legend>
         <label>Thinking Steps<input id="imageLanpaintThinkingSteps" type="number" min="0" max="100" step="1" value="${escapeAttr(v('lanpaint_thinking_steps'))}"></label>
         <label>Prompt Mode${optionSelect('imageLanpaintPromptMode', imageLanpaintPromptModeOptions(), String(v('lanpaint_prompt_mode') || 'image_first'))}</label>
-        <label>Denoise<input id="imageLanpaintDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(v('lanpaint_denoise'))}"></label>
-        <div class="neo-lanpaint-family-lock"><span class="neo-badge">Sampler: ${escapeHtml(String(v('lanpaint_sampler') || 'euler'))}</span><span class="neo-badge">Scheduler: ${escapeHtml(String(v('lanpaint_scheduler') || 'simple'))}</span><span class="neo-badge">Steps: ${escapeHtml(String(v('lanpaint_steps') ?? 8))}</span><span class="neo-badge">CFG: ${escapeHtml(String(v('lanpaint_cfg') ?? 1))}</span></div>
+        <label>Denoise · Parameters<input id="imageLanpaintDenoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(v('lanpaint_denoise'))}"></label>
+        <div class="neo-lanpaint-family-lock"><span class="neo-muted">Uses main Parameters · </span><span class="neo-badge">Sampler: ${escapeHtml(String(v('lanpaint_sampler') || 'euler'))}</span><span class="neo-badge">Scheduler: ${escapeHtml(String(v('lanpaint_scheduler') || 'simple'))}</span><span class="neo-badge">Steps: ${escapeHtml(String(v('lanpaint_steps') ?? 8))}</span><span class="neo-badge">CFG: ${escapeHtml(String(v('lanpaint_cfg') ?? 1))}</span></div>
       </fieldset>
-      <fieldset class="neo-lanpaint-control-group"><legend>Stitch + Output</legend>
-        <label>Stitch Expand<input id="imageLanpaintStitchMaskExpand" type="number" min="0" max="1024" step="1" value="${escapeAttr(v('lanpaint_stitch_mask_expand'))}"></label>
-        <label>Stitch Blur<input id="imageLanpaintStitchMaskBlur" type="number" min="0" max="1024" step="0.1" value="${escapeAttr(v('lanpaint_stitch_mask_blur'))}"></label>
-        <label>Restore Resize${optionSelect('imageLanpaintStitchResizeMethod', imageLanpaintResizeOptions(), String(v('lanpaint_stitch_resize_method') || 'lanczos'))}</label>
-        <p class="neo-muted">The decoded crop is restored and composited into the original source dimensions.</p>
-      </fieldset>
+      ${stitchControls}
     </div>
     <footer class="neo-lanpaint-panel-foot"><span class="neo-badge">LoRA mode: ${escapeHtml(route.policy?.lora_mode === 'model_only' ? 'Model-only' : 'Model + CLIP')}</span><span class="neo-badge">Transform: ${escapeHtml(route.policy?.transform_label || 'Family policy')}</span><span class="neo-badge">${escapeHtml(loraText)}</span><span class="neo-muted">Shared LoRA Stack remains the owner. Regional and finish-only rows stay deferred.</span></footer>
   </section>`;
@@ -36299,19 +37649,29 @@ function renderImageSourcePanelBody() {
   const isOutpaint = imageNeedsOutpaintCanvas();
   const hasMask = Boolean(state.imageDraft.mask_image || state.imageDraft.mask_image_url);
   const maskPreviewUrl = state.imageDraft.mask_image_preview_url || state.imageDraft.mask_image_url || '';
+  const visibilityMask = sourceVisibilityMaskDraft();
+  const visibilitySupported = sourceVisibilityMaskSupported();
+  const hasVisibilityMask = visibilitySupported && sourceVisibilityMaskReady(visibilityMask);
+  const visibilityPreviewUrl = visibilityMask.preview_url || visibilityMask.url || '';
   const outpaintBadge = isOutpaint && outpaintHasPadding()
     ? `<span class="neo-source-mask-chip neo-outpaint-chip">Outpaint ${Number(state.imageDraft.outpaint_left || 0)}/${Number(state.imageDraft.outpaint_top || 0)}/${Number(state.imageDraft.outpaint_right || 0)}/${Number(state.imageDraft.outpaint_bottom || 0)}</span>`
     : '';
   const renderPrimarySourcePreview = () => state.imageDraft.source_image_url
-    ? `<button class="neo-source-preview neo-zoomable-preview ${isInpaint && hasMask ? 'has-mask-preview' : ''} ${isOutpaint && outpaintHasPadding() ? 'has-outpaint-preview' : ''}" type="button" data-zoom-src="${escapeAttr(state.imageDraft.source_image_url)}" data-zoom-label="${escapeAttr(sourceImageLabel())}" title="Open source image zoom"><span class="neo-source-preview-stack"><img src="${escapeAttr(state.imageDraft.source_image_url)}" alt="Selected source image" data-image-source-dim-probe="1">${isInpaint && hasMask && maskPreviewUrl ? `<img class="neo-source-mask-preview" src="${escapeAttr(maskPreviewUrl)}" alt="Saved inpaint mask overlay"><span class="neo-source-mask-chip">Mask overlay</span>` : ''}${outpaintBadge}</span></button>`
+    ? `<button class="neo-source-preview neo-zoomable-preview ${isInpaint && hasMask ? 'has-mask-preview' : ''} ${hasVisibilityMask ? 'has-visibility-mask-preview' : ''} ${isOutpaint && outpaintHasPadding() ? 'has-outpaint-preview' : ''}" type="button" data-zoom-src="${escapeAttr(state.imageDraft.source_image_url)}" data-zoom-label="${escapeAttr(sourceImageLabel())}" title="Open source image zoom"><span class="neo-source-preview-stack"><img src="${escapeAttr(state.imageDraft.source_image_url)}" alt="Selected source image" data-image-source-dim-probe="1">${isInpaint && hasMask && maskPreviewUrl ? `<img class="neo-source-mask-preview" src="${escapeAttr(maskPreviewUrl)}" alt="Saved inpaint mask overlay"><span class="neo-source-mask-chip">Mask overlay</span>` : ''}${hasVisibilityMask && visibilityPreviewUrl ? `<img class="neo-source-visibility-mask-preview" src="${escapeAttr(visibilityPreviewUrl)}" alt="Hidden-area mask overlay"><span class="neo-source-mask-chip">Hidden areas</span>` : ''}${outpaintBadge}</span></button>`
     : `<div class="neo-source-empty"><strong>No source image selected</strong><span>Upload an image or send one from Output Inspector.</span></div>`;
   const preview = renderPrimarySourcePreview();
   const maskStatus = isInpaint
     ? `<div class="neo-source-meta neo-mask-inline-status"><span class="neo-badge ${hasMask ? 'success' : 'warning'}">Mask: ${hasMask ? 'ready' : 'not painted'}</span>${hasMask ? `<span class="neo-badge">${escapeHtml(maskImageLabel())}</span>` : ''}</div>`
     : '';
+  const visibilityStatus = visibilitySupported
+    ? `<div class="neo-source-meta neo-mask-inline-status"><span class="neo-badge ${hasVisibilityMask ? 'success' : ''}">Hidden areas: ${hasVisibilityMask ? 'active' : 'none'}</span>${hasVisibilityMask ? `<span class="neo-badge">${escapeHtml(visibilityMask.name || 'Visibility mask')}</span>` : ''}</div>`
+    : '';
   const maskWorkflow = isInpaint ? renderImageSourceMaskWorkflowCard({ hasSource, hasMask }) : '';
   const maskActions = isInpaint
     ? `<button class="neo-btn primary" id="imageOpenMaskEditorBtn" type="button" ${hasSource ? '' : 'disabled'} title="${hasSource ? 'Paint or refine the inpaint mask on this source image' : 'Select a source image before painting a mask'}">Edit Mask</button><button class="neo-btn secondary" id="imageClearMaskBtn" type="button" ${hasMask ? '' : 'disabled'} title="Clear the saved mask attached to this source image">Clear Mask</button>`
+    : '';
+  const visibilityActions = visibilitySupported
+    ? `<button class="neo-btn secondary" id="imageOpenSourceVisibilityMaskBtn" type="button" ${hasSource ? '' : 'disabled'} title="Paint over source details that should be hidden before Comfy receives the image">${hasVisibilityMask ? 'Edit Hidden Areas' : 'Hide Parts'}</button><button class="neo-btn ghost" id="imageClearSourceVisibilityMaskBtn" type="button" ${hasVisibilityMask ? '' : 'disabled'}>Clear Hidden Mask</button>`
     : '';
   const outpaintActions = isOutpaint
     ? `<button class="neo-btn primary" id="imageOpenOutpaintEditorBtn" type="button" ${hasSource ? '' : 'disabled'}>Outpaint Canvas</button><button class="neo-btn secondary" id="imageResetOutpaintBtn" type="button" ${outpaintHasPadding() ? '' : 'disabled'}>Reset Padding</button>`
@@ -36323,15 +37683,15 @@ function renderImageSourcePanelBody() {
         <div class="neo-source-stack-header">
           <div>
             <strong>Source Images</strong>
-            <p class="neo-muted">Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.</p>
+            <p class="neo-muted">${krea2IdentityEditActive() ? 'Identity Edit uses Image 1 for scene/context and optional Image 2 for the subject/identity reference.' : (controlNetPoseTransferActive() ? 'Pose Transfer uses Image 1 as the subject, Image 2 as the pose reference, and reserves Image 3 for the generated DWPose map.' : 'Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.')}</p>
           </div>
           <span class="neo-badge">${escapeHtml(multiReferenceLabel)}</span>
         </div>
-        <label class="neo-source-file-label">Image 1 Role
+        ${krea2IdentityEditActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : `<label class="neo-source-file-label">Image 1 Role
           ${optionSelect('imageQwenSourceRole1', qwenSourceRoleOptions(1), state.imageDraft.source_image_1_role || 'main_subject')}
-        </label>
+        </label>`}
         ${[2, 3].filter((lane) => qwenVisibleSourceSlotCount() >= lane).map((lane) => renderQwenSourceCard(lane)).join('')}
-        ${qwenVisibleSourceSlotCount() < 3 ? `<button class="neo-btn secondary neo-add-source-btn" id="imageQwenAddSourceBtn" type="button">+ Add source image</button>` : ''}
+        ${!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() < imageMultiReferenceSlotLimit() ? `<button class="neo-btn secondary neo-add-source-btn" id="imageQwenAddSourceBtn" type="button">+ Add source image</button>` : ''}
         <p class="neo-muted">${escapeHtml(imageMultiReferenceHelpText())}</p>
       </div>`
     : '';
@@ -36353,14 +37713,17 @@ function renderImageSourcePanelBody() {
           <span class="neo-badge">${escapeHtml(sourceImageLabel())}</span>
         </div>
         ${maskStatus}
+        ${visibilityStatus}
         ${maskWorkflow}
         ${state.imageDraft.source_image ? `<div class="neo-source-path">${escapeHtml(state.imageDraft.source_image)}</div>` : ''}
         <div class="neo-source-actions neo-source-actions-grid">
           <button class="neo-btn secondary" id="imageClearSourceBtn" type="button" ${hasSource ? '' : 'disabled'}>Clear Source</button>
           ${maskActions}
+          ${visibilityActions}
           ${outpaintActions}
         </div>
         ${isInpaint ? '<p class="neo-muted">Use the same source image for masking. Mask controls stay attached to the source preview. Changing or clearing the source also clears the saved mask to avoid mismatched inpaint inputs.</p>' : ''}
+        ${visibilitySupported ? '<p class="neo-muted">Hidden-area masks are separate from Inpaint masks. Paint white over content to remove it from the submitted source; Neo replaces those pixels with black before Comfy encodes or stitches the image.</p>' : ''}
         ${isOutpaint ? '<p class="neo-muted">Use the same source image as the center canvas. Click <strong>Outpaint Canvas</strong> to expand sides.</p>' : ''}
         ${qwenRefs}
         ${imagePreparation}
@@ -36410,6 +37773,7 @@ const IMAGE_MODEL_FIELD_CATALOGS = Object.freeze({
   qwen_text_encoder: 'qwen_text_encoders',
   qwen3_text_encoder: 'qwen_text_encoders',
   qwen3vl_text_encoder: 'text_encoders',
+  krea2_identity_edit_lora: 'loras',
 });
 function imageModelCatalogForField(fieldId) {
   return IMAGE_MODEL_FIELD_CATALOGS[fieldId] || '';
@@ -36436,6 +37800,14 @@ function imageOptionsForField(fieldId) {
     if (options.length || !['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return options;
     return profileModelOptions('text_encoders');
   }
+  if (fieldId === 'krea2_edit_engine') return [
+    { id: 'native', label: 'Neo Native Adapter (existing)' },
+    { id: 'identity_edit', label: 'Krea 2 Identity Edit v1.2' },
+  ];
+  if (fieldId === 'krea2_identity_edit_fit_mode') return [
+    { id: 'fit', label: 'Fit (recommended)' },
+    { id: 'crop (legacy)', label: 'Crop (legacy)' },
+  ];
   if (fieldId === 'vae') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_vaes') : profileModelOptions('vaes');
   if (fieldId === 'sampler') return profileModelOptions('samplers');
   if (fieldId === 'scheduler') return profileModelOptions('schedulers');
@@ -36473,6 +37845,7 @@ function imageOptionsForField(fieldId) {
 
 function renderImageParameterField(field, p) {
   const fieldId = field.field_id;
+  if (fieldId.startsWith('krea2_identity_edit_') && fieldId !== 'krea2_identity_edit_engine' && !krea2IdentityEditActive()) return '';
   if (['positive_prompt', 'negative_prompt', 'source_image', 'mask_image', 'outpaint_padding', 'width', 'height'].includes(fieldId)) return '';
   const key = imageFieldDraftKey(fieldId);
   const id = `imageParam_${fieldId}`;
@@ -36492,7 +37865,7 @@ function renderImageParameterField(field, p) {
     const select = optionSelect(id, options, value);
     return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span>${select}${required}${helpText}</label>`;
   }
-  const step = fieldId === 'flux_guidance' || fieldId === 'cfg' ? '0.1' : '1';
+  const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength', 'krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.1' : '1');
   const inputType = field.control_type === 'slider' || field.control_type === 'number' ? 'number' : 'text';
   return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}" value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
 }
@@ -36504,6 +37877,48 @@ const IMAGE_COMPONENT_PARAMETER_FIELD_IDS = new Set([
   'flux_guidance',
   'hidream_variant',
 ]);
+
+// M17.1: Krea 2 Identity Edit profile fields are family controls, not GGUF
+// runtime/component selectors. The Parameters surface previously never mounted
+// them because it renders fixed runtime/component rows instead of the generic
+// profile row renderer. Keep this set explicit so the engine selector is visible
+// only on Krea image-conditioned routes and its dependent controls can be
+// conditionally exposed by renderImageParameterField().
+const KREA2_EDIT_PARAMETER_FIELD_IDS = new Set([
+  'krea2_edit_engine',
+  'krea2_identity_edit_lora',
+  'krea2_identity_edit_lora_strength',
+  'krea2_identity_edit_fit_mode',
+  'krea2_identity_edit_ref_boost',
+  'krea2_identity_edit_ref_boost_a',
+  'krea2_identity_edit_grounding_px',
+]);
+
+function activeKrea2EditParameterFields() {
+  if (!krea2RuntimeActive() || !['img2img', 'inpaint', 'outpaint'].includes(activeImageMode())) return [];
+  const hidden = activeParameterProfileHiddenFields();
+  return activeImageParameterFields().filter((field) => (
+    KREA2_EDIT_PARAMETER_FIELD_IDS.has(field.field_id)
+    && !hidden.has(field.field_id)
+    && (!field.advanced || state.detailMode === 'expert')
+  ));
+}
+
+function renderKrea2EditParameterRows(p = {}) {
+  const fields = activeKrea2EditParameterFields();
+  if (!fields.length) return '';
+  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
+  if (!fieldHtml) return '';
+  const active = krea2IdentityEditActive();
+  const badges = [
+    active ? 'Identity Edit v1.2' : 'Neo Native Adapter',
+    state.imageDraft.loader === 'gguf' ? 'GGUF transformer' : 'Safetensors / Components',
+  ];
+  return `<div class="neo-parameter-profile-card neo-krea2-edit-card" data-testid="krea2-edit-parameters">
+    <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Neo's existing source adapter or the training-matched Krea 2 Identity Edit v1.2 workflow.</p></div>${badgeRow(badges)}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+  </div>`;
+}
 
 function activeImageComponentParameterFields() {
   const loader = state.imageDraft.loader || imageCommandValue('loader') || 'checkpoint';
@@ -36576,15 +37991,6 @@ function imageCfgUiContract(p = {}) {
       help: 'True CFG controls the Qwen negative branch. Values at or below 1 disable negative prompting.',
     };
   }
-  if (family === 'krea2_turbo') {
-    return { visible: true, disabled: true, label: 'CFG', semantic_field: 'cfg', value: 1, help: 'Fixed at CFG 1 by Krea 2 Turbo.' };
-  }
-  if (family === 'z_image_turbo') {
-    return { visible: true, disabled: true, label: 'CFG', semantic_field: 'cfg', value: 1, help: 'Fixed at CFG 1 by Z-Image Turbo.' };
-  }
-  if (['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev') {
-    return { visible: false, disabled: true, label: 'CFG', semantic_field: 'none', value: '', help: 'CFG handled by Flux Guidance · classic CFG is not an editable control on this route.' };
-  }
   if (!routeHasCfg) {
     return { visible: false, disabled: true, label: 'CFG', semantic_field: 'none', value: '', help: 'CFG unavailable for selected route.' };
   }
@@ -36650,7 +38056,9 @@ function renderImageInpaintVisibilityRow(p = {}) {
   const targetVisible = shouldShowProfileField('inpaint_selection_target');
   const contextVisible = shouldShowProfileField('inpaint_context_mode');
   const route = imageLanpaintSyncRouteState(p);
-  const engineVisible = route.contract_eligible;
+  const maskedMode = ['inpaint', 'outpaint'].includes(activeImageMode());
+  const nativeEngineVisible = maskedMode && route.backend === 'comfyui';
+  const engineVisible = nativeEngineVisible;
   const fluxKontextActive = state.imageDraft.family === 'flux'
     && state.imageDraft.loader === 'diffusion_model'
     && String(state.imageDraft.flux_variant || '').toLowerCase() === 'kontext'
@@ -36658,7 +38066,13 @@ function renderImageInpaintVisibilityRow(p = {}) {
   if (!targetVisible && !contextVisible && !fluxKontextActive && !engineVisible) return '';
   const targetValue = p.inpaint_selection_target || state.imageDraft.inpaint_selection_target || 'masked_area';
   const contextValue = p.inpaint_context_mode || state.imageDraft.inpaint_context_mode || 'masked_region_focus';
-  const engineValue = engineVisible ? (p.inpaint_engine || state.imageDraft.inpaint_engine || 'native') : 'native';
+  const engineValue = engineVisible ? (p.masked_edit_engine || p.inpaint_engine || state.imageDraft.inpaint_engine || 'native') : 'native';
+  const cropStitchEnabled = imageMaskedCropStitchEnabled(engineValue);
+  const cropDiag = imageMaskedCropStitchDiagnostics(route);
+  const modeLabel = activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint';
+  const cropStitchNote = engineValue === 'lanpaint'
+    ? 'Uses LanPaint’s existing internal crop/context/restore graph.'
+    : (cropDiag.available ? 'Uses ComfyUI-Inpaint-CropAndStitch.' : `Requires ${cropDiag.provider}${cropDiag.missing.length ? ` (${cropDiag.missing.join(', ')})` : ''}.`);
   const contextLatentCard = fluxKontextActive ? `<div class="neo-context-latent-card" data-testid="image-context-latent-controls">
     <div class="neo-ui-section-head"><div><strong>RMBG Context + Latent Assist</strong><p class="neo-muted">Experimental Flux Kontext route. Reuses Image 1 latent context and the existing inpaint mask through the live Reference Latent Mask node.</p></div><span class="neo-badge">Live-gated</span></div>
     <label class="neo-check-row"><input id="imageContextLatentEnabled" type="checkbox" ${state.imageDraft.context_latent_enabled ? 'checked' : ''}> Enable Reference Latent Mask</label>
@@ -36666,10 +38080,10 @@ function renderImageInpaintVisibilityRow(p = {}) {
     <p class="neo-muted">The run is blocked if the exact live AILab_ReferenceLatentMask contract or an inpaint mask is unavailable. No fallback route is used.</p>
   </div>` : '';
   const routeNote = engineVisible
-    ? `${route.provider_label} · ${route.family_label} · ${route.loader_label}. Native remains the default. LanPaint controls and model-only LoRA support are route-owned and preserved for replay.`
+    ? `${route.provider_label} · ${route.family_label} · ${route.loader_label}. Choose Native or LanPaint; Crop & Stitch is an independent optional wrapper.`
     : 'Shown only when the active route profile exposes masked/not-masked area controls.';
   return `<div class="neo-parameter-row neo-inpaint-visibility-row" data-testid="image-inpaint-visibility-controls">
-    ${engineVisible ? `<label>Inpaint Engine${optionSelect('imageInpaintEngine', imageInpaintEngineOptions(route), engineValue)}</label>` : ''}
+    ${engineVisible ? `<label>${escapeHtml(modeLabel)} Engine${optionSelect('imageInpaintEngine', imageInpaintEngineOptions(route), engineValue)}</label><label class="neo-check-row"><input id="imageCropStitchEnabled" type="checkbox" ${cropStitchEnabled ? 'checked' : ''}> Crop & Stitch</label><span class="neo-muted neo-param-note">${escapeHtml(cropStitchNote)}</span>` : ''}
     ${targetVisible ? `<label>Inpaint Target${optionSelect('imageParam_inpaint_selection_target', imageOptionsForField('inpaint_selection_target'), targetValue)}</label>` : ''}
     ${contextVisible ? `<label>Inpaint Context${optionSelect('imageParam_inpaint_context_mode', imageOptionsForField('inpaint_context_mode'), contextValue)}</label>` : ''}
     <span class="neo-muted neo-param-note">${escapeHtml(routeNote)}</span>
@@ -36699,13 +38113,13 @@ function imageModelComponentRouteNote() {
   }
   if (loader === 'checkpoint_aio') return family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO bundled route. Main model contains the needed AIO parts; extra encoder/VAE fields stay hidden unless Advanced Override enables them.' : 'Bundled model route. Extra encoder/VAE fields stay hidden unless Advanced Override enables them.';
   if (loader === 'diffusion_model' || loader === 'unet') {
-    if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea component route. Uses the FLUX.1 dual encoder stack (T5XXL + CLIP-L); img2img/inpaint/outpaint keep the selected Krea model and use latent source/mask workflows.';
-    if (family === 'krea2' || family === 'krea2_turbo') return `${family === 'krea2_turbo' ? 'Krea 2 Turbo' : 'Krea 2 RAW'} native route. Uses Qwen3-VL-4B through CLIPLoader(type=krea2) + Qwen Image VAE. Image-conditioned modes are experimental latent adapters.`;
+    if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea component route. Uses the FLUX.1 dual encoder stack (T5XXL + CLIP-L); masked modes keep the selected Krea model and pass through the selected Native or LanPaint masked-edit engine.';
+    if (family === 'krea2' || family === 'krea2_turbo') return `${family === 'krea2_turbo' ? 'Krea 2 Turbo' : 'Krea 2 RAW'} native route. Uses Qwen3-VL-4B through CLIPLoader(type=krea2) + Qwen Image VAE. Image modes can use the existing Neo adapter or opt into Krea 2 Identity Edit v1.2; Identity Edit owns its inpaint/outpaint graph instead of LanPaint.`;
     return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 component route. Supports Image 1 plus optional Image 2/Image 3 for img2img/edit; inpaint/outpaint use Image 1 as the canvas.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.')));
   }
   if (loader === 'gguf') {
     if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF route. Uses a Krea GGUF diffusion model with the FLUX.1 T5XXL + CLIP-L dual encoder stack; image modes retain Krea through the Flux GGUF latent/mask branch.';
-    if (family === 'krea2' || family === 'krea2_turbo') return 'Krea 2 GGUF route (Experimental). Quantizes the diffusion transformer only; Qwen3-VL-4B stays native/safetensors via CLIPLoader(type=krea2). Requires a Krea2-capable GGUF loader.';
+    if (family === 'krea2' || family === 'krea2_turbo') return 'Krea 2 GGUF route (Experimental). Quantizes the diffusion transformer only; Qwen3-VL-4B stays native/safetensors via CLIPLoader(type=krea2). Image modes can opt into Krea 2 Identity Edit v1.2; its model-only LoRA remains safetensors and patches after the GGUF loader.';
     return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for edit modes and requires matching Qwen2.5-VL MMProj for image-conditioned routes.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.')));
   }
   return 'Checkpoint route. Extra model components stay hidden unless this family needs them.';
@@ -36733,10 +38147,10 @@ function renderImagePrimaryModelRow(p) {
 }
 function renderProfileCapabilitySummary() {
   const profile = activeImageParameterProfile();
-  if (!profile || state.detailMode === 'compact') return '';
+  if (!profile || state.detailMode !== 'expert') return '';
   const hidden = profile.hidden_fields || [];
   const hiddenText = hidden.length ? ` · Hidden: ${hidden.join(', ')}` : '';
-  return `<p class="neo-muted">Parameters are resolved from selected family + main model type + workflow mode.${escapeHtml(hiddenText)}</p>`;
+  return `<p class="neo-muted">Parameter profile: selected family + main model type + workflow mode.${escapeHtml(hiddenText)}</p>`;
 }
 
 function imageLatentCaptureOptions() {
@@ -36761,6 +38175,248 @@ function imageLatentCaptureHelp(mode) {
   return 'Off. Neo saves replay metadata only.';
 }
 
+
+
+function imageFamilyCompatibilityMatrix(profile = activeImageProfile()) {
+  const caps = imageLanpaintBackendCapabilities(profile);
+  const matrix = caps?.image_family_compatibility;
+  return matrix && typeof matrix === 'object' ? matrix : null;
+}
+
+function imageFamilyCompatibilityEntry({ engine = null, family = '', loader = '', mode = '' } = {}) {
+  const matrix = imageFamilyCompatibilityMatrix();
+  if (!matrix?.entries || typeof matrix.entries !== 'object') return null;
+  const resolvedFamily = String(family || state.imageDraft.family || imageCommandValue('family') || 'sdxl').toLowerCase();
+  const resolvedLoader = String(loader || state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(resolvedFamily) || 'checkpoint').toLowerCase();
+  const resolvedMode = String(mode || uiModeToRouteMode(activeImageMode()) || 'txt2img').toLowerCase();
+  const resolvedEngine = String(engine || ((['inpaint', 'outpaint'].includes(resolvedMode) ? (state.imageDraft.inpaint_engine || 'native') : 'native'))).toLowerCase() === 'lanpaint' ? 'lanpaint' : 'native';
+  return matrix.entries[`${resolvedFamily}:${resolvedLoader}:${resolvedMode}:${resolvedEngine}`] || null;
+}
+
+function imageFamilyCompatibilityFeature(featureId, options = {}) {
+  const entry = imageFamilyCompatibilityEntry(options);
+  const feature = entry?.features?.[featureId];
+  return feature && typeof feature === 'object' ? feature : null;
+}
+
+function imageSamplerBackendValue(p = {}) {
+  const value = String(state.imageDraft.sampler_backend || p.sampler_backend || 'standard').trim().toLowerCase().replace(/[- ]/g, '_');
+  if (['res4lyf', 'clownshark', 'clownsharksampler', 'clownsharkksampler', 'res4lyf_clownshark'].includes(value)) return 'res4lyf_clownshark';
+  return 'standard';
+}
+
+function imageRes4lyfSamplerDiagnostics() {
+  const profile = activeImageProfile();
+  const caps = profile?.backend_capabilities
+    || profile?.runtime?.backend_capabilities
+    || profile?.runtime?.capabilities?.backend_capabilities
+    || {};
+  return (caps?.res4lyf_sampler_diagnostics && typeof caps.res4lyf_sampler_diagnostics === 'object')
+    ? caps.res4lyf_sampler_diagnostics
+    : {};
+}
+
+function imageRes4lyfSamplerAvailability(p = {}) {
+  const profile = activeImageProfile();
+  const backend = normalizeRouteBackend(profile?.provider_id || profile?.backend || activeRouteBackend());
+  if (backend !== 'comfyui') return { available: false, installed: false, reason: 'ClownsharKSampler is available only on local ComfyUI / Portable profiles.' };
+  const mode = uiModeToRouteMode(activeImageMode());
+  const maskedEngine = String(state.imageDraft.inpaint_engine || p.inpaint_engine || 'native').toLowerCase();
+  if (['inpaint', 'outpaint'].includes(mode) && maskedEngine === 'lanpaint') {
+    return { available: false, installed: true, reason: 'LanPaint owns a custom sampler graph and is not replaced by ClownsharKSampler in this phase.' };
+  }
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').toLowerCase();
+  const compat = imageFamilyCompatibilityFeature('res4lyf_clownshark', { engine: 'native' });
+  if (compat && compat.available !== true) {
+    return { available: false, installed: !['missing_dependency', 'requires_discovery'].includes(String(compat.state || '')), reason: compat.reason || 'ClownsharKSampler is not compatible with this route.' };
+  }
+  if (family === 'ideogram4') return { available: false, installed: true, reason: 'Ideogram 4 uses SamplerCustomAdvanced, not a core KSampler anchor.' };
+  const diag = imageRes4lyfSamplerDiagnostics();
+  if (!diag || !Object.keys(diag).length) return { available: false, installed: false, reason: 'Connect/Test the ComfyUI profile to discover RES4LYF node capabilities.' };
+  if (diag.installed !== true) return { available: false, installed: false, reason: 'RES4LYF / ClownsharKSampler was not detected. Install RES4LYF and restart ComfyUI.' };
+  if (diag.compatible_signature !== true) {
+    const missing = Array.isArray(diag.missing_inputs) ? diag.missing_inputs.join(', ') : '';
+    return { available: false, installed: true, reason: `ClownsharKSampler is installed but its node signature is incompatible${missing ? `: ${missing}` : '.'}` };
+  }
+  return { available: true, installed: true, reason: 'Uses the installed RES4LYF ClownsharKSampler on graph-compatible KSampler routes.' };
+}
+
+function imageSamplerBackendOptions(p = {}) {
+  const res = imageRes4lyfSamplerAvailability(p);
+  return [
+    { id: 'standard', label: 'Standard KSampler' },
+    { id: 'res4lyf_clownshark', label: res.available ? 'ClownsharKSampler · RES4LYF' : 'ClownsharKSampler · unavailable', disabled: !res.available, title: res.reason },
+  ];
+}
+
+function imageRes4lyfSamplingOptions(kind, { includeInherit = false } = {}) {
+  const diag = imageRes4lyfSamplerDiagnostics();
+  const key = kind === 'scheduler' ? 'schedulers' : 'sampler_names';
+  const values = Array.isArray(diag?.[key]) ? diag[key].filter(Boolean).map((item) => String(item)) : [];
+  const rows = values.map((item) => ({ id: item, label: item }));
+  const delegated = [{ id: 'provider_default', label: 'RES4LYF Default' }];
+  const body = rows.length ? [...delegated, ...rows] : imageSamplingSelectOptions(kind, imageOptionsForField(kind));
+  return includeInherit ? [{ id: 'inherit', label: 'Use Stage 1' }, ...body.filter((item) => String(item?.id ?? '') !== 'inherit')] : body;
+}
+
+function imageMultiKSamplerStageBackend(stage = {}, p = {}) {
+  const raw = String(stage?.backend || 'inherit').trim().toLowerCase().replace(/[- ]/g, '_');
+  if (raw === 'inherit' || !raw) return imageSamplerBackendValue(p);
+  if (['res4lyf', 'clownshark', 'clownsharksampler', 'clownsharkksampler', 'res4lyf_clownshark'].includes(raw)) return 'res4lyf_clownshark';
+  return 'standard';
+}
+
+function imageMultiKSamplerState(p = {}) {
+  const source = (state.imageDraft.multi_ksampler && typeof state.imageDraft.multi_ksampler === 'object')
+    ? state.imageDraft.multi_ksampler
+    : ((p.multi_ksampler && typeof p.multi_ksampler === 'object') ? p.multi_ksampler : {});
+  const normalizeStage = (value, fallback) => {
+    const incoming = (value && typeof value === 'object') ? value : {};
+    const fallbackTransition = (fallback.transition && typeof fallback.transition === 'object') ? fallback.transition : { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 };
+    const incomingTransition = (incoming.transition && typeof incoming.transition === 'object') ? incoming.transition : {};
+    return {
+      ...fallback,
+      ...incoming,
+      transition: { ...fallbackTransition, ...incomingTransition },
+    };
+  };
+  return {
+    enabled: Boolean(source.enabled),
+    stage_count: [2, 3].includes(Number(source.stage_count)) ? Number(source.stage_count) : 2,
+    stage2: normalizeStage(source.stage2, { backend: 'inherit', steps: 12, cfg: 'inherit', sampler: 'inherit', scheduler: 'inherit', denoise: 0.25, seed_policy: 'same', transition: { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 } }),
+    stage3: normalizeStage(source.stage3, { backend: 'inherit', steps: 8, cfg: 'inherit', sampler: 'inherit', scheduler: 'inherit', denoise: 0.15, seed_policy: 'same', transition: { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 } }),
+  };
+}
+
+function imageMultiKSamplerAvailability(p = {}) {
+  const profile = activeImageProfile();
+  const backend = normalizeRouteBackend(profile?.provider_id || profile?.backend || activeRouteBackend());
+  if (backend !== 'comfyui') return { available: false, reason: 'Multi-KSampler is currently available on local ComfyUI profiles.' };
+  const mode = uiModeToRouteMode(activeImageMode());
+  const maskedEngine = String(state.imageDraft.inpaint_engine || p.inpaint_engine || 'native').toLowerCase();
+  const compat = imageFamilyCompatibilityFeature('multi_ksampler', { engine: ['inpaint', 'outpaint'].includes(mode) ? maskedEngine : 'native' });
+  if (compat) return { available: compat.available === true, reason: compat.reason || (compat.available ? 'Compatible core-KSampler route.' : 'Multi-KSampler is gated for this route.'), compatibility: compat };
+  if (['inpaint', 'outpaint'].includes(mode) && maskedEngine === 'lanpaint') {
+    return { available: false, reason: 'LanPaint uses a route-native sampler graph. Multi-KSampler support for LanPaint will use a dedicated adapter instead of replacing that graph.' };
+  }
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').toLowerCase();
+  if (family === 'ideogram4') return { available: false, reason: 'Ideogram 4 uses a custom advanced sampler graph, so direct KSampler refinement is not enabled for this route yet.' };
+  return { available: true, reason: 'Adds one or two extra latent refinement sampling passes after the main Parameters sampler.' };
+}
+
+function imageMultiKSamplerSelectOptions(kind) {
+  const options = imageSamplingSelectOptions(kind, imageOptionsForField(kind));
+  const rows = Array.isArray(options) ? options.filter((item) => String(item?.id ?? '') !== 'inherit') : [];
+  return [{ id: 'inherit', label: 'Use Stage 1' }, ...rows];
+}
+
+function renderImageMultiKSampler(p = {}) {
+  const availability = imageMultiKSamplerAvailability(p);
+  const multi = imageMultiKSamplerState(p);
+  const res4lyfAvailability = imageRes4lyfSamplerAvailability(p);
+  const disabled = availability.available ? '' : 'disabled aria-disabled="true"';
+  const enabled = availability.available && multi.enabled;
+  const stageDisabled = enabled ? '' : 'disabled aria-disabled="true"';
+  const backendOptions = [
+    { id: 'inherit', label: 'Use Stage 1' },
+    { id: 'standard', label: 'Standard KSampler' },
+    { id: 'res4lyf_clownshark', label: res4lyfAvailability.available ? 'ClownsharKSampler · RES4LYF' : 'ClownsharKSampler · unavailable', disabled: !res4lyfAvailability.available, title: res4lyfAvailability.reason },
+  ];
+  const transitionOptions = [
+    { id: 'none', label: 'None · direct latent' },
+    { id: 'latent_upscale', label: 'Latent Upscale · Comfy core' },
+  ];
+  const latentMethods = ['bislerp', 'bicubic', 'bilinear', 'area', 'nearest-exact'].map((id) => ({ id, label: id }));
+  const renderStage = (stageNumber, stage) => {
+    const cfg = ['inherit', '', null, undefined].includes(stage.cfg) ? '' : stage.cfg;
+    const effectiveBackend = imageMultiKSamplerStageBackend(stage, p);
+    const samplerOptions = effectiveBackend === 'res4lyf_clownshark'
+      ? imageRes4lyfSamplingOptions('sampler', { includeInherit: true })
+      : imageMultiKSamplerSelectOptions('sampler');
+    const schedulerOptions = effectiveBackend === 'res4lyf_clownshark'
+      ? imageRes4lyfSamplingOptions('scheduler', { includeInherit: true })
+      : imageMultiKSamplerSelectOptions('scheduler');
+    const stageSelect = (id, options, selected) => optionSelect(id, options, selected).replace('<select ', `<select ${stageDisabled} `);
+    const transition = (stage.transition && typeof stage.transition === 'object') ? stage.transition : { operation: 'none', upscale_method: 'bislerp', scale_by: 1.5 };
+    const transitionEnabled = String(transition.operation || 'none') === 'latent_upscale';
+    return `<div class="neo-multi-ksampler-stage" data-stage="${stageNumber}" data-sampler-backend="${escapeAttr(effectiveBackend)}">
+      <div class="neo-multi-ksampler-stage-head"><strong>Stage ${stageNumber}</strong><span>${effectiveBackend === 'res4lyf_clownshark' ? 'RES4LYF latent refinement pass' : 'Latent refinement pass'}</span></div>
+      <div class="neo-multi-ksampler-transition" data-transition-to-stage="${stageNumber}">
+        <div class="neo-multi-ksampler-transition-head"><strong>Before Stage ${stageNumber}</strong><span>Optional latent transform</span></div>
+        <div class="neo-parameter-row neo-multi-ksampler-transition-grid">
+          <label>Transition${stageSelect(`imageMultiKSamplerStage${stageNumber}TransitionOperation`, transitionOptions, transition.operation || 'none')}</label>
+          ${transitionEnabled ? `<label>Scale<input id="imageMultiKSamplerStage${stageNumber}TransitionScale" type="number" min="0.01" max="8" step="0.01" value="${escapeAttr(transition.scale_by ?? 1.5)}" ${stageDisabled}></label>
+          <label>Method${stageSelect(`imageMultiKSamplerStage${stageNumber}TransitionMethod`, latentMethods, transition.upscale_method || 'bislerp')}</label>` : ''}
+        </div>
+        ${transitionEnabled ? '<p class="neo-muted neo-param-note">Uses ComfyUI core LatentUpscaleBy before this sampling pass. The scale and method are submitted exactly as entered.</p>' : ''}
+      </div>
+      <div class="neo-parameter-row neo-multi-ksampler-stage-grid">
+        <label>Sampler Engine${stageSelect(`imageMultiKSamplerStage${stageNumber}Backend`, backendOptions, stage.backend || 'inherit')}</label>
+        <label>Steps<input id="imageMultiKSamplerStage${stageNumber}Steps" type="number" min="1" step="1" value="${escapeAttr(stage.steps)}" ${stageDisabled}></label>
+        <label>CFG<input id="imageMultiKSamplerStage${stageNumber}Cfg" type="number" step="0.01" value="${escapeAttr(cfg)}" placeholder="Stage 1" ${stageDisabled}></label>
+        <label>Sampler${stageSelect(`imageMultiKSamplerStage${stageNumber}Sampler`, samplerOptions, stage.sampler || 'inherit')}</label>
+        <label>Scheduler${stageSelect(`imageMultiKSamplerStage${stageNumber}Scheduler`, schedulerOptions, stage.scheduler || 'inherit')}</label>
+        <label>Denoise<input id="imageMultiKSamplerStage${stageNumber}Denoise" type="number" min="0" max="1" step="0.01" value="${escapeAttr(stage.denoise)}" ${stageDisabled}></label>
+        <label>Seed${stageSelect(`imageMultiKSamplerStage${stageNumber}SeedPolicy`, [{ id: 'same', label: 'Same as Stage 1' }, { id: 'increment', label: 'Increment' }], stage.seed_policy || 'same')}</label>
+      </div>
+    </div>`;
+  };
+  return `<section class="neo-multi-ksampler-panel ${availability.available ? '' : 'is-gated'}" data-testid="image-multi-ksampler" data-available="${availability.available ? 'true' : 'false'}">
+    <div class="neo-multi-ksampler-head">
+      <div><span class="neo-card-kicker">Advanced Sampling</span><strong>Multi-KSampler</strong><p>${escapeHtml(availability.reason)}</p></div>
+      <label class="neo-checkbox-label"><input id="imageMultiKSamplerEnabled" type="checkbox" ${multi.enabled ? 'checked' : ''} ${disabled}>Use extra sampling passes</label>
+    </div>
+    <div class="neo-parameter-row neo-multi-ksampler-config-row">
+      <label>Stages${optionSelect('imageMultiKSamplerStageCount', [{ id: '2', label: '2 stages' }, { id: '3', label: '3 stages' }], String(multi.stage_count)).replace('<select ', `<select ${stageDisabled} `)}</label>
+      <span class="neo-muted neo-param-note">Stage 1 uses the main Parameters sampler engine above. Stage 2/3 receive the evolving latent and may optionally apply a core latent upscale before refinement.</span>
+    </div>
+    ${enabled ? `<div class="neo-multi-ksampler-stage1">${badgeRow(['Stage 1 · Main Parameters', `Engine ${imageSamplerBackendValue(p) === 'res4lyf_clownshark' ? 'ClownsharKSampler' : 'Standard KSampler'}`, `Steps ${p.steps ?? state.imageDraft.steps ?? ''}`, `Sampler ${p.sampler || state.imageDraft.sampler || 'provider default'}`])}</div>` : ''}
+    ${enabled ? renderStage(2, multi.stage2) : ''}
+    ${enabled && multi.stage_count === 3 ? renderStage(3, multi.stage3) : ''}
+  </section>`;
+}
+
+function imageGenerationSetupSummary(p = {}) {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || 'sdxl');
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family) || 'checkpoint');
+  const mode = String(uiModeToRouteMode(activeImageMode()) || 'txt2img');
+  const masked = ['inpaint', 'outpaint'].includes(mode);
+  const engine = masked ? String(state.imageDraft.inpaint_engine || p.inpaint_engine || 'native').toLowerCase() : 'native';
+  const cropStitch = masked ? imageMaskedCropStitchEnabled(engine) : false;
+  const samplerBackend = imageSamplerBackendValue(p);
+  const multi = imageMultiKSamplerState(p);
+  const stageCount = multi.enabled ? Number(multi.stage_count || 2) : 1;
+  const stages = [multi.stage2, multi.stage3].slice(0, Math.max(stageCount - 1, 0));
+  const upscaleCount = multi.enabled ? stages.filter((stage) => String(stage?.transition?.operation || 'none') === 'latent_upscale').length : 0;
+  const compat = imageFamilyCompatibilityEntry({ engine, family, loader, mode });
+  const routeAvailable = compat ? compat.route_available === true : true;
+  const manifestState = String(compat?.manifest_state || '');
+  const experimental = /experimental|implementation_target|planned/i.test(manifestState);
+  const status = !routeAvailable ? 'Gated' : (experimental ? 'Experimental' : 'Ready');
+  const statusClass = !routeAvailable ? 'danger' : (experimental ? 'warning' : 'success');
+  const familyLabel = humanize(family).replace(/Krea2/gi, 'Krea 2').replace(/Qwen Image Edit 2511/gi, 'Qwen Image Edit 2511');
+  const loaderLabel = imageMainModelTypeLabel(loader, loader);
+  return { family, familyLabel, loader, loaderLabel, mode, masked, engine, cropStitch, samplerBackend, multi, stageCount, upscaleCount, status, statusClass, routeAvailable };
+}
+
+function renderImageGenerationSetup(p = {}) {
+  const setup = imageGenerationSetupSummary(p);
+  const samplerEngine = setup.samplerBackend === 'res4lyf_clownshark' ? 'ClownsharKSampler' : 'Standard KSampler';
+  const chips = [
+    setup.familyLabel,
+    setup.loaderLabel,
+    humanize(setup.mode),
+    setup.masked ? `${setup.engine === 'lanpaint' ? 'LanPaint' : 'Native'}${setup.cropStitch ? ' + Crop & Stitch' : ''}` : '',
+    samplerEngine,
+    setup.stageCount > 1 ? `${setup.stageCount} sampling stages` : '1 sampling stage',
+    setup.upscaleCount ? `${setup.upscaleCount} latent upscale${setup.upscaleCount === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return `<section class="neo-generation-setup-card" data-testid="image-generation-setup-summary" data-route-status="${escapeAttr(setup.status.toLowerCase())}">
+    <div class="neo-generation-setup-head"><div><span class="neo-card-kicker">Generation Setup</span><strong>What Neo will run</strong></div><span class="neo-state-pill ${setup.statusClass}">${escapeHtml(setup.status)}</span></div>
+    <div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>
+    <p class="neo-muted">The values in Parameters are the submitted values. Neo validates compatibility but does not replace explicit user settings.</p>
+  </section>`;
+}
 
 function renderImageCapabilityOverlayCard() {
   const profile = activeImageProfile();
@@ -36875,6 +38531,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     const ggufRuntime = renderGgufRuntimeCard(p);
     const primaryModelRow = renderImagePrimaryModelRow(p);
     const componentParameterRows = renderImageComponentParameterRows(p);
+    const krea2EditParameterRows = renderKrea2EditParameterRows(p);
     const cfgContract = imageCfgUiContract(p);
     const clipSkipVisible = shouldShowProfileField('clip_skip');
     const denoiseVisible = shouldShowProfileField('denoise');
@@ -36888,13 +38545,21 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     ];
     return `${help}<div class="neo-parameter-stack">
       ${renderImageCapabilityOverlayCard()}
+      ${renderImageGenerationSetup(p)}
       ${primaryModelRow}
       ${componentParameterRows}
       ${ggufRuntime}
-      <div class="neo-parameter-row neo-sampler-scheduler-row">
-        <label>Sampler${optionSelect('imageSampler', imageSamplingSelectOptions('sampler', imageOptionsForField('sampler')), imageSamplingDisplayValue('sampler', p.sampler, 'provider_default'))}</label>
-        <label>Scheduler${optionSelect('imageScheduler', imageSamplingSelectOptions('scheduler', imageOptionsForField('scheduler')), imageSamplingDisplayValue('scheduler', p.scheduler, 'provider_default'))}</label>
+      ${krea2EditParameterRows}
+      <div class="neo-parameter-row neo-sampler-scheduler-row" data-sampler-backend="${escapeAttr(imageSamplerBackendValue(p))}">
+        <label>Sampler Engine${optionSelect('imageSamplerBackend', imageSamplerBackendOptions(p), imageSamplerBackendValue(p))}</label>
+        <label>Sampler${optionSelect('imageSampler', imageSamplerBackendValue(p) === 'res4lyf_clownshark' ? imageRes4lyfSamplingOptions('sampler') : imageSamplingSelectOptions('sampler', imageOptionsForField('sampler')), imageSamplingDisplayValue('sampler', p.sampler, 'provider_default'))}</label>
+        <label>Scheduler${optionSelect('imageScheduler', imageSamplerBackendValue(p) === 'res4lyf_clownshark' ? imageRes4lyfSamplingOptions('scheduler') : imageSamplingSelectOptions('scheduler', imageOptionsForField('scheduler')), imageSamplingDisplayValue('scheduler', p.scheduler, 'provider_default'))}</label>
       </div>
+      ${imageSamplerBackendValue(p) === 'res4lyf_clownshark' ? `<div class="neo-parameter-row neo-res4lyf-sampler-row" data-testid="image-res4lyf-clownshark-controls">
+        <label>RES4LYF Eta<input id="imageRes4lyfEta" type="number" min="-100" max="100" step="0.01" value="${escapeAttr(state.imageDraft.res4lyf_eta ?? p.res4lyf_eta ?? 0.5)}"></label>
+        <label class="neo-checkbox-label"><input id="imageRes4lyfBongmath" type="checkbox" ${(state.imageDraft.res4lyf_bongmath ?? p.res4lyf_bongmath ?? true) ? 'checked' : ''}>BongMath</label>
+        <span class="neo-muted neo-param-note">Uses RES4LYF's ClownsharKSampler in Standard mode. Steps, CFG, sampler, scheduler, denoise, and seed remain the normal Parameters controls above.</span>
+      </div>` : ''}
       <div class="neo-parameter-row neo-size-row">
         <label>Width<input id="imageWidth" type="number" min="${escapeAttr(resolutionPolicy.minimum || resolutionStep)}" max="${escapeAttr(resolutionPolicy.maximum || 16384)}" step="${escapeAttr(resolutionStep)}" value="${escapeAttr(imageSamplingDisplayValue('width', p.width, ''))}" aria-label="Width"></label>
         <label>Height<input id="imageHeight" type="number" min="${escapeAttr(resolutionPolicy.minimum || resolutionStep)}" max="${escapeAttr(resolutionPolicy.maximum || 16384)}" step="${escapeAttr(resolutionStep)}" value="${escapeAttr(imageSamplingDisplayValue('height', p.height, ''))}" aria-label="Height"></label>
@@ -36916,6 +38581,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
         ${clipSkipVisible ? `<label>Clip Skip<input id="imageClipSkip" type="number" min="1" max="12" step="1" value="${p.clip_skip || 1}" aria-label="Clip Skip"></label>` : ''}
         <label>Prompt Conditioning${optionSelect('imageClamp', clampOptions, p.prompt_conditioning_mode || p.clamp || 'raw')}</label>
       </div>
+      ${renderImageMultiKSampler(p)}
       ${renderForgeImageRouteControls(p)}
       ${latentCaptureVisible ? `<div class="neo-parameter-row neo-latent-capture-row" data-testid="image-latent-capture-foundation">
         <label>Latent Capture${optionSelect('imageLatentCaptureMode', imageLatentCaptureOptions(), p.latent_capture_mode || 'off')}</label>
@@ -37339,6 +39005,8 @@ function promptCaptioningValidationStatus(modeId, toolId) {
   if (modeId === 'captioning') {
     const refs = [payload.assets?.image, payload.assets?.source_image, ...(Array.isArray(payload.assets?.images) ? payload.assets.images : [])].filter(Boolean);
     if (!refs.length) errors.push('missing_image_asset: Captioning requires a valid image asset.');
+    const task = String(payload.profile?.prompt_task || 'caption_image');
+    if (task === 'image_edit' && !String(payload.inputs?.caption_instruction || '').trim()) errors.push('missing_edit_instruction: Image → Editing Prompt requires an edit instruction.');
   }
   if (['prompt_enhance', 'prompt_rewrite', 'prompt_cleanup', 'text_transform'].includes(payload.tool)) {
     const hasText = Boolean((payload.inputs?.source_text || payload.inputs?.idea || payload.inputs?.custom_instructions || '').trim());
@@ -37386,7 +39054,14 @@ function promptCaptioningPlaceholderNotice(modeId) {
 }
 
 function promptCaptioningState() {
-  state.promptCaptioning = normalizePromptCaptioningState(state.promptCaptioning);
+  // Preserve object identity during a mounted render cycle. Event handlers keep
+  // references to promptBuilder/captioning state; replacing the entire tree on
+  // every read can make later control changes write into stale objects. Initial
+  // defaults and restored UI snapshots are normalized at their creation/loading
+  // boundaries, so only recover a missing/invalid tree here.
+  if (!state.promptCaptioning || typeof state.promptCaptioning !== 'object') {
+    state.promptCaptioning = normalizePromptCaptioningState({});
+  }
   return state.promptCaptioning;
 }
 
@@ -37486,50 +39161,58 @@ function promptCaptioningButton(id, label, variant = 'secondary', attrs = '') {
 
 const PROMPT_CAPTIONING_QUICK_PROMPT_PRESETS = [
   {
-    id: 'cinematic_intro',
-    label: 'Cinematic Intro',
-    style: 'cinematic',
+    id: 'cinematic_image',
+    label: 'Cinematic Image',
     generationMode: 'prompt_generate',
-    sourceText: 'A short cinematic brand intro with strong mood, clean motion, and a premium reveal.',
-    customInstructions: 'Build this as an image/video generation prompt: clear subject, atmosphere, lighting, camera movement, motion cues, and final reveal. Keep it production-ready.',
-  },
-  {
-    id: 'reel_hook',
-    label: 'Reel Hook',
-    style: 'descriptive',
-    generationMode: 'prompt_generate',
-    sourceText: 'A scroll-stopping short-form social media visual with a strong first-frame hook.',
-    customInstructions: 'Prioritize instant readability, bold subject framing, fast visual payoff, and clear platform-ready composition.',
+    profile: { target_media: 'image', prompt_task: 'text_to_image', visual_treatment: 'cinematic', output_format: 'natural_prompt' },
+    sourceText: 'A premium cinematic visual with a clear subject and strong atmosphere.',
+    customInstructions: 'Keep the idea visually focused and generation-ready. Use filmic composition, lighting, camera, texture, and color language without inventing unrelated story elements.',
   },
   {
     id: 'product_ad',
     label: 'Product Ad',
-    style: 'photoreal',
     generationMode: 'prompt_generate',
+    profile: { target_media: 'image', prompt_task: 'text_to_image', visual_treatment: 'studio_photography', output_format: 'natural_prompt' },
     sourceText: 'A premium product advertising shot with clean composition and commercial lighting.',
-    customInstructions: 'Describe hero product placement, lighting, background, camera lens, surface details, and brand-safe polish.',
+    customInstructions: 'Prioritize hero product placement, materials, controlled lighting, background, lens/framing, and brand-safe polish.',
   },
   {
-    id: 'logo_animation',
-    label: 'Logo Animation',
-    style: 'cinematic',
+    id: 'anime_image',
+    label: 'Anime Image',
     generationMode: 'prompt_generate',
-    sourceText: 'A sleek logo reveal animation concept with polished motion design energy.',
-    customInstructions: 'Include motion design notes: reveal style, particles/glow/light sweep, timing feel, background, and end-frame clarity.',
+    profile: { target_media: 'image', prompt_task: 'text_to_image', visual_treatment: 'anime', output_format: 'natural_prompt' },
+    sourceText: 'A polished anime illustration with a clear subject, readable pose, and strong visual mood.',
+    customInstructions: 'Use anime illustration language for linework, shading, palette, composition, and lighting while keeping the supplied subject facts intact.',
   },
   {
-    id: 'discord_promo',
-    label: 'Discord Promo',
-    style: 'anime',
+    id: 'image_edit',
+    label: 'Image Edit',
     generationMode: 'prompt_generate',
-    sourceText: 'A high-energy Discord server promo visual with community, gaming, and neon UI vibes.',
-    customInstructions: 'Make it bold, readable, social-first, and suitable for a server banner or promo thumbnail.',
+    profile: { target_media: 'image', prompt_task: 'text_image_edit', visual_treatment: 'source_accurate', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested' },
+    sourceText: 'Change the requested element while preserving everything else in the source image.',
+    customInstructions: 'Write a precise editing instruction. Separate what changes from what must stay unchanged.',
+  },
+  {
+    id: 'cinematic_video',
+    label: 'Cinematic Video',
+    generationMode: 'prompt_generate',
+    profile: { target_media: 'video', prompt_task: 'text_to_video', visual_treatment: 'cinematic', motion_profile: 'cinematic', camera_behavior: 'preserve_auto' },
+    sourceText: 'A short cinematic shot with one clear subject action and a readable ending state.',
+    customInstructions: 'Describe the action over time, continuity, natural secondary motion, camera behavior, lighting, pacing, and final state without adding unrelated scene changes.',
+  },
+  {
+    id: 'dynamic_video',
+    label: 'Dynamic Video',
+    generationMode: 'prompt_generate',
+    profile: { target_media: 'video', prompt_task: 'text_to_video', visual_treatment: 'cinematic', motion_profile: 'dynamic_action', camera_behavior: 'tracking' },
+    sourceText: 'A dynamic action shot with clear movement, readable staging, and strong continuity.',
+    customInstructions: 'Use coherent anticipation, action, follow-through, camera tracking, and a stable ending state. Do not invent extra actions or cuts.',
   },
   {
     id: 'negative_cleanup',
     label: 'Negative Cleanup',
-    style: 'sdxl_tags',
     generationMode: 'negative_prompt',
+    profile: { target_media: 'image', prompt_task: 'text_to_image', visual_treatment: 'source_accurate', output_format: 'sd_tags' },
     sourceText: 'bad anatomy, blurry, low quality, artifacts, extra fingers, bad hands, watermark, text, logo',
     customInstructions: 'Clean and organize this into concise Stable Diffusion negative prompt tags. Remove duplicates and keep high-value blockers.',
   },
@@ -37603,9 +39286,13 @@ function applyPromptCaptioningQuickPromptPreset(presetId) {
   const preset = PROMPT_CAPTIONING_QUICK_PROMPT_PRESETS.find((item) => item.id === presetId);
   if (!preset) return;
   const pb = promptCaptioningState().promptBuilder;
+  const profile = promptCaptioningPromptTaskProfile(pb);
   pb.sourceText = preset.sourceText || pb.sourceText || '';
   pb.customInstructions = preset.customInstructions || '';
-  pb.promptStyle = preset.style || pb.promptStyle || 'cinematic';
+  Object.assign(profile, preset.profile || {});
+  promptCaptioningApplyPromptTask(profile.prompt_task || 'text_to_image');
+  Object.assign(promptCaptioningPromptTaskProfile(pb), preset.profile || {});
+  pb.promptStyle = promptCaptioningLegacyPromptStyle(profile);
   pb.generationMode = preset.generationMode || 'prompt_generate';
   pb.activeTool = pb.generationMode;
   pb.status = `Loaded quick preset: ${preset.label}.`;
@@ -37616,16 +39303,25 @@ function applyPromptCaptioningCaptionFormatPreset(presetId) {
   const preset = PROMPT_CAPTIONING_CAPTION_FORMAT_PRESETS.find((item) => item.id === presetId);
   if (!preset) return;
   const cap = promptCaptioningState().captioning;
+  const profile = promptCaptioningApplyCaptionTaskDefaults('caption_image');
+  const mapping = {
+    short_caption: { purpose: 'general', analysis_scope: 'full_image', grounding: 'strict', output_format: 'descriptive_caption', visual_treatment: 'source_accurate' },
+    image_prompt: { purpose: 'general', analysis_scope: 'full_image', grounding: 'balanced', output_format: 'image_generation_prompt', visual_treatment: 'source_accurate' },
+    alt_text: { purpose: 'general', analysis_scope: 'full_image', grounding: 'strict', output_format: 'alt_text', visual_treatment: 'source_accurate' },
+    shot_breakdown: { purpose: 'general', analysis_scope: 'composition_camera', grounding: 'balanced', output_format: 'shot_breakdown', visual_treatment: 'source_accurate' },
+    character_sheet: { purpose: 'character_identity', analysis_scope: 'person', grounding: 'strict', output_format: 'attribute_list', visual_treatment: 'source_accurate' },
+    scene_tags: { purpose: 'general', analysis_scope: 'full_image', grounding: 'balanced', output_format: 'tags_keywords', visual_treatment: 'source_accurate' },
+  };
+  Object.assign(profile, mapping[presetId] || {});
   cap.captionInstruction = preset.instruction || cap.captionInstruction || '';
-  cap.captionStyle = preset.captionStyle || cap.captionStyle || 'descriptive';
   cap.captionLength = preset.captionLength || cap.captionLength || 'medium';
-  cap.outputStyle = preset.outputStyle || cap.outputStyle || 'auto';
   cap.params = cap.params || {};
   cap.params.detail_level = preset.detailLevel || cap.params.detail_level || 'detailed';
-  cap.status = `Loaded caption format: ${preset.label}.`;
+  cap.status = `Loaded caption profile shortcut: ${preset.label}.`;
   refreshCaptionValidation();
   render();
 }
+
 
 function promptCaptioningEmptyState(title, body, action = '') {
   return `<div class="neo-empty prompt-captioning-empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(body)}</p>${action ? `<span>${escapeHtml(action)}</span>` : ''}</div>`;
@@ -37684,51 +39380,86 @@ function buildPromptCaptioningPayload(modeId, toolId) {
     const resolvedTool = toolId || 'image_captioning';
     const captionAsset = captionAssetFromState(cap);
     const batchState = cap.batch || {};
-    const assets = resolvedTool === 'batch_captioning'
+    const isBatch = resolvedTool === 'batch_captioning';
+    const workflowMode = normalizePromptCaptioningBatchWorkflowMode(batchState.workflowMode || 'dataset');
+    const profile = isBatch ? { ...promptCaptioningBatchProfile(cap, workflowMode), surface: workflowMode === 'library' ? 'batch_library' : 'batch_dataset' } : { ...promptCaptioningCaptionTaskProfile(cap), surface: 'caption_studio' };
+    const batchInstruction = workflowMode === 'library' ? String(batchState.libraryInstruction || '').trim() : String(batchState.datasetInstruction || '').trim();
+    const instruction = isBatch ? batchInstruction : (cap.captionInstruction || '');
+    const captionLength = isBatch ? 'medium' : (cap.captionLength || 'medium');
+    const legacyMode = promptCaptioningLegacyCaptionMode(profile.analysis_scope || 'full_image');
+    const legacyComponent = promptCaptioningLegacyComponentType(profile.analysis_scope || 'full_image');
+    const legacyStyle = promptCaptioningLegacyCaptionStyle(profile.output_format || 'descriptive_caption');
+    const legacyOutputStyle = promptCaptioningLegacyOutputStyle(profile.visual_treatment || 'source_accurate');
+    const modeParams = isBatch
+      ? (workflowMode === 'library' ? (batchState.libraryParams || { temperature: 0.45, top_p: 0.9, max_tokens: 320 }) : (batchState.datasetParams || { temperature: 0.25, top_p: 0.85, max_tokens: 256 }))
+      : (cap.params || {});
+    const assets = isBatch
       ? {}
       : { image: captionAsset.asset_ref || captionAsset.path || '', source_image: captionAsset.asset_ref || captionAsset.path || '', images: captionAsset.asset_ref || captionAsset.path ? [captionAsset] : [] };
     return {
       workspace: 'prompt_captioning',
       mode: 'captioning',
       tool: resolvedTool,
+      profile,
       inputs: {
-        caption_instruction: cap.captionInstruction || '',
-        caption_style: cap.captionStyle || 'descriptive',
-        caption_length: cap.captionLength || 'medium',
-        output_style: cap.outputStyle || 'auto',
-        selected_preset: cap.selectedPresetId || '',
+        caption_instruction: instruction,
+        caption_style: legacyStyle,
+        caption_length: captionLength,
+        output_style: legacyOutputStyle,
+        selected_preset: isBatch ? '' : (cap.selectedPresetId || ''),
         folder_path: batchState.inputFolder || '',
-        workflow_mode: batchState.workflowMode || 'dataset',
+        workflow_mode: workflowMode,
       },
       params: {
-        ...promptCaptioningCleanParams(cap.params, ['temperature', 'top_p', 'top_k', 'max_tokens', 'caption_mode', 'component_type', 'detail_level', 'crop_json', 'recursive', 'skip_existing', 'start_index']),
+        ...promptCaptioningCleanParams(modeParams, ['temperature', 'top_p', 'top_k', 'max_tokens']),
+        caption_mode: legacyMode,
+        component_type: legacyComponent,
+        detail_level: isBatch ? 'detailed' : ((cap.params || {}).detail_level || 'detailed'),
+        crop_json: !isBatch ? (cap.params || {}).crop_json : undefined,
         include_exts: batchState.includeExtensions || 'png,jpg,jpeg,webp,bmp,gif',
         recursive: Boolean(batchState.recursive),
         post_task_action: batchState.postAction || 'none',
-        caption_settings: { caption_style: cap.captionStyle || 'descriptive', caption_length: cap.captionLength || 'medium', output_style: cap.outputStyle || 'auto', caption_mode: (cap.params || {}).caption_mode || 'full_image', component_type: (cap.params || {}).component_type || 'general', detail_level: (cap.params || {}).detail_level || 'detailed', instruction: cap.captionInstruction || '', max_tokens: (cap.params || {}).max_tokens ?? 256, temperature: (cap.params || {}).temperature ?? 0.7, top_p: (cap.params || {}).top_p ?? 0.9 },
-        dataset: { output_folder: batchState.outputFolder || '', caption_images: batchState.datasetCaptionImages !== false, save_txt: batchState.datasetSaveTxt !== false, rename_images: batchState.datasetRenameImages !== false, transfer_mode: batchState.datasetTransferMode || 'copy', confirm_move: Boolean(batchState.datasetConfirmMove), external_output_confirmed: Boolean(batchState.datasetExternalOutputConfirmed), skip_processed: batchState.datasetSkipProcessed !== false, overwrite_existing: Boolean(batchState.datasetOverwriteExisting), log_format: batchState.datasetLogFormat || 'csv', prefix: batchState.datasetPrefix || 'character', pattern: batchState.datasetPattern || '{prefix}_{num}', number_start: Number(batchState.datasetNumberStart || 1), number_padding: Number(batchState.datasetNumberPadding || 4) },
+        caption_settings: {
+          caption_style: legacyStyle,
+          caption_length: captionLength,
+          output_style: legacyOutputStyle,
+          caption_mode: legacyMode,
+          component_type: legacyComponent,
+          detail_level: isBatch ? 'detailed' : ((cap.params || {}).detail_level || 'detailed'),
+          instruction,
+          max_tokens: Number(modeParams.max_tokens ?? (workflowMode === 'library' ? 320 : 256)),
+          temperature: Number(modeParams.temperature ?? (workflowMode === 'library' ? 0.45 : 0.25)),
+          top_p: Number(modeParams.top_p ?? (workflowMode === 'library' ? 0.9 : 0.85)),
+        },
+        dataset: { output_folder: batchState.outputFolder || '', caption_images: batchState.datasetCaptionImages !== false, save_txt: batchState.datasetSaveTxt !== false, rename_images: batchState.datasetRenameImages !== false, transfer_mode: batchState.datasetTransferMode || 'copy', confirm_move: Boolean(batchState.datasetConfirmMove), external_output_confirmed: Boolean(batchState.datasetExternalOutputConfirmed), skip_processed: batchState.datasetSkipProcessed !== false, overwrite_existing: Boolean(batchState.datasetOverwriteExisting), log_format: batchState.datasetLogFormat || 'csv', prefix: batchState.datasetPrefix || 'character', pattern: batchState.datasetPattern || '{prefix}_{num}', number_start: Number(batchState.datasetNumberStart || 1), number_padding: Number(batchState.datasetNumberPadding || 4), trigger_token: String(batchState.datasetTriggerToken || '').trim() },
         library: { category: batchState.libraryCategory || 'General', new_category: batchState.libraryCategoryNew || '', base_name: batchState.libraryBaseName || 'caption', number_start: Number(batchState.libraryNumberStart || 1), skip_duplicates: batchState.librarySkipDuplicates !== false },
       },
       assets,
       metadata: {
         backend_profile_id: promptCaptioningProviderProfileId('captioning'),
-        source_ui: 'caption_studio',
+        source_ui: isBatch ? 'caption_batch' : 'caption_studio',
         releaseStage: 'ready',
       },
     };
   }
   const pb = pc.promptBuilder;
+  const resolvedPromptTool = toolId || 'prompt_generate';
+  const profile = { ...promptCaptioningPromptTaskProfile(pb), surface: 'prompt_studio' };
+  const legacyStyle = promptCaptioningLegacyPromptStyle(profile);
+  pb.promptStyle = legacyStyle || pb.promptStyle || 'cinematic';
   return {
     workspace: 'prompt_captioning',
     mode: 'prompt_builder',
-    tool: toolId || 'prompt_generate',
+    tool: resolvedPromptTool,
+    profile,
     inputs: {
       source_text: pb.sourceText || '',
       idea: pb.sourceText || '',
-      style: pb.promptStyle || '',
+      style: legacyStyle,
       custom_instructions: pb.customInstructions || '',
       selected_preset: pb.selectedPresetId || '',
       character_profile: pb.selectedCharacterId || '',
+      positive_prompt: resolvedPromptTool === 'negative_prompt' ? (pb.outputText || '') : undefined,
     },
     params: promptCaptioningCleanParams(pb.params, ['temperature', 'top_p', 'top_k', 'max_tokens', 'stop_sequences', 'stream', 'cleanup_enabled', 'enhance_mode', 'rewrite_mode', 'cleanup_mode', 'dedupe_tags', 'normalize_commas', 'trim_weights', 'remove_empty_tokens']),
     assets: {},
@@ -37771,6 +39502,237 @@ function promptCaptioningSelect(id, value, options) {
     const opt = typeof option === 'string' ? { value: option, label: option } : option;
     return `<option value="${escapeAttr(opt.value)}" ${String(value || '') === String(opt.value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`;
   }).join('')}</select>`;
+}
+
+
+let promptCaptioningProfileManifestCache = null;
+let promptCaptioningProfileManifestLoading = false;
+let promptCaptioningSingleProfileLegacyMigrated = false;
+let promptCaptioningPromptProfileLegacyMigrated = false;
+
+function promptCaptioningProfileManifest() {
+  return (promptCaptioningProfileManifestCache && typeof promptCaptioningProfileManifestCache === 'object') ? promptCaptioningProfileManifestCache : {};
+}
+
+async function ensurePromptCaptioningProfileManifest() {
+  if (promptCaptioningProfileManifestCache?.schema_version || promptCaptioningProfileManifestLoading) return promptCaptioningProfileManifestCache || {};
+  promptCaptioningProfileManifestLoading = true;
+  try {
+    const data = await promptCaptioningFetchJson('/api/prompt-captioning/profile-manifest');
+    if (data?.manifest && typeof data.manifest === 'object') promptCaptioningProfileManifestCache = data.manifest;
+  } catch (error) {
+    console.warn('Prompt/Captioning profile manifest load failed', error);
+  } finally {
+    promptCaptioningProfileManifestLoading = false;
+    if (promptCaptioningProfileManifestCache?.schema_version) render();
+  }
+  return promptCaptioningProfileManifestCache || {};
+}
+
+function promptCaptioningProfileEntries(dimension = '') {
+  const manifest = promptCaptioningProfileManifest();
+  const shared = manifest.shared_dimensions || {};
+  const task = manifest.task_dimensions || {};
+  const entries = shared[dimension] || task[dimension] || [];
+  return Array.isArray(entries) ? entries.filter((item) => item && item.id) : [];
+}
+
+function promptCaptioningProfileSelect(id, dimension, value, predicate = null) {
+  let entries = promptCaptioningProfileEntries(dimension);
+  if (typeof predicate === 'function') entries = entries.filter(predicate);
+  if (!entries.length) {
+    const current = String(value || '');
+    return `<select id="${escapeAttr(id)}" ${current ? '' : 'disabled'}><option value="${escapeAttr(current)}">${escapeHtml(current || 'Loading profiles…')}</option></select>`;
+  }
+  return promptCaptioningSelect(id, value, entries.map((item) => ({ value: item.id, label: item.label || item.id })));
+}
+
+
+function promptCaptioningProfileLabel(dimension, value) {
+  const item = promptCaptioningProfileEntries(dimension).find((entry) => String(entry.id) === String(value || ''));
+  return item?.label || String(value || '').replace(/_/g, ' ') || '—';
+}
+
+function promptCaptioningPromptTaskProfile(pb = null) {
+  const state = pb || promptCaptioningState().promptBuilder || {};
+  state.profile = state.profile || {};
+  const profile = state.profile;
+  if (!promptCaptioningPromptProfileLegacyMigrated) {
+    const legacyStyle = String(state.promptStyle || '').trim().toLowerCase();
+    const treatment = ({ cinematic: 'cinematic', anime: 'anime', photoreal: 'photorealistic', photorealistic: 'photorealistic' }[legacyStyle]);
+    const format = ({ sdxl_tags: 'sd_tags', sd_tags: 'sd_tags', descriptive: 'natural_prompt', natural: 'natural_prompt' }[legacyStyle]);
+    if (treatment && (!profile.visual_treatment || profile.visual_treatment === 'source_accurate')) profile.visual_treatment = treatment;
+    if (format && (!profile.output_format || profile.output_format === 'natural_prompt')) profile.output_format = format;
+    if (legacyStyle === 'custom' && !profile.custom_visual_treatment) profile.custom_visual_treatment = 'custom';
+    promptCaptioningPromptProfileLegacyMigrated = true;
+  }
+  if (!profile.purpose) profile.purpose = 'general';
+  if (!profile.visual_treatment) profile.visual_treatment = 'source_accurate';
+  if (!profile.grounding) profile.grounding = 'transformative';
+  if (!profile.analysis_scope) profile.analysis_scope = 'full_image';
+  if (!profile.output_format) profile.output_format = 'natural_prompt';
+  if (!profile.target_media) profile.target_media = 'image';
+  if (!profile.prompt_task) profile.prompt_task = profile.target_media === 'video' ? 'text_to_video' : 'text_to_image';
+  if (!profile.edit_intent) profile.edit_intent = 'general_edit';
+  if (!profile.preservation_policy) profile.preservation_policy = 'preserve_unrequested';
+  if (!profile.motion_profile) profile.motion_profile = 'natural_balanced';
+  if (!profile.camera_behavior) profile.camera_behavior = 'preserve_auto';
+  const task = String(profile.prompt_task || 'text_to_image');
+  if (task === 'text_to_video') {
+    profile.target_media = 'video';
+    profile.output_format = 'video_generation_prompt';
+  } else if (task === 'text_image_edit') {
+    profile.target_media = 'image';
+    profile.output_format = 'edit_instruction';
+  } else {
+    profile.prompt_task = 'text_to_image';
+    profile.target_media = 'image';
+    if (['edit_instruction','video_generation_prompt'].includes(profile.output_format)) profile.output_format = 'natural_prompt';
+  }
+  return profile;
+}
+
+function promptCaptioningApplyPromptTargetMedia(mediaId = '') {
+  const pb = promptCaptioningState().promptBuilder || {};
+  const profile = promptCaptioningPromptTaskProfile(pb);
+  const target = String(mediaId || 'image') === 'video' ? 'video' : 'image';
+  profile.target_media = target;
+  if (target === 'video') {
+    profile.prompt_task = 'text_to_video';
+    profile.output_format = 'video_generation_prompt';
+  } else {
+    if (profile.prompt_task === 'text_to_video') profile.prompt_task = 'text_to_image';
+    if (profile.prompt_task === 'text_to_image' && ['edit_instruction','video_generation_prompt'].includes(profile.output_format)) profile.output_format = 'natural_prompt';
+  }
+  return profile;
+}
+
+function promptCaptioningApplyPromptTask(taskId = '') {
+  const pb = promptCaptioningState().promptBuilder || {};
+  const profile = promptCaptioningPromptTaskProfile(pb);
+  const task = ['text_to_image','text_image_edit','text_to_video'].includes(String(taskId || '')) ? String(taskId) : 'text_to_image';
+  profile.prompt_task = task;
+  if (task === 'text_to_video') {
+    profile.target_media = 'video';
+    profile.output_format = 'video_generation_prompt';
+  } else if (task === 'text_image_edit') {
+    profile.target_media = 'image';
+    profile.output_format = 'edit_instruction';
+  } else {
+    profile.target_media = 'image';
+    if (['edit_instruction','video_generation_prompt'].includes(profile.output_format)) profile.output_format = 'natural_prompt';
+  }
+  pb.activeTool = 'prompt_generate';
+  pb.generationMode = 'prompt_generate';
+  return profile;
+}
+
+function promptCaptioningPromptFormatSelect(id, value) {
+  const entries = promptCaptioningProfileEntries('output_format').filter((item) => item.prompt_studio_selectable === true);
+  if (!entries.length) return promptCaptioningProfileSelect(id, 'output_format', value);
+  return promptCaptioningSelect(id, value, entries.map((item) => ({ value: item.id, label: item.label || item.id })));
+}
+
+function promptCaptioningCaptionTaskProfile(cap = null) {
+  const state = cap || promptCaptioningState().captioning || {};
+  state.singleProfile = state.singleProfile || {};
+  const profile = state.singleProfile;
+  if (!promptCaptioningSingleProfileLegacyMigrated) {
+    const legacyMode = String((state.params || {}).caption_mode || '');
+    const legacyScope = ({ face_only: 'face', person_only: 'person', outfit_only: 'outfit', pose_only: 'pose', location_only: 'environment', custom_crop: 'custom_crop', full_image: 'full_image' }[legacyMode]);
+    if (legacyScope && (!profile.analysis_scope || profile.analysis_scope === 'full_image')) profile.analysis_scope = legacyScope;
+    const legacyTreatment = ({ realistic: 'photorealistic', anime: 'anime', auto: 'source_accurate' }[String(state.outputStyle || '')]);
+    if (legacyTreatment && (!profile.visual_treatment || profile.visual_treatment === 'source_accurate')) profile.visual_treatment = legacyTreatment;
+    const legacyFormat = String(state.captionStyle || '') === 'sd_prompt' ? 'image_generation_prompt' : (String(state.captionStyle || '') === 'descriptive' ? 'descriptive_caption' : '');
+    if (legacyFormat && (!profile.output_format || profile.output_format === 'descriptive_caption')) profile.output_format = legacyFormat;
+    promptCaptioningSingleProfileLegacyMigrated = true;
+  }
+  if (!profile.purpose) profile.purpose = 'general';
+  if (!profile.visual_treatment) profile.visual_treatment = 'source_accurate';
+  if (!profile.grounding) profile.grounding = 'balanced';
+  if (!profile.analysis_scope) profile.analysis_scope = 'full_image';
+  if (!profile.prompt_task) profile.prompt_task = 'caption_image';
+  if (!profile.edit_intent) profile.edit_intent = 'general_edit';
+  if (!profile.preservation_policy) profile.preservation_policy = 'preserve_unrequested';
+  if (!profile.motion_profile) profile.motion_profile = 'natural_balanced';
+  if (!profile.camera_behavior) profile.camera_behavior = 'preserve_auto';
+  const task = profile.prompt_task;
+  if (task === 'image_recreation') { profile.target_media = 'image'; profile.output_format = 'image_generation_prompt'; }
+  else if (task === 'image_edit') { profile.target_media = 'image'; profile.output_format = 'edit_instruction'; }
+  else if (task === 'image_to_video') { profile.target_media = 'video'; profile.output_format = 'video_generation_prompt'; }
+  else { profile.target_media = 'image'; profile.output_format = profile.output_format || 'descriptive_caption'; }
+  return profile;
+}
+
+function promptCaptioningApplyCaptionTaskDefaults(taskId = '') {
+  const cap = promptCaptioningState().captioning || {};
+  const profile = promptCaptioningCaptionTaskProfile(cap);
+  const task = String(taskId || 'caption_image');
+  profile.prompt_task = task;
+  if (task === 'caption_image') {
+    profile.target_media = 'image';
+    if (['image_generation_prompt','edit_instruction','video_generation_prompt'].includes(profile.output_format)) profile.output_format = 'descriptive_caption';
+  } else if (task === 'image_recreation') {
+    profile.target_media = 'image'; profile.output_format = 'image_generation_prompt';
+  } else if (task === 'image_edit') {
+    profile.target_media = 'image'; profile.output_format = 'edit_instruction';
+  } else if (task === 'image_to_video') {
+    profile.target_media = 'video'; profile.output_format = 'video_generation_prompt';
+  }
+  cap.activeTool = 'image_captioning';
+  return profile;
+}
+
+function promptCaptioningBatchProfile(cap = null, mode = '') {
+  const state = cap || promptCaptioningState().captioning || {};
+  state.batch = state.batch || {};
+  const batch = state.batch;
+  if (!batch.datasetInstruction && state.batchInstruction) batch.datasetInstruction = state.batchInstruction;
+  if (!batch.libraryInstruction && state.batchInstruction) batch.libraryInstruction = state.batchInstruction;
+  const workflow = normalizePromptCaptioningBatchWorkflowMode(mode || batch.workflowMode || 'dataset');
+  if (workflow === 'library') {
+    batch.libraryProfile = { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'balanced', analysis_scope: 'full_image', output_format: 'image_generation_prompt', target_media: 'image', prompt_task: 'library_caption', ...(batch.libraryProfile || {}) };
+    batch.libraryProfile.target_media = 'image';
+    batch.libraryProfile.prompt_task = 'library_caption';
+    return batch.libraryProfile;
+  }
+  batch.datasetProfile = { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'strict', analysis_scope: 'full_image', output_format: 'dataset_caption', target_media: 'image', prompt_task: 'dataset_prepare', ...(batch.datasetProfile || {}) };
+  batch.datasetProfile.visual_treatment = 'source_accurate';
+  batch.datasetProfile.grounding = 'strict';
+  batch.datasetProfile.output_format = 'dataset_caption';
+  batch.datasetProfile.target_media = 'image';
+  batch.datasetProfile.prompt_task = 'dataset_prepare';
+  batch.datasetProfile.trigger_token = String(batch.datasetTriggerToken || batch.datasetProfile.trigger_token || '').trim();
+  return batch.datasetProfile;
+}
+
+function promptCaptioningLegacyCaptionMode(scope = '') {
+  return ({ face: 'face_only', person: 'person_only', outfit: 'outfit_only', pose: 'pose_only', environment: 'location_only', custom_crop: 'custom_crop' }[scope] || 'full_image');
+}
+
+function promptCaptioningLegacyComponentType(scope = '') {
+  return ({ face: 'face', person: 'person', outfit: 'outfit', pose: 'pose', environment: 'location' }[scope] || 'custom');
+}
+
+function promptCaptioningLegacyOutputStyle(treatment = '') {
+  if (treatment === 'photorealistic') return 'realistic';
+  if (treatment === 'anime') return 'anime';
+  return 'auto';
+}
+
+function promptCaptioningLegacyCaptionStyle(format = '') {
+  if (['image_generation_prompt','tags_keywords','sd_tags'].includes(format)) return 'sd_prompt';
+  return 'descriptive';
+}
+
+function promptCaptioningLegacyPromptStyle(profile = {}) {
+  const format = String(profile.output_format || '');
+  const treatment = String(profile.visual_treatment || '');
+  if (format === 'sd_tags') return 'sdxl_tags';
+  if (format === 'natural_prompt' && treatment === 'source_accurate') return 'descriptive';
+  if (treatment === 'photorealistic') return 'photoreal';
+  if (['cinematic','anime'].includes(treatment)) return treatment;
+  return treatment && treatment !== 'source_accurate' ? treatment : 'descriptive';
 }
 
 function normalizePromptCaptioningBatchWorkflowMode(value = '') {
@@ -37845,6 +39807,8 @@ function switchPromptCaptioningBatchWorkflowMode(mode = 'dataset') {
   batch.lastAction = `Workflow mode changed to ${nextMode}`;
   batch.lastValidation = validateBatchCaptioningState();
   updatePromptCaptioningBatchWorkflowDom(nextMode);
+  const sharedInstruction = document.getElementById('promptCaptioningBatchInstruction');
+  if (sharedInstruction) sharedInstruction.value = nextMode === 'library' ? String(batch.libraryInstruction || '') : String(batch.datasetInstruction || '');
   updatePromptCaptioningBatchRunGateDom();
   saveUiState();
 }
@@ -37965,68 +39929,91 @@ function promptCaptioningRunningPanel(toolId = 'prompt_generate') {
 
 function promptCaptioningPromptStudioPanel() {
   const pb = promptCaptioningState().promptBuilder;
+  const profile = promptCaptioningPromptTaskProfile(pb);
   const params = pb.params || {};
   const output = pb.outputText || '';
   const negative = pb.negativeOutputText || '';
   const status = pb.status ? `<div class="neo-inline-status">${escapeHtml(pb.status)}</div>` : '';
   const expert = promptCaptioningExpertDiagnostics(buildPromptCaptioningPayload('prompt_builder', pb.activeTool || 'prompt_generate'));
-  const helper = promptCaptioningHelperText('Prompt Studio is ready: start from a quick workflow, generate/enhance/rewrite/cleanup, then copy, hand off, or save locally.');
+  const targetMedia = profile.target_media === 'video' ? 'video' : 'image';
+  const task = String(profile.prompt_task || (targetMedia === 'video' ? 'text_to_video' : 'text_to_image'));
+  const isVideo = task === 'text_to_video';
+  const isEdit = task === 'text_image_edit';
+  const isTextToImage = task === 'text_to_image';
+  const helper = promptCaptioningHelperText(isVideo
+    ? 'Prompt Studio is text-first: describe the shot you want and Neo will compile a temporal Text → Video prompt with motion, continuity, camera behavior, and an ending state.'
+    : isEdit
+      ? 'Prompt Studio can turn a text-only change request into a clean image-edit instruction. Because no image is visible here, Neo will not invent source-image details.'
+      : 'Prompt Studio is text-first: build image-generation prompts from ideas, then enhance, rewrite, clean, copy, hand off, or save them locally.');
+  const taskOptions = promptCaptioningProfileEntries('prompt_task').filter((item) => item.surface === 'prompt_studio' && item.target_media === targetMedia);
+  const promptTaskSelect = taskOptions.length
+    ? promptCaptioningSelect('promptCaptioningPromptTask', task, taskOptions.map((item) => ({ value: item.id, label: item.label || item.id })))
+    : promptCaptioningProfileSelect('promptCaptioningPromptTask', 'prompt_task', task, (item) => item.surface === 'prompt_studio');
+  const taskSpecific = isEdit ? `
+      <label>Edit Intent${promptCaptioningProfileSelect('promptCaptioningPromptEditIntent', 'edit_intent', profile.edit_intent || 'general_edit')}</label>
+      <label>Preservation${promptCaptioningProfileSelect('promptCaptioningPromptPreservation', 'preservation_policy', profile.preservation_policy || 'preserve_unrequested')}</label>
+    ` : isVideo ? `
+      <label>Motion Profile${promptCaptioningProfileSelect('promptCaptioningPromptMotionProfile', 'motion_profile', profile.motion_profile || 'natural_balanced')}</label>
+      <label>Camera Behavior${promptCaptioningProfileSelect('promptCaptioningPromptCameraBehavior', 'camera_behavior', profile.camera_behavior || 'preserve_auto')}</label>
+    ` : `
+      <label>Prompt Format${promptCaptioningPromptFormatSelect('promptCaptioningPromptFormat', profile.output_format || 'natural_prompt')}</label>
+    `;
+  const outputFields = isTextToImage
+    ? `<div class="neo-pc-two-column-fields neo-pc-output-pair">
+        <label>Prompt output${promptCaptioningTextarea('promptCaptioningOutputText', output, 'Generated image prompt appears here.')}</label>
+        <label>Negative prompt output${promptCaptioningTextarea('promptCaptioningNegativeOutputText', negative, 'Generated negative prompt appears here when using Negative.')}</label>
+      </div>`
+    : `<div class="neo-pc-output-pair">
+        <label>${isVideo ? 'Video prompt output' : 'Edit instruction output'}${promptCaptioningTextarea('promptCaptioningOutputText', output, isVideo ? 'Generated Text → Video prompt appears here.' : 'Generated image-edit instruction appears here.')}</label>
+      </div>`;
+  const generationButtons = `
+      ${promptCaptioningButton('promptCaptioningRunPrompt', isVideo ? '🎬 Generate Video Prompt' : isEdit ? '🛠️ Generate Edit Prompt' : '✨ Generate', 'primary', promptCaptioningActionDisabled('prompt_builder', 'prompt_generate'))}
+      ${promptCaptioningButton('promptCaptioningEnhancePrompt', '🧼 Enhance', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_enhance'))}
+      ${promptCaptioningButton('promptCaptioningRewritePrompt', '✍️ Rewrite', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_rewrite'))}
+      ${promptCaptioningButton('promptCaptioningCleanupPrompt', '🧽 Cleanup', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_cleanup'))}
+      ${isTextToImage ? promptCaptioningButton('promptCaptioningNegativePrompt', '➖ Negative', 'warning', promptCaptioningActionDisabled('prompt_builder', 'negative_prompt')) : ''}
+    `;
+  const handoffButtons = isVideo ? `
+      ${promptCaptioningButton('promptCaptioningSendPromptVideoAppend', '➕ Append to Video', 'success')}
+      ${promptCaptioningButton('promptCaptioningReplacePromptVideo', '🔁 Replace Video Prompt', 'secondary')}
+    ` : `
+      ${promptCaptioningButton('promptCaptioningSendPromptImageAppend', '➕ Append Positive', 'success')}
+      ${promptCaptioningButton('promptCaptioningReplacePromptImage', '🔁 Replace Positive', 'secondary')}
+      ${isTextToImage ? promptCaptioningButton('promptCaptioningSendNegativeImageAppend', '➖ Send Negative', 'warning') : ''}
+    `;
   return `
     ${helper}
     ${status}
-    <div class="neo-mini-card prompt-captioning-workflow-card">
+    <div class="neo-mini-card prompt-captioning-workflow-card" data-testid="prompt-studio-task-profile">
       <strong>Quick starts</strong>
-      <p class="neo-muted">Pick a common creative workflow, then edit the idea or instructions before generating.</p>
+      <p class="neo-muted">Choose a starting workflow, then customize the target media, task, treatment, and instructions.</p>
       ${promptCaptioningQuickPresetButtons('prompt')}
     </div>
     <div class="neo-form-grid">
       <label>Text Backend Profile<select id="promptCaptioningPromptProfile">${promptCaptioningProviderOptions('prompt_builder')}</select></label>
-      <label>Generation mode${promptCaptioningSelect('promptCaptioningGenerationMode', pb.generationMode || 'prompt_generate', [
-        { value: 'prompt_generate', label: 'Generate prompt' },
-        { value: 'prompt_enhance', label: 'Enhance' },
-        { value: 'prompt_rewrite', label: 'Rewrite' },
-        { value: 'prompt_cleanup', label: 'Cleanup' },
-        { value: 'negative_prompt', label: 'Negative prompt' },
-        { value: 'text_transform', label: 'Text transform' },
-      ])}</label>
-      <label>Prompt style${promptCaptioningSelect('promptCaptioningPromptStyle', pb.promptStyle || 'cinematic', [
-        { value: 'cinematic', label: 'Cinematic' },
-        { value: 'sdxl_tags', label: 'SDXL tags' },
-        { value: 'descriptive', label: 'Descriptive' },
-        { value: 'anime', label: 'Anime' },
-        { value: 'photoreal', label: 'Photoreal' },
-        { value: 'custom', label: 'Custom' },
-      ])}</label>
+      <label>Target Media${promptCaptioningProfileSelect('promptCaptioningPromptTargetMedia', 'target_media', targetMedia)}</label>
+      <label>Prompt Task${promptTaskSelect}</label>
+      <label>Visual Treatment${promptCaptioningProfileSelect('promptCaptioningPromptVisualTreatment', 'visual_treatment', profile.visual_treatment || 'source_accurate')}</label>
+      ${taskSpecific}
       <label>Max tokens${promptCaptioningInput('promptCaptioningMaxTokens', params.max_tokens ?? 512, '512', 'number')}</label>
       <label>Temperature${promptCaptioningInput('promptCaptioningTemperature', params.temperature ?? 0.7, '0.7', 'number')}</label>
       <label>Top-p${promptCaptioningInput('promptCaptioningTopP', params.top_p ?? 0.9, '0.9', 'number')}</label>
     </div>
+    ${isVideo ? `<div class="neo-mini-card"><strong>Temporal prompt contract</strong><p class="neo-muted">Neo will keep the source idea intact while organizing the result around starting state → motion/action → continuity → camera behavior → ending state. It will not invent extra cuts, characters, locations, or actions unless you ask for them.</p></div>` : ''}
+    ${isEdit ? `<div class="neo-mini-card"><strong>Text-only edit contract</strong><p class="neo-muted">Prompt Studio does not see an image. It will describe the requested change and preservation constraints without pretending to know unseen source details.</p></div>` : ''}
     ${pb.isRunning ? promptCaptioningRunningPanel(pb.activeTool || pb.generationMode || 'prompt_generate') : ''}
     <div class="neo-pc-two-column-fields neo-pc-input-pair">
-      <label>Source text / idea${promptCaptioningTextarea('promptCaptioningSourceText', pb.sourceText || '', 'Type the prompt idea, rough prompt, or text to transform.')}</label>
-      <label>Custom instructions${promptCaptioningTextarea('promptCaptioningCustomInstructions', pb.customInstructions || '', 'Optional style, cleanup, rewrite, or generation instructions.')}</label>
+      <label>${isVideo ? 'Video idea / shot description' : isEdit ? 'Edit request' : 'Source text / idea'}${promptCaptioningTextarea('promptCaptioningSourceText', pb.sourceText || '', isVideo ? 'Describe the subject, action, timing, environment, and any camera behavior you want.' : isEdit ? 'Describe exactly what should change in the image.' : 'Type the image idea, rough prompt, or text to transform.')}</label>
+      <label>Custom instructions${promptCaptioningTextarea('promptCaptioningCustomInstructions', pb.customInstructions || '', isVideo ? 'Optional timing, continuity, motion, camera, or preservation instructions.' : isEdit ? 'Optional preservation constraints or edit-specific instructions.' : 'Optional style, cleanup, rewrite, or generation instructions.')}</label>
     </div>
-    <div class="neo-pc-two-column-fields neo-pc-output-pair">
-      <label>Prompt output${promptCaptioningTextarea('promptCaptioningOutputText', output, 'Generated prompt appears here.')}</label>
-      <label>Negative prompt output${promptCaptioningTextarea('promptCaptioningNegativeOutputText', negative, 'Generated negative prompt appears here when using Negative prompt mode.')}</label>
-    </div>
+    ${outputFields}
     <div class="neo-action-row prompt-captioning-actions" data-testid="prompt-studio-action-groups">
-      ${promptCaptioningActionGroup('Main actions', `
-        ${promptCaptioningButton('promptCaptioningRunPrompt', '✨ Generate', 'primary', promptCaptioningActionDisabled('prompt_builder', 'prompt_generate'))}
-        ${promptCaptioningButton('promptCaptioningEnhancePrompt', '🧼 Enhance', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_enhance'))}
-        ${promptCaptioningButton('promptCaptioningRewritePrompt', '✍️ Rewrite', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_rewrite'))}
-        ${promptCaptioningButton('promptCaptioningCleanupPrompt', '🧽 Cleanup', 'secondary', promptCaptioningActionDisabled('prompt_builder', 'prompt_cleanup'))}
-        ${promptCaptioningButton('promptCaptioningNegativePrompt', '➖ Negative', 'warning', promptCaptioningActionDisabled('prompt_builder', 'negative_prompt'))}
-      `, 'main-actions')}
+      ${promptCaptioningActionGroup('Main actions', generationButtons, 'main-actions')}
       ${promptCaptioningActionGroup('Output', `
         ${promptCaptioningButton('promptCaptioningCopyPrompt', '📋 Copy', 'ghost')}
         ${promptCaptioningButton('promptCaptioningClearPrompt', '🧹 Clear Output', 'danger')}
       `, 'output-actions')}
-      ${promptCaptioningActionGroup('Send to Image', `
-        ${promptCaptioningButton('promptCaptioningSendPromptImageAppend', '➕ Append Positive', 'success')}
-        ${promptCaptioningButton('promptCaptioningReplacePromptImage', '🔁 Replace Positive', 'secondary')}
-        ${promptCaptioningButton('promptCaptioningSendNegativeImageAppend', '➖ Send Negative', 'warning')}
-      `, 'handoff-actions')}
+      ${promptCaptioningActionGroup(isVideo ? 'Send to Video' : 'Send to Image', handoffButtons, 'handoff-actions')}
     </div>
     ${expert}
   `;
@@ -38215,14 +40202,32 @@ function promptCaptioningSyncPromptOutputsFromDom() {
 function syncPromptCaptioningPromptFormFromDom() {
   const pc = promptCaptioningState();
   const pb = pc.promptBuilder || (pc.promptBuilder = {});
+  promptCaptioningPromptTaskProfile(pb);
   const read = (id) => promptCaptioningLiveFieldValue(id, '');
   pb.sourceText = read('promptCaptioningSourceText') || pb.sourceText || '';
   pb.customInstructions = read('promptCaptioningCustomInstructions') || pb.customInstructions || '';
   pb.outputText = read('promptCaptioningOutputText') || pb.outputText || '';
   pb.negativeOutputText = read('promptCaptioningNegativeOutputText') || pb.negativeOutputText || '';
-  pb.promptStyle = read('promptCaptioningPromptStyle') || pb.promptStyle || 'cinematic';
+  const targetMedia = read('promptCaptioningPromptTargetMedia');
+  if (targetMedia) promptCaptioningApplyPromptTargetMedia(targetMedia);
+  const promptTask = read('promptCaptioningPromptTask');
+  if (promptTask) promptCaptioningApplyPromptTask(promptTask);
+  const liveProfile = promptCaptioningPromptTaskProfile(pb);
+  const treatment = read('promptCaptioningPromptVisualTreatment');
+  if (treatment) liveProfile.visual_treatment = treatment;
+  const format = read('promptCaptioningPromptFormat');
+  if (format && liveProfile.prompt_task === 'text_to_image') liveProfile.output_format = format;
+  const editIntent = read('promptCaptioningPromptEditIntent');
+  if (editIntent) liveProfile.edit_intent = editIntent;
+  const preservation = read('promptCaptioningPromptPreservation');
+  if (preservation) liveProfile.preservation_policy = preservation;
+  const motionProfile = read('promptCaptioningPromptMotionProfile');
+  if (motionProfile) liveProfile.motion_profile = motionProfile;
+  const cameraBehavior = read('promptCaptioningPromptCameraBehavior');
+  if (cameraBehavior) liveProfile.camera_behavior = cameraBehavior;
+  pb.promptStyle = promptCaptioningLegacyPromptStyle(liveProfile);
   pb.providerProfileId = read('promptCaptioningPromptProfile') || pb.providerProfileId || '';
-  pb.generationMode = read('promptCaptioningGenerationMode') || pb.generationMode || 'prompt_generate';
+  pb.generationMode = pb.generationMode || 'prompt_generate';
   const saveName = read('promptCaptioningSaveName');
   pb.saveName = saveName || pb.saveName || '';
   pb.saveCategory = read('promptCaptioningSaveCategory') || pb.saveCategory || 'General';
@@ -38237,6 +40242,55 @@ function syncPromptCaptioningPromptFormFromDom() {
     pb.params[key] = Number(field.value);
   });
   return pb;
+}
+
+function syncPromptCaptioningCaptionFormFromDom() {
+  const pc = promptCaptioningState();
+  const cap = pc.captioning || (pc.captioning = {});
+  cap.params = cap.params || {};
+  const field = (id) => document.getElementById(id);
+  const read = (id) => {
+    const node = field(id);
+    return node ? String(node.value ?? '') : '';
+  };
+
+  const instructionField = field('promptCaptioningCaptionInstruction');
+  if (instructionField) cap.captionInstruction = String(instructionField.value ?? '');
+  const profileField = field('promptCaptioningCaptionProfile');
+  if (profileField) cap.providerProfileId = String(profileField.value || cap.providerProfileId || '');
+
+  const taskValue = read('promptCaptioningCaptionTask');
+  if (taskValue) promptCaptioningApplyCaptionTaskDefaults(taskValue);
+  const liveProfile = promptCaptioningCaptionTaskProfile(cap);
+  [
+    ['promptCaptioningCaptionPurpose', 'purpose'],
+    ['promptCaptioningCaptionVisualTreatment', 'visual_treatment'],
+    ['promptCaptioningCaptionAnalysisScope', 'analysis_scope'],
+    ['promptCaptioningCaptionOutputFormat', 'output_format'],
+    ['promptCaptioningCaptionGrounding', 'grounding'],
+    ['promptCaptioningCaptionEditIntent', 'edit_intent'],
+    ['promptCaptioningCaptionPreservationPolicy', 'preservation_policy'],
+    ['promptCaptioningCaptionMotionProfile', 'motion_profile'],
+    ['promptCaptioningCaptionCameraBehavior', 'camera_behavior'],
+  ].forEach(([id, key]) => {
+    const node = field(id);
+    if (node && String(node.value || '')) liveProfile[key] = String(node.value);
+  });
+
+  const lengthField = field('promptCaptioningCaptionLength');
+  if (lengthField) cap.captionLength = String(lengthField.value || cap.captionLength || 'medium');
+  const detailField = field('promptCaptioningCaptionDetailLevel') || field('promptCaptioningDetailLevel');
+  if (detailField) cap.params.detail_level = String(detailField.value || cap.params.detail_level || 'detailed');
+  [
+    ['promptCaptioningCaptionMaxTokens', 'max_tokens'],
+    ['promptCaptioningCaptionTemperature', 'temperature'],
+    ['promptCaptioningCaptionTopP', 'top_p'],
+  ].forEach(([id, key]) => {
+    const node = field(id);
+    if (!node || node.value === '') return;
+    cap.params[key] = Number(node.value);
+  });
+  return cap;
 }
 
 function clearPromptCaptioningRunningUi() {
@@ -38319,13 +40373,14 @@ async function runPromptCaptioningPrompt(toolId) {
     if (started && Date.now() - started < 120000) return;
     pb.isRunning = false;
   }
-  pb.activeTool = toolId || pb.generationMode || 'prompt_generate';
-  pb.generationMode = pb.activeTool;
+  pb.activeTool = toolId || 'prompt_generate';
+  if (pb.activeTool === 'prompt_generate') pb.generationMode = 'prompt_generate';
   pb.status = 'Running Prompt Studio…';
   pb.isRunning = true;
   pb.runStartedAt = new Date().toISOString();
-  render();
+  // Snapshot the fully synchronized live form before any running-state rerender.
   const payload = buildPromptCaptioningPayload('prompt_builder', pb.activeTool);
+  render();
   try {
     const response = await fetch('/api/prompt-captioning/prompt/run', {
       method: 'POST',
@@ -38379,9 +40434,10 @@ async function savePromptCaptioningPrompt() {
         prompt,
         negative_prompt: promptCaptioningLiveFieldValue('promptCaptioningNegativeOutputText', pb.negativeOutputText || ''),
         source_text: pb.sourceText || '',
-        style: pb.promptStyle || '',
-        settings: pb.params || {},
-        metadata: { source_surface: 'prompt_captioning', source_tool: pb.activeTool || pb.generationMode || 'prompt_generate' },
+        style: promptCaptioningLegacyPromptStyle(promptCaptioningPromptTaskProfile(pb)),
+        settings: { ...(pb.params || {}), profile: { ...promptCaptioningPromptTaskProfile(pb) } },
+        profile: { ...promptCaptioningPromptTaskProfile(pb) },
+        metadata: { source_surface: 'prompt_captioning', source_tool: pb.activeTool || pb.generationMode || 'prompt_generate', target_media: promptCaptioningPromptTaskProfile(pb).target_media || 'image', prompt_task: promptCaptioningPromptTaskProfile(pb).prompt_task || 'text_to_image' },
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -38464,6 +40520,18 @@ function applyPromptCaptioningHandoff(handoff = {}) {
       return;
     }
   }
+  if (workspace === 'video') {
+    if (field === 'positive_prompt' || field === 'negative_prompt') {
+      const key = field === 'negative_prompt' ? 'negative_prompt' : 'positive_prompt';
+      const current = String(state.videoDraft?.[key] || '');
+      const next = replace ? text : [current, text].filter(Boolean).join(current ? '\n' : '');
+      state.videoDraft = state.videoDraft || {};
+      state.videoDraft[key] = next;
+      state.activeSurfaceId = 'video';
+      saveUiState();
+      return;
+    }
+  }
   if (workspace === 'prompt_builder') {
     const pb = pc.promptBuilder;
     const current = field === 'output_text' ? pb.outputText : field === 'negative_output_text' ? pb.negativeOutputText : field === 'custom_instructions' ? pb.customInstructions : pb.sourceText;
@@ -38532,11 +40600,10 @@ function promptCaptioningPromptPresetDetailsPanel(pb, library) {
   const selected = (library.promptPresets || []).find((item) => item.preset_id === pb.selectedPresetId) || {};
   return `
     ${neoFeatureTitleCard('Prompt Library', 'Prompt Preset Details', 'Tune reusable prompt presets and generation defaults.', ['presets', 'prompt builder'], { testId: 'prompt-preset-details-feature-title-card', extraClass: 'neo-pc-panel-feature-title' })}
-    <p>Manage prompt preset metadata without promoting Library into a duplicate workspace mode.</p>
+    <p>Manage prompt preset metadata without promoting Library into a duplicate workspace mode. Target Media, Prompt Task, Visual Treatment, Prompt Format, motion/edit settings, and compatibility style are captured from the current Prompt Studio profile automatically.</p>
     <div class="neo-form-grid">
       <label>Preset name${promptCaptioningInput('promptCaptioningPresetName', pb.presetName || selected.name || '', 'Preset name')}</label>
       <label>Category${promptCaptioningInput('promptCaptioningPresetCategory', pb.presetCategory || selected.category || 'General', 'General')}</label>
-      <label>Style${promptCaptioningInput('promptCaptioningPresetStyle', pb.presetStyle || selected.style || pb.promptStyle || '', 'cinematic, anime, photoreal...')}</label>
       <label>Subject${promptCaptioningInput('promptCaptioningPresetSubject', pb.presetSubject || selected.subject || '', 'subject / scene')}</label>
       <label>Mood${promptCaptioningInput('promptCaptioningPresetMood', pb.presetMood || selected.mood || '', 'mood')}</label>
       <label>Tags${promptCaptioningInput('promptCaptioningPresetTags', pb.presetTags || (selected.tags || []).join(', '), 'tags')}</label>
@@ -38587,7 +40654,8 @@ function promptCaptioningSavedPromptList(records = [], query = '') {
   const search = String(query || '').trim().toLowerCase();
   const filtered = records.filter((record) => {
     if (!search) return true;
-    return [record.name, record.category, record.style, record.prompt, record.tags?.join?.(', ') || record.tags, record.notes]
+    const profile = record.profile || record.settings?.profile || {};
+    return [record.name, record.category, record.style, profile.target_media, profile.prompt_task, record.prompt, record.tags?.join?.(', ') || record.tags, record.notes]
       .map((item) => String(item || '').toLowerCase())
       .some((text) => text.includes(search));
   });
@@ -38598,7 +40666,10 @@ function promptCaptioningSavedPromptList(records = [], query = '') {
     const tags = Array.isArray(record.tags) ? record.tags : String(record.tags || '').split(',').map((item) => item.trim()).filter(Boolean);
     const prompt = String(record.prompt || record.output_text || '').trim();
     const date = String(record.created_at || '').split('T')[0] || '';
-    const metaChips = [record.category || 'General', record.style || '', date].filter(Boolean);
+    const recordProfile = record.profile || record.settings?.profile || {};
+    const mediaLabel = recordProfile.target_media === 'video' ? 'Video' : recordProfile.target_media === 'image' ? 'Image' : '';
+    const taskLabel = recordProfile.prompt_task ? promptCaptioningProfileLabel('prompt_task', recordProfile.prompt_task) : '';
+    const metaChips = [record.category || 'General', mediaLabel, taskLabel, record.style || '', date].filter(Boolean);
     return `<article class="neo-record-card neo-saved-prompt-card" data-prompt-record-id="${escapeAttr(id)}">
       <div class="neo-saved-prompt-head">
         <div class="neo-saved-prompt-title-wrap">
@@ -38744,6 +40815,7 @@ function promptCaptioningEnsureLibraryLoaded(kind = 'all') {
 async function savePromptCaptioningPreset() {
   const pc = promptCaptioningState();
   const pb = pc.promptBuilder;
+  const profile = promptCaptioningPromptTaskProfile(pb);
   try {
     const data = await promptCaptioningFetchJson('/api/prompt-captioning/prompt-preset/save', {
       method: 'POST',
@@ -38752,14 +40824,15 @@ async function savePromptCaptioningPreset() {
         preset_id: pb.selectedPresetId || '',
         name: pb.presetName || 'Untitled Preset',
         category: pb.presetCategory || 'General',
-        style: pb.presetStyle || pb.promptStyle || '',
+        style: promptCaptioningLegacyPromptStyle(profile),
+        profile: { ...profile },
         subject: pb.presetSubject || '',
         mood: pb.presetMood || '',
         tags: pb.presetTags || '',
         notes: pb.presetNotes || '',
         default_positive: pb.outputText || pb.sourceText || '',
         default_negative: pb.negativeOutputText || '',
-        settings: pb.params || {},
+        settings: { ...(pb.params || {}), profile: { ...profile } },
       }),
     });
     pc.library.promptPresets = data.records || pc.library.promptPresets || [];
@@ -38806,7 +40879,16 @@ function loadPromptCaptioningRecord(id) {
   pb.sourceText = item.source_text || pb.sourceText || '';
   pb.outputText = item.prompt || item.output_text || pb.outputText || '';
   pb.negativeOutputText = item.negative_prompt || pb.negativeOutputText || '';
-  pb.promptStyle = item.style || pb.promptStyle || '';
+  const savedProfile = item.profile && typeof item.profile === 'object' ? item.profile : (item.settings?.profile && typeof item.settings.profile === 'object' ? item.settings.profile : (item.payload?.profile && typeof item.payload.profile === 'object' ? item.payload.profile : (item.result_metadata?.profile && typeof item.result_metadata.profile === 'object' ? item.result_metadata.profile : null)));
+  if (savedProfile) {
+    pb.profile = { ...(pb.profile || {}), ...savedProfile };
+    promptCaptioningPromptProfileLegacyMigrated = true;
+    pb.promptStyle = promptCaptioningLegacyPromptStyle(promptCaptioningPromptTaskProfile(pb));
+  } else {
+    pb.promptStyle = item.style || pb.promptStyle || '';
+    promptCaptioningPromptProfileLegacyMigrated = false;
+    promptCaptioningPromptTaskProfile(pb);
+  }
   pb.selectedSavedPromptId = item.prompt_id || '';
   pb.saveName = item.name || pb.saveName || '';
   pb.saveCategory = item.category || pb.saveCategory || 'General';
@@ -38829,7 +40911,16 @@ function loadPromptCaptioningPreset(id) {
   pb.presetMood = item.mood || '';
   pb.presetTags = (item.tags || []).join(', ');
   pb.presetNotes = item.notes || '';
-  pb.promptStyle = item.style || pb.promptStyle || '';
+  const savedProfile = item.profile && typeof item.profile === 'object' ? item.profile : (item.settings?.profile && typeof item.settings.profile === 'object' ? item.settings.profile : (item.payload?.profile && typeof item.payload.profile === 'object' ? item.payload.profile : (item.result_metadata?.profile && typeof item.result_metadata.profile === 'object' ? item.result_metadata.profile : null)));
+  if (savedProfile) {
+    pb.profile = { ...(pb.profile || {}), ...savedProfile };
+    promptCaptioningPromptProfileLegacyMigrated = true;
+    pb.promptStyle = promptCaptioningLegacyPromptStyle(promptCaptioningPromptTaskProfile(pb));
+  } else {
+    pb.promptStyle = item.style || pb.promptStyle || '';
+    promptCaptioningPromptProfileLegacyMigrated = false;
+    promptCaptioningPromptTaskProfile(pb);
+  }
   pb.sourceText = item.default_positive || pb.sourceText || '';
   pb.negativeOutputText = item.default_negative || pb.negativeOutputText || '';
   pb.params = { ...(pb.params || {}), ...(item.settings || {}) };
@@ -39130,21 +41221,27 @@ function promptCaptioningBatchResultRows(batch = {}, library = {}) {
 }
 
 function promptCaptioningBatchCaptioningPanel(cap, library) {
+  ensurePromptCaptioningProfileManifest();
   cap.batch = cap.batch || {};
   const batch = cap.batch;
   const mode = normalizePromptCaptioningBatchWorkflowMode(batch.workflowMode || 'dataset');
+  const datasetProfile = promptCaptioningBatchProfile(cap, 'dataset');
+  const libraryProfile = promptCaptioningBatchProfile(cap, 'library');
+  const activeProfile = mode === 'library' ? libraryProfile : datasetProfile;
+  const activeInstruction = mode === 'library' ? (batch.libraryInstruction || '') : (batch.datasetInstruction || '');
   const preview = Array.isArray(batch.previewFiles) && batch.previewFiles.length
     ? `<div class="neo-record-list neo-pc-folder-preview-list">${batch.previewFiles.slice(0, 24).map((item) => `<div class="neo-record-card"><strong>${escapeHtml(item.name || item.filename || item.path || 'Image')}</strong><small>${escapeHtml(item.relative_path || item.path || item.extension || '')}</small></div>`).join('')}</div>`
     : '<div class="neo-empty">No folder preview loaded yet. Use Preview files to scan the input folder.</div>';
   const datasetVisible = mode === 'dataset';
   const libraryVisible = mode === 'library';
-  const customCropWarning = (cap.params || {}).caption_mode === 'custom_crop' ? '<div class="neo-inline-status warning">Batch captioning does not support Custom crop mode. Switch Caption mode before running batch.</div>' : '';
+  const customCropWarning = activeProfile.analysis_scope === 'custom_crop' ? '<div class="neo-inline-status warning">Batch captioning does not support Custom Crop analysis scope. Choose another scope before running batch.</div>' : '';
   const display = promptCaptioningDisplayModeSetup();
   const transferControl = display.expert
     ? `<label>Image transfer${promptCaptioningSelect('promptCaptioningBatchDatasetTransferMode', batch.datasetTransferMode || 'copy', ['copy', 'move'])}<small class="neo-muted">Copy is safest. Move requires confirmation.</small></label>`
     : `<label>Image transfer<input id="promptCaptioningBatchDatasetTransferMode" class="neo-input" value="copy" disabled><small class="neo-muted">Move mode is available only in Expert mode.</small></label>`;
+  const libraryFormats = new Set(['descriptive_caption','image_generation_prompt','tags_keywords','alt_text','shot_breakdown','attribute_list']);
   return `
-    ${promptCaptioningHelperText('Batch captioning is folder-based: Dataset Preparation creates training sidecar files, while Save to Library creates normal caption records. No per-image upload queue is used here.')}
+    ${promptCaptioningHelperText('Batch captioning now uses independent purpose profiles. Dataset Preparation is strict/source-accurate for training data; Save to Library keeps its own reusable caption/prompt profile. Single-image Caption Studio settings no longer leak into either batch workflow.')}
     <div class="neo-form-grid neo-pc-batch-mode-extensions-row" data-testid="batch-mode-extensions-row">
       <div class="neo-field neo-pc-batch-workflow-field">
         <label>Workflow mode</label>
@@ -39157,11 +41254,17 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
       <label>Input folder<div class="neo-inline-field"><input id="promptCaptioningBatchInputFolder" data-pc-batch-input-folder="true" class="neo-input" value="${escapeAttr(batch.inputFolder || '')}" placeholder="Select the source image folder"><button type="button" id="promptCaptioningBrowseBatchInputFolder" class="neo-btn secondary" data-pc-folder-browse="inputFolder">Browse</button></div></label>
       <label>Post action${promptCaptioningSelect('promptCaptioningBatchPostAction', batch.postAction || 'none', ['none', 'sleep', 'hibernate', 'shutdown'])}<span class="neo-pc-batch-recursive-under-post">${promptCaptioningToggle('promptCaptioningBatchRecursive', Boolean(batch.recursive), 'Recursive folders')}</span></label>
     </div>
-    <label>Shared instruction${promptCaptioningTextarea('promptCaptioningBatchInstruction', cap.batchInstruction || cap.captionInstruction || '', 'Instruction applied to every folder image')}</label>
+    <label>Shared instruction${promptCaptioningTextarea('promptCaptioningBatchInstruction', activeInstruction, mode === 'dataset' ? 'Highest-priority instruction applied to every dataset image.' : 'Highest-priority instruction applied to every image saved to the library.')}</label>
     <section class="neo-section-card neo-pc-batch-dataset" data-batch-mode="dataset" style="display:${datasetVisible ? '' : 'none'}">
-      <div class="neo-section-header"><span class="neo-section-title">Dataset Preparation</span><span class="neo-state-pill success">Training data</span></div>
+      <div class="neo-section-header"><span class="neo-section-title">Dataset Preparation</span><span class="neo-state-pill success">Strict training data</span></div>
       <div class="neo-section-body">
-        <div class="neo-form-grid">
+        <div class="neo-form-grid" data-testid="batch-dataset-profile-grid">
+          <label>Dataset purpose${promptCaptioningProfileSelect('promptCaptioningBatchDatasetPurpose', 'purpose', datasetProfile.purpose || 'general')}</label>
+          <label>Analysis scope${promptCaptioningProfileSelect('promptCaptioningBatchDatasetScope', 'analysis_scope', datasetProfile.analysis_scope || 'full_image', (item) => item.id !== 'custom_crop')}</label>
+          <label>Trigger token${promptCaptioningInput('promptCaptioningBatchDatasetTriggerToken', batch.datasetTriggerToken || '', 'Optional LoRA trigger token')}</label>
+          <label>Grounding<input class="neo-input" value="Strict (locked for datasets)" disabled></label>
+          <label>Visual treatment<input class="neo-input" value="Source Accurate / Neutral (locked)" disabled></label>
+          <label>Output format<input class="neo-input" value="Dataset Caption (locked)" disabled></label>
           <label>Output folder<div class="neo-inline-field"><input id="promptCaptioningBatchOutputFolder" data-pc-batch-output-folder="true" class="neo-input" value="${escapeAttr(batch.outputFolder || '')}" placeholder="Select the dataset output folder"><button type="button" id="promptCaptioningBrowseBatchOutputFolder" class="neo-btn secondary" data-pc-folder-browse="outputFolder">Browse</button></div></label>
           ${transferControl}
           <label>Dataset log${promptCaptioningSelect('promptCaptioningBatchDatasetLogFormat', batch.datasetLogFormat || 'csv', ['csv', 'json', 'none'])}</label>
@@ -39177,14 +41280,20 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
           ${promptCaptioningToggle('promptCaptioningBatchDatasetSkipProcessed', batch.datasetSkipProcessed !== false, 'Skip already processed')}
           ${promptCaptioningToggle('promptCaptioningBatchDatasetOverwriteExisting', Boolean(batch.datasetOverwriteExisting), 'Overwrite existing')}
         </div>
+        <div class="neo-inline-status success">Dataset fidelity policy: strict grounding · source-accurate treatment · conservative sampling (temperature ≤ 0.30).</div>
         ${promptCaptioningBatchSafetyPanel(batch)}
         <div class="neo-inline-status">Example output: ${escapeHtml(promptCaptioningBatchExample(batch))}</div>
       </div>
     </section>
     <section class="neo-section-card neo-pc-batch-library" data-batch-mode="library" style="display:${libraryVisible ? '' : 'none'}">
-      <div class="neo-section-header"><span class="neo-section-title">Save to Library</span><span class="neo-state-pill success">Normal captioning</span></div>
+      <div class="neo-section-header"><span class="neo-section-title">Save to Library</span><span class="neo-state-pill success">Reusable visual reference</span></div>
       <div class="neo-section-body">
-        <div class="neo-form-grid">
+        <div class="neo-form-grid" data-testid="batch-library-profile-grid">
+          <label>Purpose${promptCaptioningProfileSelect('promptCaptioningBatchLibraryPurpose', 'purpose', libraryProfile.purpose || 'general')}</label>
+          <label>Visual treatment${promptCaptioningProfileSelect('promptCaptioningBatchLibraryVisualTreatment', 'visual_treatment', libraryProfile.visual_treatment || 'source_accurate')}</label>
+          <label>Analysis scope${promptCaptioningProfileSelect('promptCaptioningBatchLibraryScope', 'analysis_scope', libraryProfile.analysis_scope || 'full_image', (item) => item.id !== 'custom_crop')}</label>
+          <label>Output format${promptCaptioningProfileSelect('promptCaptioningBatchLibraryOutputFormat', 'output_format', libraryProfile.output_format || 'image_generation_prompt', (item) => libraryFormats.has(item.id))}</label>
+          <label>Grounding${promptCaptioningProfileSelect('promptCaptioningBatchLibraryGrounding', 'grounding', libraryProfile.grounding || 'balanced')}</label>
           <label>Library category${promptCaptioningCategorySelect('promptCaptioningBatchLibraryCategory', batch.libraryCategory || 'General')}</label>
           <label>New library category${promptCaptioningInput('promptCaptioningBatchLibraryCategoryNew', batch.libraryCategoryNew || '', 'Optional new category')}</label>
           <label>Base name${promptCaptioningInput('promptCaptioningBatchLibraryBaseName', batch.libraryBaseName || 'caption', 'caption')}</label>
@@ -39193,6 +41302,7 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
         <div class="neo-pc-toggle-row">
           ${promptCaptioningToggle('promptCaptioningBatchLibrarySkipDuplicates', batch.librarySkipDuplicates !== false, 'Skip duplicates by image hash')}
         </div>
+        <div class="neo-inline-status">Library uses its own profile and conservative balanced sampling; changing single-image Caption Studio settings does not alter this batch.</div>
       </div>
     </section>
     ${customCropWarning}
@@ -39275,11 +41385,24 @@ function loadPromptCaptioningCaptionRecord(id) {
   cap.outputCaption = item.caption || item.output_caption || '';
   cap.selectedImage = item.source_image || cap.selectedImage || '';
   cap.selectedImageUrl = item.source_image_url || cap.selectedImageUrl || '';
-  cap.captionStyle = item.caption_style || cap.captionStyle || 'descriptive';
+  const savedProfile = item.profile && typeof item.profile === 'object' ? item.profile : (item.settings?.profile && typeof item.settings.profile === 'object' ? item.settings.profile : (item.payload?.profile && typeof item.payload.profile === 'object' ? item.payload.profile : (item.result_metadata?.profile && typeof item.result_metadata.profile === 'object' ? item.result_metadata.profile : null)));
+  if (savedProfile) {
+    cap.singleProfile = { ...(cap.singleProfile || {}), ...savedProfile };
+    promptCaptioningSingleProfileLegacyMigrated = true;
+    const profile = promptCaptioningCaptionTaskProfile(cap);
+    cap.captionStyle = promptCaptioningLegacyCaptionStyle(profile.output_format || 'descriptive_caption');
+    cap.outputStyle = promptCaptioningLegacyOutputStyle(profile.visual_treatment || 'source_accurate');
+    cap.params.caption_mode = promptCaptioningLegacyCaptionMode(profile.analysis_scope || 'full_image');
+    cap.params.component_type = promptCaptioningLegacyComponentType(profile.analysis_scope || 'full_image');
+  } else {
+    cap.captionStyle = item.caption_style || cap.captionStyle || 'descriptive';
+    cap.outputStyle = item.output_style || cap.outputStyle || 'auto';
+    cap.params.caption_mode = item.caption_mode || cap.params.caption_mode || 'full_image';
+    cap.params.component_type = item.component_type || cap.params.component_type || 'custom';
+    promptCaptioningSingleProfileLegacyMigrated = false;
+    promptCaptioningCaptionTaskProfile(cap);
+  }
   cap.captionLength = item.caption_length || cap.captionLength || 'medium';
-  cap.outputStyle = item.output_style || cap.outputStyle || 'auto';
-  cap.params.caption_mode = item.caption_mode || cap.params.caption_mode || 'full_image';
-  cap.params.component_type = item.component_type || cap.params.component_type || 'custom';
   cap.params.detail_level = item.detail_level || cap.params.detail_level || 'detailed';
   cap.status = 'Loaded caption into Caption Studio.';
   render();
@@ -39293,12 +41416,25 @@ function loadPromptCaptioningCaptionPreset(id) {
   cap.selectedPresetId = item.preset_id || '';
   cap.presetName = item.name || '';
   cap.presetCategory = item.category || 'General';
-  cap.captionStyle = item.caption_style || cap.captionStyle || 'descriptive';
+  const savedProfile = item.profile && typeof item.profile === 'object' ? item.profile : (item.settings?.profile && typeof item.settings.profile === 'object' ? item.settings.profile : null);
+  if (savedProfile) {
+    cap.singleProfile = { ...(cap.singleProfile || {}), ...savedProfile };
+    promptCaptioningSingleProfileLegacyMigrated = true;
+    const profile = promptCaptioningCaptionTaskProfile(cap);
+    cap.captionStyle = promptCaptioningLegacyCaptionStyle(profile.output_format || 'descriptive_caption');
+    cap.outputStyle = promptCaptioningLegacyOutputStyle(profile.visual_treatment || 'source_accurate');
+    cap.params.caption_mode = promptCaptioningLegacyCaptionMode(profile.analysis_scope || 'full_image');
+    cap.params.component_type = promptCaptioningLegacyComponentType(profile.analysis_scope || 'full_image');
+  } else {
+    cap.captionStyle = item.caption_style || cap.captionStyle || 'descriptive';
+    cap.outputStyle = item.output_style || cap.outputStyle || 'auto';
+    cap.params.caption_mode = item.caption_mode || cap.params.caption_mode || 'full_image';
+    cap.params.component_type = item.component_type || cap.params.component_type || 'custom';
+    promptCaptioningSingleProfileLegacyMigrated = false;
+    promptCaptioningCaptionTaskProfile(cap);
+  }
   cap.captionLength = item.caption_length || cap.captionLength || 'medium';
-  cap.outputStyle = item.output_style || cap.outputStyle || 'auto';
   cap.captionInstruction = item.instruction || cap.captionInstruction || '';
-  cap.params.caption_mode = item.caption_mode || cap.params.caption_mode || 'full_image';
-  cap.params.component_type = item.component_type || cap.params.component_type || 'custom';
   cap.params.detail_level = item.detail_level || cap.params.detail_level || 'detailed';
   cap.status = 'Loaded caption preset.';
   render();
@@ -39320,6 +41456,7 @@ function loadPromptCaptioningCaptionComponent(id) {
 async function savePromptCaptioningCaptionPreset() {
   const pc = promptCaptioningState();
   const cap = pc.captioning;
+  const profile = { ...promptCaptioningCaptionTaskProfile(cap), surface: 'caption_studio' };
   try {
     const data = await promptCaptioningFetchJson('/api/prompt-captioning/caption-preset/save', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -39333,8 +41470,9 @@ async function savePromptCaptioningCaptionPreset() {
         caption_mode: cap.presetMode || cap.params.caption_mode || 'full_image',
         component_type: cap.presetComponentType || cap.params.component_type || 'custom',
         detail_level: cap.presetDetailLevel || cap.params.detail_level || 'detailed',
-        target_use: cap.presetTargetUse || '', tone: cap.presetTone || '', tag_rules: cap.presetTagRules || '',
-        instruction: cap.presetInstruction || cap.captionInstruction || '', tags: cap.presetTags || '', notes: cap.presetNotes || '', settings: cap.params || {},
+        target_use: cap.presetTargetUse || profile.purpose || '', tone: cap.presetTone || '', tag_rules: cap.presetTagRules || '',
+        instruction: cap.presetInstruction || cap.captionInstruction || '', tags: cap.presetTags || '', notes: cap.presetNotes || '',
+        profile, settings: { ...(cap.params || {}), profile },
       }),
     });
     pc.library.captionPresets = data.records || pc.library.captionPresets || [];
@@ -39495,65 +41633,66 @@ function promptCaptioningCapabilityChips(profile, modeId = 'captioning') {
 }
 
 function promptCaptioningCaptionStudioPanel() {
+  ensurePromptCaptioningProfileManifest();
   const cap = promptCaptioningState().captioning;
   const params = cap.params || {};
+  const profile = promptCaptioningCaptionTaskProfile(cap);
+  const task = profile.prompt_task || 'caption_image';
   const status = cap.status ? `<div class="neo-inline-status">${escapeHtml(cap.status)}</div>` : '';
   const captionValidation = promptCaptioningValidationStatus('captioning', 'image_captioning');
   const captionGate = !captionValidation.runnable
     ? `<div class="neo-inline-status warning" data-testid="caption-gate-reason">Caption gated: ${escapeHtml(captionValidation.reason || 'route not runnable')}</div>`
-    : `<div class="neo-inline-status success" data-testid="caption-gate-reason">Caption route available.</div>`;
+    : `<div class="neo-inline-status success" data-testid="caption-gate-reason">Vision route available.</div>`;
   const expert = promptCaptioningExpertDiagnostics({ payload: buildPromptCaptioningPayload('captioning', cap.activeTool || 'image_captioning'), caption_validation: captionValidation });
-  const helper = promptCaptioningHelperText('Caption Studio is ready: choose a caption format, upload an image, generate with a vision-capable backend, then send or save the result.');
+  const helper = promptCaptioningHelperText('Caption Studio is image-first: caption the source, reconstruct it as an image prompt, write an edit instruction, or turn it into an image-to-video animation prompt.');
+  const taskLabel = ({ caption_image: 'Caption Image', image_recreation: 'Build Recreation Prompt', image_edit: 'Build Edit Prompt', image_to_video: 'Build Video Prompt' }[task] || 'Run Image Task');
+  const instructionLabel = task === 'image_edit' ? 'Edit instruction' : task === 'image_to_video' ? 'Motion instruction' : task === 'image_recreation' ? 'Recreation instruction' : 'Caption instruction';
+  const instructionPlaceholder = task === 'image_edit'
+    ? 'Describe what should change. Unrequested visible elements are preserved by the selected policy.'
+    : task === 'image_to_video'
+      ? 'Describe what should move or happen in the shot. Example: He turns toward camera, smiles slightly, then walks forward.'
+      : task === 'image_recreation'
+        ? 'Optional: describe any intentional recreation changes. Leave blank to stay source-faithful.'
+        : 'Describe what you need from the image. This instruction overrides profile defaults without permitting invented facts.';
+  const outputFormats = new Set(['descriptive_caption','image_generation_prompt','tags_keywords','alt_text','shot_breakdown','attribute_list']);
+  const outputControl = task === 'caption_image'
+    ? promptCaptioningProfileSelect('promptCaptioningCaptionOutputFormat', 'output_format', profile.output_format || 'descriptive_caption', (item) => outputFormats.has(item.id))
+    : `<input class="neo-input" value="${escapeAttr(promptCaptioningProfileLabel('output_format', profile.output_format))}" disabled>`;
+  const taskSpecific = task === 'image_edit'
+    ? `<label>Edit intent${promptCaptioningProfileSelect('promptCaptioningCaptionEditIntent', 'edit_intent', profile.edit_intent || 'general_edit')}</label>
+       <label>Preservation policy${promptCaptioningProfileSelect('promptCaptioningCaptionPreservationPolicy', 'preservation_policy', profile.preservation_policy || 'preserve_unrequested')}</label>`
+    : task === 'image_to_video'
+      ? `<label>Motion profile${promptCaptioningProfileSelect('promptCaptioningCaptionMotionProfile', 'motion_profile', profile.motion_profile || 'natural_balanced')}</label>
+         <label>Camera behavior${promptCaptioningProfileSelect('promptCaptioningCaptionCameraBehavior', 'camera_behavior', profile.camera_behavior || 'preserve_auto')}</label>`
+      : '';
+  const quickFormats = task === 'caption_image' ? `
+    <div class="neo-mini-card prompt-captioning-workflow-card">
+      <strong>Caption format shortcuts</strong>
+      <p class="neo-muted">These shortcuts now set the shared Purpose / Scope / Grounding / Output Format profile instead of running a separate caption system.</p>
+      ${promptCaptioningQuickPresetButtons('caption')}
+    </div>` : '';
   return `
     ${helper}
     ${status}
     ${captionGate}
-    <div class="neo-mini-card prompt-captioning-workflow-card">
-      <strong>Caption formats</strong>
-      <p class="neo-muted">Choose the output shape first: short caption, image prompt, alt text, shot breakdown, character sheet, or scene tags.</p>
-      ${promptCaptioningQuickPresetButtons('caption')}
-    </div>
+    ${quickFormats}
     <div class="neo-pc-caption-capability-strip">${promptCaptioningCapabilityChips(promptCaptioningSelectedBackendProfile('captioning'), 'captioning')}</div>
-    <div class="neo-form-grid neo-pc-caption-control-grid">
+    <div class="neo-form-grid neo-pc-caption-control-grid" data-testid="caption-studio-p23-profile-grid">
       <label>Caption Backend Profile<select id="promptCaptioningCaptionProfile">${promptCaptioningProviderOptions('captioning')}</select></label>
-      <label>Caption mode${promptCaptioningSelect('promptCaptioningCaptionMode', params.caption_mode || 'full_image', [
-        { value: 'full_image', label: 'Full image' },
-        { value: 'face_only', label: 'Face only' },
-        { value: 'person_only', label: 'Person only' },
-        { value: 'outfit_only', label: 'Outfit only' },
-        { value: 'pose_only', label: 'Pose only' },
-        { value: 'location_only', label: 'Location only' },
-        { value: 'custom_crop', label: 'Custom crop' },
-      ])}</label>
-      <label>Component type${promptCaptioningSelect('promptCaptioningComponentType', params.component_type || 'custom', [
-        { value: 'custom', label: 'Custom' },
-        { value: 'face', label: 'Face' },
-        { value: 'person', label: 'Person' },
-        { value: 'outfit', label: 'Outfit' },
-        { value: 'pose', label: 'Pose' },
-        { value: 'location', label: 'Location' },
-      ])}</label>
+      <label>Task${promptCaptioningProfileSelect('promptCaptioningCaptionTask', 'prompt_task', task, (item) => item.surface === 'caption_studio')}</label>
+      <label>Purpose${promptCaptioningProfileSelect('promptCaptioningCaptionPurpose', 'purpose', profile.purpose || 'general')}</label>
+      <label>Visual treatment${promptCaptioningProfileSelect('promptCaptioningCaptionVisualTreatment', 'visual_treatment', profile.visual_treatment || 'source_accurate')}</label>
+      <label>Analysis scope${promptCaptioningProfileSelect('promptCaptioningCaptionAnalysisScope', 'analysis_scope', profile.analysis_scope || 'full_image')}</label>
+      <label>Output format${outputControl}</label>
+      <label>Grounding${promptCaptioningProfileSelect('promptCaptioningCaptionGrounding', 'grounding', profile.grounding || 'balanced')}</label>
+      ${taskSpecific}
       <label>Detail level${promptCaptioningSelect('promptCaptioningDetailLevel', params.detail_level || 'detailed', [
         { value: 'basic', label: 'Basic' },
         { value: 'detailed', label: 'Detailed' },
         { value: 'attribute_rich', label: 'Attribute rich' },
       ])}</label>
-      <label>Caption style${promptCaptioningSelect('promptCaptioningCaptionStyle', cap.captionStyle || 'descriptive', [
-        { value: 'sd_prompt', label: 'Stable Diffusion prompt' },
-        { value: 'descriptive', label: 'Descriptive' },
-        { value: 'style_convert', label: 'Style convert' },
-        { value: 'custom', label: 'Custom' },
-      ])}</label>
-      <label>Caption length${promptCaptioningSelect('promptCaptioningCaptionLength', cap.captionLength || 'medium', [
-        { value: 'any', label: 'Any' },
-        { value: 'short', label: 'Short' },
-        { value: 'medium', label: 'Medium' },
-        { value: 'long', label: 'Long' },
-      ])}</label>
-      <label>Output style${promptCaptioningSelect('promptCaptioningOutputStyle', cap.outputStyle || 'auto', [
-        { value: 'auto', label: 'Auto' },
-        { value: 'realistic', label: 'Realistic' },
-        { value: 'anime', label: 'Anime' },
+      <label>Length${promptCaptioningSelect('promptCaptioningCaptionLength', cap.captionLength || 'medium', [
+        { value: 'any', label: 'Any' }, { value: 'short', label: 'Short' }, { value: 'medium', label: 'Medium' }, { value: 'long', label: 'Long' },
       ])}</label>
       <label>Max tokens${promptCaptioningInput('promptCaptioningCaptionMaxTokens', params.max_tokens ?? 256, '256', 'number')}</label>
       <label>Temperature${promptCaptioningInput('promptCaptioningCaptionTemperature', params.temperature ?? 0.7, '0.7', 'number')}</label>
@@ -39563,19 +41702,19 @@ function promptCaptioningCaptionStudioPanel() {
     <div class="neo-pc-caption-source-layout" data-testid="caption-studio-source-output-layout">
       ${renderCaptionImageDropzone()}
       <div class="neo-form-grid neo-pc-caption-instruction-output-row">
-        <label>Caption instruction${promptCaptioningTextarea('promptCaptioningCaptionInstruction', cap.captionInstruction || '', 'Describe what you need from the image caption.')}</label>
-        <label>Caption output<textarea id="promptCaptioningCaptionOutput" data-pc-caption-output="true" class="neo-textarea" rows="4" placeholder="Generated caption appears here.">${escapeHtml(cap.outputCaption || '')}</textarea></label>
+        <label>${escapeHtml(instructionLabel)}${promptCaptioningTextarea('promptCaptioningCaptionInstruction', cap.captionInstruction || '', instructionPlaceholder)}</label>
+        <label>Output<textarea id="promptCaptioningCaptionOutput" data-pc-caption-output="true" class="neo-textarea" rows="4" placeholder="Generated result appears here.">${escapeHtml(cap.outputCaption || '')}</textarea></label>
       </div>
     </div>
     <div class="neo-pc-caption-action-layout" data-testid="caption-studio-action-layout">
       <div class="neo-action-row prompt-captioning-actions neo-pc-caption-main-output-row" data-testid="caption-studio-main-output-row">
         ${promptCaptioningActionGroup('Main actions', `
-          ${promptCaptioningButton('promptCaptioningRunCaption', '🖼 Caption Image', 'primary', promptCaptioningActionDisabled('captioning', 'image_captioning'))}
+          ${promptCaptioningButton('promptCaptioningRunCaption', `🖼 ${taskLabel}`, 'primary', promptCaptioningActionDisabled('captioning', 'image_captioning'))}
           ${promptCaptioningButton('promptCaptioningRegenerateCaption', '🔄 Regenerate', 'secondary', promptCaptioningActionDisabled('captioning', 'image_captioning'))}
         `, 'main-actions')}
         ${promptCaptioningActionGroup('Output', `
           ${promptCaptioningButton('promptCaptioningCopyCaption', '📋 Copy', 'ghost')}
-          ${promptCaptioningButton('promptCaptioningClearCaption', '🧹 Clear Caption', 'danger')}
+          ${promptCaptioningButton('promptCaptioningClearCaption', '🧹 Clear Output', 'danger')}
         `, 'output-actions')}
       </div>
       <div class="neo-action-row prompt-captioning-actions neo-pc-caption-handoff-row" data-testid="caption-studio-handoff-row">
@@ -39589,6 +41728,7 @@ function promptCaptioningCaptionStudioPanel() {
     ${expert}
   `;
 }
+
 
 async function uploadCaptionSourceImage(file) {
   const pc = promptCaptioningState();
@@ -39652,7 +41792,7 @@ function promptCaptioningSaveCaptionPanel() {
 
 async function runPromptCaptioningCaption(toolId = 'image_captioning') {
   const pc = promptCaptioningState();
-  const cap = pc.captioning;
+  const cap = syncPromptCaptioningCaptionFormFromDom();
   if (cap.isRunning) {
     const started = Date.parse(cap.runStartedAt || '') || 0;
     if (started && Date.now() - started < 120000) return;
@@ -39662,8 +41802,10 @@ async function runPromptCaptioningCaption(toolId = 'image_captioning') {
   cap.status = 'Running Caption Studio…';
   cap.isRunning = true;
   cap.runStartedAt = new Date().toISOString();
-  render();
+  // Caption controls and free-text instructions are DOM-authoritative at submit.
+  // Build the payload before the running-state rerender can rebuild the form.
   const payload = buildPromptCaptioningPayload('captioning', cap.activeTool);
+  render();
   try {
     const response = await fetch('/api/prompt-captioning/caption/run', {
       method: 'POST',
@@ -39715,14 +41857,15 @@ async function savePromptCaptioningCaption() {
         caption,
         source_image: cap.selectedImage || '',
         source_image_url: cap.selectedImageUrl || '',
-        caption_style: cap.captionStyle || '',
+        caption_style: promptCaptioningLegacyCaptionStyle(promptCaptioningCaptionTaskProfile(cap).output_format || 'descriptive_caption'),
         caption_length: cap.captionLength || '',
-        output_style: cap.outputStyle || '',
-        component_type: (cap.params || {}).component_type || '',
-        caption_mode: (cap.params || {}).caption_mode || '',
+        output_style: promptCaptioningLegacyOutputStyle(promptCaptioningCaptionTaskProfile(cap).visual_treatment || 'source_accurate'),
+        component_type: promptCaptioningLegacyComponentType(promptCaptioningCaptionTaskProfile(cap).analysis_scope || 'full_image'),
+        caption_mode: promptCaptioningLegacyCaptionMode(promptCaptioningCaptionTaskProfile(cap).analysis_scope || 'full_image'),
         detail_level: (cap.params || {}).detail_level || '',
-        settings: cap.params || {},
-        metadata: { source_surface: 'prompt_captioning', source_tool: cap.activeTool || 'image_captioning' },
+        profile: { ...promptCaptioningCaptionTaskProfile(cap), surface: 'caption_studio' },
+        settings: { params: cap.params || {}, profile: { ...promptCaptioningCaptionTaskProfile(cap), surface: 'caption_studio' } },
+        metadata: { source_surface: 'prompt_captioning', source_tool: cap.activeTool || 'image_captioning', profile: { ...promptCaptioningCaptionTaskProfile(cap), surface: 'caption_studio' } },
       }),
     });
     pc.library.captionRecords = data.records || pc.library.captionRecords || [];
@@ -41713,6 +43856,11 @@ function promptCaptioningResolvedLeftSubtab(modeId = '') {
 }
 
 function renderPromptCaptioningPanels(surface, subtab) {
+  // The profile manifest owns selectable Visual Treatment / Prompt Format values.
+  // Hydrate it at the shared workspace boundary so the default Prompt Studio gets
+  // the same first-load initialization Caption Studio previously triggered itself.
+  // The loader de-duplicates in-flight requests and re-renders once the manifest lands.
+  ensurePromptCaptioningProfileManifest();
   const columns = beginTwoColumnWorkspace();
   const modeId = promptCaptioningWorkspaceMode();
   // Legacy lock marker: promptCaptioningActiveChildTab(modeId) remains the fallback inside promptCaptioningResolvedLeftSubtab.
@@ -46575,7 +48723,7 @@ function renderRoleplayPanels(surface, subtab) {
 
 
 function assistantState() {
-  if (!state.assistant) state.assistant = { profile: null, projects: [], sessions: [], activeSession: null, selectedProjectId: 'general', searchQuery: '', memoryCaptures: [], contextPreview: null, status: '', draft: '', groundedMode: true, groundedPreview: null, citationViewer: null, projectManager: null, pendingAttachments: [] };
+  if (!state.assistant) state.assistant = { profile: null, projects: [], sessions: [], activeSession: null, selectedProjectId: 'general', searchQuery: '', memoryCaptures: [], memoryLens: null, contextPreview: null, status: '', draft: '', groundedMode: true, groundedPreview: null, citationViewer: null, projectManager: null, pendingAttachments: [], projectBrainJob: null };
   if (state.assistant.groundedMode === undefined) state.assistant.groundedMode = true;
   if (!Array.isArray(state.assistant.pendingAttachments)) state.assistant.pendingAttachments = [];
   return state.assistant;
@@ -46649,6 +48797,7 @@ async function assistantBootstrap() {
     a.sessions = payload.sessions || [];
     a.activeSession = payload.active_session || a.activeSession || null;
     a.memoryCaptures = payload.memory_captures || [];
+    a.memoryLens = payload.memory_lens || a.memoryLens || null;
     a.storage = payload.storage || {};
     a.capabilities = payload.capabilities || {};
     a.deferred = payload.deferred_to_wave4 || payload.deferred_to_wave3 || payload.deferred_to_wave2 || [];
@@ -46756,7 +48905,9 @@ function assistantActionReviewPanelHtml() {
   const summary = plan?.action_summary || run?.action_summary || {};
   const resultText = run?.response_text || '';
   const trace = run?.retrieval_trace_id || plan?.operator_plan?.trace_id || '';
-  return `<section class="assistant-side-card assistant-action-review-panel"><span class="assistant-kicker">Action review</span><h3>Safe tool execution</h3><div class="assistant-action-review-metrics"><div><span>Read-only</span><strong>${escapeHtml(String(summary.read_only_count || 0))}</strong></div><div><span>Confirm</span><strong>${escapeHtml(String(summary.confirmation_required_count || 0))}</strong></div><div><span>Blocked</span><strong>${escapeHtml(String(summary.blocked_count || 0))}</strong></div></div><p>${escapeHtml(status.policy || 'Actions are planned through Neo Operator and gated before execution.')}</p>${trace ? `<p class="assistant-grounding-trace">Trace: ${escapeHtml(trace)}</p>` : ''}${assistantActionCardsHtml(actions)}<div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRunActionReview(false)">Run safe read</button><button class="neo-btn primary" type="button" onclick="assistantRunActionReview(true)">Run confirmed</button></div>${resultText ? `<pre class="assistant-action-review-result">${escapeHtml(resultText)}</pre>` : ''}</section>`;
+  const proof = run?.execution_proof || {};
+  const proofText = Number(proof.receipt_count || 0) ? `Receipts ${proof.successful_receipt_count || 0}/${proof.receipt_count || 0} · claimable ${proof.claimable_success ? 'yes' : 'no'}` : '';
+  return `<section class="assistant-side-card assistant-action-review-panel"><span class="assistant-kicker">Action review</span><h3>Safe tool execution</h3><div class="assistant-action-review-metrics"><div><span>Read-only</span><strong>${escapeHtml(String(summary.read_only_count || 0))}</strong></div><div><span>Confirm</span><strong>${escapeHtml(String(summary.confirmation_required_count || 0))}</strong></div><div><span>Blocked</span><strong>${escapeHtml(String(summary.blocked_count || 0))}</strong></div></div><p>${escapeHtml(status.policy || 'Assistant/Control Center plans actions; Operator applies permissions, confirmation, execution, and receipt proof.')}</p>${trace ? `<p class="assistant-grounding-trace">Trace: ${escapeHtml(trace)}</p>` : ''}${proofText ? `<p class="assistant-grounding-trace">${escapeHtml(proofText)}</p>` : ''}${assistantActionCardsHtml(actions)}<div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRunActionReview(false)">Run safe read</button><button class="neo-btn primary" type="button" onclick="assistantRunActionReview(true)">Run confirmed</button></div>${resultText ? `<pre class="assistant-action-review-result">${escapeHtml(resultText)}</pre>` : ''}</section>`;
 }
 
 function assistantSourceGroundingPanelHtml() {
@@ -47170,6 +49321,71 @@ function assistantRailHtml(activeProject) {
   </aside>`;
 }
 
+function assistantProjectBrainJobHtml(brain = {}) {
+  const a = assistantState();
+  const job = a.projectBrainJob || brain?.jobs?.active?.[0] || brain?.jobs?.latest || null;
+  if (!job) return '';
+  const progress = job.progress || {};
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const current = Number(progress.current || 0);
+  const total = Number(progress.total || 0);
+  const status = String(job.status || 'queued');
+  const active = status === 'queued' || status === 'running';
+  const canRetry = status === 'failed' || status === 'cancelled';
+  const elapsedSeconds = Math.max(0, Number(job.elapsed_seconds || 0));
+  const elapsed = elapsedSeconds >= 60 ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s` : `${elapsedSeconds.toFixed(1)}s`;
+  const warnings = Array.isArray(progress.warnings) ? progress.warnings : [];
+  const errors = Array.isArray(progress.errors) ? progress.errors : [];
+  const detail = `${progress.phase || status}${total ? ` · ${current}/${total}` : ''} · ${percent}%`;
+  const actions = `${active && job.can_cancel !== false ? `<button class="neo-btn" type="button" onclick="assistantCancelProjectBrainJob('${escapeAttr(job.job_id || '')}')">Cancel</button>` : ''}${canRetry ? `<button class="neo-btn" type="button" onclick="assistantRetryProjectBrainJob('${escapeAttr(job.job_id || '')}')">Retry</button>` : ''}`;
+  return `<div class="assistant-side-card assistant-memory-job-card" data-memory-job-id="${escapeAttr(job.job_id || '')}"><span class="assistant-kicker">Background memory job</span><h4>${escapeHtml(job.title || 'Project Brain rebuild')}</h4><progress max="100" value="${percent}"></progress><p><strong>${escapeHtml(status)}</strong> · ${escapeHtml(detail)}</p><p>Elapsed: ${escapeHtml(elapsed)}</p><p>${escapeHtml(progress.message || '')}</p>${warnings.length ? `<p>Warnings: ${escapeHtml(warnings.join(' · '))}</p>` : ''}${errors.length ? `<p>Errors: ${escapeHtml(errors.join(' · '))}</p>` : ''}<div class="assistant-action-row compact">${actions}</div></div>`;
+}
+
+async function assistantPollProjectBrainJob(jobId) {
+  const a = assistantState();
+  let attempts = 0;
+  while (jobId && attempts < 1800) {
+    attempts += 1;
+    const payload = await assistantFetchJson(`/api/memory/jobs/${encodeURIComponent(jobId)}`);
+    const job = payload.job || null;
+    a.projectBrainJob = job;
+    const progress = job?.progress || {};
+    a.status = `${job?.title || 'Project Brain rebuild'} · ${progress.phase || job?.status || 'running'} · ${progress.percent || 0}%${progress.message ? ` · ${progress.message}` : ''}`;
+    render();
+    if (!job || ['completed', 'failed', 'cancelled'].includes(job.status)) {
+      if (job?.status === 'completed') {
+        const surface = assistantProjectBrainSurface();
+        a.projectBrain = job.result?.project_brain || await assistantFetchJson(`/api/assistant/project-brain/status?project_id=${encodeURIComponent(a.selectedProjectId || 'general')}&surface=${encodeURIComponent(surface)}`);
+        a.status = 'Project Brain rebuild completed.';
+      } else if (job) {
+        a.status = `${job.title || 'Project Brain rebuild'} ${job.status}: ${job.error || progress.message || 'No additional detail.'}`;
+      }
+      render();
+      return job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+  return a.projectBrainJob || null;
+}
+
+function assistantMemoryLensItemsHtml(items = [], emptyTitle = 'Nothing remembered here yet.', emptyDetail = '') {
+  if (!Array.isArray(items) || !items.length) return NeoUI.emptyState(emptyTitle, emptyDetail);
+  return `<div class="assistant-memory-lens-list">${items.slice(0, 12).map((item) => `<article class="assistant-memory-lens-item"><div><strong>${escapeHtml(item.title || item.memory_type || 'Memory')}</strong><span>${escapeHtml(`${item.memory_type || 'memory'} · ${item.surface || 'global'}`)}</span></div><p>${escapeHtml(item.summary || item.content || item.decision_reason || '')}</p><small>${escapeHtml([item.updated_at || item.last_supported_at || item.created_at || '', item.embedding_status ? `Embedding: ${item.embedding_status}` : '', item.confidence !== undefined && item.confidence !== null ? `Confidence: ${item.confidence}` : ''].filter(Boolean).join(' · '))}</small></article>`).join('')}</div>`;
+}
+
+function assistantMemoryWritebackItemsHtml(items = [], emptyTitle = 'No durable memories here yet.') {
+  if (!Array.isArray(items) || !items.length) return NeoUI.emptyState(emptyTitle, 'Searchable task history does not automatically become a permanent preference or decision.');
+  return `<div class="assistant-memory-lens-list">${items.slice(0, 10).map((item) => `<article class="assistant-memory-lens-item"><div><strong>${escapeHtml(item.title || item.memory_type || 'Memory candidate')}</strong><span>${escapeHtml(`${item.status || 'candidate'} · ${item.risk_level || 'normal risk'}`)}</span></div><p>${escapeHtml(item.content || item.decision_reason || item.candidate_class || '')}</p><small>${escapeHtml(`Support ${item.support_count || 0}/${item.support_threshold || 0}${item.contradiction_state && item.contradiction_state !== 'none' ? ` · ${item.contradiction_state}` : ''}`)}</small></article>`).join('')}</div>`;
+}
+
+function assistantMemoryLensSideHtml() {
+  const lens = assistantState().memoryLens || {};
+  const identity = lens.identity || {};
+  const traces = (lens.recent_retrievals || []).slice(0, 6).map((trace) => `${trace.intent || 'Assistant'} · ${trace.surface || 'surface'} · ${trace.status || 'ok'} · ${trace.created_at || ''}`);
+  const jobs = (lens.jobs || []).slice(0, 5).map((job) => `${job.job_type || 'memory job'} · ${job.status || 'unknown'} · ${(job.progress || {}).percent || 0}%`);
+  return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${NeoUI.metaList([`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, 'Scope is priority, not a hard retrieval prison.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? NeoUI.metaList(traces) : NeoUI.emptyState('No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? NeoUI.metaList(jobs) : NeoUI.emptyState('No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
+}
+
 function renderAssistantPanels(surface, subtab) {
   const a = assistantState();
   if (!a.profile && !a.status) assistantBootstrap().then(render).catch(() => {});
@@ -47206,28 +49422,37 @@ function renderAssistantPanels(surface, subtab) {
 
   if (tab === 'chat') {
     mainNode.innerHTML = renderAssistantChatPanel();
-    sideNode.innerHTML = `${assistantProjectManagerPanelHtml()}${assistantSourceGroundingPanelHtml()}${assistantActionReviewPanelHtml()}${assistantCitationViewerHtml()}${assistantSideProofHtml(activeProject)}<section class="assistant-side-card"><span class="assistant-kicker">Scope</span><h3>${escapeHtml(activeProject.name || 'General')}</h3><p>${escapeHtml(activeProject.description || activeProject.notes || 'No scope notes yet.')}</p><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></section>`;
+    sideNode.innerHTML = `${assistantProjectManagerPanelHtml()}${assistantActionReviewPanelHtml()}${assistantCitationViewerHtml()}<section class="assistant-side-card"><span class="assistant-kicker">Active Scope</span><h3>${escapeHtml(activeProject.name || 'General')}</h3><p>${escapeHtml(activeProject.description || activeProject.notes || 'No scope notes yet.')}</p><div class="assistant-action-row compact"><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('assistant','memory')">Open Memory Lens</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('assistant','context')">Inspect Context</button></div></section>`;
     return;
   }
-  if (tab === 'projects' || tab === 'project_context') {
+  if (tab === 'projects' || tab === 'project_context' || tab === 'scopes') {
     const linked = (a.sessions || []).filter((s) => s.project_id === activeProject.project_id).map((s) => `${s.title || s.session_id} · ${s.message_count || 0} messages`);
     const brain = a.projectBrain || {};
     const counts = brain.counts || {};
-    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Assistant scope</span><h2>Shape the internal context Neo should remember</h2><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card"><span class="assistant-kicker">Project Brain</span><h2>Guides + snapshots + metadata + uploads</h2><p>Capture the active scope state, index Neo-owned metadata, and upload brand/client docs for this Assistant scope.</p><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div><div class="assistant-action-row compact"><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button><button class="neo-btn" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button></div><div class="neo-badge-row"><span class="neo-badge">Guides: ${counts.built_in_guides_visible || 0}</span><span class="neo-badge">Snapshots: ${counts.snapshots || 0}</span><span class="neo-badge">Indexes: ${counts.indexes || 0}</span><span class="neo-badge">Uploads: ${counts.uploads || 0}</span></div></section>`;
+    const identity = activeProject.metadata?.canonical_identity || {};
+    const surfaceId = activeProject.surface_id || identity.surface_id || assistantProjectBrainSurface() || 'assistant';
+    const deliveryProject = activeProject.delivery_project_id || identity.project_id || '';
+    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(activeProject.name || 'General Assistant')}</h2><p>A Scope tells Neo which context to prioritize. It is not a Delivery Project and it does not block relevant cross-surface memory.</p>${NeoUI.badgeRow([`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Successful surface work can enter searchable history automatically. Use Project Brain for deliberate captures, historical indexing, project files, and rebuild/repair.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div><div class="neo-badge-row"><span class="neo-badge">Guides: ${counts.built_in_guides_visible || 0}</span><span class="neo-badge">Snapshots: ${counts.snapshots || 0}</span><span class="neo-badge">Indexes: ${counts.indexes || 0}</span><span class="neo-badge">Uploads: ${counts.uploads || 0}</span><span class="neo-badge">Memory: ${counts.canonical_fragments || 0}</span><span class="neo-badge">Facts: ${counts.canonical_facts || 0}</span><span class="neo-badge">Jobs: ${counts.active_jobs || 0}</span></div>${assistantProjectBrainJobHtml(brain)}</section>`;
     sideNode.innerHTML = `${assistantProjectManagerPanelHtml()}<section class="assistant-side-card"><span class="assistant-kicker">Linked chats</span>${listItems(linked.length ? linked : ['No linked chats yet.'])}</section>`;
     return;
   }
   if (tab === 'memory') {
-    const captures = (a.memoryCaptures || []).map((capture) => `${capture.title || capture.capture_id} · ${capture.project_id || 'general'}`);
-    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Memory lens</span><h2>Assistant memory without hiding the engine</h2><p>Manual captures stay visible here and write through the centralized Memory Engine service when available.</p>${listItems(captures.length ? captures : ['No manual captures yet.'])}</section>`;
-    sideNode.innerHTML = assistantSideProofHtml(activeProject);
+    const lens = a.memoryLens || {};
+    const summary = lens.summary || {};
+    const scope = lens.scope || {};
+    const pinRows = Array.isArray(lens.manual_pins) && lens.manual_pins.length ? lens.manual_pins : (a.memoryCaptures || []).filter((capture) => (capture.project_id || 'general') === (a.selectedProjectId || 'general'));
+    const knowledgeRows = Array.isArray(lens.scope_knowledge) && lens.scope_knowledge.length ? lens.scope_knowledge : (a.contextItems || []).filter((item) => (item.project_id || 'general') === (a.selectedProjectId || 'general'));
+    const pins = pinRows.map((capture) => ({ title: capture.title || capture.capture_id, summary: capture.text || '', memory_type: 'manual pin', surface: capture.surface || 'assistant', updated_at: capture.created_at || capture.updated_at || '' }));
+    const knowledge = knowledgeRows.map((item) => ({ title: item.title || item.context_id, summary: item.text || '', memory_type: item.kind || 'scope knowledge', surface: item.surface || 'assistant', updated_at: item.updated_at || item.created_at || '' }));
+    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(scope.name || 'this Scope')}</h2><p>User-facing memory view. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${NeoUI.badgeRow([`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2>${assistantMemoryLensItemsHtml(lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2>${assistantMemoryWritebackItemsHtml(lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${assistantMemoryLensItemsHtml(lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><h4>Manual pins</h4>${assistantMemoryLensItemsHtml(pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${assistantMemoryLensItemsHtml(knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Review and approval stay in Admin → Memory.</p>${assistantMemoryWritebackItemsHtml(lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
+    sideNode.innerHTML = assistantMemoryLensSideHtml();
     return;
   }
   if (tab === 'context') {
     const preview = a.contextPreview || {};
     const contextRows = (a.contextItems || []).slice(0, 12).map((item) => `${item.title || item.context_id} · ${item.kind || 'context'} · ${item.surface || 'assistant'}`);
-    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Scope knowledge</span><h2>Feed Neo reusable scope context</h2><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Title<input id="assistant-context-title" placeholder="Client notes, tab summary, scope brief..."></label><label>Tags<input id="assistant-context-tags" placeholder="client, prompt, roleplay"></label><label class="wide">Context text<textarea id="assistant-context-text" placeholder="Paste reusable scope knowledge, client requirements, debug notes, or surface context here."></textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeKnowledge()">Save to scope knowledge</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></div></section>`;
-    sideNode.innerHTML = `${assistantSourceGroundingPanelHtml()}<section class="assistant-side-card"><span class="assistant-kicker">Saved cards</span>${listItems(contextRows.length ? contextRows : ['No scope knowledge cards saved yet.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Preview</span><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify(preview, null, 2))}</pre></section>`;
+    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Scope Knowledge</span><h2>Save deliberate reusable context</h2><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Title<input id="assistant-context-title" placeholder="Client notes, tab summary, scope brief..."></label><label>Tags<input id="assistant-context-tags" placeholder="client, prompt, roleplay"></label><label class="wide">Context text<textarea id="assistant-context-text" placeholder="Paste reusable scope knowledge here. Avoid temporary chatter or values that will immediately become stale."></textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeKnowledge()">Save to scope knowledge</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></div></section>`;
+    sideNode.innerHTML = `${assistantSourceGroundingPanelHtml()}<section class="assistant-side-card"><span class="assistant-kicker">Saved cards</span>${listItems(contextRows.length ? contextRows : ['No scope knowledge cards saved yet.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Raw context proof</span><details><summary>Context Pack JSON</summary><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify(preview, null, 2))}</pre></details></section>`;
     return;
   }
   if (tab === 'tools') {
@@ -47248,7 +49473,23 @@ function renderAssistantPanels(surface, subtab) {
   }
   mainNode.className = 'assistant-main-stage wide';
   sideNode.remove();
-  mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Inspector</span><h2>Assistant internals</h2><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify({ profile: a.profile, activeSession: a.activeSession, projects: a.projects, sessions: a.sessions, storage: a.storage, capabilities: a.capabilities, thinkingLayer: a.thinkingLayer, diagnostics: a.activeSession?.last_diagnostics, lockLayer: a.lockLayer }, null, 2))}</pre></section>`;
+  const memoryLens = a.memoryLens || {};
+  const diagnostics = a.activeSession?.last_diagnostics || {};
+  mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Inspector</span><h2>Technical proof, not chat clutter</h2><p>Inspect routing, prompt compilation, retrieval, memory jobs, and compatibility state here.</p>${NeoUI.badgeRow([`Scope: ${memoryLens.identity?.scope_id || a.selectedProjectId || 'general'}`, `Retrievals: ${(memoryLens.recent_retrievals || []).length}`, `Jobs: ${(memoryLens.jobs || []).length}`])}<details open><summary>Last Assistant diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify(diagnostics, null, 2))}</pre></details><details><summary>Memory Lens diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify(memoryLens.diagnostics || {}, null, 2))}</pre></details><details><summary>Full Assistant state</summary><pre class="roleplay-stories-pre small">${escapeHtml(JSON.stringify({ profile: a.profile, activeSession: a.activeSession, scopes: a.projects, sessions: a.sessions, storage: a.storage, capabilities: a.capabilities, thinkingLayer: a.thinkingLayer, memoryLens, lockLayer: a.lockLayer }, null, 2))}</pre></details></section>`;
+}
+
+async function assistantRefreshMemoryLens() {
+  if (await neoTryAssistantAction('assistantRefreshMemoryLens')) return;
+  const a = assistantState();
+  const active = assistantActiveProject();
+  const surface = active.surface_id || active.surface || assistantProjectBrainSurface();
+  try {
+    a.memoryLens = await assistantFetchJson(`/api/assistant/memory-lens?project_id=${encodeURIComponent(a.selectedProjectId || active.project_id || 'general')}&surface=${encodeURIComponent(surface || '')}&limit=12`);
+    a.status = 'Memory Lens refreshed.';
+  } catch (error) {
+    a.status = `Memory Lens refresh failed: ${error.message}`;
+  }
+  render();
 }
 
 async function assistantRefresh() {
@@ -47448,7 +49689,7 @@ async function assistantRunActionReview(executeConfirmed = false) {
   const draftEl = document.getElementById('assistant-composer-text');
   const command = (a.actionReview?.command || draftEl?.value || a.draft || '').trim();
   if (!command) { a.status = 'Plan an action first.'; render(); return; }
-  if (executeConfirmed && !window.confirm('Run confirmation-required Operator actions? Read the action plan first.')) return;
+  if (executeConfirmed && !window.confirm('Run the confirmation-required structured actions? Review the Assistant/Control Center plan first.')) return;
   a.status = executeConfirmed ? 'Running confirmed Operator actions...' : 'Running safe read-only Operator actions...';
   render();
   try {
@@ -47534,7 +49775,9 @@ function assistantSetProjectFilter(value) {
   if (migrated !== undefined) return;
   const a = assistantState();
   a.selectedProjectId = value || 'general';
+  a.memoryLens = null;
   render();
+  assistantRefreshMemoryLens().catch(() => {});
 }
 
 function assistantSetScopeFilter(value) {
@@ -47777,10 +50020,10 @@ function assistantProjectBrainCapturePayload() {
   if (projectId === 'general') {
     const snapshots = {};
     assistantKnownProjectBrainSurfaces().forEach((surface) => { snapshots[surface] = assistantLegacySurfaceSnapshotFor(surface); });
-    return { project_id: projectId, session_id: a.activeSession?.session_id || '', surface: 'all', title: 'General Assistant full Neo state capture', summary: 'Captured all known Neo surface snapshots from Assistant > Project.', surface_context_snapshot: { schema_id: 'neo.assistant.all_surface_snapshot.v1', snapshots } };
+    return { project_id: projectId, session_id: a.activeSession?.session_id || '', surface: 'all', title: 'General Assistant full Neo state capture', summary: 'Captured all known Neo surface snapshots from Assistant > Scopes.', surface_context_snapshot: { schema_id: 'neo.assistant.all_surface_snapshot.v1', snapshots } };
   }
   const surface = assistantProjectBrainSurface();
-  return { project_id: projectId, session_id: a.activeSession?.session_id || '', surface, title: `Live ${surface} state capture`, summary: `Captured current ${surface} state from Assistant > Project.`, surface_context_snapshot: assistantLegacySurfaceSnapshotFor(surface) };
+  return { project_id: projectId, session_id: a.activeSession?.session_id || '', surface, title: `Live ${surface} state capture`, summary: `Captured current ${surface} state from Assistant > Scopes.`, surface_context_snapshot: assistantLegacySurfaceSnapshotFor(surface) };
 }
 
 async function assistantRefreshProjectBrainStatus() {
@@ -47788,6 +50031,7 @@ async function assistantRefreshProjectBrainStatus() {
   const a = assistantState();
   const surface = assistantProjectBrainSurface();
   a.projectBrain = await assistantFetchJson(`/api/assistant/project-brain/status?project_id=${encodeURIComponent(a.selectedProjectId || 'general')}&surface=${encodeURIComponent(surface)}`);
+  a.projectBrainJob = a.projectBrain?.jobs?.active?.[0] || a.projectBrain?.jobs?.latest || a.projectBrainJob || null;
   a.status = 'Project Brain status refreshed.';
   render();
 }
@@ -47800,7 +50044,7 @@ async function assistantCaptureCurrentProjectState() {
     const result = await assistantFetchJson('/api/assistant/project-capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assistantProjectBrainCapturePayload()) });
     if (result.context_item) a.contextItems = [result.context_item, ...(a.contextItems || [])];
     a.projectBrain = result.project_brain || a.projectBrain || null;
-    a.status = 'Current state captured into Project Brain.';
+    a.status = result.deduplicated ? 'Current state was already captured; canonical memory is up to date.' : 'Current state captured and ingested into canonical memory.';
   } catch (error) { a.status = `Project Brain capture failed: ${error.message}`; }
   render();
 }
@@ -47814,7 +50058,7 @@ async function assistantIndexProjectData() {
     const result = await assistantFetchJson('/api/assistant/project-index', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || 'general', surface }) });
     if (result.context_item) a.contextItems = [result.context_item, ...(a.contextItems || [])];
     a.projectBrain = result.project_brain || a.projectBrain || null;
-    a.status = `Indexed ${result.index?.record_count || 0} project data record(s).`;
+    a.status = result.deduplicated ? `Project data index is already current (${result.index?.record_count || 0} record(s)).` : `Indexed ${result.index?.record_count || 0} project data record(s) into canonical memory.`;
   } catch (error) { a.status = `Project Brain index failed: ${error.message}`; }
   render();
 }
@@ -47824,12 +50068,40 @@ async function assistantRebuildProjectBrain() {
   const a = assistantState();
   const surface = assistantProjectBrainSurface();
   try {
-    a.status = 'Rebuilding Project Brain...'; render();
-    const result = await assistantFetchJson('/api/assistant/project-brain-rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || 'general', surface }) });
+    a.status = 'Queueing Project Brain rebuild...'; render();
+    const result = await assistantFetchJson('/api/assistant/project-brain-rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || 'general', surface, background: true }) });
     a.projectBrain = result.project_brain || a.projectBrain || null;
-    a.status = `Project Brain rebuilt: ${result.report?.metadata_record_count || 0} indexed metadata record(s).`;
+    a.projectBrainJob = result.job || a.projectBrainJob || null;
+    render();
+    if (a.projectBrainJob?.job_id) await assistantPollProjectBrainJob(a.projectBrainJob.job_id);
   } catch (error) { a.status = `Project Brain rebuild failed: ${error.message}`; }
   render();
+}
+
+async function assistantCancelProjectBrainJob(jobId = '') {
+  if (await neoTryAssistantAction('assistantCancelProjectBrainJob', { jobId })) return;
+  const a = assistantState();
+  const target = jobId || a.projectBrainJob?.job_id || '';
+  if (!target) return;
+  try {
+    const result = await assistantFetchJson(`/api/memory/jobs/${encodeURIComponent(target)}/cancel`, { method: 'POST' });
+    a.projectBrainJob = result.job || a.projectBrainJob;
+    a.status = 'Project Brain cancel requested.';
+  } catch (error) { a.status = `Cancel failed: ${error.message}`; }
+  render();
+}
+
+async function assistantRetryProjectBrainJob(jobId = '') {
+  if (await neoTryAssistantAction('assistantRetryProjectBrainJob', { jobId })) return;
+  const a = assistantState();
+  const target = jobId || a.projectBrainJob?.job_id || '';
+  if (!target) return;
+  try {
+    const result = await assistantFetchJson(`/api/memory/jobs/${encodeURIComponent(target)}/retry`, { method: 'POST' });
+    a.projectBrainJob = result.job || null;
+    render();
+    if (a.projectBrainJob?.job_id) await assistantPollProjectBrainJob(a.projectBrainJob.job_id);
+  } catch (error) { a.status = `Retry failed: ${error.message}`; render(); }
 }
 
 async function assistantUploadProjectFiles(input) {
@@ -47851,22 +50123,13 @@ async function assistantUploadProjectFiles(input) {
       if (last.context_item) a.contextItems = [last.context_item, ...(a.contextItems || [])];
     }
     a.projectBrain = last?.project_brain || a.projectBrain || null;
-    a.status = `${files.length} Project Brain file${files.length === 1 ? '' : 's'} uploaded.`;
+    a.status = `${files.length} Project Brain file${files.length === 1 ? '' : 's'} uploaded; extracted documents were ingested into canonical memory.`;
   } catch (error) { a.status = `Project file upload failed: ${error.message}`; }
   if (input) input.value = '';
   render();
 }
 
 
-function videoContractSummaryHtml(surface, subtab) {
-  const memoryPolicy = surface?.memory_policy || { namespaces: [], record_events: [] };
-  const summary = activeVideoWorkspaceSummary(subtab);
-  return `${neoFeatureTitleCard('Video Surface', summary.workspace_label || 'Workspace', summary.workspace_description || surface?.description || 'Video workspace.', ['Backend routed', 'Results tracked', 'Project handoff'], { testId: 'video-surface-feature-title-card', extraClass: 'neo-video-feature-title-card' })}
-    <div class="neo-ui-grid two">
-      <div class="neo-ui-card"><strong>Generation Setup</strong><p>Select the backend, route, source inputs, and parameters before running a job.</p>${NeoUI.badgeRow([videoBackendStatusLabel(), `Workspace: ${summary.workspace_label}`])}</div>
-      <div class="neo-ui-card"><strong>Project Memory</strong><p>Finished results can carry replay data, memory export, and project references.</p>${NeoUI.badgeRow(memoryPolicy.namespaces || [])}${state.detailMode === 'expert' ? NeoUI.metaList(memoryPolicy.record_events || []) : ''}</div>
-    </div>`;
-}
 
 function videoOutputPathRows() {
   const categories = ['txt2vid', 'img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion', 'schedule', 'audio_video', 'interpolate', 'upscale', 'repair', 'metadata', 'previews', 'frames', 'source'];
@@ -47940,10 +50203,6 @@ function videoCloudCanGenerate() {
   return hasPrompt && (mode !== 'img2vid' || hasSource);
 }
 
-function videoBackendProbeReachable() {
-  const probe = state.videoBackendProbe || null;
-  return Boolean(probe?.backend?.reachable || probe?.reachable || probe?.ok === true);
-}
 
 function videoBackendCanProbe() {
   return Boolean(videoActiveBackendProfile()?.profile_id || selectedBackendProfileIdForSurface('video') || state.backendProfiles?.defaults?.video || state.videoBackendProbe);
@@ -48260,32 +50519,60 @@ function videoExternalNodeManagerHtml() {
   </div>`;
 }
 
-function videoExtensionStackHtml() {
-  const app = activeVideoWorkspaceApp();
-  const activeExtensions = activeWorkspaceExtensions('video', app.id, state.videoDraft.mode || 'txt2vid');
-  const cards = [
-    ...activeExtensions.builtIn.map((record) => extensionCard(record, { collapsible: true, defaultOpen: false })),
-    ...activeExtensions.external.map((record) => extensionCard(record, { collapsible: true, defaultOpen: false })),
-  ].join('');
-  const empty = NeoUI.emptyState('No Video extensions mounted here yet.', 'Manage built-ins in Admin › Extensions › Video and external packages in Admin › Extensions › External / Installed.');
-  return `<div class="neo-video-extension-stack" data-testid="video-extension-stack">${cards || empty}</div>`;
+const VIDEO_NATIVE_BUILTIN_EXTENSION_IDS = new Set([
+  'video.audio_video',
+  'video.depth_motion_control',
+  'video.finish_interpolation',
+  'video.finish_repair',
+  'video.finish_upscale',
+  'video.prompt_motion_schedule',
+  'video.vram_profile_advisor',
+]);
+
+function videoCompatibleWorkspaceExtensions(appId = activeVideoWorkspaceApp().id, workflowMode = state.videoDraft.mode || 'txt2vid') {
+  const activeExtensions = activeWorkspaceExtensions('video', appId, appId === 'finish' || appId === 'results' ? null : workflowMode);
+  const allowed = (record) => extensionAllowedForActiveSurface(record).allowed;
+  return {
+    builtIn: activeExtensions.builtIn.filter(allowed),
+    external: activeExtensions.external.filter(allowed),
+  };
+}
+
+function videoNativeBuiltInToolHtml(extensionIdValue, body, label = 'Built-in') {
+  return `<section class="neo-video-native-built-in" data-video-native-built-in="${escapeAttr(extensionIdValue)}" data-extension-origin="built_in" data-extension-id="${escapeAttr(extensionIdValue)}"><div class="neo-video-native-built-in-badge">${badgeRow([label])}</div>${body}</section>`;
+}
+
+
+function videoBuiltInToolsHtml(appId = activeVideoWorkspaceApp().id, handledIds = VIDEO_NATIVE_BUILTIN_EXTENSION_IDS) {
+  const extensions = videoCompatibleWorkspaceExtensions(appId).builtIn.filter((record) => !handledIds.has(extensionId(record)));
+  if (!extensions.length) return '';
+  return extensions.map((record) => extensionCard(record, { direct: true, collapsible: false })).join('');
+}
+
+function videoExternalExtensionsHtml(appId = activeVideoWorkspaceApp().id) {
+  const extensions = videoCompatibleWorkspaceExtensions(appId).external;
+  if (!extensions.length) return '';
+  return extensions.map((record) => extensionCard(record, { collapsible: true, defaultOpen: false })).join('');
 }
 
 function videoRouteMatrixHtml() {
-  const rows = VIDEO_ROUTE_MATRIX.map((route) => {
-    const family = VIDEO_MODEL_FAMILY_OPTIONS.find((item) => item.id === route.family)?.label || route.family;
-    const loader = [...VIDEO_LOADER_OPTIONS, ...VIDEO_FUTURE_LOADER_OPTIONS].find((item) => item.id === route.loader)?.label || route.loader;
-    const mode = [...VIDEO_GENERATION_MODE_OPTIONS, ...VIDEO_FUTURE_GENERATION_MODE_OPTIONS].find((item) => item.id === route.mode)?.label || route.mode;
+  const routes = videoRouteRecords({ includePlanned: true });
+  const rows = routes.length ? routes.map((route) => {
+    const family = videoCatalogLabel('families', route.family) || route.family;
+    const loader = videoCatalogLabel('loaders', route.loader) || route.loader;
+    const mode = videoGenerationTypeLabel(route.mode);
     const active = route.family === state.videoDraft.family && route.loader === state.videoDraft.loader && route.mode === state.videoDraft.mode;
-    const status = route.status === 'enabled' ? 'compatible' : 'planned';
-    return `<tr class="${active ? 'selected' : ''}"><td><strong>${escapeHtml(route.route_id)}</strong>${route.recommended_first ? '<span class="neo-badge success">first build</span>' : ''}</td><td>${escapeHtml(family)}</td><td>${escapeHtml(loader)}</td><td>${escapeHtml(mode)}</td><td><span class="neo-badge ${route.status === 'enabled' ? 'success' : 'muted'}">${escapeHtml(status)}</span></td></tr>`;
-  }).join('');
-  const futureRows = [
-    `Future families: ${VIDEO_FUTURE_MODEL_FAMILY_OPTIONS.map((item) => item.label).join(', ')}`,
-    `Future generation types: ${VIDEO_FUTURE_GENERATION_MODE_OPTIONS.map((item) => item.label).join(', ')}`,
-    `Checkpoint loader stays hidden until a true video checkpoint route exists.`,
+    const badgeClass = route.status === 'enabled' ? 'success' : route.status === 'experimental' ? 'warning' : 'muted';
+    return `<tr class="${active ? 'selected' : ''}"><td><strong>${escapeHtml(route.route_id)}</strong>${route.recommended_first ? '<span class="neo-badge success">recommended</span>' : ''}</td><td>${escapeHtml(family)}</td><td>${escapeHtml(loader)}</td><td>${escapeHtml(mode)}</td><td><span class="neo-badge ${badgeClass}">${escapeHtml(humanize(route.status || 'unknown'))}</span></td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="neo-muted">Canonical Video route catalog is unavailable.</td></tr>';
+  const futureFamilies = videoCatalogOptions('families').filter((item) => item.status === 'future').map((item) => item.label);
+  const futureLoaders = videoCatalogOptions('loaders').filter((item) => item.status === 'future').map((item) => item.label);
+  const notes = [
+    `Authority: ${state.videoRouteMatrix?.authority || 'neo_app.video.route_matrix'}`,
+    futureFamilies.length ? `Future families: ${futureFamilies.join(', ')}` : 'No additional future families registered.',
+    futureLoaders.length ? `Future loaders: ${futureLoaders.join(', ')}` : 'No additional future loaders registered.',
   ];
-  return `<div class="neo-ui-card neo-video-route-matrix" data-testid="video-route-matrix-panel"><strong>Route Matrix</strong><p>Video only exposes compatible family + loader + generation type combinations. Future routes stay guarded.</p><div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Route</th><th>Family</th><th>Loader</th><th>Type</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>${NeoUI.metaList(futureRows)}</div>`;
+  return `<div class="neo-ui-card neo-video-route-matrix" data-testid="video-route-matrix-panel" data-schema="${escapeAttr(state.videoRouteMatrix?.schema_version || 'neo.video.route_matrix.unavailable')}"><strong>Canonical Route Matrix</strong><p>Family, loader, generation type, route status, and route parameter defaults come from <code>/api/video/route-matrix</code>. Planned combinations stay visible but cannot be selected.</p><div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Route</th><th>Family</th><th>Loader</th><th>Type</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>${NeoUI.metaList(notes)}</div>`;
 }
 
 
@@ -48295,53 +50582,189 @@ function videoResultsLedgerHtml() {
   const activeId = state.videoActiveResultId || records[0]?.result_id || '';
   const rows = records.length ? records.map((record) => {
     const files = Array.isArray(record?.outputs?.files) ? record.outputs.files.length : 0;
-    const imports = record?.import_status || {};
     const selected = record.result_id === activeId;
-    return `<tr class="${selected ? 'selected' : ''}"><td><button type="button" class="neo-linklike" data-video-select-result="${escapeAttr(record.result_id)}">${escapeHtml(record.result_id)}</button></td><td>${escapeHtml(record.status || 'unknown')}</td><td>${escapeHtml(record.route_id || '')}</td><td>${escapeHtml(record.generation_type || '')}</td><td>${files}</td><td>${imports.schema_version ? escapeHtml(`${imports.imported_count || 0} new / ${imports.attached_video_count || files} attached`) : '—'}</td></tr>`;
-  }).join('') : '<tr><td colspan="6" class="neo-muted">No video output records yet. Compile or queue WAN/LTX first.</td></tr>';
-  const active = records.find((item) => item.result_id === activeId) || records[0] || null;
-  const replay = active?.replay_metadata ? JSON.stringify(active.replay_metadata, null, 2) : (active?.replay_payload ? JSON.stringify(active.replay_payload, null, 2) : '');
-  const exportInfo = active?.memory_export || {};
-  const file = videoResultFile(active);
-  const preview = videoResultPreviewFile(active);
-  const importStatus = active?.import_status || {};
-  const importRows = active ? [
-    importStatus.schema_version ? `Import schema: ${importStatus.schema_version}` : 'Import schema: not run yet',
-    importStatus.history_seen ? 'Comfy history: seen' : 'Comfy history: not seen yet',
-    importStatus.candidate_count !== undefined ? `Comfy media candidates: ${importStatus.candidate_count}` : '',
-    importStatus.attached_video_count !== undefined ? `Attached videos: ${importStatus.attached_video_count}` : '',
-    importStatus.last_refreshed_at ? `Last import refresh: ${importStatus.last_refreshed_at}` : '',
-    file?.filename ? `Playback file: ${file.filename}` : 'Playback file: none attached yet',
-    preview?.filename ? `Preview image: ${preview.filename}` : '',
-  ].filter(Boolean) : [];
-  const importErrors = Array.isArray(importStatus.errors) ? importStatus.errors : [];
-  const exportBadge = active ? NeoUI.badgeRow([
-    active.replay_metadata ? 'Replay ready' : 'Replay upgrade available',
-    exportInfo.status === 'exported' ? 'Memory exported' : 'Memory export pending',
-    file ? 'Playback ready' : (active.backend?.prompt_id ? 'Import needed' : 'No prompt id'),
-    importStatus.history_seen ? 'History seen' : 'History pending',
-  ]) : '';
-  const cloudRoute = isCloudVideoProfile() || active?.provider_id === 'xai_grok' || active?.backend?.provider_id === 'xai_grok';
-  return `<div class="neo-ui-card neo-video-results-ledger" data-testid="video-results-ledger" data-schema="neo.video.replay_metadata.v22" data-import-schema="neo.video.result_import.vg9" data-legacy-schema="neo.video.output.v7"><strong>Results + Replay Metadata</strong><span hidden data-schema="neo.video.output.v7"></span><p>${cloudRoute ? 'Saved provider videos use the same Neo-owned playback files, replay metadata, and memory export ledger as local Video routes.' : 'Saved video records expose replay metadata, memory export, and V-G9 Comfy history import into Neo-owned playback files.'}</p>${exportBadge}<div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Result</th><th>Status</th><th>Route</th><th>Type</th><th>Files</th><th>Import</th></tr></thead><tbody>${rows}</tbody></table></div>${active && importRows.length && !cloudRoute ? NeoUI.metaList(importRows) : ''}${importErrors.length && !cloudRoute ? `<div class="neo-warning-panel">${NeoUI.metaList(importErrors)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoResultsLoadBtn">Load Results</button>${active ? `${cloudRoute ? '' : `<button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn" ${active?.backend?.prompt_id ? '' : 'disabled'}>Import / Refresh Comfy Job</button>`}<button type="button" class="neo-btn secondary" id="videoLoadReplayMetadataBtn">Build Replay</button><button type="button" class="neo-btn secondary" id="videoExportMemoryBtn">Export to Memory</button><button type="button" class="neo-btn secondary" id="videoCopyReplayBtn">Copy Replay JSON</button>` : ''}</div>${active ? `<details class="neo-output-replay"><summary>Replay Metadata</summary><pre>${escapeHtml(replay)}</pre></details>` : ''}</div>`;
+    const category = record.category || record.generation_type || 'video';
+    return `<tr class="${selected ? 'selected' : ''}"><td><button type="button" class="neo-linklike" data-video-select-result="${escapeAttr(record.result_id)}">${escapeHtml(record.result_id)}</button></td><td>${escapeHtml(record.status || 'unknown')}</td><td>${escapeHtml(category)}</td><td>${escapeHtml(record.route_id || '')}</td><td>${files}</td><td>${escapeHtml(record.created_at || '')}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="neo-muted">No saved Video results yet.</td></tr>';
+  return `<div class="neo-ui-card neo-video-results-ledger" data-testid="video-results-ledger" data-schema="neo.video.output.v7"><strong>Generation History</strong><p>Select a saved result to inspect playback, generation recipe, sources, extensions, lineage, replay readiness, and expert metadata.</p><div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Result</th><th>Status</th><th>Type</th><th>Route</th><th>Files</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoResultsLoadBtn">Refresh History</button></div></div>`;
+}
+
+function activeVideoOutputInspector() {
+  const payload = state.videoOutputInspector;
+  const inspector = payload?.inspector || null;
+  const active = activeVideoResultRecord();
+  return inspector && active?.result_id && inspector.result_id === active.result_id ? inspector : null;
+}
+
+function videoInspectorDisplayValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return value.length ? value.map((item) => typeof item === 'object' ? JSON.stringify(item) : String(item)).join(', ') : '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function videoInspectorParameterTiles(items = []) {
+  if (!Array.isArray(items) || !items.length) return NeoUI.emptyState('No parameter highlights recorded.', 'Raw saved parameters remain available in Expert metadata.');
+  return `<div class="neo-output-meta-grid neo-video-inspector-param-grid">${items.map((item) => resultMetaTile(item.label || item.key, videoInspectorDisplayValue(item.value))).join('')}</div>`;
+}
+
+function videoInspectorSourceHtml(sources = {}) {
+  const items = Array.isArray(sources?.items) ? sources.items : [];
+  if (!items.length) return NeoUI.emptyState('No source assets recorded.', 'Text-to-video generations may not have a source asset.');
+  return `<div class="neo-video-inspector-source-list">${items.map((item) => {
+    const primary = item.name || item.value || item.result_id || 'Saved source';
+    const secondary = [item.value && item.value !== primary ? item.value : '', item.result_id ? `Result ${item.result_id}` : '', item.file_id ? `File ${item.file_id}` : ''].filter(Boolean).join(' · ');
+    return `<div class="neo-output-section-card neo-video-inspector-source"><strong>${escapeHtml(item.label || humanize(item.kind || 'source'))}</strong><span>${escapeHtml(primary)}</span>${secondary ? `<small>${escapeHtml(secondary)}</small>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+
+function videoInspectorExtensionsHtml(extensions = {}) {
+  const used = Array.isArray(extensions?.used) ? extensions.used : [];
+  if (!used.length) return NeoUI.emptyState('No executed extensions were recorded.', 'The Inspector only reports extensions persisted in this result metadata; installed-but-unused packages are excluded.');
+  return `<div class="neo-video-inspector-extension-list">${used.map((item) => {
+    const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
+    const details = Object.keys(payload).length ? `<details><summary>Recorded payload</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(payload, null, 2))}</pre></details>` : '<small>No extension payload details were persisted.</small>';
+    return `<div class="neo-output-section-card neo-video-inspector-extension"><strong>${escapeHtml(item.label || item.extension_id || 'Video extension')}</strong><span class="neo-output-chip">${escapeHtml(item.extension_id || '')}</span>${details}</div>`;
+  }).join('')}</div>`;
+}
+
+function videoInspectorLineageHtml(lineage = {}) {
+  const chain = Array.isArray(lineage?.chain) ? lineage.chain : [];
+  if (!chain.length) return NeoUI.emptyState('No lineage recorded.', 'This result has no parent/source chain in its saved metadata.');
+  return `<div class="neo-video-lineage" data-testid="video-output-inspector-lineage">${chain.map((node, index) => {
+    const available = !node.missing && Array.isArray(state.videoResults) && state.videoResults.some((item) => item.result_id === node.result_id);
+    const title = node.operation || node.category || node.generation_type || 'Video result';
+    const idMarkup = available ? `<button type="button" class="neo-linklike" data-video-select-result="${escapeAttr(node.result_id)}">${escapeHtml(node.result_id)}</button>` : `<span>${escapeHtml(node.result_id || 'Unknown result')}</span>`;
+    return `<div class="neo-video-lineage-node ${node.missing ? 'is-missing' : ''}"><span class="neo-video-lineage-index">${index + 1}</span><div><strong>${escapeHtml(humanize(title))}</strong>${idMarkup}<small>${escapeHtml([node.route_id, node.filename, node.created_at].filter(Boolean).join(' · '))}</small></div></div>`;
+  }).join('<div class="neo-video-lineage-connector" aria-hidden="true">↓</div>')}</div>${Array.isArray(lineage.missing_refs) && lineage.missing_refs.length ? `<div class="neo-warning-panel">${NeoUI.metaList(lineage.missing_refs.map((id) => `Missing lineage record: ${id}`))}</div>` : ''}`;
+}
+
+function videoInspectorReplayHtml(inspector = {}) {
+  const replay = inspector.replay || {};
+  const validation = replay.validation || {};
+  const payload = replay.payload || {};
+  const loadDisabled = validation.loadable ? '' : 'disabled';
+  const statusBadges = [
+    replay.uses_ancestor_recipe ? `Recipe ancestor · ${replay.base_result_id}` : `Recipe · ${replay.base_result_id || inspector.result_id}`,
+    validation.route_status ? `Route · ${validation.route_status}` : '',
+    validation.provider_id ? `Provider · ${validation.provider_id}` : '',
+    validation.loadable ? 'Recipe loadable' : 'Recipe gated',
+  ].filter(Boolean);
+  const issues = [...(Array.isArray(validation.reasons) ? validation.reasons : []), ...(Array.isArray(validation.warnings) ? validation.warnings : [])];
+  return `<div class="neo-video-inspector-replay" data-testid="video-output-inspector-replay">${badgeRow(statusBadges)}${issues.length ? `<div class="neo-warning-panel">${NeoUI.metaList(issues)}</div>` : ''}<p class="neo-muted">${escapeHtml(validation.execution_policy || 'Loading stages the recipe only; Generate remains separately gated.')}</p><div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="videoInspectorLoadRecipeBtn" ${loadDisabled}>Load Recipe into Generation</button><button type="button" class="neo-btn secondary" id="videoLoadReplayMetadataBtn">Refresh Replay Metadata</button><button type="button" class="neo-btn secondary" id="videoCopyReplayBtn" ${Object.keys(payload).length ? '' : 'disabled'}>Copy Replay JSON</button><button type="button" class="neo-btn secondary" id="videoExportMemoryBtn">Export to Memory</button></div>${Object.keys(payload).length ? `<details class="neo-output-replay"><summary>Replay payload</summary><pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre></details>` : ''}</div>`;
+}
+
+function videoOutputInspectorHtml() {
+  const record = activeVideoResultRecord();
+  if (!record) return `<section class="neo-results-block neo-output-inspector-card neo-video-output-inspector" data-testid="video-output-inspector"><div class="neo-results-block-head"><div><strong>Video Output Inspector</strong><span class="neo-muted neo-block-subtitle">Playback, recipe, lineage, replay</span></div></div>${NeoUI.emptyState('Select a saved Video result.', 'Generation history appears on the left. The selected result will be inspected here.')}</section>`;
+  const inspector = activeVideoOutputInspector();
+  if (state.videoOutputInspectorLoading && !inspector) return `<section class="neo-results-block neo-output-inspector-card neo-video-output-inspector" data-testid="video-output-inspector"><div class="neo-results-block-head"><div><strong>Video Output Inspector</strong><span class="neo-muted neo-block-subtitle">Loading ${escapeHtml(record.result_id || '')}</span></div></div><div class="neo-result-placeholder">Loading normalized Video result metadata…</div></section>`;
+  if (!inspector) return `<section class="neo-results-block neo-output-inspector-card neo-video-output-inspector" data-testid="video-output-inspector"><div class="neo-results-block-head"><div><strong>Video Output Inspector</strong><span class="neo-muted neo-block-subtitle">Inspector unavailable</span></div><button type="button" class="neo-btn secondary" id="videoRefreshInspectorBtn">Retry Inspector</button></div><div class="neo-warning-panel">${escapeHtml(state.videoOutputInspectorError || 'The normalized Inspector payload is unavailable for this result.')}</div>${videoPreviewPanelHtml()}</section>`;
+
+  const media = inspector.media || {};
+  const activeFile = media.active_file || {};
+  const preview = media.active_preview || {};
+  const generation = inspector.generation || {};
+  const params = inspector.parameters || {};
+  const base = inspector.replay?.base_generation || {};
+  const recipeGeneration = inspector.replay?.uses_ancestor_recipe ? (base.summary || {}) : generation;
+  const recipePrompts = inspector.replay?.uses_ancestor_recipe ? (base.prompts || {}) : (inspector.prompts || {});
+  const recipeParams = inspector.replay?.uses_ancestor_recipe ? (base.parameters || {}) : params;
+  const recipeSources = inspector.replay?.uses_ancestor_recipe ? (base.sources || {}) : (inspector.sources || {});
+  const recipeExtensions = inspector.replay?.uses_ancestor_recipe ? (base.extensions || {}) : (inspector.extensions || {});
+  const positivePrompt = recipePrompts.positive || inspector.replay?.payload?.prompt || '';
+  const negativePrompt = recipePrompts.negative || inspector.replay?.payload?.negative_prompt || '';
+  const mediaMarkup = activeFile.url
+    ? `<video class="neo-video-preview-player neo-video-output-inspector-player" data-testid="video-output-inspector-player" src="${escapeAttr(activeFile.url)}" controls preload="metadata"></video>`
+    : preview.url
+      ? `<img class="neo-video-preview-image" src="${escapeAttr(preview.url)}" alt="Selected Video output preview">`
+      : `<div class="neo-result-placeholder">No playback file is attached yet.</div>`;
+  const size = recipeParams?.all?.width && recipeParams?.all?.height ? `${recipeParams.all.width}×${recipeParams.all.height}` : '';
+  const chips = [
+    generation.category ? `Output · ${generation.category}` : '',
+    generation.status ? `Status · ${generation.status}` : '',
+    generation.route_id ? `Route · ${generation.route_id}` : '',
+    size ? `Size · ${size}` : '',
+    recipeParams?.all?.fps ? `FPS · ${recipeParams.all.fps}` : '',
+    recipeParams?.all?.frames ? `Frames · ${recipeParams.all.frames}` : '',
+    inspector.lineage?.depth !== undefined ? `Lineage · depth ${inspector.lineage.depth}` : '',
+  ].filter(Boolean);
+  const diagnostics = inspector.diagnostics || {};
+  const diagnosticItems = [...(Array.isArray(diagnostics.errors) ? diagnostics.errors.map((item) => `Error: ${item}`) : []), ...(Array.isArray(diagnostics.warnings) ? diagnostics.warnings.map((item) => `Warning: ${item}`) : [])];
+  const cloudRoute = generation.provider_id && generation.provider_id !== 'comfyui';
+  const refreshComfy = !cloudRoute && record?.backend?.prompt_id ? `<button type="button" class="neo-btn secondary" id="videoRefreshActiveResultBtn">Import / Refresh Comfy Job</button>` : '';
+
+  return `<section class="neo-results-block neo-output-inspector-card neo-video-output-inspector" data-testid="video-output-inspector" data-schema="${escapeAttr(state.videoOutputInspector?.schema_version || VIDEO_OUTPUT_INSPECTOR_SCHEMA)}">
+    <div class="neo-results-block-head"><div><strong>Video Output Inspector</strong><span class="neo-muted neo-block-subtitle">Playback, generation recipe, sources, extensions, lineage, replay, and expert metadata</span></div><div class="neo-results-inline-actions"><button type="button" class="neo-btn secondary" id="videoRefreshInspectorBtn">Refresh Inspector</button>${refreshComfy}</div></div>
+    <div class="neo-output-inspector-top neo-video-output-inspector-top"><div class="neo-output-inspector-media"><div class="neo-output-inspector-thumb-wrap neo-video-output-inspector-media-wrap">${mediaMarkup}</div>${renderVideoPreviewFinishActionToolbar(record)}</div><div class="neo-output-inspector-copy"><div class="neo-output-inspector-name">${escapeHtml(activeFile.filename || record.result_id || 'Selected Video output')}</div>${activeFile.path ? `<div class="neo-output-inspector-path">${escapeHtml(activeFile.path)}</div>` : ''}${chips.length ? `<div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>` : ''}${inspector.assistant_summary ? `<p class="neo-muted">${escapeHtml(inspector.assistant_summary)}</p>` : ''}</div></div>
+    ${diagnosticItems.length ? `<div class="neo-warning-panel">${NeoUI.metaList(diagnosticItems)}</div>` : ''}
+    <section class="neo-video-inspector-section" data-inspector-section="generation"><div class="neo-video-inspector-section-head"><div><strong>Generation Setup</strong><span>Recipe source: ${escapeHtml(inspector.replay?.base_result_id || inspector.result_id)}</span></div>${inspector.replay?.uses_ancestor_recipe ? '<span class="neo-badge warning">Ancestor recipe</span>' : '<span class="neo-badge success">Current result</span>'}</div><div class="neo-output-meta-grid">${resultMetaTile('Provider', recipeGeneration.provider_id)}${resultMetaTile('Backend Profile', recipeGeneration.backend_profile_id)}${resultMetaTile('Family', recipeGeneration.family)}${resultMetaTile('Loader', recipeGeneration.loader)}${resultMetaTile('Generation Type', recipeGeneration.generation_type)}${resultMetaTile('Route', recipeGeneration.route_id)}${resultMetaTile('Status', recipeGeneration.status)}${resultMetaTile('Run Time', recipeGeneration.run_timing?.elapsed_label || generation.run_timing?.elapsed_label || '')}</div>${recipeGeneration.models && Object.keys(recipeGeneration.models).length ? `<details><summary>Recorded models</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(recipeGeneration.models, null, 2))}</pre></details>` : ''}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="prompts"><div class="neo-video-inspector-section-head"><div><strong>Prompt Recipe</strong><span>Saved prompt content used by the replay recipe.</span></div></div><div class="neo-output-prompts">${resultPromptBlock('Positive prompt', positivePrompt, 'No positive prompt recorded.')}${resultPromptBlock('Negative prompt', negativePrompt, 'No negative prompt recorded.')}</div>${recipePrompts.schedule && (recipePrompts.schedule.prompt_events?.length || recipePrompts.schedule.motion_events?.length) ? `<details><summary>Prompt / motion schedule</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(recipePrompts.schedule, null, 2))}</pre></details>` : ''}${recipePrompts.audio && Object.values(recipePrompts.audio).some(Boolean) ? `<details><summary>Audio-Video prompt metadata</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(recipePrompts.audio, null, 2))}</pre></details>` : ''}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="parameters"><div class="neo-video-inspector-section-head"><div><strong>Parameters</strong><span>High-signal settings first; the full saved parameter map stays inspectable.</span></div></div>${videoInspectorParameterTiles(recipeParams.highlights || [])}${recipeParams.all && Object.keys(recipeParams.all).length ? `<details><summary>All recorded parameters</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(recipeParams.all, null, 2))}</pre></details>` : ''}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="sources"><div class="neo-video-inspector-section-head"><div><strong>Sources</strong><span>Images, videos, frames, controls, and source-result references attached to the recipe.</span></div></div>${videoInspectorSourceHtml(recipeSources)}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="extensions"><div class="neo-video-inspector-section-head"><div><strong>Executed Extensions</strong><span>Only extensions persisted in output metadata are reported as used.</span></div></div>${videoInspectorExtensionsHtml(inspector.extensions || {})}${inspector.replay?.uses_ancestor_recipe && recipeExtensions?.recorded ? `<details><summary>Generation ancestor extensions</summary>${videoInspectorExtensionsHtml(recipeExtensions)}</details>` : ''}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="lineage"><div class="neo-video-inspector-section-head"><div><strong>Lineage</strong><span>Root generation → child finish or continuation outputs → selected result.</span></div></div>${videoInspectorLineageHtml(inspector.lineage || {})}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="replay"><div class="neo-video-inspector-section-head"><div><strong>Replay</strong><span>Load the validated generation recipe without automatically executing it.</span></div></div>${videoInspectorReplayHtml(inspector)}</section>
+    ${state.detailMode === 'expert' ? `<section class="neo-video-inspector-section" data-inspector-section="expert"><div class="neo-video-inspector-section-head"><div><strong>Expert Metadata</strong><span>Normalized Inspector payload and original saved ledger record.</span></div></div><details><summary>Normalized Inspector JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(inspector, null, 2))}</pre></details><details><summary>Raw Video record JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(inspector.expert?.record || record, null, 2))}</pre></details></section>` : ''}
+  </section>`;
+}
+
+async function loadVideoInspectorRecipeIntoGeneration() {
+  const inspector = activeVideoOutputInspector();
+  const replay = inspector?.replay || {};
+  const validation = replay.validation || {};
+  const payload = replay.payload || {};
+  if (!inspector || !validation.loadable || !Object.keys(payload).length) {
+    window.alert((validation.reasons || []).join('\n') || 'This saved Video recipe cannot be loaded into Generation.');
+    return;
+  }
+
+  const profileId = String(validation.backend_profile_id || '').trim();
+  if (profileId && backendProfilesForSurface('video').some((profile) => profile.profile_id === profileId)) {
+    await persistBackendProfileSelection('video', profileId);
+  }
+
+  const providerId = String(validation.provider_id || '').trim();
+  if (providerId === 'xai_grok') {
+    state.videoDraft.mode = ['img2vid', 'txt2vid'].includes(payload.generation_type) ? payload.generation_type : 'txt2vid';
+    state.videoDraft.positive_prompt = payload.prompt || '';
+    state.videoDraft.negative_prompt = payload.negative_prompt || '';
+    if (payload.model || payload.model_name) state.videoDraft.cloud_model = payload.model || payload.model_name;
+    if (payload.duration_seconds || payload.duration) state.videoDraft.cloud_duration_seconds = Number(payload.duration_seconds || payload.duration);
+    if (payload.aspect_ratio) state.videoDraft.cloud_aspect_ratio = payload.aspect_ratio;
+    if (payload.resolution) state.videoDraft.cloud_resolution = payload.resolution;
+    if (payload.source_image) state.videoDraft.source_image = payload.source_image;
+    if (payload.source_image_name) state.videoDraft.source_image_name = payload.source_image_name;
+  } else {
+    const route = videoFindRoute(payload.family, payload.loader, payload.generation_type, true);
+    if (!route || !videoRouteStatusSelectable(route.status)) {
+      window.alert('The saved local Video route is no longer selectable in the canonical route matrix.');
+      return;
+    }
+    state.videoDraft.family = route.family;
+    state.videoDraft.loader = route.loader;
+    state.videoDraft.mode = route.mode;
+    state.videoDraft.positive_prompt = payload.prompt || '';
+    state.videoDraft.negative_prompt = payload.negative_prompt || '';
+    Object.entries(payload).forEach(([key, value]) => {
+      if (key in state.videoDraft && !['family', 'loader', 'generation_type', 'prompt', 'negative_prompt', 'surface', 'route_id', 'category'].includes(key)) state.videoDraft[key] = value;
+    });
+    if (Array.isArray(payload.segments)) state.videoDraft.multiscene_segments = payload.segments;
+    if (Array.isArray(payload.prompt_events)) state.videoDraft.schedule_prompt_events = payload.prompt_events;
+    if (Array.isArray(payload.motion_events)) state.videoDraft.schedule_motion_events = payload.motion_events;
+    const sourceResultId = String(payload.source_result_id || '').trim();
+    if (sourceResultId && Array.isArray(state.videoResults) && state.videoResults.some((item) => item.result_id === sourceResultId)) state.videoActiveResultId = sourceResultId;
+    await refreshVideoParameterProfile({ applyDefaults: false, force: false });
+  }
+
+  setSurfaceWorkspaceAppId('video', 'generation');
+  saveUiState();
+  recordMemoryEvent('video.output_inspector.recipe_loaded', 'video', { result_id: inspector.result_id || '', recipe_result_id: replay.base_result_id || '', route_id: payload.route_id || '', provider_id: providerId || 'comfyui' });
+  render();
 }
 
 
-function videoTopRunControlsHtml() {
-  const canTxt = videoCanQueueWanTxt2Vid();
-  const canImg = videoCanQueueWanImg2Vid();
-  const canRapidAio = videoCanQueueWanRapidAioGguf();
-  const canLtx = videoCanQueueLtxTxt2Vid();
-  const canLtxImg = videoCanQueueLtxImg2Vid();
-  const canFirstLast = videoCanQueueLtxFirstLastFrame();
-  const canMultiScene = videoCanQueueLtxMultiScene();
-  const canExtend = videoCanQueueLtxExtend();
-  const canVid2Vid = videoCanQueueLtxVid2Vid();
-  const canDepthMotion = videoCanQueueLtxDepthMotion();
-  const canSchedule = videoCanQueueLtxSchedule();
-  const canAudioVideo = videoCanQueueLtxAudioVideo();
-  const canRun = videoBackendConnected() && (canTxt || canImg || canRapidAio || canLtx || canLtxImg || canFirstLast || canMultiScene || canExtend || canVid2Vid || canDepthMotion || canSchedule || canAudioVideo);
-  return `<div class="neo-ui-toolbar neo-video-top-actions" data-testid="video-top-actions"><button type="button" class="neo-btn secondary" id="videoCompileWanTxt2VidBtn" ${canRun ? '' : 'disabled'}>Compile</button><button type="button" class="neo-btn primary" id="videoGenerateWanTxt2VidBtn" ${canRun ? '' : 'disabled'}>Generate</button><button type="button" class="neo-btn secondary" id="videoRefreshBackendProbeBtn">Probe Backend</button><button type="button" class="neo-btn secondary" id="videoRefreshResultsBtn">Refresh Results</button></div>`;
-}
 
 function videoCloudWorkspaceSummaryHtml() {
   const profile = videoActiveBackendProfile();
@@ -48366,17 +50789,265 @@ function videoCloudWorkspaceSummaryHtml() {
   </div>`;
 }
 
-function videoWorkspaceLeftPanelHtml(app) {
-  if (isCloudVideoProfile() && ['workspace', 'generation'].includes(app.id)) {
-    return `${videoCloudWorkspaceSummaryHtml()}<div class="neo-ui-card"><strong>Output Paths</strong><p>Completed provider videos are downloaded into Neo-owned Video output folders and registered in the existing results ledger.</p><ul class="neo-path-list">${videoOutputPathRows()}</ul><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoEnsureOutputPathsBtn">Ensure output folders</button></div></div>`;
+function videoOutputPathsCardHtml({ compact = false } = {}) {
+  const details = compact
+    ? '<p>Neo-owned output folders remain the final storage boundary for Video generations and finish children.</p>'
+    : `<p>Only Neo-owned folders are final Video storage targets. Provider/Comfy output paths are imported as source references.</p><ul class="neo-path-list">${videoOutputPathRows()}</ul>`;
+  return `<div class="neo-ui-card neo-video-output-path-card" data-testid="video-output-path-card"><strong>Output Storage</strong>${details}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoEnsureOutputPathsBtn">Ensure output folders</button></div></div>`;
+}
+
+function videoGenerationRouteStatusHtml() {
+  if (isCloudVideoProfile()) {
+    return `<div class="neo-ui-card compact" data-testid="video-cloud-route-status"><strong>Cloud API route</strong><p>${videoBackendConnected() ? 'The selected Video API profile is connected and ready for provider-side generation.' : 'Connect or test the selected Video API profile in Admin → Backends before generating.'}</p>${badgeRow([`Provider: ${videoActiveBackendProfile()?.display_name || 'Cloud Video'}`, `Mode: ${ensureCloudVideoMode()}`, 'No Comfy compile required', 'Neo output persistence'])}</div>`;
   }
-  if (app.id === 'workspace') return `${videoContractSummaryHtml(activeSurface(), activeSubtab(activeSurface()))}${videoVramEngineSummaryHtml()}${videoBackendProbeSummaryHtml()}${videoCompilerStatusHtml()}${videoRouteMatrixHtml()}<div class="neo-ui-card"><strong>Output Paths</strong><p>Only Neo-owned folders are final video storage targets.</p><ul class="neo-path-list">${videoOutputPathRows()}</ul><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoEnsureOutputPathsBtn">Ensure output folders</button></div></div>`;
-  if (app.id === 'generation') return `${videoExtensionStackHtml()}${videoCompilerStatusHtml()}${videoRouteMatrixHtml()}`;
-  if (app.id === 'assets') return `${neoFeatureTitleCard('Video Assets', 'Assets Workspace', 'Source videos, image references, frame extracts, and reusable inputs for future routes.', ['source', 'frames', 'references'], { testId: 'video-assets-feature-title-card', extraClass: 'neo-video-feature-title-card' })}${NeoUI.metaList(['Source images/videos are listed here later.', 'Frame extraction stays disabled until video I/O routes exist.', 'Image-generation tasks remain owned by the Image surface.'])}`;
-  if (app.id === 'reference') return `${neoFeatureTitleCard('Video Reference', 'Reference Workspace', 'Motion, depth, prompt, and image references for controlled video routes.', ['motion', 'depth', 'prompt'], { testId: 'video-reference-feature-title-card', extraClass: 'neo-video-feature-title-card' })}${NeoUI.metaList(['Motion reference lanes are planned.', 'Depth and ControlNet preprocessors stay optional and route-gated.', 'Prompt helper tools belong in Prompt & Captioning extensions, not inside Video.'])}`;
-  if (app.id === 'finish') return `${neoFeatureTitleCard('Video Finish', 'Finish Workspace', 'Post-generation lanes for interpolation, upscale, repair, extend reuse, and export.', ['interpolate', 'upscale', 'repair', 'extend'], { testId: 'video-finish-feature-title-card', extraClass: 'neo-video-feature-title-card' })}${videoFinishInterpolationHtml()}${videoFinishUpscaleHtml()}${videoFinishRepairHtml()}${NeoUI.metaList(['Interpolation runs when a selected result has an attached Neo-owned video file.', 'Upscale runs when a selected result has an attached Neo-owned video file.', 'Repair/Cleanup stays non-destructive and creates child outputs.', 'Export stays child-output based.'])}`;
-  if (app.id === 'results') return `${neoFeatureTitleCard('Video Results', 'Results Workspace', 'Output ledger, replay metadata, and memory export.', ['ledger', 'metadata', 'replay'], { testId: 'video-results-feature-title-card', extraClass: 'neo-video-feature-title-card' })}${videoResultsLedgerHtml()}`;
-  return '<p>No Video workspace section configured.</p>';
+  return `${videoCompilerStatusHtml()}${badgeRow(videoRouteBadges())}`;
+}
+
+
+function videoResultsCategoryOptions(records = Array.isArray(state.videoResults) ? state.videoResults : []) {
+  const values = ['all', ...Array.from(new Set(records.map((record) => String(record?.category || record?.generation_type || 'video')).filter(Boolean)))];
+  return values;
+}
+
+function visibleVideoSavedResults() {
+  const category = String(state.videoResultsCategory || 'all');
+  const sort = String(state.videoResultsSort || 'newest');
+  let rows = Array.isArray(state.videoResults) ? [...state.videoResults] : [];
+  if (category !== 'all') rows = rows.filter((record) => String(record?.category || record?.generation_type || '') === category);
+  rows.sort((a, b) => {
+    const av = Date.parse(a?.created_at || '') || 0;
+    const bv = Date.parse(b?.created_at || '') || 0;
+    return sort === 'oldest' ? av - bv : bv - av;
+  });
+  return rows;
+}
+
+function videoResultsFilterControls() {
+  const categories = videoResultsCategoryOptions();
+  const currentCategory = String(state.videoResultsCategory || 'all');
+  const currentSort = String(state.videoResultsSort || 'newest');
+  return `<div class="neo-output-filter-row neo-video-output-filter-row">
+    <label>Category<select id="videoResultsCategory">${categories.map((item) => `<option value="${escapeAttr(item)}" ${item === currentCategory ? 'selected' : ''}>${escapeHtml(item === 'all' ? 'All categories' : humanize(item))}</option>`).join('')}</select></label>
+    <label>Date<select id="videoResultsSort"><option value="newest" ${currentSort === 'newest' ? 'selected' : ''}>New to old</option><option value="oldest" ${currentSort === 'oldest' ? 'selected' : ''}>Old to new</option></select></label>
+  </div>`;
+}
+
+function videoResultCardStripHtml() {
+  const results = visibleVideoSavedResults();
+  const activeId = state.videoActiveResultId || results[0]?.result_id || '';
+  if (!results.length) return `<div class="neo-empty-state"><strong>No saved outputs yet</strong><p>Completed Video generations saved into Neo_Data will appear here.</p></div>`;
+  return results.map((record, index) => {
+    const file = videoResultPreviewFile(record) || videoResultFile(record) || {};
+    const selected = record.result_id === activeId;
+    const filename = file.filename || record.result_id || `Saved Video ${index + 1}`;
+    const thumb = file?.mime_type?.startsWith('image/') && file.url
+      ? `<img src="${escapeAttr(file.url)}" alt="Saved video ${index + 1}" class="neo-output-inspector-thumb">`
+      : '<span class="neo-output-card-empty">No preview</span>';
+    return `<button class="neo-output-card ${selected ? 'active' : ''}" type="button" data-video-select-result="${escapeAttr(record.result_id || '')}" title="Inspect ${escapeAttr(filename)}" aria-label="Inspect ${escapeAttr(filename)}">${thumb}<strong>${escapeHtml(filename)}</strong><small>${escapeHtml(record.category || record.generation_type || 'video')} · ${escapeHtml(record.created_at || '')}</small></button>`;
+  }).join('');
+}
+
+function videoReplayStorageUsageTile(label, item = {}) {
+  return `<div class="neo-output-storage-tile"><span>${escapeHtml(label)}</span><strong>${escapeHtml(item.display || '0 B')}</strong><small>${Number(item.files || 0)} files</small></div>`;
+}
+
+function renderVideoReplayStorageManager() {
+  const storage = state.videoReplayStorage || {};
+  const usage = storage.usage || {};
+  const candidates = storage.cleanup_candidates || {};
+  const orphanCount = (Array.isArray(candidates.orphan_replay_files) ? candidates.orphan_replay_files.length : 0);
+  const hasStorage = Boolean(storage.schema_version);
+  const error = state.videoReplayStorageError ? `<p class="neo-error-text">${escapeHtml(state.videoReplayStorageError)}</p>` : '';
+  const cleanupDisabled = !orphanCount || state.videoReplayStorageCleaning;
+  return `
+    <div class="neo-output-storage-manager neo-video-replay-storage-manager" data-video-replay-storage-manager="true">
+      <div class="neo-output-storage-head">
+        <div class="neo-video-storage-title"><span class="neo-video-modern-dot"></span><div><strong>Replay Storage Manager</strong><span class="neo-muted">Video metadata, replay sidecars, and safe cleanup</span></div></div>
+        <div class="neo-output-action-row">
+          <button class="neo-btn secondary" id="videoReplayStorageRefreshBtn" type="button">Refresh Storage</button>
+          <button class="neo-btn danger" id="videoReplayStorageCleanupOrphansBtn" type="button" ${cleanupDisabled ? 'disabled' : ''}>Delete Orphan Replay Files</button>
+        </div>
+      </div>
+      ${error}
+      ${hasStorage ? `
+        <div class="neo-output-storage-grid">
+          ${videoReplayStorageUsageTile('Saved outputs', usage.outputs || {})}
+          ${videoReplayStorageUsageTile('Metadata', usage.metadata || {})}
+          ${videoReplayStorageUsageTile('Replay sidecars', usage.replay || {})}
+          <div class="neo-output-storage-tile"><span>Total</span><strong>${escapeHtml(usage.total_display || '0 B')}</strong><small>${Number(storage.records?.metadata_records_scanned || 0)} records scanned</small></div>
+        </div>
+        <div class="neo-output-storage-policy">
+          <span class="neo-output-chip${orphanCount ? '' : ' is-active'}">${escapeHtml(orphanCount ? `${orphanCount} orphan replay file(s)` : 'No orphan replay files')}</span>
+          <span class="neo-muted">${escapeHtml(orphanCount ? `${candidates.orphan_replay_display || '0 B'} can be safely cleaned.` : 'Metadata, outputs, and replay sidecars with matching records stay untouched.')}</span>
+        </div>
+      ` : `<p class="neo-muted">Storage summary has not been loaded yet.</p>`}
+    </div>`;
+}
+
+async function loadVideoReplayStorage({ renderAfter = false } = {}) {
+  try {
+    const response = await fetch('/api/video/replay-storage');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Replay storage API failed');
+    state.videoReplayStorage = payload;
+    state.videoReplayStorageError = '';
+  } catch (error) {
+    state.videoReplayStorageError = error.message || 'Could not load video replay storage.';
+  }
+  if (renderAfter) render();
+}
+
+async function cleanupVideoReplayStorageOrphans() {
+  const ok = window.confirm('Delete orphan video replay sidecars? Saved outputs and metadata will be preserved.');
+  if (!ok) return;
+  state.videoReplayStorageCleaning = true;
+  render();
+  try {
+    const response = await fetch('/api/video/replay-storage/cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete_orphan_replay_sidecars' }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.detail || (Array.isArray(payload.errors) ? payload.errors.join(', ') : '') || 'Video replay storage cleanup failed');
+    state.videoReplayStorage = payload.summary || null;
+    state.videoReplayStorageError = '';
+    setVideoWorkspaceProgress(`Replay storage cleanup removed ${Array.isArray(payload.deleted) ? payload.deleted.length : 0} orphan file(s)`, 100);
+  } catch (error) {
+    state.videoReplayStorageError = error.message || 'Could not clean video replay storage.';
+  }
+  state.videoReplayStorageCleaning = false;
+  render();
+}
+
+function renderVideoOutputSaveDetails() {
+  const settings = state.videoOutputSettings || {};
+  const categories = Array.isArray(settings.categories) && settings.categories.length ? settings.categories : ['Uncategorized'];
+  const selected = settings.selected_category || categories[0] || 'Uncategorized';
+  return `
+    <section class="neo-results-block neo-output-save-details neo-video-output-save-details neo-video-modern-card" data-testid="video-output-save-details">
+      <div class="neo-video-modern-head"><div class="neo-video-modern-title"><span class="neo-video-modern-dot"></span><div><strong>Results & Save Details</strong><span>Organize Neo-owned Video outputs, naming, categories, and cleanup.</span></div></div><span class="neo-video-modern-chip">output storage</span></div>
+      ${state.videoOutputSettingsError ? `<p class="neo-error-text">${escapeHtml(state.videoOutputSettingsError)}</p>` : ''}
+      <div class="neo-output-save-grid">
+        <label>Category<select id="videoOutputCategory">${categories.map((item) => `<option value="${escapeAttr(item)}" ${item === selected ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select></label>
+        <label>New Category<input id="videoOutputNewCategory" placeholder="e.g. Client_A_Reels"></label>
+        <label>Filename Prefix<input id="videoOutputPrefix" value="${escapeAttr(settings.filename_prefix || 'NeoStudio')}" placeholder="NeoStudio"></label>
+        <label>Padding<input id="videoOutputPadding" type="number" min="2" max="8" value="${Number(settings.filename_padding || 4)}"></label>
+      </div>
+      <label class="neo-output-cleanup-toggle"><input id="videoOutputCleanupNative" type="checkbox" ${settings.cleanup_backend_native_outputs !== false ? 'checked' : ''}> After saving to Neo_Data, remove backend duplicate output files</label>
+      <p class="neo-output-safety-copy">Neo-owned saved outputs stay safe. Only backend duplicate files are cleaned.</p>
+      <div class="neo-output-destination-preview"><span>Output:</span><code>${escapeHtml(settings.output_dir || 'neo_data/outputs/video/uncategorized')}</code><span>Metadata:</span><code>${escapeHtml(settings.metadata_dir || 'neo_data/outputs/video/metadata')}</code></div>
+      <div class="neo-output-action-row"><button class="neo-btn secondary" id="videoOutputSaveSettingsBtn" type="button">Save Details</button><button class="neo-btn secondary" id="videoOutputAddCategoryBtn" type="button">Add Category</button></div>
+      ${renderVideoReplayStorageManager()}
+    </section>`;
+}
+
+async function loadVideoOutputSettings({ renderAfter = false } = {}) {
+  try {
+    const response = await fetch('/api/video/output-settings');
+    if (!response.ok) throw new Error('Video output settings API failed');
+    const payload = await response.json();
+    state.videoOutputSettings = payload.settings || {};
+    state.videoOutputSettingsError = '';
+  } catch (error) {
+    state.videoOutputSettingsError = error.message || 'Could not load video output settings.';
+  }
+  if (renderAfter) render();
+}
+
+function collectVideoOutputSettings() {
+  const current = state.videoOutputSettings || {};
+  return {
+    ...current,
+    selected_category: document.getElementById('videoOutputCategory')?.value || current.selected_category || 'Uncategorized',
+    filename_prefix: document.getElementById('videoOutputPrefix')?.value || current.filename_prefix || 'NeoStudio',
+    filename_padding: Number(document.getElementById('videoOutputPadding')?.value || current.filename_padding || 4),
+    cleanup_backend_native_outputs: Boolean(document.getElementById('videoOutputCleanupNative')?.checked),
+  };
+}
+
+async function saveVideoOutputSettings(extra = {}) {
+  try {
+    const response = await fetch('/api/video/output-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...collectVideoOutputSettings(), ...extra }) });
+    if (!response.ok) throw new Error('Could not save video output settings');
+    const payload = await response.json();
+    state.videoOutputSettings = payload.settings || {};
+    state.videoOutputSettingsError = '';
+    render();
+  } catch (error) {
+    state.videoOutputSettingsError = error.message || 'Could not save video output settings.';
+    render();
+  }
+}
+
+async function addVideoOutputCategory() {
+  const name = document.getElementById('videoOutputNewCategory')?.value || '';
+  if (!name.trim()) {
+    state.videoOutputSettingsError = 'Type a category name first.';
+    render();
+    return;
+  }
+  try {
+    const response = await fetch('/api/video/output-settings/category', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...collectVideoOutputSettings(), name }) });
+    if (!response.ok) throw new Error('Could not add video output category');
+    const payload = await response.json();
+    state.videoOutputSettings = payload.settings || {};
+    state.videoOutputSettingsError = '';
+    render();
+  } catch (error) {
+    state.videoOutputSettingsError = error.message || 'Could not add video output category.';
+    render();
+  }
+}
+
+function videoGenerationWorkspaceLeftHtml() {
+  const builtIns = videoBuiltInToolsHtml('generation');
+  const externals = videoExternalExtensionsHtml('generation');
+  const diagnostics = state.detailMode === 'expert' ? `<details class="neo-video-expert-diagnostics" data-testid="video-generation-expert-diagnostics"><summary>Route + backend diagnostics</summary>${videoRouteMatrixHtml()}${videoExternalNodeManagerHtml()}</details>` : '';
+  if (isCloudVideoProfile()) {
+    return `${videoCloudWorkspaceSummaryHtml()}${builtIns}${externals}${videoOutputPathsCardHtml({ compact: true })}`;
+  }
+  return `${videoBackendProbeSummaryHtml()}${videoNativeBuiltInToolHtml('video.vram_profile_advisor', videoVramEngineSummaryHtml())}${builtIns}${externals}${diagnostics}${videoOutputPathsCardHtml({ compact: state.detailMode !== 'expert' })}`;
+}
+
+function videoAssetInventoryHtml() {
+  const d = state.videoDraft || {};
+  const active = activeVideoResultRecord();
+  const sourceFile = videoResultFile(active);
+  const segments = videoMultisceneSegments();
+  const rows = [
+    d.source_image_name || d.source_image ? `Source image: ${d.source_image_name || d.source_image}` : 'Source image: none selected',
+    d.first_image_name || d.first_image ? `First frame: ${d.first_image_name || d.first_image}` : 'First frame: none selected',
+    d.last_image_name || d.last_image ? `Last frame: ${d.last_image_name || d.last_image}` : 'Last frame: none selected',
+    `MultiScene inputs: ${segments.filter((item) => item.image).length}/${Math.max(segments.length, 0)} image segments ready`,
+    sourceFile?.filename ? `Selected result video: ${sourceFile.filename}` : 'Selected result video: none attached',
+  ];
+  return `<div class="neo-ui-card neo-video-asset-inventory" data-testid="video-asset-inventory"><strong>Active Asset Inventory</strong><p>Assets reflects the inputs currently staged for Video workflows. Changing workspace does not change the selected generation type.</p>${NeoUI.metaList(rows)}</div>`;
+}
+
+function videoAssetsWorkspaceHtml() {
+  return `${videoAssetInventoryHtml()}${videoBuiltInToolsHtml('assets')}${videoExternalExtensionsHtml('assets')}`;
+}
+
+function videoReferenceWorkspaceHtml() {
+  const mode = state.videoDraft.mode || 'txt2vid';
+  const referenceModes = new Set(['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'depth_motion']);
+  const context = referenceModes.has(mode)
+    ? `The active ${videoGenerationTypeLabel(mode)} route exposes reference/source controls in the panel beside this workspace summary.`
+    : `The active ${videoGenerationTypeLabel(mode)} route has no dedicated Reference input. Choose Img2Vid, First / Last Frame, MultiScene, Video-to-Video, or Depth / Motion Control in the command strip when reference conditioning is needed.`;
+  return `<div class="neo-ui-card compact" data-testid="video-reference-context"><strong>Reference route context</strong><p>${escapeHtml(context)}</p>${badgeRow([`Generation type: ${videoGenerationTypeLabel(mode)}`, referenceModes.has(mode) ? 'Reference controls available' : 'No reference input required'])}</div>${videoBuiltInToolsHtml('reference')}${videoExternalExtensionsHtml('reference')}`;
+}
+
+function videoReferenceInputHtml() {
+  const mode = state.videoDraft.mode || 'txt2vid';
+  if (['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'depth_motion'].includes(mode)) return videoSourcePanelHtml();
+  return NeoUI.emptyState('No reference input for this generation type.', 'Reference stays intentionally clean until a route that consumes image, video, motion, or depth guidance is selected.');
+}
+
+function videoFinishWorkspaceLeftHtml() {
+  const handled = new Set([...VIDEO_NATIVE_BUILTIN_EXTENSION_IDS, 'video.output_recorder']);
+  return `${videoFinishPipelinePresetsHtml()}${videoBuiltInToolsHtml('finish', handled)}${videoExternalExtensionsHtml('finish')}${state.detailMode === 'expert' ? videoExternalNodeManagerHtml() : ''}`;
+}
+
+function videoResultsWorkspaceLeftHtml() {
+  const handled = new Set([...VIDEO_NATIVE_BUILTIN_EXTENSION_IDS, 'video.output_recorder']);
+  return `${renderVideoOutputSaveDetails()}<section class="neo-results-block neo-video-saved-outputs-card" data-testid="video-saved-outputs-section"><div class="neo-results-block-head neo-video-results-head"><div><strong>Saved Outputs</strong><span class="neo-muted neo-video-results-subtitle">Loaded from /api/video/results · Neo_Data only</span></div><span class="neo-video-results-sort-chip">${escapeHtml((state.videoResultsSort || 'newest') === 'newest' ? 'New to old' : 'Old to new')}</span></div>${videoResultsFilterControls()}<div class="neo-output-card-strip neo-video-output-card-strip">${videoResultCardStripHtml()}</div></section>${videoBuiltInToolsHtml('results', handled)}${videoExternalExtensionsHtml('results')}`;
 }
 
 const VOICE_MODEL_FAMILY_OPTIONS = [
@@ -48900,50 +51571,74 @@ function bindVoiceDraftInputs() {
   document.getElementById('voiceDeleteProfileBtn')?.addEventListener('click', deleteCurrentVoiceProfile);
 }
 
-function renderVideoPanels(surface, subtab) {
-  el.surfacePanels.innerHTML = '';
-  el.surfacePanels.className = 'neo-workspace-split video-workspace';
-  const app = activeVideoWorkspaceApp();
-  const left = document.createElement('section');
-  left.className = 'neo-workspace-column neo-workspace-left neo-video-workspace-left';
-  const right = document.createElement('section');
-  right.className = 'neo-workspace-column neo-workspace-right neo-video-workspace-right';
-  const summary = activeVideoWorkspaceSummary(subtab);
 
-  appendNeoFirstRunPanel(left, 'video', 'Video quick start');
-  left.appendChild(fixedPanel(`${app.label} Workspace`, `
-    <div class="neo-image-workspace-explainer neo-video-workspace-explainer" data-testid="video-workspace-explainer">
-      <div><span class="neo-card-kicker">Workspace</span><strong>${escapeHtml(summary.workspace_label)}</strong><p>${escapeHtml(summary.workspace_description)}</p></div>
-      <div><span class="neo-card-kicker">Generation Type</span><strong>${escapeHtml(summary.generation_label)}</strong><p>${isCloudVideoProfile() ? 'Use the existing workspace to generate, follow provider progress, or refresh saved results.' : 'Use the Workspace card above to compile, generate, probe readiness, or refresh results.'}</p></div>
-    </div>
-    ${badgeRow([`Workspace: ${app.label}`, `Generation Type: ${summary.generation_label}`, videoCanQueueActiveWanRoute() ? 'Ready' : 'Waiting for input'])}
-  `, 'video-workspace-summary'));
-  if (app.id === 'finish') {
-    left.appendChild(panel('Motion Timing + Presets', videoFinishPipelinePresetsHtml(), false, 'finish-presets'));
-    left.appendChild(panel('Frame Interpolation', videoFinishInterpolationHtml(), false, 'interpolate'));
-    left.appendChild(panel('Video Upscale', videoFinishUpscaleHtml(), false, 'upscale'));
-    left.appendChild(panel('Repair / Cleanup', videoFinishRepairHtml(), false, 'repair'));
-    left.appendChild(panel('Finish Notes', NeoUI.metaList(['Interpolation runs from the selected source video.', 'Upscale runs from the selected source video.', 'Repair/Cleanup stays non-destructive and creates child outputs.', 'Export stays child-output based.']), false, 'finish'));
-  } else {
-    left.appendChild(panel(app.label === 'Workspace' ? 'Video Setup' : `${app.label} Stack`, videoWorkspaceLeftPanelHtml(app), false, app.id));
-  }
+function appendVideoWorkspaceHtml(parent, html, testId = '') {
+  const host = document.createElement('section');
+  host.className = 'neo-video-workspace-stack';
+  if (testId) host.setAttribute('data-testid', testId);
+  host.innerHTML = html;
+  parent.appendChild(host);
+}
+
+function appendVideoPersistentGenerationRail(right) {
+  right.classList.add('neo-video-generation-rail');
+  right.setAttribute('data-testid', 'video-prompt-preview-parameters-rail');
+  right.setAttribute('data-video-rail-role', 'prompt-preview-parameters');
 
   const promptPreviewRow = document.createElement('section');
   promptPreviewRow.className = 'neo-prompt-preview-row neo-video-prompt-preview-row';
   promptPreviewRow.appendChild(fixedPanel('Prompt', videoPromptPanelHtml(), 'prompt'));
   promptPreviewRow.appendChild(fixedPanel('Preview', videoPreviewPanelHtml(), 'preview'));
   right.appendChild(promptPreviewRow);
-
-  if (app.id === 'assets' || ['img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion'].includes(state.videoDraft.mode)) {
-    right.appendChild(panel('Source / Reference', videoSourcePanelHtml(), false, 'source'));
-  }
-  if (state.videoDraft.mode === 'prompt_schedule') right.appendChild(panel('Schedule', videoSchedulePanelHtml(), false, 'schedule'));
-  if (state.videoDraft.mode === 'audio_video') right.appendChild(panel('Audio-Video', videoAudioVideoPanelHtml(), false, 'audio-video')); 
   right.appendChild(panel('Parameters', videoParameterPanelHtml(), false, 'params'));
-  right.appendChild(panel('Route Status', isCloudVideoProfile()
-    ? `<div class="neo-ui-card compact" data-testid="video-cloud-route-status"><strong>Cloud API route</strong><p>${videoBackendConnected() ? 'The selected Video API profile is connected and ready for provider-side generation.' : 'Connect or test the selected Video API profile in Admin → Backends before generating.'}</p>${badgeRow([`Provider: ${videoActiveBackendProfile()?.display_name || 'Grok Imagine Video'}`, `Mode: ${ensureCloudVideoMode()}`, 'No Comfy compile required', 'Neo output persistence'])}</div>`
-    : `${videoCompilerStatusHtml()}${badgeRow(videoRouteBadges())}`, false, 'safe'));
+}
 
+function renderVideoPanels(surface, subtab) {
+  el.surfacePanels.innerHTML = '';
+  el.surfacePanels.className = 'neo-workspace-split video-workspace neo-video-workspace-composed';
+  const app = activeVideoWorkspaceApp();
+  const left = document.createElement('section');
+  left.className = 'neo-workspace-column neo-workspace-left neo-video-workspace-left';
+  left.setAttribute('data-testid', 'video-active-workspace-rail');
+  left.setAttribute('data-video-rail-role', 'active-subtab');
+  const right = document.createElement('section');
+  right.className = 'neo-workspace-column neo-workspace-right neo-video-workspace-right';
+
+  if (app.id === 'generation') {
+    appendNeoFirstRunPanel(left, 'video', 'Video quick start');
+    appendVideoWorkspaceHtml(left, videoGenerationWorkspaceLeftHtml(), 'video-generation-workspace-stack');
+
+    const mode = state.videoDraft.mode || 'txt2vid';
+    if (['img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion'].includes(mode)) {
+      left.appendChild(panel('Source / Reference', videoSourcePanelHtml(), false, 'source'));
+    }
+    if (mode === 'prompt_schedule') left.appendChild(panel('Prompt / Motion Schedule', videoNativeBuiltInToolHtml('video.prompt_motion_schedule', videoSchedulePanelHtml()), false, 'schedule'));
+    if (mode === 'audio_video') left.appendChild(panel('Audio-Video', videoNativeBuiltInToolHtml('video.audio_video', videoAudioVideoPanelHtml()), false, 'audio-video'));
+    left.appendChild(panel('Route Status', videoGenerationRouteStatusHtml(), false, 'safe'));
+  } else if (app.id === 'assets') {
+    appendVideoWorkspaceHtml(left, videoAssetsWorkspaceHtml(), 'video-assets-workspace-stack');
+    left.appendChild(panel('Active Source Inputs', videoSourcePanelHtml(), false, 'assets-source-inputs'));
+  } else if (app.id === 'reference') {
+    appendVideoWorkspaceHtml(left, videoReferenceWorkspaceHtml(), 'video-reference-workspace-stack');
+    left.appendChild(panel('Reference Inputs', videoReferenceInputHtml(), false, 'reference-inputs'));
+  } else if (app.id === 'finish') {
+    appendVideoWorkspaceHtml(left, videoFinishWorkspaceLeftHtml(), 'video-finish-workspace-stack');
+    left.appendChild(panel('Frame Interpolation', videoNativeBuiltInToolHtml('video.finish_interpolation', videoFinishInterpolationHtml()), false, 'interpolate'));
+    left.appendChild(panel('Video Upscale', videoNativeBuiltInToolHtml('video.finish_upscale', videoFinishUpscaleHtml()), false, 'upscale'));
+    left.appendChild(panel('Repair / Cleanup', videoNativeBuiltInToolHtml('video.finish_repair', videoFinishRepairHtml()), false, 'repair'));
+    left.appendChild(panel('Finish Notes', NeoUI.metaList(['Each finish operation creates a child output and preserves its parent result.', 'Interpolation and Upscale expose their own source-video pickers.', 'Repair/Cleanup uses the selected Neo-owned result and stays non-destructive.', 'Prompt, Preview, and Parameters remain available in the persistent generation rail while Finish tools stay isolated on the left.']), false, 'finish-notes'));
+  } else if (app.id === 'results') {
+    appendVideoWorkspaceHtml(left, videoResultsWorkspaceLeftHtml(), 'video-results-workspace-stack');
+    const inspectorHost = document.createElement('section');
+    inspectorHost.className = 'neo-video-output-inspector-host';
+    inspectorHost.setAttribute('data-testid', 'video-output-inspector-host');
+    inspectorHost.innerHTML = videoOutputInspectorHtml();
+    left.appendChild(inspectorHost);
+    if (!state.videoOutputSettings && !state.videoOutputSettingsError) loadVideoOutputSettings({ renderAfter: true });
+    if (!state.videoReplayStorage && !state.videoReplayStorageError) loadVideoReplayStorage({ renderAfter: true });
+  }
+
+  appendVideoPersistentGenerationRail(right);
   el.surfacePanels.appendChild(left);
   el.surfacePanels.appendChild(right);
 
@@ -48963,10 +51658,31 @@ function renderVideoPanels(surface, subtab) {
   });
   ['videoRefreshResultsBtn', 'videoResultsLoadBtn'].forEach((id) => document.querySelectorAll(`#${id}`).forEach((button) => button.addEventListener('click', async () => { setVideoWorkspaceProgress('Refreshing Video results…', Math.max(55, videoProgressPercent())); await refreshVideoResults(); })));
   document.querySelectorAll('#videoRefreshActiveResultBtn').forEach((button) => button.addEventListener('click', async () => { await refreshActiveVideoResultFromComfy(); }));
-  document.querySelectorAll('[data-video-select-result]').forEach((button) => button.addEventListener('click', () => { state.videoActiveResultId = button.dataset.videoSelectResult || ''; saveUiState(); recordMemoryEvent('video.result.selected', 'video', { result_id: state.videoActiveResultId }); render(); }));
+  document.querySelectorAll('[data-video-select-result]').forEach((button) => button.addEventListener('click', async () => {
+    state.videoActiveResultId = button.dataset.videoSelectResult || '';
+    saveUiState();
+    recordMemoryEvent('video.result.selected', 'video', { result_id: state.videoActiveResultId });
+    await refreshVideoOutputInspector({ resultId: state.videoActiveResultId, renderAfter: false });
+    render();
+  }));
+  document.getElementById('videoRefreshInspectorBtn')?.addEventListener('click', async () => { await refreshVideoOutputInspector({ renderAfter: true }); });
+  document.getElementById('videoOutputSaveSettingsBtn')?.addEventListener('click', async () => { await saveVideoOutputSettings(); });
+  document.getElementById('videoOutputAddCategoryBtn')?.addEventListener('click', async () => { await addVideoOutputCategory(); });
+  document.getElementById('videoReplayStorageRefreshBtn')?.addEventListener('click', async () => { await loadVideoReplayStorage({ renderAfter: true }); });
+  document.getElementById('videoReplayStorageCleanupOrphansBtn')?.addEventListener('click', async () => { await cleanupVideoReplayStorageOrphans(); });
+  document.getElementById('videoResultsCategory')?.addEventListener('change', (event) => { state.videoResultsCategory = event.target.value || 'all'; render(); });
+  document.getElementById('videoResultsSort')?.addEventListener('change', (event) => { state.videoResultsSort = event.target.value || 'newest'; render(); });
+  document.getElementById('videoInspectorLoadRecipeBtn')?.addEventListener('click', async () => { await loadVideoInspectorRecipeIntoGeneration(); });
   document.getElementById('videoLoadReplayMetadataBtn')?.addEventListener('click', async () => { await loadActiveVideoReplayMetadata(); });
   document.getElementById('videoExportMemoryBtn')?.addEventListener('click', async () => { await exportActiveVideoResultMemory(); });
-  document.getElementById('videoCopyReplayBtn')?.addEventListener('click', async () => { const record = activeVideoResultRecord(); const replay = record?.replay_metadata || record?.replay_payload; if (!replay) return; await navigator.clipboard?.writeText(JSON.stringify(replay, null, 2)); recordMemoryEvent('video.result.replay_copied', 'video', { result_id: record.result_id || '', schema: record.replay_metadata ? 'v22' : 'legacy' }); });
+  document.getElementById('videoCopyReplayBtn')?.addEventListener('click', async () => {
+    const record = activeVideoResultRecord();
+    const inspectorReplay = activeVideoOutputInspector()?.replay?.payload;
+    const replay = inspectorReplay && Object.keys(inspectorReplay).length ? inspectorReplay : (record?.replay_metadata || record?.replay_payload);
+    if (!replay) return;
+    await navigator.clipboard?.writeText(JSON.stringify(replay, null, 2));
+    recordMemoryEvent('video.result.replay_copied', 'video', { result_id: record?.result_id || '', schema: inspectorReplay ? 'output_inspector_recipe' : (record?.replay_metadata ? 'v22' : 'legacy') });
+  });
   document.querySelectorAll('#videoCompileWanTxt2VidBtn').forEach((button) => button.addEventListener('click', async () => { if (!videoBackendConnected()) { window.alert('Probe the Video backend first so Neo can confirm Comfy is reachable.'); return; } await compileVideoWanTxt2Vid(); }));
   document.querySelectorAll('#videoRuntimePreflightBtn').forEach((button) => button.addEventListener('click', async () => { if (!videoBackendConnected()) { window.alert('Probe the Video backend first so Neo can confirm Comfy is reachable.'); return; } await preflightVideoRuntime(); }));
   document.querySelectorAll('#videoApplyWanGgufFirstTestBtn').forEach((button) => button.addEventListener('click', async () => { await applyVideoWanGgufFirstTestPreset(); }));
@@ -49243,7 +51959,7 @@ function bindVideoDraftInputs() {
   });
   document.querySelectorAll('[id^="videoParam_"]').forEach((node) => {
     const key = node.id.replace('videoParam_', '');
-    node.addEventListener('change', (event) => {
+    node.addEventListener('change', async (event) => {
       const field = VIDEO_PARAMETER_FIELD_DEFS.find((item) => item.field_id === key);
       let value = event.target.value;
       if (field?.type === 'number') value = Number(value);
@@ -49261,7 +51977,7 @@ function bindVideoDraftInputs() {
       }
       if (key === 'vram_profile') {
         state.videoDraft.vram_profile = normalizeVideoVramProfile(value);
-        applyVideoParameterDefaults({ force: false });
+        await refreshVideoParameterProfile({ applyDefaults: true, force: false });
       }
       if (key === 'performance_profile') {
         state.videoDraft.performance_profile = value || 'safe_12gb';
@@ -49390,6 +52106,7 @@ async function uploadImageSourceFile(file) {
   state.imageDraft.source_image_height = dims.height || 0;
   clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
+  resetSourceVisibilityMaskDraft();
   saveUiState();
   render();
 }
@@ -49402,6 +52119,7 @@ function clearImageSource() {
   state.imageDraft.source_image_height = 0;
   clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
+  resetSourceVisibilityMaskDraft();
   saveUiState();
   render();
 }
@@ -49445,6 +52163,7 @@ async function uploadQwenStitchImageFile(groupId, side, file) {
       path: payload.path || '',
       url: payload.url || '',
       name: payload.filename || payload.stored_filename || file.name,
+      visibility_mask: emptySourceVisibilityMask(),
     };
   });
   render();
@@ -49467,7 +52186,7 @@ function clearQwenReferenceSource(lane, options = {}) {
 }
 
 function addQwenSourceImageSlot() {
-  state.imageDraft.qwen_source_slot_count = Math.min(3, qwenVisibleSourceSlotCount() + 1);
+  state.imageDraft.qwen_source_slot_count = Math.min(imageMultiReferenceSlotLimit(), qwenVisibleSourceSlotCount() + 1);
   saveUiState();
   render();
 }
@@ -49584,12 +52303,18 @@ function promptCaptioningBatchPayload() {
   const pc = promptCaptioningState();
   const cap = pc.captioning;
   const batch = cap.batch || {};
-  const payload = buildPromptCaptioningPayload('captioning', 'batch_captioning');
   const workflowMode = effectivePromptCaptioningBatchWorkflowMode(batch.workflowMode || 'dataset');
   batch.workflowMode = workflowMode;
-  payload.inputs = { ...(payload.inputs || {}), folder_path: batch.inputFolder || '', workflow_mode: workflowMode, caption_instruction: cap.batchInstruction || cap.captionInstruction || '' };
+  const payload = buildPromptCaptioningPayload('captioning', 'batch_captioning');
+  const profile = { ...promptCaptioningBatchProfile(cap, workflowMode), surface: workflowMode === 'library' ? 'batch_library' : 'batch_dataset' };
+  const instruction = workflowMode === 'library' ? String(batch.libraryInstruction || '').trim() : String(batch.datasetInstruction || '').trim();
+  payload.profile = profile;
+  payload.inputs = { ...(payload.inputs || {}), folder_path: batch.inputFolder || '', workflow_mode: workflowMode, caption_instruction: instruction };
   payload.params = payload.params || {};
-  payload.params.dataset = { ...(payload.params.dataset || {}), output_folder: batch.outputFolder || '', caption_images: batch.datasetCaptionImages !== false, save_txt: batch.datasetSaveTxt !== false, rename_images: batch.datasetRenameImages !== false, transfer_mode: batch.datasetTransferMode || 'copy', confirm_move: Boolean(batch.datasetConfirmMove), external_output_confirmed: Boolean(batch.datasetExternalOutputConfirmed), skip_processed: batch.datasetSkipProcessed !== false, overwrite_existing: Boolean(batch.datasetOverwriteExisting), log_format: batch.datasetLogFormat || 'csv', prefix: batch.datasetPrefix || 'character', pattern: batch.datasetPattern || '{prefix}_{num}', number_start: Number(batch.datasetNumberStart || 1), number_padding: Number(batch.datasetNumberPadding || 4) };
+  payload.params.caption_mode = promptCaptioningLegacyCaptionMode(profile.analysis_scope || 'full_image');
+  payload.params.component_type = promptCaptioningLegacyComponentType(profile.analysis_scope || 'full_image');
+  payload.params.caption_settings = { ...(payload.params.caption_settings || {}), instruction, caption_mode: payload.params.caption_mode, component_type: payload.params.component_type, output_style: promptCaptioningLegacyOutputStyle(profile.visual_treatment || 'source_accurate'), caption_style: promptCaptioningLegacyCaptionStyle(profile.output_format || 'descriptive_caption') };
+  payload.params.dataset = { ...(payload.params.dataset || {}), output_folder: batch.outputFolder || '', caption_images: batch.datasetCaptionImages !== false, save_txt: batch.datasetSaveTxt !== false, rename_images: batch.datasetRenameImages !== false, transfer_mode: batch.datasetTransferMode || 'copy', confirm_move: Boolean(batch.datasetConfirmMove), external_output_confirmed: Boolean(batch.datasetExternalOutputConfirmed), skip_processed: batch.datasetSkipProcessed !== false, overwrite_existing: Boolean(batch.datasetOverwriteExisting), log_format: batch.datasetLogFormat || 'csv', prefix: batch.datasetPrefix || 'character', pattern: batch.datasetPattern || '{prefix}_{num}', number_start: Number(batch.datasetNumberStart || 1), number_padding: Number(batch.datasetNumberPadding || 4), trigger_token: String(batch.datasetTriggerToken || '').trim() };
   payload.params.library = { ...(payload.params.library || {}), category: resolvePromptCaptioningCategory(batch.libraryCategory, batch.libraryCategoryNew, 'General'), new_category: batch.libraryCategoryNew || '', base_name: batch.libraryBaseName || 'caption', number_start: Number(batch.libraryNumberStart || 1), skip_duplicates: batch.librarySkipDuplicates !== false };
   if (workflowMode === 'library') delete payload.params.dataset.output_folder;
   payload.assets = {};
@@ -49828,7 +52553,8 @@ function validateBatchCaptioningState() {
   batch.workflowMode = workflowMode;
   const inputFolder = String(batch.inputFolder || '').trim();
   const includeExts = String(batch.includeExtensions || '').trim();
-  const captionMode = String((cap.params || {}).caption_mode || 'full_image');
+  const activeProfile = promptCaptioningBatchProfile(cap, workflowMode);
+  const captionMode = promptCaptioningLegacyCaptionMode(activeProfile.analysis_scope || 'full_image');
   const datasetCaptionImages = batch.datasetCaptionImages !== false;
   const requiresCaptionBackend = workflowMode === 'library' || (workflowMode === 'dataset' && datasetCaptionImages);
   if (!inputFolder) return { runnable: false, reason: 'missing_input_folder', reason_label: 'Input folder is required.', mode: workflowMode, requires_caption_backend: requiresCaptionBackend };
@@ -49890,6 +52616,7 @@ async function previewPromptCaptioningBatchCaptioning() {
   const pc = promptCaptioningState();
   const cap = pc.captioning;
   const batch = cap.batch || (cap.batch = {});
+  syncPromptCaptioningBatchVisibleFields();
   batch.status = 'Previewing batch files…';
   render();
   try {
@@ -49982,6 +52709,30 @@ function syncPromptCaptioningBatchVisibleFields() {
   [['promptCaptioningBatchRecursive','recursive'], ['promptCaptioningBatchDatasetCaptionImages','datasetCaptionImages'], ['promptCaptioningBatchDatasetSaveTxt','datasetSaveTxt'], ['promptCaptioningBatchDatasetRenameImages','datasetRenameImages'], ['promptCaptioningBatchDatasetSkipProcessed','datasetSkipProcessed'], ['promptCaptioningBatchDatasetOverwriteExisting','datasetOverwriteExisting'], ['promptCaptioningBatchDatasetConfirmMove','datasetConfirmMove'], ['promptCaptioningBatchExternalOutputConfirmed','datasetExternalOutputConfirmed'], ['promptCaptioningBatchLibrarySkipDuplicates','librarySkipDuplicates']].forEach(([id, key]) => {
     if (promptCaptioningBatchElementsById(id).length) batch[key] = promptCaptioningBatchReadCheckedValue(id);
   });
+  const workflowMode = effectivePromptCaptioningBatchWorkflowMode(batch.workflowMode || 'dataset');
+  const instructionFields = promptCaptioningBatchElementsById('promptCaptioningBatchInstruction');
+  if (instructionFields.length) {
+    const value = String(promptCaptioningBatchReadFieldValue('promptCaptioningBatchInstruction') || '');
+    if (workflowMode === 'library') batch.libraryInstruction = value;
+    else batch.datasetInstruction = value;
+  }
+  if (workflowMode === 'dataset') {
+    const profile = promptCaptioningBatchProfile(cap, 'dataset');
+    if (promptCaptioningBatchElementsById('promptCaptioningBatchDatasetPurpose').length) profile.purpose = String(promptCaptioningBatchReadFieldValue('promptCaptioningBatchDatasetPurpose') || 'general');
+    if (promptCaptioningBatchElementsById('promptCaptioningBatchDatasetScope').length) profile.analysis_scope = String(promptCaptioningBatchReadFieldValue('promptCaptioningBatchDatasetScope') || 'full_image');
+    if (promptCaptioningBatchElementsById('promptCaptioningBatchDatasetTriggerToken').length) batch.datasetTriggerToken = String(promptCaptioningBatchReadFieldValue('promptCaptioningBatchDatasetTriggerToken') || '').trim();
+    profile.trigger_token = batch.datasetTriggerToken || '';
+  } else {
+    const profile = promptCaptioningBatchProfile(cap, 'library');
+    const profileFields = [
+      ['promptCaptioningBatchLibraryPurpose', 'purpose'],
+      ['promptCaptioningBatchLibraryVisualTreatment', 'visual_treatment'],
+      ['promptCaptioningBatchLibraryScope', 'analysis_scope'],
+      ['promptCaptioningBatchLibraryOutputFormat', 'output_format'],
+      ['promptCaptioningBatchLibraryGrounding', 'grounding'],
+    ];
+    profileFields.forEach(([id, key]) => { if (promptCaptioningBatchElementsById(id).length) profile[key] = String(promptCaptioningBatchReadFieldValue(id) || profile[key] || ''); });
+  }
   batch.resolvedLibraryCategory = resolvePromptCaptioningCategory(batch.libraryCategory, batch.libraryCategoryNew, 'Uncategorized');
   // Do not overwrite libraryCategory with the typed new category during render cycles.
   // The resolved value is applied only to the outgoing batch payload, so the New category field stays stable.
@@ -50197,10 +52948,22 @@ function bindPromptCaptioningControls() {
   if (negative) negative.addEventListener('input', (event) => { pb.negativeOutputText = event.target.value; });
   const profile = document.getElementById('promptCaptioningPromptProfile');
   if (profile) profile.addEventListener('change', (event) => { pb.providerProfileId = event.target.value; pb.status = 'Prompt backend profile updated.'; render(); });
-  const mode = document.getElementById('promptCaptioningGenerationMode');
-  if (mode) mode.addEventListener('change', (event) => { pb.generationMode = event.target.value; pb.activeTool = event.target.value; render(); });
-  const style = document.getElementById('promptCaptioningPromptStyle');
-  if (style) style.addEventListener('change', (event) => { pb.promptStyle = event.target.value; });
+  const targetMedia = document.getElementById('promptCaptioningPromptTargetMedia');
+  if (targetMedia) targetMedia.addEventListener('change', (event) => { promptCaptioningApplyPromptTargetMedia(event.target.value); pb.status = `Prompt target changed to ${event.target.value}.`; render(); });
+  const promptTask = document.getElementById('promptCaptioningPromptTask');
+  if (promptTask) promptTask.addEventListener('change', (event) => { promptCaptioningApplyPromptTask(event.target.value); pb.status = `Prompt task: ${promptCaptioningProfileLabel('prompt_task', event.target.value)}.`; render(); });
+  const treatment = document.getElementById('promptCaptioningPromptVisualTreatment');
+  if (treatment) treatment.addEventListener('change', (event) => { promptCaptioningPromptTaskProfile(pb).visual_treatment = event.target.value; pb.promptStyle = promptCaptioningLegacyPromptStyle(promptCaptioningPromptTaskProfile(pb)); });
+  const promptFormat = document.getElementById('promptCaptioningPromptFormat');
+  if (promptFormat) promptFormat.addEventListener('change', (event) => { const p = promptCaptioningPromptTaskProfile(pb); if (p.prompt_task === 'text_to_image') p.output_format = event.target.value; pb.promptStyle = promptCaptioningLegacyPromptStyle(p); });
+  const editIntent = document.getElementById('promptCaptioningPromptEditIntent');
+  if (editIntent) editIntent.addEventListener('change', (event) => { promptCaptioningPromptTaskProfile(pb).edit_intent = event.target.value; });
+  const preservation = document.getElementById('promptCaptioningPromptPreservation');
+  if (preservation) preservation.addEventListener('change', (event) => { promptCaptioningPromptTaskProfile(pb).preservation_policy = event.target.value; });
+  const motionProfile = document.getElementById('promptCaptioningPromptMotionProfile');
+  if (motionProfile) motionProfile.addEventListener('change', (event) => { promptCaptioningPromptTaskProfile(pb).motion_profile = event.target.value; });
+  const cameraBehavior = document.getElementById('promptCaptioningPromptCameraBehavior');
+  if (cameraBehavior) cameraBehavior.addEventListener('change', (event) => { promptCaptioningPromptTaskProfile(pb).camera_behavior = event.target.value; });
   [['promptCaptioningMaxTokens', 'max_tokens'], ['promptCaptioningTemperature', 'temperature'], ['promptCaptioningTopP', 'top_p']].forEach(([id, key]) => {
     const field = document.getElementById(id);
     if (field) field.addEventListener('input', (event) => { pb.params[key] = key === 'max_tokens' ? Number(event.target.value || 0) : Number(event.target.value || 0); });
@@ -50219,7 +52982,7 @@ function bindPromptCaptioningControls() {
       handler(event);
     });
   };
-  bindOnce('promptCaptioningRunPrompt', () => runPromptCaptioningPrompt(pb.generationMode || 'prompt_generate'));
+  bindOnce('promptCaptioningRunPrompt', () => runPromptCaptioningPrompt('prompt_generate'));
   bindOnce('promptCaptioningEnhancePrompt', () => runPromptCaptioningPrompt('prompt_enhance'));
   bindOnce('promptCaptioningRewritePrompt', () => runPromptCaptioningPrompt('prompt_rewrite'));
   bindOnce('promptCaptioningCleanupPrompt', () => runPromptCaptioningPrompt('prompt_cleanup'));
@@ -50231,6 +52994,10 @@ function bindPromptCaptioningControls() {
   if (replacePromptImage && replacePromptImage.dataset.pcBound !== 'true') { replacePromptImage.dataset.pcBound = 'true'; replacePromptImage.addEventListener('click', (event) => { event.preventDefault(); promptCaptioningSyncPromptOutputsFromDom(); promptCaptioningSendToWorkspace({ modeId: 'prompt_builder', targetWorkspace: 'image', targetField: 'positive_prompt', handoffMode: 'replace', text: promptCaptioningLivePromptOutput({ promptOnly: true }) || pb.sourceText || '' }); }); }
   const sendNegativeAppend = document.getElementById('promptCaptioningSendNegativeImageAppend');
   if (sendNegativeAppend && sendNegativeAppend.dataset.pcBound !== 'true') { sendNegativeAppend.dataset.pcBound = 'true'; sendNegativeAppend.addEventListener('click', (event) => { event.preventDefault(); promptCaptioningSyncPromptOutputsFromDom(); promptCaptioningSendToWorkspace({ modeId: 'prompt_builder', targetWorkspace: 'image', targetField: 'negative_prompt', handoffMode: 'append', text: promptCaptioningLivePromptOutput({ negativeFirst: true }) || '' }); }); }
+  const sendPromptVideoAppend = document.getElementById('promptCaptioningSendPromptVideoAppend');
+  if (sendPromptVideoAppend && sendPromptVideoAppend.dataset.pcBound !== 'true') { sendPromptVideoAppend.dataset.pcBound = 'true'; sendPromptVideoAppend.addEventListener('click', (event) => { event.preventDefault(); promptCaptioningSyncPromptOutputsFromDom(); promptCaptioningSendToWorkspace({ modeId: 'prompt_builder', targetWorkspace: 'video', targetField: 'positive_prompt', handoffMode: 'append', text: promptCaptioningLivePromptOutput({ promptOnly: true }) || pb.sourceText || '' }); }); }
+  const replacePromptVideo = document.getElementById('promptCaptioningReplacePromptVideo');
+  if (replacePromptVideo && replacePromptVideo.dataset.pcBound !== 'true') { replacePromptVideo.dataset.pcBound = 'true'; replacePromptVideo.addEventListener('click', (event) => { event.preventDefault(); promptCaptioningSyncPromptOutputsFromDom(); promptCaptioningSendToWorkspace({ modeId: 'prompt_builder', targetWorkspace: 'video', targetField: 'positive_prompt', handoffMode: 'replace', text: promptCaptioningLivePromptOutput({ promptOnly: true }) || pb.sourceText || '' }); }); }
   const clear = document.getElementById('promptCaptioningClearPrompt');
   if (clear && clear.dataset.pcBound !== 'true') { clear.dataset.pcBound = 'true'; clear.addEventListener('click', (event) => {
     event.preventDefault();
@@ -50332,11 +53099,28 @@ function bindPromptCaptioningControls() {
   if (captionOutput) captionOutput.addEventListener('input', (event) => { cap.outputCaption = event.target.value; });
   const captionProfile = document.getElementById('promptCaptioningCaptionProfile');
   if (captionProfile) captionProfile.addEventListener('change', (event) => { cap.providerProfileId = event.target.value; cap.status = 'Caption backend profile updated.'; render(); });
+  const captionTask = document.getElementById('promptCaptioningCaptionTask');
+  if (captionTask) captionTask.addEventListener('change', (event) => { promptCaptioningApplyCaptionTaskDefaults(event.target.value); cap.status = `Caption Studio task: ${promptCaptioningProfileLabel('prompt_task', event.target.value)}.`; refreshCaptionValidation(); render(); });
+  const singleProfileFields = [
+    ['promptCaptioningCaptionPurpose', 'purpose'],
+    ['promptCaptioningCaptionVisualTreatment', 'visual_treatment'],
+    ['promptCaptioningCaptionAnalysisScope', 'analysis_scope'],
+    ['promptCaptioningCaptionOutputFormat', 'output_format'],
+    ['promptCaptioningCaptionGrounding', 'grounding'],
+    ['promptCaptioningCaptionEditIntent', 'edit_intent'],
+    ['promptCaptioningCaptionPreservationPolicy', 'preservation_policy'],
+    ['promptCaptioningCaptionMotionProfile', 'motion_profile'],
+    ['promptCaptioningCaptionCameraBehavior', 'camera_behavior'],
+  ];
+  singleProfileFields.forEach(([id, key]) => {
+    const field = document.getElementById(id);
+    if (field) field.addEventListener('change', (event) => { const profile = promptCaptioningCaptionTaskProfile(cap); profile[key] = event.target.value; refreshCaptionValidation(); saveUiState(); });
+  });
   [['promptCaptioningCaptionStyle', 'captionStyle'], ['promptCaptioningCaptionLength', 'captionLength'], ['promptCaptioningOutputStyle', 'outputStyle']].forEach(([id, key]) => {
     const field = document.getElementById(id);
     if (field) field.addEventListener('change', (event) => { cap[key] = event.target.value; });
   });
-  [['promptCaptioningCaptionMode', 'caption_mode'], ['promptCaptioningComponentType', 'component_type'], ['promptCaptioningDetailLevel', 'detail_level']].forEach(([id, key]) => {
+  [['promptCaptioningCaptionMode', 'caption_mode'], ['promptCaptioningComponentType', 'component_type'], ['promptCaptioningDetailLevel', 'detail_level'], ['promptCaptioningCaptionDetailLevel', 'detail_level']].forEach(([id, key]) => {
     const field = document.getElementById(id);
     if (field) field.addEventListener('change', (event) => { cap.params[key] = event.target.value; refreshCaptionValidation(); render(); });
   });
@@ -50419,10 +53203,33 @@ function bindPromptCaptioningControls() {
     ['promptCaptioningCaptionPresetTone', 'presetTone'], ['promptCaptioningCaptionPresetTagRules', 'presetTagRules'], ['promptCaptioningCaptionPresetInstruction', 'presetInstruction'],
     ['promptCaptioningCaptionPresetTags', 'presetTags'], ['promptCaptioningCaptionPresetNotes', 'presetNotes'], ['promptCaptioningCaptionBrowserSearch', 'captionBrowserSearch'],
     ['promptCaptioningCaptionBrowserCategory', 'captionBrowserCategory'], ['promptCaptioningComponentName', 'componentName'], ['promptCaptioningComponentText', 'componentText'],
-    ['promptCaptioningComponentTags', 'componentTags'], ['promptCaptioningComponentNotes', 'componentNotes'], ['promptCaptioningBatchInstruction', 'batchInstruction'],
+    ['promptCaptioningComponentTags', 'componentTags'], ['promptCaptioningComponentNotes', 'componentNotes'],
   ].forEach(([id, key]) => {
     const field = document.getElementById(id);
     if (field) field.addEventListener('input', (event) => { cap[key] = event.target.value; });
+  });
+  const batchInstruction = document.getElementById('promptCaptioningBatchInstruction');
+  if (batchInstruction) batchInstruction.addEventListener('input', (event) => {
+    const workflow = effectivePromptCaptioningBatchWorkflowMode(batch.workflowMode || 'dataset');
+    if (workflow === 'library') batch.libraryInstruction = event.target.value;
+    else batch.datasetInstruction = event.target.value;
+    saveUiState();
+  });
+  const batchDatasetPurpose = document.getElementById('promptCaptioningBatchDatasetPurpose');
+  if (batchDatasetPurpose) batchDatasetPurpose.addEventListener('change', (event) => { promptCaptioningBatchProfile(cap, 'dataset').purpose = event.target.value; saveUiState(); });
+  const batchDatasetScope = document.getElementById('promptCaptioningBatchDatasetScope');
+  if (batchDatasetScope) batchDatasetScope.addEventListener('change', (event) => { promptCaptioningBatchProfile(cap, 'dataset').analysis_scope = event.target.value; updatePromptCaptioningBatchRunGateDom(); saveUiState(); });
+  const batchDatasetTrigger = document.getElementById('promptCaptioningBatchDatasetTriggerToken');
+  if (batchDatasetTrigger) batchDatasetTrigger.addEventListener('input', (event) => { batch.datasetTriggerToken = event.target.value; promptCaptioningBatchProfile(cap, 'dataset').trigger_token = String(event.target.value || '').trim(); saveUiState(); });
+  [
+    ['promptCaptioningBatchLibraryPurpose', 'purpose'],
+    ['promptCaptioningBatchLibraryVisualTreatment', 'visual_treatment'],
+    ['promptCaptioningBatchLibraryScope', 'analysis_scope'],
+    ['promptCaptioningBatchLibraryOutputFormat', 'output_format'],
+    ['promptCaptioningBatchLibraryGrounding', 'grounding'],
+  ].forEach(([id, key]) => {
+    const field = document.getElementById(id);
+    if (field) field.addEventListener('change', (event) => { promptCaptioningBatchProfile(cap, 'library')[key] = event.target.value; updatePromptCaptioningBatchRunGateDom(); saveUiState(); });
   });
   [
     ['promptCaptioningCaptionPresetStyle', 'presetStyle'], ['promptCaptioningCaptionPresetLength', 'presetLength'], ['promptCaptioningCaptionPresetOutputStyle', 'presetOutputStyle'],
@@ -50522,21 +53329,46 @@ function bindPromptCaptioningControls() {
   }));
 }
 
-async function uploadImageMaskFile(file, options = {}) {
+async function uploadImageMaskAsset(file, options = {}) {
   if (!file) return null;
   const form = new FormData();
-  const filename = options.filename || file.name || 'neo_inpaint_mask.png';
+  const filename = options.filename || file.name || 'neo_mask.png';
   form.append('file', file, filename);
   const response = await fetch('/api/image/mask-image', { method: 'POST', body: form });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Mask image upload failed');
+  return {
+    ...payload,
+    filename: payload.filename || payload.stored_filename || filename,
+    preview_url: payload.url ? `${payload.url}${payload.url.includes('?') ? '&' : '?'}v=${Date.now()}` : '',
+  };
+}
+
+async function uploadImageMaskFile(file, options = {}) {
+  const payload = await uploadImageMaskAsset(file, { ...options, filename: options.filename || file?.name || 'neo_inpaint_mask.png' });
+  if (!payload) return null;
   state.imageDraft.mask_image = payload.path || '';
   state.imageDraft.mask_image_url = payload.url || '';
-  state.imageDraft.mask_image_preview_url = payload.url ? `${payload.url}${payload.url.includes('?') ? '&' : '?'}v=${Date.now()}` : '';
-  state.imageDraft.mask_image_name = payload.filename || payload.stored_filename || filename;
+  state.imageDraft.mask_image_preview_url = payload.preview_url || payload.url || '';
+  state.imageDraft.mask_image_name = payload.filename || '';
   saveUiState();
   if (!options.skipRender) render();
   return payload;
+}
+
+function sourceVisibilityMaskFromUpload(payload, current = {}) {
+  return normalizeSourceVisibilityMask({
+    ...current,
+    schema: 'neo.image.source_visibility_mask.v1',
+    enabled: true,
+    path: payload?.path || '',
+    ref: payload?.path || payload?.stored_filename || '',
+    url: payload?.url || '',
+    preview_url: payload?.preview_url || payload?.url || '',
+    name: payload?.filename || payload?.stored_filename || 'Visibility mask',
+    fill_mode: current?.fill_mode || 'black',
+    white_hides: true,
+  });
 }
 
 function clearImageMask() {
@@ -50545,19 +53377,113 @@ function clearImageMask() {
   render();
 }
 
+function clearSourceVisibilityMask() {
+  resetSourceVisibilityMaskDraft();
+  saveUiState();
+  render();
+}
+
+function imageMaskEditorTarget() {
+  const target = state.imageMaskEditor?.target;
+  return target && typeof target === 'object' ? target : null;
+}
+
 function openImageMaskEditor() {
-  if (!state.imageDraft.source_image_url) {
+  const sourceUrl = String(state.imageDraft.source_image_url || '').trim();
+  if (!sourceUrl) {
     alert('Select a source image before opening the mask editor.');
     return;
   }
+  state.imageMaskEditor.target = {
+    kind: 'inpaint',
+    sourceUrl,
+    sourceName: sourceImageLabel(),
+    existingMaskUrl: String(state.imageDraft.mask_image_preview_url || state.imageDraft.mask_image_url || '').trim(),
+    existingMaskName: maskImageLabel(),
+  };
   state.imageMaskEditor.open = true;
   state.imageMaskEditor.initializedFor = '';
+  state.imageMaskEditor.loadedMaskFor = '';
+  renderImageMaskEditorModal();
+}
+
+function openSourceVisibilityMaskEditor(options = {}) {
+  const kind = String(options.kind || 'source_visibility');
+  let sourceUrl = '';
+  let sourceName = '';
+  let currentMask = emptySourceVisibilityMask();
+  let groupId = '';
+  let side = '';
+
+  if (kind === 'stitch_visibility') {
+    groupId = String(options.groupId || '');
+    side = String(options.side || '');
+    const group = qwenStitchDraft().groups.find((item, index) => qwenStitchGroupId(item, index) === groupId);
+    const input = group ? qwenStitchGroupInput(group, side) : null;
+    if (!input) {
+      alert('That stitch image is no longer available.');
+      return;
+    }
+    sourceUrl = String(input.url || '').trim();
+    sourceName = String(input.name || basename(input.path || input.url || '') || 'Stitch image');
+    currentMask = qwenStitchInputVisibilityMask(group, side);
+  } else {
+    sourceUrl = String(state.imageDraft.source_image_url || '').trim();
+    sourceName = sourceImageLabel();
+    currentMask = sourceVisibilityMaskDraft();
+  }
+
+  if (!sourceUrl) {
+    alert(kind === 'stitch_visibility' ? 'Select the stitch image before masking it.' : 'Select a source image before masking it.');
+    return;
+  }
+
+  state.imageMaskEditor.target = {
+    kind,
+    sourceUrl,
+    sourceName,
+    groupId,
+    side,
+    existingMaskUrl: String(currentMask.preview_url || currentMask.url || '').trim(),
+    existingMaskName: String(currentMask.name || 'Visibility mask'),
+  };
+  state.imageMaskEditor.open = true;
+  state.imageMaskEditor.initializedFor = '';
+  state.imageMaskEditor.loadedMaskFor = '';
   renderImageMaskEditorModal();
 }
 
 function closeImageMaskEditor() {
   state.imageMaskEditor.open = false;
+  state.imageMaskEditor.drawing = false;
+  state.imageMaskEditor.target = null;
+  state.imageMaskEditor.initializedFor = '';
+  state.imageMaskEditor.loadedMaskFor = '';
   renderImageMaskEditorModal();
+}
+
+function imageMaskEditorCopy(target) {
+  const visibility = target?.kind === 'source_visibility' || target?.kind === 'stitch_visibility';
+  if (visibility) {
+    return {
+      title: target.kind === 'stitch_visibility' ? 'Stitch Image Visibility Mask' : 'Source Visibility Mask',
+      aria: target.kind === 'stitch_visibility' ? 'Stitch image visibility mask editor' : 'Source visibility mask editor',
+      help: 'Paint white over content to hide it. Black or clear areas stay visible. Hidden areas become black before ComfyUI encodes or stitches the image.',
+      save: 'Use Hidden Mask',
+      saving: 'Saving hidden mask…',
+      saved: 'Hidden mask saved.',
+      filename: target.kind === 'stitch_visibility' ? 'neo_stitch_visibility_mask.png' : 'neo_source_visibility_mask.png',
+    };
+  }
+  return {
+    title: 'Inpaint Mask Editor',
+    aria: 'Inpaint mask editor',
+    help: 'Paint white where the image should change; black stays preserved. Hold Alt or switch to Erase to remove painted areas.',
+    save: 'Use Mask',
+    saving: 'Saving mask…',
+    saved: 'Mask saved.',
+    filename: 'neo_inpaint_mask.png',
+  };
 }
 
 function renderImageMaskEditorModal() {
@@ -50567,6 +53493,12 @@ function renderImageMaskEditorModal() {
     document.body.classList.remove('neo-modal-open');
     return;
   }
+  const target = imageMaskEditorTarget();
+  if (!target?.sourceUrl) {
+    closeImageMaskEditor();
+    return;
+  }
+  const copy = imageMaskEditorCopy(target);
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'neoImageMaskEditorModal';
@@ -50576,19 +53508,19 @@ function renderImageMaskEditorModal() {
   modal.className = 'neo-mask-editor-modal';
   modal.innerHTML = `
     <div class="neo-image-zoom-backdrop" data-mask-close></div>
-    <div class="neo-mask-editor-window" role="dialog" aria-modal="true" aria-label="Inpaint mask editor">
+    <div class="neo-mask-editor-window" role="dialog" aria-modal="true" aria-label="${escapeAttr(copy.aria)}">
       <header class="neo-image-zoom-toolbar">
-        <strong>Inpaint Mask Editor</strong>
-        <span class="neo-muted">Paint white where the image should change; black stays preserved. Hold Alt or switch to Erase to remove painted areas.</span>
+        <strong>${escapeHtml(copy.title)}</strong>
+        <span class="neo-muted">${escapeHtml(copy.help)}</span>
         <button class="neo-btn secondary" id="neoMaskModeBtn" type="button">${state.imageDraft.mask_mode === 'erase' ? 'Erase' : 'Paint'}</button>
         <label class="neo-mask-brush-label">Brush <input id="neoMaskBrushSize" type="range" min="4" max="140" value="${state.imageDraft.mask_brush_size || 26}"><span>${state.imageDraft.mask_brush_size || 26}px</span></label>
         <button class="neo-btn secondary" id="neoMaskClearCanvasBtn" type="button">Clear</button>
-        <button class="neo-btn primary" id="neoMaskSaveBtn" type="button">Use Mask</button>
+        <button class="neo-btn primary" id="neoMaskSaveBtn" type="button">${escapeHtml(copy.save)}</button>
         <button class="neo-btn secondary" data-mask-close type="button">Close</button>
       </header>
       <div id="neoMaskEditorStatus" class="neo-mask-editor-status neo-muted" role="status"></div>
       <div class="neo-mask-editor-stage">
-        <img id="neoMaskSourceImage" src="${escapeAttr(state.imageDraft.source_image_url)}" alt="Source image for mask">
+        <img id="neoMaskSourceImage" src="${escapeAttr(target.sourceUrl)}" alt="${escapeAttr(target.sourceName || 'Source image for mask')}">
         <canvas id="neoMaskCanvas"></canvas>
         <div id="neoMaskBrushCursor" class="neo-mask-brush-cursor" aria-hidden="true"></div>
       </div>
@@ -50596,17 +53528,58 @@ function renderImageMaskEditorModal() {
   bindImageMaskEditorModal();
 }
 
+function loadExistingMaskIntoCanvas(url, canvas, key) {
+  if (!url || !canvas || state.imageMaskEditor.loadedMaskFor === key) return;
+  state.imageMaskEditor.loadedMaskFor = key;
+  const status = document.getElementById('neoMaskEditorStatus');
+  if (status) status.textContent = 'Loading existing mask…';
+  const image = new Image();
+  image.onload = () => {
+    if (!canvas.isConnected || state.imageMaskEditor.initializedFor !== key) return;
+    if (image.naturalWidth !== canvas.width || image.naturalHeight !== canvas.height) {
+      if (status) status.textContent = 'The existing mask size does not match this source image. Start a new mask or restore the matching source.';
+      return;
+    }
+    const temp = document.createElement('canvas');
+    temp.width = canvas.width;
+    temp.height = canvas.height;
+    const tempContext = temp.getContext('2d', { willReadFrequently: true });
+    const context = canvas.getContext('2d');
+    if (!tempContext || !context) return;
+    tempContext.drawImage(image, 0, 0);
+    const pixels = tempContext.getImageData(0, 0, temp.width, temp.height);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const luminance = Math.round((pixels.data[index] + pixels.data[index + 1] + pixels.data[index + 2]) / 3);
+      pixels.data[index] = 255;
+      pixels.data[index + 1] = 255;
+      pixels.data[index + 2] = 255;
+      pixels.data[index + 3] = luminance;
+    }
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.putImageData(pixels, 0, 0);
+    if (status) status.textContent = 'Existing mask loaded. Paint or erase to refine it.';
+  };
+  image.onerror = () => {
+    if (status) status.textContent = 'The existing mask could not be loaded. You can paint a replacement mask.';
+  };
+  image.src = url;
+}
+
 function initImageMaskCanvas() {
   const img = document.getElementById('neoMaskSourceImage');
   const canvas = document.getElementById('neoMaskCanvas');
-  if (!img || !canvas || !img.complete || !img.naturalWidth) return;
-  const key = `${state.imageDraft.source_image_url}:${img.naturalWidth}x${img.naturalHeight}`;
+  const target = imageMaskEditorTarget();
+  if (!img || !canvas || !target || !img.complete || !img.naturalWidth) return;
+  const maskUrl = String(target.existingMaskUrl || '');
+  const key = `${target.kind}:${target.sourceUrl}:${maskUrl}:${img.naturalWidth}x${img.naturalHeight}`;
   if (state.imageMaskEditor.initializedFor === key && canvas.width === img.naturalWidth && canvas.height === img.naturalHeight) return;
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   state.imageMaskEditor.initializedFor = key;
+  state.imageMaskEditor.loadedMaskFor = '';
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (maskUrl) loadExistingMaskIntoCanvas(maskUrl, canvas, key);
 }
 
 function maskCanvasPoint(event) {
@@ -50776,20 +53749,43 @@ async function saveMaskCanvasAsImage() {
   const canvas = document.getElementById('neoMaskCanvas');
   const save = document.getElementById('neoMaskSaveBtn');
   const status = document.getElementById('neoMaskEditorStatus');
-  if (!canvas) return;
+  const target = imageMaskEditorTarget();
+  if (!canvas || !target) return;
+  const copy = imageMaskEditorCopy(target);
   try {
     if (!maskCanvasHasPaint(canvas)) {
-      throw new Error('Draw a mask before saving.');
+      throw new Error('Paint at least one area before saving.');
     }
     if (save) {
       save.disabled = true;
-      save.textContent = 'Saving...';
+      save.textContent = copy.saving;
     }
-    if (status) status.textContent = 'Saving mask to Neo_Data...';
+    if (status) status.textContent = 'Saving mask to Neo_Data…';
     const blob = await canvasToPngBlob(canvas);
-    await uploadImageMaskFile(blob, { filename: 'neo_inpaint_mask.png', skipRender: true });
-    if (status) status.textContent = 'Mask saved.';
+    const payload = await uploadImageMaskAsset(blob, { filename: copy.filename });
+    if (!payload) throw new Error('Mask upload did not return a saved file.');
+
+    if (target.kind === 'source_visibility') {
+      state.imageDraft.source_visibility_mask = sourceVisibilityMaskFromUpload(payload, sourceVisibilityMaskDraft());
+    } else if (target.kind === 'stitch_visibility') {
+      const draft = qwenStitchDraft();
+      const group = draft.groups.find((item, index) => qwenStitchGroupId(item, index) === String(target.groupId || ''));
+      if (!group) throw new Error('The stitch group is no longer available.');
+      const currentMask = qwenStitchInputVisibilityMask(group, target.side);
+      qwenStitchSetInputVisibilityMask(target.groupId, target.side, sourceVisibilityMaskFromUpload(payload, currentMask));
+    } else {
+      state.imageDraft.mask_image = payload.path || '';
+      state.imageDraft.mask_image_url = payload.url || '';
+      state.imageDraft.mask_image_preview_url = payload.preview_url || payload.url || '';
+      state.imageDraft.mask_image_name = payload.filename || '';
+    }
+
+    saveUiState();
+    if (status) status.textContent = copy.saved;
     state.imageMaskEditor.open = false;
+    state.imageMaskEditor.target = null;
+    state.imageMaskEditor.initializedFor = '';
+    state.imageMaskEditor.loadedMaskFor = '';
     renderImageMaskEditorModal();
     render();
   } catch (error) {
@@ -50798,7 +53794,7 @@ async function saveMaskCanvasAsImage() {
   } finally {
     if (save) {
       save.disabled = false;
-      save.textContent = 'Use Mask';
+      save.textContent = copy.save;
     }
   }
 }
@@ -51055,6 +54051,7 @@ function clearPreviewActionProviderTransientState() {
 
 function clearPreviewActionModeSpecificState(mode = 'img2img') {
   resetImageMaskDraft();
+  resetSourceVisibilityMaskDraft();
   state.imageMaskEditor.open = false;
   state.imageMaskEditor.initializedFor = '';
   if (mode !== 'outpaint') {
@@ -51171,6 +54168,7 @@ function stagePreviewActionSourceAsImageSource(source = {}, handoff = {}) {
   state.imageDraft.source_image_name = record.filename;
   state.imageDraft.source_image_width = record.width;
   state.imageDraft.source_image_height = record.height;
+  resetSourceVisibilityMaskDraft();
   const clearedProviderFields = clearPreviewActionProviderTransientState();
   clearPreviewActionModeSpecificState(handoff.target_mode || 'img2img');
   state.imageDraft._preview_action_source = {
@@ -51417,8 +54415,6 @@ function previewFinishStageGenerationSource(actionId = '', source = {}, evaluati
     updateHighResLabSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, preserve_prompt_context: true, preserve_reference_context: true, upscale_lab_source_only: true });
   } else if (actionId === 'extension.adetailer') {
     updateAdetailerSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, detailer_output_pass: true });
-  } else if (actionId === 'extension.identity_rescue') {
-    state.imageDraft.denoise = Math.max(0.12, Math.min(Number(state.imageDraft.denoise || 0.28) || 0.28, 0.35));
   }
   return cleanSource;
 }
@@ -52085,6 +55081,9 @@ function adetailerNormalizeModelCatalogPayload(payload = {}, profileId = '') {
   const segmModels = adetailerCatalogListForType(payload, 'segm');
   const onnxModels = adetailerCatalogListForType(payload, 'onnx_bbox');
   const samModels = [...new Set((Array.isArray(payload.sam_models) ? payload.sam_models : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || '')).trim()).filter(Boolean))];
+  const detailerCheckpoints = [...new Set((Array.isArray(payload.detailer_checkpoints) ? payload.detailer_checkpoints : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || '')).trim()).filter(Boolean))];
+  const detailerVaes = [...new Set((Array.isArray(payload.detailer_vaes) ? payload.detailer_vaes : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || '')).trim()).filter(Boolean))];
+  const detailerLoras = [...new Set((Array.isArray(payload.detailer_loras) ? payload.detailer_loras : []).map((item) => String(typeof item === 'string' ? item : (item?.name || item?.filename || '')).trim()).filter(Boolean))];
   return {
     ...payload,
     ok: true,
@@ -52093,12 +55092,18 @@ function adetailerNormalizeModelCatalogPayload(payload = {}, profileId = '') {
     segm_models: segmModels,
     onnx_models: onnxModels,
     sam_models: samModels,
+    detailer_checkpoints: detailerCheckpoints,
+    detailer_vaes: detailerVaes,
+    detailer_loras: detailerLoras,
     sources: Array.isArray(payload.sources) ? payload.sources.map((item) => String(item || '').trim()).filter(Boolean) : [],
     counts: {
       bbox: Number(payload.counts?.bbox ?? bboxModels.length),
       segm: Number(payload.counts?.segm ?? segmModels.length),
       onnx: Number(payload.counts?.onnx ?? onnxModels.length),
       sam: Number(payload.counts?.sam ?? samModels.length),
+      checkpoints: Number(payload.counts?.checkpoints ?? detailerCheckpoints.length),
+      vaes: Number(payload.counts?.vaes ?? detailerVaes.length),
+      loras: Number(payload.counts?.loras ?? detailerLoras.length),
     },
   };
 }
@@ -52196,7 +55201,9 @@ function adetailerCatalogDatalist(settings = adetailerSettings()) {
   const catalog = adetailerCatalogPayloadForProfile();
   const detectorModels = [...new Set([...(catalog.bbox_models || []), ...(catalog.segm_models || []), ...(catalog.onnx_models || [])])];
   const samModels = [...new Set(catalog.sam_models || [])];
-  return `<datalist id="adetailerDetectorModelList">${detectorModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist><datalist id="adetailerSamModelList">${samModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist>`;
+  const detailerCheckpoints = [...new Set(catalog.detailer_checkpoints || [])];
+  const detailerVaes = [...new Set(catalog.detailer_vaes || [])];
+  return `<datalist id="adetailerDetectorModelList">${detectorModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist><datalist id="adetailerSamModelList">${samModels.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist><datalist id="adetailerCheckpointList">${detailerCheckpoints.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist><datalist id="adetailerVaeList">${detailerVaes.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}</datalist>`;
 }
 
 function adetailerPreviewSettingsForPass(passIndex = 0) {
@@ -52768,18 +55775,70 @@ function adetailerInstallCanvasActionFallback() {
 }
 
 function bindAdetailerControls() {
+  document.querySelectorAll('[data-adetailer-section]').forEach((node) => node.addEventListener('toggle', () => adetailerRememberSection(String(node.getAttribute('data-adetailer-section') || ''), Boolean(node.open))));
   const clearPreviewSource = document.getElementById('adetailerClearPreviewSource');
   if (clearPreviewSource) clearPreviewSource.addEventListener('click', () => adetailerClearStagedPreviewSource());
   adetailerInstallCanvasActionFallback();
   const enabled = document.getElementById('adetailerEnabled');
   if (enabled) enabled.addEventListener('change', (event) => { updateAdetailerSettings({ enabled: Boolean(event.target.checked) }); render(); });
+  const modelSource = document.getElementById('adetailerModelSource');
+  if (modelSource) modelSource.addEventListener('change', (event) => {
+    const source = event.target.value;
+    const current = adetailerSettings();
+    const identity = source === 'dedicated_checkpoint' && current.identity_protection === 'detailer_identity_lora'
+      ? 'dedicated_detailer_model'
+      : source === 'generation_model' && current.identity_protection === 'dedicated_detailer_model'
+        ? 'none'
+        : current.identity_protection;
+    updateAdetailerSettings({ model_source: source, identity_protection: identity });
+    render();
+  });
+  const modelFamily = document.getElementById('adetailerModelFamily');
+  if (modelFamily) modelFamily.addEventListener('change', (event) => { updateAdetailerSettings({ detailer_model_family: event.target.value }); render(); });
+  const familyPresetMode = document.getElementById('adetailerFamilyPresetMode');
+  if (familyPresetMode) familyPresetMode.addEventListener('change', (event) => { updateAdetailerSettings({ family_preset_mode: event.target.value }); render(); });
+  const identityProtection = document.getElementById('adetailerIdentityProtection');
+  if (identityProtection) identityProtection.addEventListener('change', (event) => {
+    const mode = adetailerNormalizeIdentityProtection(event.target.value);
+    const patch = { identity_protection: mode };
+    if (mode === 'detailer_identity_lora') {
+      patch.model_source = 'generation_model';
+      patch.detailer_lora_enabled = true;
+    } else if (mode === 'dedicated_detailer_model') {
+      patch.model_source = 'dedicated_checkpoint';
+      patch.lora_inheritance = 'inherit_none';
+      patch.inherit_lora_uids = [];
+    }
+    updateAdetailerSettings(patch);
+    render();
+  });
+  const loraInheritance = document.getElementById('adetailerLoraInheritance');
+  if (loraInheritance) loraInheritance.addEventListener('change', (event) => { updateAdetailerSettings({ lora_inheritance: event.target.value }); render(); });
+  const detailerLoraEnabled = document.getElementById('adetailerDetailerLoraEnabled');
+  if (detailerLoraEnabled) detailerLoraEnabled.addEventListener('change', (event) => { updateAdetailerSettings({ detailer_lora_enabled: Boolean(event.target.checked) }); render(); });
+  document.querySelectorAll('[data-adetailer-inherit-lora-uid]').forEach((node) => node.addEventListener('change', () => {
+    const selected = [...document.querySelectorAll('[data-adetailer-inherit-lora-uid]:checked')].map((item) => String(item.getAttribute('data-adetailer-inherit-lora-uid') || '')).filter(Boolean);
+    updateAdetailerSettings({ inherit_lora_uids: selected });
+  }));
   const sharedMap = [
+    ['adetailerIdentityLoraRevision', 'identity_lora_revision', 'value'],
+    ['adetailerDetailerCheckpoint', 'detailer_checkpoint', 'value'],
+    ['adetailerDetailerVae', 'detailer_vae', 'value'],
+    ['adetailerDetailerLora', 'detailer_lora', 'value'],
+    ['adetailerDetailerLoraStrengthModel', 'detailer_lora_strength_model', 'number'],
+    ['adetailerDetailerLoraStrengthClip', 'detailer_lora_strength_clip', 'number'],
+    ['adetailerDetailerLoraTrigger', 'detailer_lora_trigger', 'value'],
     ['adetailerSamPreset', 'sam_preset', 'value'],
     ['adetailerProvider', 'provider', 'value'],
     ['adetailerConfidence', 'confidence', 'number'],
     ['adetailerTopK', 'top_k', 'number'],
     ['adetailerDenoise', 'denoise', 'number'],
     ['adetailerSteps', 'steps', 'number'],
+    ['adetailerSamplerName', 'sampler_name', 'value'],
+    ['adetailerScheduler', 'scheduler', 'value'],
+    ['adetailerGuideSize', 'guide_size', 'number'],
+    ['adetailerMaxSize', 'max_size', 'number'],
+    ['adetailerNoiseMaskFeather', 'noise_mask_feather', 'number'],
     ['adetailerBboxGrow', 'bbox_grow', 'number'],
     ['adetailerMaskBlur', 'mask_blur', 'number'],
     ['adetailerCfg', 'cfg', 'number'],
@@ -52793,7 +55852,7 @@ function bindAdetailerControls() {
     node.addEventListener('input', handler);
     node.addEventListener('change', handler);
   });
-  [['adetailerUseMainPrompt', 'use_main_prompt'], ['adetailerForceInpaint', 'force_inpaint']].forEach(([id, key]) => {
+  [['adetailerUseMainPrompt', 'use_main_prompt'], ['adetailerForceInpaint', 'force_inpaint'], ['adetailerNoiseMask', 'noise_mask']].forEach(([id, key]) => {
     const node = document.getElementById(id);
     if (!node) return;
     node.addEventListener('change', (event) => updateAdetailerSettings({ [key]: Boolean(event.target.checked) }));
@@ -53555,6 +56614,7 @@ function bindImageDraftInputs() {
     ['imageNegativePrompt', 'negative_prompt', 'value'],
     ['imageModel', 'model', 'value'],
     ['imageVae', 'vae', 'value'],
+    ['imageSamplerBackend', 'sampler_backend', 'value'],
     ['imageSampler', 'sampler', 'value'],
     ['imageScheduler', 'scheduler', 'value'],
     ['imageClamp', 'clamp', 'value'],
@@ -53575,7 +56635,95 @@ function bindImageDraftInputs() {
     node.addEventListener('change', (event) => {
       updateDraftValue(key, event.target.value);
       if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, event.target.value);
-      if (key === 'inpaint_engine') render();
+      if (key === 'inpaint_engine' || key === 'sampler_backend') render();
+    });
+  });
+
+  const res4lyfEta = document.getElementById('imageRes4lyfEta');
+  if (res4lyfEta) {
+    const sync = (event) => { updateDraftValue('res4lyf_eta', Number(event.target.value)); saveUiState(); };
+    res4lyfEta.addEventListener('input', sync);
+    res4lyfEta.addEventListener('change', sync);
+  }
+  const res4lyfBongmath = document.getElementById('imageRes4lyfBongmath');
+  if (res4lyfBongmath) res4lyfBongmath.addEventListener('change', (event) => { updateDraftValue('res4lyf_bongmath', Boolean(event.target.checked)); saveUiState(); });
+
+  const cropStitchToggle = document.getElementById('imageCropStitchEnabled');
+  if (cropStitchToggle) cropStitchToggle.addEventListener('change', (event) => {
+    const engine = String(state.imageDraft.inpaint_engine || 'native').toLowerCase();
+    updateDraftValue(engine === 'lanpaint' ? 'lanpaint_crop_stitch_enabled' : 'native_crop_stitch_enabled', Boolean(event.target.checked));
+    render();
+  });
+
+  const multiKSamplerEnabled = document.getElementById('imageMultiKSamplerEnabled');
+  if (multiKSamplerEnabled) multiKSamplerEnabled.addEventListener('change', (event) => {
+    const multi = imageMultiKSamplerState();
+    state.imageDraft.multi_ksampler = { ...multi, enabled: Boolean(event.target.checked) };
+    saveUiState();
+    render();
+  });
+  const multiKSamplerStageCount = document.getElementById('imageMultiKSamplerStageCount');
+  if (multiKSamplerStageCount) multiKSamplerStageCount.addEventListener('change', (event) => {
+    const multi = imageMultiKSamplerState();
+    state.imageDraft.multi_ksampler = { ...multi, stage_count: Number(event.target.value || 2) };
+    saveUiState();
+    render();
+  });
+  [2, 3].forEach((stageNumber) => {
+    const numericFields = [['Steps', 'steps'], ['Cfg', 'cfg'], ['Denoise', 'denoise']];
+    numericFields.forEach(([suffix, key]) => {
+      const node = document.getElementById(`imageMultiKSamplerStage${stageNumber}${suffix}`);
+      if (!node) return;
+      const sync = (event) => {
+        const multi = imageMultiKSamplerState();
+        const stageKey = `stage${stageNumber}`;
+        const raw = event.target.value;
+        const value = key === 'cfg' && raw === '' ? 'inherit' : (raw === '' ? '' : Number(raw));
+        state.imageDraft.multi_ksampler = { ...multi, [stageKey]: { ...multi[stageKey], [key]: value } };
+        saveUiState();
+      };
+      node.addEventListener('input', sync);
+      node.addEventListener('change', sync);
+    });
+    [['Backend', 'backend'], ['Sampler', 'sampler'], ['Scheduler', 'scheduler'], ['SeedPolicy', 'seed_policy']].forEach(([suffix, key]) => {
+      const node = document.getElementById(`imageMultiKSamplerStage${stageNumber}${suffix}`);
+      if (!node) return;
+      node.addEventListener('change', (event) => {
+        const multi = imageMultiKSamplerState();
+        const stageKey = `stage${stageNumber}`;
+        state.imageDraft.multi_ksampler = { ...multi, [stageKey]: { ...multi[stageKey], [key]: event.target.value } };
+        saveUiState();
+        if (key === 'backend') render();
+      });
+    });
+    const transitionOperation = document.getElementById(`imageMultiKSamplerStage${stageNumber}TransitionOperation`);
+    if (transitionOperation) transitionOperation.addEventListener('change', (event) => {
+      const multi = imageMultiKSamplerState();
+      const stageKey = `stage${stageNumber}`;
+      const transition = { ...(multi[stageKey]?.transition || {}), operation: event.target.value };
+      state.imageDraft.multi_ksampler = { ...multi, [stageKey]: { ...multi[stageKey], transition } };
+      saveUiState();
+      render();
+    });
+    const transitionScale = document.getElementById(`imageMultiKSamplerStage${stageNumber}TransitionScale`);
+    if (transitionScale) {
+      const syncTransitionScale = (event) => {
+        const multi = imageMultiKSamplerState();
+        const stageKey = `stage${stageNumber}`;
+        const transition = { ...(multi[stageKey]?.transition || {}), scale_by: event.target.value === '' ? '' : Number(event.target.value) };
+        state.imageDraft.multi_ksampler = { ...multi, [stageKey]: { ...multi[stageKey], transition } };
+        saveUiState();
+      };
+      transitionScale.addEventListener('input', syncTransitionScale);
+      transitionScale.addEventListener('change', syncTransitionScale);
+    }
+    const transitionMethod = document.getElementById(`imageMultiKSamplerStage${stageNumber}TransitionMethod`);
+    if (transitionMethod) transitionMethod.addEventListener('change', (event) => {
+      const multi = imageMultiKSamplerState();
+      const stageKey = `stage${stageNumber}`;
+      const transition = { ...(multi[stageKey]?.transition || {}), upscale_method: event.target.value };
+      state.imageDraft.multi_ksampler = { ...multi, [stageKey]: { ...multi[stageKey], transition } };
+      saveUiState();
     });
   });
 
@@ -53626,7 +56774,7 @@ function bindImageDraftInputs() {
     ['imageLanpaintStitchMaskExpand', 'lanpaint_stitch_mask_expand'],
     ['imageLanpaintStitchMaskBlur', 'lanpaint_stitch_mask_blur'],
     ['imageLanpaintThinkingSteps', 'lanpaint_thinking_steps'],
-    ['imageLanpaintDenoise', 'lanpaint_denoise'],
+    ['imageLanpaintDenoise', 'denoise'],
   ];
   numericBindings.forEach(([id, key]) => {
     const node = document.getElementById(id);
@@ -53643,10 +56791,6 @@ function bindImageDraftInputs() {
     });
     node.addEventListener('change', (event) => {
       let rawValue = event.target.value;
-      if ((key === 'width' || key === 'height') && rawValue !== '' && activeImageResolutionPolicy().enabled) {
-        rawValue = String(snapImageDimension(rawValue));
-        event.target.value = rawValue;
-      }
       updateDraftValue(key, rawValue === '' ? '' : Number(rawValue));
       if (key === 'cfg' && imageUsesTrueCfgSemantic()) updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
       if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, rawValue);
@@ -53716,7 +56860,7 @@ function bindImageDraftInputs() {
     const key = imageFieldDraftKey(fieldId);
     const sync = (event) => {
       const raw = event.target.value;
-      const numeric = ['width', 'height', 'steps', 'seed', 'batch_count', 'cfg', 'clip_skip', 'flux_guidance', 'denoise', 'mask_grow', 'mask_blur', 'qwen_inpaint_composite_feather'].includes(key);
+      const numeric = ['width', 'height', 'steps', 'seed', 'batch_count', 'cfg', 'clip_skip', 'flux_guidance', 'denoise', 'mask_grow', 'mask_blur', 'qwen_inpaint_composite_feather', 'krea2_identity_edit_lora_strength', 'krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a', 'krea2_identity_edit_grounding_px'].includes(key);
       updateDraftValue(key, numeric ? Number(raw) : raw);
       if (fieldId === 'gguf_model') {
         updateDraftValue('gguf_unet', raw);
@@ -53755,6 +56899,17 @@ function bindImageDraftInputs() {
       }
       if (['flux_variant', 'diffusion_model', 'gguf_model', 'checkpoint', 'qwen_rapid_aio_checkpoint'].includes(fieldId)) {
         reapplyActiveImageBuiltInPresetForRoute(`component_${fieldId}_change`);
+      }
+      if (fieldId === 'krea2_edit_engine') {
+        if (raw === 'identity_edit') {
+          updateDraftValue('inpaint_engine', 'native');
+          updateDraftValue('source_image_1_role', 'scene_reference');
+          updateDraftValue('source_image_2_role', 'main_subject');
+          state.imageDraft.qwen_source_slot_count = Math.min(2, qwenVisibleSourceSlotCount());
+        }
+        saveUiState();
+        render();
+        return;
       }
       refreshGgufBundleCheck();
       if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant', 'diffusion_model', 'gguf_model'].includes(fieldId)) render();
@@ -53846,6 +57001,12 @@ function bindImageDraftInputs() {
   document.querySelectorAll('[data-qwen-stitch-clear]').forEach((button) => {
     button.addEventListener('click', () => qwenStitchClearInput(button.dataset.qwenStitchGroup, button.dataset.qwenStitchSide));
   });
+  document.querySelectorAll('[data-qwen-stitch-visibility-edit]').forEach((button) => {
+    button.addEventListener('click', () => openSourceVisibilityMaskEditor({ kind: 'stitch_visibility', groupId: button.dataset.qwenStitchGroup, side: button.dataset.qwenStitchSide }));
+  });
+  document.querySelectorAll('[data-qwen-stitch-visibility-clear]').forEach((button) => {
+    button.addEventListener('click', () => qwenStitchClearInputVisibilityMask(button.dataset.qwenStitchGroup, button.dataset.qwenStitchSide));
+  });
   document.querySelectorAll('[data-qwen-stitch-remove]').forEach((button) => {
     button.addEventListener('click', () => qwenStitchRemoveGroup(button.dataset.qwenStitchGroup));
   });
@@ -53867,6 +57028,10 @@ function bindImageDraftInputs() {
   if (clearMask) clearMask.addEventListener('click', clearImageMask);
   const openMaskEditor = document.getElementById('imageOpenMaskEditorBtn');
   if (openMaskEditor) openMaskEditor.addEventListener('click', openImageMaskEditor);
+  const openSourceVisibilityMask = document.getElementById('imageOpenSourceVisibilityMaskBtn');
+  if (openSourceVisibilityMask) openSourceVisibilityMask.addEventListener('click', () => openSourceVisibilityMaskEditor({ kind: 'source_visibility' }));
+  const clearSourceVisibilityMask = document.getElementById('imageClearSourceVisibilityMaskBtn');
+  if (clearSourceVisibilityMask) clearSourceVisibilityMask.addEventListener('click', clearSourceVisibilityMask);
   const openOutpaintEditor = document.getElementById('imageOpenOutpaintEditorBtn');
   if (openOutpaintEditor) openOutpaintEditor.addEventListener('click', openImageOutpaintEditor);
   const resetOutpaint = document.getElementById('imageResetOutpaintBtn');
@@ -54471,7 +57636,72 @@ function parameterProfileParams() {
   return params;
 }
 
+
+const IMAGE_PARAMETER_INTEGRITY_FIELDS = Object.freeze([
+  'width', 'height', 'steps', 'cfg', 'true_cfg', 'sampler', 'sampler_backend', 'scheduler', 'denoise',
+  'batch_count', 'seed', 'flux_guidance', 'guidance', 'clip_skip',
+]);
+
+function imageParameterIntegrityConcrete(value) {
+  if (value === null || value === undefined || value === '') return false;
+  if (typeof value === 'string' && ['provider_default', 'automatic', 'auto', 'default'].includes(value.trim().toLowerCase())) return false;
+  return true;
+}
+
+function imageParameterIntegritySnapshot(values = {}) {
+  const snapshot = {};
+  IMAGE_PARAMETER_INTEGRITY_FIELDS.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(values || {}, field)) return;
+    const value = values[field];
+    if (value === undefined) return;
+    snapshot[field] = value;
+  });
+  return snapshot;
+}
+
+function imageParameterIntegrityUiSnapshot(draft = state.imageDraft || {}) {
+  const cfgValue = (draft.true_cfg !== '' && draft.true_cfg !== null && draft.true_cfg !== undefined)
+    ? draft.true_cfg
+    : ((draft.cfg !== '' && draft.cfg !== null && draft.cfg !== undefined) ? draft.cfg : valueOf('imageCfg'));
+  const denoiseValue = (draft.denoise !== '' && draft.denoise !== null && draft.denoise !== undefined)
+    ? draft.denoise : valueOf('imageDenoise');
+  const values = {
+    width: (draft.width !== '' && draft.width !== null && draft.width !== undefined) ? Number(draft.width) : numberValue('imageWidth', 1024),
+    height: (draft.height !== '' && draft.height !== null && draft.height !== undefined) ? Number(draft.height) : numberValue('imageHeight', 1024),
+    steps: (draft.steps !== '' && draft.steps !== null && draft.steps !== undefined) ? Number(draft.steps) : numberValue('imageSteps', 28),
+    cfg: cfgValue === '' || cfgValue === null || cfgValue === undefined ? undefined : Number(cfgValue),
+    true_cfg: draft.true_cfg === '' || draft.true_cfg === null || draft.true_cfg === undefined ? undefined : Number(draft.true_cfg),
+    sampler: draft.sampler || valueOf('imageSampler') || 'provider_default',
+    sampler_backend: imageSamplerBackendValue(draft),
+    scheduler: draft.scheduler || valueOf('imageScheduler') || 'provider_default',
+    denoise: denoiseValue === '' || denoiseValue === null || denoiseValue === undefined ? undefined : Number(denoiseValue),
+    batch_count: (draft.batch_count !== '' && draft.batch_count !== null && draft.batch_count !== undefined) ? Number(draft.batch_count) : numberValue('imageBatchCount', 1),
+    seed: draft.seed === '' || draft.seed === null || draft.seed === undefined ? numberValue('imageSeed', -1) : Number(draft.seed),
+    flux_guidance: draft.flux_guidance === '' || draft.flux_guidance === null || draft.flux_guidance === undefined ? undefined : Number(draft.flux_guidance),
+    guidance: draft.guidance === '' || draft.guidance === null || draft.guidance === undefined ? undefined : Number(draft.guidance),
+    clip_skip: draft.clip_skip === '' || draft.clip_skip === null || draft.clip_skip === undefined ? undefined : Number(draft.clip_skip),
+  };
+  Object.keys(values).forEach((key) => { if (values[key] === undefined || Number.isNaN(values[key])) delete values[key]; });
+  return imageParameterIntegritySnapshot(values);
+}
+
+function imageParameterIntegritySubmission(uiBeforeBuild = {}, params = {}) {
+  const clientPayload = imageParameterIntegritySnapshot(params);
+  const uiSnapshot = imageParameterIntegritySnapshot(uiBeforeBuild);
+  const explicitFields = Object.entries(clientPayload)
+    .filter(([, value]) => imageParameterIntegrityConcrete(value))
+    .map(([field]) => field);
+  return {
+    schema_version: 'neo.image.parameter_integrity_submission.v1',
+    policy: 'explicit_user_values_are_authoritative',
+    ui_before_build: uiSnapshot,
+    client_payload: clientPayload,
+    explicit_fields: explicitFields,
+  };
+}
+
 function buildImageJobPayload() {
+  const parameterIntegrityUiBeforeBuild = imageParameterIntegrityUiSnapshot(state.imageDraft || {});
   applyZImageRuntimeDefaultsIfNeeded();
   applyQwenRapidAioRuntimeDefaultsIfNeeded();
   if ((state.imageDraft.family || imageCommandValue('family')) === 'flux2_klein') syncFlux2KleinComponentState({ autoSelect: false, persist: false });
@@ -54488,30 +57718,52 @@ function buildImageJobPayload() {
   const usesField = (fieldId) => activeFieldIds.has(fieldId) || (fieldId === 'source_image' && imageSourceModes().has(forcedPreviewMode));
   const requestedWidth = Number(draft.width || numberValue('imageWidth', 1024));
   const requestedHeight = Number(draft.height || numberValue('imageHeight', 1024));
-  const resolutionPolicy = activeImageResolutionPolicy();
-  const width = resolutionPolicy.enabled ? snapImageDimension(requestedWidth) : requestedWidth;
-  const height = resolutionPolicy.enabled ? snapImageDimension(requestedHeight) : requestedHeight;
+  // Parameter Truth: submit the exact dimensions entered by the user. Resolution
+  // policies may warn or validate, but they never silently snap the request.
+  const width = requestedWidth;
+  const height = requestedHeight;
   const params = {
     ...parameterProfileParams(),
     model: activeImagePrimaryModelValue(),
     vae: draft.vae || valueOf('imageVae') || 'automatic',
     sampler: draft.sampler || valueOf('imageSampler') || 'provider_default',
+    sampler_backend: imageSamplerBackendValue(draft),
+    res4lyf_eta: Number(draft.res4lyf_eta ?? 0.5),
+    res4lyf_bongmath: draft.res4lyf_bongmath !== false,
+    res4lyf_sampler: { schema: 'neo.image.res4lyf_clownshark.v1', eta: Number(draft.res4lyf_eta ?? 0.5), bongmath: draft.res4lyf_bongmath !== false },
     scheduler: draft.scheduler || valueOf('imageScheduler') || 'provider_default',
     width,
     height,
     size_preset: draft.size_preset || valueOf('imageSizePreset') || 'custom',
-    steps: Number(draft.steps || numberValue('imageSteps', 28)),
+    steps: Number((draft.steps === '' || draft.steps === null || draft.steps === undefined) ? numberValue('imageSteps', 28) : draft.steps),
     seed: Number(draft.seed ?? numberValue('imageSeed', -1)),
-    batch_count: Number(draft.batch_count || numberValue('imageBatchCount', 1)),
+    batch_count: Number((draft.batch_count === '' || draft.batch_count === null || draft.batch_count === undefined) ? numberValue('imageBatchCount', 1) : draft.batch_count),
     clamp: draft.prompt_conditioning_mode || draft.clamp || valueOf('imageClamp') || 'raw',
     prompt_conditioning_mode: draft.prompt_conditioning_mode || draft.clamp || valueOf('imageClamp') || 'raw',
     latent_capture_mode: imageOverlayFieldVisible('latent_capture_mode') ? (draft.latent_capture_mode || valueOf('imageLatentCaptureMode') || 'off') : 'off',
   };
-  if (runtimeMode === 'inpaint') {
+  const multiKSampler = imageMultiKSamplerState(params);
+  if (multiKSampler.enabled) {
+    const stage2Transition = (multiKSampler.stage2?.transition && typeof multiKSampler.stage2.transition === 'object') ? multiKSampler.stage2.transition : { operation: 'none' };
+    const stage3Transition = (multiKSampler.stage3?.transition && typeof multiKSampler.stage3.transition === 'object') ? multiKSampler.stage3.transition : { operation: 'none' };
+    params.multi_ksampler = {
+      schema: 'neo.image.multi_ksampler.v2',
+      enabled: true,
+      stage_count: Number(multiKSampler.stage_count || 2),
+      strategy: 'sequential_latent_refinement',
+      stage2: { ...multiKSampler.stage2 },
+      ...(Number(multiKSampler.stage_count || 2) === 3 ? { stage3: { ...multiKSampler.stage3 } } : {}),
+      inter_stage_upscale: [stage2Transition.operation, ...(Number(multiKSampler.stage_count || 2) === 3 ? [stage3Transition.operation] : [])].includes('latent_upscale') ? 'latent_upscale' : 'none',
+    };
+    params.multi_ksampler.stage2.transition = { ...stage2Transition };
+    if (params.multi_ksampler.stage3) params.multi_ksampler.stage3.transition = { ...stage3Transition };
+  }
+  if (['inpaint', 'outpaint'].includes(runtimeMode)) {
     const lanpaintRoute = imageLanpaintSyncRouteState(draft);
-    params.inpaint_engine = lanpaintRoute.eligible
-      ? (draft.inpaint_engine || valueOf('imageInpaintEngine') || 'native')
-      : 'native';
+    const requestedMaskedEngine = draft.inpaint_engine || valueOf('imageInpaintEngine') || 'native';
+    params.inpaint_engine = requestedMaskedEngine === 'lanpaint' && !lanpaintRoute.eligible ? 'native' : requestedMaskedEngine;
+    params.masked_edit_engine = params.inpaint_engine;
+    params.crop_stitch_enabled = imageMaskedCropStitchEnabled(params.inpaint_engine);
     if (params.inpaint_engine === 'lanpaint') {
       const lanpaintState = imageLanpaintUiStatePayload(draft);
       Object.assign(params, lanpaintState.flat);
@@ -54573,7 +57825,7 @@ function buildImageJobPayload() {
     }
   }
   if (usesField('clip_skip')) params.clip_skip = Number(draft.clip_skip || numberValue('imageClipSkip', 1));
-  if (usesField('denoise')) params.denoise = Number(draft.denoise || numberValue('imageDenoise', 1));
+  if (usesField('denoise')) params.denoise = Number((draft.denoise === '' || draft.denoise === null || draft.denoise === undefined) ? numberValue('imageDenoise', 1) : draft.denoise);
   if (usesField('source_image')) {
     Object.assign(params, {
       source_image: sourceImage || sourceImageUrl || '',
@@ -54581,6 +57833,20 @@ function buildImageJobPayload() {
       source_image_url: sourceImageUrl || '',
       source_image_name: draft.source_image_name || '',
     });
+    const visibilityMask = sourceVisibilityMaskDraft();
+    if (sourceVisibilityMaskSupported(profile, runtimeMode) && sourceVisibilityMaskReady(visibilityMask)) {
+      params.source_visibility_mask = {
+        schema: visibilityMask.schema || 'neo.image.source_visibility_mask.v1',
+        enabled: true,
+        path: visibilityMask.path || visibilityMask.ref || '',
+        ref: visibilityMask.path || visibilityMask.ref || '',
+        url: visibilityMask.url || '',
+        preview_url: visibilityMask.preview_url || visibilityMask.url || '',
+        name: visibilityMask.name || '',
+        fill_mode: visibilityMask.fill_mode || 'black',
+        white_hides: true,
+      };
+    }
     if (imageMultiReferenceActive(profile)) {
       Object.assign(params, {
         source_image_1_role: draft.source_image_1_role || 'main_subject',
@@ -54777,6 +58043,7 @@ function buildImageJobPayload() {
     const stitchPayload = qwenStitchSubmitPayload();
     if (stitchPayload.enabled || stitchPayload.groups.length) params.qwen_stitch = stitchPayload;
   }
+  params._neo_parameter_integrity_submission = imageParameterIntegritySubmission(parameterIntegrityUiBeforeBuild, params);
   params._neo_ui_route_snapshot = imageRouteUiSnapshot(params);
   const sceneDirectorCanonicalSubmit = sceneDirectorCanonicalSubmitSnapshot();
   const extensionSubmitState = imageExtensionSubmitStateSnapshot(sceneDirectorCanonicalSubmit);
@@ -55320,6 +58587,11 @@ async function submitSingleImageGenerationPayload(payload, profile, queueContext
     throw err;
   }
   const runtimeCaps = result.runtime?.capabilities || result.capabilities || providerFeatureCapabilities(profile);
+  const parameterIntegrity = result.runtime?.parameter_integrity || result.runtime?.actual_params?._neo_parameter_integrity || null;
+  if (parameterIntegrity) {
+    window.__neo_last_parameter_integrity = parameterIntegrity;
+    try { window.localStorage?.setItem?.('neo_image_parameter_integrity_latest', JSON.stringify(parameterIntegrity)); } catch (_) {}
+  }
   const derivedAction = payload.job?.params?._neo_derived_action || payload.job?.params?._neo_preview_action || null;
   state.activeImageJob = {
     profile_id: profile.profile_id,
@@ -55765,6 +59037,9 @@ async function boot() {
   state.backendProviderOptions = await loadJson('/api/backend-providers', { providers: [], surfaces: [] });
   state.backendProfiles = await loadJson('/api/backend-profiles', { profiles: [], defaults: {} });
   applyBackendProfileSelectionPayload(await loadJson('/api/backend-profiles/selection', { selection: { activeBackendProfileIdsBySurface: {} } }));
+  state.videoRouteMatrix = await loadJson(VIDEO_ROUTE_MATRIX_ENDPOINT, null);
+  ensureVideoRouteSelectable();
+  await refreshVideoParameterProfile({ applyDefaults: true, force: false });
   state.extensions = await loadJson('/api/extensions', { extensions: [] });
   state.imageNodeManager = await loadJson('/api/admin/image/node-manager/state', { nodes: [], settings: {}, summary: {} });
   state.adminEngine = await loadJson('/api/admin/engine/state', null);

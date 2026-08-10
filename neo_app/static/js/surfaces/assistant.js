@@ -312,7 +312,7 @@
   }
 
   function actionCardsHtml(ctx, actions = []) {
-    if (!Array.isArray(actions) || !actions.length) return emptyState(ctx, 'No actions planned.', 'Safe tools stay gated until Neo Operator has a plan.');
+    if (!Array.isArray(actions) || !actions.length) return emptyState(ctx, 'No actions planned.', 'Assistant/Control Center decides the action first; Operator only executes a structured plan.');
     return `<div class="assistant-action-review-cards">${actions.slice(0, 8).map((action) => {
       const status = action.blocked ? 'blocked' : action.confirmation_required ? 'confirm' : 'read-only';
       return `<article class="assistant-evidence-card"><div class="assistant-evidence-top"><strong>${escapeHtml(ctx, action.title || action.action_id || action.tool_id || 'Action')}</strong><span>${escapeHtml(ctx, status)}</span></div><p>${escapeHtml(ctx, action.summary || action.reason || action.description || '')}</p><div class="assistant-evidence-meta"><span>${escapeHtml(ctx, action.kind || action.mode || 'operator')}</span><span>${escapeHtml(ctx, action.risk || action.policy || '')}</span></div></article>`;
@@ -365,24 +365,102 @@
     const summary = plan?.action_summary || run?.action_summary || {};
     const resultText = run?.response_text || '';
     const trace = run?.retrieval_trace_id || plan?.operator_plan?.trace_id || '';
-    return `<section class="assistant-side-card assistant-action-review-panel" data-neo-assistant-module="action_review"><span class="assistant-kicker">Action review</span><h3>Safe tool execution</h3><div class="assistant-action-review-metrics"><div><span>Read-only</span><strong>${escapeHtml(ctx, String(summary.read_only_count || 0))}</strong></div><div><span>Confirm</span><strong>${escapeHtml(ctx, String(summary.confirmation_required_count || 0))}</strong></div><div><span>Blocked</span><strong>${escapeHtml(ctx, String(summary.blocked_count || 0))}</strong></div></div><p>${escapeHtml(ctx, status.policy || 'Actions are planned through Neo Operator and gated before execution.')}</p>${trace ? `<p class="assistant-grounding-trace">Trace: ${escapeHtml(ctx, trace)}</p>` : ''}${actionCardsHtml(ctx, actions)}<div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantPlanActionReview()">Plan</button><button class="neo-btn" type="button" onclick="assistantRunActionReview(false)">Run safe read</button><button class="neo-btn primary" type="button" onclick="assistantRunActionReview(true)">Run confirmed</button></div>${resultText ? `<pre class="assistant-action-review-result">${escapeHtml(ctx, resultText)}</pre>` : ''}</section>`;
+    const proof = run?.execution_proof || {};
+    const proofText = Number(proof.receipt_count || 0) ? `Receipts ${proof.successful_receipt_count || 0}/${proof.receipt_count || 0} · claimable ${proof.claimable_success ? 'yes' : 'no'}` : '';
+    return `<section class="assistant-side-card assistant-action-review-panel" data-neo-assistant-module="action_review"><span class="assistant-kicker">Action review</span><h3>Safe tool execution</h3><div class="assistant-action-review-metrics"><div><span>Read-only</span><strong>${escapeHtml(ctx, String(summary.read_only_count || 0))}</strong></div><div><span>Confirm</span><strong>${escapeHtml(ctx, String(summary.confirmation_required_count || 0))}</strong></div><div><span>Blocked</span><strong>${escapeHtml(ctx, String(summary.blocked_count || 0))}</strong></div></div><p>${escapeHtml(ctx, status.policy || 'Assistant/Control Center plans actions; Operator applies permissions, confirmation, execution, and receipt proof.')}</p>${trace ? `<p class="assistant-grounding-trace">Trace: ${escapeHtml(ctx, trace)}</p>` : ''}${proofText ? `<p class="assistant-grounding-trace">${escapeHtml(ctx, proofText)}</p>` : ''}${actionCardsHtml(ctx, actions)}<div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantPlanActionReview()">Plan</button><button class="neo-btn" type="button" onclick="assistantRunActionReview(false)">Run safe read</button><button class="neo-btn primary" type="button" onclick="assistantRunActionReview(true)">Run confirmed</button></div>${resultText ? `<pre class="assistant-action-review-result">${escapeHtml(ctx, resultText)}</pre>` : ''}</section>`;
+  }
+
+  function projectBrainJobHtml(ctx, brain) {
+    const a = assistantState(ctx);
+    const job = a.projectBrainJob || brain?.jobs?.active?.[0] || brain?.jobs?.latest || null;
+    if (!job) return '';
+    const progress = job.progress || {};
+    const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+    const current = Number(progress.current || 0);
+    const total = Number(progress.total || 0);
+    const status = String(job.status || 'queued');
+    const active = status === 'queued' || status === 'running';
+    const canRetry = status === 'failed' || status === 'cancelled';
+    const elapsedSeconds = Math.max(0, Number(job.elapsed_seconds || 0));
+    const elapsed = elapsedSeconds >= 60 ? `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s` : `${elapsedSeconds.toFixed(1)}s`;
+    const warnings = Array.isArray(progress.warnings) ? progress.warnings : [];
+    const errors = Array.isArray(progress.errors) ? progress.errors : [];
+    const detail = `${progress.phase || status}${total ? ` · ${current}/${total}` : ''} · ${percent}%`;
+    const actions = `${active && job.can_cancel !== false ? `<button class="neo-btn" type="button" onclick="assistantCancelProjectBrainJob('${escapeAttr(ctx, job.job_id || '')}')">Cancel</button>` : ''}${canRetry ? `<button class="neo-btn" type="button" onclick="assistantRetryProjectBrainJob('${escapeAttr(ctx, job.job_id || '')}')">Retry</button>` : ''}`;
+    return `<div class="assistant-side-card assistant-memory-job-card" data-memory-job-id="${escapeAttr(ctx, job.job_id || '')}"><span class="assistant-kicker">Background memory job</span><h4>${escapeHtml(ctx, job.title || 'Project Brain rebuild')}</h4><progress max="100" value="${percent}"></progress><p><strong>${escapeHtml(ctx, status)}</strong> · ${escapeHtml(ctx, detail)}</p><p>Elapsed: ${escapeHtml(ctx, elapsed)}</p><p>${escapeHtml(ctx, progress.message || '')}</p>${warnings.length ? `<p>Warnings: ${escapeHtml(ctx, warnings.join(' · '))}</p>` : ''}${errors.length ? `<p>Errors: ${escapeHtml(ctx, errors.join(' · '))}</p>` : ''}<div class="assistant-action-row compact">${actions}</div></div>`;
+  }
+
+  async function pollProjectBrainJob(ctx, jobId) {
+    const a = assistantState(ctx);
+    let attempts = 0;
+    while (jobId && attempts < 1800) {
+      attempts += 1;
+      const payload = await assistantFetchJson(ctx, `/api/memory/jobs/${encodeURIComponent(jobId)}`);
+      const job = payload.job || null;
+      a.projectBrainJob = job;
+      const progress = job?.progress || {};
+      a.status = `${job?.title || 'Project Brain rebuild'} · ${progress.phase || job?.status || 'running'} · ${progress.percent || 0}%${progress.message ? ` · ${progress.message}` : ''}`;
+      assistantRender(ctx);
+      if (!job || ['completed', 'failed', 'cancelled'].includes(job.status)) {
+        if (job?.status === 'completed') {
+          a.projectBrain = job.result?.project_brain || await assistantFetchJson(ctx, `/api/assistant/project-brain/status?project_id=${encodeURIComponent(a.selectedProjectId || 'general')}&surface=${encodeURIComponent(assistantProjectSurface(ctx))}`);
+          a.status = 'Project Brain rebuild completed.';
+        } else if (job) {
+          a.status = `${job.title || 'Project Brain rebuild'} ${job.status}: ${job.error || progress.message || 'No additional detail.'}`;
+        }
+        assistantRender(ctx);
+        return job;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+    return a.projectBrainJob || null;
   }
 
   function projectWorkspaceMainHtml(ctx, activeProject) {
     const a = assistantState(ctx);
     const brain = a.projectBrain || {};
     const counts = brain.counts || {};
+    const identity = activeProject.metadata?.canonical_identity || {};
+    const surfaceId = activeProject.surface_id || identity.surface_id || assistantProjectSurface(ctx, activeProject) || 'assistant';
+    const deliveryProject = activeProject.delivery_project_id || identity.project_id || '';
     const latest = Array.isArray(brain.latest_snapshots) ? brain.latest_snapshots.slice(0, 4).map((row) => `${row.surface || 'surface'} · ${row.title || row.snapshot_id || 'snapshot'} · ${row.created_at || ''}`) : [];
-    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_workspace"><span class="assistant-kicker">Assistant scope</span><h2>Shape the internal context Neo should remember</h2><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(ctx, activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(ctx, activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(ctx, activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(ctx, activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card" data-neo-assistant-module="project_brain"><span class="assistant-kicker">Project Brain</span><h2>Guides + snapshots + metadata + uploads</h2><p>Capture the active scope state, index Neo-owned metadata, and upload brand/client docs for this Assistant scope.</p><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div><div class="assistant-action-row compact"><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button><button class="neo-btn" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button></div>${badgeRow(ctx, [`Guides: ${counts.built_in_guides_visible || 0}`, `Snapshots: ${counts.snapshots || 0}`, `Indexes: ${counts.indexes || 0}`, `Uploads: ${counts.uploads || 0}`])}<h4>Latest captures</h4>${latest.length ? metaList(ctx, latest) : emptyState(ctx, 'No captures yet.', 'Click Capture Current State to save the selected scope snapshot.')}</section>`;
+    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_workspace"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(ctx, activeProject.name || 'General Assistant')}</h2><p>A Scope tells Neo which context to prioritize. It is not a Delivery Project and it does not block relevant cross-surface memory.</p>${badgeRow(ctx, [`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(ctx, activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(ctx, activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(ctx, activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(ctx, activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card" data-neo-assistant-module="project_brain"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Use these controls for deliberate memory-building. Successful surface work can already enter searchable history automatically; Project Brain is for captures, project files, historical indexing, and rebuild/repair.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><p>Pin the current surface state or bring Neo-owned history and documents into canonical memory.</p><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><p>Rebuild when files/history changed substantially or memory needs repair. Context proof stays in Context/Inspector.</p><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div>${badgeRow(ctx, [`Guides: ${counts.built_in_guides_visible || 0}`, `Snapshots: ${counts.snapshots || 0}`, `Indexes: ${counts.indexes || 0}`, `Uploads: ${counts.uploads || 0}`, `Memory: ${counts.canonical_fragments || 0}`, `Facts: ${counts.canonical_facts || 0}`, `Jobs: ${counts.active_jobs || 0}`])}${projectBrainJobHtml(ctx, brain)}<h4>Latest captures</h4>${latest.length ? metaList(ctx, latest) : emptyState(ctx, 'No captures yet.', 'Capture a meaningful state when you want Neo to remember the configuration deliberately.')}</section>`;
+  }
+
+  function memoryLensItemsHtml(ctx, items, emptyTitle = 'Nothing remembered here yet.', emptyDetail = '') {
+    if (!Array.isArray(items) || !items.length) return emptyState(ctx, emptyTitle, emptyDetail);
+    return `<div class="assistant-memory-lens-list">${items.slice(0, 12).map((item) => `<article class="assistant-memory-lens-item"><div><strong>${escapeHtml(ctx, item.title || item.memory_type || 'Memory')}</strong><span>${escapeHtml(ctx, `${item.memory_type || 'memory'} · ${item.surface || 'global'}`)}</span></div><p>${escapeHtml(ctx, item.summary || item.content || item.decision_reason || '')}</p><small>${escapeHtml(ctx, [item.updated_at || item.last_supported_at || item.created_at || '', item.embedding_status ? `Embedding: ${item.embedding_status}` : '', item.confidence !== undefined && item.confidence !== null ? `Confidence: ${item.confidence}` : ''].filter(Boolean).join(' · '))}</small></article>`).join('')}</div>`;
+  }
+
+  function memoryWritebackItemsHtml(ctx, items, emptyTitle) {
+    if (!Array.isArray(items) || !items.length) return emptyState(ctx, emptyTitle, 'Durable memory is intentionally selective. Searchable task history does not automatically become a permanent preference or decision.');
+    return `<div class="assistant-memory-lens-list">${items.slice(0, 10).map((item) => `<article class="assistant-memory-lens-item"><div><strong>${escapeHtml(ctx, item.title || item.memory_type || 'Memory candidate')}</strong><span>${escapeHtml(ctx, `${item.status || 'candidate'} · ${item.risk_level || 'normal risk'}`)}</span></div><p>${escapeHtml(ctx, item.content || item.decision_reason || item.candidate_class || '')}</p><small>${escapeHtml(ctx, `Support ${item.support_count || 0}/${item.support_threshold || 0}${item.contradiction_state && item.contradiction_state !== 'none' ? ` · ${item.contradiction_state}` : ''}`)}</small></article>`).join('')}</div>`;
   }
 
   function memoryMainHtml(ctx) {
-    const captures = (assistantState(ctx).memoryCaptures || []).map((capture) => `${capture.title || capture.capture_id} · ${capture.project_id || 'general'}`);
-    return `<section class="assistant-modern-card" data-neo-assistant-module="memory_lens"><span class="assistant-kicker">Memory lens</span><h2>Assistant memory without hiding the engine</h2><p>Manual captures stay visible here and write through the centralized Memory Engine service when available.</p>${listItems(ctx, captures.length ? captures : ['No manual captures yet.'])}</section>`;
+    const a = assistantState(ctx);
+    const lens = a.memoryLens || {};
+    const summary = lens.summary || {};
+    const scope = lens.scope || {};
+    const pinRows = Array.isArray(lens.manual_pins) && lens.manual_pins.length ? lens.manual_pins : (a.memoryCaptures || []).filter((capture) => (capture.project_id || 'general') === (a.selectedProjectId || 'general'));
+    const knowledgeRows = Array.isArray(lens.scope_knowledge) && lens.scope_knowledge.length ? lens.scope_knowledge : (a.contextItems || []).filter((item) => (item.project_id || 'general') === (a.selectedProjectId || 'general'));
+    const pins = pinRows.map((capture) => ({ title: capture.title || capture.capture_id, summary: capture.text || '', memory_type: 'manual pin', surface: capture.surface || 'assistant', updated_at: capture.created_at || capture.updated_at || '' }));
+    const knowledge = knowledgeRows.map((item) => ({ title: item.title || item.context_id, summary: item.text || '', memory_type: item.kind || 'scope knowledge', surface: item.surface || 'assistant', updated_at: item.updated_at || item.created_at || '' }));
+    return `<section class="assistant-modern-card" data-neo-assistant-module="memory_lens"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(ctx, scope.name || 'this Scope')}</h2><p>This is a user-facing view of relevant memory. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${badgeRow(ctx, [`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2><p>Canonical searchable memory associated with the active Scope/surface.</p>${memoryLensItemsHtml(ctx, lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2><p>Only promoted durable memories appear here; task history by itself is not a permanent preference.</p>${memoryWritebackItemsHtml(ctx, lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${memoryLensItemsHtml(ctx, lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><p>These are deliberate items you explicitly captured or saved.</p><h4>Manual pins</h4>${memoryLensItemsHtml(ctx, pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${memoryLensItemsHtml(ctx, knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Assistant shows the queue but does not approve durable memory here. Review it in Admin → Memory.</p>${memoryWritebackItemsHtml(ctx, lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
+  }
+
+  function memoryLensSideHtml(ctx) {
+    const lens = assistantState(ctx).memoryLens || {};
+    const traces = (lens.recent_retrievals || []).slice(0, 6).map((trace) => `${trace.intent || 'Assistant'} · ${trace.surface || 'surface'} · ${trace.status || 'ok'} · ${trace.created_at || ''}`);
+    const jobs = (lens.jobs || []).slice(0, 5).map((job) => `${job.job_type || 'memory job'} · ${job.status || 'unknown'} · ${(job.progress || {}).percent || 0}%`);
+    const identity = lens.identity || {};
+    return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${metaList(ctx, [`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, 'Scope is priority, not a hard retrieval prison.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? metaList(ctx, traces) : emptyState(ctx, 'No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? metaList(ctx, jobs) : emptyState(ctx, 'No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
   }
 
   function contextMainHtml(ctx) {
-    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_knowledge"><span class="assistant-kicker">Scope knowledge</span><h2>Feed Neo reusable scope context</h2><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Title<input id="assistant-context-title" placeholder="Client notes, tab summary, scope brief..."></label><label>Tags<input id="assistant-context-tags" placeholder="client, prompt, roleplay"></label><label class="wide">Context text<textarea id="assistant-context-text" placeholder="Paste reusable scope knowledge, client requirements, debug notes, or surface context here."></textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeKnowledge()">Save to scope knowledge</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></div></section>`;
+    const preview = assistantState(ctx).contextPreview || {};
+    const sections = Array.isArray(preview.sections) ? preview.sections.map((item) => `${item.title || item.section_id} · ${item.items || 0} item(s) · ${item.chars || 0} chars`) : [];
+    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_knowledge"><span class="assistant-kicker">Scope Knowledge</span><h2>Save deliberate reusable context</h2><p>Use this for stable project/client/workflow knowledge you want attached to the Scope. Project Brain building lives in Scopes; what Neo currently remembers lives in Memory.</p><div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Title<input id="assistant-context-title" placeholder="Client requirements, workflow note, approved direction..."></label><label>Tags<input id="assistant-context-tags" placeholder="client, prompt, workflow"></label><label class="wide">Context text<textarea id="assistant-context-text" placeholder="Paste reusable scope knowledge here. Avoid temporary chatter or values that will immediately become stale."></textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeKnowledge()">Save to scope knowledge</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></div></section><section class="assistant-modern-card"><span class="assistant-kicker">Context proof</span><h2>What will guide the next answer</h2><p>Technical retrieval/compiler proof belongs here and in Inspector, not in normal chat.</p>${sections.length ? metaList(ctx, sections) : emptyState(ctx, 'No context preview loaded.', 'Click Preview context pack to inspect the current Scope/retrieval composition.')}</section>`;
   }
 
   function toolsMainHtml(ctx) {
@@ -402,8 +480,10 @@
 
   function inspectorMainHtml(ctx) {
     const a = assistantState(ctx);
-    const payload = { profile: a.profile, activeSession: a.activeSession, projects: a.projects, sessions: a.sessions, storage: a.storage, capabilities: a.capabilities, thinkingLayer: a.thinkingLayer, diagnostics: a.activeSession?.last_diagnostics, lockLayer: a.lockLayer };
-    return `<section class="assistant-modern-card" data-neo-assistant-module="inspector"><span class="assistant-kicker">Inspector</span><h2>Assistant internals</h2><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(payload, null, 2))}</pre></section>`;
+    const memoryLens = a.memoryLens || {};
+    const diagnostics = a.activeSession?.last_diagnostics || {};
+    const payload = { profile: a.profile, activeSession: a.activeSession, scopes: a.projects, sessions: a.sessions, storage: a.storage, capabilities: a.capabilities, thinkingLayer: a.thinkingLayer, diagnostics, memoryLensDiagnostics: memoryLens.diagnostics || {}, recentRetrievals: memoryLens.recent_retrievals || [], memoryJobs: memoryLens.jobs || [], lockLayer: a.lockLayer };
+    return `<section class="assistant-modern-card" data-neo-assistant-module="inspector"><span class="assistant-kicker">Inspector</span><h2>Technical proof, not chat clutter</h2><p>Use this view to inspect routing, prompt compilation, retrieval, memory jobs, and compatibility state when debugging Neo.</p>${badgeRow(ctx, [`Scope: ${memoryLens.identity?.scope_id || a.selectedProjectId || 'general'}`, `Retrievals: ${(memoryLens.recent_retrievals || []).length}`, `Jobs: ${(memoryLens.jobs || []).length}`, `Prompt compiler: ${diagnostics.prompt_compiler?.schema_id || diagnostics.compiled_prompt?.schema_id ? 'active' : 'available'}`])}<details open><summary>Last Assistant diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(diagnostics, null, 2))}</pre></details><details><summary>Memory Lens diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(memoryLens.diagnostics || {}, null, 2))}</pre></details><details><summary>Full Assistant state</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(payload, null, 2))}</pre></details></section>`;
   }
 
   function currentSurfaceSnapshot(ctx) {
@@ -444,7 +524,7 @@
         session_id: a.activeSession?.session_id || '',
         surface: 'all',
         title: 'General Assistant full Neo state capture',
-        summary: 'Captured all known Neo surface snapshots from Assistant > Project.',
+        summary: 'Captured all known Neo surface snapshots from Assistant > Scopes.',
         surface_context_snapshot: { schema_id: 'neo.assistant.all_surface_snapshot.v1', snapshots },
       };
     }
@@ -454,7 +534,7 @@
       session_id: a.activeSession?.session_id || '',
       surface,
       title: `Live ${surface} state capture`,
-      summary: `Captured current ${surface} state from Assistant > Project.`,
+      summary: `Captured current ${surface} state from Assistant > Scopes.`,
       surface_context_snapshot: snapshot,
     };
   }
@@ -467,11 +547,11 @@
     const contextRows = (a.contextItems || []).slice(0, 12).map((item) => `${item.title || item.context_id} · ${item.kind || 'context'} · ${item.surface || 'assistant'}`);
     const preview = a.contextPreview || {};
     if (tab === 'chat') {
-      return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: api.renderers.chatPanelHtml(ctx), sideHtml: `${projectManagerPanelHtml(ctx)}${sourceGroundingPanelHtml(ctx)}${actionReviewPanelHtml(ctx)}${citationViewerHtml(ctx)}${api.renderers.sideProofHtml({ ...ctx, activeProject: activeScope })}<section class="assistant-side-card"><span class="assistant-kicker">Scope</span><h3>${escapeHtml(ctx, activeScope.name || 'General')}</h3><p>${escapeHtml(ctx, activeScope.description || activeScope.notes || 'No scope notes yet.')}</p><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Preview context pack</button></section>` };
+      return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: api.renderers.chatPanelHtml(ctx), sideHtml: `${projectManagerPanelHtml(ctx)}${actionReviewPanelHtml(ctx)}${citationViewerHtml(ctx)}<section class="assistant-side-card"><span class="assistant-kicker">Active Scope</span><h3>${escapeHtml(ctx, activeScope.name || 'General')}</h3><p>${escapeHtml(ctx, activeScope.description || activeScope.notes || 'No scope notes yet.')}</p><div class="assistant-action-row compact"><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('assistant','memory')">Open Memory Lens</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('assistant','context')">Inspect Context</button></div></section>` };
     }
-    if (tab === 'projects' || tab === 'project_context') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: projectWorkspaceMainHtml(ctx, activeScope), sideHtml: `${projectManagerPanelHtml(ctx)}<section class="assistant-side-card"><span class="assistant-kicker">Linked chats</span>${listItems(ctx, linked.length ? linked : ['No linked chats yet.'])}</section>` };
-    if (tab === 'memory') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: memoryMainHtml(ctx), sideHtml: api.renderers.sideProofHtml({ ...ctx, activeProject: activeScope }) };
-    if (tab === 'context') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: contextMainHtml(ctx), sideHtml: `${sourceGroundingPanelHtml(ctx)}<section class="assistant-side-card"><span class="assistant-kicker">Saved cards</span>${listItems(ctx, contextRows.length ? contextRows : ['No scope knowledge cards saved yet.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Preview</span><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(preview, null, 2))}</pre></section>` };
+    if (tab === 'projects' || tab === 'project_context' || tab === 'scopes') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: projectWorkspaceMainHtml(ctx, activeScope), sideHtml: `${projectManagerPanelHtml(ctx)}<section class="assistant-side-card"><span class="assistant-kicker">Linked chats</span>${listItems(ctx, linked.length ? linked : ['No linked chats yet.'])}</section>` };
+    if (tab === 'memory') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: memoryMainHtml(ctx), sideHtml: memoryLensSideHtml(ctx) };
+    if (tab === 'context') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: contextMainHtml(ctx), sideHtml: `${sourceGroundingPanelHtml(ctx)}<section class="assistant-side-card"><span class="assistant-kicker">Saved cards</span>${listItems(ctx, contextRows.length ? contextRows : ['No scope knowledge cards saved yet.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Raw context proof</span><details><summary>Context Pack JSON</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(preview, null, 2))}</pre></details></section>` };
     if (tab === 'tools') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: toolsMainHtml(ctx), sideHtml: `<section class="assistant-side-card"><span class="assistant-kicker">Last tool result</span><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(a.lastToolResult || {}, null, 2))}</pre></section>` };
     if (tab === 'guide') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: guideMainHtml(ctx), sideHtml: api.renderers.sideProofHtml({ ...ctx, activeProject: activeScope }) };
     if (tab === 'validation') return { className: `neo-assistant-workspace assistant-tab-${escapeAttr(ctx, tab)}`, railHtml: api.renderers.railHtml(ctx), mainHtml: validationMainHtml(ctx, ctx.surface), sideHtml: api.renderers.sideProofHtml({ ...ctx, activeProject: activeScope }) };
@@ -519,6 +599,7 @@
       'render.assistant_project_workspace',
       'render.assistant_scope_workspace',
       'render.assistant_memory_lens',
+      'action.assistant.memory_lens.refresh',
       'render.assistant_context_knowledge',
       'render.assistant_safe_tools',
       'render.assistant_guide',
@@ -704,7 +785,7 @@
         const executeConfirmed = !!ctx.executeConfirmed;
         const command = (a.actionReview?.command || document.getElementById('assistant-composer-text')?.value || a.draft || '').trim();
         if (!command) { a.status = 'Plan an action first.'; assistantRender(ctx); return { status: 'empty', action: 'assistantRunActionReview' }; }
-        if (executeConfirmed && !ctx.confirmed && window.confirm && !window.confirm('Run confirmation-required Operator actions? Read the action plan first.')) return { status: 'cancelled', action: 'assistantRunActionReview' };
+        if (executeConfirmed && !ctx.confirmed && window.confirm && !window.confirm('Run the confirmation-required structured actions? Review the Assistant/Control Center plan first.')) return { status: 'cancelled', action: 'assistantRunActionReview' };
         a.status = executeConfirmed ? 'Running confirmed Operator actions...' : 'Running safe read-only Operator actions...';
         assistantRender(ctx);
         const payload = await assistantFetchJson(ctx, '/api/assistant/action-review/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command, retrieval_profile: a.profile?.retrieval_profile || 'smart', execute_confirmed: executeConfirmed, limit: 8 }) });
@@ -970,8 +1051,14 @@
         return { status: 'ok', action: 'assistantSetSearch' };
       },
       assistantSetProjectFilter(ctx) {
-        assistantState(ctx).selectedProjectId = ctx.value || 'general';
+        const a = assistantState(ctx);
+        a.selectedProjectId = ctx.value || 'general';
+        a.memoryLens = null;
         assistantRender(ctx);
+        api.actions.assistantRefreshMemoryLens(ctx).catch((error) => {
+          a.status = `Scope changed; Memory Lens refresh failed: ${error.message}`;
+          assistantRender(ctx);
+        });
         return { status: 'ok', action: 'assistantSetProjectFilter' };
       },
       assistantSetScopeFilter(ctx) {
@@ -1065,12 +1152,23 @@
         assistantRender(ctx);
         return { status: 'ok', action: 'assistantCaptureSelectionAsMemory' };
       },
+      async assistantRefreshMemoryLens(ctx) {
+        const a = assistantState(ctx);
+        const project = activeProject(ctx);
+        const surface = assistantProjectSurface(ctx, project);
+        const url = `/api/assistant/memory-lens?project_id=${encodeURIComponent(a.selectedProjectId || project.project_id || 'general')}&surface=${encodeURIComponent(surface)}&limit=12`;
+        a.memoryLens = await assistantFetchJson(ctx, url);
+        a.status = 'Memory Lens refreshed.';
+        assistantRender(ctx);
+        return { status: 'ok', action: 'assistantRefreshMemoryLens' };
+      },
       async assistantRefreshProjectBrainStatus(ctx) {
         const a = assistantState(ctx);
         const project = activeProject(ctx);
         const surface = assistantProjectSurface(ctx, project);
         const url = `/api/assistant/project-brain/status?project_id=${encodeURIComponent(a.selectedProjectId || project.project_id || 'general')}&surface=${encodeURIComponent(surface)}`;
         a.projectBrain = await assistantFetchJson(ctx, url);
+        a.projectBrainJob = a.projectBrain?.jobs?.active?.[0] || a.projectBrain?.jobs?.latest || a.projectBrainJob || null;
         a.status = 'Project Brain status refreshed.';
         assistantRender(ctx);
         return { status: 'ok', action: 'assistantRefreshProjectBrainStatus' };
@@ -1083,7 +1181,7 @@
         const result = await assistantFetchJson(ctx, '/api/assistant/project-capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (result.context_item) a.contextItems = [result.context_item, ...(a.contextItems || [])];
         a.projectBrain = result.project_brain || a.projectBrain || null;
-        a.status = 'Current state captured into Project Brain.';
+        a.status = result.deduplicated ? 'Current state was already captured; canonical memory is up to date.' : 'Current state captured and ingested into canonical memory.';
         assistantRender(ctx);
         return { status: 'ok', action: 'assistantCaptureCurrentProjectState' };
       },
@@ -1096,7 +1194,7 @@
         const result = await assistantFetchJson(ctx, '/api/assistant/project-index', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || project.project_id || 'general', surface }) });
         if (result.context_item) a.contextItems = [result.context_item, ...(a.contextItems || [])];
         a.projectBrain = result.project_brain || a.projectBrain || null;
-        a.status = `Indexed ${result.index?.record_count || 0} project data record(s).`;
+        a.status = result.deduplicated ? `Project data index is already current (${result.index?.record_count || 0} record(s)).` : `Indexed ${result.index?.record_count || 0} project data record(s) into canonical memory.`;
         assistantRender(ctx);
         return { status: 'ok', action: 'assistantIndexProjectData' };
       },
@@ -1104,13 +1202,34 @@
         const a = assistantState(ctx);
         const project = activeProject(ctx);
         const surface = assistantProjectSurface(ctx, project);
-        a.status = 'Rebuilding Project Brain...';
+        a.status = 'Queueing Project Brain rebuild...';
         assistantRender(ctx);
-        const result = await assistantFetchJson(ctx, '/api/assistant/project-brain-rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || project.project_id || 'general', surface }) });
+        const result = await assistantFetchJson(ctx, '/api/assistant/project-brain-rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: a.selectedProjectId || project.project_id || 'general', surface, background: true }) });
         a.projectBrain = result.project_brain || a.projectBrain || null;
-        a.status = `Project Brain rebuilt: ${result.report?.metadata_record_count || 0} indexed metadata record(s).`;
+        a.projectBrainJob = result.job || a.projectBrainJob || null;
         assistantRender(ctx);
+        if (a.projectBrainJob?.job_id) await pollProjectBrainJob(ctx, a.projectBrainJob.job_id);
         return { status: 'ok', action: 'assistantRebuildProjectBrain' };
+      },
+      async assistantCancelProjectBrainJob(ctx) {
+        const a = assistantState(ctx);
+        const jobId = ctx.jobId || a.projectBrainJob?.job_id || '';
+        if (!jobId) return { status: 'missing_job', action: 'assistantCancelProjectBrainJob' };
+        const result = await assistantFetchJson(ctx, `/api/memory/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+        a.projectBrainJob = result.job || a.projectBrainJob;
+        a.status = 'Project Brain cancel requested.';
+        assistantRender(ctx);
+        return { status: 'ok', action: 'assistantCancelProjectBrainJob' };
+      },
+      async assistantRetryProjectBrainJob(ctx) {
+        const a = assistantState(ctx);
+        const jobId = ctx.jobId || a.projectBrainJob?.job_id || '';
+        if (!jobId) return { status: 'missing_job', action: 'assistantRetryProjectBrainJob' };
+        const result = await assistantFetchJson(ctx, `/api/memory/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+        a.projectBrainJob = result.job || null;
+        assistantRender(ctx);
+        if (a.projectBrainJob?.job_id) await pollProjectBrainJob(ctx, a.projectBrainJob.job_id);
+        return { status: 'ok', action: 'assistantRetryProjectBrainJob' };
       },
       async assistantUploadProjectFiles(ctx) {
         const a = assistantState(ctx);
@@ -1133,7 +1252,7 @@
         }
         if (input) input.value = '';
         a.projectBrain = last?.project_brain || a.projectBrain || null;
-        a.status = `${files.length} Project Brain file${files.length === 1 ? '' : 's'} uploaded.`;
+        a.status = `${files.length} Project Brain file${files.length === 1 ? '' : 's'} uploaded; extracted documents were ingested into canonical memory.`;
         assistantRender(ctx);
         return { status: 'ok', action: 'assistantUploadProjectFiles' };
       },

@@ -55,9 +55,10 @@ def _resolution_step(params: dict[str, Any]) -> int:
 
 
 def _snap_dimension(value: Any, default: int, *, step: int) -> tuple[int, int]:
-    requested = _int_value(value, default, minimum=step, maximum=16384)
-    resolved = max(step, int((requested + (step / 2)) // step) * step)
-    return requested, resolved
+    # Parameter Truth: retain the historical helper signature for callers, but
+    # do not silently align explicit dimensions. Backend validation owns errors.
+    requested = _int_value(value, default)
+    return requested, requested
 
 
 def _bool_value(value: Any, default: bool = False) -> bool:
@@ -134,16 +135,13 @@ def _apply_derived_finish_constraints(
         raise ValueError("Forge derived Finish action requires a materialized selected-output source image.")
 
     source_width, source_height = _derived_source_dimensions(contract)
-    if source_width and source_height:
-        _requested_width, payload["width"] = _snap_dimension(source_width, source_width, step=resolution_step)
-        _requested_height, payload["height"] = _snap_dimension(source_height, source_height, step=resolution_step)
-
-    requested_denoise = _float_value(payload.get("denoising_strength"), 0.25 if action_id == "extension.adetailer" else 0.28)
-    minimum = 0.08 if action_id == "extension.adetailer" else 0.12
-    maximum = 0.40 if action_id == "extension.adetailer" else 0.35
-    payload["denoising_strength"] = max(minimum, min(maximum, requested_denoise))
-    payload["batch_size"] = 1
-    payload["n_iter"] = 1
+    # Parameter Truth: derived Finish actions may stage a source image, but they
+    # must not rewrite explicit generation width/height, denoise, or batch values.
+    # The backend owns validation if a requested combination is unsupported.
+    payload["denoising_strength"] = _float_value(
+        payload.get("denoising_strength"),
+        0.25 if action_id == "extension.adetailer" else 0.28,
+    )
     payload["include_init_images"] = False
     return {
         "action_id": action_id,
@@ -155,8 +153,8 @@ def _apply_derived_finish_constraints(
         "parent_job_id": str(contract.get("parent_job_id") or ""),
         "source_dimensions": [source_width, source_height] if source_width and source_height else [],
         "denoising_strength": payload["denoising_strength"],
-        "batch_size": 1,
-        "n_iter": 1,
+        "batch_size": payload.get("batch_size"),
+        "n_iter": payload.get("n_iter"),
         "cross_provider": False,
     }
 
@@ -277,7 +275,7 @@ def _override_settings(params: dict[str, Any], *, loader_translation: dict[str, 
 
     clip_skip = translated.get("CLIP_stop_at_last_layers")
     if clip_skip not in {None, ""}:
-        overrides["CLIP_stop_at_last_layers"] = _int_value(clip_skip, 1, minimum=1, maximum=12)
+        overrides["CLIP_stop_at_last_layers"] = _int_value(clip_skip, 1)
     return overrides
 
 
@@ -292,15 +290,15 @@ def _base_payload(job: NeoJob, params: dict[str, Any], *, loader_translation: di
         "negative_prompt": str(job.negative_prompt or ""),
         "seed": _int_value(_first(params, "seed", default=-1), -1),
         "subseed": _int_value(_first(params, "subseed", default=-1), -1),
-        "subseed_strength": _float_value(_first(params, "subseed_strength", default=0.0), 0.0, minimum=0.0, maximum=1.0),
-        "steps": _int_value(_first(params, "steps", default=20), 20, minimum=1, maximum=1000),
-        "cfg_scale": _float_value(_first(params, "cfg_scale", "cfg", default=7.0), 7.0, minimum=0.0, maximum=100.0),
+        "subseed_strength": _float_value(_first(params, "subseed_strength", default=0.0), 0.0),
+        "steps": _int_value(_first(params, "steps", default=20), 20),
+        "cfg_scale": _float_value(_first(params, "cfg_scale", "cfg", default=7.0), 7.0),
         "width": resolved_width,
         "height": resolved_height,
         "sampler_name": str(sampler or "Euler"),
         "scheduler": str(scheduler or "Automatic"),
-        "batch_size": _int_value(_first(params, "batch_size", default=1), 1, minimum=1, maximum=64),
-        "n_iter": _int_value(_first(params, "n_iter", "batch_count", default=1), 1, minimum=1, maximum=1000),
+        "batch_size": _int_value(_first(params, "batch_size", default=1), 1),
+        "n_iter": _int_value(_first(params, "n_iter", "batch_count", default=1), 1),
         "restore_faces": _bool_value(_first(params, "restore_faces", default=False)),
         "tiling": _bool_value(_first(params, "tiling", default=False)),
         "send_images": True,
@@ -358,7 +356,7 @@ def compile_forge_neo_job(job: NeoJob, *, snapshot: dict[str, Any] | None = None
 
     image_cfg_scale = _first(effective_params, "image_cfg_scale")
     if image_cfg_scale not in {None, ""} and mode in {"img2img", "inpaint", "outpaint", "edit"}:
-        payload["image_cfg_scale"] = _float_value(image_cfg_scale, 1.5, minimum=0.0, maximum=100.0)
+        payload["image_cfg_scale"] = _float_value(image_cfg_scale, 1.5)
 
     extension_result = apply_forge_extensions(
         payload,

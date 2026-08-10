@@ -262,8 +262,8 @@ def compile_lanpaint_flux2_inpaint(
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
     positive_text = conditioning.get("effective_positive") or job.prompt or ""
 
-    requested_seed = int(_param(params, "requested_seed", "seed", default=-1) or -1)
-    seed = int(_param(params, "actual_seed", "seed", default=requested_seed) or requested_seed)
+    requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
+    seed = int(_param(params, "actual_seed", "seed", default=requested_seed))
     if seed < 0:
         seed = int(time.time() * 1000) % 2147483647
 
@@ -281,21 +281,21 @@ def compile_lanpaint_flux2_inpaint(
     sample_blur = float(_param(params, "lanpaint_sampling_mask_blur", default=sample_mask.get("blur_radius") or 28.0))
     stitch_expand = int(_param(params, "lanpaint_stitch_mask_expand", default=stitch_mask.get("expand_px") or 48))
     stitch_blur = float(_param(params, "lanpaint_stitch_mask_blur", default=stitch_mask.get("blur_radius") or 9.0))
-    steps = int(_param(submitted_params, "lanpaint_steps", default=variant_defaults.get("steps") or sampler_defaults.get("steps") or 30))
-    cfg = 1.0
-    sampler_name = str(_param(params, "lanpaint_sampler", default=sampler_defaults.get("sampler_name") or "euler"))
-    scheduler = str(_param(params, "lanpaint_scheduler", default=sampler_defaults.get("scheduler") or "simple"))
-    denoise = float(_param(params, "lanpaint_denoise", default=sampler_defaults.get("denoise") if sampler_defaults.get("denoise") is not None else 1.0))
+    steps = int(_param(submitted_params, "steps", "lanpaint_steps", default=variant_defaults.get("steps") or sampler_defaults.get("steps") or 30))
+    cfg = float(_param(submitted_params, "cfg", "lanpaint_cfg", default=1.0))
+    sampler_name = str(_param(params, "sampler", "lanpaint_sampler", default=sampler_defaults.get("sampler_name") or "euler"))
+    scheduler = str(_param(params, "scheduler", "lanpaint_scheduler", default=sampler_defaults.get("scheduler") or "simple"))
+    denoise = float(_param(params, "denoise", "lanpaint_denoise", default=sampler_defaults.get("denoise") if sampler_defaults.get("denoise") is not None else 1.0))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     thinking = int(_param(submitted_params, "lanpaint_thinking_steps", default=variant_defaults.get("lanpaint_thinking_steps") or sampler_defaults.get("lanpaint_thinking_steps") or 5))
     requested_guidance = float(_param(submitted_params, "flux_guidance", "lanpaint_flux_guidance", "guidance", default=variant_defaults.get("flux_guidance") if variant_defaults.get("flux_guidance") is not None else 1.5))
     guidance_range = list(variant_defaults.get("guidance_range") or ([1.0, 6.0] if family == "flux2_dev" or "distilled" not in variant else [0.0, 2.0]))
     guidance_min, guidance_max = float(guidance_range[0]), float(guidance_range[1])
-    flux_guidance = min(max(requested_guidance, guidance_min), guidance_max)
-    if flux_guidance != requested_guidance:
-        validation.warnings.append(f"Flux.2 {variant} guidance was clamped from {requested_guidance:g} to {flux_guidance:g}; supported LanPaint range is {guidance_min:g}-{guidance_max:g}.")
-    if str(_param(params, "lanpaint_prompt_mode", default="image_first")).strip().lower().replace(" ", "_") in {"prompt_first", "prompt"}:
-        validation.warnings.append("Prompt First is disabled for Flux.2 LanPaint; Image First is enforced because Flux uses CFG 1.0 guidance conditioning.")
-    prompt_mode = "Image First"
+    flux_guidance = requested_guidance
+    if requested_guidance < guidance_min or requested_guidance > guidance_max:
+        validation.warnings.append(f"Flux.2 {variant} guidance {requested_guidance:g} is outside the recommended LanPaint range {guidance_min:g}-{guidance_max:g}; Neo preserves the explicit user value.")
+    requested_prompt_mode = str(_param(params, "lanpaint_prompt_mode", default="image_first")).strip().lower().replace(" ", "_")
+    prompt_mode = "Prompt First" if requested_prompt_mode in {"prompt_first", "prompt"} else "Image First"
 
     workflow: dict[str, Any] = {}; node_roles: dict[str, str] = {}
     def add(node_id: int, class_type: str, inputs: dict[str, Any], role: str) -> None:
@@ -325,9 +325,12 @@ def compile_lanpaint_flux2_inpaint(
         negative_id = next_id; add(negative_id, "ConditioningZeroOut", {"conditioning": [str(positive_id), 0]}, "negative_conditioning"); next_id += 1
         encode_id = next_id; add(encode_id, "VAEEncode", {"pixels": [str(resize_id), 0], "vae": vae_ref}, "latent_encode"); next_id += 1
         noise_id = next_id; add(noise_id, "SetLatentNoiseMask", {"samples": [str(encode_id), 0], "mask": [str(sample_mask_id), 0]}, "latent_noise_mask"); next_id += 1
+        latent_ref = [str(noise_id), 0]
+        if batch_count > 1:
+            repeat_id = next_id; add(repeat_id, "RepeatLatentBatch", {"samples": list(latent_ref), "amount": batch_count}, "latent_batch_repeat"); latent_ref = [str(repeat_id), 0]; next_id += 1
         sample_model_ref = model_ref
         sampler_id = next_id
-        add(sampler_id, "LanPaint_KSampler", {"model": sample_model_ref, "positive": [str(guidance_id), 0], "negative": [str(negative_id), 0], "latent_image": [str(noise_id), 0], "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler_name, "scheduler": scheduler, "denoise": denoise, "LanPaint_NumSteps": thinking, "LanPaint_PromptMode": prompt_mode, "LanPaint_Info": "LanPaint KSampler.", "Inpainting_mode": "🖼️ Image Inpainting"}, "lanpaint_sample"); next_id += 1
+        add(sampler_id, "LanPaint_KSampler", {"model": sample_model_ref, "positive": [str(guidance_id), 0], "negative": [str(negative_id), 0], "latent_image": latent_ref, "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler_name, "scheduler": scheduler, "denoise": denoise, "LanPaint_NumSteps": thinking, "LanPaint_PromptMode": prompt_mode, "LanPaint_Info": "LanPaint KSampler.", "Inpainting_mode": "🖼️ Image Inpainting"}, "lanpaint_sample"); next_id += 1
         decode_id = next_id; add(decode_id, "VAEDecode", {"samples": [str(sampler_id), 0], "vae": vae_ref}, "latent_decode"); next_id += 1
         restore_inputs = {"image": [str(decode_id), 0], "mask": [str(sample_mask_id), 0], "width": [str(crop_id), 4], "height": [str(crop_id), 5], "upscale_method": restore_method, "keep_proportion": "stretch", "pad_color": "0, 0, 0", "crop_position": "center", "divisible_by": 2}
         _optional_input(restore_inputs, backend, "ImageResizeKJv2", "device", "cpu")
@@ -357,7 +360,7 @@ def compile_lanpaint_flux2_inpaint(
         verified_assets.append(_verify_selected_asset(validation, backend, loader_id=loader, role_id=role, label=slot_id, selected=value))
 
     actual_params = {
-        **params, "inpaint_engine": "lanpaint", "workflow_type": WORKFLOW_TYPE, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed,
+        **params, "inpaint_engine": "lanpaint", "workflow_type": WORKFLOW_TYPE, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed, "batch_count": batch_count,
         "source_image_name": source_name, "mask_image_name": mask_name, "diffusion_model": model_name if loader == "diffusion_model" else "", "gguf_model": model_name if loader == "gguf" else "",
         "text_encoder_1": encoder_name, "qwen3_text_encoder": encoder_name if family == "flux2_klein" else "", "mistral3_text_encoder": encoder_name if family == "flux2_dev" else "", "vae": vae_name, "flux_variant": variant, "flux_guidance": flux_guidance,
         "steps": steps, "cfg": cfg, "denoise": denoise, "sampler": sampler_name, "scheduler": scheduler,

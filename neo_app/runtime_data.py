@@ -17,8 +17,11 @@ ASSISTANT_SCOPE_SEED_SCHEMA_ID: Final[str] = "neo.runtime_data.assistant_scopes_
 ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     {
         "workspace_id": "assistant_workspace_general",
-        "project_id": "general",
-        "surface": "assistant",
+        "project_id": "general",  # legacy Assistant Scope alias; preserved through migration
+        "scope_id": "general",
+        "surface": "assistant",  # legacy runtime surface
+        "surface_id": "global",
+        "delivery_project_id": "",
         "name": "General Assistant",
         "type": "assistant_workspace",
         "description": "Default Assistant workspace for uncategorized questions, planning, and cross-surface coordination.",
@@ -26,8 +29,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_image",
-        "project_id": "image_workspace",
+        "project_id": "image_workspace",  # legacy Assistant Scope alias
+        "scope_id": "image_workspace",
         "surface": "image",
+        "surface_id": "image",
+        "delivery_project_id": "",
         "name": "Image Workspace",
         "type": "surface_workspace",
         "description": "Assistant brain workspace for Image Tab prompts, generation metadata, models, LoRAs, settings, seeds, and result patterns.",
@@ -35,8 +41,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_prompt_captioning",
-        "project_id": "prompt_captioning_workspace",
+        "project_id": "prompt_captioning_workspace",  # legacy Assistant Scope alias
+        "scope_id": "prompt_captioning_workspace",
         "surface": "prompt_captioning",
+        "surface_id": "prompt_captioning",
+        "delivery_project_id": "",
         "name": "Prompt + Captioning Workspace",
         "type": "surface_workspace",
         "description": "Assistant brain workspace for Prompt Studio, Caption Studio, generated prompts, captions, keywords, and saved outputs.",
@@ -44,8 +53,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_video",
-        "project_id": "video_workspace",
+        "project_id": "video_workspace",  # legacy Assistant Scope alias
+        "scope_id": "video_workspace",
         "surface": "video",
+        "surface_id": "video",
+        "delivery_project_id": "",
         "name": "Video Workspace",
         "type": "surface_workspace",
         "description": "Assistant brain workspace for Video Tab generation modes, prompts, source frames, performance settings, finish tools, output metadata, and replay context.",
@@ -53,8 +65,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_voice",
-        "project_id": "voice_workspace",
+        "project_id": "voice_workspace",  # legacy Assistant Scope alias
+        "scope_id": "voice_workspace",
         "surface": "voice",
+        "surface_id": "voice",
+        "delivery_project_id": "",
         "name": "Voice Workspace",
         "type": "surface_workspace",
         "description": "Assistant brain workspace for Voice Tab scripts, voices, profiles, reference audio, render settings, exports, and replay context.",
@@ -62,8 +77,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_roleplay",
-        "project_id": "roleplay_workspace",
+        "project_id": "roleplay_workspace",  # legacy Assistant Scope alias
+        "scope_id": "roleplay_workspace",
         "surface": "roleplay",
+        "surface_id": "roleplay",
+        "delivery_project_id": "",
         "name": "Roleplay Workspace",
         "type": "surface_workspace",
         "description": "Assistant brain workspace for Roleplay universes, worlds, scene packets, canon, character state, and continuity diagnostics.",
@@ -71,8 +89,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_client_work",
-        "project_id": "client_work_workspace",
+        "project_id": "client_work_workspace",  # legacy Assistant Scope alias
+        "scope_id": "client_work_workspace",
         "surface": "assistant",
+        "surface_id": "assistant",
+        "delivery_project_id": "",
         "name": "Client Work Workspace",
         "type": "creative_operations_workspace",
         "description": "Assistant brain workspace for freelance/client work, briefs, quotes, messages, deliverables, and project workflow advice.",
@@ -80,8 +101,11 @@ ASSISTANT_BUILTIN_SCOPES: Final[tuple[dict[str, Any], ...]] = (
     },
     {
         "workspace_id": "assistant_workspace_neo_development",
-        "project_id": "neo_development_workspace",
+        "project_id": "neo_development_workspace",  # legacy Assistant Scope alias
+        "scope_id": "neo_development_workspace",
         "surface": "admin",
+        "surface_id": "admin",
+        "delivery_project_id": "",
         "name": "Neo Development Workspace",
         "type": "system_development_workspace",
         "description": "Assistant brain workspace for Neo Studio development, architecture records, debugging, phases, and system implementation decisions.",
@@ -552,19 +576,42 @@ def _assistant_scope_record(scope: dict[str, Any], stamp: str) -> dict[str, Any]
     scope = deepcopy(scope)
     project_id = str(scope.get("project_id") or ASSISTANT_DEFAULT_PROJECT_ID).strip() or ASSISTANT_DEFAULT_PROJECT_ID
     memory_lanes = list(scope.get("memory_lanes") or [])
+    scope_id = str(scope.get("scope_id") or project_id).strip() or project_id
+    surface_id = str(scope.get("surface_id") or scope.get("surface") or "assistant").strip() or "assistant"
+    delivery_project_id = str(scope.get("delivery_project_id") or "").strip()
+    identity = {
+        "schema_id": "neo.context_identity.canonical.v1",
+        "phase": "1",
+        "surface_id": surface_id,
+        "scope_id": scope_id,
+        "project_id": delivery_project_id or None,
+        "workspace_id": str(scope.get("workspace_id") or project_id),
+        "source": "assistant_scope_seed",
+        "compatibility": {
+            "legacy_project_id": project_id,
+            "legacy_project_id_role": "assistant_scope",
+            "assistant_store_project_id": project_id,
+        },
+    }
     metadata = {
         "assistant_scope": True,
         "builtin_scope": True,
         "scope_model": "assistant_internal_scope",
         "workspace_id": str(scope.get("workspace_id") or project_id),
         "surface": str(scope.get("surface") or "assistant"),
+        "surface_id": surface_id,
+        "scope_id": scope_id,
+        "delivery_project_id": delivery_project_id,
+        "canonical_identity": identity,
         "memory_lanes": memory_lanes,
         "seed_schema_id": ASSISTANT_SCOPE_SEED_SCHEMA_ID,
         "runtime_only": True,
     }
     return {
         "project_id": project_id,
-        "scope_id": project_id,
+        "scope_id": scope_id,
+        "surface_id": surface_id,
+        "delivery_project_id": delivery_project_id,
         "name": str(scope.get("name") or project_id),
         "type": str(scope.get("type") or "assistant_scope"),
         "description": str(scope.get("description") or ""),
@@ -577,7 +624,7 @@ def _assistant_scope_record(scope: dict[str, Any], stamp: str) -> dict[str, Any]
 
 
 def _assistant_scope_index_record(record: dict[str, Any]) -> dict[str, Any]:
-    keys = ("project_id", "scope_id", "name", "type", "description", "notes", "status", "created_at", "updated_at", "metadata")
+    keys = ("project_id", "scope_id", "surface_id", "delivery_project_id", "name", "type", "description", "notes", "status", "created_at", "updated_at", "metadata")
     return {key: record.get(key) for key in keys if key in record}
 
 
@@ -585,7 +632,9 @@ def _merge_builtin_assistant_scope(existing: dict[str, Any], default: dict[str, 
     merged = dict(existing or {})
     project_id = str(default.get("project_id") or merged.get("project_id") or ASSISTANT_DEFAULT_PROJECT_ID).strip() or ASSISTANT_DEFAULT_PROJECT_ID
     merged["project_id"] = project_id
-    merged.setdefault("scope_id", project_id)
+    merged["scope_id"] = str(default.get("scope_id") or merged.get("scope_id") or project_id).strip() or project_id
+    merged["surface_id"] = str(default.get("surface_id") or merged.get("surface_id") or (default.get("metadata") or {}).get("surface_id") or "assistant").strip() or "assistant"
+    merged["delivery_project_id"] = str(merged.get("delivery_project_id") or default.get("delivery_project_id") or "").strip()
     # Keep user-edited display fields, but backfill missing built-in fields.
     for key in ("name", "type", "description", "notes", "status"):
         if not str(merged.get(key) or "").strip():

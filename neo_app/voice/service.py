@@ -11,7 +11,7 @@ import shutil
 import tempfile
 
 from neo_app.memory.service import get_memory_service
-from neo_app.operator.service import plan_operator_command, run_operator_command
+from neo_app.assistant.action_review import plan_assistant_action_review, run_assistant_action_review
 from neo_app.internet.service import internet_access_status_payload
 
 VOICE_INPUT_SCHEMA_VERSION = "neo.voice.input.v1"
@@ -55,7 +55,8 @@ def voice_input_status_payload() -> dict[str, Any]:
         "runtime_version": VOICE_INPUT_RUNTIME_VERSION,
         "input_modes": ["audio_file", "transcript_text"],
         "operator_bridge": "enabled",
-        "output_modes": ["transcribed_text", "operator_plan", "operator_result"],
+        "operator_bridge_mode": "assistant_control_center_to_structured_operator",
+        "output_modes": ["transcribed_text", "action_review_plan", "operator_plan", "operator_result"],
         "voice_output": "not_enabled",
         "internet": internet.get("mode") or "disabled",
         "dependencies": deps,
@@ -75,12 +76,12 @@ def voice_input_status_payload() -> dict[str, Any]:
         },
         "capabilities": [
             "audio_file_to_text_when_transcriber_configured",
-            "manual_transcript_to_operator",
+            "manual_transcript_to_assistant_action_planner",
             "voice_as_text_command_bridge",
-            "operator_permission_gating",
+            "structured_operator_permission_gating",
             "voice_input_memory_writeback",
         ],
-        "policy": "Voice input is only an input layer. Transcribed speech becomes text and is routed through Neo Operator; voice output is not enabled; optional internet/API access remains controlled by Admin and Operator permissions.",
+        "policy": "Voice input is only an input layer. Transcribed speech becomes text; Assistant/Control Center plans any executable action, then Operator applies permission/confirmation gates and execution proof. Voice output is not enabled.",
     }
 
 
@@ -208,7 +209,9 @@ def prepare_voice_input_payload(payload: dict[str, Any] | None = None) -> dict[s
         transcription = transcribe_audio_path(data.get("audio_path"), language=data.get("language"), model_path=data.get("model_path"))
         transcript_text = _normalize_text(transcription.get("text") or "")
     status = "ready" if transcript_text else "needs_transcript"
-    plan = plan_operator_command({"command": transcript_text, "profile": data.get("profile"), "sources": data.get("sources"), "limit": data.get("limit")}) if transcript_text else None
+    action_review = plan_assistant_action_review({"command": transcript_text, "profile": data.get("profile"), "sources": data.get("sources"), "limit": data.get("limit")}) if transcript_text else None
+    structured_plan = (action_review or {}).get("operator_plan") if isinstance(action_review, dict) else None
+    plan = ({**structured_plan, "schema_id": "neo.operator.plan.v1", "intent": (action_review or {}).get("intent"), "confidence": (action_review or {}).get("confidence"), "retrieval_profile": (action_review or {}).get("retrieval_profile"), "sources": (action_review or {}).get("sources") or [], "compatibility_adapter": "voice_assistant_action_review"} if isinstance(structured_plan, dict) else None)
     result = {
         "ok": bool(transcript_text),
         "schema_id": "neo.voice.input.prepare.v1",
@@ -216,8 +219,9 @@ def prepare_voice_input_payload(payload: dict[str, Any] | None = None) -> dict[s
         "status": status,
         "transcript_text": transcript_text,
         "transcription": transcription,
+        "action_review_plan": action_review,
         "operator_plan": plan,
-        "policy": "Voice is treated as text input before reaching Neo Operator.",
+        "policy": "Voice is treated as text input. Assistant/Control Center decides requested actions before Operator receives a structured execution plan.",
     }
     result["memory_event"] = _record_voice_event({"status": status, "text": transcript_text, "transcription": transcription, "operator_plan": plan})
     return result
@@ -234,7 +238,7 @@ def run_voice_input_operator_payload(payload: dict[str, Any] | None = None) -> d
             "prepared": prepared,
             "operator_result": None,
         }
-    operator_result = run_operator_command({
+    action_result = run_assistant_action_review({
         "command": prepared.get("transcript_text") or "",
         "profile": data.get("profile"),
         "sources": data.get("sources"),
@@ -242,6 +246,8 @@ def run_voice_input_operator_payload(payload: dict[str, Any] | None = None) -> d
         "execute_confirmed": bool(data.get("execute_confirmed") or data.get("confirm")),
         "index_limit": data.get("index_limit"),
     })
+    structured_operator_result = action_result.get("operator_result") or {}
+    operator_result = {**structured_operator_result, "schema_id": "neo.operator.run.v1", "compatibility_adapter": "voice_assistant_action_review"}
     return {
         "ok": True,
         "schema_id": "neo.voice.input.operator_run.v1",
@@ -249,8 +255,9 @@ def run_voice_input_operator_payload(payload: dict[str, Any] | None = None) -> d
         "status": operator_result.get("status") or "completed",
         "transcript_text": prepared.get("transcript_text"),
         "prepared": prepared,
+        "action_review_result": action_result,
         "operator_result": operator_result,
-        "policy": "Operator permissions still apply to voice-derived commands.",
+        "policy": "Assistant/Control Center plans voice-derived actions; Operator permissions, confirmation, receipts, and ledger proof still apply.",
     }
 
 
@@ -260,7 +267,9 @@ async def transcribe_uploaded_audio_payload(upload_file: Any, *, language: str |
     path = _save_upload_bytes(filename, data)
     transcription = transcribe_audio_path(path, language=language, model_path=model_path)
     if run_operator and transcription.get("text"):
-        operator_result = run_operator_command({"command": transcription.get("text"), "execute_confirmed": execute_confirmed})
+        action_result = run_assistant_action_review({"command": transcription.get("text"), "execute_confirmed": execute_confirmed})
+        structured_operator_result = action_result.get("operator_result") or {}
+        operator_result = {**structured_operator_result, "schema_id": "neo.operator.run.v1", "compatibility_adapter": "voice_assistant_action_review"}
     else:
         operator_result = None
     payload = {

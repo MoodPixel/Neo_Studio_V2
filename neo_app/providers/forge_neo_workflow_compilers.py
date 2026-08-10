@@ -115,10 +115,10 @@ def _float_value(
     except (TypeError, ValueError):
         blockers.append(blocker_id)
         resolved = float(default)
-    if minimum is not None:
-        resolved = max(minimum, resolved)
-    if maximum is not None:
-        resolved = min(maximum, resolved)
+    if minimum is not None and resolved < minimum:
+        blockers.append(blocker_id)
+    if maximum is not None and resolved > maximum:
+        blockers.append(blocker_id)
     return resolved
 
 
@@ -136,10 +136,10 @@ def _int_value(
     except (TypeError, ValueError):
         blockers.append(blocker_id)
         resolved = int(default)
-    if minimum is not None:
-        resolved = max(minimum, resolved)
-    if maximum is not None:
-        resolved = min(maximum, resolved)
+    if minimum is not None and resolved < minimum:
+        blockers.append(blocker_id)
+    if maximum is not None and resolved > maximum:
+        blockers.append(blocker_id)
     return resolved
 
 
@@ -332,7 +332,7 @@ def compile_forge_workflow_plan(
         guidance = _first(params, "flux_guidance", default=(loader_translation.get("generation_parameters") or {}).get("flux_guidance"))
         if _selected(guidance):
             try:
-                payload_updates["distilled_cfg_scale"] = max(0.0, float(guidance))
+                payload_updates["distilled_cfg_scale"] = float(guidance)
             except (TypeError, ValueError):
                 blockers.append("invalid_flux_guidance")
 

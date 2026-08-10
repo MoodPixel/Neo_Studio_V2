@@ -11,6 +11,7 @@ from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.models.asset_selection import first_explicit_asset_selection, require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
@@ -394,7 +395,7 @@ def compile_qwen_rapid_aio_checkpoint(
     steps = int(_param(params, "steps", default=defaults.steps))
     width = int(_param(params, "width", default=defaults.width))
     height = int(_param(params, "height", default=defaults.height))
-    batch_count = 1 if mode in {"img2img", "inpaint", "outpaint"} else int(_param(params, "batch_count", "batch_size", default=1))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     cfg = float(_param(params, "cfg", default=defaults.cfg))
     denoise_default = defaults.denoise_inpaint if mode == "inpaint" else (defaults.denoise_img2img if mode in {"img2img", "outpaint"} else defaults.denoise_txt2img)
     denoise = float(_param(params, "denoise", "strength", default=denoise_default))
@@ -496,6 +497,7 @@ def compile_qwen_rapid_aio_checkpoint(
     )
     route_meta.update(edit_meta)
 
+    model_sampling_nodes: list[str] = []
     if mode == "inpaint" and source_ref is not None and mask_name:
         workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": mask_name, "channel": "red"}}
         mask_ref = [str(next_id), 0]
@@ -520,8 +522,10 @@ def compile_qwen_rapid_aio_checkpoint(
         workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref)}}
         latent_ref = [str(next_id), 0]
         next_id += 1
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": ["1", 0]}}
-        model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": ["1", 0]}}
+        model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
         route_meta.update({"mask_image_name": mask_name, "mask_grow": grow, "mask_blur": blur, "inpaint_target": inpaint_target, "_neo_qwen_aio_inpaint_source_ref": source_ref, "_neo_qwen_aio_inpaint_mask_ref": mask_ref})
         route_notes.append("Qwen Rapid AIO inpaint uses source VAEEncode + SetLatentNoiseMask + DifferentialDiffusion.")
@@ -530,6 +534,11 @@ def compile_qwen_rapid_aio_checkpoint(
         latent_ref = [str(next_id), 0]
         next_id += 1
         model_ref = ["1", 0]
+
+    if mode == "inpaint" and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
 
     sampler_id = str(next_id)
     workflow[sampler_id] = {
@@ -603,6 +612,25 @@ def compile_qwen_rapid_aio_checkpoint(
         strategy="lora_loader_model_clip_chain",
         validated=False,
         notes=["Qwen Rapid AIO checkpoint emits a profile for diagnostics; LoRA route stays implementation_target until physically validated."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=model_ref,
+        clip_ref=["1", 1],
+        vae_ref=["1", 2],
+        positive_ref=positive_ref,
+        negative_ref=negative_ref,
+        sampler_node_id=sampler_id,
+        source="comfy.qwen_rapid_aio_checkpoint",
+        compiler_id="comfy.qwen_rapid_aio_checkpoint",
+        model_sampling_state="patched" if model_sampling_nodes else "provider_owned",
+        model_sampling_ref=model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 5 Qwen Rapid AIO publishes bundled checkpoint refs and the final inpaint composite when present."],
     )
 
     return CompiledJob(
@@ -705,7 +733,7 @@ def compile_qwen_native_edit(
     steps = int(_param(params, "steps", default=defaults.steps))
     width = int(_param(params, "width", default=defaults.width))
     height = int(_param(params, "height", default=defaults.height))
-    batch_count = 1
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     cfg = float(_param(params, "cfg", default=defaults.cfg))
     denoise = float(_param(params, "denoise", "strength", default=defaults.denoise))
     aura_shift = float(_param(params, "qwen_aura_shift", "aura_shift", "shift", default=defaults.aura_shift))
@@ -776,8 +804,10 @@ def compile_qwen_native_edit(
     )
     route_meta.update(edit_meta)
 
-    workflow[str(next_id)] = {"class_type": defaults.sampling_node, "inputs": {"model": ["1", 0], "shift": aura_shift}}
-    model_ref = [str(next_id), 0]
+    aura_sampling_id = str(next_id)
+    workflow[aura_sampling_id] = {"class_type": defaults.sampling_node, "inputs": {"model": ["1", 0], "shift": aura_shift}}
+    model_ref = [aura_sampling_id, 0]
+    model_sampling_nodes = [aura_sampling_id]
     next_id += 1
 
     if mode == "inpaint" and source_ref is not None and mask_name:
@@ -804,8 +834,10 @@ def compile_qwen_native_edit(
         workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref)}}
         latent_ref = [str(next_id), 0]
         next_id += 1
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
-        model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
+        model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
         route_meta.update({
             "mask_image_name": mask_name,
@@ -821,6 +853,11 @@ def compile_qwen_native_edit(
         route_notes.append("Qwen native inpaint uses source VAEEncode + SetLatentNoiseMask + ModelSamplingAuraFlow + DifferentialDiffusion.")
     else:
         workflow[str(next_id)] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+
+    if mode == "inpaint" and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
         latent_ref = [str(next_id), 0]
         next_id += 1
 
@@ -873,17 +910,39 @@ def compile_qwen_native_edit(
         "_neo_effective_mode": mode,
         "_neo_sampler_node_id": sampler_id,
     }
+    is_qwen_edit_family = str(job.family or "").strip().lower() in {"qwen_image_edit_2509", "qwen_image_edit_2511"}
     actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
         route={**route.as_dict(), "workflow_mode": "generate" if mode == "txt2img" else mode, "route_state": "available" if route.status == "available" else route.status},
         model_ref=["1", 0],
         clip_ref=["2", 0],
         sampler_node_id=sampler_id,
         sampler_model_input="model",
-        loader_node_class="LoraLoader",
+        loader_node_class="LoraLoaderModelOnly" if is_qwen_edit_family else "LoraLoader",
+        requires_clip=not is_qwen_edit_family,
         source="comfy.qwen_native_edit",
-        strategy="lora_loader_model_clip_consumer_rewire",
+        strategy="lora_loader_model_only_consumer_rewire" if is_qwen_edit_family else "lora_loader_model_clip_consumer_rewire",
+        patch_clip_consumers=not is_qwen_edit_family,
         validated=False,
-        notes=["Qwen native edit emits a compiler-owned profile; route matrix still gates diffusion_model LoRA execution."],
+        notes=["Qwen Edit 2509/2511 detailer LoRAs are model-only and must be followed by the compiler-owned AuraFlow/DifferentialDiffusion lineage." if is_qwen_edit_family else "Qwen Image Base edit retains its existing LoRA strategy."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=positive_ref,
+        negative_ref=negative_ref,
+        sampler_node_id=sampler_id,
+        source="comfy.qwen_native_edit",
+        compiler_id="comfy.qwen_native_edit",
+        model_sampling_state="patched",
+        model_sampling_ref=model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 6 Qwen Edit 2509/2511 route publishes exact AuraFlow/DifferentialDiffusion lineage and final image ownership." if is_qwen_edit_family else "Phase 5 Qwen Image Base edit route publishes exact AuraFlow/DifferentialDiffusion lineage and final image ownership."],
     )
 
     return CompiledJob(

@@ -70,6 +70,7 @@ from neo_app.surfaces.module_architecture import module_architecture_status, mod
 from neo_app.surfaces.migration_runtime import surface_migration_runtime_status, surface_migration_runtime_audit, admin_memory_cockpit_migration_status, admin_memory_cockpit_migration_audit, admin_memory_cockpit_action_migration_status, admin_memory_cockpit_action_migration_audit, assistant_surface_slice_migration_status, assistant_surface_slice_migration_audit, assistant_deep_panel_migration_status, assistant_deep_panel_migration_audit, roleplay_surface_slice_migration_status, roleplay_surface_slice_migration_audit, roleplay_scene_director_cockpit_migration_status, roleplay_scene_director_cockpit_migration_audit, roleplay_scene_chat_dispatch_migration_status, roleplay_scene_chat_dispatch_migration_audit, roleplay_transcript_checkpoint_migration_status, roleplay_transcript_checkpoint_migration_audit, roleplay_scene_state_checkpoint_inspector_migration_status, roleplay_scene_state_checkpoint_inspector_migration_audit, roleplay_stories_workspace_migration_status, roleplay_stories_workspace_migration_audit, roleplay_archive_provenance_graph_migration_status, roleplay_archive_provenance_graph_migration_audit, roleplay_compile_runtime_deep_migration_status, roleplay_compile_runtime_deep_migration_audit, roleplay_forge_builder_migration_status, roleplay_forge_builder_migration_audit, roleplay_forge_sqlite_template_inspector_migration_status, roleplay_forge_sqlite_template_inspector_migration_audit, roleplay_forge_advanced_import_scope_migration_status, roleplay_forge_advanced_import_scope_migration_audit
 from neo_app.ui.modern_system import modern_ui_system_status, modern_ui_system_audit
 from neo_app.admin.registry import get_admin_payload, get_surface_admin
+from neo_app.admin.ux_contract import admin_ux_contract_payload
 from neo_app.admin.engine import admin_engine_state_payload, update_model_paths, update_retrieval_defaults, update_runtime_defaults
 from neo_app.admin.semantic_engine import semantic_engine_state_payload, semantic_engine_test_payload
 from neo_app.admin.chroma_collections import chroma_collection_state_payload, export_chroma_collection_payload, export_archive_path, import_chroma_archive_payload
@@ -96,6 +97,11 @@ from neo_app.providers.xai_grok_provider import XaiGrokProvider
 from neo_app.image.upload_validation import ImageUploadValidationError, validate_and_store_image_upload
 from neo_app.providers.comfy_workflows.image_stitch_route import image_stitch_has_ready_group
 from neo_app.image.provider_errors import normalize_image_provider_error
+from neo_app.image.parameter_integrity import (
+    advance_parameter_integrity_trace,
+    finalize_provider_parameter_integrity,
+    start_parameter_integrity_trace,
+)
 from neo_app.prompt_captioning.upload_validation import (
     CAPTION_UPLOAD_VALIDATION_SCHEMA,
     CaptionUploadValidationError,
@@ -123,7 +129,8 @@ from neo_app.providers.registry import (
     validate_job_payload,
 )
 from neo_app.memory.service import get_memory_service
-from neo_app.operator.service import operator_status_payload, plan_operator_command, run_operator_command
+from neo_app.memory.surface_ingestion_registry import surface_ingestion_registry_status
+from neo_app.operator.service import operator_status_payload, plan_operator_actions, run_operator_actions, plan_operator_command, run_operator_command
 from neo_app.voice.service import voice_input_status_payload, prepare_voice_input_payload, run_voice_input_operator_payload, transcribe_uploaded_audio_payload
 from neo_app.voice.adapter_client import (
     voice_capabilities_payload,
@@ -210,6 +217,7 @@ from neo_app.providers.profiles import (
 from neo_app.prompt_captioning.support_matrix import get_support_matrix as get_prompt_captioning_support_matrix
 from neo_app.prompt_captioning.validation import validate_route_payload as validate_prompt_captioning_route_payload, validation_status as prompt_captioning_validation_status
 from neo_app.prompt_captioning.payload_contract import normalize_prompt_captioning_payload
+from neo_app.prompt_captioning.profile_contract import get_profile_manifest_payload as get_prompt_captioning_profile_manifest_payload
 from neo_app.prompt_captioning.service import (
     character_records as prompt_captioning_character_records,
     delete_preset as prompt_captioning_delete_preset,
@@ -256,6 +264,8 @@ from neo_app.prompt_captioning.service import (
     library_list as prompt_captioning_library_list,
     library_record as prompt_captioning_library_record,
     library_update as prompt_captioning_library_update,
+    storage_migration_status as prompt_captioning_storage_migration_status,
+    storage_migrate as prompt_captioning_storage_migrate,
     build_cross_tab_handoff as prompt_captioning_build_cross_tab_handoff,
     handoff_history as prompt_captioning_handoff_history,
     result_metadata_records as prompt_captioning_result_metadata_records,
@@ -340,6 +350,7 @@ from neo_app.assistant.store import (
 from neo_app.assistant.tools import tool_catalog_payload as assistant_tool_catalog_payload, tool_preview_payload as assistant_tool_preview_payload, execute_tool_payload as assistant_tool_execute_payload
 from neo_app.assistant.project_manager import assistant_project_manager_payload, assistant_project_manager_query
 from neo_app.assistant.guides import search_guides as assistant_search_guides
+from neo_app.assistant.memory_lens import assistant_memory_lens_payload
 from neo_app.assistant.project_brain import (
     capture_project_state_payload as assistant_capture_project_state_payload,
     index_project_data_payload as assistant_index_project_data_payload,
@@ -462,6 +473,16 @@ from neo_app.video.depth_motion_compiler import video_ltx23_depth_motion_compile
 from neo_app.video.schedule_compiler import video_ltx23_schedule_compile_payload, video_ltx23_schedule_generate_payload
 from neo_app.video.audio_video_compiler import video_ltx23_audio_video_compile_payload, video_ltx23_audio_video_generate_payload
 from neo_app.video.output_records import list_video_output_records, load_video_output_record, refresh_video_result_from_comfy, register_video_source_upload, video_output_file_path
+from neo_app.video.output_inspector import video_output_inspector_payload
+from neo_app.video.output_settings import (
+    add_video_output_category,
+    cleanup_video_replay_storage,
+    load_video_output_settings,
+    output_category_dir as video_output_category_dir,
+    save_video_output_settings,
+    settings_response as video_output_settings_response,
+    video_replay_storage_summary,
+)
 from neo_app.video.replay_memory import video_replay_metadata_payload, video_memory_export_payload
 from neo_app.video.project_handoff import build_video_project_handoff_payload, send_video_result_to_project_payload, video_project_asset_tray_payload
 from neo_app.voice.output_paths import output_path_payload as voice_output_path_payload, resolve_voice_output_file
@@ -1722,7 +1743,7 @@ def _admin_control_center_payload() -> dict:
         {"id": "provider_registry", "label": "Provider registry", "status": "ready" if providers else "needs setup", "detail": f"{len(providers)} provider(s) registered"},
         {"id": "extension_registry", "label": "Extension registry", "status": "ready" if extensions else "needs setup", "detail": f"{len(extensions)} extension record(s)"},
         {"id": "memory", "label": "Memory service", "status": "ready" if memory_payload.get("sqlite") or memory_payload.get("sqlite_available") else "available", "detail": memory_payload.get("mode") or memory_payload.get("status") or "memory status loaded"},
-        {"id": "memory_engine", "label": "Memory Engine", "status": "ready" if engine_readiness.get("text_bridge_ready") else "needs setup", "detail": "Shared text bridge, embeddings, reranker, vector store, indexing, and retrieval are controlled here."},
+        {"id": "memory_engine", "label": "Memory Engine", "status": "ready" if engine_readiness.get("text_bridge_ready") else "needs setup", "detail": "Shared text bridge, embeddings, reranker, vector store, indexing, retrieval, and sources are controlled here. Generation sampling is Backend-owned."},
         {"id": "records", "label": "System records", "status": "ready" if records_root.exists() else "missing", "detail": f"{len(record_docs)} markdown record(s)"},
     ]
 
@@ -1767,25 +1788,25 @@ def _admin_control_center_payload() -> dict:
         {
             "group_id": "memory_engine",
             "label": "Memory Engine",
-            "description": "Memory service, retrieval profiles, diagnostics, index jobs, and vector controls.",
+            "description": "Memory Engine infrastructure: retrieval profiles, diagnostics, index jobs, sources, embeddings/reranker, and vector controls.",
             "status": "ready" if engine_readiness.get("text_bridge_ready") else "needs setup",
-            "anchor": "memory",
+            "anchor": "engine",
             "metrics": [f"{sum(1 for value in engine_readiness.values() if value)}/{len(engine_readiness)} ready", f"{len(((admin_payload.get('global') or {}).get('memory_resources') or {}).get('namespaces_enabled', []))} namespaces"],
         },
         {
-            "group_id": "project_workspace",
-            "label": "Project Workspace",
-            "description": "Legacy Admin compatibility tools: asset tray, briefs, review queue, packages, QA, and historical cross-surface actions. Assistant Scope is primary.",
+            "group_id": "delivery_projects",
+            "label": "Delivery Projects",
+            "description": "Client/work delivery management: asset tray, briefs, review queue, packages, deliverables, milestones, and linked-memory readout. Assistant Scope is separate.",
             "status": project_workspace_status_payload().get("status") or "ready",
-            "anchor": "memory",
-            "metrics": ["briefs", "reviews", "packages", "QA"],
+            "anchor": "projects",
+            "metrics": ["briefs", "reviews", "packages", "delivery"],
         },
         {
             "group_id": "assistant_operator",
             "label": "Assistant + Operator",
-            "description": "Tool registry, permission profiles, action review, execution ledger, and operator availability.",
+            "description": "Orchestration diagnostics, read-only Assistant scope visibility, tool registry, permission profiles, action review, execution ledger, and operator availability.",
             "status": operator_status_payload().get("status") or "ready",
-            "anchor": "memory",
+            "anchor": "assistant_operator",
             "metrics": [f"{len(effective_tool_registry_payload().get('tools', []))} tools", tool_ledger_status_payload().get("status", "ledger")],
         },
     ]
@@ -1870,6 +1891,9 @@ def _admin_control_center_payload() -> dict:
         "health": {"checks": health_checks},
         "logs": {"root": "neo_data/logs", "files": [{"name": item.name, "size": item.stat().st_size} for item in logs[:20]], **surface_logs},
         "records": {"root": "neo_system_records", "doc_count": len(record_docs), "policy": "Update mapped records and changelog first. Create a new record only when no mapped source-of-truth exists."},
+        "admin_ownership": admin_payload.get("ownership_contract", {}),
+        "admin_config_contract": admin_payload.get("config_contract", {}),
+        "admin_ux_contract": admin_ux_contract_payload(),
     }
 
 @app.get("/api/admin")
@@ -1880,6 +1904,11 @@ def admin() -> dict:
 @app.get("/api/admin/control-center")
 def admin_control_center() -> dict:
     return _admin_control_center_payload()
+
+
+@app.get("/api/admin/ux-contract")
+def admin_ux_contract() -> dict:
+    return admin_ux_contract_payload()
 
 
 @app.get("/api/admin/surfaces/{surface_id}")
@@ -3930,6 +3959,11 @@ def assistant_project_brain_status(project_id: str = "general", surface: str = "
     return assistant_project_brain_status_payload(project_id=project_id, surface=surface)
 
 
+@app.get("/api/assistant/memory-lens")
+def assistant_memory_lens(project_id: str = "general", surface: str = "", limit: int = 12) -> dict:
+    return assistant_memory_lens_payload(project_id=project_id, surface=surface, limit=limit)
+
+
 @app.post("/api/assistant/project-capture")
 def assistant_project_capture(payload: dict | None = None) -> dict:
     try:
@@ -3948,8 +3982,22 @@ def assistant_project_index(payload: dict | None = None) -> dict:
 
 @app.post("/api/assistant/project-brain-rebuild")
 def assistant_project_brain_rebuild(payload: dict | None = None) -> dict:
+    data = dict(payload or {})
     try:
-        return assistant_rebuild_project_brain_payload(payload or {})
+        if data.get("background", True) is False:
+            return assistant_rebuild_project_brain_payload(data)
+        project_id = str(data.get("project_id") or "general")
+        surface = str(data.get("surface") or "assistant")
+        job = get_memory_service().job_service.create(
+            job_type="project_brain_rebuild",
+            payload={**data, "background": False},
+            title=f"Project Brain rebuild · {project_id}",
+            surface=surface,
+            project_id=None,
+            scope_id=project_id,
+            dedupe_key=f"project_brain_rebuild:{project_id}:{surface}",
+        )
+        return {"ok": True, "schema_id": "neo.assistant.project_brain_rebuild.phase10.v1", "status": job.get("status"), "job": job.get("job"), "deduplicated": bool(job.get("deduplicated")), "project_brain": assistant_project_brain_status_payload(project_id=project_id, surface=surface)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -4101,6 +4149,12 @@ def backend_profile_selection_get() -> dict:
 def backend_profile_selection_post(payload: dict) -> dict:
     return save_backend_profile_selection(payload)
 
+
+
+
+@app.get("/api/prompt-captioning/profile-manifest")
+def prompt_captioning_profile_manifest() -> dict:
+    return get_prompt_captioning_profile_manifest_payload()
 
 @app.get("/api/prompt-captioning/support-matrix")
 def prompt_captioning_support_matrix() -> dict:
@@ -4565,6 +4619,16 @@ def prompt_captioning_library_snapshot() -> dict:
 @app.post("/api/prompt-captioning/library/import")
 def prompt_captioning_library_import(payload: dict) -> dict:
     return prompt_captioning_library_import_snapshot(payload)
+
+
+@app.get("/api/prompt-captioning/storage/migration-status")
+def prompt_captioning_storage_migration_status_route() -> dict:
+    return prompt_captioning_storage_migration_status()
+
+
+@app.post("/api/prompt-captioning/storage/migrate")
+def prompt_captioning_storage_migrate_route(payload: dict | None = None) -> dict:
+    return prompt_captioning_storage_migrate(payload or {})
 
 
 @app.get("/api/prompt-captioning/library/list")
@@ -6035,6 +6099,51 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
     if mask_url:
         normalized["mask_image_url"] = mask_url
 
+    def normalize_visibility_mask_block(raw: object) -> dict:
+        block = dict(raw) if isinstance(raw, dict) else {}
+        reference = str(block.get("path") or block.get("ref") or block.get("mask") or block.get("url") or "").strip()
+        url = str(block.get("url") or block.get("preview_url") or "").strip()
+        if not reference and url:
+            parsed_name = Path(url.split("?", 1)[0]).name
+            reference = local_from_dir(parsed_name, IMAGE_MASK_INPUT_DIR) or url
+        if reference.startswith("/api/image/mask-file/"):
+            reference = local_from_dir(reference.rsplit("/", 1)[-1], IMAGE_MASK_INPUT_DIR) or reference
+        if reference:
+            block["ref"] = reference
+            block["path"] = reference
+            block["enabled"] = block.get("enabled", True) is not False
+            if not block.get("name"):
+                block["name"] = Path(reference).name
+        if url:
+            block["url"] = url
+            block["preview_url"] = str(block.get("preview_url") or url)
+        block.setdefault("schema", "neo.image.source_visibility_mask.v1")
+        block.setdefault("fill_mode", "black")
+        block["white_hides"] = True
+        return block
+
+    direct_visibility = normalized.get("source_visibility_mask")
+    if isinstance(direct_visibility, dict):
+        normalized["source_visibility_mask"] = normalize_visibility_mask_block(direct_visibility)
+
+    for stitch_key in ("image_stitch", "qwen_stitch"):
+        stitch_payload = normalized.get(stitch_key)
+        if not isinstance(stitch_payload, dict):
+            continue
+        groups = stitch_payload.get("groups") if isinstance(stitch_payload.get("groups"), list) else []
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            inputs = group.get("inputs") if isinstance(group.get("inputs"), dict) else {}
+            for side in ("image_a", "image_b"):
+                input_record = inputs.get(side)
+                if not isinstance(input_record, dict) or not isinstance(input_record.get("visibility_mask"), dict):
+                    continue
+                input_record["visibility_mask"] = normalize_visibility_mask_block(input_record["visibility_mask"])
+            group["inputs"] = inputs
+        stitch_payload["groups"] = groups
+        normalized[stitch_key] = stitch_payload
+
     def normalize_extra_source_lane(lane: int, aliases: tuple[str, ...]) -> None:
         path_keys = (f"source_image_{lane}", f"source_image_{lane}_path", f"source_image__{lane}") + aliases
         url_key = f"source_image_{lane}_url"
@@ -6155,7 +6264,9 @@ def image_generate(payload: dict) -> dict:
     try:
         provider, profile = _profile_bound_provider(profile_id)
         job_payload = payload.get("job") or payload
-        normalized_params = normalize_image_seed_params(job_payload.get("params") if isinstance(job_payload.get("params"), dict) else {})
+        raw_job_params = job_payload.get("params") if isinstance(job_payload.get("params"), dict) else {}
+        parameter_integrity = start_parameter_integrity_trace(raw_job_params)
+        normalized_params = normalize_image_seed_params(raw_job_params)
         conditioning_mode = normalize_prompt_conditioning_mode(normalized_params.get("prompt_conditioning_mode", normalized_params.get("clamp", "raw")))
         normalized_params = {**normalized_params, "prompt_conditioning_mode": conditioning_mode, "clamp": conditioning_mode}
         requested_subtab = job_payload.get("subtab") or "generate"
@@ -6245,6 +6356,8 @@ def image_generate(payload: dict) -> dict:
             provider_id=provider_backend_id,
             profile_id=str(profile_id),
         )
+        parameter_integrity = advance_parameter_integrity_trace(parameter_integrity, "api_normalized", normalized_params)
+        normalized_params = {**normalized_params, "_neo_parameter_integrity": parameter_integrity}
         job_payload = {
             **job_payload,
             "surface": "image",
@@ -6265,6 +6378,11 @@ def image_generate(payload: dict) -> dict:
         # diverging between Generate -> NeoJob -> provider diagnostics.
         prepared_job = model_from_dict(NeoJob, job_payload)
         prepared_job_payload = model_to_dict(prepared_job)
+        prepared_params = dict(prepared_job_payload.get("params") or {})
+        parameter_integrity = advance_parameter_integrity_trace(parameter_integrity, "neojob", prepared_params)
+        prepared_params["_neo_parameter_integrity"] = parameter_integrity
+        prepared_job = prepared_job.model_copy(update={"params": prepared_params})
+        prepared_job_payload = model_to_dict(prepared_job)
         job_payload = {**job_payload, **prepared_job_payload, "params": dict(prepared_job_payload.get("params") or {})}
         result = provider.run_job(prepared_job)
     except HTTPException as exc:
@@ -6280,6 +6398,17 @@ def image_generate(payload: dict) -> dict:
     # metadata even for providers that do not mirror all actual_params back.
     runtime = output.get("runtime") if isinstance(output.get("runtime"), dict) else {}
     prepared_params = dict((job_payload or {}).get("params") or {})
+    runtime_trace = runtime.get("parameter_integrity") if isinstance(runtime.get("parameter_integrity"), dict) else None
+    if runtime_trace is None and isinstance(prepared_params.get("_neo_parameter_integrity"), dict):
+        runtime_actual = runtime.get("actual_params") if isinstance(runtime.get("actual_params"), dict) else {}
+        runtime_trace = finalize_provider_parameter_integrity(
+            prepared_params.get("_neo_parameter_integrity"),
+            actual_params=runtime_actual,
+        ) if runtime_actual else dict(prepared_params.get("_neo_parameter_integrity") or {})
+    if isinstance(runtime_trace, dict):
+        runtime["parameter_integrity"] = runtime_trace
+        if isinstance(runtime.get("actual_params"), dict):
+            runtime["actual_params"] = {**runtime["actual_params"], "_neo_parameter_integrity": runtime_trace}
     if isinstance(prepared_params.get("sampling_preset_inspector"), dict):
         runtime["sampling_preset_inspector"] = prepared_params["sampling_preset_inspector"]
     if isinstance(prepared_params.get("sampling_preset_release_lock"), dict):
@@ -6358,6 +6487,11 @@ def image_job_status(profile_id: str, job_id: str) -> dict:
     output = model_to_dict(result)
     output["profile_id"] = profile_id
     output["capabilities"] = provider.feature_capability_payload()
+    runtime = output.get("runtime") if isinstance(output.get("runtime"), dict) else {}
+    actual_params = runtime.get("actual_params") if isinstance(runtime.get("actual_params"), dict) else {}
+    if not isinstance(runtime.get("parameter_integrity"), dict) and isinstance(actual_params.get("_neo_parameter_integrity"), dict):
+        runtime["parameter_integrity"] = actual_params.get("_neo_parameter_integrity")
+        output["runtime"] = runtime
     try:
         registry = get_generation_job_registry(ROOT_DIR)
         registry_record = registry.upsert_from_provider_result(
@@ -6888,6 +7022,12 @@ def video_result_detail(result_id: str) -> dict:
     return load_video_output_record(result_id)
 
 
+@app.get("/api/video/results/{result_id}/inspector")
+def video_result_output_inspector(result_id: str) -> dict:
+    """Return the normalized Video Output Inspector view model for one saved result."""
+    return video_output_inspector_payload(result_id)
+
+
 @app.get("/api/video/results/{result_id}/replay-metadata")
 def video_result_replay_metadata(result_id: str) -> dict:
     """Return/upgrade the canonical V22 replay metadata for a Video result."""
@@ -7416,6 +7556,55 @@ def video_job_status(profile_id: str, job_id: str) -> dict:
     except Exception:
         pass
     return attach_progress_watchdog(output, surface="video", profile_id=profile_id, job_id=job_id)
+
+
+@app.get("/api/video/replay-storage")
+def video_replay_storage_get() -> dict:
+    return video_replay_storage_summary()
+
+
+@app.post("/api/video/replay-storage/cleanup")
+def video_replay_storage_cleanup(payload: dict | None = None) -> dict:
+    return cleanup_video_replay_storage(payload if isinstance(payload, dict) else {})
+
+
+@app.get("/api/video/output-settings")
+def video_output_settings_get() -> dict:
+    return {"ok": True, "settings": video_output_settings_response(load_video_output_settings())}
+
+
+@app.post("/api/video/output-settings")
+def video_output_settings_post(payload: dict) -> dict:
+    return {"ok": True, "settings": video_output_settings_response(save_video_output_settings(payload if isinstance(payload, dict) else {}))}
+
+
+@app.post("/api/video/output-settings/category")
+def video_output_settings_category(payload: dict) -> dict:
+    name = str((payload if isinstance(payload, dict) else {}).get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Add a category name first.")
+    settings = add_video_output_category(name, payload if isinstance(payload, dict) else {})
+    return {"ok": True, "settings": video_output_settings_response(settings)}
+
+
+@app.post("/api/video/open-output-folder")
+def video_open_output_folder(payload: dict | None = None) -> dict:
+    settings = load_video_output_settings()
+    path = video_output_category_dir(settings).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    neo_root = (ROOT_DIR / "neo_data" / "outputs" / "video").resolve()
+    if neo_root not in path.parents and path != neo_root:
+        raise HTTPException(status_code=400, detail="Output folder is outside Neo_Data video outputs.")
+    try:
+        if platform.system() == "Windows":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "path": str(path), "message": f"Could not open folder automatically: {exc}"}
+    return {"ok": True, "path": str(path)}
 
 
 @app.get("/api/image/replay-storage")
@@ -9082,13 +9271,26 @@ def operator_status() -> dict:
     return operator_status_payload()
 
 
+@app.post("/api/operator/actions/plan")
+def operator_actions_plan(payload: dict | None = None) -> dict:
+    return plan_operator_actions(payload or {})
+
+
+@app.post("/api/operator/actions/execute")
+def operator_actions_execute(payload: dict | None = None) -> dict:
+    return run_operator_actions(payload or {})
+
+
 @app.post("/api/operator/plan")
 def operator_plan(payload: dict | None = None) -> dict:
+    # Compatibility route: free text is translated by Assistant/Control Center,
+    # then handed to the structured Operator planner.
     return plan_operator_command(payload or {})
 
 
 @app.post("/api/operator/run")
 def operator_run(payload: dict | None = None) -> dict:
+    # Compatibility route retained for Voice/older UIs.
     return run_operator_command(payload or {})
 
 @app.get("/api/memory/status")
@@ -9118,6 +9320,11 @@ def memory_retrieve(payload: dict | None = None) -> dict:
     return get_memory_service().retrieve(payload or {})
 
 
+@app.post("/api/memory/retrieval-gateway")
+def memory_retrieval_gateway(payload: dict | None = None) -> dict:
+    return get_memory_service().retrieve_gateway(payload or {})
+
+
 @app.get("/api/memory/retrieval-profiles")
 def memory_retrieval_profiles() -> dict:
     return get_memory_service().retrieval_profiles()
@@ -9141,6 +9348,10 @@ def memory_diagnostics() -> dict:
 @app.post("/api/memory/surface-ingestion/run")
 def memory_surface_ingestion_run(payload: dict | None = None) -> dict:
     return get_memory_service().run_surface_ingestion(payload or {})
+
+@app.get("/api/memory/surface-ingestion/registry")
+def memory_surface_ingestion_registry() -> dict:
+    return surface_ingestion_registry_status()
 
 @app.get("/api/memory/retrieval-traces")
 def memory_retrieval_traces(limit: int = 20) -> dict:
@@ -9257,7 +9468,18 @@ def memory_unified_consolidation_plan(payload: dict | None = None) -> dict:
 
 @app.post("/api/memory/unified-consolidation/run")
 def memory_unified_consolidation_run(payload: dict | None = None) -> dict:
-    return get_memory_service().run_unified_consolidation(payload or {})
+    data = dict(payload or {})
+    if data.get("background", True) is False:
+        return get_memory_service().run_unified_consolidation(data)
+    return get_memory_service().job_service.create(
+        job_type="memory_consolidation",
+        payload={**data, "background": False},
+        title="Unified memory consolidation",
+        surface=str(data.get("surface") or "global"),
+        project_id=data.get("project_id"),
+        scope_id=data.get("scope_id"),
+        dedupe_key=str(data.get("dedupe_key") or f"memory_consolidation:{data.get('surface') or 'global'}:{data.get('project_id') or ''}:{data.get('scope_id') or ''}"),
+    )
 
 @app.get("/api/memory/retrieval-rerank/status")
 def memory_retrieval_rerank_status() -> dict:
@@ -9266,7 +9488,18 @@ def memory_retrieval_rerank_status() -> dict:
 
 @app.post("/api/memory/retrieval-rerank/index")
 def memory_retrieval_rerank_index(payload: dict | None = None) -> dict:
-    return get_memory_service().index_unified_embeddings(payload or {})
+    data = dict(payload or {})
+    if data.get("background", True) is False:
+        return get_memory_service().index_unified_embeddings(data)
+    return get_memory_service().job_service.create(
+        job_type="embedding_reindex",
+        payload={**data, "background": False},
+        title="Memory embedding / reindex",
+        surface=str(data.get("surface") or data.get("surface_id") or "global"),
+        project_id=data.get("project_id"),
+        scope_id=data.get("scope_id"),
+        dedupe_key=str(data.get("dedupe_key") or f"embedding_reindex:{data.get('surface') or data.get('surface_id') or 'global'}:{data.get('project_id') or ''}:{data.get('scope_id') or ''}"),
+    )
 
 
 @app.post("/api/memory/retrieval-rerank/query")
@@ -9333,6 +9566,45 @@ def memory_observability_control_center(payload: dict | None = None) -> dict:
 @app.post("/api/memory/observability/roleplay-scene")
 def memory_observability_roleplay_scene(payload: dict | None = None) -> dict:
     return get_memory_service().observability_roleplay_scene(payload or {})
+
+
+@app.get("/api/memory/jobs")
+def memory_jobs(status: str = "", job_type: str = "", limit: int = 50) -> dict:
+    return get_memory_service().memory_jobs_status(status=status, job_type=job_type, limit=limit)
+
+
+@app.get("/api/memory/jobs/{job_id}")
+def memory_job(job_id: str) -> dict:
+    result = get_memory_service().memory_job(job_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Memory job not found")
+    return result
+
+
+@app.post("/api/memory/jobs/create")
+def memory_job_create(payload: dict | None = None) -> dict:
+    result = get_memory_service().create_memory_job(payload or {})
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result)
+    return result
+
+
+@app.post("/api/memory/jobs/{job_id}/cancel")
+def memory_job_cancel(job_id: str) -> dict:
+    try:
+        return get_memory_service().cancel_memory_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Memory job not found")
+
+
+@app.post("/api/memory/jobs/{job_id}/retry")
+def memory_job_retry(job_id: str) -> dict:
+    try:
+        return get_memory_service().retry_memory_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Memory job not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/memory/writeback/status")

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.multi_ksampler.v2",
+  "title": "Neo Image Multi-KSampler",
+  "type": "object",
+  "required": ["enabled", "stage_count"],
+  "properties": {
+    "schema": {"const": "neo.image.multi_ksampler.v2"},
+    "enabled": {"type": "boolean"},
+    "stage_count": {"type": "integer", "enum": [2, 3]},
+    "strategy": {"const": "sequential_latent_refinement"},
+    "stage2": {"$ref": "#/$defs/stage"},
+    "stage3": {"$ref": "#/$defs/stage"},
+    "inter_stage_upscale": {"type": "string", "enum": ["none", "latent_upscale"]}
+  },
+  "$defs": {
+    "transition": {
+      "type": "object",
+      "properties": {
+        "operation": {"type": "string", "enum": ["none", "latent_upscale"]},
+        "scale_by": {"type": "number", "minimum": 0.01, "maximum": 8.0},
+        "upscale_method": {"type": "string", "enum": ["nearest-exact", "bilinear", "area", "bicubic", "bislerp"]}
+      },
+      "additionalProperties": true
+    },
+    "stage": {
+      "type": "object",
+      "properties": {
+        "backend": {"type": "string", "enum": ["inherit", "standard", "res4lyf_clownshark"]},
+        "steps": {"type": ["integer", "string"]},
+        "cfg": {"type": ["number", "string"]},
+        "sampler": {"type": "string"},
+        "scheduler": {"type": "string"},
+        "denoise": {"type": ["number", "string"]},
+        "seed_policy": {"type": "string", "enum": ["same", "increment"]},
+        "transition": {"$ref": "#/$defs/transition"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

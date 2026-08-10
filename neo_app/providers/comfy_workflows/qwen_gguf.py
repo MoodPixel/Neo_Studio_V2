@@ -10,6 +10,7 @@ from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_p
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
@@ -619,7 +620,7 @@ def compile_qwen_gguf_txt2img(
     steps = int(_param(params, "steps", default=steps_default))
     width = int(_param(params, "width", default=defaults.width))
     height = int(_param(params, "height", default=defaults.height))
-    batch_count = 1 if mode in {"img2img", "inpaint", "outpaint"} else int(_param(params, "batch_count", "batch_size", default=1))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     denoise_default = QWEN_GGUF_INPAINT_DEFAULT_DENOISE if mode == "inpaint" else (1.0 if mode in {"img2img", "outpaint"} else defaults.denoise)
     denoise = float(_param(params, "denoise", "strength", default=denoise_default))
     requested_cfg = float(_param(params, "cfg", default=defaults.cfg))
@@ -719,17 +720,37 @@ def compile_qwen_gguf_txt2img(
             "_neo_effective_gguf_mmproj": mmproj,
             "_neo_sampler_node_id": "7",
         })
+        is_qwen_edit_family = str(job.family or "").strip().lower() in {"qwen_image_edit_2509", "qwen_image_edit_2511"}
         actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
             route={**route.as_dict(), "workflow_mode": "generate", "route_state": "available" if route.status == "available" else route.status},
             model_ref=["1", 0],
             clip_ref=["2", 0],
             sampler_node_id="7",
             sampler_model_input="model",
-            loader_node_class="LoraLoader",
+            loader_node_class="LoraLoaderModelOnly" if is_qwen_edit_family else "LoraLoader",
+            requires_clip=not is_qwen_edit_family,
             source="comfy.qwen_gguf",
-            strategy="lora_loader_model_clip_consumer_rewire",
+            strategy="lora_loader_model_only_consumer_rewire" if is_qwen_edit_family else "lora_loader_model_clip_consumer_rewire",
+            patch_clip_consumers=not is_qwen_edit_family,
             validated=False,
-            notes=["Qwen GGUF compiler owns single model/clip refs; txt2img sampler consumes the model ref directly."],
+            notes=["Qwen Edit GGUF uses model-only LoRAs before its sampling lineage." if is_qwen_edit_family else "Qwen Image GGUF retains model+CLIP LoRA handling."],
+        )
+        publish_adetailer_route_contract(
+            actual_params=actual_params,
+            workflow=workflow,
+            route=route,
+            image_ref=["8", 0],
+            model_ref=["1", 0],
+            clip_ref=["2", 0],
+            vae_ref=["3", 0],
+            positive_ref=["4", 0],
+            negative_ref=["5", 0],
+            sampler_node_id="7",
+            source="comfy.qwen_gguf",
+            compiler_id="comfy.qwen_gguf",
+            model_sampling_state="passthrough",
+            model_sampling_ref=["1", 0],
+            notes=["Phase 5 Qwen GGUF txt2img publishes exact component refs without checkpoint fallbacks."],
         )
         return CompiledJob(
             provider_id=provider_id,
@@ -813,11 +834,14 @@ def compile_qwen_gguf_txt2img(
     effective_sampler = sampler if sampler != "provider_default" else defaults.sampler
     effective_scheduler = scheduler if scheduler != "provider_default" else defaults.scheduler
     sampler_model_ref: list[Any] = ["1", 0]
+    model_sampling_nodes: list[str] = []
     if mode == "inpaint":
         # DifferentialDiffusion makes the normalized latent noise mask affect the
         # normal KSampler path without depending on LanPaint custom node schemas.
-        workflow[sampler_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
-        sampler_model_ref = [sampler_id, 0]
+        differential_id = sampler_id
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
+        sampler_model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         sampler_id = str(int(sampler_id) + 1)
         decode_id = str(int(decode_id) + 1)
         save_id = str(int(save_id) + 1)
@@ -893,17 +917,39 @@ def compile_qwen_gguf_txt2img(
     actual_params["_neo_effective_mmproj_required"] = mode in {"img2img", "inpaint", "outpaint"}
     actual_params["_neo_effective_gguf_mmproj"] = mmproj
     actual_params["_neo_sampler_node_id"] = sampler_id
+    is_qwen_edit_family = str(job.family or "").strip().lower() in {"qwen_image_edit_2509", "qwen_image_edit_2511"}
     actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
         route={**route.as_dict(), "workflow_mode": "generate" if mode == "txt2img" else mode, "route_state": "available" if route.status == "available" else route.status},
         model_ref=["1", 0],
         clip_ref=["2", 0],
         sampler_node_id=sampler_id,
         sampler_model_input="model",
-        loader_node_class="LoraLoader",
+        loader_node_class="LoraLoaderModelOnly" if is_qwen_edit_family else "LoraLoader",
+        requires_clip=not is_qwen_edit_family,
         source="comfy.qwen_gguf",
-        strategy="lora_loader_model_clip_consumer_rewire",
+        strategy="lora_loader_model_only_consumer_rewire" if is_qwen_edit_family else "lora_loader_model_clip_consumer_rewire",
+        patch_clip_consumers=not is_qwen_edit_family,
         validated=False,
-        notes=["Qwen GGUF image compiler owns model/clip refs; image-conditioned edit nodes are patched by exact clip ref only."],
+        notes=["Qwen Edit GGUF detailer LoRAs are model-only; AuraFlow/DifferentialDiffusion is reapplied in the isolated detailer branch." if is_qwen_edit_family else "Qwen Image GGUF retains model+CLIP LoRA handling."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_image_ref,
+        model_ref=sampler_model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=positive_ref,
+        negative_ref=negative_ref,
+        sampler_node_id=sampler_id,
+        source="comfy.qwen_gguf",
+        compiler_id="comfy.qwen_gguf",
+        model_sampling_state="patched" if model_sampling_nodes else "passthrough",
+        model_sampling_ref=sampler_model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 5 Qwen/Qwen Rapid GGUF image routes publish the exact sampler model and final composite image."],
     )
 
     return CompiledJob(

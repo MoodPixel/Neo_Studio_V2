@@ -189,8 +189,8 @@ def compile_lanpaint_sd_inpaint(
     if invert_mask: signatures["InvertMask"] = ("mask",)
     signature_mismatches = _signature_gate(validation, backend, signatures)
 
-    requested_seed = int(_param(params, "requested_seed", "seed", default=-1) or -1)
-    seed = int(_param(params, "actual_seed", "seed", default=requested_seed) or requested_seed)
+    requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
+    seed = int(_param(params, "actual_seed", "seed", default=requested_seed))
     if seed < 0: seed = int(time.time() * 1000) % 2147483647
     conditioning_mode = normalize_prompt_conditioning_mode(params.get("prompt_conditioning_mode", params.get("clamp", "raw")))
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
@@ -199,10 +199,10 @@ def compile_lanpaint_sd_inpaint(
 
     spatial = _mapping(adapter.get("spatial")); crop = _mapping(spatial.get("crop")); processing = _mapping(crop.get("processing_size")); masks = _mapping(spatial.get("mask")); sample_mask = _mapping(masks.get("sampling")); stitch_mask = _mapping(masks.get("stitch")); stitch_policy = _mapping(spatial.get("stitch"))
     sampler_policy = _mapping(_mapping(adapter.get("sampler")).get("defaults")); latent_policy = _mapping(adapter.get("latent")); lora_policy = _mapping(adapter.get("lora"))
-    padding = int(crop.get("padding_px") or 96); width = int(processing.get("width") or 1024); height = int(processing.get("height") or 1024)
-    resize_method = str(crop.get("resize_method") or "lanczos"); restore_method = str(stitch_policy.get("resize_method") or resize_method)
-    sample_expand = int(sample_mask.get("expand_px") or 0); sample_blur = float(sample_mask.get("blur_radius") or 0.0); stitch_expand = int(stitch_mask.get("expand_px") or 0); stitch_blur = float(stitch_mask.get("blur_radius") or 0.0)
-    steps = int(sampler_policy.get("steps") or 25); cfg = float(sampler_policy.get("cfg") if sampler_policy.get("cfg") is not None else 7.0); sampler_name = str(sampler_policy.get("sampler_name") or "euler"); scheduler = str(sampler_policy.get("scheduler") or "normal"); denoise = float(sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0); thinking = int(sampler_policy.get("lanpaint_thinking_steps") or 5); prompt_mode = "Prompt First" if str(sampler_policy.get("prompt_mode") or "image_first") == "prompt_first" else "Image First"; sd3_shift = float(latent_policy.get("sd3_shift") or 3.0)
+    padding = int(_param(params, "lanpaint_crop_padding", "crop_padding", default=crop.get("padding_px") if crop.get("padding_px") is not None else 96)); width = int(_param(params, "lanpaint_processing_width", default=processing.get("width") if processing.get("width") is not None else 1024)); height = int(_param(params, "lanpaint_processing_height", default=processing.get("height") if processing.get("height") is not None else 1024))
+    resize_method = str(_param(params, "lanpaint_resize_method", default=crop.get("resize_method") or "lanczos")); restore_method = str(_param(params, "lanpaint_stitch_resize_method", default=stitch_policy.get("resize_method") or resize_method))
+    sample_expand = int(_param(params, "lanpaint_sampling_mask_expand", default=sample_mask.get("expand_px") if sample_mask.get("expand_px") is not None else 0)); sample_blur = float(_param(params, "lanpaint_sampling_mask_blur", default=sample_mask.get("blur_radius") if sample_mask.get("blur_radius") is not None else 0.0)); stitch_expand = int(_param(params, "lanpaint_stitch_mask_expand", default=stitch_mask.get("expand_px") if stitch_mask.get("expand_px") is not None else 0)); stitch_blur = float(_param(params, "lanpaint_stitch_mask_blur", default=stitch_mask.get("blur_radius") if stitch_mask.get("blur_radius") is not None else 0.0))
+    steps = int(_param(params, "steps", "lanpaint_steps", default=sampler_policy.get("steps") if sampler_policy.get("steps") is not None else 25)); cfg = float(_param(params, "cfg", "lanpaint_cfg", default=sampler_policy.get("cfg") if sampler_policy.get("cfg") is not None else 7.0)); sampler_name = str(_param(params, "sampler", "lanpaint_sampler", default=sampler_policy.get("sampler_name") or "euler")); scheduler = str(_param(params, "scheduler", "lanpaint_scheduler", default=sampler_policy.get("scheduler") or "normal")); denoise = float(_param(params, "denoise", "lanpaint_denoise", default=sampler_policy.get("denoise") if sampler_policy.get("denoise") is not None else 1.0)); batch_count = int(_param(params, "batch_count", "batch_size", default=1)); thinking = int(_param(params, "lanpaint_thinking_steps", default=sampler_policy.get("lanpaint_thinking_steps") if sampler_policy.get("lanpaint_thinking_steps") is not None else 5)); requested_prompt_mode = str(_param(params, "lanpaint_prompt_mode", default=sampler_policy.get("prompt_mode") or "image_first")).strip().lower().replace(" ", "_"); prompt_mode = "Prompt First" if requested_prompt_mode in {"prompt_first", "prompt"} else "Image First"; sd3_shift = float(_param(params, "hidream_sd3_shift", "sd3_shift", default=latent_policy.get("sd3_shift") if latent_policy.get("sd3_shift") is not None else 3.0))
 
     workflow: dict[str, Any] = {}; node_roles: dict[str, str] = {}
     def add(node_id: int, class_type: str, inputs: dict[str, Any], role: str) -> None:
@@ -241,11 +241,14 @@ def compile_lanpaint_sd_inpaint(
         negative_id = next_id; add(negative_id, "CLIPTextEncode", {"clip": clip_ref, "text": negative_text}, "negative_conditioning"); next_id += 1
         encode_id = next_id; add(encode_id, "VAEEncode", {"pixels": [str(resize_id), 0], "vae": vae_ref}, "latent_encode"); next_id += 1
         noise_id = next_id; add(noise_id, "SetLatentNoiseMask", {"samples": [str(encode_id), 0], "mask": [str(sample_mask_id), 0]}, "latent_noise_mask"); next_id += 1
+        latent_ref = [str(noise_id), 0]
+        if batch_count > 1:
+            repeat_id = next_id; add(repeat_id, "RepeatLatentBatch", {"samples": list(latent_ref), "amount": batch_count}, "latent_batch_repeat"); latent_ref = [str(repeat_id), 0]; next_id += 1
         sample_model_ref = model_ref
         if family == "sd35":
             transform_id = next_id; add(transform_id, "ModelSamplingSD3", {"model": model_ref, "shift": sd3_shift}, "family_model_transform"); next_id += 1; sample_model_ref = [str(transform_id), 0]
         sampler_id = next_id
-        add(sampler_id, "LanPaint_KSampler", {"model": sample_model_ref, "positive": [str(positive_id), 0], "negative": [str(negative_id), 0], "latent_image": [str(noise_id), 0], "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler_name, "scheduler": scheduler, "denoise": denoise, "LanPaint_NumSteps": thinking, "LanPaint_PromptMode": prompt_mode, "LanPaint_Info": "LanPaint KSampler.", "Inpainting_mode": "🖼️ Image Inpainting"}, "lanpaint_sample"); next_id += 1
+        add(sampler_id, "LanPaint_KSampler", {"model": sample_model_ref, "positive": [str(positive_id), 0], "negative": [str(negative_id), 0], "latent_image": latent_ref, "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler_name, "scheduler": scheduler, "denoise": denoise, "LanPaint_NumSteps": thinking, "LanPaint_PromptMode": prompt_mode, "LanPaint_Info": "LanPaint KSampler.", "Inpainting_mode": "🖼️ Image Inpainting"}, "lanpaint_sample"); next_id += 1
         decode_id = next_id; add(decode_id, "VAEDecode", {"samples": [str(sampler_id), 0], "vae": vae_ref}, "latent_decode"); next_id += 1
         restore_inputs = {"image": [str(decode_id), 0], "mask": [str(sample_mask_id), 0], "width": [str(crop_id), 4], "height": [str(crop_id), 5], "upscale_method": restore_method, "keep_proportion": "stretch", "pad_color": "0, 0, 0", "crop_position": "center", "divisible_by": 2}
         _optional_input(restore_inputs, backend, "ImageResizeKJv2", "device", "cpu")
@@ -275,7 +278,7 @@ def compile_lanpaint_sd_inpaint(
         verified_assets.append(_verify_selected_asset(validation, backend, loader_id=loader, role_id=role, label=slot_id, selected=value))
 
     actual_params = {
-        **params, "inpaint_engine": "lanpaint", "workflow_type": WORKFLOW_TYPE, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed,
+        **params, "inpaint_engine": "lanpaint", "workflow_type": WORKFLOW_TYPE, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed, "batch_count": batch_count,
         "source_image_name": source_name, "mask_image_name": mask_name, "checkpoint": checkpoint_name,
         "diffusion_model": model_name if loader == "diffusion_model" else "", "gguf_model": model_name if loader == "gguf" else "",
         "text_encoder_1": clip1, "text_encoder_2": clip2, "text_encoder_3": clip3, "vae": vae_name,

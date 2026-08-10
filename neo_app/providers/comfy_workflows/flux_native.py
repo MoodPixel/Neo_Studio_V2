@@ -22,6 +22,7 @@ from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
@@ -238,8 +239,6 @@ def compile_flux_klein_txt2img(
     denoise = float(_param(params, "denoise", default=denoise_default))
     # FLUX.2 [klein] examples use low sampler CFG; guidance is handled by FluxGuidance.
     cfg = float(_param(params, "cfg", default=1.0))
-    if cfg <= 0:
-        cfg = 1.0
 
     source_name = _source_image_name(params) if mode in {"img2img", "edit", "inpaint", "outpaint"} else ""
     if mode in {"img2img", "edit", "inpaint", "outpaint"} and not source_name:
@@ -288,6 +287,12 @@ def compile_flux_klein_txt2img(
         "text_encoder_2": "",
         "vae": vae,
         "flux_guidance": flux_guidance,
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "sampler": sampler,
+        "scheduler": scheduler,
+        "batch_count": batch_count,
         "denoise": denoise,
         "cfg": cfg,
         "steps": steps,
@@ -395,11 +400,22 @@ def compile_flux_klein_txt2img(
         latent_ref = ["4", 0]
 
     sampler_model_ref: list[Any] = ["1", 0]
+    model_sampling_nodes: list[str] = []
     if mode in {"inpaint", "outpaint"}:
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
-        sampler_model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
+        sampler_model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
 
+    if mode in {"img2img", "edit", "inpaint", "outpaint"} and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+    if mode == "img2img" and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
     sampler_id = str(next_id)
     decode_id = str(next_id + 1)
     preview_id = str(next_id + 2)
@@ -558,9 +574,9 @@ def compile_flux_krea_workflow(
     batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     denoise_default = 1.0 if mode == "txt2img" else 0.75
     denoise = float(_param(params, "denoise", default=denoise_default))
-    # FLUX.1 guidance-distilled routes keep sampler CFG neutral. FluxGuidance is
-    # the user-facing guidance control.
-    cfg = 1.0
+    # Parameter Truth: Flux Guidance and sampler CFG are independent controls.
+    # Preserve explicit sampler CFG rather than forcing a neutral value.
+    cfg = float(_param(params, "cfg", default=defaults.cfg))
 
     source_name = _source_image_name(params) if mode in {"img2img", "inpaint", "outpaint"} else ""
     if mode in {"img2img", "inpaint", "outpaint"} and not source_name:
@@ -695,6 +711,10 @@ def compile_flux_krea_workflow(
         sampler_model_ref = [str(next_id), 0]
         next_id += 1
 
+    if mode in {"img2img", "edit", "inpaint", "outpaint"} and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
     sampler_id = str(next_id)
     decode_id = str(next_id + 1)
     preview_id = str(next_id + 2)
@@ -748,6 +768,25 @@ def compile_flux_krea_workflow(
         strategy="lora_loader_model_clip_consumer_rewire",
         validated=False,
         notes=["M15 keeps Krea on the FLUX.1 dual-encoder model/clip graph; LoRA compatibility remains matrix-gated."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=sampler_model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["6", 0],
+        negative_ref=["7", 0],
+        sampler_node_id=sampler_id,
+        source="comfy.flux_krea",
+        compiler_id="comfy.flux_krea",
+        model_sampling_state="patched" if model_sampling_nodes else "passthrough",
+        model_sampling_ref=sampler_model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 5 FLUX.1 Krea variant publishes the active sampler model and final repair image."],
     )
 
     return CompiledJob(
@@ -931,6 +970,24 @@ def compile_flux_native_txt2img(
         notes=["Flux native compiler owns model/clip refs; LoRA route execution remains support-matrix gated."],
     )
 
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=[decode_id, 0],
+        model_ref=["1", 0],
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["6", 0],
+        negative_ref=["5", 0],
+        sampler_node_id=sampler_id,
+        source="comfy.flux_native",
+        compiler_id="comfy.flux_native",
+        model_sampling_state="passthrough",
+        model_sampling_ref=["1", 0],
+        notes=["Phase 5 FLUX.1 native route publishes exact dual-encoder conditioning and decoded-image anchors."],
+    )
+
     return CompiledJob(
         provider_id=provider_id,
         compile_status="compiled" if validation.ok else "mock_compiled",
@@ -1008,6 +1065,7 @@ def compile_flux_fill_workflow(
     steps = int(_param(params, "steps", default=30))
     width = int(_param(params, "width", default=defaults.width))
     height = int(_param(params, "height", default=defaults.height))
+    batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     denoise = float(_param(params, "denoise", default=defaults.denoise))
     cfg = float(_param(params, "cfg", default=1.0))
 
@@ -1105,11 +1163,18 @@ def compile_flux_fill_workflow(
 
     condition_id = str(next_id)
     diff_id = str(next_id + 1)
-    sampler_id = str(next_id + 2)
-    decode_id = str(next_id + 3)
-    preview_id = str(next_id + 4)
     workflow[condition_id] = {"class_type": "InpaintModelConditioning", "inputs": {"positive": ["6", 0], "negative": ["5", 0], "vae": ["3", 0], "pixels": list(source_ref), "mask": list(mask_ref or ["0", 0])}}
     workflow[diff_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": ["1", 0]}}
+    latent_ref = [condition_id, 2]
+    sampler_number = next_id + 2
+    if batch_count > 1:
+        repeat_id = str(sampler_number)
+        workflow[repeat_id] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [repeat_id, 0]
+        sampler_number += 1
+    sampler_id = str(sampler_number)
+    decode_id = str(sampler_number + 1)
+    preview_id = str(sampler_number + 2)
     workflow[sampler_id] = {
         "class_type": "KSampler",
         "inputs": {
@@ -1122,7 +1187,7 @@ def compile_flux_fill_workflow(
             "model": [diff_id, 0],
             "positive": [condition_id, 0],
             "negative": [condition_id, 1],
-            "latent_image": [condition_id, 2],
+            "latent_image": latent_ref,
         },
     }
     workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
@@ -1153,6 +1218,25 @@ def compile_flux_fill_workflow(
         strategy="lora_loader_model_clip_consumer_rewire",
         validated=False,
         notes=["Flux Fill compiler profile is emitted for diagnostics; LoRA route state currently gates unsupported fill patching unless explicitly promoted."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=[diff_id, 0],
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=[condition_id, 0],
+        negative_ref=[condition_id, 1],
+        sampler_node_id=sampler_id,
+        source="comfy.flux_fill",
+        compiler_id="comfy.flux_fill",
+        model_sampling_state="patched",
+        model_sampling_ref=[diff_id, 0],
+        model_sampling_nodes=[diff_id],
+        notes=["Phase 5 FLUX.1 Fill inpaint publishes InpaintModelConditioning and DifferentialDiffusion ownership."],
     )
 
     return CompiledJob(

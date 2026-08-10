@@ -129,6 +129,41 @@ def _role_requiring_option(
     )
 
 
+def _role_requiring_inputs(
+    role_id: str,
+    aliases: list[str],
+    object_info: dict[str, Any],
+    *,
+    required_inputs: list[str],
+    asset_inputs: list[str] | None = None,
+    notes: list[str] | None = None,
+) -> BackendRoleCapability:
+    """Expose a custom-node role only when its live socket contract is new enough.
+
+    This is used for third-party workflow nodes whose class name can remain stable
+    while important optional sockets are added across releases.  Neo must not
+    compile a newer graph against an older node pack and hope Comfy ignores it.
+    """
+    node_exists, node_name = _node_exists(object_info, aliases)
+    required = _node_required_inputs(object_info, node_name) if node_exists else {}
+    optional = _node_optional_inputs(object_info, node_name) if node_exists else {}
+    names = set(required) | set(optional)
+    missing = [name for name in required_inputs if name not in names]
+    assets = _extract_assets(object_info, node_name, asset_inputs or []) if node_exists else {}
+    role_notes = list(notes or [])
+    if node_exists and missing:
+        role_notes.append(f"{node_name} is present but missing required Neo sockets: {', '.join(missing)}.")
+    return BackendRoleCapability(
+        role_id=role_id,
+        available=bool(node_exists and not missing),
+        backend_key=node_name,
+        backend_node=node_name,
+        aliases=aliases,
+        assets=assets,
+        notes=role_notes,
+    )
+
+
 def _flatten_assets(roles: dict[str, BackendRoleCapability]) -> dict[str, list[str]]:
     assets: dict[str, list[str]] = {}
     for role_id, role in roles.items():
@@ -184,6 +219,10 @@ def discover_comfy_backend_capabilities(
         "qwen3vl_4b_text_encoder": _role("qwen3vl_4b_text_encoder", ["CLIPLoader"], object_info, asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 asset lane; runtime still requires CLIPLoader type=krea2."]),
         "qwen_image_vae": _role("qwen_image_vae", ["VAELoader"], object_info, asset_inputs=["vae_name"]),
         "krea2_clip_loader": _role_requiring_option("krea2_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="krea2", asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 requires Comfy CLIPLoader(type=krea2)."]),
+        "krea2_edit_model_patch": _role_requiring_inputs("krea2_edit_model_patch", ["Krea2EditModelPatch"], object_info, required_inputs=["model", "source_latent", "source_latent_b", "ref_boost", "ref_boost_a", "fit_mode", "vae", "source_image", "source_image_b", "target_latent"], notes=["ComfyUI-Krea2Edit v1.2+ appearance-path patch node for Krea 2 Identity Edit."]),
+        "krea2_edit_grounded_encode": _role_requiring_inputs("krea2_edit_grounded_encode", ["Krea2EditGroundedEncode"], object_info, required_inputs=["clip", "prompt", "image", "image_b", "grounding_px", "system_prompt"], notes=["ComfyUI-Krea2Edit v1.2+ Qwen3-VL image-grounded instruction encoder."]),
+        "krea2_identity_lora_loader": _role("krea2_identity_lora_loader", ["LoraLoaderModelOnly"], object_info, asset_inputs=["lora_name"], notes=["Krea 2 Identity Edit applies its trained LoRA to the diffusion model only, before Krea2EditModelPatch."]),
+        "krea2_edit_target_latent": _role("krea2_edit_target_latent", ["EmptySD3LatentImage"], object_info, notes=["Krea 2 Identity Edit uses a clean target-noise latent and wires the same latent into target_latent for pre-encoding."]),
         "qwen_image_clip_loader": _role_requiring_option("qwen_image_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="qwen_image", asset_inputs=["clip_name", "clip_name1"], notes=["Qwen Image LanPaint requires CLIPLoader(type=qwen_image)."]),
         "qwen_image_edit_text_encoder": _role_requiring_option("qwen_image_edit_text_encoder", ["CLIPLoader"], object_info, option_input="type", required_option="qwen_image", asset_inputs=["clip_name", "clip_name1"], notes=["Qwen Image Edit 2509/2511 uses the Qwen Image text-encoder architecture with source-aware edit conditioning."]),
         "lumina2_clip_loader": _role_requiring_option("lumina2_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="lumina2", asset_inputs=["clip_name", "clip_name1"], notes=["Z-Image LanPaint requires CLIPLoader(type=lumina2)."]),
@@ -229,6 +268,10 @@ def discover_comfy_backend_capabilities(
         "qwen3vl_4b_text_encoder": _role("qwen3vl_4b_text_encoder", ["CLIPLoader"], object_info, asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 GGUF keeps the Qwen3-VL-4B encoder native/safetensors."]),
         "qwen_image_vae": _role("qwen_image_vae", ["VAELoader"], object_info, asset_inputs=["vae_name"]),
         "krea2_clip_loader": _role_requiring_option("krea2_clip_loader", ["CLIPLoader"], object_info, option_input="type", required_option="krea2", asset_inputs=["clip_name", "clip_name1"], notes=["Krea 2 GGUF uses native CLIPLoader(type=krea2), not CLIPLoaderGGUF."]),
+        "krea2_edit_model_patch": _role_requiring_inputs("krea2_edit_model_patch", ["Krea2EditModelPatch"], object_info, required_inputs=["model", "source_latent", "source_latent_b", "ref_boost", "ref_boost_a", "fit_mode", "vae", "source_image", "source_image_b", "target_latent"], notes=["ComfyUI-Krea2Edit v1.2+ works after either native or GGUF Krea 2 diffusion loading."]),
+        "krea2_edit_grounded_encode": _role_requiring_inputs("krea2_edit_grounded_encode", ["Krea2EditGroundedEncode"], object_info, required_inputs=["clip", "prompt", "image", "image_b", "grounding_px", "system_prompt"], notes=["GGUF Krea 2 Identity Edit still grounds through the native/safetensors Qwen3-VL-4B CLIP stack."]),
+        "krea2_identity_lora_loader": _role("krea2_identity_lora_loader", ["LoraLoaderModelOnly"], object_info, asset_inputs=["lora_name"], notes=["Identity Edit LoRA stays safetensors/model-only even when the Krea 2 transformer is GGUF."]),
+        "krea2_edit_target_latent": _role("krea2_edit_target_latent", ["EmptySD3LatentImage"], object_info, notes=["Krea 2 Identity Edit target latent / pre-encode synchronization node."]),
         "gguf_text_encoder_primary": _role(
             "gguf_text_encoder_primary",
             ["CLIPLoaderGGUF", "ClipLoaderGGUF"],

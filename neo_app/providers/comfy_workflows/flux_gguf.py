@@ -24,6 +24,7 @@ from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_p
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
@@ -403,6 +404,10 @@ def _build_flux_gguf_latent_branch(
         workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(latent_ref), "mask": list(mask_ref)}}
         latent_ref = [str(next_id), 0]
         next_id += 1
+    if mode != "txt2img" and batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
 
     return next_id, latent_ref, metadata, source_ref, mask_ref
 
@@ -487,8 +492,6 @@ def _compile_flux2_klein_gguf_txt2img(
     denoise = float(_param(params, "denoise", default=defaults.denoise))
     flux_guidance = float(_param(params, "flux_guidance", "guidance", default=1.0))
     cfg = float(_param(params, "cfg", default=1.0))
-    if cfg <= 0:
-        cfg = 1.0
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default="default"))
     # FLUX.2 Klein must always use Comfy CLIP type `flux2`. Older UI state can
     # still submit `clip_type=flux` / `gguf_clip_type=flux` from the legacy Flux
@@ -758,11 +761,9 @@ def compile_flux_gguf_txt2img(
     height = int(_param(params, "height", default=defaults.height))
     batch_count = int(_param(params, "batch_count", "batch_size", default=1))
     denoise = float(_param(params, "denoise", default=defaults.denoise))
-    # Flux GGUF uses Flux guidance in CLIPTextEncodeFlux as the real guidance control.
-    # Do not pass SD-style CFG from the shared UI into KSampler; double guidance
-    # can produce muddy/unstable Flux outputs. Keep the sampler CFG neutral.
+    # Parameter Truth: Flux guidance and KSampler CFG are separate user controls.
     requested_cfg = float(_param(params, "cfg", default=defaults.cfg))
-    sampler_cfg = float(defaults.cfg)
+    sampler_cfg = requested_cfg
     flux_negative_mode = str(_param(params, "flux_negative_mode", default=defaults.negative_mode))
     # Historical long-poll fallback used default=900; Phase 12.10M locks the active route budget to 300s.
     poll_timeout_seconds = 300
@@ -804,7 +805,7 @@ def compile_flux_gguf_txt2img(
                 "vae_loader": vae_loader,
             },
             "guidance_model": "flux_guidance_controls_prompt_conditioning",
-            "sampler_cfg_policy": "force_1.0_for_flux_gguf",
+            "sampler_cfg_policy": "explicit_user_or_default",
             "negative_mode": flux_negative_mode,
             "krea_compatibility": krea_compatibility.as_dict() if krea_compatibility else None,
         },
@@ -828,7 +829,7 @@ def compile_flux_gguf_txt2img(
         "cfg": sampler_cfg,
         "requested_cfg": requested_cfg,
         "sampler_cfg_effective": sampler_cfg,
-        "sampler_cfg_source": "forced_flux_neutral_cfg",
+        "sampler_cfg_source": "explicit_user_or_default",
         "flux_negative_mode": flux_negative_mode,
         "poll_timeout_seconds": poll_timeout_seconds,
         "poll_interval_ms": poll_interval_ms,
@@ -887,9 +888,12 @@ def compile_flux_gguf_txt2img(
             workflow["4"]["inputs"]["height"] = int(effective_size.get("height") or height)
 
     sampler_model_ref: list[Any] = ["4", 0]
+    model_sampling_nodes: list[str] = ["4"]
     if mode in {"inpaint", "outpaint"}:
-        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
-        sampler_model_ref = [str(next_id), 0]
+        differential_id = str(next_id)
+        workflow[differential_id] = {"class_type": "DifferentialDiffusion", "inputs": {"model": sampler_model_ref}}
+        sampler_model_ref = [differential_id, 0]
+        model_sampling_nodes.append(differential_id)
         next_id += 1
 
     sampler_id = str(next_id)
@@ -948,6 +952,25 @@ def compile_flux_gguf_txt2img(
         strategy="lora_loader_model_clip_consumer_rewire",
         validated=False,
         notes=["Flux GGUF compiler owns UNET and dual-clip refs; ModelSamplingFlux/DifferentialDiffusion consumers are rewired by exact ref."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_image_ref,
+        model_ref=sampler_model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["5", 0],
+        negative_ref=["6", 0],
+        sampler_node_id=sampler_id,
+        source="comfy.flux_gguf",
+        compiler_id="comfy.flux_gguf",
+        model_sampling_state="patched",
+        model_sampling_ref=sampler_model_ref,
+        model_sampling_nodes=model_sampling_nodes,
+        notes=["Phase 5 FLUX.1 GGUF route publishes ModelSamplingFlux/DifferentialDiffusion lineage and final output ownership."],
     )
 
     return CompiledJob(

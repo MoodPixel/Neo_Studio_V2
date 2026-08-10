@@ -26,7 +26,7 @@
       "required": ["provider_id", "family", "loader", "mode", "engine", "route_key"],
       "properties": {
         "provider_id": {"enum": ["comfyui", "comfyui_portable"]},
-        "mode": {"const": "inpaint"},
+        "mode": {"enum": ["inpaint", "outpaint"]},
         "engine": {"const": "lanpaint"}
       },
       "additionalProperties": true
@@ -36,7 +36,7 @@
       "required": ["compiler_id", "workflow_type", "state", "graph_emitted", "backend_prompt", "provider_dispatch_registered", "ui_route_registered"],
       "properties": {
         "compiler_id": {"const": "comfy.lanpaint.family_aware.v1"},
-        "workflow_type": {"const": "image.inpaint.lanpaint"},
+        "workflow_type": {"enum": ["image.inpaint.lanpaint", "image.outpaint.lanpaint"]},
         "state": {"const": "binding_only"},
         "graph_emitted": {"const": false},
         "backend_prompt": {"type": "null"},

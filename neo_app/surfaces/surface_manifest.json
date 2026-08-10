@@ -240,7 +240,7 @@
     {
       "surface_id": "video",
       "display_name": "Video",
-      "description": "Video generation workspace with WAN 2.2 Txt2Vid/Img2Vid and LTX 2.3 Txt2Vid/Img2Vid/First-Last Frame compiler routes, source/reference handling, finishing, and result reuse for ComfyUI-backed local video workflows.",
+      "description": "Provider-aware Video workspace with canonical WAN/LTX routing, context-specific Generation/Assets/Reference/Finish/Results composition, built-in and external extension lanes, finishing, and Neo-owned result reuse.",
       "status": "active",
       "provider_types": [
         "video_generation",
@@ -296,77 +296,99 @@
           "video.result.selected",
           "video.result.refresh_requested",
           "video.result.replay_copied",
-          "video.output_record.created"
+          "video.output_record.created",
+          "video.output_inspector.loaded",
+          "video.output_inspector.recipe_loaded"
         ]
       },
       "subtabs": [
         {
-          "subtab_id": "workspace",
-          "display_name": "Workspace",
-          "description": "Video surface contract, backend readiness, source readiness, and output-path safety.",
-          "slots": [
-            "video.workspace.contract",
-            "video.workspace.backend",
-            "video.workspace.outputs",
-            "video.workspace.route_matrix",
-            "video.workspace.compiler"
-          ]
-        },
-        {
           "subtab_id": "generation",
           "display_name": "Generation",
-          "description": "Runnable WAN/LTX Txt2Vid, Img2Vid, and LTX First/Last Frame generation workspace with route-scoped parameters.",
+          "description": "Create Video jobs with the active provider, canonical route, prompt/source inputs, route parameters, built-in tools, compatible external extensions, backend readiness, and output safety.",
           "slots": [
+            "video.generation.backend",
             "video.generation.prompt",
+            "video.generation.preview",
             "video.generation.source",
             "video.generation.parameters",
-            "video.generation.preview",
+            "video.generation.builtins",
+            "video.generation.audio_video",
+            "video.generation.depth_motion_control",
+            "video.generation.output_recorder",
+            "video.generation.prompt_motion_schedule",
+            "video.generation.size_timing_presets",
+            "video.generation.external_extensions",
+            "video.generation.route_status",
+            "video.generation.outputs",
+            "video.generation.contract",
             "video.generation.route_matrix",
-            "video.generation.compiler"
+            "video.generation.compiler",
+            "video.generation.vram_profile_advisor"
           ]
         },
         {
           "subtab_id": "assets",
           "display_name": "Assets",
-          "description": "Source videos, image references, frames, and reusable video generation assets.",
+          "description": "Prepare and review source images, source videos, first/last frames, MultiScene inputs, and reusable Video assets without rendering generation parameters.",
           "slots": [
+            "video.assets.inventory",
             "video.assets.source",
             "video.assets.references",
-            "video.assets.frames"
+            "video.assets.frames",
+            "video.assets.external_extensions"
           ]
         },
         {
           "subtab_id": "reference",
           "display_name": "Reference",
-          "description": "Motion, image, depth, and prompt references for future controlled video workflows.",
+          "description": "Prepare route-specific image, video, depth, and motion reference inputs without duplicating Generation prompt or parameter controls.",
           "slots": [
+            "video.reference.context",
+            "video.reference.image",
+            "video.reference.video",
             "video.reference.motion",
             "video.reference.depth",
-            "video.reference.prompt"
+            "video.reference.builtins",
+            "video.reference.depth_motion_control",
+            "video.reference.external_extensions"
           ]
         },
         {
           "subtab_id": "finish",
           "display_name": "Finish",
-          "description": "Post-generation finishing lanes such as interpolation, upscale, repair, and export.",
+          "description": "Post-process Neo-owned Video outputs with interpolation, upscale, repair/cleanup, finish presets, and compatible finish extensions independent from the active generation family.",
           "slots": [
+            "video.finish.presets",
             "video.finish.interpolate",
-            "video.finish.finish_interpolation",
             "video.finish.upscale",
             "video.finish.repair",
+            "video.finish.finish_interpolation",
+            "video.finish.finish_upscale",
+            "video.finish.finish_repair",
+            "video.finish.external_extensions",
             "video.finish.export"
           ]
         },
         {
           "subtab_id": "results",
           "display_name": "Results",
-          "description": "Video output history, previews, metadata, and replay handoff.",
+          "description": "Review Video generation history and inspect the selected Neo-owned output through playback, recipe, sources, extensions, lineage, replay validation, and expert metadata.",
           "slots": [
-            "video.results.preview",
             "video.results.ledger",
-            "video.results.replay",
-            "video.results.output_file",
-            "video.results.active_preview"
+            "video.results.output_inspector",
+            "video.results.inspector.playback",
+            "video.results.inspector.generation",
+            "video.results.inspector.prompts",
+            "video.results.inspector.parameters",
+            "video.results.inspector.sources",
+            "video.results.inspector.extensions",
+            "video.results.inspector.lineage",
+            "video.results.inspector.replay",
+            "video.results.inspector.expert",
+            "video.results.memory_export",
+            "video.results.output_recorder",
+            "video.results.external_extensions"
           ]
         }
       ]
@@ -500,7 +522,7 @@
     {
       "surface_id": "assistant",
       "display_name": "Assistant",
-      "description": "Project-aware assistant that reads memory, active surface context, and installed capability state.",
+      "description": "Universal Neo Assistant with Scope-prioritized memory, cross-surface recall, and inspectable context.",
       "status": "active",
       "provider_types": [
         "local_llm",
@@ -527,7 +549,7 @@
         {
           "subtab_id": "chat",
           "display_name": "Chat",
-          "description": "Project-aware Assistant chat workspace.",
+          "description": "Scope-aware universal Assistant chat workspace.",
           "slots": [
             "assistant.chat.rail",
             "assistant.chat.thread",
@@ -536,26 +558,28 @@
         },
         {
           "subtab_id": "projects",
-          "display_name": "Projects",
-          "description": "Assistant project records, notes, and linked chat routing.",
+          "display_name": "Scopes",
+          "description": "Manage Assistant Scopes, linked delivery-project identity, and Project Brain memory-building controls.",
           "slots": [
-            "assistant.projects.list",
-            "assistant.projects.editor"
+            "assistant.scopes.list",
+            "assistant.scopes.editor",
+            "assistant.scopes.project_brain"
           ]
         },
         {
           "subtab_id": "memory",
           "display_name": "Memory",
-          "description": "User-facing Assistant memory captures and Memory Engine bridge status.",
+          "description": "User-facing Memory Lens for scope memory, durable memory, recent retrievals, review state, and background activity.",
           "slots": [
-            "assistant.memory.captures",
-            "assistant.memory.status"
+            "assistant.memory.lens",
+            "assistant.memory.retrievals",
+            "assistant.memory.review_state"
           ]
         },
         {
           "subtab_id": "context",
           "display_name": "Context",
-          "description": "Preview the context pack that will guide Assistant replies.",
+          "description": "Save deliberate Scope Knowledge and inspect the context pack/retrieval proof used for Assistant replies.",
           "slots": [
             "assistant.context.preview",
             "assistant.context.diagnostics"
@@ -591,7 +615,7 @@
         {
           "subtab_id": "inspector",
           "display_name": "Inspector",
-          "description": "Debug view for Assistant session JSON, context pack, and storage paths.",
+          "description": "Technical proof for Assistant runtime, compiled prompts, retrieval, memory jobs, and diagnostics.",
           "slots": [
             "assistant.inspector.session",
             "assistant.inspector.bootstrap"
@@ -681,7 +705,7 @@
     {
       "surface_id": "admin",
       "display_name": "Admin",
-      "description": "Central control center for backends, models, extensions, memory, libraries, storage, health, and logs across Neo Studio V2.",
+      "description": "Central control center for system configuration, memory governance, retrieval infrastructure, Delivery Projects, orchestration diagnostics, libraries, storage, health, and logs across Neo Studio V2.",
       "status": "active",
       "provider_types": [
         "admin"
@@ -754,11 +778,12 @@
         {
           "subtab_id": "memory",
           "display_name": "Memory",
-          "description": "Memory service governance, review tools, policies, conflict handling, consolidation, and retention controls.",
+          "description": "Memory governance: inspector, Search + Citations, policies, durable review, conflicts/canon, consolidation, retention, and lifecycle diagnostics.",
           "slots": [
             "admin.memory.status",
             "admin.memory.inspector",
             "admin.memory.policies",
+            "admin.memory.durable_review",
             "admin.memory.conflicts",
             "admin.memory.retention"
           ]
@@ -766,7 +791,7 @@
         {
           "subtab_id": "engine",
           "display_name": "Memory Engine",
-          "description": "Shared engine settings and tools for sources, text bridge, embeddings, reranker, vector store, retrieval, indexing, search/citations, and runtime defaults.",
+          "description": "Memory Engine infrastructure: sources, bridge, embeddings, reranker, vector store, retrieval profiles, indexing, unified background jobs, and diagnostics. Generation sampling belongs to Backends; memory governance belongs to Memory.",
           "slots": [
             "admin.engine.overview",
             "admin.engine.sources",
@@ -775,30 +800,38 @@
             "admin.engine.reranker",
             "admin.engine.vector_store",
             "admin.engine.retrieval",
-            "admin.engine.search_citations",
             "admin.engine.indexing",
-            "admin.engine.runtime_defaults",
-            "admin.engine.inspector"
+            "admin.engine.inspector",
+            "admin.engine.index_jobs",
+            "admin.engine.diagnostics",
+            "admin.engine.background_jobs"
           ]
         },
         {
           "subtab_id": "projects",
-          "display_name": "Projects",
-          "description": "Project Workspace management for active projects, handoffs, asset tray, briefs, reviews, packages, deliverables, and milestones.",
+          "display_name": "Delivery Projects",
+          "description": "Delivery Projects: client/work records, linked assets, briefs, timeline, milestones, deliverables, reviews, approvals, packages, and read-only linked-memory context. Assistant Scopes are separate; Project Brain ingestion stays on the Assistant/shared memory pipeline.",
           "slots": [
-            "admin.projects.workspace",
+            "admin.projects.delivery_workspace",
+            "admin.projects.asset_tray",
+            "admin.projects.briefs",
+            "admin.projects.timeline",
             "admin.projects.delivery",
-            "admin.projects.actions"
+            "admin.projects.review_approval",
+            "admin.projects.packages",
+            "admin.projects.linked_memory"
           ]
         },
         {
           "subtab_id": "assistant_operator",
           "display_name": "Assistant / Operator",
-          "description": "Assistant workspaces, Control Center trace review, tool registry, permission profiles, execution ledger, and operator availability.",
+          "description": "Assistant/Operator orchestration diagnostics, read-only Scope visibility, Control Center traces, tools/permissions, execution ledger, Voice input, and Internet/API permissions. Normal Scope activation/editing stays in Assistant.",
           "slots": [
-            "admin.assistant.workspaces",
+            "admin.assistant.scope_readout",
             "admin.assistant.trace_review",
-            "admin.operator.tools"
+            "admin.operator.tools",
+            "admin.operator.permissions",
+            "admin.operator.execution_ledger"
           ]
         },
         {
@@ -849,7 +882,19 @@
             "admin.logs.retention"
           ]
         }
-      ]
+      ],
+      "ux_contract": {
+        "schema_id": "neo.admin.ux_consolidation.phase12.v1",
+        "phase": 12,
+        "policy": "Admin governs/configures shared machinery without duplicating normal Assistant or surface-owned workflow controls.",
+        "compatibility_aliases": {
+          "memory_engine": "engine",
+          "delivery_projects": "projects",
+          "project_workspace": "projects",
+          "assistant": "assistant_operator",
+          "operator": "assistant_operator"
+        }
+      }
     }
   ]
 }

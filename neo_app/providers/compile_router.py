@@ -135,18 +135,12 @@ SUPPORTED_COMFY_ROUTES = {
     ("z_image_turbo", "gguf", "outpaint"),
     ("hidream", "diffusion_model", "txt2img"),
     ("hidream", "gguf", "txt2img"),
-    ("hidream", "diffusion_model", "inpaint"),
-    ("hidream", "gguf", "inpaint"),
     ("anima", "diffusion_model", "txt2img"),
     ("anima", "gguf", "txt2img"),
     ("anima", "diffusion_model", "img2img"),
     ("anima", "gguf", "img2img"),
-    ("anima", "diffusion_model", "inpaint"),
-    ("anima", "gguf", "inpaint"),
     ("ideogram4", "diffusion_model", "txt2img"),
     ("ideogram4", "gguf", "txt2img"),
-    ("ideogram4", "diffusion_model", "inpaint"),
-    ("ideogram4", "gguf", "inpaint"),
 }
 
 PLANNED_COMFY_ROUTES = {}
@@ -292,16 +286,17 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
     key = (family, loader, mode)
     supports_loader = _family_supports_loader(family, loader)
     params = job.params or {}
-    inpaint_engine = normalize_inpaint_engine(
-        (params.get("inpaint_engine") or params.get("engine")) if mode == "inpaint" else "native"
+    masked_edit_engine = normalize_inpaint_engine(
+        (params.get("masked_edit_engine") or params.get("inpaint_engine") or params.get("engine"))
+        if mode in {"inpaint", "outpaint"} else "native"
     )
     selected_model = job.model or params.get("gguf_unet") or params.get("gguf_model") or params.get("diffusion_model") or params.get("model") or params.get("unet") or ""
     flux1_variant = resolve_flux1_variant(params.get("flux_variant") or params.get("variant") or "dev", selected_model) if family == "flux" else ""
     flux1_krea = family == "flux" and is_flux1_krea_route(flux1_variant, selected_model)
     krea2_variant = resolve_krea2_variant(family, selected_model) if family in {"krea2", "krea2_turbo"} else ""
 
-    if mode == "inpaint" and inpaint_engine != "native":
-        if inpaint_engine != "lanpaint":
+    if mode in {"inpaint", "outpaint"} and masked_edit_engine != "native":
+        if masked_edit_engine != "lanpaint":
             return CompileRoute(
                 provider_id=job.provider_id,
                 backend="comfyui",
@@ -310,8 +305,8 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
                 mode=mode,
                 requested_mode=requested_mode,
                 status="unsupported",
-                engine=inpaint_engine,
-                blockers=[f"Unknown inpaint engine {inpaint_engine!r}. Supported engines are native and lanpaint."],
+                engine=masked_edit_engine,
+                blockers=[f"Unknown masked edit engine {masked_edit_engine!r}. Supported engines are native and lanpaint."],
             )
         adapter = get_lanpaint_family_adapter(
             family,
@@ -371,7 +366,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
                 status="available",
                 engine="lanpaint",
                 compiler_id=str(binding.get("compiler_id")),
-                workflow_type=str(binding.get("workflow_type") or "image.inpaint.lanpaint"),
+                workflow_type=str(binding.get("workflow_type") or f"image.{mode}.lanpaint"),
                 phase=str(binding.get("phase") or "LanPaint Route Family Phase 17 — Flux.2 Dev and Klein onboarding"),
                 warnings=[
                     ("Krea 2 Turbo keeps the approved DifferentialDiffusionAdvanced crop/stitch graph." if is_krea else "The universal family adapter selects the family-owned transform, conditioning and loader contracts."),
@@ -566,13 +561,13 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             workflow_type = "image.txt2img.z_image_turbo_native" if loader == "diffusion_model" else "image.txt2img.z_image_turbo_gguf"
             compiler_id = "comfy.z_image_native" if loader == "diffusion_model" else "comfy.z_image_gguf"
             phase = "V25.9.20 Pass I/P6 — ZImage Turbo Family Lock"
-            warnings.append("Pass I/P8.5 ZImage Turbo lock: Turbo is its own visible family with forced low-step/low-CFG defaults; P8.5 enables component and GGUF img2img/inpaint/outpaint without base ZImage fallback.")
+            warnings.append("Pass I/P8.5 ZImage Turbo lock: Turbo is its own visible family with low-step/low-CFG recommendations only; explicit user Parameters remain authoritative. P8.5 enables component and GGUF img2img/inpaint/outpaint without base ZImage fallback.")
         if family == "z_image_turbo" and loader in {"diffusion_model", "gguf"} and mode in {"img2img", "inpaint", "outpaint"}:
             workflow_type = f"image.{mode}.z_image_turbo_native" if loader == "diffusion_model" else f"image.{mode}.z_image_turbo_gguf"
             compiler_id = "comfy.z_image_native" if loader == "diffusion_model" else "comfy.z_image_gguf"
             phase = "V25.9.20 P8.5 — ZImage Turbo Safetensors + GGUF Workflows"
             if mode == "img2img":
-                warnings.append("P8.5 ZImage Turbo lock: image mode uses Image 1 as a VAEEncode latent anchor with family-forced low-step/low-CFG Turbo defaults for the selected loader.")
+                warnings.append("P8.5 ZImage Turbo lock: image mode uses Image 1 as a VAEEncode latent anchor. Turbo recommendations initialize missing values only; explicit user Steps/CFG remain authoritative.")
             elif mode == "inpaint":
                 warnings.append("P8.5 ZImage Turbo lock: inpaint uses Image 1 + mask with SetLatentNoiseMask + DifferentialDiffusion and zeroed negative conditioning for the selected loader.")
             elif mode == "outpaint":
@@ -582,7 +577,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.hidream_native" if loader == "diffusion_model" else "comfy.hidream_gguf"
             phase = "Phase 12.16 — HiDream Registry + First Workflow"
             warnings.append("HiDream txt2img requires discovered model, text encoder, VAE/AE, and sampler nodes before graph compile; image-conditioned modes remain variant-gated.")
-        if family == "hidream" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+        if family == "hidream" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and masked_edit_engine == "lanpaint":
             workflow_type = "image.inpaint.lanpaint"
             compiler_id = "comfy.lanpaint.family_aware.v1"
             phase = "Phase 21 — HiDream-I1 LanPaint Onboarding + Hunyuan Video Hold"
@@ -592,7 +587,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.anima_native" if loader == "diffusion_model" else "comfy.anima_gguf"
             phase = "Phase 22 — Anima Model Family + Image Workflows"
             warnings.append("Phase 22 Anima uses Qwen3 0.6B conditioning and Qwen Image VAE; img2img is a source VAEEncode latent route.")
-        if family == "anima" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+        if family == "anima" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and masked_edit_engine == "lanpaint":
             workflow_type = "image.inpaint.lanpaint"; compiler_id = "comfy.lanpaint.family_aware.v1"; phase = "Phase 22 — Anima LanPaint"
             warnings.append("Phase 22 enables Anima through the basic LanPaint KSampler crop/stitch adapter.")
         if family == "ideogram4" and loader in {"diffusion_model", "gguf"} and mode == "txt2img":
@@ -600,7 +595,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.ideogram4_native" if loader == "diffusion_model" else "comfy.ideogram4_gguf"
             phase = "Phase 22 — Ideogram 4 Model Family + txt2img"
             warnings.append("Ideogram 4 requires paired main/unconditional models and the advanced dual-model sampler graph.")
-        if family == "ideogram4" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and engine == "lanpaint":
+        if family == "ideogram4" and loader in {"diffusion_model", "gguf"} and mode == "inpaint" and masked_edit_engine == "lanpaint":
             workflow_type = "image.inpaint.lanpaint"; compiler_id = "comfy.lanpaint.family_aware.v1"; phase = "Phase 22 — Ideogram 4 LanPaint Advanced"
             warnings.append("Ideogram 4 LanPaint uses LanPaint_SamplerCustomAdvanced; the basic KSampler path is forbidden.")
         if family == "qwen_image" and loader == "gguf":

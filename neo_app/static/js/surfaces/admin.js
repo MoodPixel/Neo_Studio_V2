@@ -10,6 +10,7 @@
     state.modernUi = state.modernUi || {};
     state.assistantBrain = state.assistantBrain || {};
     state.controlCenterReview = state.controlCenterReview || {};
+    state.adminUxContract = state.adminUxContract || null;
     return state;
   }
 
@@ -34,7 +35,7 @@
     surfaceId: 'admin',
     area: 'memory',
     status: 'ready',
-    migratedAreas: ['render.surface_module_architecture', 'render.modern_ui_system', 'render.memory_observability', 'render.surface_module_status', 'render.assistant_brain_workspace', 'render.control_center_review', 'action.memory_observability.refresh', 'action.surface_module_status.refresh', 'action.surface_module_status.audit', 'action.surface_module_architecture.refresh', 'action.surface_module_architecture.audit', 'action.modern_ui.refresh', 'action.modern_ui.audit', 'action.assistant_brain.refresh', 'action.assistant_brain.select', 'action.assistant_brain.activate', 'action.assistant_brain.context', 'action.control_center_review.refresh', 'action.control_center_review.select_trace', 'action.control_center_review.review'],
+    migratedAreas: ['render.surface_module_architecture', 'render.modern_ui_system', 'render.memory_observability', 'render.surface_module_status', 'render.assistant_brain_workspace', 'render.control_center_review', 'action.memory_observability.refresh', 'action.surface_module_status.refresh', 'action.surface_module_status.audit', 'action.surface_module_architecture.refresh', 'action.surface_module_architecture.audit', 'action.modern_ui.refresh', 'action.modern_ui.audit', 'action.assistant_brain.refresh', 'action.assistant_brain.select', 'action.assistant_brain.context', 'action.control_center_review.refresh', 'action.control_center_review.select_trace', 'action.control_center_review.review'],
     policy: 'Admin owns its cockpit renderers and action handlers while legacy wrappers remain available as safe fallbacks.',
     diagnostics: {
       module_status: 'admin_memory_cockpit_actions_partial',
@@ -94,6 +95,7 @@
       async reloadAssistantBrainWorkspace(ctx) {
         const state = ensureAdminState(ctx.state);
         state.assistantBrain.status = await adminLoadJson(ctx, '/api/assistant/brain/status', state.assistantBrain.status || null);
+        state.adminUxContract = await adminLoadJson(ctx, '/api/admin/ux-contract', state.adminUxContract || null);
         state.surfaceModules.status = await adminLoadJson(ctx, '/api/surfaces/modules/status', state.surfaceModules.status || null);
         state.surfaceStatus.status = await adminLoadJson(ctx, '/api/surfaces/status/status', state.surfaceStatus.status || null);
         state.modernUi.status = await adminLoadJson(ctx, '/api/ui/modern/status', state.modernUi.status || null);
@@ -115,10 +117,9 @@
       async activateAssistantBrainWorkspace(ctx) {
         const state = ensureAdminState(ctx.state);
         const workspaceId = state.assistantBrain.activeWorkspaceId || state.assistantBrain.dashboard?.active_workspace?.workspace_id || '';
-        if (!workspaceId) throw new Error('No Assistant Brain workspace selected.');
-        state.assistantBrain.lastActivation = await adminPostJson('/api/assistant/brain/activate', { workspace_id: workspaceId });
-        await api.actions.reloadAssistantBrainWorkspace(ctx);
-        return { status: 'ok', action: 'activateAssistantBrainWorkspace', workspace_id: workspaceId };
+        state.assistantBrain.lastActivation = { status: 'redirect_required', workspace_id: workspaceId, owner: 'assistant.surface', message: 'Admin Scope Readout is diagnostic only. Activate or edit Scopes in Assistant → Scopes.' };
+        adminRender(ctx);
+        return { status: 'redirect_required', action: 'activateAssistantBrainWorkspace', workspace_id: workspaceId, owner: 'assistant.surface' };
       },
       async buildAssistantBrainContext(ctx) {
         const state = ensureAdminState(ctx.state);
@@ -235,17 +236,23 @@
         const workspaceButtons = workspaces.map((workspace) => {
           const selected = active.workspace_id === workspace.workspace_id;
           const stats = workspace.memory_stats || {};
-          return `<button type="button" class="neo-ui-record-card ${selected ? 'selected' : ''}" onclick="selectAssistantBrainWorkspace('${escapeAttr(workspace.workspace_id || '')}')"><strong>${escapeHtml(workspace.name || workspace.workspace_id || 'Workspace')}</strong><span>${escapeHtml(workspace.surface || 'assistant')} · ${escapeHtml(workspace.project_id || 'project')} · ${stats.fragments || 0} fragments</span><small>${escapeHtml((workspace.memory_lanes || []).slice(0, 4).join(', '))}</small></button>`;
+          const surfaceId = workspace.surface_id || workspace.surface || 'global';
+          const scopeId = workspace.scope_id || workspace.project_id || 'general';
+          const projectId = workspace.delivery_project_id || workspace.canonical_project_id || 'none';
+          return `<button type="button" class="neo-ui-record-card ${selected ? 'selected' : ''}" onclick="selectAssistantBrainWorkspace('${escapeAttr(workspace.workspace_id || '')}')"><strong>${escapeHtml(workspace.name || workspace.workspace_id || 'Scope')}</strong><span>scope ${escapeHtml(scopeId)} · surface ${escapeHtml(surfaceId)} · ${stats.fragments || 0} fragments</span><small>${escapeHtml(projectId !== 'none' ? `delivery project ${projectId}` : 'no linked delivery project')}</small></button>`;
         }).join('');
         const memoryLines = preview.slice(0, 8).map((item) => `${item.memory_type || 'memory'} · ${item.title || item.fragment_id || ''} · ${item.content_preview || ''}`);
         const traceLines = traces.slice(0, 6).map((trace) => `${trace.intent || 'intent'} · ${trace.context_count || 0} ctx · ${trace.status || 'status'} · ${trace.created_at || ''}`);
         const lastContext = brain.lastContext || {};
+        const activeSurfaceId = active.surface_id || active.surface || 'global';
+        const activeScopeId = active.scope_id || active.project_id || 'general';
+        const activeProjectId = active.delivery_project_id || active.canonical_project_id || 'none';
         return `${NeoUI.card({
-          title: 'Assistant Brain Workspace',
-          description: 'Assistant Brain workspace renderer is available in Admin.',
+          title: 'Assistant Scope Readout',
+          description: 'Read-only Admin visibility for Assistant scopes, memory previews, and Control Center traces. Edit or activate scopes in the Assistant surface.',
           badge: NeoUI.statusBadge(status.status || 'ready'),
-          body: `${NeoUI.badgeRow([`workspaces ${status.workspace_count || workspaces.length || 0}`, `active ${active.name || 'none'}`, `surface ${active.surface || 'assistant'}`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="reloadAssistantBrainWorkspace()">Refresh brain workspaces</button><button type="button" class="neo-btn" onclick="activateAssistantBrainWorkspace()">Set active Assistant project</button><button type="button" class="neo-btn" onclick="buildAssistantBrainContext()">Build context preview</button></div>`
-        })}<div class="neo-ui-grid two"><div>${NeoUI.card({ title: 'Built-in workspaces', description: 'Each workspace is a sandboxed Assistant project mapped to a Neo surface.', body: workspaceButtons || NeoUI.emptyState('No Assistant brain workspaces loaded yet.', 'Refresh brain workspaces.') })}</div><div>${NeoUI.card({ title: active.name || 'Active workspace', description: active.description || 'Workspace details and scoped memory preview.', body: `${NeoUI.metaList([`Workspace: ${active.workspace_id || 'none'}`, `Project: ${active.project_id || 'none'}`, `Surface: ${active.surface || 'assistant'}`, `Memory lanes: ${(active.memory_lanes || []).join(', ') || 'none'}`])}${NeoUI.metaList(memoryLines, { empty: 'No workspace memory preview yet.' })}` })}${NeoUI.card({ title: 'Recent Assistant traces', description: 'Recent Assistant Control Center plans for this workspace.', body: traceLines.length ? NeoUI.metaList(traceLines) : NeoUI.emptyState('No Assistant brain traces yet.') })}${NeoUI.card({ title: 'Last context preview', description: 'The compact Assistant brief prepared for backend handoff.', body: lastContext?.brief ? NeoUI.codeBlock(lastContext.brief, 'admin-assistant-brain-context-code') : NeoUI.emptyState('No context preview built yet.', 'Click Build context preview.') })}</div></div>`;
+          body: `${NeoUI.badgeRow([`scopes ${status.workspace_count || workspaces.length || 0}`, `preview ${active.name || 'none'}`, `surface ${activeSurfaceId}`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="reloadAssistantBrainWorkspace()">Refresh scope readout</button><button type="button" class="neo-btn" onclick="buildAssistantBrainContext()">Build context preview</button><button type="button" class="neo-btn" onclick="setActiveSubtab('assistant','projects')">Open Assistant Scopes</button></div>`
+        })}<div class="neo-ui-grid two"><div>${NeoUI.card({ title: 'Scope readout', description: 'Selecting a card changes only this Admin diagnostic preview. Scope activation and editing remain owned by the Assistant surface.', body: workspaceButtons || NeoUI.emptyState('No Assistant scopes loaded yet.', 'Refresh scope readout.') })}</div><div>${NeoUI.card({ title: active.name || 'Selected scope', description: active.description || 'Canonical scope identity and scoped memory preview.', body: `${NeoUI.metaList([`Scope: ${activeScopeId}`, `Surface: ${activeSurfaceId}`, `Delivery project: ${activeProjectId}`, `Legacy workspace: ${active.workspace_id || 'none'}`, `Memory lanes: ${(active.memory_lanes || []).join(', ') || 'none'}`])}${NeoUI.metaList(memoryLines, { empty: 'No scoped memory preview yet.' })}` })}${NeoUI.card({ title: 'Recent Assistant traces', description: 'Recent Assistant Control Center plans for this scope.', body: traceLines.length ? NeoUI.metaList(traceLines) : NeoUI.emptyState('No Assistant traces yet.') })}${NeoUI.card({ title: 'Last context preview', description: 'The compact Assistant brief prepared for backend handoff.', body: lastContext?.brief ? NeoUI.codeBlock(lastContext.brief, 'admin-assistant-brain-context-code') : NeoUI.emptyState('No context preview built yet.', 'Click Build context preview.') })}</div></div>`;
       },
       controlCenterReviewHtml(ctx) {
         const { NeoUI, state, center, escapeHtml, escapeAttr, detailMode } = ctx;
@@ -278,7 +285,7 @@
           ${NeoUI.card({ title: 'Retrieval diagnostics', description: 'Related retrieval access records and reranker trace linkage.', body: retrievalAccess.length ? NeoUI.metaList(retrievalAccess.slice(0, 6).map((item) => `${item.consumer || 'consumer'} · ${item.query || 'query'} · ${(item.result_ids || []).length} result(s) · ${item.created_at || ''}`)) : NeoUI.emptyState('No related retrieval access records found.') })}
           ${NeoUI.card({ title: 'Safety guard', description: 'Sandbox/cross-scope blocks related to this trace.', badge: NeoUI.statusBadge(violations.length ? 'needs review' : 'ready'), body: violations.length ? NeoUI.metaList(violations.slice(0, 6).map((item) => `${item.severity || 'warn'} · ${item.check_type || 'check'} · ${item.message || ''}`)) : NeoUI.emptyState('No related safety violations.') })}
           ${NeoUI.card({ title: 'Prompt contract + validation', description: 'The behavior contract selected before backend generation.', body: `${NeoUI.metaList([`Contract: ${selected.prompt_contract_id || 'none'}`, `Validation: ${selected.validation?.status || 'planned'}`, `Checks: ${(selected.validation?.checks || []).join(', ') || 'none'}`])}${detailMode === 'expert' ? NeoUI.codeBlock(selected.prompt_contract || {}, 'admin-control-center-review-contract') : ''}` })}
-          ${NeoUI.card({ title: 'Writeback candidates', description: 'Memory evolution candidates linked to this trace.', body: writebacks.length ? NeoUI.metaList(writebacks.slice(0, 8).map((item) => `${item.status || 'queued'} · ${item.risk_level || 'risk'} · ${item.memory_type || 'memory'} · ${item.title || item.writeback_id}`)) : NeoUI.emptyState('No writeback candidates linked yet.') })}
+          ${NeoUI.card({ title: 'Writeback candidates', description: 'Memory evolution candidates linked to this trace.', body: writebacks.length ? NeoUI.metaList(writebacks.slice(0, 8).map((item) => `${item.status || 'queued'} · ${item.risk_level || 'risk'} · ${item.memory_type || 'memory'} · support ${item.support_count || 1}/${item.support_threshold || 1}${item.contradiction_state ? ` · ${item.contradiction_state}` : ''} · ${item.title || item.writeback_id}`)) : NeoUI.emptyState('No writeback candidates linked yet.') })}
           ${NeoUI.card({ title: 'Review decision', description: 'Record an Admin review note without mutating memory content.', actions: `<button type="button" class="neo-btn" onclick="reviewControlCenterTrace('good')">Mark good</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('needs_fix')">Needs fix</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('scope_issue')">Scope issue</button><button type="button" class="neo-btn" onclick="reviewControlCenterTrace('memory_gap')">Memory gap</button>`, body: selected.latest_review ? NeoUI.metaList([`Latest review: ${selected.latest_review.decision || 'reviewed'}`, `Note: ${selected.latest_review.note || ''}`, `At: ${selected.latest_review.created_at || ''}`]) : NeoUI.emptyState('No review recorded for this trace.') })}` : NeoUI.emptyState('No Control Center trace selected.', 'Run Assistant or Roleplay, then refresh the cockpit.');
         return `${NeoUI.card({
           title: 'Control Center Trace Review',

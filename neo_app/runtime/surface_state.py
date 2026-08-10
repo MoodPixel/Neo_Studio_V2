@@ -7,7 +7,7 @@ SCHEMA_ID: Final[str] = "neo.ui.surface_runtime.v25_5"
 PHASE: Final[str] = "V25.5"
 
 IMAGE_WORKSPACE_APPS: Final[tuple[str, ...]] = ("generations", "assets", "reference", "finish", "results")
-VIDEO_WORKSPACE_APPS: Final[tuple[str, ...]] = ("workspace", "generation", "assets", "reference", "finish", "results")
+VIDEO_WORKSPACE_APPS: Final[tuple[str, ...]] = ("generation", "assets", "reference", "finish", "results")
 IMAGE_WORKFLOW_MODES: Final[tuple[str, ...]] = ("generate", "edit", "inpaint", "outpaint", "upscale", "variation")
 VIDEO_GENERATION_MODES: Final[tuple[str, ...]] = ("txt2vid", "img2vid", "first_last_frame", "multiscene", "extend", "vid2vid", "depth_motion", "prompt_schedule", "audio_video")
 
@@ -20,9 +20,9 @@ DEFAULT_SURFACE_RUNTIME: Final[dict[str, dict[str, str]]] = {
     },
     "video": {
         "schema_id": SCHEMA_ID,
-        "workspace_app": "workspace",
+        "workspace_app": "generation",
         "generation_mode": "txt2vid",
-        "subtab": "workspace",
+        "subtab": "generation",
     },
     "prompt_captioning": {
         "schema_id": SCHEMA_ID,
@@ -46,8 +46,9 @@ def normalize_image_workspace_app(value: str | None) -> str:
 
 
 def normalize_video_workspace_app(value: str | None) -> str:
-    alias = {"generations": "generation", "asset": "assets"}.get(str(value or ""), str(value or ""))
-    return alias if alias in VIDEO_WORKSPACE_APPS else "workspace"
+    raw = str(value or "")
+    alias = {"workspace": "generation", "generations": "generation", "asset": "assets"}.get(raw, raw)
+    return alias if alias in VIDEO_WORKSPACE_APPS else "generation"
 
 
 def normalize_image_workflow_mode(value: str | None) -> str:

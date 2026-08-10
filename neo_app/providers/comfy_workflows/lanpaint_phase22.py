@@ -73,29 +73,29 @@ def _asset_proof(validation:ProviderValidationResult,backend:Mapping[str,Any],ad
 def _spatial(params:Mapping[str,Any], defaults:Mapping[str,Any])->dict[str,Any]:
     crop=_mapping(defaults.get("crop_policy")); mask=_mapping(defaults.get("mask_policy")); sampler=_mapping(defaults.get("sampler_policy")); stitch=_mapping(defaults.get("stitch_policy"))
     return {
-      "padding":int(_param(params,"lanpaint_crop_padding","crop_padding",default=crop.get("padding_px",112)) or 112),
-      "width":int(_param(params,"lanpaint_processing_width",default=_mapping(crop.get("processing_size")).get("width",1024)) or 1024),
-      "height":int(_param(params,"lanpaint_processing_height",default=_mapping(crop.get("processing_size")).get("height",1024)) or 1024),
-      "sample_expand":int(_param(params,"lanpaint_sampling_mask_expand",default=_mapping(mask.get("sampling")).get("expand_px",32)) or 32),
-      "sample_blur":float(_param(params,"lanpaint_sampling_mask_blur",default=_mapping(mask.get("sampling")).get("blur_radius",24.0)) or 24.0),
-      "stitch_expand":int(_param(params,"lanpaint_stitch_mask_expand",default=_mapping(mask.get("stitch")).get("expand_px",40)) or 40),
-      "stitch_blur":float(_param(params,"lanpaint_stitch_mask_blur",default=_mapping(mask.get("stitch")).get("blur_radius",8.0)) or 8.0),
-      "steps":int(_param(params,"lanpaint_steps","steps",default=sampler.get("steps",30)) or 30),
-      "cfg":float(_param(params,"lanpaint_cfg","cfg",default=sampler.get("cfg",4.0)) or 4.0),
-      "thinking":int(_param(params,"lanpaint_thinking_steps",default=sampler.get("lanpaint_thinking_steps",5)) or 5),
-      "sampler":str(_param(params,"lanpaint_sampler","sampler",default=sampler.get("sampler_name","euler")) or "euler"),
-      "scheduler":str(_param(params,"lanpaint_scheduler","scheduler",default=sampler.get("scheduler","simple")) or "simple"),
-      "denoise":float(_param(params,"lanpaint_denoise","denoise",default=sampler.get("denoise",1.0)) or 1.0),
+      "padding":int(_param(params,"lanpaint_crop_padding","crop_padding",default=crop.get("padding_px",112))),
+      "width":int(_param(params,"lanpaint_processing_width",default=_mapping(crop.get("processing_size")).get("width",1024))),
+      "height":int(_param(params,"lanpaint_processing_height",default=_mapping(crop.get("processing_size")).get("height",1024))),
+      "sample_expand":int(_param(params,"lanpaint_sampling_mask_expand",default=_mapping(mask.get("sampling")).get("expand_px",32))),
+      "sample_blur":float(_param(params,"lanpaint_sampling_mask_blur",default=_mapping(mask.get("sampling")).get("blur_radius",24.0))),
+      "stitch_expand":int(_param(params,"lanpaint_stitch_mask_expand",default=_mapping(mask.get("stitch")).get("expand_px",40))),
+      "stitch_blur":float(_param(params,"lanpaint_stitch_mask_blur",default=_mapping(mask.get("stitch")).get("blur_radius",8.0))),
+      "steps":int(_param(params,"steps","lanpaint_steps",default=sampler.get("steps",30))),
+      "cfg":float(_param(params,"cfg","lanpaint_cfg",default=sampler.get("cfg",4.0))),
+      "thinking":int(_param(params,"lanpaint_thinking_steps",default=sampler.get("lanpaint_thinking_steps",5))),
+      "sampler":str(_param(params,"sampler","lanpaint_sampler",default=sampler.get("sampler_name","euler"))),
+      "scheduler":str(_param(params,"scheduler","lanpaint_scheduler",default=sampler.get("scheduler","simple"))),
+      "denoise":float(_param(params,"denoise","lanpaint_denoise",default=sampler.get("denoise",1.0))),
       "prompt_mode":"Prompt First" if str(_param(params,"lanpaint_prompt_mode",default=sampler.get("prompt_mode","image_first"))).lower().replace("_"," ")=="prompt first" else "Image First",
-      "restore_method":str(_param(params,"lanpaint_stitch_resize_method",default=stitch.get("resize_method","lanczos")) or "lanczos"),
+      "restore_method":str(_param(params,"lanpaint_stitch_resize_method",default=stitch.get("resize_method","lanczos"))),
       "sampler_contract":str(sampler.get("sampler_contract") or "basic"),
-      "lanpaint_lambda":float(_param(params,"lanpaint_lambda",default=sampler.get("lanpaint_lambda",16.0)) or 16.0),
-      "lanpaint_step_size":float(_param(params,"lanpaint_step_size",default=sampler.get("lanpaint_step_size",0.2)) or 0.2),
-      "lanpaint_beta":float(_param(params,"lanpaint_beta",default=sampler.get("lanpaint_beta",1.0)) or 1.0),
-      "lanpaint_friction":float(_param(params,"lanpaint_friction",default=sampler.get("lanpaint_friction",15.0)) or 15.0),
-      "lanpaint_early_stop":int(_param(params,"lanpaint_early_stop",default=sampler.get("lanpaint_early_stop",1)) or 1),
-      "lanpaint_inner_threshold":float(_param(params,"lanpaint_inner_threshold",default=0.0) or 0.0),
-      "lanpaint_inner_patience":int(_param(params,"lanpaint_inner_patience",default=1) or 1),
+      "lanpaint_lambda":float(_param(params,"lanpaint_lambda",default=sampler.get("lanpaint_lambda",16.0))),
+      "lanpaint_step_size":float(_param(params,"lanpaint_step_size",default=sampler.get("lanpaint_step_size",0.2))),
+      "lanpaint_beta":float(_param(params,"lanpaint_beta",default=sampler.get("lanpaint_beta",1.0))),
+      "lanpaint_friction":float(_param(params,"lanpaint_friction",default=sampler.get("lanpaint_friction",15.0))),
+      "lanpaint_early_stop":int(_param(params,"lanpaint_early_stop",default=sampler.get("lanpaint_early_stop",1))),
+      "lanpaint_inner_threshold":float(_param(params,"lanpaint_inner_threshold",default=0.0)),
+      "lanpaint_inner_patience":int(_param(params,"lanpaint_inner_patience",default=1)),
     }
 
 
@@ -132,15 +132,16 @@ def compile_lanpaint_phase22_inpaint(*,provider_id:str,base_url:str,job:NeoJob,v
     if not adapter or not _mapping(adapter.get("binding")).get("selectable"):
         validation.errors.append(f"Phase 22 requires a complete bound {family} LanPaint adapter."); validation.ok=False
     policy=get_lanpaint_family_policy(family, loader=loader, provider_id=provider_id) or {}
-    defaults=_mapping(policy.get("route_defaults")); s=_spatial(params,defaults)
+    defaults=_mapping(policy.get("route_defaults")); s=_spatial(params,defaults); batch_count=int(_param(params,"batch_count","batch_size",default=1))
     selected=_selected(adapter,params,job.model,validation,family)
     model_loader=_model_loader(loader,backend)
     common=["LoadImage","ImageToMask","CropByMask","ImageResizeKJv2","GrowMaskWithBlur",model_loader,"CLIPLoader","VAELoader","CLIPTextEncode","VAEEncode","SetLatentNoiseMask","VAEDecode","ImageCompositeMasked","PreviewImage"]
+    if batch_count>1: common += ["RepeatLatentBatch"]
     if family=="anima": common += ["LanPaint_KSampler"]
     else: common += ["ConditioningZeroOut","RandomNoise","KSamplerSelect","Ideogram4Scheduler","DualModelGuider","LanPaint_SamplerCustomAdvanced"]
     _require_nodes(validation,backend,common)
     proof=_asset_proof(validation,backend,adapter,loader,selected,family) if selected else []
-    requested=int(_param(params,"requested_seed","seed",default=-1) or -1); seed=int(_param(params,"actual_seed","seed",default=requested) or requested)
+    requested=int(_param(params,"requested_seed","seed",default=-1)); seed=int(_param(params,"actual_seed","seed",default=requested))
     if seed<0: seed=int(time.time()*1000)%2147483647
     conditioning_mode=normalize_prompt_conditioning_mode(_param(params,"prompt_conditioning_mode","clamp",default="raw")); conditioning=condition_prompt_pair(job.prompt or "",job.negative_prompt or "",conditioning_mode)
     g,next_id=_base_graph(source,mask,s) if validation.ok else ({},7)
@@ -158,15 +159,18 @@ def compile_lanpaint_phase22_inpaint(*,provider_id:str,base_url:str,job:NeoJob,v
             neg_id=str(next_id); g[neg_id]={"class_type":"ConditioningZeroOut","inputs":{"conditioning":[pos_id,0]}}; next_id+=1
         enc_id=str(next_id); g[enc_id]={"class_type":"VAEEncode","inputs":{"pixels":["5",0],"vae":[vae_id,0]}}; next_id+=1
         noise_mask_id=str(next_id); g[noise_mask_id]={"class_type":"SetLatentNoiseMask","inputs":{"samples":[enc_id,0],"mask":["6",0]}}; next_id+=1
+        latent_ref=[noise_mask_id,0]
+        if batch_count>1:
+            repeat_id=str(next_id); g[repeat_id]={"class_type":"RepeatLatentBatch","inputs":{"samples":list(latent_ref),"amount":batch_count}}; latent_ref=[repeat_id,0]; next_id+=1
         if family=="anima":
-            sampler_id=str(next_id); g[sampler_id]={"class_type":"LanPaint_KSampler","inputs":{"model":[model_id,0],"positive":[pos_id,0],"negative":[neg_id,0],"latent_image":[noise_mask_id,0],"seed":seed,"steps":s["steps"],"cfg":s["cfg"],"sampler_name":s["sampler"],"scheduler":s["scheduler"],"denoise":s["denoise"],"LanPaint_NumSteps":s["thinking"],"LanPaint_PromptMode":s["prompt_mode"],"LanPaint_Info":"LanPaint KSampler.","Inpainting_mode":"🖼️ Image Inpainting"}}; next_id+=1
+            sampler_id=str(next_id); g[sampler_id]={"class_type":"LanPaint_KSampler","inputs":{"model":[model_id,0],"positive":[pos_id,0],"negative":[neg_id,0],"latent_image":latent_ref,"seed":seed,"steps":s["steps"],"cfg":s["cfg"],"sampler_name":s["sampler"],"scheduler":s["scheduler"],"denoise":s["denoise"],"LanPaint_NumSteps":s["thinking"],"LanPaint_PromptMode":s["prompt_mode"],"LanPaint_Info":"LanPaint KSampler.","Inpainting_mode":"🖼️ Image Inpainting"}}; next_id+=1
             sample_ref=[sampler_id,0]
         else:
             noise_id=str(next_id); g[noise_id]={"class_type":"RandomNoise","inputs":{"noise_seed":seed}}; next_id+=1
             sampler_select=str(next_id); g[sampler_select]={"class_type":"KSamplerSelect","inputs":{"sampler_name":s["sampler"]}}; next_id+=1
-            sigma_id=str(next_id); g[sigma_id]={"class_type":"Ideogram4Scheduler","inputs":{"steps":s["steps"],"width":s["width"],"height":s["height"],"mu":float(_param(params,"ideogram4_mu",default=0.5) or 0.5),"std":float(_param(params,"ideogram4_std",default=1.75) or 1.75)}}; next_id+=1
+            sigma_id=str(next_id); g[sigma_id]={"class_type":"Ideogram4Scheduler","inputs":{"steps":s["steps"],"width":s["width"],"height":s["height"],"mu":float(_param(params,"ideogram4_mu",default=0.5)),"std":float(_param(params,"ideogram4_std",default=1.75))}}; next_id+=1
             guider_id=str(next_id); g[guider_id]={"class_type":"DualModelGuider","inputs":{"model":[model_id,0],"positive":[pos_id,0],"model_negative":[uncond_id,0],"negative":[neg_id,0],"cfg":s["cfg"]}}; next_id+=1
-            sampler_id=str(next_id); g[sampler_id]={"class_type":"LanPaint_SamplerCustomAdvanced","inputs":{"noise":[noise_id,0],"guider":[guider_id,0],"sampler":[sampler_select,0],"sigmas":[sigma_id,0],"latent_image":[noise_mask_id,0],"LanPaint_NumSteps":s["thinking"],"LanPaint_Lambda":s["lanpaint_lambda"],"LanPaint_StepSize":s["lanpaint_step_size"],"LanPaint_Beta":s["lanpaint_beta"],"LanPaint_Friction":s["lanpaint_friction"],"LanPaint_PromptMode":s["prompt_mode"],"LanPaint_EarlyStop":s["lanpaint_early_stop"],"LanPaint_Info":"LanPaint Custom Sampler Adv.","LanPaint_InnerThreshold":s["lanpaint_inner_threshold"],"LanPaint_InnerPatience":s["lanpaint_inner_patience"]}}; next_id+=1
+            sampler_id=str(next_id); g[sampler_id]={"class_type":"LanPaint_SamplerCustomAdvanced","inputs":{"noise":[noise_id,0],"guider":[guider_id,0],"sampler":[sampler_select,0],"sigmas":[sigma_id,0],"latent_image":latent_ref,"LanPaint_NumSteps":s["thinking"],"LanPaint_Lambda":s["lanpaint_lambda"],"LanPaint_StepSize":s["lanpaint_step_size"],"LanPaint_Beta":s["lanpaint_beta"],"LanPaint_Friction":s["lanpaint_friction"],"LanPaint_PromptMode":s["prompt_mode"],"LanPaint_EarlyStop":s["lanpaint_early_stop"],"LanPaint_Info":"LanPaint Custom Sampler Adv.","LanPaint_InnerThreshold":s["lanpaint_inner_threshold"],"LanPaint_InnerPatience":s["lanpaint_inner_patience"]}}; next_id+=1
             sample_ref=[sampler_id,0]
         _finish(g,next_id,sample_ref,[vae_id,0],["1",0],["4",0],["6",0],s)
     compatibility=f"{family}:{loader}:inpaint"; workflow_key=f"{compatibility}:lanpaint"
@@ -176,7 +180,7 @@ def compile_lanpaint_phase22_inpaint(*,provider_id:str,base_url:str,job:NeoJob,v
     else:
         lora_profile=build_lora_patch_profile(route=lora_route,model_ref=[model_id,0] if validation.ok else None,clip_ref=[clip_id,0] if validation.ok else None,sampler_node_id=sampler_id,sampler_model_input="guider",loader_node_class="LoraLoaderModelOnly",requires_model=True,requires_clip=False,source="neo_app.providers.comfy_workflows.lanpaint_phase22.ideogram4",strategy="none",validated=False,notes=["Ideogram 4 dual-model LoRA patching is not proven; explicit LoRA requests fail closed."])
     active=_active_lora_rows(job.extensions,params); base=_base_graph_lora_rows(active)
-    actual={**params,"family":family,"loader":loader,"inpaint_engine":"lanpaint","seed":seed,"actual_seed":seed,"requested_seed":requested,"source_image_name":source,"mask_image_name":mask,"diffusion_model":selected.get("model","") if loader=="diffusion_model" else "","gguf_model":selected.get("model","") if loader=="gguf" else "","text_encoder_1":selected.get("text_encoder",""),"vae":selected.get("vae",""),"ideogram4_unconditional_model":selected.get("unconditional_model","") if family=="ideogram4" else "","steps":s["steps"],"cfg":s["cfg"],"lanpaint_route":{"route_key":workflow_key,"family":family,"loader":loader,"engine":"lanpaint","variant":_mapping(adapter.get("binding")).get("graph_profile"),"compiler_id":"comfy.lanpaint.family_aware.v1"},"lanpaint_controls":s,"lanpaint_family_adapter":adapter_snapshot(adapter),"lanpaint_family_adapter_id":_mapping(adapter.get("identity")).get("adapter_id"),"lanpaint_family_adapter_fingerprint":adapter.get("adapter_fingerprint"),"lanpaint_selected_assets":proof,"_neo_sampler_node_id":sampler_id,"_neo_lora_patch_profile":lora_profile,"lanpaint_lora_route":lora_route,"lanpaint_lora_mode":"model_only" if family=="anima" else "blocked_dual_model","lanpaint_lora_requested_rows":deepcopy(active),"lanpaint_lora_base_graph_rows":deepcopy(base),"_neo_lanpaint_phase22_state":PHASE22_STATE,"_neo_lanpaint_phase22_graph":bool(validation.ok)}
+    actual={**params,"family":family,"loader":loader,"inpaint_engine":"lanpaint","seed":seed,"actual_seed":seed,"requested_seed":requested,"batch_count":batch_count,"source_image_name":source,"mask_image_name":mask,"diffusion_model":selected.get("model","") if loader=="diffusion_model" else "","gguf_model":selected.get("model","") if loader=="gguf" else "","text_encoder_1":selected.get("text_encoder",""),"vae":selected.get("vae",""),"ideogram4_unconditional_model":selected.get("unconditional_model","") if family=="ideogram4" else "","steps":s["steps"],"cfg":s["cfg"],"lanpaint_route":{"route_key":workflow_key,"family":family,"loader":loader,"engine":"lanpaint","variant":_mapping(adapter.get("binding")).get("graph_profile"),"compiler_id":"comfy.lanpaint.family_aware.v1"},"lanpaint_controls":s,"lanpaint_family_adapter":adapter_snapshot(adapter),"lanpaint_family_adapter_id":_mapping(adapter.get("identity")).get("adapter_id"),"lanpaint_family_adapter_fingerprint":adapter.get("adapter_fingerprint"),"lanpaint_selected_assets":proof,"_neo_sampler_node_id":sampler_id,"_neo_lora_patch_profile":lora_profile,"lanpaint_lora_route":lora_route,"lanpaint_lora_mode":"model_only" if family=="anima" else "blocked_dual_model","lanpaint_lora_requested_rows":deepcopy(active),"lanpaint_lora_base_graph_rows":deepcopy(base),"_neo_lanpaint_phase22_state":PHASE22_STATE,"_neo_lanpaint_phase22_graph":bool(validation.ok)}
     actual=refresh_lanpaint_replay_contract(actual,provider_id=provider_id,workflow_prompt=g)
     return CompiledJob(provider_id=provider_id,compile_status="compiled" if validation.ok else "mock_compiled",backend_payload={"provider_id":provider_id,"backend":"comfyui","base_url":base_url,"validation":model_to_dict(validation),"prompt":g,"client_id":f"neo-studio-v2-{uuid4().hex[:8]}","actual_params":actual,"runtime_progress_source":"comfyui.websocket_and_history","compile_route":route.as_dict(),"capabilities":capabilities,"backend_capabilities":backend,"phase_notes":["Phase 22 onboards Anima and Ideogram 4 as separate image families before workflow activation.","Anima uses basic LanPaint KSampler and model-only LoRA.","Ideogram 4 uses paired models and LanPaint_SamplerCustomAdvanced; img2img and LoRA remain fail-closed where unproven."]})
 

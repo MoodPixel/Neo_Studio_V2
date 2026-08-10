@@ -9,6 +9,7 @@ from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
+from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 
@@ -208,17 +209,39 @@ def compile_qwen_native_txt2img(
         },
     }
     actual_params["_neo_sampler_node_id"] = "8"
+    is_qwen_edit_family = str(job.family or "").strip().lower() in {"qwen_image_edit_2509", "qwen_image_edit_2511"}
     actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
         route={**route.as_dict(), "workflow_mode": "generate", "route_state": "available" if route.status == "available" else route.status},
         model_ref=["1", 0],
         clip_ref=["2", 0],
         sampler_node_id="8",
         sampler_model_input="model",
-        loader_node_class="LoraLoader",
+        loader_node_class="LoraLoaderModelOnly" if is_qwen_edit_family else "LoraLoader",
+        requires_clip=not is_qwen_edit_family,
         source="comfy.qwen_native",
-        strategy="lora_loader_model_clip_consumer_rewire",
+        strategy="lora_loader_model_only_consumer_rewire" if is_qwen_edit_family else "lora_loader_model_clip_consumer_rewire",
+        patch_clip_consumers=not is_qwen_edit_family,
         validated=False,
-        notes=["Qwen native txt2img emits a profile for diagnostics; diffusion_model LoRA route remains implementation_target."],
+        notes=["Qwen Edit 2509/2511 uses a model-only LoRA branch so the compiler-owned Qwen CLIP conditioning is not rewritten." if is_qwen_edit_family else "Qwen Image Base retains the model+CLIP LoRA strategy."],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=["9", 0],
+        model_ref=["7", 0],
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["4", 0],
+        negative_ref=["5", 0],
+        sampler_node_id="8",
+        source="comfy.qwen_native",
+        compiler_id="comfy.qwen_native",
+        model_sampling_state="patched",
+        model_sampling_ref=["7", 0],
+        model_sampling_nodes=["7"],
+        notes=["Phase 6 Qwen Edit generate route publishes exact ModelSamplingAuraFlow lineage." if is_qwen_edit_family else "Phase 5 Qwen Image Base native route publishes exact ModelSamplingAuraFlow and decoded-image anchors."],
     )
 
     return CompiledJob(

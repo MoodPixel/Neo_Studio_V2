@@ -14,6 +14,7 @@ from neo_app.video.backend_probe import video_backend_profile_payload
 from neo_app.video.output_paths import ROOT_DIR, get_video_output_paths, safe_join, sanitize_path_part
 from neo_app.video.route_matrix import normalize_video_generation_type
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
+from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
 
 VIDEO_OUTPUT_RECORD_SCHEMA_VERSION: Final[str] = "neo.video.output.v7"  # V22 keeps the V7 ledger schema and adds replay-memory sidecar semantics.
 VIDEO_RESULT_IMPORT_SCHEMA_VERSION: Final[str] = "neo.video.result_import.vg9"
@@ -513,6 +514,33 @@ def _upscale_record_metadata(result: dict[str, Any], request: dict[str, Any]) ->
         "memory_event": memory_event,
     }
 
+
+def _ingest_video_record_memory(record: dict[str, Any]) -> None:
+    """Best-effort Phase 8 live ingestion for completed/compiled Video results."""
+    try:
+        profile = record.get("profile") if isinstance(record.get("profile"), dict) else {}
+        backend = record.get("backend") if isinstance(record.get("backend"), dict) else {}
+        ingest_surface_memory_event("video", {
+            "event_type": "video.result.completed" if str(record.get("status") or "").lower() == "completed" else "video.result.compiled",
+            "status": str(record.get("status") or "completed"),
+            "source_id": str(record.get("result_id") or ""),
+            "result_id": str(record.get("result_id") or ""),
+            "title": f"Video result {record.get('result_id') or ''} · {record.get('category') or 'video'}",
+            "summary": str(record.get("assistant_summary") or "Video task completed."),
+            "prompt": str(record.get("prompt") or ""),
+            "negative_prompt": str(record.get("negative_prompt") or ""),
+            "model": str(profile.get("model") or profile.get("model_id") or record.get("family") or ""),
+            "backend_profile_id": str(backend.get("profile_id") or ""),
+            "route_id": str(record.get("route_id") or ""),
+            "family": str(record.get("family") or ""),
+            "category": str(record.get("category") or ""),
+            "settings": record.get("parameters") if isinstance(record.get("parameters"), dict) else {},
+            "result": {"status": record.get("status"), "outputs": record.get("outputs") if isinstance(record.get("outputs"), dict) else {}},
+            "identity": {"surface_id": "video", "scope_id": "video_workspace"},
+        })
+    except Exception:
+        return
+
 def register_video_generation_result(result: dict[str, Any], request: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create/update Neo's V7 video ledger record for a compile or queued generation.
 
@@ -623,6 +651,8 @@ def register_video_generation_result(result: dict[str, Any], request: dict[str, 
     path = _metadata_path(result_id)
     record["record_path"] = _relative_to_root(path)
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    if str(record.get("status") or "").lower() == "completed":
+        _ingest_video_record_memory(record)
     _log_video_runtime_event(
         "video.result.registered",
         run_id=result_id,
@@ -878,6 +908,8 @@ def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = 
     record["replay_payload"] = build_video_replay_payload(record)
     record["assistant_summary"] = build_assistant_summary(record)
     _metadata_path(record["result_id"]).write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    if str(record.get("status") or "").lower() == "completed":
+        _ingest_video_record_memory(record)
     _log_video_runtime_event(
         "video.result.refreshed_imported",
         run_id=record.get("result_id"),
