@@ -1,6 +1,6 @@
 {
   "id": "video.finish_upscale",
-  "name": "Video · Finish Upscale",
+  "name": "Video \u00b7 Finish Upscale",
   "version": "0.1.0",
   "description": "Built-in Video Finish tool for SeedVR2-style non-destructive upscale child outputs from Neo-owned generated results or browser-uploaded source videos.",
   "extension_type": "utility_extension",
@@ -32,12 +32,8 @@
     "comfyui",
     "comfyui_portable"
   ],
-  "supported_families": [
-    "finish"
-  ],
-  "supported_loaders": [
-    "external_nodes"
-  ],
+  "supported_families": [],
+  "supported_loaders": [],
   "required_nodes": {
     "comfyui": [
       "LoadVideo",
@@ -600,7 +596,6 @@
     "mock:*:*:*:finish": "provider_gated",
     "*:*:*:*:generation": "unsupported",
     "*:*:*:*:generate": "unsupported",
-    "*:*:*:*:workspace": "unsupported",
     "*:*:*:*:assets": "unsupported",
     "*:*:*:*:reference": "unsupported",
     "*:*:*:*:results": "unsupported",
@@ -792,5 +787,6 @@
     ],
     "child_output_only": true,
     "auto_chain_jobs": false
-  }
+  },
+  "route_context_scope": "workspace"
 }

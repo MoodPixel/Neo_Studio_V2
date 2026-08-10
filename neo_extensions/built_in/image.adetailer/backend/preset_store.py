@@ -91,7 +91,8 @@ def _normalize_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 def built_in_presets() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for preset in _BUILT_IN_PRESETS.values():
-        block = _normalize_payload({'enabled': True, 'version': VERSION, 'inputs': {}, 'params': preset['params'], 'assets': {}, 'metadata': {'preset_id': preset['preset_id'], 'preset_type': 'built_in'}})
+        preset_params = {**preset['params'], 'family_preset_mode': 'auto_family'}
+        block = _normalize_payload({'enabled': True, 'version': VERSION, 'inputs': {}, 'params': preset_params, 'assets': {}, 'metadata': {'preset_id': preset['preset_id'], 'preset_type': 'built_in'}})
         items.append({**preset, 'payload': block, 'params': block.get('params', {})})
     return items
 

@@ -42,20 +42,24 @@
   ],
   "supported_backends": [
     "comfyui",
-    "comfyui_portable"
+    "comfyui_portable",
+    "cloud_api"
   ],
-  "supported_families": [
-    "wan22",
-    "ltx23"
-  ],
-  "supported_loaders": [
-    "unet",
-    "gguf",
-    "native_workflow"
-  ],
+  "supported_families": [],
+  "supported_loaders": [],
   "required_nodes": {},
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true
+  },
+  "route_context_scope": "workspace",
+  "route_states": {
+    "comfyui:*:*:*:generation": "available",
+    "comfyui_portable:*:*:*:generation": "available",
+    "cloud_api:*:*:*:generation": "available",
+    "comfyui:*:*:*:results": "available",
+    "comfyui_portable:*:*:*:results": "available",
+    "cloud_api:*:*:*:results": "available",
+    "*": "provider_gated"
   }
 }

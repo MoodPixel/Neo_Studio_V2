@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from .model_catalog import download_sam_model, list_detailer_models
 from .detection_preview import preview_detailer_detections
+from .family_presets import family_preset_registry
 from .preset_store import (
     delete_user_preset,
     list_user_presets,
@@ -104,6 +105,10 @@ def create_adetailer_api_router(*, object_info_resolver: Callable[[str | None], 
     @router.get('/models')
     def models(profile_id: str = '') -> dict:
         return _public_model_catalog(_model_catalog_payload(object_info_resolver, backend_resolver, profile_id))
+
+    @router.get('/family-presets')
+    def family_presets() -> dict:
+        return family_preset_registry()
 
     @router.get('/presets')
     def presets() -> dict:

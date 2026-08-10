@@ -297,3 +297,11 @@
 .neo-controlnet-task-card select {
   width: 100%;
 }
+
+/* Pose Transfer */
+.neo-controlnet-task-card { display:grid; gap:.55rem; padding:.75rem; border:1px solid var(--border-subtle, rgba(255,255,255,.12)); border-radius:14px; background:var(--panel-soft, rgba(255,255,255,.035)); }
+.neo-controlnet-task-card label { display:grid; gap:.35rem; }
+.neo-controlnet-task-card textarea { width:100%; min-height:5.5rem; resize:vertical; }
+.neo-controlnet-task-card .neo-badge-row { display:flex; flex-wrap:wrap; gap:.4rem; }
+[data-controlnet-standard-settings] { display:grid; gap:.55rem; }
+[data-controlnet-pose-method-row] { display:grid; gap:.35rem; }

@@ -5,8 +5,27 @@ from typing import Any
 
 from .constants import CFG_SAFETY_CAP, EXTENSION_ID, PHASE
 from .model_catalog import prepare_detailer_assets_for_execution
+from .model_source import (
+    DEDICATED_CHECKPOINT_SOURCE,
+    GENERATION_MODEL_SOURCE,
+    add_dedicated_prompt_nodes,
+    apply_detailer_model_source_plan,
+    prompt_text_for_runtime_unit,
+    public_model_source_metadata,
+)
+from .lora_branch import (
+    INHERIT_ALL,
+    apply_detailer_lora_branch,
+    prompt_text_for_lora_runtime_unit,
+    public_lora_branch_metadata,
+    validate_sampling_reapply_contract,
+)
 from .payload_schema import parse_sep_targets
+from .family_presets import materialize_family_preset, public_family_preset_metadata
+from .identity_policy import public_identity_policy_metadata
+from .route_contract import build_adetailer_route_contract, contract_metadata, normalize_adetailer_route_contract
 from .validation import validate_and_normalize_payload
+from .diagnostics import append_diagnostic_issue, refresh_prequeue_diagnostics, validate_graph_invariants
 
 
 def _next_graph_id(workflow: dict[str, Any], preferred: int | str | None = None) -> str:
@@ -365,47 +384,6 @@ def _is_preview_detailer_output_pass(
     return source_route_active and preview_marker
 
 
-def _find_base_image_ref(workflow: dict[str, Any]) -> list[Any]:
-    # ADetailer is the final selective repair pass. If another finish extension
-    # such as High-Res Lab already rewired Save/Preview to an upscaled image,
-    # use that current output as the ADetailer source instead of falling back
-    # to the original VAEDecode node.
-    for node in workflow.values():
-        if isinstance(node, dict) and node.get("class_type") in {"SaveImage", "PreviewImage"}:
-            ref = (node.get("inputs") or {}).get("images")
-            if isinstance(ref, (list, tuple)):
-                return _copy_ref(ref)
-    node_id, _node = _find_first_node(workflow, {"VAEDecode", "VAEDecodeTiled"})
-    if node_id:
-        return [node_id, 0]
-    return ["8", 0]
-
-
-def _find_vae_ref(workflow: dict[str, Any]) -> list[Any]:
-    for node in workflow.values():
-        if isinstance(node, dict) and node.get("class_type") in {"VAEDecode", "VAEDecodeTiled"}:
-            ref = (node.get("inputs") or {}).get("vae")
-            if isinstance(ref, (list, tuple)):
-                return _copy_ref(ref)
-    for node_id, node in workflow.items():
-        if isinstance(node, dict) and node.get("class_type") == "CheckpointLoaderSimple":
-            return [str(node_id), 2]
-    return ["1", 2]
-
-
-def _find_sampler_refs(workflow: dict[str, Any], sampler_node_id: str | int = "5") -> dict[str, list[Any]]:
-    inputs = _node_inputs(workflow, sampler_node_id)
-    if not inputs:
-        sampler_id, sampler = _find_first_node(workflow, {"KSampler", "KSamplerAdvanced"})
-        inputs = sampler.get("inputs", {}) if sampler else {}
-    return {
-        "positive": _copy_ref(inputs.get("positive"), ["6", 0]),
-        "negative": _copy_ref(inputs.get("negative"), ["7", 0]),
-        "latent": _copy_ref(inputs.get("latent_image"), []),
-        "model": _copy_ref(inputs.get("model"), ["1", 0]),
-    }
-
-
 def _find_output_consumers(workflow: dict[str, Any], base_image_ref: list[Any]) -> list[tuple[str, str]]:
     consumers: list[tuple[str, str]] = []
     for node_id, node in workflow.items():
@@ -512,10 +490,10 @@ def _add_prompt_nodes(
     if not positive_text.strip() and not negative_text.strip():
         return next_id, positive_ref, negative_ref, added
     positive_id = next_id
-    graph[positive_id] = {"class_type": "CLIPTextEncode", "inputs": {"text": positive_text.strip(), "clip": _copy_ref(clip_ref, ["1", 1])}}
+    graph[positive_id] = {"class_type": "CLIPTextEncode", "inputs": {"text": positive_text.strip(), "clip": _copy_ref(clip_ref)}}
     next_id = _next_graph_id(graph)
     negative_id = next_id
-    graph[negative_id] = {"class_type": "CLIPTextEncode", "inputs": {"text": negative_text.strip(), "clip": _copy_ref(clip_ref, ["1", 1])}}
+    graph[negative_id] = {"class_type": "CLIPTextEncode", "inputs": {"text": negative_text.strip(), "clip": _copy_ref(clip_ref)}}
     next_id = _next_graph_id(graph)
     added.extend([positive_id, negative_id])
     return next_id, [positive_id, 0], [negative_id, 0], added
@@ -654,12 +632,12 @@ def _add_face_detailer_pass(
     next_id, sam_ref, sam_nodes = _add_sam_loader(graph, next_id, params, node_status)
     detailer_inputs: dict[str, Any] = {
         "image": _copy_ref(current_image_ref),
-        "model": _copy_ref(model_ref, ["1", 0]),
-        "clip": _copy_ref(clip_ref, ["1", 1]),
-        "vae": _copy_ref(vae_ref, ["1", 2]),
-        "guide_size": 512.0,
+        "model": _copy_ref(model_ref),
+        "clip": _copy_ref(clip_ref),
+        "vae": _copy_ref(vae_ref),
+        "guide_size": float(params.get("guide_size") or 768),
         "guide_size_for": True,
-        "max_size": 1024.0,
+        "max_size": float(params.get("max_size") or 1024),
         "seed": max(1, int(seed or 1)),
         "steps": int(params.get("steps") or 20),
         "cfg": float(params.get("cfg") if params.get("cfg") is not None else CFG_SAFETY_CAP),
@@ -667,10 +645,10 @@ def _add_face_detailer_pass(
         "scheduler": scheduler,
         "positive": _copy_ref(positive_ref),
         "negative": _copy_ref(negative_ref),
-        "denoise": float(params.get("denoise") or 0.35),
-        "feather": int(params.get("mask_blur") or 4),
-        "noise_mask": True,
-        "force_inpaint": True,
+        "denoise": float(params.get("denoise") if params.get("denoise") is not None else 0.25),
+        "feather": int(params.get("noise_mask_feather") if params.get("noise_mask_feather") is not None else params.get("mask_blur") or 4),
+        "noise_mask": bool(params.get("noise_mask", True)),
+        "force_inpaint": bool(params.get("force_inpaint", True)),
         "bbox_threshold": float(params.get("confidence") or 0.30),
         "bbox_dilation": int(params.get("bbox_grow") or 16),
         "bbox_crop_factor": 2.0,
@@ -685,7 +663,7 @@ def _add_face_detailer_pass(
         "wildcard": "",
         "cycle": 1,
         "inpaint_model": False,
-        "noise_mask_feather": int(params.get("mask_blur") or 4),
+        "noise_mask_feather": int(params.get("noise_mask_feather") if params.get("noise_mask_feather") is not None else params.get("mask_blur") or 4),
     }
     if detector_class == "UltralyticsDetectorProvider" and params.get("detector_type") == "segm":
         detailer_inputs["segm_detector_opt"] = [detector_id, 1]
@@ -781,7 +759,7 @@ def _add_segs_detailer_pass(
     graph[pipe_id] = {"class_type": "ToBasicPipe", "inputs": {"model": _copy_ref(model_ref), "clip": _copy_ref(clip_ref), "vae": _copy_ref(vae_ref), "positive": _copy_ref(positive_ref), "negative": _copy_ref(negative_ref)}}
     next_id = _next_graph_id(graph)
     detailer_id = next_id
-    graph[detailer_id] = {"class_type": "SEGSDetailer", "inputs": {"image": _copy_ref(current_image_ref), "segs": _copy_ref(segs_ref), "guide_size": 512.0, "guide_size_for": True, "max_size": float(max(width, height, 1024)), "seed": max(1, int(seed or 1)), "steps": int(params.get("steps") or 20), "cfg": float(params.get("cfg") if params.get("cfg") is not None else CFG_SAFETY_CAP), "sampler_name": sampler_name, "scheduler": scheduler, "denoise": float(params.get("denoise") or 0.35), "noise_mask": True, "force_inpaint": bool(params.get("force_inpaint", True)), "basic_pipe": [pipe_id, 0], "refiner_ratio": 0.2, "batch_size": 1, "cycle": 1, "inpaint_model": False, "noise_mask_feather": int(params.get("mask_blur") or 4)}}
+    graph[detailer_id] = {"class_type": "SEGSDetailer", "inputs": {"image": _copy_ref(current_image_ref), "segs": _copy_ref(segs_ref), "guide_size": float(params.get("guide_size") or 768), "guide_size_for": True, "max_size": float(max(int(params.get("max_size") or 1024), int(params.get("guide_size") or 768))), "seed": max(1, int(seed or 1)), "steps": int(params.get("steps") or 20), "cfg": float(params.get("cfg") if params.get("cfg") is not None else CFG_SAFETY_CAP), "sampler_name": sampler_name, "scheduler": scheduler, "denoise": float(params.get("denoise") if params.get("denoise") is not None else 0.25), "noise_mask": bool(params.get("noise_mask", True)), "force_inpaint": bool(params.get("force_inpaint", True)), "basic_pipe": [pipe_id, 0], "refiner_ratio": 0.2, "batch_size": 1, "cycle": 1, "inpaint_model": False, "noise_mask_feather": int(params.get("noise_mask_feather") if params.get("noise_mask_feather") is not None else params.get("mask_blur") or 4)}}
     next_id = _next_graph_id(graph)
     paste_id = next_id
     graph[paste_id] = {"class_type": "SEGSPaste", "inputs": {"image": _copy_ref(current_image_ref), "segs": [detailer_id, 0], "feather": int(params.get("mask_blur") or 4), "alpha": 255}}
@@ -805,12 +783,22 @@ def build_workflow_patch_summary(
     pass_summaries: list[dict[str, Any]] | None = None,
     skipped_passes: list[dict[str, Any]] | None = None,
     asset_bridge: dict[str, Any] | None = None,
+    route_contract: dict[str, Any] | None = None,
+    graph_invariants: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pass_summaries = list(pass_summaries or [])
     skipped_passes = list(skipped_passes or [])
     paths = sorted({str(item.get("patch_path") or "") for item in pass_summaries if item.get("patch_path")})
     node_class = "mixed" if len(paths) > 1 else ("FaceDetailer" if patch_path == "face_detailer" else ("SEGSDetailer" if patch_path == "segs_detailer" else ""))
-    return {
+    diagnostics = refresh_prequeue_diagnostics(
+        validation,
+        runtime={
+            "phase": "workflow_patch",
+            "graph_mutation_started": bool(applied or node_ids),
+            "graph_mutated": bool(applied),
+        },
+    )
+    result = {
         "extension_id": EXTENSION_ID,
         "extension_type": "built_in",
         "phase": PHASE,
@@ -839,7 +827,15 @@ def build_workflow_patch_summary(
         "reference_lock_policies": [deepcopy(item.get("reference_lock")) for item in pass_summaries if isinstance(item.get("reference_lock"), dict)],
         "skipped_passes": deepcopy(skipped_passes),
         "asset_bridge": deepcopy(asset_bridge or {}),
+        "detailer_model_source": public_model_source_metadata(validation.get("model_source") if isinstance(validation.get("model_source"), dict) else {}),
+        "detailer_lora_branch": public_lora_branch_metadata(validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {}),
+        "identity_policy": public_identity_policy_metadata(validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}),
+        "family_preset": public_family_preset_metadata(validation.get("family_preset") if isinstance(validation.get("family_preset"), dict) else {}),
+        "route_contract": contract_metadata(route_contract),
+        "prequeue_diagnostics": deepcopy(diagnostics),
+        "graph_invariants": deepcopy(graph_invariants or {}),
     }
+    return result
 
 
 def apply_adetailer_patch(
@@ -855,26 +851,206 @@ def apply_adetailer_patch(
     sampler_name: str | None = None,
     scheduler: str | None = None,
     reference_context: dict[str, Any] | None = None,
+    route_contract: dict[str, Any] | None = None,
+    base_route_contract: dict[str, Any] | None = None,
+    lora_patch_profile: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
     graph = deepcopy(workflow or {})
-    validation = validate_and_normalize_payload(payload, route=route, available_nodes=available_nodes)
+    incoming_graph = deepcopy(graph)
+    validation = validate_and_normalize_payload(
+        payload,
+        route=route,
+        available_nodes=available_nodes,
+        lora_patch_profile=lora_patch_profile,
+    )
     if not validation.get("workflow_patch_allowed"):
-        reason = validation.get("support", {}).get("reason") or "ADetailer is gated, disabled, or unsupported."
+        model_source_validation = validation.get("model_source") if isinstance(validation.get("model_source"), dict) else {}
+        source_errors = model_source_validation.get("errors") if isinstance(model_source_validation.get("errors"), list) else []
+        source_reason = str((source_errors[0] if source_errors and isinstance(source_errors[0], dict) else {}).get("message") or "").strip()
+        lora_validation = validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {}
+        lora_errors = lora_validation.get("errors") if isinstance(lora_validation.get("errors"), list) else []
+        lora_reason = str((lora_errors[0] if lora_errors and isinstance(lora_errors[0], dict) else {}).get("message") or "").strip()
+        identity_validation = validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}
+        identity_errors = identity_validation.get("errors") if isinstance(identity_validation.get("errors"), list) else []
+        identity_reason = str((identity_errors[0] if identity_errors and isinstance(identity_errors[0], dict) else {}).get("message") or "").strip()
+        preset_validation = validation.get("family_preset") if isinstance(validation.get("family_preset"), dict) else {}
+        preset_errors = preset_validation.get("errors") if isinstance(preset_validation.get("errors"), list) else []
+        preset_reason = str((preset_errors[0] if preset_errors and isinstance(preset_errors[0], dict) else {}).get("message") or "").strip()
+        reason = identity_reason or preset_reason or lora_reason or source_reason or validation.get("support", {}).get("reason") or "ADetailer is gated, disabled, or unsupported."
         patch = build_workflow_patch_summary(route=route, validation=validation, reason=reason, applied=False)
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
-    params = validation.get("params") or {}
+    requested_params = deepcopy(validation.get("params") or {})
     derived = validation.get("derived") or {}
+
+    contract_result = normalize_adetailer_route_contract(
+        route_contract,
+        route=route,
+        workflow=graph,
+        require_validated=True,
+    )
+    if not contract_result.get("valid"):
+        errors = list(contract_result.get("errors") or [])
+        validation.setdefault("validation", []).append({
+            "extension_id": EXTENSION_ID,
+            "level": "error",
+            "code": "adetailer_route_contract_invalid",
+            "message": "ADetailer requires an explicit compiler-owned image/model/CLIP/VAE/conditioning contract. Checkpoint-shaped node fallbacks are not permitted.",
+            "ok": False,
+            "blocked": True,
+            "errors": errors,
+            "contract_schema_id": contract_result.get("schema_id"),
+        })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer was blocked before graph mutation because its compiler-owned route contract is missing or invalid."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            reason=reason,
+            applied=False,
+            route_contract=contract_result,
+        )
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+
+    contract = contract_result["contract"]
+    contract_refs = contract["refs"]
+    identity_plan = validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}
+    sampling_gate = validate_sampling_reapply_contract(
+        graph,
+        plan=identity_plan,
+        route_contract=contract,
+    )
+    if not sampling_gate.get("ready"):
+        for issue in sampling_gate.get("errors", []):
+            validation.setdefault("validation", []).append({
+                "extension_id": EXTENSION_ID,
+                "level": "error",
+                "code": str(issue.get("code") or "adetailer_identity_sampling_reapply_invalid"),
+                "field": issue.get("field"),
+                "message": str(issue.get("message") or "Qwen Edit model-sampling lineage cannot be safely reapplied after the identity LoRA."),
+                "ok": False,
+                "blocked": True,
+                **{key: value for key, value in issue.items() if key not in {"code", "field", "message"}},
+            })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        identity_plan = {**identity_plan, "ready": False, "sampling_reapply": sampling_gate}
+        validation["identity_policy"] = identity_plan
+        reason = "ADetailer Qwen Edit identity protection was blocked because the compiler-owned sampling lineage could not be reapplied safely."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            reason=reason,
+            applied=False,
+            route_contract=contract_result,
+        )
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+    identity_plan = {**identity_plan, "sampling_reapply": sampling_gate}
+    validation["identity_policy"] = identity_plan
+    lora_plan = validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {}
+    needs_compiler_base = (
+        str((validation.get("model_source") or {}).get("source") or "") == GENERATION_MODEL_SOURCE
+        and str(lora_plan.get("inheritance_effective") or INHERIT_ALL) != INHERIT_ALL
+    )
+    base_contract_result = normalize_adetailer_route_contract(
+        base_route_contract,
+        route=route,
+        workflow=None,
+        require_validated=True,
+    ) if needs_compiler_base else {"valid": True, "contract": contract}
+    if needs_compiler_base and not base_contract_result.get("valid"):
+        errors = list(base_contract_result.get("errors") or [])
+        validation.setdefault("validation", []).append({
+            "extension_id": EXTENSION_ID,
+            "level": "error",
+            "code": "adetailer_lora_base_contract_invalid",
+            "message": "The isolated ADetailer LoRA branch requires the original compiler-owned model/CLIP contract when generation LoRAs are not inherited in full.",
+            "ok": False,
+            "blocked": True,
+            "errors": errors,
+        })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer LoRA isolation was blocked because the original compiler contract is unavailable."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            reason=reason,
+            applied=False,
+            route_contract=contract_result,
+        )
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+    base_contract_refs = (base_contract_result.get("contract") or {}).get("refs") if isinstance(base_contract_result.get("contract"), dict) else {}
+    contract_sampler = contract["sampler"]
+    contract_sampler_inputs = contract_sampler["inputs"]
+    contract_sampler_node_id = str(contract_sampler["node_id"])
+    family_preset_runtime = materialize_family_preset(
+        validation.get("family_preset") if isinstance(validation.get("family_preset"), dict) else {},
+        requested_params,
+        workflow=graph,
+        contract=contract,
+        sampler_name_override=sampler_name,
+        scheduler_override=scheduler,
+        available_nodes=available_nodes,
+    )
+    validation["family_preset"] = {
+        **(validation.get("family_preset") if isinstance(validation.get("family_preset"), dict) else {}),
+        **family_preset_runtime,
+    }
+    if not family_preset_runtime.get("ready"):
+        for issue in family_preset_runtime.get("errors", []):
+            validation.setdefault("validation", []).append({
+                "extension_id": EXTENSION_ID,
+                "level": "error",
+                "code": str(issue.get("code") or "adetailer_family_preset_runtime_invalid"),
+                "field": issue.get("field"),
+                "message": str(issue.get("message") or "ADetailer family preset could not be materialized."),
+                "ok": False,
+                "blocked": True,
+            })
+        validation["workflow_patch_allowed"] = False
+        validation["active_patch_data_allowed"] = False
+        reason = "ADetailer was blocked before graph mutation because its family-owned sampling preset is invalid."
+        patch = build_workflow_patch_summary(
+            route=route,
+            validation=validation,
+            reason=reason,
+            applied=False,
+            route_contract=contract_result,
+        )
+        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+    for issue in family_preset_runtime.get("warnings", []):
+        code = str(issue.get("code") or "adetailer_family_preset_runtime_warning")
+        if not any(str(item.get("code") or "") == code for item in validation.setdefault("validation", []) if isinstance(item, dict)):
+            validation["validation"].append({
+                "extension_id": EXTENSION_ID,
+                "level": "warning",
+                "code": code,
+                "field": issue.get("field"),
+                "message": str(issue.get("message") or "ADetailer family-preset warning."),
+                "ok": True,
+                "blocked": False,
+            })
+    params = deepcopy(family_preset_runtime.get("effective_params") or requested_params)
+    validation["requested_params"] = requested_params
+    validation["params"] = params
     width, height = _find_canvas_size(graph, params)
     runtime_units = _detailer_pass_units(params, derived, width, height)
     runtime_units = [unit for unit in runtime_units if unit.get("enabled", True)]
     if not runtime_units:
-        reason = "ADetailer is enabled but no enabled detailer pass/runtime unit remained after expansion."
-        patch = build_workflow_patch_summary(route=route, validation=validation, reason=reason, applied=False)
+        append_diagnostic_issue(
+            validation, code="adetailer_runtime_passes_empty", stage="pass_payload",
+            message="ADetailer is enabled but no runnable detailer pass remained after preset materialization.",
+            remediation="Enable at least one valid pass or turn ADetailer off before queueing.",
+        )
+        reason = "ADetailer is enabled but no enabled detailer pass/runtime unit remained after family-preset materialization."
+        patch = build_workflow_patch_summary(route=route, validation=validation, reason=reason, applied=False, route_contract=contract_result)
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+    generated_image_ref = _copy_ref(contract_refs["image"])
+    initial_image_ref = _copy_ref(generated_image_ref)
 
-    refs = _find_sampler_refs(graph, sampler_node_id=sampler_node_id)
     preview_output_pass = _is_preview_detailer_output_pass(validation, params, route)
     source_only_ref = _find_source_load_image_ref(
         graph,
@@ -895,53 +1071,37 @@ def apply_adetailer_patch(
         patch = build_workflow_patch_summary(
             route=route,
             validation=validation,
-            previous_image_ref=_find_base_image_ref(graph),
-            patched_image_ref=_find_base_image_ref(graph),
+            previous_image_ref=generated_image_ref,
+            patched_image_ref=generated_image_ref,
             output_consumers=[],
             reason=reason,
             applied=False,
+            route_contract=contract_result,
         )
         patch["source_ownership"] = {
             "kind": "missing_explicit_post_output_source",
             "policy": "declared_source_encoder_only_no_arbitrary_loadimage_fallback",
         }
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
-    current_image_ref = source_only_ref or _find_base_image_ref(graph)
+    current_image_ref = source_only_ref or generated_image_ref
+    initial_image_ref = _copy_ref(current_image_ref)
     output_consumers = _find_output_consumers(graph, current_image_ref)
     if not output_consumers:
-        reason = "ADetailer could not find a SaveImage/PreviewImage consumer to replace; workflow mutation skipped safely."
-        patch = build_workflow_patch_summary(route=route, validation=validation, previous_image_ref=current_image_ref, patched_image_ref=current_image_ref, output_consumers=[], reason=reason, applied=False)
-        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
-
-    asset_bridge = prepare_detailer_assets_for_execution(params, route=route)
-    if asset_bridge.get("blocked_count"):
-        blocked_models = [
-            str(item.get("model") or "selected detector")
-            for item in asset_bridge.get("records", [])
-            if isinstance(item, dict) and item.get("status") == "blocked"
-        ]
-        validation.setdefault("validation", []).append({
-            "extension_id": EXTENSION_ID,
-            "level": "error",
-            "code": "adetailer_execution_bridge_failed",
-            "message": "ADetailer could not safely prepare the selected detector for Comfy execution.",
-            "ok": False,
-            "blocked": True,
-            "bridge_status": asset_bridge.get("status"),
-            "models": blocked_models[:4],
-        })
-        validation["workflow_patch_allowed"] = False
-        validation["active_patch_data_allowed"] = False
-        reason = "ADetailer execution bridge blocked the workflow before Comfy queue."
+        append_diagnostic_issue(
+            validation, code="adetailer_output_consumer_missing", stage="output_ownership",
+            message="ADetailer could not find an explicit SaveImage/PreviewImage output consumer to own the final repaired image.",
+            remediation="Use a compiler graph with an explicit route-owned SaveImage/PreviewImage consumer.",
+        )
+        reason = "ADetailer could not find a SaveImage/PreviewImage consumer; the explicit request was blocked before detector staging."
         patch = build_workflow_patch_summary(
             route=route,
             validation=validation,
             previous_image_ref=current_image_ref,
             patched_image_ref=current_image_ref,
-            output_consumers=output_consumers,
+            output_consumers=[],
             reason=reason,
             applied=False,
-            asset_bridge=asset_bridge,
+            route_contract=contract_result,
         )
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
@@ -961,20 +1121,37 @@ def apply_adetailer_patch(
 
     if rejected_detectors:
         safe_models = [str(item.get("requested") or "selected detector").rsplit("/", 1)[-1] for item in rejected_detectors]
-        validation.setdefault("validation", []).append({
-            "extension_id": EXTENSION_ID,
-            "level": "error",
-            "code": "adetailer_detector_not_accepted_by_comfy_provider",
-            "field": "detector_model",
-            "message": "The selected detector is not in the active Comfy detector provider's accepted model list. Refresh Comfy nodes after installing or staging the model, then refresh ADetailer models.",
-            "ok": False,
-            "blocked": True,
-            "models": safe_models[:4],
-            "provider_choice_counts": [int(item.get("choice_count") or 0) for item in rejected_detectors[:4]],
-        })
-        validation["workflow_patch_allowed"] = False
-        validation["active_patch_data_allowed"] = False
-        reason = "ADetailer blocked the workflow before queue because Comfy does not currently accept the selected detector value."
+        append_diagnostic_issue(
+            validation, code="adetailer_detector_not_accepted_by_comfy_provider", stage="detector_provider",
+            field="detector_model",
+            message="The selected detector is not in the active Comfy detector provider's accepted model list.",
+            remediation="Install or stage the detector, restart ComfyUI, and refresh ADetailer models.",
+            models=safe_models[:4],
+            provider_choice_counts=[int(item.get("choice_count") or 0) for item in rejected_detectors[:4]],
+        )
+        reason = "ADetailer blocked the workflow before staging because Comfy does not accept the selected detector value."
+        patch = build_workflow_patch_summary(
+            route=route, validation=validation, previous_image_ref=current_image_ref,
+            patched_image_ref=current_image_ref, output_consumers=output_consumers,
+            reason=reason, applied=False, route_contract=contract_result,
+        )
+        patch["detector_execution"] = deepcopy(detector_execution)
+        return {"workflow": incoming_graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+
+    asset_bridge = prepare_detailer_assets_for_execution(params, route=route)
+    if asset_bridge.get("blocked_count"):
+        blocked_models = [
+            str(item.get("model") or "selected detector")
+            for item in asset_bridge.get("records", [])
+            if isinstance(item, dict) and item.get("status") == "blocked"
+        ]
+        # Stable historical diagnostic token: {"code": "adetailer_execution_bridge_failed"}
+        append_diagnostic_issue(
+            validation, code="adetailer_execution_bridge_failed", stage="detector_assets",
+            message="ADetailer could not safely prepare the selected detector for Comfy execution.",
+            bridge_status=asset_bridge.get("status"), models=blocked_models[:4],
+        )
+        reason = "ADetailer execution bridge blocked the workflow before Comfy queue."
         patch = build_workflow_patch_summary(
             route=route,
             validation=validation,
@@ -984,22 +1161,73 @@ def apply_adetailer_patch(
             reason=reason,
             applied=False,
             asset_bridge=asset_bridge,
+            route_contract=contract_result,
         )
-        patch["detector_execution"] = deepcopy(detector_execution)
         return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
 
-    vae_ref = _find_vae_ref(graph)
-    current_model_ref = _copy_ref(model_ref, refs["model"] or ["1", 0])
-    current_clip_ref = _copy_ref(clip_ref, ["1", 1])
-    positive_ref = refs["positive"]
-    negative_ref = refs["negative"]
-    sampler_inputs = _node_inputs(graph, sampler_node_id)
-    effective_seed = int(seed or sampler_inputs.get("seed") or 1)
-    effective_sampler = sampler_name or str(sampler_inputs.get("sampler_name") or "euler")
-    effective_scheduler = scheduler or str(sampler_inputs.get("scheduler") or "normal")
+    sampler_inputs = _node_inputs(graph, contract_sampler_node_id)
+    effective_seed = int(seed or sampler_inputs.get(contract_sampler_inputs["seed"]) or 1)
+    effective_sampler = str(params.get("sampler_name") or sampler_name or sampler_inputs.get(contract_sampler_inputs["sampler_name"]) or "euler")
+    effective_scheduler = str(params.get("scheduler") or scheduler or sampler_inputs.get(contract_sampler_inputs["scheduler"]) or "normal")
 
+    # Keep a clean rollback point. A dedicated checkpoint/prompt branch is
+    # provisional until at least one runtime pass successfully produces a new
+    # image. A skipped-only run must return the incoming graph unchanged.
+    graph_before_detailer_nodes = deepcopy(graph)
+    model_source_plan_before_runtime = deepcopy(validation.get("model_source") if isinstance(validation.get("model_source"), dict) else {})
     next_id = _next_graph_id(graph)
-    node_ids: list[str] = []
+    model_source_result = apply_detailer_model_source_plan(
+        graph,
+        next_id,
+        plan=validation.get("model_source") if isinstance(validation.get("model_source"), dict) else {},
+        contract_refs=contract_refs,
+    )
+    graph = model_source_result["workflow"]
+    next_id = str(model_source_result["next_id"])
+    vae_ref = _copy_ref(model_source_result.get("vae_ref"))
+    current_model_ref = _copy_ref(model_source_result.get("model_ref"))
+    current_clip_ref = _copy_ref(model_source_result.get("clip_ref"))
+    positive_ref = _copy_ref(model_source_result.get("positive_ref"))
+    negative_ref = _copy_ref(model_source_result.get("negative_ref"))
+    model_source_runtime = model_source_result.get("model_source") if isinstance(model_source_result.get("model_source"), dict) else {}
+    validation["model_source"] = {
+        **(validation.get("model_source") if isinstance(validation.get("model_source"), dict) else {}),
+        **model_source_runtime,
+    }
+    lora_branch_plan_before_runtime = deepcopy(validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {})
+    identity_policy_plan_before_runtime = deepcopy(validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {})
+    lora_branch_result = apply_detailer_lora_branch(
+        graph,
+        next_id,
+        plan=validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {},
+        model_source_refs={
+            "model": current_model_ref,
+            "clip": current_clip_ref,
+            "vae": vae_ref,
+            "positive": positive_ref,
+            "negative": negative_ref,
+        },
+        base_contract_refs=base_contract_refs,
+        route_contract=contract,
+        identity_policy=identity_plan,
+    )
+    graph = lora_branch_result["workflow"]
+    next_id = str(lora_branch_result["next_id"])
+    current_model_ref = _copy_ref(lora_branch_result.get("model_ref"))
+    current_clip_ref = _copy_ref(lora_branch_result.get("clip_ref"))
+    vae_ref = _copy_ref(lora_branch_result.get("vae_ref"), vae_ref)
+    positive_ref = _copy_ref(lora_branch_result.get("positive_ref"), positive_ref)
+    negative_ref = _copy_ref(lora_branch_result.get("negative_ref"), negative_ref)
+    lora_branch_runtime = lora_branch_result.get("lora_branch") if isinstance(lora_branch_result.get("lora_branch"), dict) else {}
+    validation["lora_branch"] = {
+        **(validation.get("lora_branch") if isinstance(validation.get("lora_branch"), dict) else {}),
+        **lora_branch_runtime,
+    }
+    validation["identity_policy"] = {
+        **(validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}),
+        "sampling_reapply": deepcopy(lora_branch_result.get("sampling_reapply") or sampling_gate),
+    }
+    node_ids: list[str] = list(model_source_result.get("node_ids") or []) + list(lora_branch_result.get("node_ids") or [])
     pass_summaries: list[dict[str, Any]] = []
     skipped_passes: list[dict[str, Any]] = []
     detector_models: list[str] = []
@@ -1038,15 +1266,48 @@ def apply_adetailer_patch(
 
         pos_text = str(unit.get("positive_prompt") or "").strip()
         neg_text = str(unit.get("negative_prompt") or "").strip()
-        next_id, pass_positive_ref, pass_negative_ref, prompt_nodes = _add_prompt_nodes(
-            graph,
-            next_id,
-            clip_ref=current_clip_ref,
-            positive_ref=positive_ref,
-            negative_ref=negative_ref,
-            positive_text=pos_text,
-            negative_text=neg_text,
-        )
+        prompt_lineage = {"positive_source": "route_conditioning", "negative_source": "route_conditioning"}
+        if str(model_source_runtime.get("source") or "") == DEDICATED_CHECKPOINT_SOURCE:
+            if bool(lora_branch_result.get("requires_prompt_reencode")):
+                pos_text, neg_text, prompt_lineage = prompt_text_for_lora_runtime_unit(lora_branch_runtime, params, unit)
+            else:
+                pos_text, neg_text, prompt_lineage = prompt_text_for_runtime_unit(model_source_runtime, unit)
+            prompt_result = add_dedicated_prompt_nodes(
+                graph,
+                next_id,
+                clip_ref=current_clip_ref,
+                positive_text=pos_text,
+                negative_text=neg_text,
+            )
+            graph = prompt_result["workflow"]
+            next_id = str(prompt_result["next_id"])
+            pass_positive_ref = _copy_ref(prompt_result.get("positive_ref"))
+            pass_negative_ref = _copy_ref(prompt_result.get("negative_ref"))
+            prompt_nodes = list(prompt_result.get("node_ids") or [])
+        elif bool(lora_branch_result.get("requires_prompt_reencode")):
+            pos_text, neg_text, prompt_lineage = prompt_text_for_lora_runtime_unit(lora_branch_runtime, params, unit)
+            prompt_result = add_dedicated_prompt_nodes(
+                graph,
+                next_id,
+                clip_ref=current_clip_ref,
+                positive_text=pos_text,
+                negative_text=neg_text,
+            )
+            graph = prompt_result["workflow"]
+            next_id = str(prompt_result["next_id"])
+            pass_positive_ref = _copy_ref(prompt_result.get("positive_ref"))
+            pass_negative_ref = _copy_ref(prompt_result.get("negative_ref"))
+            prompt_nodes = list(prompt_result.get("node_ids") or [])
+        else:
+            next_id, pass_positive_ref, pass_negative_ref, prompt_nodes = _add_prompt_nodes(
+                graph,
+                next_id,
+                clip_ref=current_clip_ref,
+                positive_ref=positive_ref,
+                negative_ref=negative_ref,
+                positive_text=pos_text,
+                negative_text=neg_text,
+            )
         node_ids.extend(prompt_nodes)
 
         use_segs = _should_use_segs(effective_unit, derived, validation.get("node_status") or {})
@@ -1112,26 +1373,72 @@ def apply_adetailer_patch(
             "previous_image_ref": previous_ref,
             "patched_image_ref": _copy_ref(current_image_ref),
             "reference_lock": deepcopy(lock_policy),
+            "prompt_lineage": deepcopy(prompt_lineage),
+            "detailer_model_source": str(model_source_runtime.get("source") or "generation_model"),
+            "detailer_lora_branch": {
+                "inheritance_effective": lora_branch_runtime.get("inheritance_effective"),
+                "applied_lora_count": lora_branch_runtime.get("applied_lora_count"),
+                "lora_names": deepcopy(lora_branch_runtime.get("lora_names") or []),
+            },
+            "identity_policy": public_identity_policy_metadata(validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}),
+            "family_preset": {
+                "mode": family_preset_runtime.get("mode"),
+                "family": family_preset_runtime.get("family"),
+                "preset_id": family_preset_runtime.get("preset_id"),
+                "effective_values": deepcopy(family_preset_runtime.get("effective_values") or {}),
+            },
         })
 
     if not pass_summaries:
+        append_diagnostic_issue(
+            validation, code="adetailer_no_runnable_passes", stage="pass_payload",
+            message="ADetailer produced no runnable repair pass; the request is blocked instead of queueing the base graph.",
+            remediation="Correct or enable at least one detailer pass, or turn ADetailer off.",
+        )
         reason = "ADetailer found no runnable detailer passes after V1 multi-pass expansion."
         if skipped_passes:
             reason += " skipped: " + "; ".join(f"{item.get('label')}: {item.get('reason')}" for item in skipped_passes[:4])
+        validation["model_source"] = model_source_plan_before_runtime
+        validation["lora_branch"] = lora_branch_plan_before_runtime
+        validation["identity_policy"] = identity_policy_plan_before_runtime
         patch = build_workflow_patch_summary(
             route=route,
             validation=validation,
-            previous_image_ref=_find_base_image_ref(workflow or {}),
-            patched_image_ref=_find_base_image_ref(workflow or {}),
+            previous_image_ref=initial_image_ref,
+            patched_image_ref=initial_image_ref,
             output_consumers=output_consumers,
             reason=reason,
             applied=False,
             skipped_passes=skipped_passes,
             asset_bridge=asset_bridge,
+            route_contract=contract_result,
         )
-        return {"workflow": graph, "mutated": False, "workflow_patch": patch, "validation": validation}
+        return {"workflow": graph_before_detailer_nodes, "mutated": False, "workflow_patch": patch, "validation": validation}
 
     _rewrite_output_consumers(graph, output_consumers, current_image_ref)
+    graph_invariants = validate_graph_invariants(
+        incoming_graph, graph, route_contract=contract, output_consumers=output_consumers,
+        previous_image_ref=initial_image_ref, patched_image_ref=current_image_ref,
+        pass_summaries=pass_summaries,
+    )
+    if not graph_invariants.get("ready"):
+        for issue in graph_invariants.get("errors", []):
+            append_diagnostic_issue(
+                validation, code=str(issue.get("code") or "adetailer_graph_invariant_failed"),
+                stage="graph_invariants", message=str(issue.get("message") or "ADetailer final graph invariant failed."),
+                field=issue.get("field"),
+                **{key: value for key, value in issue.items() if key not in {"code", "message", "field", "stage", "level", "blocked", "ok", "remediation", "extension_id"}},
+            )
+        reason = "ADetailer rolled back the complete finish branch because the final graph invariant gate failed."
+        patch = build_workflow_patch_summary(
+            route=route, validation=validation, previous_image_ref=initial_image_ref,
+            patched_image_ref=initial_image_ref, output_consumers=output_consumers,
+            reason=reason, applied=False, skipped_passes=skipped_passes, asset_bridge=asset_bridge,
+            route_contract=contract_result, graph_invariants=graph_invariants,
+        )
+        patch["rollback"] = {"applied": True, "scope": "entire_adetailer_mutation", "reason": "graph_invariant_failure"}
+        patch["detector_execution"] = deepcopy(detector_execution)
+        return {"workflow": incoming_graph, "mutated": False, "workflow_patch": patch, "validation": validation}
     unique_paths = sorted(set(patch_paths))
     patch_path = "mixed" if len(unique_paths) > 1 else unique_paths[0]
     reason = f"ADetailer applied {len(pass_summaries)} V1-style runtime detailer pass(es) from {int(derived.get('enabled_detailer_pass_count') or 0)} enabled card(s)."
@@ -1141,13 +1448,25 @@ def apply_adetailer_patch(
         reason += " Manual boxes were routed through MaskToSEGS/SEGSDetailer."
     if notes:
         reason += " " + " ".join(notes[:4])
+    if str(model_source_runtime.get("source") or "") == DEDICATED_CHECKPOINT_SOURCE:
+        reason += f" Dedicated {str(model_source_runtime.get('family') or '').upper()} checkpoint {str(model_source_runtime.get('checkpoint') or '').rsplit('/', 1)[-1]} supplied MODEL/CLIP/VAE for the repair branch."
+    identity_runtime = validation.get("identity_policy") if isinstance(validation.get("identity_policy"), dict) else {}
+    if str(identity_runtime.get("effective") or "none") == "detailer_identity_lora":
+        cloned_count = len(((identity_runtime.get("sampling_reapply") or {}).get("cloned_node_ids") or []))
+        reason += f" Qwen Edit identity-LoRA assistance reapplied {cloned_count} compiler-owned model-sampling wrapper(s) after the isolated model-only LoRA."
+    elif str(identity_runtime.get("effective") or "none") == "dedicated_detailer_model":
+        reason += " Qwen Edit identity handling used the dedicated detailer-model fallback."
+    if lora_branch_runtime.get("applied_lora_count"):
+        reason += f" Applied {int(lora_branch_runtime.get('applied_lora_count') or 0)} detailer-branch LoRA(s) without rewiring the main generation sampler."
+    elif str(lora_branch_runtime.get("inheritance_effective") or INHERIT_ALL) != INHERIT_ALL:
+        reason += f" Detailer generation-LoRA inheritance used {str(lora_branch_runtime.get('inheritance_effective') or '').replace('_', ' ')}."
     if asset_bridge.get("staged_count"):
         reason += f" Staged {asset_bridge['staged_count']} selected detector model(s) into Comfy's native detector folders before queue."
     patch = build_workflow_patch_summary(
         route=route,
         validation=validation,
         node_ids=node_ids,
-        previous_image_ref=_find_base_image_ref(workflow or {}),
+        previous_image_ref=initial_image_ref,
         patched_image_ref=current_image_ref,
         output_consumers=output_consumers,
         patch_path=patch_path,
@@ -1157,6 +1476,8 @@ def apply_adetailer_patch(
         pass_summaries=pass_summaries,
         skipped_passes=skipped_passes,
         asset_bridge=asset_bridge,
+        route_contract=contract_result,
+        graph_invariants=graph_invariants,
     )
     patch["detector_execution"] = deepcopy(detector_execution)
     patch["source_ownership"] = {

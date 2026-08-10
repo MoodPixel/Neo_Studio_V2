@@ -10,15 +10,7 @@
     "generation"
   ],
   "workflow_modes": [
-    "txt2vid",
-    "img2vid",
-    "first_last_frame",
-    "multiscene",
-    "extend",
-    "vid2vid",
-    "depth_motion",
-    "prompt_schedule",
-    "audio_video"
+    "prompt_schedule"
   ],
   "workspace_apps": [
     "generation"
@@ -43,17 +35,16 @@
     "comfyui_portable"
   ],
   "supported_families": [
-    "wan22",
     "ltx23"
   ],
   "supported_loaders": [
     "unet",
-    "gguf",
-    "native_workflow"
+    "gguf"
   ],
   "required_nodes": {},
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true
-  }
+  },
+  "route_context_scope": "generation_route"
 }

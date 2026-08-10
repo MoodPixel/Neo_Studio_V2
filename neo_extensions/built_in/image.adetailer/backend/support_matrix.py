@@ -25,6 +25,9 @@ from .constants import (
 _DATA_PATH = Path(__file__).with_name("support_matrix_data.json")
 IMAGE_WORKSPACE = "image"
 PROVIDER_FAMILIES = {"wan_image", "hunyuan_image"}
+KREA2_FAMILIES = {"krea2", "krea2_turbo"}
+KREA2_LOADERS = {"diffusion_model", "gguf"}
+KREA2_MODES = {"generate", "img2img", "inpaint", "outpaint"}
 FAMILY_ALIASES = {
     "sd": "sd15",
     "sd1": "sd15",
@@ -39,7 +42,15 @@ FAMILY_ALIASES = {
     "qwen-rapid-aio": "qwen_rapid_aio",
     "qwen_image_edit_2509": "qwen_image_edit_2509",
     "qwen-image-edit-2509": "qwen_image_edit_2509",
+    "qwen_2509": "qwen_image_edit_2509",
+    "qwen_image_edit_2511": "qwen_image_edit_2511",
+    "qwen-image-edit-2511": "qwen_image_edit_2511",
+    "qwen_2511": "qwen_image_edit_2511",
     "qwen-image": "qwen_image",
+    "krea_2": "krea2",
+    "krea2_raw": "krea2",
+    "krea_2_turbo": "krea2_turbo",
+    "krea2-turbo": "krea2_turbo",
     "zimage": "z_image",
     "z-image": "z_image",
     "zimage_turbo": "z_image_turbo",
@@ -156,14 +167,46 @@ def route_key(route: dict[str, Any] | None = None, **overrides: Any) -> str:
 
 
 def route_reason(reason_code: str | None = None, state: str | None = None) -> str:
+    """Return user-facing route guidance without internal rollout terminology."""
     reasons = _load_data().get("reasons", {})
+    user_reasons = {
+        "krea2_compiler_contract_experimental": (
+            "Krea 2 finishing is available experimentally through the compiled workflow contract."
+        ),
+        "phase5_compiler_contract_experimental": (
+            "This experimental route provides the image, model, conditioning, VAE, and sampler references "
+            "needed for ADetailer. Real-image validation is still recommended before production use."
+        ),
+        "phase6_qwen_edit_identity_risk_experimental": (
+            "Qwen Image Edit supports experimental detail repair with an identity-drift warning. "
+            "Use a compatible identity LoRA or dedicated detailer model when face consistency matters."
+        ),
+        "phase6_qwen_edit_outpaint_gated": (
+            "Qwen Image Edit outpaint is unavailable until padded-canvas repair, seams, and identity retention "
+            "are validated for this route."
+        ),
+    }
+    if reason_code in user_reasons:
+        return user_reasons[reason_code]
     if reason_code and reason_code in reasons:
         return reasons[reason_code]
     if state == PROVIDER_GATED:
-        return reasons.get("provider_family_gated", "Provider route is gated for ADetailer.")
+        return reasons.get("provider_family_gated", "ADetailer is unavailable for this provider route.")
     if state == UNSUPPORTED:
-        return reasons.get("unknown_route", "Unsupported ADetailer route.")
-    return reasons.get("unknown_route", "No explicit ADetailer support reason was declared.")
+        return reasons.get("unknown_route", "ADetailer is unsupported for this route.")
+    return reasons.get("unknown_route", "ADetailer support is not defined for this route.")
+
+
+def _user_notes(notes: Any) -> list[str]:
+    """Keep only guidance useful to artists; omit matrix and rollout bookkeeping."""
+    clean: list[str] = []
+    for item in notes if isinstance(notes, list) else []:
+        text = str(item or "").strip()
+        lowered = text.casefold()
+        if not text or "phase " in lowered or "support matrix" in lowered or "exact row" in lowered:
+            continue
+        clean.append(text)
+    return clean
 
 
 def _workspace_overlay(normalized: dict[str, str]) -> tuple[str | None, str | None]:
@@ -183,6 +226,28 @@ def support_for_route(route: dict[str, Any] | None = None, *, require_finish_sub
     data = _load_data()
     rows = _rows_by_key()
     row = rows.get((normalized["backend"], normalized["family"], normalized["loader"], normalized["mode"]))
+
+    if (
+        row is None
+        and normalized["backend"] in SUPPORTED_BACKENDS
+        and normalized["family"] in KREA2_FAMILIES
+        and normalized["loader"] in KREA2_LOADERS
+        and normalized["mode"] in KREA2_MODES
+    ):
+        row = {
+            "backend": normalized["backend"],
+            "family": normalized["family"],
+            "loader": normalized["loader"],
+            "workflow_mode": normalized["mode"],
+            "state": "experimental_available",
+            "reason_code": "krea2_compiler_contract_experimental",
+            "parameter_profile": "adetailer_krea2_route_owned",
+            "workflow_patch_profile": "compiler_contract_face_detailer_or_segs",
+            "notes": [
+                "Krea 2 uses the compiler-published model, conditioning, VAE, sampler, and image references.",
+                "Detailer LoRAs patch the generation model only so Krea 2 text-encoder conditioning remains unchanged.",
+            ],
+        }
 
     if row is None:
         if normalized["backend"] not in SUPPORTED_BACKENDS or normalized["family"] in PROVIDER_FAMILIES:
@@ -235,7 +300,7 @@ def support_for_route(route: dict[str, Any] | None = None, *, require_finish_sub
         "requires_nodes": True,
         "node_availability_checked": False,
         "node_availability_phase": "E",
-        "notes": list(row.get("notes", [])),
+        "notes": _user_notes(row.get("notes", [])),
     }
 
 

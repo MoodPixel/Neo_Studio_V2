@@ -55,12 +55,11 @@ def route_reason(route: dict[str, Any] | None = None) -> str:
         )
     if state == "implementation_target":
         notes = profile.get("notes") if isinstance(profile.get("notes"), list) else []
-        note = notes[0] if notes else "This route needs a dedicated family enablement pass before High-Res Lab is selectable."
-        return f"implementation_target: {note}"
+        return "High-Res Lab is not available for this model route yet."
     if row and row.get("reason"):
         return str(row.get("reason"))
     base_state = base_route_state(route)
-    return f"{state}: Base route state is {base_state}; High-Res Lab must not create a fallback route."
+    return "High-Res Lab is unavailable for the selected provider, model, loader, or workflow mode."
 
 
 def manifest_route_states() -> dict[str, str]:

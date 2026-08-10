@@ -243,6 +243,61 @@
         "ControlNetLoader",
         "ControlNetApply"
       ]
+    },
+    "qwen_2511_pose_transfer": {
+      "profile_id": "qwen_2511_pose_transfer",
+      "families": [
+        "qwen_image_edit_2511"
+      ],
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": {
+        "img2img": "experimental_available",
+        "edit": "experimental_available"
+      },
+      "required_roles": [
+        "TextEncodeQwenImageEditPlus",
+        "DWPose",
+        "LoraLoaderModelOnly",
+        "KSampler"
+      ],
+      "optional_roles": [
+        "ModelSamplingAuraFlow"
+      ],
+      "params": [
+        "pose_method",
+        "pose_base_lora",
+        "pose_helper_lora",
+        "pose_base_strength",
+        "pose_helper_strength",
+        "pose_prompt_instruction",
+        "openpose_body",
+        "openpose_hand",
+        "openpose_face",
+        "detect_resolution"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required": [
+            "DWPose preprocessor",
+            "LoraLoaderModelOnly",
+            "Qwen Image Edit 2511 conditioning"
+          ]
+        },
+        "comfyui_portable": {
+          "required": [
+            "DWPose preprocessor",
+            "LoraLoaderModelOnly",
+            "Qwen Image Edit 2511 conditioning"
+          ]
+        }
+      },
+      "notes": [
+        "Image 1 is the subject, Image 2 is the pose reference, and Image 3 is reserved for the DWPose map generated at runtime.",
+        "Pose Transfer applies the two selected pose LoRAs to MODEL only and does not use a ControlNet model."
+      ]
     }
   },
   "controlnet_tasks": {
@@ -331,7 +386,7 @@
     "ui_selector": "inpaint/outpaint modes only"
   },
   "depends_on": [],
-  "description": "Built-in ControlNet extension with P9.2 Qwen-group enablement: Qwen Image Edit, Qwen Rapid AIO, and Qwen Image Edit 2509 routes use Qwen-safe map, DiffSynth model-patch, and InstantX adapter lanes instead of SD/Flux fallback graphs.",
+  "description": "Structural image guidance with ControlNet maps plus Qwen Image Edit 2511 pose transfer using DWPose and model-only pose LoRAs.",
   "entrypoints": {
     "asset_contract": "backend/asset_contract.py",
     "asset_resolver": "backend/asset_resolver.py",
@@ -381,7 +436,10 @@
     {
       "route_states": [
         "available",
-        "experimental_available"
+        "experimental_available",
+        "implementation_target",
+        "planned_gated",
+        "provider_gated"
       ],
       "slot": "image.reference.controlnet",
       "surface": "image",
@@ -389,7 +447,7 @@
       "workspace_app": "reference"
     }
   ],
-  "name": "ControlNet",
+  "name": "ControlNet & Pose",
   "node_discovery": {
     "advanced_apply_candidates": [
       "ControlNetApplyAdvanced",
@@ -2985,6 +3043,7 @@
     "flux",
     "qwen_image",
     "qwen_image_edit_2509",
+    "qwen_image_edit_2511",
     "qwen_rapid_aio",
     "z_image",
     "z_image_turbo",
@@ -3027,13 +3086,13 @@
     "fields": [
       {
         "id": "enabled",
-        "label": "Enable ControlNet",
+        "label": "Enable Control / Pose",
         "payload_path": "extensions.image.controlnet.enabled",
         "type": "checkbox"
       },
       {
         "id": "units",
-        "label": "ControlNet Units",
+        "label": "Control & Pose Units",
         "payload_path": "extensions.image.controlnet.inputs.units",
         "type": "array"
       },
@@ -3072,6 +3131,36 @@
         "label": "Advanced ControlNet",
         "payload_path": "extensions.image.controlnet.inputs.units[].advanced_enabled",
         "type": "checkbox"
+      },
+      {
+        "id": "pose_method",
+        "label": "Pose Method",
+        "payload_path": "extensions.image.controlnet.inputs.units[].pose_method",
+        "type": "select"
+      },
+      {
+        "id": "pose_base_lora",
+        "label": "Base Pose LoRA",
+        "payload_path": "extensions.image.controlnet.inputs.units[].pose_base_lora",
+        "type": "select"
+      },
+      {
+        "id": "pose_helper_lora",
+        "label": "Helper Pose LoRA",
+        "payload_path": "extensions.image.controlnet.inputs.units[].pose_helper_lora",
+        "type": "select"
+      },
+      {
+        "id": "pose_base_strength",
+        "label": "Base Pose Strength",
+        "payload_path": "extensions.image.controlnet.inputs.units[].pose_base_strength",
+        "type": "number"
+      },
+      {
+        "id": "pose_helper_strength",
+        "label": "Helper Pose Strength",
+        "payload_path": "extensions.image.controlnet.inputs.units[].pose_helper_strength",
+        "type": "number"
       }
     ],
     "flux_adapter_selector": "neo_app/static/js/neo.js::controlNetFluxAdapterSelector",
@@ -3095,7 +3184,25 @@
     "route_aware": true,
     "route_visibility_policy": "available/experimental_available render normally; planned_gated/provider_gated render only in expert diagnostics; unsupported hidden",
     "task_selector": "neo_app/static/js/neo.js::controlNetTaskSelector",
-    "task_selector_policy": "Only visible in Image inpaint/outpaint modes; selector changes params.controlnet_task without unlocking adapter-gated execution."
+    "task_selector_policy": "Only visible in Image inpaint/outpaint modes; selector changes params.controlnet_task without unlocking adapter-gated execution.",
+    "pose_transfer": {
+      "label": "Pose Transfer",
+      "family": "qwen_image_edit_2511",
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "workflow_modes": [
+        "img2img",
+        "edit"
+      ],
+      "state": "experimental_available",
+      "source_lanes": {
+        "image_1": "subject",
+        "image_2": "pose_reference",
+        "image_3": "generated_dwpose_map"
+      }
+    }
   },
   "frontend_model_catalog_contract": {
     "active_profile_bound": true,
@@ -3106,7 +3213,7 @@
     "absolute_paths_browser_exposed": false,
     "phase_scope": "phase4_frontend_catalog_reliability"
   },
-  "version": "1.0.7-profile-catalog-reliability",
+  "version": "1.0.8-qwen-2511-pose-transfer",
   "workflow_modes": [
     "generate",
     "img2img",
@@ -3150,7 +3257,15 @@
       "comfyui_portable:qwen_image:gguf:inpaint controlnet_task=inpaint_control experimental qwen_adapter=diffsynth|instantx",
       "comfyui_portable:qwen_image:gguf:outpaint controlnet_task=outpaint_control experimental qwen_adapter=diffsynth|instantx",
       "comfyui_portable:qwen_image:checkpoint_aio:inpaint controlnet_task=inpaint_control experimental qwen_adapter=diffsynth|instantx",
-      "comfyui_portable:qwen_image:checkpoint_aio:outpaint controlnet_task=outpaint_control experimental qwen_adapter=diffsynth|instantx"
+      "comfyui_portable:qwen_image:checkpoint_aio:outpaint controlnet_task=outpaint_control experimental qwen_adapter=diffsynth|instantx",
+      "comfyui:qwen_image_edit_2511:diffusion_model:img2img pose_transfer experimental",
+      "comfyui:qwen_image_edit_2511:diffusion_model:edit pose_transfer experimental",
+      "comfyui:qwen_image_edit_2511:gguf:img2img pose_transfer experimental",
+      "comfyui:qwen_image_edit_2511:gguf:edit pose_transfer experimental",
+      "comfyui_portable:qwen_image_edit_2511:diffusion_model:img2img pose_transfer experimental",
+      "comfyui_portable:qwen_image_edit_2511:diffusion_model:edit pose_transfer experimental",
+      "comfyui_portable:qwen_image_edit_2511:gguf:img2img pose_transfer experimental",
+      "comfyui_portable:qwen_image_edit_2511:gguf:edit pose_transfer experimental"
     ],
     "asset_resolver": "backend/asset_resolver.py resolves source/mask/canvas assets; Phase P executes experimental Qwen GGUF/Rapid AIO inpaint/outpaint adapters through DiffSynth model patch or InstantX ControlNet.",
     "gates": [
@@ -3165,12 +3280,16 @@
       "advanced mode requested without advanced apply node",
       "inactive controlnet_task_state",
       "inpaint_control missing source image or mask image",
-      "outpaint_control missing source image/padding or padded canvas node"
+      "outpaint_control missing source image/padding or padded canvas node",
+      "pose_transfer requires Image 1 and Image 2 with Image 3 free",
+      "pose_transfer requires a live DWPose preprocessor",
+      "pose_transfer requires LoraLoaderModelOnly and exact selected LoRA catalog matches",
+      "pose_transfer cannot be mixed with normal ControlNet units in the same run"
     ],
-    "graph_mutation": "Map control adds LoadImage, ControlNetLoader, and ControlNetApply nodes. SD adapters reuse source/padded canvas. Qwen DiffSynth adds ModelPatchLoader + QwenImageDiffsynthControlnet and rewires KSampler model. Qwen InstantX adds ControlNetLoader/Apply with source/canvas image plus mask-aware inputs and rewires KSampler conditioning.",
+    "graph_mutation": "ControlNet map paths add or adapt control nodes for the selected route. Qwen 2511 Pose Transfer generates DWPose from Image 2, injects it into Qwen Image 3, and inserts two sequential LoraLoaderModelOnly nodes before the active sampling model path.",
     "graph_node_mutation": true,
     "mutates_when": "enabled payload, active route state, required nodes, required unit model, and required control image/generated map are present",
-    "ordering": "Runs after prompt/embedding/LoRA conditioning graph preparation and before sampler execution; does not mutate model/clip refs.",
+    "ordering": "Runs after base prompt/embedding/LoRA preparation and before sampler execution. Standard ControlNet mutates conditioning; Qwen 2511 Pose Transfer additionally patches the MODEL path with its dedicated model-only pose LoRAs.",
     "patch_type": "conditioning",
     "phase": "P",
     "status": "phase_q_flux_controlnet_adapter",

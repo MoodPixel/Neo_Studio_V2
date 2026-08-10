@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Mapping
 
 from .asset_resolver import resolve_controlnet_task_assets
 from .node_discovery import inspect_nodes, preprocessor_status
+from .map_preprocessors import build_preprocessor_inputs
 from .payload_schema import EXTENSION_ID, normalize_block
+from neo_extensions.built_in.lora_stack.backend.catalog_bridge import resolve_exact_provider_catalog_name
 from .support_matrix import (
     ACTIVE_STATES,
     TASK_INPAINT_CONTROL,
@@ -21,6 +23,16 @@ from .support_matrix import (
 
 PHASE = "P9.2"
 QWEN_VAE_CONTRACT_SCHEMA_VERSION = "neo.image.controlnet.qwen_vae_contract.v1"
+POSE_TRANSFER_METHOD = "qwen_transfer"
+POSE_TRANSFER_FAMILY = "qwen_image_edit_2511"
+POSE_TRANSFER_LOADERS = {"diffusion_model", "gguf"}
+POSE_TRANSFER_MODES = {"img2img", "edit"}
+QWEN_EDIT_ENCODERS = {
+    "TextEncodeQwenImageEditPlus",
+    "TextEncodeQwenImageEditPlus_lrzjason",
+    "TextEncodeQwenImageEditPlusAdvance_lrzjason",
+    "TextEncodeQwenImageEditPlusPro_lrzjason",
+}
 
 
 def _next_graph_id(workflow: dict[str, Any], preferred: int | str | None = None) -> str:
@@ -111,7 +123,8 @@ def _extension_block_from_payload(payload: dict[str, Any] | None, route: dict[st
     profile = route_profile_for_route(effective_route.get("backend"), effective_route.get("family"), effective_route.get("loader"), effective_route.get("workflow_mode"), raw_task)
     effective_route.update({"route_profile": profile, "route_profile_id": profile.get("profile_id"), "map_adapter": profile.get("map_adapter"), "inpaint_adapter": profile.get("inpaint_adapter"), "outpaint_adapter": profile.get("outpaint_adapter")})
     route.update(effective_route)
-    block, notes = normalize_block(raw_block, route=effective_route, enforce_route_state=True)
+    pose_transfer_requested = _raw_pose_transfer_requested(raw_block)
+    block, notes = normalize_block(raw_block, route=effective_route, enforce_route_state=not pose_transfer_requested)
     return block, [dict(note) for note in notes]
 
 
@@ -1170,6 +1183,268 @@ def build_workflow_patch_summary(
     }
 
 
+
+def _raw_pose_transfer_requested(raw_block: Mapping[str, Any] | None) -> bool:
+    block = raw_block if isinstance(raw_block, Mapping) else {}
+    inputs = block.get("inputs") if isinstance(block.get("inputs"), Mapping) else {}
+    units = inputs.get("units") if isinstance(inputs.get("units"), list) else block.get("units")
+    if not isinstance(units, list):
+        return False
+    return any(
+        isinstance(unit, Mapping)
+        and unit.get("enabled", True) is not False
+        and str(unit.get("pose_method") or "controlnet").strip().lower() == POSE_TRANSFER_METHOD
+        for unit in units
+    )
+
+
+def _pose_transfer_route_supported(route: Mapping[str, Any] | None) -> bool:
+    data = route if isinstance(route, Mapping) else {}
+    backend = str(data.get("backend") or "").strip().lower()
+    family = str(data.get("family") or "").strip().lower()
+    loader = str(data.get("loader") or "").strip().lower()
+    mode = str(data.get("workflow_mode") or data.get("mode") or "").strip().lower()
+    if mode == "generate":
+        mode = "txt2img"
+    return backend in {"comfyui", "comfyui_portable"} and family == POSE_TRANSFER_FAMILY and loader in POSE_TRANSFER_LOADERS and mode in POSE_TRANSFER_MODES
+
+
+def _object_info_node_contract(available_nodes: Any, class_type: str) -> tuple[set[str], list[str]]:
+    if not isinstance(available_nodes, Mapping):
+        return set(), []
+    meta = available_nodes.get(class_type)
+    if not isinstance(meta, Mapping):
+        return set(), []
+    input_meta = meta.get("input") if isinstance(meta.get("input"), Mapping) else {}
+    names: set[str] = set()
+    lora_choices: list[str] = []
+    for group in ("required", "optional"):
+        group_meta = input_meta.get(group) if isinstance(input_meta.get(group), Mapping) else {}
+        for name, spec in group_meta.items():
+            names.add(str(name))
+            if str(name) == "lora_name" and isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list):
+                lora_choices = [str(item) for item in spec[0] if str(item).strip()]
+    return names, lora_choices
+
+
+def _conditioning_source_node(graph: Mapping[str, Any], ref: Any) -> str | None:
+    current = _copy_ref(ref, ["", 0])
+    seen: set[str] = set()
+    for _ in range(12):
+        node_id = str(current[0] or "")
+        if not node_id or node_id in seen:
+            return None
+        seen.add(node_id)
+        node = graph.get(node_id) if isinstance(graph, Mapping) else None
+        if not isinstance(node, Mapping):
+            return None
+        class_type = str(node.get("class_type") or "")
+        if class_type in QWEN_EDIT_ENCODERS or class_type.startswith("TextEncodeQwenImageEditPlus"):
+            return node_id
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), Mapping) else {}
+        next_ref = None
+        for key in ("conditioning", "positive", "negative"):
+            candidate = inputs.get(key)
+            if isinstance(candidate, (list, tuple)) and len(candidate) >= 2:
+                next_ref = candidate
+                break
+        if next_ref is None:
+            return None
+        current = _copy_ref(next_ref, ["", 0])
+    return None
+
+
+def _model_sampling_anchor(graph: dict[str, Any], sampler_inputs: Mapping[str, Any]) -> tuple[str | None, list[Any] | None]:
+    current = _copy_ref(sampler_inputs.get("model"), ["", 0])
+    seen: set[str] = set()
+    for _ in range(16):
+        node_id = str(current[0] or "")
+        if not node_id or node_id in seen:
+            break
+        seen.add(node_id)
+        node = graph.get(node_id)
+        if not isinstance(node, dict):
+            break
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        if str(node.get("class_type") or "") == "ModelSamplingAuraFlow":
+            upstream = inputs.get("model")
+            return node_id, _copy_ref(upstream, ["", 0]) if isinstance(upstream, (list, tuple)) else None
+        upstream = inputs.get("model")
+        if not isinstance(upstream, (list, tuple)) or len(upstream) < 2:
+            break
+        current = _copy_ref(upstream, ["", 0])
+    direct = sampler_inputs.get("model")
+    return None, _copy_ref(direct, ["", 0]) if isinstance(direct, (list, tuple)) else None
+
+
+def _append_pose_instruction(inputs: dict[str, Any], instruction: str) -> None:
+    clean = str(instruction or "").strip()
+    if not clean:
+        return
+    for key in ("prompt", "text"):
+        if key not in inputs:
+            continue
+        current = str(inputs.get(key) or "").strip()
+        if clean.casefold() in current.casefold():
+            return
+        inputs[key] = f"{current}\n\n{clean}".strip()
+        return
+
+
+def _apply_qwen_pose_transfer_patch(
+    graph: dict[str, Any],
+    *,
+    unit: Mapping[str, Any],
+    route_data: Mapping[str, Any],
+    available_nodes: Any,
+    status: Mapping[str, Any],
+    sampler_key: str,
+    sampler_inputs: dict[str, Any],
+    next_node_id: int | str | None,
+) -> dict[str, Any]:
+    notes: list[dict[str, Any]] = []
+    if not _pose_transfer_route_supported(route_data):
+        return {"ok": False, "reason": "Pose Transfer is currently available only for Qwen Image Edit 2511 Img2Img/Edit on local ComfyUI using Safetensors/Components or GGUF.", "notes": notes}
+    if not isinstance(available_nodes, Mapping):
+        return {"ok": False, "reason": "Pose Transfer needs live Comfy node information so DWPose and the model-only LoRA catalog can be verified.", "notes": notes}
+
+    prep = preprocessor_status("dwpose", dict(status), unit="openpose")
+    if prep.get("state") not in {"available", "experimental_available"} or prep.get("backend") != "comfy_preprocessor":
+        detail = str(prep.get("reason") or "").strip()
+        reason = "DWPose is not available on the selected Comfy backend."
+        if detail and "dwpose" not in detail.lower():
+            reason = f"{reason} {detail}"
+        return {"ok": False, "reason": reason, "notes": notes}
+    dwpose_node = str(prep.get("node") or "")
+    if not dwpose_node or dwpose_node not in available_nodes:
+        return {"ok": False, "reason": "DWPose is not available on the selected Comfy backend.", "notes": notes}
+
+    loader_class = "LoraLoaderModelOnly"
+    loader_inputs, lora_choices = _object_info_node_contract(available_nodes, loader_class)
+    required_loader_inputs = {"model", "lora_name", "strength_model"}
+    if not required_loader_inputs.issubset(loader_inputs):
+        return {"ok": False, "reason": "Pose Transfer requires Comfy's LoraLoaderModelOnly node with model, lora_name, and strength_model inputs.", "notes": notes}
+    if not lora_choices:
+        return {"ok": False, "reason": "The active Comfy LoraLoaderModelOnly node did not publish its LoRA catalog, so the AnyPose LoRAs cannot be verified safely.", "notes": notes}
+
+    base_requested = str(unit.get("pose_base_lora") or "").strip()
+    helper_requested = str(unit.get("pose_helper_lora") or "").strip()
+    if not base_requested or not helper_requested:
+        return {"ok": False, "reason": "Pose Transfer needs both the AnyPose base LoRA and helper LoRA selected.", "notes": notes}
+    base_binding = resolve_exact_provider_catalog_name(base_requested, lora_choices)
+    helper_binding = resolve_exact_provider_catalog_name(helper_requested, lora_choices)
+    if not str(base_binding.get("status") or "").startswith("resolved"):
+        return {"ok": False, "reason": f"The selected base pose LoRA '{base_requested}' is not present in the active Comfy LoRA catalog.", "notes": notes, "catalog_binding": base_binding}
+    if not str(helper_binding.get("status") or "").startswith("resolved"):
+        return {"ok": False, "reason": f"The selected helper pose LoRA '{helper_requested}' is not present in the active Comfy LoRA catalog.", "notes": notes, "catalog_binding": helper_binding}
+
+    positive_encoder_id = _conditioning_source_node(graph, sampler_inputs.get("positive"))
+    negative_encoder_id = _conditioning_source_node(graph, sampler_inputs.get("negative"))
+    if not positive_encoder_id or not negative_encoder_id:
+        return {"ok": False, "reason": "Pose Transfer could not find the active Qwen Image Edit conditioning nodes for this workflow.", "notes": notes}
+    positive_node = graph.get(positive_encoder_id) or {}
+    negative_node = graph.get(negative_encoder_id) or {}
+    positive_inputs = positive_node.get("inputs") if isinstance(positive_node.get("inputs"), dict) else {}
+    negative_inputs = negative_node.get("inputs") if isinstance(negative_node.get("inputs"), dict) else {}
+    image2_ref = positive_inputs.get("image2") or negative_inputs.get("image2")
+    if not isinstance(image2_ref, (list, tuple)) or len(image2_ref) < 2:
+        return {"ok": False, "reason": "Pose Transfer uses Image 2 as the pose reference. Add Image 2 before generating.", "notes": notes}
+    for node_id, inputs in ((positive_encoder_id, positive_inputs), (negative_encoder_id, negative_inputs)):
+        existing = inputs.get("image3")
+        if existing not in (None, "", []):
+            return {"ok": False, "reason": "Image 3 is reserved for the generated DWPose map while Pose Transfer is enabled. Clear the current Image 3 source first.", "notes": notes, "conflict_node": node_id}
+
+    model_anchor_id, model_upstream_ref = _model_sampling_anchor(graph, sampler_inputs)
+    if not model_upstream_ref or not str(model_upstream_ref[0] or ""):
+        return {"ok": False, "reason": "Pose Transfer could not locate the active Qwen model input before sampling.", "notes": notes}
+
+    try:
+        next_id = int(str(next_node_id)) if next_node_id is not None else None
+    except (TypeError, ValueError):
+        next_id = None
+    pose_node_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(pose_node_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    preprocessor_request = {
+        "openpose_body": bool(unit.get("openpose_body", True)),
+        "openpose_hand": bool(unit.get("openpose_hand", False)),
+        "openpose_face": bool(unit.get("openpose_face", False)),
+        "settings": {"detect_resolution": int(unit.get("detect_resolution") or 512)},
+    }
+    graph[pose_node_id] = {
+        "class_type": dwpose_node,
+        "inputs": build_preprocessor_inputs(
+            dwpose_node,
+            dict(available_nodes),
+            "dwpose",
+            preprocessor_request,
+            int(unit.get("detect_resolution") or 512),
+            image_ref=_copy_ref(image2_ref, ["", 0]),
+        ),
+    }
+    pose_ref = [pose_node_id, 0]
+    positive_inputs["image3"] = deepcopy(pose_ref)
+    negative_inputs["image3"] = deepcopy(pose_ref)
+    instruction = str(unit.get("pose_prompt_instruction") or "").strip()
+    _append_pose_instruction(positive_inputs, instruction)
+
+    base_lora_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(base_lora_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[base_lora_id] = {
+        "class_type": loader_class,
+        "inputs": {
+            "model": deepcopy(model_upstream_ref),
+            "lora_name": str(base_binding.get("provider_catalog_name") or base_requested),
+            "strength_model": float(unit.get("pose_base_strength") or 0.70),
+        },
+    }
+    helper_lora_id = _next_graph_id(graph, next_id)
+    graph[helper_lora_id] = {
+        "class_type": loader_class,
+        "inputs": {
+            "model": [base_lora_id, 0],
+            "lora_name": str(helper_binding.get("provider_catalog_name") or helper_requested),
+            "strength_model": float(unit.get("pose_helper_strength") or 0.70),
+        },
+    }
+    if model_anchor_id:
+        anchor_inputs = graph[model_anchor_id].get("inputs") if isinstance(graph[model_anchor_id].get("inputs"), dict) else {}
+        anchor_inputs["model"] = [helper_lora_id, 0]
+        graph[model_anchor_id]["inputs"] = anchor_inputs
+        model_patch_target = {"node_id": model_anchor_id, "class_type": graph[model_anchor_id].get("class_type"), "input": "model"}
+    else:
+        sampler_inputs["model"] = [helper_lora_id, 0]
+        graph[sampler_key]["inputs"] = sampler_inputs
+        model_patch_target = {"node_id": sampler_key, "class_type": graph[sampler_key].get("class_type"), "input": "model"}
+
+    notes.append({"level": "info", "field": "pose_transfer", "message": "Pose Transfer uses Image 2 as the DWPose reference and feeds the generated pose map into Qwen Image 3."})
+    return {
+        "ok": True,
+        "reason": "patched",
+        "notes": notes,
+        "created_node_ids": [pose_node_id, base_lora_id, helper_lora_id],
+        "pose_node_id": pose_node_id,
+        "pose_node_class": dwpose_node,
+        "pose_reference_ref": _copy_ref(image2_ref, ["", 0]),
+        "pose_map_ref": pose_ref,
+        "positive_encoder_id": positive_encoder_id,
+        "negative_encoder_id": negative_encoder_id,
+        "base_lora_node_id": base_lora_id,
+        "helper_lora_node_id": helper_lora_id,
+        "base_lora": str(base_binding.get("provider_catalog_name") or base_requested),
+        "helper_lora": str(helper_binding.get("provider_catalog_name") or helper_requested),
+        "base_lora_binding": base_binding,
+        "helper_lora_binding": helper_binding,
+        "model_patch_target": model_patch_target,
+        "model_anchor_id": model_anchor_id,
+        "prompt_instruction": instruction,
+    }
+
 def apply_controlnet_patch(
     workflow: dict[str, Any],
     payload: dict[str, Any] | None = None,
@@ -1232,6 +1507,64 @@ def apply_controlnet_patch(
     route_data["controlnet_task_state"] = task_state
 
     asset_resolution = resolve_controlnet_task_assets(block, image_params=image_params, route=route_data) if controlnet_task != TASK_MAP_CONTROL else {}
+
+    units_for_method = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+    pose_transfer_units = [unit for unit in units_for_method if str(unit.get("pose_method") or "controlnet") == POSE_TRANSFER_METHOD]
+    normal_control_units = [unit for unit in units_for_method if str(unit.get("pose_method") or "controlnet") != POSE_TRANSFER_METHOD]
+    if pose_transfer_units:
+        if controlnet_task != TASK_MAP_CONTROL:
+            return no_patch("Pose Transfer is an Img2Img/Edit reference workflow and cannot be combined with Inpaint/Outpaint ControlNet tasks.", asset_resolution=asset_resolution)
+        if len(pose_transfer_units) > 1:
+            return no_patch("Use one Pose Transfer unit per generation. Multiple pose-transfer units are not supported in the same run.")
+        if normal_control_units:
+            return no_patch("Choose either Pose Transfer or ControlNet units for this run. Stacking both systems together is not enabled yet.")
+        if not sampler or sampler.get("class_type") != "KSampler":
+            return no_patch("Pose Transfer could not find the active KSampler node.", extra_notes=[{"level": "error", "field": "workflow.sampler", "message": "Pose Transfer requires the active KSampler model and conditioning inputs."}])
+        pose_status = node_status or inspect_nodes(available_nodes)
+        pose_result = _apply_qwen_pose_transfer_patch(
+            graph,
+            unit=pose_transfer_units[0],
+            route_data=route_data,
+            available_nodes=available_nodes,
+            status=pose_status,
+            sampler_key=sampler_key,
+            sampler_inputs=sampler_inputs,
+            next_node_id=next_node_id,
+        )
+        if not pose_result.get("ok"):
+            return no_patch(str(pose_result.get("reason") or "Pose Transfer could not be applied."), status=pose_status, extra_notes=pose_result.get("notes") or [])
+        route_data["pose_transfer_state"] = "experimental_available"
+        route_data["pose_transfer_method"] = POSE_TRANSFER_METHOD
+        patch = build_workflow_patch_summary(
+            route=route_data,
+            node_status=pose_status,
+            applied_units=[deepcopy(pose_transfer_units[0])],
+            node_ids=pose_result.get("created_node_ids") or [],
+            previous_positive_ref=previous_positive_ref,
+            previous_negative_ref=previous_negative_ref,
+            patched_positive_ref=previous_positive_ref,
+            patched_negative_ref=previous_negative_ref,
+            sampler_node_id=sampler_key,
+            reason="patched",
+            applied=True,
+            controlnet_task=controlnet_task,
+        )
+        patch.update({
+            "adapter": "qwen_2511_pose_transfer",
+            "pose_transfer": {key: deepcopy(value) for key, value in pose_result.items() if key not in {"ok", "notes"}},
+            "pose_reference_lane": 2,
+            "pose_map_lane": 3,
+        })
+        return {
+            "workflow": graph,
+            "validation": {"ok": True, "enabled": True, "block": block, "validation": notes + list(pose_result.get("notes") or []), "route": route_data, "node_status": pose_status, "workflow_patch_allowed": True, "reason": "patched", "asset_resolution": {}},
+            "workflow_patch": patch,
+            "mutated": True,
+            "changed": True,
+            "extension_id": EXTENSION_ID,
+            "phase": PHASE,
+            "route_state": "experimental_available",
+        }
 
     if task_state not in ACTIVE_STATES:
         return no_patch(task_route_reason(controlnet_task, task_state), asset_resolution=asset_resolution)

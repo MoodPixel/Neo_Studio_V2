@@ -10,7 +10,9 @@
     "reference",
     "generation"
   ],
-  "workflow_modes": [],
+  "workflow_modes": [
+    "depth_motion"
+  ],
   "workspace_apps": [
     "reference",
     "generation"
@@ -45,17 +47,16 @@
     "comfyui_portable"
   ],
   "supported_families": [
-    "wan22",
     "ltx23"
   ],
   "supported_loaders": [
     "unet",
-    "gguf",
-    "native_workflow"
+    "gguf"
   ],
   "required_nodes": {},
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true
-  }
+  },
+  "route_context_scope": "generation_route"
 }

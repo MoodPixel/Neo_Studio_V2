@@ -48,6 +48,8 @@
     "qwen_rapid_aio",
     "z_image",
     "z_image_turbo",
+    "krea2",
+    "krea2_turbo",
     "hidream"
   ],
   "supported_loaders": [
@@ -98,7 +100,7 @@
       "ControlNetApply"
     ],
     "missing_optional_policy": "Gate only the optional control/path. Do not gate the full extension when optional enhancement nodes are missing.",
-    "phase_e_runtime_policy": "Skeleton only. Required node detection is declared but not executed until validation/workflow phases.",
+    "phase_e_runtime_policy": "Required node detection is evaluated when High-Res Lab is selected for generation.",
     "phase_i_runtime_policy": "Validation hooks inspect required base nodes and optional enhancement nodes. Missing required nodes provider-gate the extension; missing optional nodes only gate optional controls/paths.",
     "phase_k_runtime_policy": "Optional node discovery now reports per-path availability for VAEDecodeTiled, model-upscale nodes, Ultimate SD Upscale, and ControlNet preserve hints. Missing optional nodes gate only matching controls/paths.",
     "optional_node_groups": {
@@ -505,7 +507,47 @@
     "a1111:other:api_model:inpaint": "unsupported",
     "a1111:other:api_model:outpaint": "unsupported",
     "forge:sdxl:checkpoint:generate": "available",
-    "forge:sd15:checkpoint:generate": "available"
+    "forge:sd15:checkpoint:generate": "available",
+    "comfyui:krea2:diffusion_model:txt2img": "experimental_available",
+    "comfyui:krea2:diffusion_model:img2img": "experimental_available",
+    "comfyui:krea2:diffusion_model:inpaint": "experimental_available",
+    "comfyui:krea2:diffusion_model:outpaint": "experimental_available",
+    "comfyui:krea2:gguf:txt2img": "experimental_available",
+    "comfyui:krea2:gguf:img2img": "experimental_available",
+    "comfyui:krea2:gguf:inpaint": "experimental_available",
+    "comfyui:krea2:gguf:outpaint": "experimental_available",
+    "comfyui:krea2_turbo:diffusion_model:txt2img": "experimental_available",
+    "comfyui:krea2_turbo:diffusion_model:img2img": "experimental_available",
+    "comfyui:krea2_turbo:diffusion_model:inpaint": "experimental_available",
+    "comfyui:krea2_turbo:diffusion_model:outpaint": "experimental_available",
+    "comfyui:krea2_turbo:gguf:txt2img": "experimental_available",
+    "comfyui:krea2_turbo:gguf:img2img": "experimental_available",
+    "comfyui:krea2_turbo:gguf:inpaint": "experimental_available",
+    "comfyui:krea2_turbo:gguf:outpaint": "experimental_available",
+    "comfyui:krea2:diffusion_model:generate": "experimental_available",
+    "comfyui:krea2:gguf:generate": "experimental_available",
+    "comfyui:krea2_turbo:diffusion_model:generate": "experimental_available",
+    "comfyui:krea2_turbo:gguf:generate": "experimental_available",
+    "comfyui_portable:krea2:diffusion_model:txt2img": "experimental_available",
+    "comfyui_portable:krea2:diffusion_model:generate": "experimental_available",
+    "comfyui_portable:krea2:diffusion_model:img2img": "experimental_available",
+    "comfyui_portable:krea2:diffusion_model:inpaint": "experimental_available",
+    "comfyui_portable:krea2:diffusion_model:outpaint": "experimental_available",
+    "comfyui_portable:krea2:gguf:txt2img": "experimental_available",
+    "comfyui_portable:krea2:gguf:generate": "experimental_available",
+    "comfyui_portable:krea2:gguf:img2img": "experimental_available",
+    "comfyui_portable:krea2:gguf:inpaint": "experimental_available",
+    "comfyui_portable:krea2:gguf:outpaint": "experimental_available",
+    "comfyui_portable:krea2_turbo:diffusion_model:txt2img": "experimental_available",
+    "comfyui_portable:krea2_turbo:diffusion_model:generate": "experimental_available",
+    "comfyui_portable:krea2_turbo:diffusion_model:img2img": "experimental_available",
+    "comfyui_portable:krea2_turbo:diffusion_model:inpaint": "experimental_available",
+    "comfyui_portable:krea2_turbo:diffusion_model:outpaint": "experimental_available",
+    "comfyui_portable:krea2_turbo:gguf:txt2img": "experimental_available",
+    "comfyui_portable:krea2_turbo:gguf:generate": "experimental_available",
+    "comfyui_portable:krea2_turbo:gguf:img2img": "experimental_available",
+    "comfyui_portable:krea2_turbo:gguf:inpaint": "experimental_available",
+    "comfyui_portable:krea2_turbo:gguf:outpaint": "experimental_available"
   },
   "capability_profiles": {},
   "ui_schema": {
@@ -653,7 +695,7 @@
     "forbids_hidden_field_leakage": true,
     "route_validation_required": true,
     "phase": "P8.5",
-    "skeleton_policy": "Payload emission is active; Phase I validation may disable unsafe blocks but still emits no workflow patch data.",
+    "skeleton_policy": "Payload validation disables unsafe settings before generation and does not emit an invalid workflow change.",
     "validation_runtime_ready": true,
     "parameter_visibility_cleanup": true,
     "p7_forge_parity_target_size_resolver": true,
@@ -765,10 +807,10 @@
     "runtime_activation": false,
     "payload_emission": false,
     "workflow_graph_mutation": false,
-    "ui_policy": "Render a safe built-in placeholder panel in Image → Finish without enabling workflow application toggles until Phase G/H.",
+    "ui_policy": "Render the built-in panel in Image → Finish and enable controls only for compatible routes.",
     "guardrails": [
       "Do not mount under generic External Extensions.",
-      "Do not collect active generation payloads for image.high_res_lab in Phase F.",
+      "Do not collect active generation settings while the extension is unavailable for the selected route.",
       "Do not mutate workflow graphs from registry/mount wiring.",
       "Keep feature-specific logic in neo_extensions/built_in/image.high_res_lab/."
     ]
@@ -808,7 +850,7 @@
     "runtime_activation": false,
     "payload_emission": false,
     "workflow_graph_mutation": false,
-    "hidden_field_policy": "UI may store draft settings, but active generation payload is blocked until Phase H."
+    "hidden_field_policy": "The interface may preserve saved settings while generation remains blocked for unavailable routes."
   },
   "runtime": {
     "payload_contract_ready": true,

@@ -226,7 +226,7 @@ def scan_payload(root: str | Path, payload: dict[str, Any] | None = None, *, cat
     return scan_comfy_lora_catalog(root, catalog_loras or [])
 
 
-def save_record_payload(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
+def save_record_payload(root: str | Path, payload: dict[str, Any], *, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
     record = payload.get("record") if isinstance(payload.get("record"), dict) else payload
     normalized = normalize_record({**record, "updated": utc_now_iso()})
     field_sources = normalized.setdefault("field_sources", {})
@@ -236,7 +236,16 @@ def save_record_payload(root: str | Path, payload: dict[str, Any]) -> dict[str, 
     if isinstance(record.get("remote_source"), dict) and record.get("remote_source", {}).get("url"):
         field_sources["remote_source.url"] = "manual"
     saved = upsert_record(root, normalized)
-    return {"ok": True, "record": saved, "message": "LoRA metadata saved."}
+    live_catalog = normalize_catalog_snapshot(catalog or {}) if catalog is not None else None
+    if live_catalog is not None and bool(live_catalog.get("available", True)):
+        reconciled = merge_catalog_records(
+            [saved],
+            list(live_catalog.get("names") or []),
+            **_catalog_kwargs(live_catalog),
+        )
+        if reconciled:
+            saved = upsert_record(root, reconciled[0])
+    return {"ok": True, "record": browser_safe_record(saved), "message": "LoRA metadata saved."}
 
 
 
@@ -257,12 +266,29 @@ def _changed_lora_fields(before: dict[str, Any], after: dict[str, Any]) -> list[
     ]
     return [field for field in fields if before.get(field) != after.get(field)]
 
-def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog_loras: list[str] | None = None, fetcher=None, preview_fetcher=None) -> dict[str, Any]:
+def civitai_import_payload(
+    root: str | Path,
+    payload: dict[str, Any],
+    *,
+    catalog_loras: list[str] | None = None,
+    provider_id: str = "comfyui",
+    catalog_source: str = "",
+    provider_label: str = "",
+    fetcher=None,
+    preview_fetcher=None,
+) -> dict[str, Any]:
     record_id = str(payload.get("record_id") or payload.get("id") or "").strip()
     url = str(payload.get("url") or payload.get("civitai_url") or "").strip()
     mode = str(payload.get("mode") or "fill_missing")
     selected_fields = payload.get("selected_fields") if isinstance(payload.get("selected_fields"), list) else None
-    record = find_record(root, record_id, catalog_loras=catalog_loras or []) if record_id else None
+    record = find_record(
+        root,
+        record_id,
+        catalog_loras=catalog_loras or [],
+        provider_id=provider_id,
+        catalog_source=catalog_source,
+        provider_label=provider_label,
+    ) if record_id else None
     if record is None and payload.get("record"):
         record = normalize_record(payload.get("record") or {})
     if record is None:
@@ -304,6 +330,16 @@ def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog
         merged.setdefault("field_sources", {})["preview_image"] = "remote:civitai"
     merged["updated"] = utc_now_iso()
     saved = upsert_record(root, merged)
+    if catalog_loras:
+        reconciled = merge_catalog_records(
+            [saved],
+            catalog_loras,
+            provider_id=provider_id,
+            catalog_source=catalog_source,
+            provider_label=provider_label,
+        )
+        if reconciled:
+            saved = upsert_record(root, reconciled[0])
     changed_fields = _changed_lora_fields(before, saved)
     summary = {
         "incoming_triggers": len(incoming.get("triggers") or []),
@@ -320,7 +356,7 @@ def civitai_import_payload(root: str | Path, payload: dict[str, Any], *, catalog
         message = "CivitAI returned metadata, but fill/merge rules did not change this saved LoRA record."
     if preview_urls and not cache_result.get("paths"):
         message += " Preview images were found, but local preview caching failed; remote preview URLs were saved as fallback."
-    return {"ok": True, "record": saved, "fetched_url": fetched.get("url"), "preview_cache": cache_result, "mode": mode, "import_summary": summary, "message": message}
+    return {"ok": True, "record": browser_safe_record(saved), "fetched_url": fetched.get("url"), "preview_cache": cache_result, "mode": mode, "import_summary": summary, "message": message}
 
 
 def set_primary_preview_payload(root: str | Path, payload: dict[str, Any], *, catalog_loras: list[str] | None = None) -> dict[str, Any]:
@@ -448,14 +484,21 @@ def create_lora_stack_library_router(
 
     @router.post("/save")
     def lora_stack_library_save(payload: dict[str, Any]) -> dict[str, Any]:
-        result = save_record_payload(root, payload)
+        catalog = _catalog(payload.get("profile_id"))
+        result = save_record_payload(root, payload, catalog=catalog)
         if not result.get("ok"):
             raise HTTPException(status_code=400, detail=result.get("error", "Could not save LoRA metadata."))
         return result
 
     @router.post("/civitai-import")
     def lora_stack_library_civitai_import(payload: dict[str, Any]) -> dict[str, Any]:
-        result = civitai_import_payload(root, payload, catalog_loras=list(_catalog(payload.get("profile_id")).get("names") or []))
+        catalog = _catalog(payload.get("profile_id"))
+        result = civitai_import_payload(
+            root,
+            payload,
+            catalog_loras=list(catalog.get("names") or []),
+            **_catalog_kwargs(catalog),
+        )
         if not result.get("ok"):
             detail = result.get("message") or result.get("error") or result.get("errors") or "CivitAI import failed."
             raise HTTPException(status_code=400, detail=detail)

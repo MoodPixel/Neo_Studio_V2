@@ -781,5 +781,5 @@ def workflow_patch_not_implemented() -> dict:
         "extension_id": EXTENSION_ID,
         "implemented": True,
         "phase": PHASE,
-        "reason": "Phase J implements Comfy high-res/refine graph patching for available High-Res Lab routes.",
+        "reason": "Comfy high-res/refine graph patching is available for supported High-Res Lab routes.",
     }

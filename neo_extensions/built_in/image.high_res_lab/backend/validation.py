@@ -49,7 +49,7 @@ def _clamp_warnings(raw: dict[str, Any] | None, params: dict[str, Any]) -> list[
         elif parsed < minimum or parsed > maximum:
             warnings.append(_warning(field, f"{field} was clamped to the safe range {minimum}–{maximum}."))
     if params.get("tile_overlap", 0) >= params.get("tile_size", 1):
-        warnings.append(_warning("tile_overlap", "Tile overlap should stay smaller than tile size before Phase J workflow patching."))
+        warnings.append(_warning("tile_overlap", "Tile overlap should stay smaller than the tile size."))
     return warnings
 
 
@@ -101,7 +101,7 @@ def validate_high_res_lab_payload(
     if enabled_requested and cfg_policy == "z_image_turbo_low_cfg" and "cfg" in _raw_param_source(raw):
         warnings.append(_warning("cfg", "ZImage Turbo High-Res Lab caps refine CFG at 1.0 to preserve distilled Turbo/source conditioning."))
     if enabled_requested and node_status.get("status") == "unknown_not_checked":
-        warnings.append(_warning("node_availability", "Required Comfy node availability was not supplied; Phase I validates shape but defers hard gating to provider discovery."))
+        warnings.append(_warning("node_availability", "Required Comfy node availability was not supplied; final availability will be checked before generation."))
     if enabled_requested and node_status.get("status") == "provider_gated":
         msg = node_status.get("reason") or "Required base Comfy nodes are missing."
         if strict:
@@ -125,7 +125,7 @@ def validate_high_res_lab_payload(
         warnings.append(_warning("strategy", "Ultimate SD Upscale is optional and unavailable; standard High-Res Lab patch remains available."))
     warnings.extend(_clamp_warnings(raw, params))
 
-    # Phase I validation may disable the block for confirmed missing required nodes, but it still never emits graph patch data.
+    # Validation may disable the block when required nodes are confirmed missing.
     block = normalize_block(raw, route=route, enforce_route_state=True)
     if enabled_requested and route_ok and node_status.get("status") == "provider_gated":
         block = normalize_block({"enabled": False}, route=route, enforce_route_state=True)

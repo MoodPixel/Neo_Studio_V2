@@ -1,6 +1,6 @@
 {
-  "schema_version": "adetailer-support-matrix-v4",
-  "phase": "L",
+  "schema_version": "adetailer-support-matrix-v6",
+  "phase": "Phase 6 — Qwen Image Edit 2509 / 2511",
   "skeleton_only": false,
   "default_state": "unsupported",
   "backends": [
@@ -13,14 +13,17 @@
     "flux",
     "qwen_image",
     "qwen_image_edit_2509",
+    "qwen_image_edit_2511",
     "qwen_rapid_aio",
     "z_image",
+    "z_image_turbo",
     "hidream",
     "wan_image",
     "hunyuan_image"
   ],
   "loaders": [
     "checkpoint",
+    "checkpoint_aio",
     "diffusion_model",
     "gguf",
     "native"
@@ -517,12 +520,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -530,12 +535,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -543,12 +550,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -569,12 +578,14 @@
       "family": "flux",
       "loader": "gguf",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -582,12 +593,14 @@
       "family": "flux",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -595,12 +608,14 @@
       "family": "flux",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -725,12 +740,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -738,12 +755,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -751,12 +770,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -777,12 +798,14 @@
       "family": "qwen_image",
       "loader": "gguf",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -790,12 +813,14 @@
       "family": "qwen_image",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -803,12 +828,14 @@
       "family": "qwen_image",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -874,6 +901,348 @@
       "workflow_patch_profile": "none",
       "notes": [
         "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "checkpoint_aio",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_rapid_aio",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
       ]
     },
     {
@@ -933,12 +1302,14 @@
       "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -946,12 +1317,14 @@
       "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -959,12 +1332,14 @@
       "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -985,12 +1360,14 @@
       "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -998,12 +1375,14 @@
       "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -1011,12 +1390,14 @@
       "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -1082,6 +1463,226 @@
       "workflow_patch_profile": "none",
       "notes": [
         "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
       ]
     },
     {
@@ -2171,12 +2772,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2184,12 +2787,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2197,12 +2802,14 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2210,19 +2817,6 @@
       "family": "flux",
       "loader": "diffusion_model",
       "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "flux",
-      "loader": "gguf",
-      "workflow_mode": "generate",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
       "parameter_profile": "hidden",
@@ -2235,13 +2829,30 @@
       "backend": "comfyui_portable",
       "family": "flux",
       "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2249,12 +2860,14 @@
       "family": "flux",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2262,32 +2875,6 @@
       "family": "flux",
       "loader": "gguf",
       "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "flux",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "flux",
-      "loader": "native",
-      "workflow_mode": "img2img",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
       "parameter_profile": "hidden",
@@ -2300,6 +2887,32 @@
       "backend": "comfyui_portable",
       "family": "flux",
       "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "flux",
+      "loader": "native",
       "workflow_mode": "inpaint",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
@@ -2379,12 +2992,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2392,12 +3007,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2405,12 +3022,14 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2418,19 +3037,6 @@
       "family": "qwen_image",
       "loader": "diffusion_model",
       "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "qwen_image",
-      "loader": "gguf",
-      "workflow_mode": "generate",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
       "parameter_profile": "hidden",
@@ -2443,13 +3049,30 @@
       "backend": "comfyui_portable",
       "family": "qwen_image",
       "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2457,12 +3080,14 @@
       "family": "qwen_image",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -2470,32 +3095,6 @@
       "family": "qwen_image",
       "loader": "gguf",
       "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "qwen_image",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "qwen_image",
-      "loader": "native",
-      "workflow_mode": "img2img",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
       "parameter_profile": "hidden",
@@ -2508,6 +3107,32 @@
       "backend": "comfyui_portable",
       "family": "qwen_image",
       "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image",
+      "loader": "native",
       "workflow_mode": "inpaint",
       "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
@@ -2532,7 +3157,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "checkpoint",
       "workflow_mode": "generate",
       "state": "unsupported",
@@ -2545,7 +3170,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "checkpoint",
       "workflow_mode": "img2img",
       "state": "unsupported",
@@ -2558,7 +3183,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "checkpoint",
       "workflow_mode": "inpaint",
       "state": "unsupported",
@@ -2571,7 +3196,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "checkpoint",
       "workflow_mode": "outpaint",
       "state": "unsupported",
@@ -2584,886 +3209,628 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "z_image",
+      "family": "qwen_image_edit_2509",
       "loader": "diffusion_model",
       "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "gguf",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "gguf",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "gguf",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "native",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "native",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "z_image",
-      "loader": "native",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "checkpoint",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "checkpoint",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "checkpoint",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "checkpoint",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "diffusion_model",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "diffusion_model",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "diffusion_model",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "diffusion_model",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "gguf",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "gguf",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "gguf",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "native",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "native",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hidream",
-      "loader": "native",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "gguf",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "gguf",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "gguf",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "native",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "native",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "wan_image",
-      "loader": "native",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "checkpoint",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "diffusion_model",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "gguf",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "gguf",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "gguf",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "native",
-      "workflow_mode": "img2img",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "native",
-      "workflow_mode": "inpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui_portable",
-      "family": "hunyuan_image",
-      "loader": "native",
-      "workflow_mode": "outpaint",
-      "state": "provider_gated",
-      "reason_code": "provider_family_gated",
-      "parameter_profile": "diagnostic_only",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
-      "loader": "checkpoint_aio",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
-      "loader": "checkpoint_aio",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
-      "loader": "checkpoint_aio",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
-      "loader": "checkpoint_aio",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
-      "loader": "gguf",
-      "workflow_mode": "generate",
       "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
       "workflow_patch_profile": "none",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
       ]
     },
     {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
       ]
     },
     {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
       ]
     },
     {
-      "backend": "comfyui",
-      "family": "qwen_rapid_aio",
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
       "loader": "gguf",
       "workflow_mode": "outpaint",
       "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
       "reason_code": "modern_or_gguf_route_unproven",
       "parameter_profile": "hidden",
       "workflow_patch_profile": "none",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2509",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase6_qwen_edit_identity_risk_experimental",
+      "parameter_profile": "adetailer_qwen_edit_identity_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 6 compiler publishes exact Qwen Edit MODEL/CLIP/VAE/conditioning and model-sampling lineage.",
+        "Native execution is allowed with an explicit identity-risk warning; a compatible detailer-only identity LoRA or dedicated detailer model is recommended.",
+        "Identity-LoRA mode uses LoraLoaderModelOnly and reapplies compiler-owned model-sampling wrappers after the LoRA.",
+        "Physical GPU and visual identity validation are still required."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "planned_gated",
+      "reason_code": "phase6_qwen_edit_outpaint_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Qwen Edit outpaint remains gated until padded-canvas identity and seam behavior is physically validated."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "qwen_image_edit_2511",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
       ]
     },
     {
@@ -3471,12 +3838,14 @@
       "family": "qwen_rapid_aio",
       "loader": "checkpoint_aio",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3484,12 +3853,14 @@
       "family": "qwen_rapid_aio",
       "loader": "checkpoint_aio",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3497,12 +3868,14 @@
       "family": "qwen_rapid_aio",
       "loader": "checkpoint_aio",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3523,12 +3896,14 @@
       "family": "qwen_rapid_aio",
       "loader": "gguf",
       "workflow_mode": "generate",
-      "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3536,12 +3911,14 @@
       "family": "qwen_rapid_aio",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3549,12 +3926,14 @@
       "family": "qwen_rapid_aio",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "planned_gated",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "V25.9.20 Pass E: ADetailer is not unlocked for Qwen Rapid AIO until a route-specific postpass graph is validated."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
@@ -3571,216 +3950,8 @@
       ]
     },
     {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "checkpoint",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "checkpoint",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "checkpoint",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "checkpoint",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "diffusion_model",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "diffusion_model",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "diffusion_model",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "diffusion_model",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "gguf",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "gguf",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "gguf",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "gguf",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "native",
-      "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "native",
-      "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "native",
-      "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
-      "backend": "comfyui",
-      "family": "qwen_image_edit_2509",
-      "loader": "native",
-      "workflow_mode": "outpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
-      "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
-      ]
-    },
-    {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "checkpoint",
       "workflow_mode": "generate",
       "state": "unsupported",
@@ -3793,7 +3964,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "checkpoint",
       "workflow_mode": "img2img",
       "state": "unsupported",
@@ -3806,7 +3977,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "checkpoint",
       "workflow_mode": "inpaint",
       "state": "unsupported",
@@ -3819,7 +3990,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "checkpoint",
       "workflow_mode": "outpaint",
       "state": "unsupported",
@@ -3832,46 +4003,52 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "diffusion_model",
       "workflow_mode": "outpaint",
       "state": "unsupported",
@@ -3884,46 +4061,52 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "generate",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "img2img",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "inpaint",
-      "state": "unsupported",
-      "reason_code": "modern_or_gguf_route_unproven",
-      "parameter_profile": "hidden",
-      "workflow_patch_profile": "none",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
       "notes": [
-        "Do not fallback to SDXL/checkpoint graph fields."
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
       ]
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "gguf",
       "workflow_mode": "outpaint",
       "state": "unsupported",
@@ -3936,7 +4119,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "native",
       "workflow_mode": "generate",
       "state": "unsupported",
@@ -3949,7 +4132,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "native",
       "workflow_mode": "img2img",
       "state": "unsupported",
@@ -3962,7 +4145,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "native",
       "workflow_mode": "inpaint",
       "state": "unsupported",
@@ -3975,7 +4158,7 @@
     },
     {
       "backend": "comfyui_portable",
-      "family": "qwen_image_edit_2509",
+      "family": "z_image",
       "loader": "native",
       "workflow_mode": "outpaint",
       "state": "unsupported",
@@ -3984,6 +4167,850 @@
       "workflow_patch_profile": "none",
       "notes": [
         "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "experimental_available",
+      "reason_code": "phase5_compiler_contract_experimental",
+      "parameter_profile": "adetailer_modern_family_finish_experimental",
+      "workflow_patch_profile": "face_detailer_or_segs_after_compiler_image",
+      "notes": [
+        "Phase 5 compiler publishes the strict ADetailer route contract and family-owned preset.",
+        "Runtime remains experimental until physical GPU and visual quality validation are recorded.",
+        "No SDXL/checkpoint graph fallback is permitted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "z_image_turbo",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Z-Image Turbo route was discovered after the original matrix and remains fail-closed unless an exact Phase 5 row is promoted."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hidream",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "unsupported",
+      "reason_code": "modern_or_gguf_route_unproven",
+      "parameter_profile": "hidden",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Do not fallback to SDXL/checkpoint graph fields."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "wan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "checkpoint",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "diffusion_model",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "gguf",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "generate",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "img2img",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "inpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
+      ]
+    },
+    {
+      "backend": "comfyui_portable",
+      "family": "hunyuan_image",
+      "loader": "native",
+      "workflow_mode": "outpaint",
+      "state": "provider_gated",
+      "reason_code": "provider_family_gated",
+      "parameter_profile": "diagnostic_only",
+      "workflow_patch_profile": "none",
+      "notes": [
+        "Video/provider-style routes cannot consume Impact Pack image detailer nodes."
       ]
     }
   ],
@@ -4001,6 +5028,9 @@
     "unknown_route": "No explicit ADetailer support entry exists for this normalized route.",
     "nodes_missing": "ComfyUI Impact Pack detailer nodes were not detected. Install/enable the required custom nodes before ADetailer can patch the graph.",
     "nodes_unchecked": "Node availability was not provided, so ADetailer remains provider-gated for runtime mutation.",
-    "nodes_ready": "Required Impact Pack nodes were detected for the selected route."
+    "nodes_ready": "Required Impact Pack nodes were detected for the selected route.",
+    "phase5_compiler_contract_experimental": "Phase 5 experimental route: the provider compiler publishes exact ADetailer image/MODEL/CLIP/VAE/conditioning/sampler anchors and a family-owned preset. Physical GPU and visual parity validation are still required before stable availability.",
+    "phase6_qwen_edit_identity_risk_experimental": "Phase 6 experimental Qwen Edit route: native ADetailer is available with an explicit identity-drift warning. A compatible detailer-only identity LoRA or dedicated detailer model is recommended; physical image validation remains required.",
+    "phase6_qwen_edit_outpaint_gated": "Qwen Image Edit outpaint remains gated until padded-canvas repair, seam behavior, and identity retention are physically validated."
   }
 }

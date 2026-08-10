@@ -25,6 +25,7 @@ VALID_MASK_MODES = {"none", "control_mask", "inpaint_mask"}
 VALID_STRENGTH_SCHEDULES = {"flat", "linear", "ease_in", "ease_out", "ease_in_out"}
 VALID_WEIGHT_PRESETS = {"balanced", "prompt_strong", "control_strong", "soft", "strict"}
 VALID_ADVANCED_ENGINES = {"auto", "standard", "advanced_controlnet"}
+VALID_POSE_METHODS = {"controlnet", "qwen_transfer"}
 VALID_PARAM_KEYS = {"advanced_controlnet_requested", "batch_policy", "controlnet_task", "qwen_controlnet_adapter", "controlnet_qwen_adapter", "qwen_cn_adapter", "flux_controlnet_adapter", "controlnet_flux_adapter", "flux_cn_adapter", "flux_klein_controlnet_adapter"}
 VALID_ASSET_KEYS = {"control_images", "control_masks", "generated_maps", "source_images", "source_masks", "inpaint_source_images", "inpaint_masks", "outpaint_source_images", "outpaint_canvas_images", "outpaint_masks", "padded_images", "padded_masks"}
 VALID_METADATA_KEYS = {"schema", "route", "route_state", "ui_source", "reason", "requested", "payload_hardening", "legacy_migrated", "controlnet_task", "asset_resolver_phase", "preview_reference_handoff"}
@@ -52,7 +53,16 @@ COMMON_UNIT_KEYS = {
     "sliding_context",
 }
 CANNY_KEYS = {"canny_low", "canny_high"}
-OPENPOSE_KEYS = {"openpose_body", "openpose_hand", "openpose_face"}
+OPENPOSE_KEYS = {"openpose_body", "openpose_hand", "openpose_face", "pose_method"}
+POSE_TRANSFER_KEYS = {
+    "pose_reference_lane",
+    "pose_map_lane",
+    "pose_base_lora",
+    "pose_helper_lora",
+    "pose_base_strength",
+    "pose_helper_strength",
+    "pose_prompt_instruction",
+}
 
 DEFAULT_UNIT = {
     "uid": "unit_1",
@@ -73,6 +83,14 @@ DEFAULT_UNIT = {
     "openpose_body": True,
     "openpose_hand": False,
     "openpose_face": False,
+    "pose_method": "controlnet",
+    "pose_reference_lane": 2,
+    "pose_map_lane": 3,
+    "pose_base_lora": "",
+    "pose_helper_lora": "",
+    "pose_base_strength": 0.70,
+    "pose_helper_strength": 0.70,
+    "pose_prompt_instruction": "Make the person in image 1 match the exact pose from image 2. Use image 3 as the extracted pose map. Preserve identity, clothing, background, lighting, and style unless the prompt explicitly requests a change.",
     "advanced_enabled": False,
     "advanced_engine": "auto",
     "strength_schedule": "flat",
@@ -131,12 +149,14 @@ def clamp(value: Any, *, minimum: float, maximum: float, default: float, precisi
     return round(number, precision)
 
 
-def _active_specific_keys(unit: str, preprocessor: str) -> set[str]:
+def _active_specific_keys(unit: str, preprocessor: str, pose_method: str = "controlnet") -> set[str]:
     keys = set(COMMON_UNIT_KEYS)
     if unit == "canny" or preprocessor == "canny":
         keys |= CANNY_KEYS
     if unit == "openpose" or preprocessor in {"openpose", "dwpose"}:
         keys |= OPENPOSE_KEYS
+        if pose_method == "qwen_transfer":
+            keys |= POSE_TRANSFER_KEYS
     return keys
 
 
@@ -146,7 +166,7 @@ def _strip_unit_visibility(clean: dict[str, Any]) -> dict[str, Any]:
     This is the Phase D stale-field guard: canny thresholds must not travel with
     OpenPose units, and OpenPose toggles must not travel with Canny/depth units.
     """
-    allowed = _active_specific_keys(str(clean.get("unit")), str(clean.get("preprocessor")))
+    allowed = _active_specific_keys(str(clean.get("unit")), str(clean.get("preprocessor")), str(clean.get("pose_method") or "controlnet"))
     return {key: value for key, value in clean.items() if key in allowed}
 
 
@@ -163,6 +183,11 @@ def normalize_unit(raw: dict[str, Any] | None, index: int = 0) -> tuple[dict[str
     strength_schedule = _enum(data.get("strength_schedule"), valid=VALID_STRENGTH_SCHEDULES, default=DEFAULT_UNIT["strength_schedule"], notes=notes, field="strength_schedule")
     weight_preset = _enum(data.get("weight_preset"), valid=VALID_WEIGHT_PRESETS, default=DEFAULT_UNIT["weight_preset"], notes=notes, field="weight_preset")
     advanced_engine = _enum(data.get("advanced_engine"), valid=VALID_ADVANCED_ENGINES, default=DEFAULT_UNIT["advanced_engine"], notes=notes, field="advanced_engine")
+    pose_method = _enum(data.get("pose_method"), valid=VALID_POSE_METHODS, default=DEFAULT_UNIT["pose_method"], notes=notes, field="pose_method")
+    if unit != "openpose":
+        pose_method = "controlnet"
+    if pose_method == "qwen_transfer":
+        preprocessor = "dwpose"
 
     start = clamp(data.get("start_percent"), minimum=0.0, maximum=1.0, default=0.0)
     end = clamp(data.get("end_percent"), minimum=0.0, maximum=1.0, default=1.0)
@@ -197,8 +222,16 @@ def normalize_unit(raw: dict[str, Any] | None, index: int = 0) -> tuple[dict[str
         "openpose_body": _as_bool(data.get("openpose_body"), True),
         "openpose_hand": _as_bool(data.get("openpose_hand"), False),
         "openpose_face": _as_bool(data.get("openpose_face"), False),
-        "advanced_enabled": advanced_enabled,
-        "advanced_engine": advanced_engine if advanced_enabled else "auto",
+        "pose_method": pose_method,
+        "pose_reference_lane": 2,
+        "pose_map_lane": 3,
+        "pose_base_lora": str(data.get("pose_base_lora") or "").strip(),
+        "pose_helper_lora": str(data.get("pose_helper_lora") or "").strip(),
+        "pose_base_strength": clamp(data.get("pose_base_strength"), minimum=0.0, maximum=2.0, default=0.70),
+        "pose_helper_strength": clamp(data.get("pose_helper_strength"), minimum=0.0, maximum=2.0, default=0.70),
+        "pose_prompt_instruction": str(data.get("pose_prompt_instruction") or DEFAULT_UNIT["pose_prompt_instruction"]).strip()[:2000],
+        "advanced_enabled": False if pose_method == "qwen_transfer" else advanced_enabled,
+        "advanced_engine": advanced_engine if advanced_enabled and pose_method != "qwen_transfer" else "auto",
         "strength_schedule": strength_schedule,
         "weight_preset": weight_preset,
         "mask_mode": mask_mode,

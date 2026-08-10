@@ -49,11 +49,12 @@
   "supported_loaders": [
     "unet",
     "gguf",
-    "native_workflow"
+    "rapid_aio_gguf"
   ],
   "required_nodes": {},
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true
-  }
+  },
+  "route_context_scope": "generation_route"
 }

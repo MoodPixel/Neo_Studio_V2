@@ -19,6 +19,7 @@ from .constants import (
     INTEGER_PARAMS,
     NUMERIC_LIMITS,
     MAX_DETAILER_PASSES,
+    LIST_PARAMS,
     PHASE,
     RUNTIME_PARAMS,
     STRING_PARAMS,
@@ -26,6 +27,11 @@ from .constants import (
     TARGET_SPLIT_MODES,
     VERSION,
 )
+
+from .model_source import normalize_dedicated_family, normalize_model_source
+from .family_presets import LEGACY_MANUAL, normalize_family_preset_mode
+from .lora_branch import normalize_detailer_lora_rows, normalize_lora_inheritance, normalize_lora_uid_list
+from .identity_policy import normalize_identity_lora_revision, normalize_identity_protection
 
 BOX_RE = re.compile(r"[-+]?\d*\.?\d+")
 
@@ -324,6 +330,7 @@ def normalize_params(params: dict[str, Any] | None = None, *, enabled: bool | No
     warnings: list[str] = []
     ignored: list[str] = []
     clamped: list[str] = []
+    legacy_family_preset_migration = bool(source) and "family_preset_mode" not in source
 
     for key, value in source.items():
         if key not in RUNTIME_PARAMS:
@@ -345,8 +352,28 @@ def normalize_params(params: dict[str, Any] | None = None, *, enabled: bool | No
             if clamp_issue:
                 clamped.append(key if clamp_issue == "clamped" else f"{key}:{clamp_issue}")
             normalized[key] = number
+        elif key in LIST_PARAMS:
+            if key == "inherit_lora_uids":
+                normalized[key] = normalize_lora_uid_list(value)
+            elif key == "detailer_loras":
+                normalized[key] = normalize_detailer_lora_rows(value)
         elif key in STRING_PARAMS:
-            normalized[key] = str(value).strip() if value is not None else ""
+            text_value = str(value).strip() if value is not None else ""
+            if key == "model_source":
+                text_value = normalize_model_source(text_value)
+            elif key == "family_preset_mode":
+                text_value = normalize_family_preset_mode(text_value)
+            elif key == "identity_protection":
+                text_value = normalize_identity_protection(text_value)
+            elif key == "identity_lora_revision":
+                text_value = normalize_identity_lora_revision(text_value)
+            elif key == "detailer_model_family":
+                text_value = normalize_dedicated_family(text_value)
+            elif key == "detailer_vae" and not text_value:
+                text_value = "automatic"
+            elif key == "lora_inheritance":
+                text_value = normalize_lora_inheritance(text_value)
+            normalized[key] = text_value
         elif key == "detector_type":
             text = str(value).strip().lower()
             if text not in DETECTOR_TYPES:
@@ -366,9 +393,23 @@ def normalize_params(params: dict[str, Any] | None = None, *, enabled: bool | No
                 text = DEFAULT_PARAMS[key]
             normalized[key] = text
 
+    if legacy_family_preset_migration:
+        normalized["family_preset_mode"] = LEGACY_MANUAL
+        warnings.append("family_preset_mode_migrated_legacy_manual")
+    else:
+        normalized["family_preset_mode"] = normalize_family_preset_mode(normalized.get("family_preset_mode"))
+
     if enabled is not None:
         normalized["enabled"] = bool(enabled)
 
+    normalized["detailer_loras"] = normalize_detailer_lora_rows(
+        source.get("detailer_loras"),
+        singular_params=normalized,
+    )
+    normalized["inherit_lora_uids"] = normalize_lora_uid_list(normalized.get("inherit_lora_uids"))
+    normalized["lora_inheritance"] = normalize_lora_inheritance(normalized.get("lora_inheritance"))
+    normalized["identity_protection"] = normalize_identity_protection(normalized.get("identity_protection"))
+    normalized["identity_lora_revision"] = normalize_identity_lora_revision(normalized.get("identity_lora_revision"))
     normalized["detailer_passes"] = _normalize_detailer_passes(source.get("detailer_passes"), normalized, warnings)
     detailer_passes = normalized["detailer_passes"]
     if (
@@ -447,6 +488,14 @@ def normalize_params(params: dict[str, Any] | None = None, *, enabled: bool | No
         "primary_runtime_pass_index": detailer_passes.index(primary_runtime_pass) if primary_runtime_pass in detailer_passes else 0,
         "multi_pass_payload_ready": True,
         "multi_pass_ui_ready": True,
+        "lora_inheritance": normalized.get("lora_inheritance"),
+        "inherited_lora_uid_count": len(normalized.get("inherit_lora_uids") or []),
+        "detailer_lora_count": len(normalized.get("detailer_loras") or []),
+        "detailer_lora_branch_requested": bool(normalized.get("detailer_loras") or normalized.get("lora_inheritance") != "inherit_all"),
+        "family_preset_mode": normalized.get("family_preset_mode"),
+        "family_preset_legacy_migration": legacy_family_preset_migration,
+        "identity_protection": normalized.get("identity_protection"),
+        "identity_lora_revision": normalized.get("identity_lora_revision"),
     }
     return normalized, derived
 
@@ -470,7 +519,9 @@ def normalize_block(payload: Any) -> dict[str, Any]:
     clean["enabled"] = requested_enabled
     clean["params"] = params
     clean["inputs"] = {k: v for k, v in raw_inputs.items() if k in {"enabled", "source_image", "source_output_id", "detection_snapshot", "preview_action_source"}}
-    clean["assets"] = {k: str(v).strip() for k, v in raw_assets.items() if k in {"detector_model_path", "sam_model_path", "source_image_ref"} and v}
+    clean["assets"] = {k: str(v).strip() for k, v in raw_assets.items() if k in {"detector_model_path", "sam_model_path", "source_image_ref", "detailer_checkpoint", "detailer_vae"} and v}
+    if isinstance(raw_assets.get("detailer_loras"), list):
+        clean["assets"]["detailer_loras"] = [str(item).strip() for item in raw_assets.get("detailer_loras", []) if str(item).strip()]
     clean["metadata"].update({
         "requested_enabled": requested_enabled,
         "normalization": derived,
@@ -479,6 +530,24 @@ def normalize_block(payload: Any) -> dict[str, Any]:
         "preview_action_source": raw_metadata.get("preview_action_source") or raw_inputs.get("preview_action_source"),
         "detailer_output_pass": bool(raw_metadata.get("detailer_output_pass") or raw_params.get("detailer_output_pass")),
     })
+    # Phase 9 replay metadata is execution evidence, not free-form client data.
+    # Preserve only the exact allowlisted contract fields so a restored recipe can
+    # be fingerprinted and revalidated without admitting stale runtime internals.
+    for key in (
+        "execution_recipe",
+        "execution_recipe_fingerprint",
+        "replay_contract_schema_id",
+        "replay_recipe_locked",
+        "revalidation_required",
+        "ready_to_auto_enable",
+        "restore_policy",
+        "restore_state",
+        "restored_from_replay",
+        "restored_from_output",
+        "source_phase",
+    ):
+        if key in raw_metadata:
+            clean["metadata"][key] = deepcopy(raw_metadata.get(key))
     return clean
 
 

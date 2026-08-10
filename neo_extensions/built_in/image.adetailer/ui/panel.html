@@ -1,9 +1,9 @@
-<section class="neo-adetailer-panel" data-extension-id="image.adetailer" data-phase="G" data-mount-slot="image.finish.adetailer" data-route-state="unchecked" data-display-mode="guided">
+<section class="neo-adetailer-panel" data-extension-id="image.adetailer" data-phase="P7" data-mount-slot="image.finish.adetailer" data-route-state="unchecked" data-display-mode="guided" data-selection-preservation="route_safe" data-ui-contract="neo.image.adetailer.ui_ux.v1">
   <header class="neo-adetailer-panel__header">
     <div>
       <span class="neo-adetailer-panel__eyebrow">Finish</span>
       <h3>ADetailer</h3>
-      <p class="neo-adetailer-panel__subtitle">Selective repair for faces, hands, and detected regions after the base image is generated.</p>
+      <p class="neo-adetailer-panel__subtitle">Selective repair with route-aware status, isolated detailer models and LoRAs, family presets, and explicit identity or precision warnings.</p>
     </div>
     <div class="neo-adetailer-panel__status" aria-live="polite">
       <span class="neo-adetailer-chip" data-adetailer-status-chip>Route unchecked</span>
@@ -11,9 +11,21 @@
     </div>
   </header>
 
+  <section class="neo-adetailer-status-center" data-adetailer-status-center role="status" aria-live="polite">
+    <div class="neo-adetailer-status-center__head">
+      <div>
+        <strong>Route and safety status</strong>
+        <p class="neo-muted" data-adetailer-route-summary>Waiting for the active Image route.</p>
+      </div>
+      <div class="neo-adetailer-status-chips" data-adetailer-risk-chips></div>
+    </div>
+    <p class="neo-muted" data-adetailer-status-message>ADetailer selections remain stored while route availability changes.</p>
+  </section>
+
   <div class="neo-adetailer-gate" data-adetailer-gate hidden>
     <strong data-adetailer-gate-title>ADetailer unavailable for this route.</strong>
     <p data-adetailer-gate-reason>No route has been resolved yet.</p>
+    <small>Saved model, LoRA, detector, sampling, identity, and target selections are preserved.</small>
   </div>
 
   <div class="neo-adetailer-toolbar">
@@ -22,7 +34,7 @@
       <span>Enable ADetailer</span>
     </label>
     <label class="neo-adetailer-select-label">
-      <span>Mode</span>
+      <span>Interface mode</span>
       <select data-adetailer-display-mode>
         <option value="compact">Compact</option>
         <option value="guided" selected>Guided</option>
@@ -31,118 +43,138 @@
     </label>
   </div>
 
-  <div class="neo-adetailer-grid" data-adetailer-controls>
-    <label class="neo-adetailer-field" data-display="compact guided expert">
-      <span>Detector model</span>
-      <input type="text" data-adetailer-field="detector_model" placeholder="face_yolov8m.pt" autocomplete="off" />
-      <small>Use a scanned Impact Pack detector model or a custom model name/path.</small>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Detector type</span>
-      <select data-adetailer-field="detector_type">
-        <option value="bbox">BBox detector</option>
-        <option value="segm">Segmentation detector</option>
-        <option value="onnx_bbox">ONNX bbox detector</option>
-        <option value="onnx_segm">ONNX segmentation detector</option>
-      </select>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Confidence</span>
-      <input type="number" data-adetailer-field="confidence" min="0" max="1" step="0.01" value="0.30" />
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Targets</span>
-      <input type="number" data-adetailer-field="top_k" min="1" max="50" step="1" value="1" />
-    </label>
-
-    <label class="neo-adetailer-field" data-display="compact guided expert">
-      <span>Repair strength</span>
-      <input type="number" data-adetailer-field="denoise" min="0" max="1" step="0.01" value="0.35" />
-      <small>Denoise for the local detailer pass.</small>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Steps</span>
-      <input type="number" data-adetailer-field="steps" min="1" max="150" step="1" value="20" />
-    </label>
-
-    <label class="neo-adetailer-field" data-display="expert">
-      <span>Detailer CFG</span>
-      <input type="number" data-adetailer-field="cfg" min="0" max="30" step="0.5" placeholder="auto / capped at 15" />
-      <small>V1 safety cap prevents high base CFG from leaking into repair passes.</small>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Mask grow</span>
-      <input type="number" data-adetailer-field="bbox_grow" min="-128" max="512" step="1" value="16" />
-    </label>
-
-    <label class="neo-adetailer-field" data-display="guided expert">
-      <span>Mask blur</span>
-      <input type="number" data-adetailer-field="mask_blur" min="0" max="128" step="1" value="4" />
-    </label>
-
-    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert">
-      <span>Repair prompt</span>
-      <textarea data-adetailer-field="positive_prompt" rows="3" placeholder="Optional local positive prompt. Use [SEP] to map prompt targets."></textarea>
-    </label>
-
-    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert">
-      <span>Negative repair prompt</span>
-      <textarea data-adetailer-field="negative_prompt" rows="3" placeholder="Optional local negative prompt. [SEP] is supported."></textarea>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="expert">
-      <span>SAM model</span>
-      <input type="text" data-adetailer-field="sam_model" placeholder="sam_vit_b_01ec64.pth" autocomplete="off" />
-    </label>
-
-    <label class="neo-adetailer-field" data-display="expert">
-      <span>Target order</span>
-      <select data-adetailer-field="target_order">
-        <option value="area_desc">Largest first</option>
-        <option value="area_asc">Smallest first</option>
-        <option value="left_to_right">Left to right</option>
-        <option value="right_to_left">Right to left</option>
-        <option value="top_to_bottom">Top to bottom</option>
-        <option value="bottom_to_top">Bottom to top</option>
-        <option value="confidence_desc">Highest confidence</option>
-      </select>
-    </label>
-
-    <label class="neo-adetailer-field" data-display="expert">
-      <span>Prompt target mode</span>
-      <select data-adetailer-field="target_split_mode">
-        <option value="sep_prompt_targets">Use [SEP] target mapping</option>
-        <option value="single_prompt">Single prompt for every target</option>
-        <option value="repeat_prompt">Repeat prompts across targets</option>
-      </select>
-    </label>
-
-    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
-      <span>Custom classes</span>
-      <textarea data-adetailer-field="custom_classes" rows="2" placeholder="face, hand, person"></textarea>
-    </label>
-
-    <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
-      <span>Manual boxes</span>
-      <textarea data-adetailer-field="manual_boxes" rows="3" placeholder="x,y,w,h,label or JSON box list"></textarea>
-      <small>Text contract preserved from V1. Visual box drawer returns in a later UI parity phase.</small>
-    </label>
+  <div class="neo-adetailer-section-stack" data-adetailer-controls>
+    <details class="neo-adetailer-section" data-adetailer-section="detection" open>
+      <summary><span><strong>Detection</strong><small>Detector model, type, confidence, masks and SAM</small></span><span class="neo-state-pill muted">Impact Pack</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <label class="neo-adetailer-field" data-display="compact guided expert"><span>Detector model</span><input type="text" data-adetailer-field="detector_model" placeholder="face_yolov8m.pt" autocomplete="off" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Detector type</span><select data-adetailer-field="detector_type"><option value="bbox">BBox detector</option><option value="segm">Segmentation detector</option><option value="onnx_bbox">ONNX bbox detector</option><option value="onnx_segm">ONNX segmentation detector</option></select></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Confidence</span><input type="number" data-adetailer-field="confidence" min="0" max="1" step="0.01" value="0.30" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Targets</span><input type="number" data-adetailer-field="top_k" min="1" max="50" step="1" value="1" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Mask grow</span><input type="number" data-adetailer-field="bbox_grow" min="-128" max="512" step="1" value="16" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Mask blur</span><input type="number" data-adetailer-field="mask_blur" min="0" max="128" step="1" value="4" /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>SAM model</span><input type="text" data-adetailer-field="sam_model" placeholder="sam_vit_b_01ec64.pth" autocomplete="off" /></label>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="model">
+      <summary><span><strong>Detailer model</strong><small>Reuse the generation model or load an isolated SDXL/SD1.5 checkpoint</small></span><span class="neo-state-pill muted" data-adetailer-model-source-chip>Generation model</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <label class="neo-adetailer-field" data-display="compact guided expert">
+          <span>Detailer model source</span>
+          <select data-adetailer-field="model_source"><option value="generation_model">Use generation model</option><option value="dedicated_checkpoint">Use dedicated checkpoint</option></select>
+          <small>The generated image remains the repair source.</small>
+        </label>
+        <label class="neo-adetailer-field" data-display="guided expert" data-adetailer-dedicated-field hidden>
+          <span>Dedicated family</span>
+          <select data-adetailer-field="detailer_model_family"><option value="sdxl">SDXL</option><option value="sd15">SD 1.5</option></select>
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert" data-adetailer-dedicated-field hidden>
+          <span>Dedicated checkpoint</span>
+          <input type="text" data-adetailer-field="detailer_checkpoint" placeholder="Select an installed SDXL/SD1.5 checkpoint" autocomplete="off" />
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert" data-adetailer-dedicated-field hidden>
+          <span>Dedicated VAE</span>
+          <input type="text" data-adetailer-field="detailer_vae" value="automatic" placeholder="automatic" autocomplete="off" />
+        </label>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="sampling">
+      <summary><span><strong>Sampling</strong><small>Family preset or explicit local repair sampler</small></span><span class="neo-state-pill muted" data-adetailer-preset-chip>Automatic</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <label class="neo-adetailer-field" data-display="compact guided expert"><span>Sampling profile</span><select data-adetailer-field="family_preset_mode"><option value="auto_family" selected>Auto — family recommended</option><option value="manual">Manual controls</option><option value="legacy_manual">Legacy manual compatibility</option></select></label>
+        <div class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert"><span>Effective family preset</span><small data-adetailer-family-preset-summary>Waiting for the active route.</small></div>
+        <label class="neo-adetailer-field" data-display="compact guided expert"><span>Repair strength</span><input type="number" data-adetailer-field="denoise" data-adetailer-family-sampling-field min="0" max="1" step="0.01" value="0.35" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Steps</span><input type="number" data-adetailer-field="steps" data-adetailer-family-sampling-field min="1" max="150" step="1" value="20" /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>Detailer CFG</span><input type="number" data-adetailer-field="cfg" data-adetailer-family-sampling-field min="0" max="30" step="0.5" placeholder="auto / capped at 15" /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>Detailer sampler</span><input type="text" data-adetailer-field="sampler_name" data-adetailer-family-sampling-field placeholder="Route sampler" autocomplete="off" /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>Detailer scheduler</span><input type="text" data-adetailer-field="scheduler" data-adetailer-family-sampling-field placeholder="Route scheduler" autocomplete="off" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Guide size</span><input type="number" data-adetailer-field="guide_size" data-adetailer-family-sampling-field min="64" max="4096" step="64" value="768" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Maximum crop size</span><input type="number" data-adetailer-field="max_size" data-adetailer-family-sampling-field min="64" max="8192" step="64" value="1024" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert"><span>Noise-mask feather</span><input type="number" data-adetailer-field="noise_mask_feather" data-adetailer-family-sampling-field min="0" max="128" step="1" value="16" /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>Noise mask</span><input type="checkbox" data-adetailer-field="noise_mask" data-adetailer-family-sampling-field checked /></label>
+        <label class="neo-adetailer-field" data-display="expert"><span>Force inpaint</span><input type="checkbox" data-adetailer-field="force_inpaint" data-adetailer-family-sampling-field checked /></label>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="target" open>
+      <summary><span><strong>Target</strong><small>Repair prompts, target ordering and manual boxes</small></span><span class="neo-state-pill muted">Pass setup</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert">
+          <span>Repair prompt</span>
+          <textarea data-adetailer-field="positive_prompt" rows="3" placeholder="Optional local positive prompt. Use [SEP] to map prompt targets."></textarea>
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert">
+          <span>Negative repair prompt</span>
+          <textarea data-adetailer-field="negative_prompt" rows="3" placeholder="Optional local negative prompt. [SEP] is supported."></textarea>
+        </label>
+        <label class="neo-adetailer-field" data-display="expert">
+          <span>Target order</span>
+          <select data-adetailer-field="target_order">
+            <option value="area_desc">Largest first</option><option value="area_asc">Smallest first</option><option value="left_to_right">Left to right</option><option value="right_to_left">Right to left</option><option value="top_to_bottom">Top to bottom</option><option value="bottom_to_top">Bottom to top</option><option value="confidence_desc">Highest confidence</option>
+          </select>
+        </label>
+        <label class="neo-adetailer-field" data-display="expert">
+          <span>Prompt target mode</span>
+          <select data-adetailer-field="target_split_mode">
+            <option value="sep_prompt_targets">Use [SEP] target mapping</option><option value="single_prompt">Single prompt for every target</option><option value="repeat_prompt">Repeat prompts across targets</option>
+          </select>
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
+          <span>Custom classes</span>
+          <textarea data-adetailer-field="custom_classes" rows="2" placeholder="face, hand, person"></textarea>
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="expert">
+          <span>Manual boxes</span>
+          <textarea data-adetailer-field="manual_boxes" rows="3" placeholder="x,y,w,h,label or JSON box list"></textarea>
+        </label>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="lora">
+      <summary><span><strong>LoRA policy</strong><small>Generation inheritance and detailer-only LoRA isolation</small></span><span class="neo-state-pill muted" data-adetailer-lora-chip>Inherit all</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <label class="neo-adetailer-field" data-display="compact guided expert">
+          <span>Generation LoRA inheritance</span>
+          <select data-adetailer-field="lora_inheritance"><option value="inherit_all">Inherit all generation LoRAs</option><option value="inherit_selected">Inherit selected generation LoRAs</option><option value="inherit_none">Do not inherit generation LoRAs</option></select>
+          <small>Dedicated checkpoint mode forces this to none at execution.</small>
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert" data-adetailer-selected-lora-field hidden>
+          <span>Inherited LoRA UIDs</span>
+          <input type="text" data-adetailer-field="inherit_lora_uids" placeholder="lora_uid_1, lora_uid_2" autocomplete="off" />
+        </label>
+        <label class="neo-adetailer-field" data-display="compact guided expert">
+          <span>Detailer-only LoRA</span>
+          <input type="checkbox" data-adetailer-field="detailer_lora_enabled" />
+        </label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert" data-adetailer-direct-lora-field hidden>
+          <span>LoRA model</span>
+          <input type="text" data-adetailer-field="detailer_lora" placeholder="Select installed LoRA" autocomplete="off" />
+        </label>
+        <label class="neo-adetailer-field" data-display="guided expert" data-adetailer-direct-lora-field hidden><span>Model strength</span><input type="number" data-adetailer-field="detailer_lora_strength_model" min="-4" max="4" step="0.05" value="0.8" /></label>
+        <label class="neo-adetailer-field" data-display="guided expert" data-adetailer-direct-lora-field hidden><span>CLIP strength</span><input type="number" data-adetailer-field="detailer_lora_strength_clip" min="-4" max="4" step="0.05" value="0.8" /></label>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert" data-adetailer-direct-lora-field hidden><span>Trigger text</span><input type="text" data-adetailer-field="detailer_lora_trigger" placeholder="Optional trigger phrase" autocomplete="off" /></label>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="identity">
+      <summary><span><strong>Identity protection</strong><small>Qwen Edit risk policy and revision compatibility</small></span><span class="neo-state-pill muted" data-adetailer-identity-chip>Not applicable</span></summary>
+      <div class="neo-adetailer-section__body neo-adetailer-grid">
+        <div class="neo-adetailer-field neo-adetailer-field--wide" data-display="compact guided expert" data-adetailer-identity-field hidden>
+          <span>Qwen Edit identity protection</span>
+          <select data-adetailer-field="identity_protection"><option value="none">None — identity-risk warning</option><option value="detailer_identity_lora">Detailer identity LoRA</option><option value="dedicated_detailer_model">Dedicated detailer model</option></select>
+          <small data-adetailer-identity-summary>Qwen Edit identity preservation is not guaranteed.</small>
+        </div>
+        <label class="neo-adetailer-field neo-adetailer-field--wide" data-display="guided expert" data-adetailer-identity-revision-field hidden>
+          <span>Identity-LoRA revision</span>
+          <select data-adetailer-field="identity_lora_revision"><option value="route_family">Match current Qwen Edit revision</option><option value="qwen_image_edit_2509">Qwen Image Edit 2509 only</option><option value="qwen_image_edit_2511">Qwen Image Edit 2511 only</option><option value="both">Declared compatible with 2509 + 2511</option></select>
+        </label>
+        <p class="neo-muted" data-adetailer-identity-not-applicable>The current family does not require a Qwen Edit identity policy. Saved Qwen selections remain unchanged.</p>
+      </div>
+    </details>
+    <details class="neo-adetailer-section" data-adetailer-section="advanced" data-display="expert">
+      <summary><span><strong>Advanced</strong><small>Current compatibility and route information</small></span><span class="neo-state-pill muted">Details</span></summary>
+      <div class="neo-adetailer-section__body">
+        <dl>
+          <dt>Current route</dt><dd data-adetailer-route-label>Not selected</dd>
+        </dl>
+      </div>
+    </details>
   </div>
-
-  <details class="neo-adetailer-expert" data-display="expert">
-    <summary>Route / payload inspector</summary>
-    <dl>
-      <dt>Extension ID</dt><dd>image.adetailer</dd>
-      <dt>Mount</dt><dd>image.finish.adetailer</dd>
-      <dt>Workflow patch</dt><dd>Deferred until workflow patch phase</dd>
-      <dt>Current route</dt><dd data-adetailer-route-label>unresolved</dd>
-    </dl>
-  </details>
 </section>
-
-<!-- Phase G2 parity markers: shared_defaults smart_presets detailer_pass_cards manual_target_maker prompt_mapper adetailer_report -->

@@ -739,7 +739,6 @@
     "mock:*:*:*:finish": "provider_gated",
     "*:*:*:*:generation": "unsupported",
     "*:*:*:*:generate": "unsupported",
-    "*:*:*:*:workspace": "unsupported",
     "*:*:*:*:assets": "unsupported",
     "*:*:*:*:reference": "unsupported",
     "*:*:*:*:results": "unsupported",
@@ -1376,5 +1375,6 @@
     ],
     "child_output_only": true,
     "auto_chain_jobs": false
-  }
+  },
+  "route_context_scope": "workspace"
 }

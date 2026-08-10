@@ -554,6 +554,9 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
             'segm_models': segm_models,
             'onnx_models': [],
             'sam_models': [],
+            'detailer_checkpoints': [],
+            'detailer_vaes': [],
+            'detailer_loras': [],
             'default_detector_model': _preferred_detector(bbox_models) or _preferred_detector(segm_models),
             'default_bbox_model': _preferred_detector(bbox_models),
             'default_segm_model': _preferred_detector(segm_models),
@@ -562,6 +565,7 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
             'sam_presets': [],
             'sources': ['forge_shared_model_paths'] if forge_names else [],
             'counts': {'bbox': len(bbox_models), 'segm': len(segm_models), 'onnx': 0, 'sam': 0},
+            'detailer_model_counts': {'checkpoints': 0, 'vaes': 0, 'loras': 0},
             'diagnostics': {
                 'schema_id': 'neo.image.adetailer.catalog_diagnostics.v1',
                 'profile_id': str(backend_details.get('profile_id') or ''),
@@ -613,6 +617,12 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
     default_onnx = _preferred_detector(onnx_models, avoid_face=False)
     default_detector = default_bbox or default_segm or default_onnx
     info = object_info if isinstance(object_info, dict) else {}
+    detailer_checkpoints = _node_choice_values(info, 'CheckpointLoaderSimple', 'ckpt_name')
+    detailer_vaes = _node_choice_values(info, 'VAELoader', 'vae_name')
+    detailer_loras = _dedupe(
+        _node_choice_values(info, 'LoraLoader', 'lora_name')
+        + _node_choice_values(info, 'LoraLoaderModelOnly', 'lora_name')
+    )
     ultralytics_node_count = sum(1 for name in info if 'ultralyticsdetectorprovider' in str(name).casefold())
     onnx_node_count = sum(1 for name in info if 'onnxdetectorprovider' in str(name).casefold())
     sam_node_count = sum(1 for name in info if 'samloader' in str(name).casefold())
@@ -635,6 +645,9 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
         'segm_models': segm_models,
         'onnx_models': onnx_models,
         'sam_models': sam_models,
+        'detailer_checkpoints': detailer_checkpoints,
+        'detailer_vaes': detailer_vaes,
+        'detailer_loras': detailer_loras,
         'default_detector_model': default_detector,
         'default_bbox_model': default_bbox,
         'default_segm_model': default_segm,
@@ -645,11 +658,12 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
             ('filesystem', bool(disk_bbox_models or disk_segm_models or disk_onnx_models or disk_sam_models)),
             ('admin_models_root', bool(backend_details.get('configured_models_root') and (disk_bbox_models or disk_segm_models or disk_onnx_models or disk_sam_models))),
             ('comfy_model_folders', any(registered.values())),
-            ('comfy_object_info', any(live.values())),
+            ('comfy_object_info', any(live.values()) or bool(detailer_checkpoints or detailer_vaes or detailer_loras)),
             ('extra_model_paths_yaml', bool(extra_paths['bbox_models'] or extra_paths['segm_models'] or extra_paths['onnx_models'])),
             ('comfy_adetailer_folder', bool(legacy_bbox or legacy_segm or legacy_onnx)),
         ) if present],
         'counts': {'bbox': len(bbox_models), 'segm': len(segm_models), 'onnx': len(onnx_models), 'sam': len(sam_models)},
+        'detailer_model_counts': {'checkpoints': len(detailer_checkpoints), 'vaes': len(detailer_vaes), 'loras': len(detailer_loras)},
         'diagnostics': {
             'schema_id': 'neo.image.adetailer.catalog_diagnostics.v1',
             'profile_id': str(backend_details.get('profile_id') or ''),
@@ -665,6 +679,9 @@ def list_detailer_models(detector_root: str = '', sam_root: str = '', object_inf
                 'segm_choices': len(live['segm_models']),
                 'onnx_choices': len(live['onnx_models']),
                 'sam_choices': len(live['sam_models']),
+                'checkpoint_choices': len(detailer_checkpoints),
+                'vae_choices': len(detailer_vaes),
+                'lora_choices': len(detailer_loras),
             },
             'standard_filesystem': {
                 'configured': bool(roots.get('models_root')),

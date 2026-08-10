@@ -26,8 +26,8 @@ UNSUPPORTED_ROUTE_STATES = {UNSUPPORTED}
 VALID_ROUTE_STATES = ACTIVE_ROUTE_STATES | GATED_ROUTE_STATES | UNSUPPORTED_ROUTE_STATES
 
 SUPPORTED_BACKENDS = ("comfyui", "comfyui_portable")
-DISCOVERED_FAMILIES = ("sdxl", "sd15", "flux", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "hidream", "wan_image", "hunyuan_image")
-DISCOVERED_LOADERS = ("checkpoint", "diffusion_model", "gguf", "native")
+DISCOVERED_FAMILIES = ("sdxl", "sd15", "flux", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511", "z_image", "z_image_turbo", "krea2", "krea2_turbo", "hidream", "wan_image", "hunyuan_image")
+DISCOVERED_LOADERS = ("checkpoint", "checkpoint_aio", "diffusion_model", "gguf", "native")
 DISCOVERED_MODES = ("generate", "img2img", "inpaint", "outpaint")
 DISCOVERED_SUBTABS = ("generations", "assets", "reference", "finish", "results")
 
@@ -65,6 +65,21 @@ TARGET_SPLIT_MODES = {"sep", "none", "sep_prompt_targets", "single_prompt", "rep
 
 DEFAULT_PARAMS = {
     "enabled": False,
+    "model_source": "generation_model",
+    "identity_protection": "none",
+    "identity_lora_revision": "route_family",
+    "family_preset_mode": "auto_family",
+    "detailer_model_family": "sdxl",
+    "detailer_checkpoint": "",
+    "detailer_vae": "automatic",
+    "lora_inheritance": "inherit_all",
+    "inherit_lora_uids": [],
+    "detailer_lora_enabled": False,
+    "detailer_lora": "",
+    "detailer_lora_strength_model": 0.8,
+    "detailer_lora_strength_clip": 0.8,
+    "detailer_lora_trigger": "",
+    "detailer_loras": [],
     "custom_detector_root": "",
     "custom_sam_root": "",
     "sam_preset": "",
@@ -78,6 +93,12 @@ DEFAULT_PARAMS = {
     "denoise": 0.12,
     "steps": 12,
     "cfg": None,
+    "sampler_name": "",
+    "scheduler": "",
+    "guide_size": 768,
+    "max_size": 1024,
+    "noise_mask": True,
+    "noise_mask_feather": 16,
     "use_main_prompt": True,
     "force_inpaint": True,
     "detector_model": "",
@@ -110,12 +131,18 @@ NUMERIC_LIMITS = {
     "denoise": (0.0, 1.0),
     "steps": (1, 150),
     "cfg": (0.0, 30.0),
+    "guide_size": (64, 4096),
+    "max_size": (64, 8192),
+    "noise_mask_feather": (0, 128),
+    "detailer_lora_strength_model": (-4.0, 4.0),
+    "detailer_lora_strength_clip": (-4.0, 4.0),
 }
-INTEGER_PARAMS = {"top_k", "bbox_grow", "mask_blur", "steps", "start_index", "count", "min_area", "max_area"}
-STRING_PARAMS = {"detector_model", "positive_prompt", "negative_prompt", "sam_model", "custom_classes", "manual_boxes", "custom_detector_root", "custom_sam_root", "sam_preset", "provider", "mode", "target_mode", "reference_lock"}
+INTEGER_PARAMS = {"top_k", "bbox_grow", "mask_blur", "steps", "guide_size", "max_size", "noise_mask_feather", "start_index", "count", "min_area", "max_area"}
+STRING_PARAMS = {"model_source", "identity_protection", "identity_lora_revision", "family_preset_mode", "sampler_name", "scheduler", "detailer_model_family", "detailer_checkpoint", "detailer_vae", "lora_inheritance", "detailer_lora", "detailer_lora_trigger", "detector_model", "positive_prompt", "negative_prompt", "sam_model", "custom_classes", "manual_boxes", "custom_detector_root", "custom_sam_root", "sam_preset", "provider", "mode", "target_mode", "reference_lock"}
 ENUM_PARAMS = {"detector_type", "target_order", "target_split_mode"}
 RUNTIME_PARAMS = set(DEFAULT_PARAMS)
-BOOLEAN_PARAMS = {"use_main_prompt", "force_inpaint"}
+BOOLEAN_PARAMS = {"use_main_prompt", "force_inpaint", "noise_mask", "detailer_lora_enabled"}
+LIST_PARAMS = {"inherit_lora_uids", "detailer_loras"}
 DETAILER_PASS_KEYS = {"id", "label", "enabled", "mode", "detector_type", "detector_model", "target_order", "start_index", "count", "min_area", "max_area", "target_mode", "manual_boxes", "reference_lock", "positive_prompt", "negative_prompt"}
 DETAILER_PASS_BOOLEAN_KEYS = {"enabled"}
 DETAILER_PASS_INTEGER_KEYS = {"start_index", "count", "min_area", "max_area"}
@@ -124,7 +151,7 @@ DETAILER_PASS_MODES = {"face", "hands", "person", "custom"}
 DETAILER_PASS_TARGET_MODES = {"auto_detect", "manual_boxes"}
 DETAILER_PASS_REFERENCE_LOCKS = {"none", "soft_identity", "strong_identity", "face_only", "style_only", "controlnet", "ipadapter", "both"}
 MAX_DETAILER_PASSES = 16
-ADVANCED_PARAMS = {"sam_model", "custom_classes", "target_order", "target_split_mode", "manual_boxes", "detailer_passes"}
+ADVANCED_PARAMS = {"model_source", "identity_protection", "identity_lora_revision", "family_preset_mode", "sampler_name", "scheduler", "guide_size", "max_size", "noise_mask", "noise_mask_feather", "detailer_model_family", "detailer_checkpoint", "detailer_vae", "lora_inheritance", "inherit_lora_uids", "detailer_lora_enabled", "detailer_lora", "detailer_lora_strength_model", "detailer_lora_strength_clip", "detailer_lora_trigger", "detailer_loras", "sam_model", "custom_classes", "target_order", "target_split_mode", "manual_boxes", "detailer_passes"}
 
 # V1 avoided local repair blowups by keeping high generation CFG from leaking into detailer passes.
 CFG_SAFETY_CAP = 15.0

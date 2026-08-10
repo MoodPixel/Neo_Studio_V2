@@ -32,18 +32,20 @@
     "comfyui",
     "comfyui_portable"
   ],
-  "supported_families": [
-    "wan22",
-    "ltx23"
-  ],
-  "supported_loaders": [
-    "unet",
-    "gguf",
-    "native_workflow"
-  ],
+  "supported_families": [],
+  "supported_loaders": [],
   "required_nodes": {},
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true
+  },
+  "route_context_scope": "workspace",
+  "route_states": {
+    "comfyui:*:*:*:finish": "available",
+    "comfyui_portable:*:*:*:finish": "available",
+    "cloud_api:*:*:*:finish": "provider_gated",
+    "forge:*:*:*:finish": "provider_gated",
+    "a1111:*:*:*:finish": "provider_gated",
+    "*": "provider_gated"
   }
 }

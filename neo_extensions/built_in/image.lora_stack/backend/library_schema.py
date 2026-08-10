@@ -182,6 +182,7 @@ def record_from_provider_lora_name(
         "base_model": "Base unknown",
         "notes": f"Loaded from the selected {label} LoRA catalog. Use CivitAI Pull to enrich triggers, prompts, and previews.",
         "metadata_status": "catalog_only",
+        "catalog_available": True,
         "catalog_source": source,
         "provider_id": provider,
         "provider_label": label,

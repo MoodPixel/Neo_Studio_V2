@@ -140,7 +140,37 @@ def _default_for_input(spec: Any) -> Any:
     return None
 
 
-def _fill_preprocessor_inputs(class_type: str, object_info: dict[str, Any], kind: str, request: dict[str, Any], image_resolution: int) -> dict[str, Any]:
+def _boolean_input_value(spec: Any, enabled: bool) -> Any:
+    """Return a Comfy-compatible bool/enum value for toggle-like node inputs."""
+    choices = spec[0] if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) else None
+    if choices:
+        normalized = {str(item).strip().lower(): item for item in choices}
+        if enabled:
+            for key in ("enable", "enabled", "true", "yes", "on", "1"):
+                if key in normalized:
+                    return normalized[key]
+        else:
+            for key in ("disable", "disabled", "false", "no", "off", "0"):
+                if key in normalized:
+                    return normalized[key]
+        return choices[0] if enabled else (choices[-1] if choices else enabled)
+    return bool(enabled)
+
+
+def build_preprocessor_inputs(
+    class_type: str,
+    object_info: dict[str, Any],
+    kind: str,
+    request: dict[str, Any],
+    image_resolution: int,
+    *,
+    image_ref: list[Any] | tuple[Any, ...] | None = None,
+) -> dict[str, Any]:
+    """Build live Comfy preprocessor inputs for any source image reference.
+
+    Map preview uses the default LoadImage reference. Runtime pose transfer can
+    reuse the same schema-aware builder with Qwen Image 2 as its source.
+    """
     meta = object_info.get(class_type) or {}
     inputs_meta: dict[str, Any] = {}
     for group in ("required", "optional"):
@@ -148,12 +178,13 @@ def _fill_preprocessor_inputs(class_type: str, object_info: dict[str, Any], kind
         if isinstance(group_inputs, dict):
             inputs_meta.update(group_inputs)
     settings = request.get("settings") if isinstance(request.get("settings"), dict) else {}
+    resolved_image_ref = list(image_ref) if isinstance(image_ref, (list, tuple)) and len(image_ref) >= 2 else ["1", 0]
     inputs: dict[str, Any] = {}
     linked = False
     for name, spec in inputs_meta.items():
         low = str(name).lower()
         if low in ("image", "input_image") or (not linked and "image" in low and "resolution" not in low):
-            inputs[name] = ["1", 0]
+            inputs[name] = resolved_image_ref
             linked = True
         elif low in ("detect_resolution", "resolution"):
             inputs[name] = int(settings.get("detect_resolution") or image_resolution or 512)
@@ -163,12 +194,12 @@ def _fill_preprocessor_inputs(class_type: str, object_info: dict[str, Any], kind
             inputs[name] = int(settings.get("canny_low") or 100)
         elif low in ("high_threshold", "highth", "threshold_high"):
             inputs[name] = int(settings.get("canny_high") or 200)
-        elif low in ("include_body", "body"):
-            inputs[name] = True
-        elif low in ("include_hand", "include_hands", "hand", "hands"):
-            inputs[name] = bool(request.get("openpose_hand") or False)
-        elif low in ("include_face", "face"):
-            inputs[name] = bool(request.get("openpose_face") or False)
+        elif low in ("include_body", "body", "detect_body"):
+            inputs[name] = _boolean_input_value(spec, bool(request.get("openpose_body", True)))
+        elif low in ("include_hand", "include_hands", "hand", "hands", "detect_hand"):
+            inputs[name] = _boolean_input_value(spec, bool(request.get("openpose_hand") or False))
+        elif low in ("include_face", "face", "detect_face"):
+            inputs[name] = _boolean_input_value(spec, bool(request.get("openpose_face") or False))
         elif low in ("preprocessor", "preprocessor_name", "aux_preprocessor", "processor"):
             choices = COMFY_AIO_ALIASES.get(kind, [kind])
             default = _default_for_input(spec)
@@ -183,8 +214,13 @@ def _fill_preprocessor_inputs(class_type: str, object_info: dict[str, Any], kind
             if default is not None:
                 inputs[name] = default
     if not linked:
-        inputs["image"] = ["1", 0]
+        inputs["image"] = resolved_image_ref
     return inputs
+
+
+def _fill_preprocessor_inputs(class_type: str, object_info: dict[str, Any], kind: str, request: dict[str, Any], image_resolution: int) -> dict[str, Any]:
+    return build_preprocessor_inputs(class_type, object_info, kind, request, image_resolution, image_ref=["1", 0])
+
 def _data_url_from_bytes(raw: bytes, mime_type: str = "image/png") -> str:
     return f"data:{mime_type};base64," + base64.b64encode(raw).decode("ascii")
 
