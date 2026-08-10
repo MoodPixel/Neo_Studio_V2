@@ -23,6 +23,9 @@ _HIGH_IMPACT_TYPES = {
     "character_knowledge_change",
     "character_secret_reveal",
     "user_preference_change",
+    "user_memory_directive",
+    "project_decision_candidate",
+    "high_impact_project_fact",
     "cross_project_memory",
     "player_character_action",
 }
@@ -355,6 +358,8 @@ class MemorySafetyGuard:
         trace_violations: list[dict[str, Any]] = []
         for row in trace_rows:
             selected = _loads(row["selected_context_json"], {}) or {}
+            gateway = selected.get("retrieval_gateway") if isinstance(selected.get("retrieval_gateway"), dict) else {}
+            scope_policy = gateway.get("scope_policy") if isinstance(gateway.get("scope_policy"), dict) else {}
             result = self.validate_context({
                 "surface": row["surface"],
                 "project_id": row["project_id"],
@@ -362,6 +367,11 @@ class MemorySafetyGuard:
                 "source_type": "control_center_trace",
                 "source_id": row["trace_id"],
                 "selected_context": selected,
+                # Phase 6 expansions are valid only when the persisted Retrieval
+                # Gateway trace carries the query-driven permission proof.
+                "allow_cross_surface": bool(scope_policy.get("allow_cross_surface")),
+                "allow_cross_project": bool(scope_policy.get("allow_cross_project")),
+                "allow_scope_expansion": bool(scope_policy.get("allow_scope_expansion")),
             }, persist=persist)
             if result.get("violation_count"):
                 trace_violations.extend(result.get("violations") or [])

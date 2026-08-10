@@ -8,9 +8,10 @@ from typing import Any, Mapping
 
 SCHEMA_ID = "neo.image.lanpaint_route_family_contract.v1"
 SCHEMA_VERSION = 1
-ROUTE_FAMILY_ID = "image.inpaint.lanpaint"
+ROUTE_FAMILY_ID = "image.inpaint.lanpaint"  # legacy family id retained for policy/schema compatibility; mode now distinguishes inpaint/outpaint
 ENGINE_ID = "lanpaint"
-MODE_ID = "inpaint"
+MODE_ID = "inpaint"  # legacy default
+SUPPORTED_MODES = {"inpaint", "outpaint"}
 EXECUTION_STATE = "contract_only"
 
 BASE_STAGE_ORDER = (
@@ -327,6 +328,10 @@ def _normalized_identity(raw: Mapping[str, Any], issues: list[dict[str, Any]]) -
     family = normalize_family_id(identity.get("family", raw.get("family")))
     loader = normalize_loader_id(identity.get("loader", raw.get("loader")))
     requested_mode = _slug(identity.get("mode", raw.get("mode", MODE_ID))) or MODE_ID
+    if requested_mode in {"inpainting", "mask_inpaint"}:
+        requested_mode = "inpaint"
+    elif requested_mode in {"outpainting", "mask_outpaint"}:
+        requested_mode = "outpaint"
     requested_engine = _slug(identity.get("engine", raw.get("engine", ENGINE_ID))) or ENGINE_ID
     variant = normalize_variant_id(identity.get("variant", raw.get("variant", "default")))
 
@@ -336,11 +341,11 @@ def _normalized_identity(raw: Mapping[str, Any], issues: list[dict[str, Any]]) -
         issues.append({"level": "error", "field": "identity.family", "message": "Model family is required."})
     if not loader:
         issues.append({"level": "error", "field": "identity.loader", "message": "Loader id is required."})
-    if requested_mode not in {"inpaint", "inpainting", "mask_inpaint"}:
+    if requested_mode not in SUPPORTED_MODES:
         issues.append({
             "level": "error",
             "field": "identity.mode",
-            "message": f"{ROUTE_FAMILY_ID} supports inpaint only; requested mode was {requested_mode!r}.",
+            "message": f"LanPaint supports masked edit modes {sorted(SUPPORTED_MODES)}; requested mode was {requested_mode!r}.",
         })
     if requested_engine not in {"lanpaint", "lan_paint"}:
         issues.append({
@@ -354,14 +359,14 @@ def _normalized_identity(raw: Mapping[str, Any], issues: list[dict[str, Any]]) -
         "provider_id": provider_id,
         "family": family,
         "loader": loader,
-        "mode": MODE_ID,
+        "mode": requested_mode,
         "engine": ENGINE_ID,
         "variant": variant,
         "route_key": build_lanpaint_route_key(
             provider_id=provider_id,
             family=family,
             loader=loader,
-            mode=MODE_ID,
+            mode=requested_mode,
             engine=ENGINE_ID,
             variant=variant,
         ),

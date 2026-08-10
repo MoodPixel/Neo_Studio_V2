@@ -87,7 +87,27 @@ def _safe_id(value: Any, fallback: str) -> str:
     return (text or fallback)[:80]
 
 
-def _normalize_image_ref(value: Any, *, field: str, errors: list[dict[str, Any]]) -> dict[str, str]:
+def _normalize_visibility_mask(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, Mapping) else {}
+    reference = _safe_reference(_first_present(raw, "ref", "path", "url", "name", "filename", "file"))
+    name = _safe_reference(_first_present(raw, "name", "filename", "file", "path", "url", "ref"))
+    fill_mode = str(_first_present(raw, "fill_mode", "fill", "background") or "black").strip().lower()
+    if fill_mode not in {"black", "white", "mid_gray"}:
+        fill_mode = "black"
+    return {
+        "schema": str(raw.get("schema") or "neo.image.source_visibility_mask.v1"),
+        "enabled": _as_bool(raw.get("enabled"), bool(reference)) and bool(reference),
+        "ref": reference,
+        "path": str(raw.get("path") or "").strip(),
+        "url": str(raw.get("url") or "").strip(),
+        "name": name or reference,
+        "preview_url": str(raw.get("preview_url") or raw.get("url") or "").strip(),
+        "fill_mode": fill_mode,
+        "white_hides": True,
+    }
+
+
+def _normalize_image_ref(value: Any, *, field: str, errors: list[dict[str, Any]]) -> dict[str, Any]:
     raw = value if isinstance(value, Mapping) else {"ref": value}
     asset_id = _safe_reference(_first_present(raw, "asset_id", "upload_id", "source_id", "id"))
     reference = _first_present(raw, "ref", "reference", "path", "url", "name", "filename", "file")
@@ -99,7 +119,11 @@ def _normalize_image_ref(value: Any, *, field: str, errors: list[dict[str, Any]]
         name = safe_ref
     if not safe_ref:
         errors.append({"level": "error", "field": field, "message": "Stitch input is missing an image reference."})
-    return {"ref": safe_ref, "name": name, "asset_id": asset_id}
+    normalized: dict[str, Any] = {"ref": safe_ref, "name": name, "asset_id": asset_id}
+    visibility_mask = _normalize_visibility_mask(raw.get("visibility_mask"))
+    if visibility_mask.get("enabled") or visibility_mask.get("ref"):
+        normalized["visibility_mask"] = visibility_mask
+    return normalized
 
 
 def qwen_stitch_route_support(

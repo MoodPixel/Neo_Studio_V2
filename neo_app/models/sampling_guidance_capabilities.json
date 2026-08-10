@@ -148,10 +148,9 @@
         "scheduler_control": "selectable",
         "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "fixed",
+          "kind": "selectable",
           "field": "cfg",
-          "fixed_value": 1.0,
-          "ui_label": "Sampler CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
@@ -250,10 +249,9 @@
         "scheduler_control": "selectable",
         "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "fixed",
+          "kind": "selectable",
           "field": "cfg",
-          "fixed_value": 1.0,
-          "ui_label": "Sampler CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
@@ -278,7 +276,8 @@
       },
       "source_contracts": [
         "neo_app/providers/compile_router.py"
-      ]
+      ],
+      "notes": []
     },
     "flux2_klein": {
       "display_name": "FLUX.2 Klein",
@@ -299,10 +298,9 @@
         "scheduler_control": "selectable",
         "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "fixed",
+          "kind": "selectable",
           "field": "cfg",
-          "fixed_value": 1.0,
-          "ui_label": "Sampler CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
@@ -367,6 +365,49 @@
         "neo_app/providers/comfy_workflows/flux_native.py",
         "neo_app/providers/comfy_workflows/flux_gguf.py",
         "neo_app/image/flux2_klein_contract.py"
+      ]
+    },
+    "flux2_dev": {
+      "guidance": {
+        "kind": "embedded_guidance",
+        "field": "flux_guidance",
+        "ui_label": "Flux Guidance"
+      },
+      "sampling": {
+        "steps_control": "selectable",
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "CFG"
+        }
+      },
+      "negative_prompt": {
+        "policy": "disabled_by_route",
+        "activation_field": null,
+        "hard_min_exclusive": null,
+        "weak_below": null,
+        "graph_semantics": "ConditioningZeroOut from positive conditioning in the LanPaint route"
+      },
+      "display_name": "FLUX.2 Dev",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "inpaint"
+      ],
+      "resolution": {
+        "inpaint": "source_or_auto"
+      },
+      "denoise": {
+        "inpaint": "masked_strength_controlled"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/lanpaint_flux2.py",
+        "neo_app/image/lanpaint_family_adapter.py"
       ]
     },
     "krea2": {
@@ -436,12 +477,11 @@
       "sampling": {
         "sampler_control": "selectable",
         "scheduler_control": "selectable",
-        "steps_control": "forced_by_family",
+        "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "fixed",
+          "kind": "selectable",
           "field": "cfg",
-          "fixed_value": 1.0,
-          "ui_label": "Comfy CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
@@ -616,19 +656,20 @@
         "outpaint"
       ],
       "sampling": {
-        "sampler_control": "provider_profile",
-        "scheduler_control": "provider_profile",
-        "steps_control": "provider_profile",
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "provider_profile",
+          "kind": "selectable",
           "field": "cfg",
-          "ui_label": "Profile CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
-        "kind": "provider_profile",
-        "field": null,
-        "ui_label": null
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG",
+        "note": "Explicit sampler CFG is user-authoritative; family defaults apply only when the field is omitted."
       },
       "negative_prompt": {
         "policy": "profile_controlled",
@@ -724,10 +765,9 @@
         "scheduler_control": "selectable",
         "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "fixed",
+          "kind": "selectable",
           "field": "cfg",
-          "fixed_value": 1.0,
-          "ui_label": "Comfy CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
@@ -774,19 +814,20 @@
         "outpaint"
       ],
       "sampling": {
-        "sampler_control": "provider_profile",
-        "scheduler_control": "provider_profile",
-        "steps_control": "provider_profile",
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
         "sampler_cfg": {
-          "kind": "provider_profile",
+          "kind": "selectable",
           "field": "cfg",
-          "ui_label": "Profile CFG"
+          "ui_label": "CFG"
         }
       },
       "guidance": {
-        "kind": "provider_profile",
-        "field": null,
-        "ui_label": null
+        "kind": "classic_cfg",
+        "field": "cfg",
+        "ui_label": "CFG",
+        "note": "Explicit sampler CFG is user-authoritative; family defaults apply only when the field is omitted."
       },
       "negative_prompt": {
         "policy": "profile_controlled",

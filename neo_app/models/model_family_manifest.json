@@ -1,5 +1,5 @@
 {
-  "registry_version": "0.2.0+M16",
+  "registry_version": "0.2.0+phase7",
   "loader_types": [
     {
       "loader_id": "checkpoint",
@@ -235,10 +235,12 @@
       "status": "extension_ready",
       "description": "Stable Diffusion 3.5 split-component and GGUF family. Phase 15 enables LanPaint inpaint only; normal native workflows remain separately gated.",
       "supported_modes": [
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "mode_support": {
-        "inpaint": "experimental_available"
+        "inpaint": "experimental_available",
+        "outpaint": "experimental_available"
       },
       "supported_backends": [
         "comfyui",
@@ -294,6 +296,11 @@
           "source_image",
           "mask_image",
           "lanpaint_capabilities"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "lanpaint_capabilities"
         ]
       },
       "default_params": {
@@ -303,14 +310,17 @@
       },
       "notes": [
         "Phase 15 enables only the LanPaint inpaint engine.",
-        "SD 3.5 uses triple text encoders and ModelSamplingSD3; it does not inherit SDXL or AuraFlow policy."
+        "SD 3.5 uses triple text encoders and ModelSamplingSD3; it does not inherit SDXL or AuraFlow policy.",
+        "Phase 7 sync: Outpaint is available only through the exact LanPaint family adapter; Native Outpaint remains gated."
       ],
       "loader_mode_support": {
         "diffusion_model": {
-          "inpaint": "experimental_available"
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available"
         },
         "gguf": {
-          "inpaint": "experimental_available"
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available"
         }
       }
     },
@@ -636,10 +646,12 @@
       "status": "extension_ready",
       "description": "FLUX.2 Dev LanPaint inpainting family using a Mistral 3 Small Flux2 text encoder and Flux2 VAE. Phase 17 exposes inpaint only.",
       "supported_modes": [
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "mode_support": {
-        "inpaint": "experimental_available"
+        "inpaint": "experimental_available",
+        "outpaint": "experimental_available"
       },
       "supported_backends": [
         "comfyui",
@@ -697,6 +709,11 @@
           "model",
           "mistral3_text_encoder",
           "flux_guidance"
+        ],
+        "outpaint": [
+          "source_image",
+          "outpaint_padding",
+          "lanpaint_capabilities"
         ]
       },
       "default_params": {
@@ -711,14 +728,17 @@
       ],
       "notes": [
         "Phase 17 LanPaint only: Flux.2 Dev does not inherit Klein Qwen3 conditioning.",
-        "GGUF transformer routes keep the native Mistral 3 Small Flux2 encoder until a GGUF encoder contract is physically validated."
+        "GGUF transformer routes keep the native Mistral 3 Small Flux2 encoder until a GGUF encoder contract is physically validated.",
+        "Phase 7 sync: Outpaint is available only through the exact LanPaint family adapter; Native Outpaint remains gated."
       ],
       "loader_mode_support": {
         "diffusion_model": {
-          "inpaint": "experimental_available"
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available"
         },
         "gguf": {
-          "inpaint": "experimental_available"
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available"
         }
       }
     },
@@ -1002,7 +1022,7 @@
       ],
       "category": "image",
       "status": "extension_ready",
-      "description": "Krea 2 Turbo distilled few-step family using the same native Krea2/Qwen3-VL-4B/Qwen Image VAE architecture with family-owned 8-step sampling semantics.",
+      "description": "Krea 2 Turbo distilled few-step family using the native Krea2/Qwen3-VL-4B/Qwen Image VAE architecture. Its few-step profile is a recommended default only; explicit user Parameters remain authoritative.",
       "supported_modes": [
         "txt2img",
         "img2img",
@@ -1862,10 +1882,11 @@
       "notes": [
         "V25.9.20 Pass I locks ZImage Turbo as a separate visible family with Safetensors / Components and GGUF txt2img routes.",
         "V25.9.20 P6 promotes ZImage Turbo Safetensors / Components img2img, inpaint, and outpaint as real Turbo-native workflows using Image 1 as the source lane.",
-        "ZImage Turbo uses low-step/low-CFG defaults and forces turbo conditioning inside the provider compiler; no normal turbo toggle is exposed.",
+        "ZImage Turbo uses low-step/low-CFG recommended defaults and Turbo conditioning topology; explicit user Steps/CFG/Sampler/Scheduler/Denoise remain authoritative under Parameter Truth.",
         "P6 image modes use the ZImage component stack: UNETLoader, CLIPLoader(type=lumina2), VAELoader, ModelSamplingAuraFlow, ConditioningZeroOut, KSampler, and route-specific source/mask/canvas latent branches.",
-        "ZImage Turbo GGUF img2img/inpaint/outpaint remain implementation targets for a separate GGUF pass; do not borrow the P6 component route.",
-        "Comfy graph compile is shared with the ZImage compiler but route family stays z_image_turbo for UI, records, and regression locks."
+        "ZImage Turbo GGUF Img2Img/Inpaint/Outpaint are executable provider routes and use the same family identity with GGUF transformer loading.",
+        "Comfy graph compile is shared with the ZImage compiler but route family stays z_image_turbo for UI, records, and regression locks.",
+        "Phase 7 sync: GGUF Img2Img/Inpaint/Outpaint states now match the already-enabled P8.5 provider routes; no implementation-target drift remains."
       ],
       "loader_mode_support": {
         "diffusion_model": {
@@ -1876,9 +1897,9 @@
         },
         "gguf": {
           "txt2img": "native_turbo",
-          "img2img": "implementation_target",
-          "inpaint": "implementation_target",
-          "outpaint": "implementation_target"
+          "img2img": "turbo_native_source_latent",
+          "inpaint": "turbo_native_single_source_mask",
+          "outpaint": "turbo_native_single_source_canvas"
         }
       }
     },
@@ -2042,7 +2063,7 @@
         "txt2img": "native",
         "img2img": "native_latent",
         "inpaint": "lanpaint",
-        "outpaint": "planned",
+        "outpaint": "experimental_available",
         "edit": "unsupported"
       },
       "supported_backends": [
@@ -2095,19 +2116,21 @@
           "txt2img": "available",
           "img2img": "experimental_available",
           "inpaint": "experimental_available",
-          "outpaint": "planned_gated"
+          "outpaint": "experimental_available"
         },
         "gguf": {
           "txt2img": "experimental_available",
           "img2img": "experimental_available",
           "inpaint": "experimental_available",
-          "outpaint": "planned_gated"
+          "outpaint": "experimental_available"
         }
       },
       "notes": [
         "Anima GGUF support quantizes only the diffusion model; the Qwen3 0.6B text encoder and Qwen Image VAE remain separately selected unless the live provider proves another exact loader contract.",
         "Img2img uses source VAEEncode and denoise below 1.0.",
-        "LanPaint uses the basic LanPaint_KSampler route."
+        "LanPaint uses the basic LanPaint_KSampler route.",
+        "Phase 7 sync: Outpaint is available through the exact LanPaint adapter; this does not promote an unverified Native Outpaint compiler.",
+        "Phase 7 hardening: Inpaint uses LanPaint for this family; Native Inpaint is not promoted by the generic Comfy route table."
       ]
     },
     {
@@ -2130,7 +2153,7 @@
         "txt2img": "native_advanced",
         "img2img": "held_unverified",
         "inpaint": "lanpaint_custom_advanced",
-        "outpaint": "planned",
+        "outpaint": "experimental_available",
         "edit": "unsupported"
       },
       "supported_backends": [
@@ -2168,20 +2191,22 @@
           "txt2img": "experimental_available",
           "img2img": "held_unverified",
           "inpaint": "experimental_available",
-          "outpaint": "planned_gated"
+          "outpaint": "experimental_available"
         },
         "gguf": {
           "txt2img": "experimental_available",
           "img2img": "held_unverified",
           "inpaint": "experimental_available",
-          "outpaint": "planned_gated"
+          "outpaint": "experimental_available"
         }
       },
       "notes": [
         "Both the main and unconditional Ideogram 4 diffusion models are required.",
         "Img2img remains hidden because Phase 22 found no verified local official Ideogram 4 img2img workflow; Neo does not infer support from generic VAEEncode alone.",
         "LanPaint must use LanPaint_SamplerCustomAdvanced with Ideogram4Scheduler and DualModelGuider; the basic LanPaint_KSampler route is forbidden.",
-        "LoRA remains blocked until both model branches have a proven patch strategy."
+        "LoRA remains blocked until both model branches have a proven patch strategy.",
+        "Phase 7 sync: Outpaint is available through the exact LanPaint adapter; this does not promote an unverified Native Outpaint compiler.",
+        "Phase 7 hardening: Inpaint uses LanPaint for this family; Native Inpaint is not promoted by the generic Comfy route table."
       ]
     },
     {
@@ -2323,7 +2348,7 @@
         "txt2img": "native",
         "img2img": "variant_required",
         "inpaint": "lanpaint_variant",
-        "outpaint": "variant_required",
+        "outpaint": "experimental_available",
         "edit": "variant_required"
       },
       "supported_backends": [
@@ -2445,7 +2470,9 @@
         "Phase 21 enables HiDream-I1 full/dev/fast for Image → Inpaint → LanPaint with diffusion-model and GGUF loader contracts.",
         "HiDream-I1 requires CLIP-L, CLIP-G, T5XXL and Llama 3.1 8B through QuadrupleCLIPLoader or QuadrupleCLIPLoaderGGUF, plus AE/VAE and ModelSamplingSD3.",
         "HiDream-E1/E1.1 and HiDream-O1 are separate edit/checkpoint architectures and do not inherit the Phase 21 I1 LanPaint compiler.",
-        "Native inpaint, img2img, outpaint and edit remain gated unless a dedicated variant compiler is added."
+        "Native inpaint, img2img, outpaint and edit remain gated unless a dedicated variant compiler is added.",
+        "Phase 7 sync: Outpaint is available through the exact LanPaint adapter; this does not promote an unverified Native Outpaint compiler.",
+        "Phase 7 hardening: Inpaint uses LanPaint for this family; Native Inpaint is not promoted by the generic Comfy route table."
       ],
       "variants": [
         {
@@ -2516,15 +2543,15 @@
         "diffusion_model": {
           "txt2img": "native",
           "img2img": "variant_required",
-          "inpaint": "lanpaint",
-          "outpaint": "variant_required",
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available",
           "edit": "variant_required"
         },
         "gguf": {
           "txt2img": "native",
           "img2img": "variant_required",
-          "inpaint": "lanpaint",
-          "outpaint": "variant_required",
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available",
           "edit": "variant_required"
         },
         "api_model": {
@@ -3669,6 +3696,16 @@
           "default": 28
         },
         {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
+        },
+        {
           "field_id": "seed",
           "label": "Seed",
           "control_type": "number",
@@ -3832,7 +3869,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "flux_guidance",
-          "help_text": "Flux guidance replaces SD-style CFG for supported Flux routes.",
+          "help_text": "Flux guidance is the model guidance control; sampler CFG remains independently editable for experimentation.",
           "default": 3.5
         },
         {
@@ -3851,14 +3888,13 @@
         "text_encoder_2"
       ],
       "hidden_fields": [
-        "cfg",
         "clip_skip"
       ],
       "disabled_fields": [],
       "notes": [
-        "CFG is hidden because Flux routes use Flux guidance instead of SD-style CFG.",
         "P1: Flux 1 inpaint/outpaint use this normal Flux 1 profile and resolve internally to the Flux Fill compiler; no separate visible Flux Fill family is required.",
-        "M15: FLUX.1 Krea remains family=flux + loader=diffusion_model and uses this profile across txt2img/img2img/inpaint/outpaint; Krea masked modes do not route to FLUX.1 Fill."
+        "M15: FLUX.1 Krea remains family=flux + loader=diffusion_model and uses this profile across txt2img/img2img/inpaint/outpaint; Krea masked modes do not route to FLUX.1 Fill.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -3920,6 +3956,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 30
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -4104,13 +4150,13 @@
         "source_image"
       ],
       "hidden_fields": [
-        "cfg",
         "clip_skip"
       ],
       "disabled_fields": [],
       "notes": [
         "P1: Legacy/internal alias only. Normal Image UI should not expose a Flux 1 Fill family.",
-        "Normal route: Flux 1 + Safetensors / Components + Inpaint/Outpaint -> comfy.flux_fill."
+        "Normal route: Flux 1 + Safetensors / Components + Inpaint/Outpaint -> comfy.flux_fill.",
+        "Parameter Truth: explicit CFG is user-authoritative; family guidance/defaults do not lock sampler CFG."
       ]
     },
     {
@@ -4174,6 +4220,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -4367,14 +4423,14 @@
         "text_encoder_2"
       ],
       "hidden_fields": [
-        "clip_skip",
-        "cfg"
+        "clip_skip"
       ],
       "disabled_fields": [],
       "notes": [
         "Requires GGUF dual encoder readiness. Comfy node names remain provider diagnostics only.",
         "FLUX.2 Klein GGUF variants use single Qwen3 encoder routing; legacy Flux GGUF remains dual-encoder.",
-        "M15: Krea GGUF is an explicit FLUX.1 variant using the existing dual-encoder GGUF graph for all four image modes; it is not a FLUX.2/Klein route."
+        "M15: Krea GGUF is an explicit FLUX.1 variant using the existing dual-encoder GGUF graph for all four image modes; it is not a FLUX.2/Klein route.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -4439,6 +4495,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -4595,7 +4661,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "flux_guidance",
-          "help_text": "Flux guidance replaces SD-style CFG for supported Flux routes.",
+          "help_text": "Flux guidance is the model guidance control; sampler CFG remains independently editable for experimentation.",
           "default": 3.5
         }
       ],
@@ -4612,16 +4678,15 @@
         "source_image_3",
         "qwen_mmproj"
       ],
-      "disabled_fields": [
-        "cfg"
-      ],
+      "disabled_fields": [],
       "notes": [
         "Normal UI label: Safetensors / Components. Internal loader remains diffusion_model.",
         "V25.9.20 P4: Flux 2 Klein component txt2img/img2img/edit/inpaint/outpaint are available through comfy.flux_klein.",
         "P4: img2img/edit use Image 1 as the Flux2 latent anchor; inpaint/outpaint use source image plus mask/padding with SetLatentNoiseMask + DifferentialDiffusion.",
         "P4: source_image_2/source_image_3 stay hidden for the component route until Neo wires an official local multi-reference conditioning node; they are not submitted for this route.",
         "M14: the selected Klein model size is authoritative for Qwen3 compatibility; 4B requires Qwen3-4B and 9B requires Qwen3-8B.",
-        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission."
+        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -4686,6 +4751,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -4862,8 +4937,7 @@
       ],
       "hidden_fields": [
         "clip_skip",
-        "text_encoder_2",
-        "cfg"
+        "text_encoder_2"
       ],
       "disabled_fields": [],
       "notes": [
@@ -4872,7 +4946,8 @@
         "Pass K: GGUF img2img/edit/image-conditioned modes show the shared multi-source panel with up to 3 source images. Image 1 remains the latent anchor in the current local compiler; Image 2/Image 3 are optional reference lanes preserved in payload metadata.",
         "Pass O1: img2img/edit compile through the same local Flux2 Klein GGUF Image-1 VAEEncode latent-anchor workflow. Optional extra sources are recorded only until dedicated Flux2 multi-reference conditioning is validated.",
         "M14: model-driven 4B/9B canonicalization filters the Qwen3 encoder lane and blocks known incompatible Qwen2/2.5-VL/MMProj or wrong-size Qwen3 assets before queue.",
-        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission."
+        "M14.1: qwen3_text_encoder is canonical; legacy encoder aliases are reconciled on preset load, family/model changes, and immediately before submission.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -6278,7 +6353,7 @@
     {
       "profile_id": "krea2_native",
       "display_name": "Krea 2 RAW Native Parameters",
-      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "description": "Krea 2 RAW/Turbo parameters with existing Neo image adapters plus opt-in Krea 2 Identity Edit v1.2.",
       "families": [
         "krea2"
       ],
@@ -6428,6 +6503,118 @@
           "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
         },
         {
+          "field_id": "krea2_edit_engine",
+          "label": "Krea 2 Edit Engine",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_engine",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "native",
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora",
+          "label": "Identity Edit LoRA",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora_strength",
+          "label": "Identity Edit LoRA Strength",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora_strength",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+        },
+        {
+          "field_id": "krea2_identity_edit_fit_mode",
+          "label": "Reference Fit",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_fit_mode",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "fit",
+          "help_text": "Fit is the v1.2 recommended pixel-space reference path and preserves mismatched aspect ratios better. Crop keeps the legacy behavior."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost",
+          "label": "Identity Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_ref_boost",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 4.0,
+          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost_a",
+          "label": "Scene Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_ref_boost_a",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+        },
+        {
+          "field_id": "krea2_identity_edit_grounding_px",
+          "label": "Grounding Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_grounding_px",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 768,
+          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+        },
+        {
           "field_id": "source_image",
           "label": "Source Image",
           "control_type": "image",
@@ -6517,7 +6704,10 @@
         "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
         "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
         "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
-        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning."
+        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning.",
+        "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
+        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed."
       ],
       "readiness_gates": [
         "krea2_clip_loader"
@@ -6526,7 +6716,7 @@
     {
       "profile_id": "krea2_gguf",
       "display_name": "Krea 2 RAW GGUF Parameters",
-      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "description": "Krea 2 RAW/Turbo parameters with existing Neo image adapters plus opt-in Krea 2 Identity Edit v1.2.",
       "families": [
         "krea2"
       ],
@@ -6676,6 +6866,118 @@
           "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
         },
         {
+          "field_id": "krea2_edit_engine",
+          "label": "Krea 2 Edit Engine",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_engine",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "native",
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora",
+          "label": "Identity Edit LoRA",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora_strength",
+          "label": "Identity Edit LoRA Strength",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora_strength",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+        },
+        {
+          "field_id": "krea2_identity_edit_fit_mode",
+          "label": "Reference Fit",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_fit_mode",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "fit",
+          "help_text": "Fit is the v1.2 recommended pixel-space reference path and preserves mismatched aspect ratios better. Crop keeps the legacy behavior."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost",
+          "label": "Identity Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_ref_boost",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 4.0,
+          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost_a",
+          "label": "Scene Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_ref_boost_a",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+        },
+        {
+          "field_id": "krea2_identity_edit_grounding_px",
+          "label": "Grounding Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_grounding_px",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 768,
+          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+        },
+        {
           "field_id": "source_image",
           "label": "Source Image",
           "control_type": "image",
@@ -6766,7 +7068,11 @@
         "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
         "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
         "GGUF is transformer-only in M16: use a Krea2-capable GGUF loader plus native/safetensors Qwen3-VL-4B. GGUF text encoders are gated.",
-        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning."
+        "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning.",
+        "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
+        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed.",
+        "Identity Edit on GGUF quantizes only the Krea 2 diffusion transformer; Qwen3-VL, VAE, grounded encoder, and the Identity Edit LoRA remain native/safetensors."
       ],
       "readiness_gates": [
         "krea2_clip_loader"
@@ -6775,7 +7081,7 @@
     {
       "profile_id": "krea2_turbo_native",
       "display_name": "Krea 2 Turbo Native Parameters",
-      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "description": "Krea 2 RAW/Turbo parameters with existing Neo image adapters plus opt-in Krea 2 Identity Edit v1.2.",
       "families": [
         "krea2_turbo"
       ],
@@ -6916,6 +7222,118 @@
           "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
         },
         {
+          "field_id": "krea2_edit_engine",
+          "label": "Krea 2 Edit Engine",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_engine",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "native",
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora",
+          "label": "Identity Edit LoRA",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora_strength",
+          "label": "Identity Edit LoRA Strength",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora_strength",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+        },
+        {
+          "field_id": "krea2_identity_edit_fit_mode",
+          "label": "Reference Fit",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_fit_mode",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "fit",
+          "help_text": "Fit is the v1.2 recommended pixel-space reference path and preserves mismatched aspect ratios better. Crop keeps the legacy behavior."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost",
+          "label": "Identity Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_ref_boost",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 4.0,
+          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost_a",
+          "label": "Scene Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_ref_boost_a",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+        },
+        {
+          "field_id": "krea2_identity_edit_grounding_px",
+          "label": "Grounding Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_grounding_px",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 768,
+          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+        },
+        {
           "field_id": "source_image",
           "label": "Source Image",
           "control_type": "image",
@@ -7000,15 +7418,17 @@
         "negative_prompt"
       ],
       "disabled_fields": [
-        "clip_skip",
-        "steps",
-        "cfg"
+        "clip_skip"
       ],
       "notes": [
         "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
         "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
         "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
-        "Turbo forces 8 steps / CFG 1.0 in the Comfy backend and uses ConditioningZeroOut; stale RAW sampling values do not override it."
+        "Turbo recommends 8 steps / CFG 1.0 and uses ConditioningZeroOut; explicit user Steps/CFG remain authoritative under Parameter Truth.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time.",
+        "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
+        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed."
       ],
       "readiness_gates": [
         "krea2_clip_loader"
@@ -7017,7 +7437,7 @@
     {
       "profile_id": "krea2_turbo_gguf",
       "display_name": "Krea 2 Turbo GGUF Parameters",
-      "description": "Phase M16 Krea 2 RAW/Turbo parameters for txt2img and experimental source-image adapters.",
+      "description": "Krea 2 RAW/Turbo parameters with existing Neo image adapters plus opt-in Krea 2 Identity Edit v1.2.",
       "families": [
         "krea2_turbo"
       ],
@@ -7158,6 +7578,118 @@
           "help_text": "Use qwen_image_vae.safetensors or a compatible Qwen Image VAE."
         },
         {
+          "field_id": "krea2_edit_engine",
+          "label": "Krea 2 Edit Engine",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_engine",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "native",
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora",
+          "label": "Identity Edit LoRA",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+        },
+        {
+          "field_id": "krea2_identity_edit_lora_strength",
+          "label": "Identity Edit LoRA Strength",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_lora_strength",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+        },
+        {
+          "field_id": "krea2_identity_edit_fit_mode",
+          "label": "Reference Fit",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_fit_mode",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "fit",
+          "help_text": "Fit is the v1.2 recommended pixel-space reference path and preserves mismatched aspect ratios better. Crop keeps the legacy behavior."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost",
+          "label": "Identity Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_identity_edit_ref_boost",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 4.0,
+          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+        },
+        {
+          "field_id": "krea2_identity_edit_ref_boost_a",
+          "label": "Scene Reference Boost",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_ref_boost_a",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 1.0,
+          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+        },
+        {
+          "field_id": "krea2_identity_edit_grounding_px",
+          "label": "Grounding Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_grounding_px",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 768,
+          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+        },
+        {
           "field_id": "source_image",
           "label": "Source Image",
           "control_type": "image",
@@ -7242,16 +7774,19 @@
         "negative_prompt"
       ],
       "disabled_fields": [
-        "clip_skip",
-        "steps",
-        "cfg"
+        "clip_skip"
       ],
       "notes": [
         "Phase M16: Krea 2 is a dedicated architecture with a single Qwen3-VL-4B encoder and Qwen Image VAE.",
         "Image-conditioned modes are explicit Neo latent adapters and are marked Experimental in the route matrix.",
         "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
         "GGUF is transformer-only in M16: use a Krea2-capable GGUF loader plus native/safetensors Qwen3-VL-4B. GGUF text encoders are gated.",
-        "Turbo forces 8 steps / CFG 1.0 in the Comfy backend and uses ConditioningZeroOut; stale RAW sampling values do not override it."
+        "Turbo recommends 8 steps / CFG 1.0 and uses ConditioningZeroOut; explicit user Steps/CFG remain authoritative under Parameter Truth.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time.",
+        "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
+        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed.",
+        "Identity Edit on GGUF quantizes only the Krea 2 diffusion transformer; Qwen3-VL, VAE, grounded encoder, and the Identity Edit LoRA remain native/safetensors."
       ],
       "readiness_gates": [
         "krea2_clip_loader"
@@ -7319,6 +7854,16 @@
           "advanced": false,
           "default": 35,
           "help_text": "Base ZImage default; Neo clamps stale Turbo-style low steps back to the base-safe profile."
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 3.5,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -7486,7 +8031,8 @@
         "V25.9.20 P5: ZImage Safetensors / Components exposes source image controls for img2img/inpaint/outpaint.",
         "Image 2/Image 3 stay hidden/pruned; P5 consumes Image 1 only.",
         "Inpaint exposes mask/mask grow/mask blur only for inpaint; outpaint exposes padding only for outpaint.",
-        "Turbo mode is not a normal ZImage parameter; ZImage Turbo remains a separate family."
+        "Turbo mode is not a normal ZImage parameter; ZImage Turbo remains a separate family.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -8292,7 +8838,8 @@
       ],
       "modes": [
         "txt2img",
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "shared_fields": [
         {
@@ -8339,6 +8886,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 4.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -8462,7 +9019,7 @@
             "dev",
             "fast"
           ],
-          "help_text": "Controls the official I1 step/CFG/ModelSamplingSD3 shift defaults used by LanPaint."
+          "help_text": "Selects recommended I1 defaults used when fields are missing; explicit step/CFG values remain authoritative."
         }
       ],
       "readiness_fields": [
@@ -8476,13 +9033,13 @@
       ],
       "hidden_fields": [],
       "disabled_fields": [
-        "cfg",
         "clip_skip"
       ],
       "notes": [
         "Phase 21 enables HiDream-I1 inpaint only when Inpaint Engine is LanPaint.",
         "Four text encoders are required; no single-encoder fallback is allowed for the Phase 21 LanPaint graph.",
-        "E1/E1.1/O1 and native inpaint remain gated."
+        "E1/E1.1/O1 and native inpaint remain gated.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -8497,7 +9054,8 @@
       ],
       "modes": [
         "txt2img",
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "shared_fields": [
         {
@@ -8676,7 +9234,7 @@
             "dev",
             "fast"
           ],
-          "help_text": "Controls the official I1 step/CFG/ModelSamplingSD3 shift defaults used by LanPaint."
+          "help_text": "Selects recommended I1 defaults used when fields are missing; explicit step/CFG values remain authoritative."
         }
       ],
       "readiness_fields": [
@@ -8695,7 +9253,8 @@
       "notes": [
         "Phase 21 enables HiDream-I1 inpaint only when Inpaint Engine is LanPaint.",
         "Four text encoders are required; no single-encoder fallback is allowed for the Phase 21 LanPaint graph.",
-        "E1/E1.1/O1 and native inpaint remain gated."
+        "E1/E1.1/O1 and native inpaint remain gated.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -9132,7 +9691,6 @@
         "text_encoder_2"
       ],
       "disabled_fields": [
-        "cfg",
         "clip_skip"
       ],
       "notes": [
@@ -9141,7 +9699,8 @@
         "Inpaint exposes mask/mask grow/mask blur only for inpaint; outpaint exposes padding only for outpaint.",
         "Turbo behavior is family-owned and forced by the route; no normal turbo_mode dropdown is exposed.",
         "Negative prompt remains hidden because Turbo uses ConditioningZeroOut for negative conditioning.",
-        "ZImage Turbo GGUF image modes remain implementation targets for a separate GGUF pass."
+        "ZImage Turbo GGUF image modes remain implementation targets for a separate GGUF pass.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -9300,7 +9859,8 @@
         "Turbo behavior is family-owned and forced by the route; no normal turbo_mode dropdown is exposed.",
         "Image-conditioned modes and ControlNet stay gated until dedicated ZImage Turbo workflow compilers are validated.",
         "Negative prompt is hidden because the current Turbo compiler path uses zeroed negative conditioning.",
-        "V25.9.20 Pass J.3: Turbo keeps 9 steps / CFG 1.0 and does not inherit base clamps."
+        "V25.9.20 Pass J.3: Turbo keeps 9 steps / CFG 1.0 and does not inherit base clamps.",
+        "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time."
       ]
     },
     {
@@ -9314,7 +9874,8 @@
         "diffusion_model"
       ],
       "modes": [
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "shared_fields": [
         {
@@ -9361,6 +9922,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -9517,7 +10088,7 @@
           "backend_neutral": true,
           "advanced": false,
           "role_id": "flux_guidance",
-          "help_text": "Flux guidance replaces SD-style CFG for supported Flux routes.",
+          "help_text": "Flux guidance is the model guidance control; sampler CFG remains independently editable for experimentation.",
           "default": 3.5
         }
       ],
@@ -9534,12 +10105,11 @@
         "source_image_3",
         "qwen_mmproj"
       ],
-      "disabled_fields": [
-        "cfg"
-      ],
+      "disabled_fields": [],
       "notes": [
         "Phase 17 Flux.2 Dev LanPaint route.",
-        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors."
+        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors.",
+        "Parameter Truth: explicit CFG is user-authoritative; family guidance/defaults do not lock sampler CFG."
       ]
     },
     {
@@ -9553,7 +10123,8 @@
         "gguf"
       ],
       "modes": [
-        "inpaint"
+        "inpaint",
+        "outpaint"
       ],
       "shared_fields": [
         {
@@ -9600,6 +10171,16 @@
           "backend_neutral": true,
           "advanced": false,
           "default": 28
+        },
+        {
+          "field_id": "cfg",
+          "label": "CFG Scale",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0,
+          "help_text": "Sampler CFG. Explicit user values are passed through unchanged; family recommendations are defaults only."
         },
         {
           "field_id": "seed",
@@ -9776,13 +10357,13 @@
       ],
       "hidden_fields": [
         "clip_skip",
-        "text_encoder_2",
-        "cfg"
+        "text_encoder_2"
       ],
       "disabled_fields": [],
       "notes": [
         "Phase 17 Flux.2 Dev LanPaint route.",
-        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors."
+        "GGUF refers to the transformer loader only; the Mistral3 encoder remains native/safetensors.",
+        "Parameter Truth: explicit CFG is user-authoritative; family guidance/defaults do not lock sampler CFG."
       ]
     },
     {

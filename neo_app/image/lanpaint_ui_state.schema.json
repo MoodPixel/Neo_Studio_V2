@@ -31,7 +31,7 @@
       "type": "object",
       "required": ["provider_id", "family", "loader", "mode", "engine", "requested_engine", "route_key", "route_state", "eligible", "active", "selectable", "variant"],
       "properties": {
-        "mode": {"enum": ["inpaint"]},
+        "mode": {"enum": ["inpaint", "outpaint"]},
         "engine": {"enum": ["native", "lanpaint"]},
         "requested_engine": {"type": "string"},
         "eligible": {"type": "boolean"},

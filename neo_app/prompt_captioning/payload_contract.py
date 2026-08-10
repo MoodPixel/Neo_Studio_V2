@@ -4,6 +4,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from .profile_contract import normalize_profile
+
 PromptCaptioningMode = Literal["prompt_builder", "captioning"]
 
 TEXT_TOOLS = {"prompt_generate", "prompt_enhance", "prompt_rewrite", "prompt_cleanup", "negative_prompt", "text_transform", "prompt_studio"}
@@ -125,6 +127,10 @@ def normalize_prompt_captioning_payload(payload: dict[str, Any] | None) -> dict[
     params = _filter_mapping(params, _ALLOWED_PARAMS.get(tool_id, set()), "params", stripped)
     assets = _normalize_assets(tool_id, _dict(payload.get("assets")), stripped)
     metadata = deepcopy(_dict(payload.get("metadata")))
+    profile_source = deepcopy(payload)
+    profile_source["params"] = {**_DEFAULT_PARAMS, **_dict(payload.get("params"))}
+    profile_result = normalize_profile(_dict(payload.get("profile")), payload=profile_source, tool_id=tool_id)
+    profile = profile_result.get("profile") or {}
 
     metadata.update({
         "surface_id": "prompt_captioning",
@@ -144,23 +150,26 @@ def normalize_prompt_captioning_payload(payload: dict[str, Any] | None) -> dict[
         "params": params,
         "assets": assets,
         "metadata": metadata,
+        "profile": profile,
     }
 
     return {
         "ok": True,
         "payload": clean_payload,
         "stripped_fields": stripped,
-        "contract_version": 1,
+        "contract_version": 2,
+        "profile_migration": profile_result.get("migration") or {},
         "rules": [
             "Disabled or gated tools must validate before execution.",
             "Text-only tools never emit image assets.",
             "Caption tools must validate assets before execution.",
             "Hidden/stale fields are stripped before route execution.",
+            "P23 canonical profile metadata is normalized alongside legacy fields for non-destructive migration.",
         ],
     }
 
 
-def create_prompt_payload(*, tool: str = "prompt_generate", inputs: dict[str, Any] | None = None, params: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_prompt_payload(*, tool: str = "prompt_generate", inputs: dict[str, Any] | None = None, params: dict[str, Any] | None = None, profile: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     return normalize_prompt_captioning_payload({
         "workspace": "prompt_captioning",
         "mode": "prompt_builder",
@@ -168,11 +177,12 @@ def create_prompt_payload(*, tool: str = "prompt_generate", inputs: dict[str, An
         "inputs": inputs or {},
         "params": params or {},
         "assets": {},
+        "profile": profile or {},
         "metadata": metadata or {},
     })["payload"]
 
 
-def create_caption_payload(*, tool: str = "image_captioning", inputs: dict[str, Any] | None = None, params: dict[str, Any] | None = None, assets: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_caption_payload(*, tool: str = "image_captioning", inputs: dict[str, Any] | None = None, params: dict[str, Any] | None = None, assets: dict[str, Any] | None = None, profile: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     return normalize_prompt_captioning_payload({
         "workspace": "prompt_captioning",
         "mode": "captioning",
@@ -180,5 +190,6 @@ def create_caption_payload(*, tool: str = "image_captioning", inputs: dict[str, 
         "inputs": inputs or {},
         "params": params or {},
         "assets": assets or {},
+        "profile": profile or {},
         "metadata": metadata or {},
     })["payload"]

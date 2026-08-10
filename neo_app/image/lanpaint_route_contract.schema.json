@@ -33,7 +33,7 @@
         "provider_id": {"type": "string"},
         "family": {"type": "string"},
         "loader": {"type": "string"},
-        "mode": {"const": "inpaint"},
+        "mode": {"enum": ["inpaint", "outpaint"]},
         "engine": {"const": "lanpaint"},
         "variant": {"type": "string"},
         "route_key": {"type": "string"}

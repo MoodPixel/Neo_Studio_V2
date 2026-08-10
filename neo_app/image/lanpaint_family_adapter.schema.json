@@ -69,7 +69,7 @@
           "minLength": 1
         },
         "mode": {
-          "const": "inpaint"
+          "enum": ["inpaint", "outpaint"]
         },
         "engine": {
           "const": "lanpaint"

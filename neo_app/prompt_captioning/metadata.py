@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from .profile_contract import PROFILE_SCHEMA_VERSION, normalize_profile
+
 SURFACE_ID = "prompt_captioning"
 WORKSPACE_APP = "neo_studio"
 METADATA_SCHEMA_VERSION = "prompt_captioning.result_metadata.v1"
@@ -52,16 +54,27 @@ def normalize_route(provider_id: str = "", backend_profile_id: str = "", model: 
 
 def build_replay_payload(payload: dict[str, Any] | None, outputs: dict[str, Any] | None = None, reuse_mode: str = "rerun") -> dict[str, Any]:
     clean = payload if isinstance(payload, dict) else {}
+    tool_id = str(clean.get("tool") or clean.get("tool_id") or "")
+    profile_result = normalize_profile(
+        clean.get("profile") if isinstance(clean.get("profile"), dict) else {},
+        payload=clean,
+        tool_id=tool_id,
+    )
+    profile = profile_result.get("profile") or {}
+    replay_metadata = dict(clean.get("metadata") if isinstance(clean.get("metadata"), dict) else {})
+    replay_metadata["profile_schema_version"] = PROFILE_SCHEMA_VERSION
     return {
-        "schema_version": "prompt_captioning.replay_payload.v1",
+        "schema_version": "prompt_captioning.replay_payload.v2",
         "surface_id": SURFACE_ID,
         "workspace": SURFACE_ID,
         "mode": clean.get("mode") or "",
-        "tool": clean.get("tool") or clean.get("tool_id") or "",
+        "tool": tool_id,
         "inputs": clean.get("inputs") if isinstance(clean.get("inputs"), dict) else {},
         "params": clean.get("params") if isinstance(clean.get("params"), dict) else {},
         "assets": clean.get("assets") if isinstance(clean.get("assets"), dict) else {},
-        "metadata": clean.get("metadata") if isinstance(clean.get("metadata"), dict) else {},
+        "metadata": replay_metadata,
+        "profile": profile,
+        "profile_migration": profile_result.get("migration") or {},
         "outputs": outputs if isinstance(outputs, dict) else {},
         "reuse_mode": reuse_mode,
     }
@@ -124,6 +137,8 @@ def build_result_metadata(
         "source_image": asset_label,
         "source_image_name": asset_label.replace("\\", "/").split("/")[-1] if asset_label else "",
         "params": params,
+        "profile": replay_payload.get("profile") if isinstance(replay_payload.get("profile"), dict) else {},
+        "profile_schema_version": PROFILE_SCHEMA_VERSION,
         "prompt_text": str((payload.get("inputs") or {}).get("source_text") or (payload.get("inputs") or {}).get("prompt") or ""),
         "caption_instruction": str((payload.get("inputs") or {}).get("caption_instruction") or ""),
         "output_text": output_text,

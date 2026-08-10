@@ -935,7 +935,7 @@ for _loader in ("diffusion_model", "gguf"):
         reason="V25.9.20 Pass I/P6 locks ZImage Turbo as a separate low-step family for Safetensors / Components txt2img/img2img/inpaint/outpaint and GGUF txt2img. ControlNet stays separate.",
         notes=[
             "Normal UI labels diffusion_model as Safetensors / Components and gguf as GGUF.",
-            "ZImage Turbo forces turbo conditioning and low-step/low-CFG defaults by family route, not by a normal turbo_mode dropdown.",
+            "ZImage Turbo uses turbo conditioning and low-step/low-CFG recommended defaults by family route; explicit user Parameters remain authoritative.",
             "P8.5 image modes use the selected ZImage Turbo loader stack with Image 1 source, mask, or outpaint padding branches.",
             "Do not fallback to base ZImage high-step defaults, SD checkpoint, Flux, Qwen, or generic image-conditioned compilers.",
         ],
@@ -965,12 +965,12 @@ for _loader in ("diffusion_model", "gguf"):
                     "source_branch": "LoadImage + VAEEncode",
                     "mask_branch": "LoadImageMask + SetLatentNoiseMask + DifferentialDiffusion" if _mode == "inpaint" else ("ImagePadForOutpaint + SetLatentNoiseMask + DifferentialDiffusion" if _mode == "outpaint" else "source latent anchor"),
                 },
-                reason="V25.9.20 P6 promotes ZImage Turbo Safetensors / Components img2img/inpaint/outpaint as real Turbo-native workflows using the ZImage component stack with family-forced Turbo defaults; no base/Qwen/Flux/SD fallback.",
+                reason="V25.9.20 P6 promotes ZImage Turbo Safetensors / Components img2img/inpaint/outpaint as real Turbo-native workflows using the ZImage component stack with Turbo recommendations as defaults only; explicit user Parameters remain authoritative and no base/Qwen/Flux/SD fallback is allowed.",
                 notes=[
                     "P8.5 scope includes both checkpoint/safetensors/component and GGUF ZImage Turbo image routes.",
                     "Image 1 is the only consumed source lane; Image 2/Image 3 stay hidden/pruned for this Turbo workflow.",
                     "Inpaint requires a mask image; outpaint requires at least one padding side.",
-                    "Turbo image modes keep ConditioningZeroOut negative conditioning and low-step/low-CFG defaults.",
+                    "Turbo image modes keep ConditioningZeroOut negative conditioning. Low-step/low-CFG values are recommended defaults only.",
                 ],
             ))
         else:
@@ -992,7 +992,7 @@ for _loader in ("diffusion_model", "gguf"):
                     "source_branch": "LoadImage + VAEEncode",
                     "mask_branch": "LoadImageMask + SetLatentNoiseMask + DifferentialDiffusion" if _mode == "inpaint" else ("ImagePadForOutpaint + SetLatentNoiseMask + DifferentialDiffusion" if _mode == "outpaint" else "source latent anchor"),
                 },
-                reason="V25.9.20 P8.5 syncs ZImage Turbo GGUF img2img/inpaint/outpaint to available because the provider-owned ZImage GGUF compiler supports the same Turbo Image 1 source/mask/padding route shape with family-forced low-step/low-CFG defaults; High-Res Lab must not create a fallback route.",
+                reason="V25.9.20 P8.5 syncs ZImage Turbo GGUF img2img/inpaint/outpaint to available because the provider-owned ZImage GGUF compiler supports the same Turbo Image 1 source/mask/padding route shape with Turbo recommendations supplied only when values are absent; explicit user Parameters remain authoritative. High-Res Lab must not create a fallback route.",
                 notes=[
                     "Do not fallback to base ZImage, SD checkpoint, Flux, Qwen, or generic image-conditioned compilers.",
                     "GGUF image modes use the ZImage Turbo GGUF model loader plus Qwen3/lumina2 text encoder, AE/VAE, ModelSamplingAuraFlow, ConditioningZeroOut negative conditioning, and route-specific source/mask/padding branches.",

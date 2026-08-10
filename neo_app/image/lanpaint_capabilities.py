@@ -12,6 +12,7 @@ from neo_app.image.lanpaint_capability_discovery import lanpaint_snapshot_freshn
 from neo_app.image.lanpaint_route_contract import (
     ENGINE_ID,
     MODE_ID,
+    SUPPORTED_MODES,
     normalize_family_id,
     normalize_loader_id,
     normalize_provider_id,
@@ -455,7 +456,7 @@ def evaluate_lanpaint_route_capabilities(
     supported_route = bool(
         provider in SUPPORTED_PROVIDERS
         and requirements.get("supported")
-        and mode_id == MODE_ID
+        and mode_id in SUPPORTED_MODES
         and engine_id == ENGINE_ID
     )
     route_key = f"{provider}:{family_id}:{loader_id}:{mode_id}:{engine_id}"

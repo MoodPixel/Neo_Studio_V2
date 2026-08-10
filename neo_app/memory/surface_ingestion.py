@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .unified_schema import ensure_unified_memory_schema, unified_memory_schema_status
+from neo_app.context_identity import builtin_scope_for_surface, resolve_canonical_identity
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_MEMORY_DB = ROOT_DIR / "neo_data" / "memory" / "global" / "neo_memory.sqlite3"
@@ -261,6 +262,14 @@ class SurfaceMemoryIngestor:
     def _add_error(self, surface: str, message: str) -> None:
         self.report["errors"].append({"surface": surface, "error": str(message)[:800], "created_at": _now()})
 
+    def _surface_identity(self, surface: str):
+        scope_id = builtin_scope_for_surface(surface, default="")
+        return resolve_canonical_identity(
+            {"surface_id": surface, "scope_id": scope_id or "general"},
+            legacy_project_is_scope=True,
+            source="surface_ingestion",
+        )
+
     def ingest_projects(self) -> None:
         surface = "assistant"
         out = self._surface_report(surface)
@@ -286,8 +295,9 @@ class SurfaceMemoryIngestor:
     def ingest_image(self, *, limit: int | None = None) -> None:
         surface = "image"
         out = self._surface_report(surface)
-        project_id = self.writer.upsert_project(project_id="image", label="Image", surface="image", project_type="surface", description="Image generation metadata memory sandbox.")
-        root_scope = self.writer.upsert_scope(surface="image", project_id=project_id, scope_type="root", scope_key="image", label="Image Root")
+        identity = self._surface_identity(surface)
+        project_id = self.writer.upsert_project(project_id="image", label="Image", surface="image", project_type="surface", description="Image generation metadata memory sandbox.", metadata={"canonical_identity": identity.as_dict(), "compatibility_project_id": "image"})
+        root_scope = self.writer.upsert_scope(surface="image", project_id=project_id, scope_type="root", scope_key="image", label="Image Root", metadata={"canonical_identity": identity.as_dict()})
         paths = sorted((self.root_dir / "neo_data" / "runtime" / "image_jobs").glob("*.json"))
         last_payload = self.root_dir / "neo_data" / "logs" / "image" / "neo_last_payload.json"
         if last_payload.exists():
@@ -331,8 +341,9 @@ class SurfaceMemoryIngestor:
     def ingest_prompt_captioning(self, *, limit: int | None = None) -> None:
         surface = "prompt_captioning"
         out = self._surface_report(surface)
-        project_id = self.writer.upsert_project(project_id="prompt_captioning", label="Prompt + Captioning", surface=surface, project_type="surface", description="Prompt Studio and Caption Studio generated output memory sandbox.")
-        root_scope = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="root", scope_key=surface, label="Prompt + Captioning Root")
+        identity = self._surface_identity(surface)
+        project_id = self.writer.upsert_project(project_id="prompt_captioning", label="Prompt + Captioning", surface=surface, project_type="surface", description="Prompt Studio and Caption Studio generated output memory sandbox.", metadata={"canonical_identity": identity.as_dict(), "compatibility_project_id": "prompt_captioning"})
+        root_scope = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="root", scope_key=surface, label="Prompt + Captioning Root", metadata={"canonical_identity": identity.as_dict()})
         sources = [
             ("result_metadata", self.root_dir / "neo_data" / "prompt_captioning" / "result_metadata.json"),
             ("caption_history", self.root_dir / "neo_data" / "prompt_captioning" / "caption_history.json"),
@@ -388,8 +399,9 @@ class SurfaceMemoryIngestor:
         if not role_db.exists():
             self._add_error(surface, f"missing {role_db}")
             return
-        project_id = self.writer.upsert_project(project_id="roleplay", label="Roleplay", surface=surface, project_type="surface", description="Roleplay canon, scene, character, timeline, and runtime memory sandbox.")
-        root_scope = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="root", scope_key="roleplay", label="Roleplay Root")
+        identity = self._surface_identity(surface)
+        project_id = self.writer.upsert_project(project_id="roleplay", label="Roleplay", surface=surface, project_type="surface", description="Roleplay canon, scene, character, timeline, and runtime memory sandbox.", metadata={"canonical_identity": identity.as_dict(), "compatibility_project_id": "roleplay"})
+        root_scope = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="root", scope_key="roleplay", label="Roleplay Root", metadata={"canonical_identity": identity.as_dict()})
         rconn = sqlite3.connect(str(role_db)); rconn.row_factory = sqlite3.Row
         try:
             rows = rconn.execute("SELECT * FROM rp_memory_fragments ORDER BY updated_at DESC").fetchall()
@@ -434,6 +446,44 @@ class SurfaceMemoryIngestor:
         out["sources"].append(_rel(role_db))
 
 
+    def ingest_voice(self, *, limit: int | None = None) -> None:
+        surface = "voice"
+        out = self._surface_report(surface)
+        identity = self._surface_identity(surface)
+        project_id = self.writer.upsert_project(project_id="voice", label="Voice", surface=surface, project_type="surface", description="Voice render, replay, profile, and output memory sandbox.", metadata={"canonical_identity": identity.as_dict(), "compatibility_project_id": "voice"})
+        root_scope = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="root", scope_key="voice", label="Voice Root", metadata={"canonical_identity": identity.as_dict()})
+        voice_memory_index = self.root_dir / "neo_data" / "outputs" / "voice" / "history" / "voice_memory_events.v15.json"
+        records = _records_from_json(_read_json(voice_memory_index, []))
+        if limit:
+            records = records[: max(0, limit)]
+        for item in records:
+            try:
+                event_id_raw = str(item.get("event_id") or item.get("job_id") or _hash(item))
+                job_id = str(item.get("job_id") or event_id_raw)
+                job_type = str(item.get("job_type") or "voice")
+                replay = item.get("replay") if isinstance(item.get("replay"), dict) else item
+                script_fragment = replay.get("script_fragment") if isinstance(replay.get("script_fragment"), dict) else item.get("script_fragment") if isinstance(item.get("script_fragment"), dict) else {}
+                voice_profile = replay.get("voice_profile_fact") if isinstance(replay.get("voice_profile_fact"), dict) else item.get("voice_profile_fact") if isinstance(item.get("voice_profile_fact"), dict) else {}
+                backend = replay.get("backend_settings") if isinstance(replay.get("backend_settings"), dict) else item.get("backend_settings") if isinstance(item.get("backend_settings"), dict) else {}
+                output_obj = replay.get("output_file_object") if isinstance(replay.get("output_file_object"), dict) else item.get("output_file_object") if isinstance(item.get("output_file_object"), dict) else {}
+                summary = _safe_text(item.get("memory_summary") or replay.get("memory_summary") or script_fragment.get("text") or "", limit=4000)
+                scope_id = self.writer.upsert_scope(surface=surface, project_id=project_id, scope_type="voice_job_type", scope_key=job_type, label=f"Voice · {job_type}", parent_scope_id=root_scope, metadata={"job_type": job_type})
+                title = f"Voice job {job_id} · {job_type}"
+                event_id = self.writer.upsert_event(surface=surface, project_id=project_id, scope_id=scope_id, source_type="voice_memory_event", source_id=event_id_raw, event_type=str(item.get("event_type") or "voice.render.completed"), title=title, summary=summary, payload=item, metadata={"source_path": _rel(voice_memory_index), "job_id": job_id, "job_type": job_type}, importance="normal", trust_level="confirmed", created_at=item.get("created_at"))
+                object_id = self.writer.upsert_object(surface=surface, project_id=project_id, scope_id=scope_id, object_type="voice_job", object_key=job_id, label=title, summary=summary, attributes={"job_type": job_type, "voice_profile": voice_profile, "backend": backend, "output": output_obj}, metadata={"source_event_id": event_id})
+                content = "\n".join(part for part in [summary, f"Voice profile: {_safe_text(voice_profile, limit=2000)}" if voice_profile else "", f"Backend: {_safe_text(backend, limit=2000)}" if backend else "", f"Output: {_safe_text(output_obj, limit=1500)}" if output_obj else ""] if part)
+                fragment_id = self.writer.upsert_fragment(surface=surface, project_id=project_id, scope_id=scope_id, source_type="voice_memory_event", source_id=event_id_raw, memory_type="voice_replay_metadata", title=title, content=content or title, summary=summary, priority=0.7, confidence=0.9, trust_level="confirmed", metadata={"source_event_id": event_id, "object_id": object_id, "job_id": job_id})
+                model = str(backend.get("model_id") or backend.get("model") or voice_profile.get("model_id") or "")
+                if model:
+                    self.writer.upsert_fact(surface=surface, project_id=project_id, scope_id=scope_id, subject_id=object_id, predicate="used_model", object_value=model, statement=f"Voice job {job_id} used model {model}.", fact_type="voice_result", source_event_id=event_id, confidence=0.9, trust_level="confirmed")
+                    out["facts"] += 1
+                out["events"] += 1; out["objects"] += 1
+                if fragment_id:
+                    out["fragments"] += 1
+            except Exception as exc:
+                self._add_error(surface, f"voice event {item.get('event_id') or item.get('job_id')}: {exc}")
+        out["sources"].append(_rel(voice_memory_index))
+
     def ingest_video(self, *, limit: int | None = None) -> None:
         surface = "video"
         out = self._surface_report(surface)
@@ -443,8 +493,9 @@ class SurfaceMemoryIngestor:
         except Exception as exc:  # pragma: no cover - defensive optional surface import
             self._add_error(surface, f"Video replay metadata import failed: {exc}")
             return
-        project_id = self.writer.upsert_project(project_id="video", label="Video", surface="video", project_type="surface", description="Video generation, finish, replay, and output memory sandbox.")
-        root_scope = self.writer.upsert_scope(surface="video", project_id=project_id, scope_type="root", scope_key="video", label="Video Root")
+        identity = self._surface_identity(surface)
+        project_id = self.writer.upsert_project(project_id="video", label="Video", surface="video", project_type="surface", description="Video generation, finish, replay, and output memory sandbox.", metadata={"canonical_identity": identity.as_dict(), "compatibility_project_id": "video"})
+        root_scope = self.writer.upsert_scope(surface="video", project_id=project_id, scope_type="root", scope_key="video", label="Video Root", metadata={"canonical_identity": identity.as_dict()})
         metadata_dir = self.root_dir / "neo_data" / "outputs" / "video" / "metadata"
         paths = sorted(metadata_dir.glob("*.json"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True) if metadata_dir.exists() else []
         paths = [path for path in paths if not path.name.endswith((".replay.v22.json", ".memory_export.v22.json"))]
@@ -476,18 +527,13 @@ class SurfaceMemoryIngestor:
         out["sources"].append(_rel(metadata_dir))
 
     def run(self, *, surfaces: Iterable[str] | None = None, limit: int | None = None) -> dict[str, Any]:
-        selected = set(surfaces or ["projects", "image", "prompt_captioning", "roleplay", "video"])
+        from .surface_ingestion_registry import execute_registered_batch_ingestion, surface_ingestion_registry_status
+
         try:
-            if "projects" in selected or "assistant" in selected or "project" in selected:
-                self.ingest_projects()
-            if "image" in selected:
-                self.ingest_image(limit=limit)
-            if "prompt_captioning" in selected or "caption" in selected or "prompt" in selected:
-                self.ingest_prompt_captioning(limit=limit)
-            if "roleplay" in selected:
-                self.ingest_roleplay(limit=limit)
-            if "video" in selected:
-                self.ingest_video(limit=limit)
+            registry_run = execute_registered_batch_ingestion(self, surfaces, limit=limit)
+            self.report["registry"] = {**surface_ingestion_registry_status(), "run": registry_run}
+            for unsupported in registry_run.get("unsupported", []):
+                self._add_error(str(unsupported), "No registered batch ingestion adapter for this surface.")
             self.conn.commit()
             self.report["status"] = "completed" if not self.report.get("errors") else "completed_with_warnings"
         except Exception as exc:
@@ -566,7 +612,7 @@ def render_surface_ingestion_report(report: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Neo Phase M3 surface memory ingestion")
-    parser.add_argument("--surface", action="append", dest="surfaces", help="Surface to ingest. May be repeated. Defaults to projects,image,prompt_captioning,roleplay,video.")
+    parser.add_argument("--surface", action="append", dest="surfaces", help="Surface to ingest. May be repeated. Defaults to assistant,image,prompt_captioning,roleplay,video,voice through the Phase 8 registry.")
     parser.add_argument("--limit", type=int, default=None, help="Optional per-source limit for smoke tests.")
     parser.add_argument("--db", type=Path, default=DEFAULT_MEMORY_DB, help="Unified memory SQLite path.")
     args = parser.parse_args(argv)

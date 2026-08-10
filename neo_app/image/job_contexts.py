@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
+
 SCHEMA = "neo.image.job_context.v1"
 INDEX_SCHEMA = "neo.image.job_context_index.v1"
 DEFAULT_RETENTION_DAYS = 7
@@ -78,6 +80,28 @@ def save_image_job_context(root_dir: Path, context: dict[str, Any], *, status: s
     path = context_path(root_dir, job_id)
     payload = {"schema": SCHEMA, "context": normalized}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    if str((normalized.get("persistence") or {}).get("status") or "").lower() in {"completed", "complete", "success", "succeeded"}:
+        try:
+            params = normalized.get("params") if isinstance(normalized.get("params"), dict) else {}
+            memory_db = Path(root_dir) / "neo_data" / "memory" / "global" / "neo_memory.sqlite3"
+            ingest_surface_memory_event("image", {
+                "event_type": "image.generation.completed",
+                "status": "completed",
+                "source_id": str(job_id),
+                "job_id": str(job_id),
+                "title": f"Image generation {job_id}",
+                "summary": str(normalized.get("assistant_summary") or "Image generation completed."),
+                "prompt": str(normalized.get("prompt") or normalized.get("positive_prompt") or params.get("prompt") or params.get("positive_prompt") or ""),
+                "negative_prompt": str(normalized.get("negative_prompt") or params.get("negative_prompt") or ""),
+                "model": str(params.get("model") or params.get("model_name") or params.get("checkpoint") or normalized.get("model") or ""),
+                "provider_id": str(normalized.get("provider_id") or ""),
+                "backend_profile_id": str(normalized.get("backend_profile_id") or normalized.get("profile_id") or ""),
+                "settings": params,
+                "identity": {"surface_id": "image", "scope_id": "image_workspace"},
+            }, db_path=memory_db)
+        except Exception:
+            # Memory ingestion must never block Image job persistence.
+            pass
     return {"ok": True, "job_id": job_id, "path": str(path), "context": normalized}
 
 

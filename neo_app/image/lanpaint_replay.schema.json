@@ -50,7 +50,7 @@
           "type": "string"
         },
         "mode": {
-          "const": "inpaint"
+          "enum": ["inpaint", "outpaint"]
         },
         "engine": {
           "const": "lanpaint"

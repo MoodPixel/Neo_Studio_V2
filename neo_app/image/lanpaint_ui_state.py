@@ -9,6 +9,7 @@ from neo_app.image.lanpaint_family_adapter import resolve_lanpaint_family_adapte
 from neo_app.image.lanpaint_route_contract import (
     ENGINE_ID,
     MODE_ID,
+    SUPPORTED_MODES,
     ROUTE_FAMILY_ID,
     normalize_family_id,
     normalize_loader_id,
@@ -194,7 +195,9 @@ def normalize_lanpaint_ui_state(
     loader_id = normalize_loader_id(loader)
     mode_id = str(mode or MODE_ID).strip().lower().replace("-", "_")
     if mode_id in {"inpainting", "mask_inpaint"}:
-        mode_id = MODE_ID
+        mode_id = "inpaint"
+    elif mode_id in {"outpainting", "mask_outpaint"}:
+        mode_id = "outpaint"
     engine_id = str(engine or "native").strip().lower().replace("-", "_") or "native"
     if engine_id == "lan_paint":
         engine_id = ENGINE_ID
@@ -204,7 +207,7 @@ def normalize_lanpaint_ui_state(
     )
     binding = _mapping(adapter.get("binding"))
     policy = _mapping(adapter.get("policy"))
-    eligible = bool(provider in SUPPORTED_PROVIDERS and binding.get("selectable") and mode_id == MODE_ID)
+    eligible = bool(provider in SUPPORTED_PROVIDERS and binding.get("selectable") and mode_id in SUPPORTED_MODES)
     active = eligible and engine_id == ENGINE_ID
 
     spatial = _mapping(adapter.get("spatial"))
@@ -316,7 +319,8 @@ def normalize_lanpaint_ui_state(
         "state_policy": {
             "preserve_saved_controls_when_inactive": True,
             "force_execution_engine_native_when_ineligible": True,
-            "family_policy_defaults_are_authoritative": True,
+            "family_policy_defaults_are_authoritative": False,
+            "explicit_user_values_are_authoritative": True,
             "flat_payload_compatibility_enabled": True,
         },
     }

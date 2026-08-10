@@ -1,0 +1,705 @@
+{
+  "schema_version": "prompt_captioning.profile_manifest.v1",
+  "phase": "P23.4",
+  "title": "Prompt & Captioning Profile Engine",
+  "description": "Canonical Prompt/Captioning profile manifest with P23.4 legacy migration aliases, persistence/replay compatibility, and completed Image/Video task taxonomy.",
+  "shared_dimensions": {
+    "purpose": [
+      {
+        "id": "general",
+        "label": "General / Balanced",
+        "description": "Balanced visual description or prompt generation without a specialized training focus."
+      },
+      {
+        "id": "character_identity",
+        "label": "Character / Person Identity",
+        "description": "Prioritize stable visible identity traits while keeping variable scene attributes distinct."
+      },
+      {
+        "id": "pose",
+        "label": "Pose / Body Position",
+        "description": "Prioritize body orientation, limb placement, gesture, balance, and camera-relative pose."
+      },
+      {
+        "id": "expression",
+        "label": "Expression / Emotion",
+        "description": "Prioritize visible facial expression, gaze, head angle, and observable affect without inventing a backstory."
+      },
+      {
+        "id": "outfit",
+        "label": "Outfit / Clothing",
+        "description": "Prioritize garments, materials, colors, layers, fit, footwear, and accessories."
+      },
+      {
+        "id": "art_style",
+        "label": "Art Style",
+        "description": "Prioritize visible medium, linework, rendering, shading, palette, texture, and stylistic treatment."
+      },
+      {
+        "id": "concept",
+        "label": "Concept / Theme",
+        "description": "Prioritize the defining visible concept or theme while avoiding irrelevant detail."
+      },
+      {
+        "id": "object_product",
+        "label": "Object / Product",
+        "description": "Prioritize object shape, material, construction, surface, condition, and viewpoint."
+      },
+      {
+        "id": "environment",
+        "label": "Environment / Location",
+        "description": "Prioritize visible architecture, terrain, room structure, weather, materials, and surrounding context."
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "description": "Use a user-defined purpose profile."
+      }
+    ],
+    "visual_treatment": [
+      {
+        "id": "source_accurate",
+        "label": "Source Accurate / Neutral",
+        "description": "Preserve the source visual treatment without intentionally restyling it."
+      },
+      {
+        "id": "photorealistic",
+        "label": "Photorealistic",
+        "description": "Use real-life photography and natural-material language."
+      },
+      {
+        "id": "cinematic",
+        "label": "Cinematic",
+        "description": "Use filmic composition, lighting, lens, atmosphere, and color language."
+      },
+      {
+        "id": "candid_documentary",
+        "label": "Candid / Documentary",
+        "description": "Use natural, unstaged, observational photography language."
+      },
+      {
+        "id": "editorial_fashion",
+        "label": "Editorial / Fashion",
+        "description": "Use magazine, fashion, styling, pose, and editorial photography language."
+      },
+      {
+        "id": "studio_photography",
+        "label": "Studio Photography",
+        "description": "Use controlled lighting, backdrop, and studio-photography language."
+      },
+      {
+        "id": "anime",
+        "label": "Anime",
+        "description": "Use anime illustration terminology without changing unsupported source facts."
+      },
+      {
+        "id": "manga",
+        "label": "Manga",
+        "description": "Use manga/comic rendering and line-art terminology."
+      },
+      {
+        "id": "digital_illustration",
+        "label": "Digital Illustration",
+        "description": "Use general polished digital-illustration language."
+      },
+      {
+        "id": "watercolor",
+        "label": "Watercolor",
+        "description": "Use watercolor medium, pigment, wash, edge, and paper-texture language."
+      },
+      {
+        "id": "oil_painting",
+        "label": "Oil Painting",
+        "description": "Use painterly oil, brushwork, impasto, canvas, and color-mixing language."
+      },
+      {
+        "id": "concept_art",
+        "label": "Concept Art",
+        "description": "Use production/concept-design language focused on readable visual design."
+      },
+      {
+        "id": "fantasy_art",
+        "label": "Fantasy Art",
+        "description": "Use fantasy-art treatment only as a requested visual treatment, never as invented subject lore."
+      },
+      {
+        "id": "cgi_3d",
+        "label": "3D / CGI",
+        "description": "Use 3D-render, material, lighting, and render-quality language."
+      },
+      {
+        "id": "graphic_poster",
+        "label": "Graphic / Poster",
+        "description": "Use graphic-design, layout, poster, typography-safe, and compositional language."
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "description": "Use a user-defined visual treatment."
+      }
+    ],
+    "grounding": [
+      {
+        "id": "strict",
+        "label": "Strict",
+        "description": "Use only directly visible or explicitly supplied facts; omit uncertainty rather than guess.",
+        "allows_atmospheric_interpretation": false,
+        "allows_transformative_style_language": false
+      },
+      {
+        "id": "balanced",
+        "label": "Balanced",
+        "description": "Stay factual while allowing cautious visual interpretation such as lighting quality or broad atmosphere.",
+        "allows_atmospheric_interpretation": true,
+        "allows_transformative_style_language": false
+      },
+      {
+        "id": "transformative",
+        "label": "Transformative",
+        "description": "Allow requested visual-treatment and generation language while preserving source facts and never inventing concrete identity, relationship, or location claims.",
+        "allows_atmospheric_interpretation": true,
+        "allows_transformative_style_language": true
+      }
+    ],
+    "analysis_scope": [
+      {
+        "id": "full_image",
+        "label": "Full Image",
+        "description": "Analyze the complete visible frame."
+      },
+      {
+        "id": "person",
+        "label": "Person",
+        "description": "Focus on the visible person or people."
+      },
+      {
+        "id": "face",
+        "label": "Face",
+        "description": "Focus on facial appearance, expression, gaze, and visible head details."
+      },
+      {
+        "id": "outfit",
+        "label": "Outfit",
+        "description": "Focus on clothing, accessories, materials, and styling."
+      },
+      {
+        "id": "pose",
+        "label": "Pose",
+        "description": "Focus on body position, gesture, orientation, and action posture."
+      },
+      {
+        "id": "environment",
+        "label": "Environment",
+        "description": "Focus on background, architecture, terrain, room, and surrounding context."
+      },
+      {
+        "id": "composition_camera",
+        "label": "Composition / Camera",
+        "description": "Focus on framing, shot size, angle, perspective, lens feel, and camera placement."
+      },
+      {
+        "id": "lighting_color",
+        "label": "Lighting / Color",
+        "description": "Focus on light direction, quality, contrast, exposure feel, and palette."
+      },
+      {
+        "id": "action_interaction",
+        "label": "Action / Interaction",
+        "description": "Focus on visible actions and physical interactions between subjects and objects."
+      },
+      {
+        "id": "custom_crop",
+        "label": "Custom Crop",
+        "description": "Analyze only the user-selected image crop."
+      }
+    ],
+    "output_format": [
+      {
+        "id": "descriptive_caption",
+        "label": "Descriptive Caption",
+        "description": "Natural-language visual caption.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "image_generation_prompt",
+        "label": "Image Generation Prompt",
+        "description": "Prompt suitable for image generation or recreation.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "tags_keywords",
+        "label": "Tags / Keywords",
+        "description": "Compact tags or keywords.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "alt_text",
+        "label": "Alt Text",
+        "description": "Concise accessibility-oriented visual description.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "shot_breakdown",
+        "label": "Shot Breakdown",
+        "description": "Structured camera, composition, subject, lighting, and scene breakdown.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "attribute_list",
+        "label": "Attribute List / Character Sheet",
+        "description": "Structured visible attributes useful for character or reference analysis.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "dataset_caption",
+        "label": "Dataset Caption",
+        "description": "Grounded training caption optimized for dataset use.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "video_generation_prompt",
+        "label": "Video Generation Prompt",
+        "description": "Temporal prompt describing motion, continuity, and camera behavior.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "edit_instruction",
+        "label": "Image Edit Instruction",
+        "description": "Instruction prompt that clearly separates requested changes from preserved content.",
+        "prompt_studio_selectable": false
+      },
+      {
+        "id": "natural_prompt",
+        "label": "Natural Prompt",
+        "description": "Natural-language generation prompt.",
+        "prompt_studio_selectable": true
+      },
+      {
+        "id": "sd_tags",
+        "label": "SD / SDXL Tags",
+        "description": "Tag-oriented Stable Diffusion prompt format.",
+        "prompt_studio_selectable": true
+      },
+      {
+        "id": "hybrid_prompt",
+        "label": "Hybrid Prompt",
+        "description": "Natural language with compact high-value prompt tags.",
+        "prompt_studio_selectable": true
+      },
+      {
+        "id": "structured_prompt",
+        "label": "Structured Prompt",
+        "description": "Sectioned prompt structure for advanced reuse.",
+        "prompt_studio_selectable": true
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "description": "Use a user-defined output format.",
+        "prompt_studio_selectable": true
+      }
+    ]
+  },
+  "task_dimensions": {
+    "target_media": [
+      {
+        "id": "image",
+        "label": "Image"
+      },
+      {
+        "id": "video",
+        "label": "Video"
+      }
+    ],
+    "prompt_task": [
+      {
+        "id": "text_to_image",
+        "label": "Text \u2192 Image",
+        "surface": "prompt_studio",
+        "target_media": "image",
+        "description": "Build an image-generation prompt from text/ideas."
+      },
+      {
+        "id": "text_image_edit",
+        "label": "Image Edit Instruction",
+        "surface": "prompt_studio",
+        "target_media": "image",
+        "description": "Build a source-safe image-edit instruction from a text request without inspecting an image.",
+        "output_format": "edit_instruction"
+      },
+      {
+        "id": "text_to_video",
+        "label": "Text \u2192 Video",
+        "surface": "prompt_studio",
+        "target_media": "video",
+        "description": "Build a temporal text-to-video prompt with motion, continuity, camera behavior, and an ending state.",
+        "output_format": "video_generation_prompt"
+      },
+      {
+        "id": "caption_image",
+        "label": "Caption Image",
+        "surface": "caption_studio",
+        "target_media": "image"
+      },
+      {
+        "id": "image_recreation",
+        "label": "Image \u2192 Recreation Prompt",
+        "surface": "caption_studio",
+        "target_media": "image",
+        "output_format": "image_generation_prompt"
+      },
+      {
+        "id": "image_edit",
+        "label": "Image \u2192 Editing Prompt",
+        "surface": "caption_studio",
+        "target_media": "image",
+        "output_format": "edit_instruction"
+      },
+      {
+        "id": "image_to_video",
+        "label": "Image \u2192 Video Prompt",
+        "surface": "caption_studio",
+        "target_media": "video",
+        "output_format": "video_generation_prompt"
+      },
+      {
+        "id": "dataset_prepare",
+        "label": "Dataset Preparation",
+        "surface": "batch_dataset",
+        "target_media": "image",
+        "output_format": "dataset_caption"
+      },
+      {
+        "id": "library_caption",
+        "label": "Save to Library",
+        "surface": "batch_library",
+        "target_media": "image"
+      }
+    ],
+    "edit_intent": [
+      {
+        "id": "general_edit",
+        "label": "General Edit"
+      },
+      {
+        "id": "identity_preserve",
+        "label": "Identity Preserve"
+      },
+      {
+        "id": "outfit_change",
+        "label": "Outfit Change"
+      },
+      {
+        "id": "face_hair_change",
+        "label": "Face / Hair Change"
+      },
+      {
+        "id": "background_change",
+        "label": "Background Change"
+      },
+      {
+        "id": "object_add",
+        "label": "Add Object"
+      },
+      {
+        "id": "object_remove",
+        "label": "Remove Object"
+      },
+      {
+        "id": "object_replace",
+        "label": "Replace Object"
+      },
+      {
+        "id": "pose_restaging",
+        "label": "Pose / Restaging"
+      },
+      {
+        "id": "relighting",
+        "label": "Relighting"
+      },
+      {
+        "id": "recolor",
+        "label": "Recolor"
+      },
+      {
+        "id": "style_transfer",
+        "label": "Style Transfer"
+      },
+      {
+        "id": "composition_change",
+        "label": "Composition Change"
+      },
+      {
+        "id": "inpaint_instruction",
+        "label": "Inpaint Instruction"
+      },
+      {
+        "id": "outpaint_instruction",
+        "label": "Outpaint Instruction"
+      },
+      {
+        "id": "custom",
+        "label": "Custom"
+      }
+    ],
+    "preservation_policy": [
+      {
+        "id": "preserve_unrequested",
+        "label": "Preserve Unchanged Elements",
+        "description": "Treat all elements not requested for editing as preservation targets."
+      },
+      {
+        "id": "identity_priority",
+        "label": "Identity Priority",
+        "description": "Strongly preserve subject identity while permitting requested scene or styling changes."
+      },
+      {
+        "id": "composition_priority",
+        "label": "Composition Priority",
+        "description": "Strongly preserve pose, framing, camera, and scene geometry."
+      },
+      {
+        "id": "flexible",
+        "label": "Flexible",
+        "description": "Allow broader changes while retaining explicit source constraints."
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "description": "Use a user-defined preservation policy."
+      }
+    ],
+    "motion_profile": [
+      {
+        "id": "natural_balanced",
+        "label": "Natural / Balanced"
+      },
+      {
+        "id": "subtle_idle",
+        "label": "Subtle / Idle"
+      },
+      {
+        "id": "cinematic",
+        "label": "Cinematic"
+      },
+      {
+        "id": "dynamic_action",
+        "label": "Dynamic Action"
+      },
+      {
+        "id": "slow_motion",
+        "label": "Slow Motion"
+      },
+      {
+        "id": "dreamy_floating",
+        "label": "Dreamy / Floating"
+      },
+      {
+        "id": "handheld_documentary",
+        "label": "Handheld / Documentary"
+      },
+      {
+        "id": "product_showcase",
+        "label": "Product Showcase"
+      },
+      {
+        "id": "loop_ambient",
+        "label": "Loop / Ambient"
+      },
+      {
+        "id": "custom",
+        "label": "Custom"
+      }
+    ],
+    "camera_behavior": [
+      {
+        "id": "preserve_auto",
+        "label": "Preserve / Automatic"
+      },
+      {
+        "id": "static",
+        "label": "Static"
+      },
+      {
+        "id": "push_in",
+        "label": "Push In"
+      },
+      {
+        "id": "pull_back",
+        "label": "Pull Back"
+      },
+      {
+        "id": "pan_left",
+        "label": "Pan Left"
+      },
+      {
+        "id": "pan_right",
+        "label": "Pan Right"
+      },
+      {
+        "id": "tilt",
+        "label": "Tilt"
+      },
+      {
+        "id": "orbit",
+        "label": "Orbit"
+      },
+      {
+        "id": "tracking",
+        "label": "Tracking"
+      },
+      {
+        "id": "handheld",
+        "label": "Handheld"
+      },
+      {
+        "id": "custom",
+        "label": "Custom"
+      }
+    ]
+  },
+  "surface_defaults": {
+    "prompt_studio": {
+      "purpose": "general",
+      "visual_treatment": "source_accurate",
+      "grounding": "transformative",
+      "analysis_scope": "full_image",
+      "output_format": "natural_prompt",
+      "target_media": "image",
+      "prompt_task": "text_to_image"
+    },
+    "caption_studio": {
+      "purpose": "general",
+      "visual_treatment": "source_accurate",
+      "grounding": "balanced",
+      "analysis_scope": "full_image",
+      "output_format": "descriptive_caption",
+      "target_media": "image",
+      "prompt_task": "caption_image"
+    },
+    "batch_dataset": {
+      "purpose": "general",
+      "visual_treatment": "source_accurate",
+      "grounding": "strict",
+      "analysis_scope": "full_image",
+      "output_format": "dataset_caption",
+      "target_media": "image",
+      "prompt_task": "dataset_prepare",
+      "locked": [
+        "grounding",
+        "visual_treatment",
+        "output_format",
+        "target_media",
+        "prompt_task"
+      ]
+    },
+    "batch_library": {
+      "purpose": "general",
+      "visual_treatment": "source_accurate",
+      "grounding": "balanced",
+      "analysis_scope": "full_image",
+      "output_format": "image_generation_prompt",
+      "target_media": "image",
+      "prompt_task": "library_caption",
+      "locked": [
+        "target_media",
+        "prompt_task"
+      ]
+    }
+  },
+  "legacy_aliases": {
+    "purpose": {
+      "character": "character_identity",
+      "character_identity": "character_identity",
+      "person": "character_identity",
+      "person_identity": "character_identity",
+      "pose": "pose",
+      "expression": "expression",
+      "emotion": "expression",
+      "outfit": "outfit",
+      "clothing": "outfit",
+      "style": "art_style",
+      "art_style": "art_style",
+      "concept": "concept",
+      "theme": "concept",
+      "object": "object_product",
+      "product": "object_product",
+      "environment": "environment",
+      "location": "environment",
+      "general": "general"
+    },
+    "visual_treatment": {
+      "auto": "source_accurate",
+      "neutral": "source_accurate",
+      "source_accurate": "source_accurate",
+      "realistic": "photorealistic",
+      "photoreal": "photorealistic",
+      "photorealistic": "photorealistic",
+      "cinematic": "cinematic",
+      "candid": "candid_documentary",
+      "documentary": "candid_documentary",
+      "editorial": "editorial_fashion",
+      "fashion": "editorial_fashion",
+      "studio": "studio_photography",
+      "anime": "anime",
+      "manga": "manga",
+      "illustration": "digital_illustration",
+      "digital_illustration": "digital_illustration",
+      "watercolor": "watercolor",
+      "oil": "oil_painting",
+      "oil_painting": "oil_painting",
+      "concept_art": "concept_art",
+      "fantasy": "fantasy_art",
+      "fantasy_art": "fantasy_art",
+      "3d": "cgi_3d",
+      "cgi": "cgi_3d",
+      "poster": "graphic_poster"
+    },
+    "analysis_scope": {
+      "full": "full_image",
+      "full_image": "full_image",
+      "person": "person",
+      "face": "face",
+      "outfit": "outfit",
+      "pose": "pose",
+      "location": "environment",
+      "environment": "environment",
+      "scene": "environment",
+      "composition": "composition_camera",
+      "camera": "composition_camera",
+      "lighting": "lighting_color",
+      "action": "action_interaction",
+      "custom_crop": "custom_crop",
+      "person_only": "person",
+      "face_only": "face",
+      "outfit_only": "outfit",
+      "pose_only": "pose",
+      "location_only": "environment"
+    },
+    "output_format": {
+      "descriptive": "descriptive_caption",
+      "caption": "descriptive_caption",
+      "image_prompt": "image_generation_prompt",
+      "prompt": "image_generation_prompt",
+      "tags": "tags_keywords",
+      "keywords": "tags_keywords",
+      "alt_text": "alt_text",
+      "shot_breakdown": "shot_breakdown",
+      "character_sheet": "attribute_list",
+      "attribute_list": "attribute_list",
+      "sdxl_tags": "sd_tags",
+      "sd_tags": "sd_tags",
+      "natural": "natural_prompt",
+      "natural_prompt": "natural_prompt",
+      "hybrid": "hybrid_prompt",
+      "structured": "structured_prompt",
+      "sd_prompt": "image_generation_prompt"
+    }
+  },
+  "active_surfaces": [
+    "prompt_studio",
+    "caption_studio",
+    "batch_dataset",
+    "batch_library"
+  ]
+}

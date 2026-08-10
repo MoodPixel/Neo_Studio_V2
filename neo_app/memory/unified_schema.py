@@ -356,11 +356,18 @@ def ensure_unified_memory_schema(conn: sqlite3.Connection) -> dict[str, Any]:
             result_json TEXT NOT NULL DEFAULT '{}',
             error TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            dedupe_key TEXT NOT NULL DEFAULT '',
+            retry_of_job_id TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            attempt INTEGER NOT NULL DEFAULT 1
         )
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_neo_memory_jobs_status ON neo_memory_jobs(job_type, status, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_neo_memory_jobs_dedupe ON neo_memory_jobs(job_type, dedupe_key, status, updated_at)")
 
     conn.execute(
         """

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -14,8 +15,11 @@ from pathlib import Path
 
 from neo_app.providers.profiles import get_backend_profile_for_live_task, get_backend_profile_payload
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
+from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
 
 from .providers_koboldcpp import run_chat
+from .caption_profiles import compile_caption_task_contract, caption_sampling_params
+from .prompt_profiles import compile_prompt_task_contract
 from .storage import (
     append_prompt_history,
     list_prompt_records,
@@ -52,6 +56,35 @@ from .metadata import (
     normalize_route,
 )
 
+
+
+def _ingest_prompt_captioning_memory(kind: str, metadata: dict[str, Any], payload: dict[str, Any], output_text: str, result: dict[str, Any]) -> None:
+    """Best-effort Phase 8 live ingestion for successful Prompt/Captioning outputs."""
+    try:
+        route = metadata.get("route") if isinstance(metadata.get("route"), dict) else {}
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        tool_id = str(metadata.get("tool_id") or payload.get("tool") or payload.get("tool_id") or kind)
+        event_type = str(metadata.get("event_type") or f"prompt_captioning.{kind}.{tool_id}")
+        ingest_surface_memory_event("prompt_captioning", {
+            "event_type": event_type,
+            "status": "completed",
+            "source_id": str(metadata.get("metadata_id") or f"{kind}:{tool_id}:{uuid4().hex[:8]}"),
+            "metadata_id": str(metadata.get("metadata_id") or ""),
+            "title": f"{('Caption' if kind == 'caption' else 'Prompt')} Studio · {tool_id}",
+            "summary": str(output_text or "")[:4000],
+            "output_text": str(output_text or ""),
+            "caption": str(output_text or "") if kind == "caption" else "",
+            "prompt": str(output_text or "") if kind == "prompt" else "",
+            "model": str(result.get("model") or route.get("model") or ""),
+            "provider_id": str(result.get("provider_id") or route.get("provider_id") or ""),
+            "backend_profile_id": str(result.get("backend_profile_id") or route.get("backend_profile_id") or ""),
+            "settings": params,
+            "result": {"tool_id": tool_id, "mode": metadata.get("mode") or payload.get("mode") or kind},
+            "identity": {"surface_id": "prompt_captioning", "scope_id": "prompt_captioning_workspace"},
+        })
+    except Exception:
+        # Memory indexing is never allowed to fail a successful generation.
+        return
 
 def _pc_runtime_summary(kind: str, payload: dict[str, Any] | None = None, *, result: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
@@ -165,14 +198,19 @@ def _source_text(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _system_prompt(tool_id: str) -> str:
+def _legacy_system_prompt(tool_id: str) -> str:
+    if tool_id == "negative_prompt":
+        return (
+            "You are Neo Studio Negative Prompt Generator. Return only concise comma-separated Stable Diffusion / SDXL negative terms. "
+            "Never output positive scene prose, headings, explanations, JSON, or markdown. "
+            "The source and positive prompt are PROTECTED wanted content: never negate, copy, paraphrase, or synonym-expand their desired subject, identity, wardrobe, pose, mood, style, camera, lighting, or scene traits unless the user's custom instruction explicitly asks to exclude them. "
+            "Use only relevant failure modes and explicit exclusions, keep every concept unique, avoid synonym repetition, and stop after 12-32 useful terms."
+        )
     base = (
         "You are Neo Studio Prompt Studio. Return only the requested prompt text. "
         "No markdown fences, no commentary. Preserve the user's exact subject, identity terms, clothing, mood, and scene. "
         "Do not introduce unrelated locations, creatures, characters, genres, narrative titles, or story elements that are not implied by the source. If the source is a short fashion/editorial idea, expand it as a fashion/editorial prompt, not as a story scene."
     )
-    if tool_id == "negative_prompt":
-        return base + " Create concise Stable Diffusion negative prompt tags only."
     if tool_id == "prompt_cleanup":
         return base + " Clean duplicate/conflicting prompt tokens while preserving the user's intent."
     if tool_id == "prompt_enhance":
@@ -184,13 +222,41 @@ def _system_prompt(tool_id: str) -> str:
     return base + " Generate a polished image-generation prompt anchored to the source."
 
 
-def _user_prompt(tool_id: str, payload: dict[str, Any]) -> str:
+def _legacy_user_prompt(tool_id: str, payload: dict[str, Any]) -> str:
     inputs = payload.get("inputs") or {}
     params = payload.get("params") or {}
     source = _source_text(payload)
     style = str(inputs.get("style") or inputs.get("prompt_style") or "").strip()
     custom = str(inputs.get("custom_instructions") or "").strip()
     mode_note = str(params.get("enhance_mode") or params.get("rewrite_mode") or params.get("cleanup_mode") or "").strip()
+
+    if tool_id == "negative_prompt":
+        positive_context = str(inputs.get("positive_prompt") or "").strip()
+        lines = [
+            "TASK: Create one concise Stable Diffusion / SDXL negative prompt.",
+            "STRICT RULES:",
+            "- Output only undesirable visual qualities, rendering failures, artifacts, anatomy errors, composition failures, and explicit exclusions to avoid.",
+            "- Never restate, paraphrase, or rewrite the SOURCE or POSITIVE PROMPT as the desired scene.",
+            "- Never synonym-expand SOURCE or POSITIVE PROMPT wanted traits into negative terms.",
+            "- Treat requested subject, identity, wardrobe, pose, mood, style, camera, lighting, and scene traits as PROTECTED wanted content. Do not place them or their close synonyms in the negative prompt unless CUSTOM INSTRUCTIONS explicitly asks to exclude them.",
+            "- A useful negative term names a failure state or an explicit exclusion, not a noun/adjective copied from what the user wants.",
+            "- Do not describe requested subject traits as present; only name their failure modes when useful as exclusions.",
+            "- Keep the result concise and comma-separated, with no prose explanation, headings, JSON, or positive prompt text.",
+            "- Use 12-32 unique, high-value negative terms. Never repeat a term or restate the same artifact with a synonym.",
+            "- Prefer relevant anatomy, rendering, composition, text/watermark, and style-specific failure modes over exhaustive generic artifact inventories.",
+            "- Stop after the final useful term; never continue a repetitive comma-list pattern.",
+            "- Preserve explicit negative terms supplied by the user and remove duplicates or contradictory blockers.",
+        ]
+        if source:
+            lines.append(f"PROTECTED SOURCE IDEA (wanted content; never negate/copy unless explicitly excluded): {source}")
+        if positive_context:
+            lines.append(f"PROTECTED POSITIVE PROMPT CONTEXT (derive exclusions only; do not echo): {positive_context} — WANTED CONTENT; derive failure modes only and never negate it.")
+        if style:
+            lines.append(f"TARGET STYLE CONTEXT: {style}. Use this only to choose relevant failure modes; do not negate the requested style itself.")
+        if custom:
+            lines.append(f"CUSTOM INSTRUCTIONS: {custom}")
+        return "\n".join(lines)
+
     lines = [
         "TASK: Create one image-generation prompt from the SOURCE only.",
         "STRICT RULES:",
@@ -212,6 +278,31 @@ def _user_prompt(tool_id: str, payload: dict[str, Any]) -> str:
     if custom:
         lines.append(f"CUSTOM INSTRUCTIONS: {custom}")
     return "\n".join(lines)
+
+
+def _prompt_task_messages(tool_id: str, payload: dict[str, Any]) -> list[dict[str, str]]:
+    """Return Prompt Studio messages using P23.3 canonical task profiles.
+
+    Cleanup/negative routes keep their established specialized contracts; text
+    prompt generation/enhance/rewrite/transform routes use the shared text-first
+    Prompt Task compiler so Image and Video prompts cannot drift into one another.
+    """
+    if tool_id in {"prompt_cleanup", "negative_prompt"}:
+        return [
+            {"role": "system", "content": _legacy_system_prompt(tool_id)},
+            {"role": "user", "content": _legacy_user_prompt(tool_id, payload)},
+        ]
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    contract = compile_prompt_task_contract(
+        payload.get("profile") if isinstance(payload.get("profile"), dict) else {},
+        tool_id=tool_id,
+        source_text=_source_text(payload),
+        user_instruction=str(inputs.get("custom_instructions") or ""),
+    )
+    return [
+        {"role": "system", "content": str(contract.get("system_prompt") or "").strip()},
+        {"role": "user", "content": str(contract.get("user_prompt") or "").strip()},
+    ]
 
 
 _PROMPT_STOPWORDS = {
@@ -284,37 +375,431 @@ def _output_preserves_source(source: str, output: str) -> bool:
     return True
 
 
-def _anchored_prompt_fallback(source: str, style: str = "", custom: str = "") -> str:
+def _strip_balanced_prompt_quotes(value: str) -> str:
+    """Strip provider-added outer quote wrappers without touching inner prompt punctuation."""
+    text = str(value or "").strip()
+    for _ in range(2):
+        if len(text) >= 2 and text[0] in {"'", '"'} and text[-1] == text[0]:
+            text = text[1:-1].strip()
+            continue
+        break
+    return text
+
+
+def _extract_final_prompt_output(output_text: str) -> tuple[str, bool]:
+    """Keep the provider's final deliverable when it prepends analysis/description.
+
+    Small/local text models sometimes ignore the output-only contract and emit a
+    paragraph such as ``The image shows ... The final prompt is: '...'``.  When a
+    clear final-prompt marker exists, Neo keeps only the suffix after the *last*
+    marker.  Responses without an explicit marker are left unchanged so normal
+    prompt prose is never heuristically truncated.
+    """
+    import re
+
+    raw = _strip_balanced_prompt_quotes(str(output_text or ""))
+    if not raw:
+        return "", False
+
+    marker_re = re.compile(
+        r"\b(?:here\s+is\s+)?(?:the\s+)?final(?:\s+image[- ]generation)?\s+prompt\s*(?:is\s*)?(?::|[-–—])\s*",
+        flags=re.IGNORECASE,
+    )
+    matches = list(marker_re.finditer(raw))
+    if not matches:
+        return raw, raw != str(output_text or "").strip()
+
+    suffix = raw[matches[-1].end():].strip()
+    suffix = _strip_balanced_prompt_quotes(suffix)
+    if not suffix:
+        return raw, raw != str(output_text or "").strip()
+    return suffix, suffix != str(output_text or "").strip()
+
+
+def _anchored_prompt_fallback(source: str, style: str = "", custom: str = "", profile: dict[str, Any] | None = None) -> str:
+    canonical = profile if isinstance(profile, dict) else {}
+    task = str(canonical.get("prompt_task") or "text_to_image").strip()
     parts = [str(source or "").strip()]
-    if style:
-        parts.append(f"{style} style")
-    parts.extend([
-        "professional editorial photography",
-        "clean composition",
-        "natural confident pose",
-        "soft studio lighting",
-        "high detail",
-        "sharp focus",
-        "tasteful styling",
-    ])
+    if task == "text_to_video":
+        motion = str(canonical.get("motion_profile") or "natural_balanced").replace("_", " ")
+        camera = str(canonical.get("camera_behavior") or "preserve_auto").replace("_", " ")
+        parts.extend([
+            "continuous coherent motion",
+            f"{motion} motion",
+            f"camera behavior: {camera}",
+            "stable subject and scene continuity",
+            "clear ending state",
+        ])
+    elif task == "text_image_edit":
+        parts.extend([
+            "change only the requested elements",
+            "preserve all unrelated image content",
+            "preserve identity, composition, lighting, and environment unless explicitly changed",
+        ])
+    else:
+        if style:
+            parts.append(f"{style} style")
+        parts.extend([
+            "clean composition",
+            "generation-ready visual detail",
+            "coherent lighting",
+            "high detail",
+            "sharp focus",
+        ])
     if custom:
         parts.append(str(custom).strip())
     return ", ".join(dict.fromkeys(part for part in parts if part))
 
 
+_NEGATIVE_PROMPT_MAX_TERMS = 32
+_NEGATIVE_PROMPT_MAX_TOKENS = 192
+_NEGATIVE_PROMPT_TEMPERATURE_CAP = 0.35
+_NEGATIVE_PROMPT_TOP_P_CAP = 0.85
+
+_NEGATIVE_TERM_ALIASES = {
+    "pixelization": "pixelation",
+    "excessive pixelization": "pixelation",
+    "excessive pixelation": "pixelation",
+    "color bleed": "color bleeding",
+    "color bleeding": "color bleeding",
+    "excessive color bleed": "color bleeding",
+    "excessive color bleeding": "color bleeding",
+    "color variance": "color variation",
+    "color variation": "color variation",
+    "excessive color variance": "color variation",
+    "excessive color variation": "color variation",
+    "color aberration": "chromatic aberration",
+    "color fringing": "chromatic aberration",
+    "chromatic aberration": "chromatic aberration",
+    "excessive color aberration": "chromatic aberration",
+    "excessive color fringing": "chromatic aberration",
+    "excessive chromatic aberration": "chromatic aberration",
+    "jpeg artifact": "jpeg/compression artifacts",
+    "jpeg artifacts": "jpeg/compression artifacts",
+    "compression artifact": "jpeg/compression artifacts",
+    "compression artifacts": "jpeg/compression artifacts",
+    "excessive jpeg artifact": "jpeg/compression artifacts",
+    "excessive jpeg artifacts": "jpeg/compression artifacts",
+    "excessive compression artifact": "jpeg/compression artifacts",
+    "excessive compression artifacts": "jpeg/compression artifacts",
+    "excessive compression": "jpeg/compression artifacts",
+    "excessive blur": "blur",
+    "excessive blurring": "blur",
+    "overly blurred": "blur",
+}
+
+
+def _negative_term_key(value: str) -> str:
+    """Return a conservative semantic key for one generated negative tag."""
+    import re
+
+    text = str(value or "").strip().lower()
+    text = re.sub(r"^\s*(?:[-–—•*]+|\d+[.)])\s*", "", text)
+    text = re.sub(r"^(negative\s+prompt|negative|avoid|exclude)\s*:\s*", "", text)
+    text = text.strip(" \t\r\n.,;:!?()[]{}\"'")
+    text = re.sub(r"\s+", " ", text)
+    if not text:
+        return ""
+    if text in _NEGATIVE_TERM_ALIASES:
+        return _NEGATIVE_TERM_ALIASES[text]
+    compact = re.sub(r"^(?:excessive|overly|extreme|severe)\s+", "", text)
+    if compact in _NEGATIVE_TERM_ALIASES:
+        return _NEGATIVE_TERM_ALIASES[compact]
+    return compact
+
+
+_NEGATIVE_FAILURE_MODIFIERS = {
+    "bad", "poor", "low", "lowres", "unrealistic", "unnatural", "incorrect", "wrong",
+    "distorted", "deformed", "malformed", "extra", "missing", "duplicate", "duplicated",
+    "mutated", "broken", "fused", "disconnected", "cropped", "outside", "blurry", "blur",
+    "artifact", "artifacts", "noise", "grain", "pixelation", "pixelization", "jpeg",
+    "compression", "aliasing", "chromatic", "aberration", "fringing", "banding",
+    "overexposed", "underexposed", "oversaturated", "undersaturated", "desaturated",
+    "excessive", "overly", "lack", "lacking", "unwanted", "unrequested", "inconsistent",
+    "asymmetrical", "asymmetry", "ghosting", "posterization", "clipping", "muddy", "washed",
+    "distortion", "warped", "warping", "misaligned", "uncanny", "harsh", "flat", "plastic", "waxy",
+    "overprocessed", "oversmoothed", "oversharpened", "cross-eyed", "crossed", "blown", "crushed",
+}
+
+_NEGATIVE_CONTEXT_STOPWORDS = _PROMPT_STOPWORDS | {
+    "render", "renders", "rendered", "rendering", "final", "shows", "show", "scene", "model",
+    "overall", "aim", "ensure", "suitable", "context", "quality", "high", "scheme", "nature",
+}
+
+_NEGATIVE_PROTECTED_CONCEPT_GROUPS = (
+    {"sensual", "sensuality", "sexual", "sexuality", "erotic", "seductive", "seductively", "suggestive", "allure", "intimate", "intimacy", "romantic", "romance"},
+    {"realistic", "realism", "photorealistic", "photorealism", "naturalistic"},
+    {"filmic", "cinematic", "cinema", "movie-like"},
+    {"anime", "manga", "illustrated", "illustration"},
+    {"watercolor", "watercolour", "painterly", "painting"},
+)
+
+
+def _negative_context_tokens(value: str) -> list[str]:
+    import re
+
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", str(value or "").lower())
+        if len(token) >= 2 and token not in _NEGATIVE_CONTEXT_STOPWORDS
+    ]
+
+
+def _negative_token_equivalent(left: str, right: str) -> bool:
+    left = str(left or "").strip().lower()
+    right = str(right or "").strip().lower()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    # Conservative morphology tolerance: pose/posed, seductive/seductively,
+    # emphasize/emphasizing, etc.  Avoid broad stemming that could merge unrelated words.
+    if min(len(left), len(right)) >= 4 and abs(len(left) - len(right)) <= 3:
+        if left.startswith(right) or right.startswith(left):
+            return True
+    pairs = (
+        ("ively", "ive"), ("atively", "ative"), ("ically", "ic"), ("ally", "al"),
+        ("ingly", "e"), ("ing", "e"), ("edly", "e"), ("ed", "e"), ("ly", ""),
+    )
+    left_forms = {left}
+    right_forms = {right}
+    for suffix, replacement in pairs:
+        if left.endswith(suffix) and len(left) > len(suffix) + 2:
+            left_forms.add(left[:-len(suffix)] + replacement)
+        if right.endswith(suffix) and len(right) > len(suffix) + 2:
+            right_forms.add(right[:-len(suffix)] + replacement)
+    return bool(left_forms & right_forms)
+
+
+def _negative_has_failure_modifier(term: str) -> bool:
+    tokens = set(_negative_context_tokens(term))
+    if tokens & _NEGATIVE_FAILURE_MODIFIERS:
+        return True
+    lowered = str(term or "").lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "lack of ", "out of frame", "out-of-frame", "not requested", "not explicitly requested",
+            "too much ", "too little ", "incorrectly ", "poorly ", "over-sharpen", "over sharpen",
+        )
+    )
+
+
+def _negative_explicitly_requested(term: str, custom_instruction: str) -> bool:
+    """Preserve a user-declared exclusion even when it overlaps wanted context."""
+    import re
+
+    candidate = re.sub(r"\s+", " ", str(term or "").strip().lower()).strip(" .,;:'\"")
+    custom = str(custom_instruction or "").lower()
+    if not candidate or not custom:
+        return False
+    escaped = re.escape(candidate)
+    return bool(
+        re.search(
+            rf"\b(?:no|avoid|exclude|excluding|without|remove|removing|do\s+not\s+include)\b[^.;\n]{{0,80}}\b{escaped}\b",
+            custom,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+_NEGATIVE_STANDALONE_EXCLUSION_PHRASES = (
+    "watermark", "signature", "logo", "caption", "subtitle", "username", "artist name",
+    "text artifact", "text artifacts", "compression artifact", "compression artifacts",
+    "jpeg artifact", "jpeg artifacts", "chromatic aberration", "color fringing",
+    "aliasing", "banding", "moire", "ghosting", "posterization", "pixelation", "pixelization",
+)
+
+
+def _negative_has_valid_exclusion_semantics(term: str, *, custom_instruction: str = "") -> bool:
+    """Require a failure state or an explicit exclusion for contextual Negative runs.
+
+    A local model may emit attractive descriptors that are neither copied verbatim
+    from the positive prompt nor useful as exclusions (``elegance``, ``realism``,
+    ``soft muted colors``).  Contextual Negative generation accepts only terms that
+    have recognizable negative/failure semantics, or that the user explicitly
+    requested through no/avoid/exclude/without language.
+    """
+    import re
+
+    candidate = re.sub(r"\s+", " ", str(term or "").strip().lower()).strip(" .,;:'\"")
+    if not candidate:
+        return False
+    if _negative_explicitly_requested(candidate, custom_instruction):
+        return True
+    if _negative_has_failure_modifier(candidate):
+        return True
+    if re.match(r"^(?:no|avoid|exclude|without|remove)\b", candidate):
+        return True
+    return any(phrase in candidate for phrase in _NEGATIVE_STANDALONE_EXCLUSION_PHRASES)
+
+
+def _negative_term_is_protected_positive_echo(term: str, *, desired_context: str = "", custom_instruction: str = "") -> bool:
+    """Return True when a generated negative term merely negates/copies wanted content.
+
+    This is deliberately conservative: a failure-qualified term (``unrealistic
+    anatomy``, ``lack of realism``, ``incorrect camera angle``) is retained.  Only
+    unqualified terms that strongly match the user's wanted source/positive context
+    are culled.  Explicit ``avoid/no/without`` user instructions override the guard.
+    """
+    import re
+
+    candidate = re.sub(r"\s+", " ", str(term or "").strip().lower()).strip(" .,;:'\"")
+    context = re.sub(r"\s+", " ", str(desired_context or "").strip().lower())
+    if not candidate or not context:
+        return False
+    if _negative_explicitly_requested(candidate, custom_instruction):
+        return False
+    if _negative_has_failure_modifier(candidate):
+        return False
+
+    # Direct phrase echo from source/positive prompt.
+    if len(candidate) >= 3 and candidate in context:
+        return True
+
+    candidate_tokens = _negative_context_tokens(candidate)
+    context_tokens = _negative_context_tokens(context)
+    if candidate_tokens and context_tokens:
+        matched = sum(
+            1
+            for token in candidate_tokens
+            if any(_negative_token_equivalent(token, wanted) for wanted in context_tokens)
+        )
+        overlap = matched / max(1, len(candidate_tokens))
+        if len(candidate_tokens) >= 2 and overlap >= 0.72:
+            return True
+
+    # Catch close semantic echoes where local models swap one desired mood/style
+    # adjective for a sibling synonym (e.g. sensual -> erotic).
+    for group in _NEGATIVE_PROTECTED_CONCEPT_GROUPS:
+        if any(re.search(rf"\b{re.escape(word)}\b", context) for word in group):
+            if any(re.search(rf"\b{re.escape(word)}\b", candidate) for word in group):
+                return True
+    return False
+
+
+def _negative_desired_context(clean_payload: dict[str, Any] | None) -> tuple[str, str]:
+    payload = clean_payload if isinstance(clean_payload, dict) else {}
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    source = _source_text(payload)
+    positive = str(inputs.get("positive_prompt") or "").strip()
+    custom = str(inputs.get("custom_instructions") or "").strip()
+    desired = "\n".join(part for part in (source, positive, custom) if part)
+    return desired, custom
+
+
+def _sanitize_negative_prompt_output(output_text: str, *, max_terms: int = _NEGATIVE_PROMPT_MAX_TERMS, desired_context: str = "", custom_instruction: str = "") -> tuple[str, bool, bool]:
+    """Deduplicate and bound model-generated negative prompt lists.
+
+    Local text backends can occasionally enter comma-list repetition loops. Neo
+    keeps the first useful wording for each concept, removes exact/common
+    equivalent repeats, and hard-caps the final list without fabricating tags.
+    """
+    import re
+
+    raw = str(output_text or "").strip()
+    if not raw:
+        return "", False, False
+
+    raw = re.sub(r"^\s*(?:negative\s+prompt|negative)\s*:\s*", "", raw, flags=re.IGNORECASE)
+    candidates = re.split(r"[,;\n]+", raw)
+    terms: list[str] = []
+    seen: set[str] = set()
+    duplicates_removed = False
+    truncated = False
+
+    for candidate in candidates:
+        term = re.sub(r"^\s*(?:[-–—•*]+|\d+[.)])\s*", "", str(candidate or "")).strip()
+        term = term.strip(" \t\r\n.,;:|\"'")
+        term = re.sub(r"\s+", " ", term)
+        if not term:
+            continue
+        key = _negative_term_key(term)
+        if not key:
+            continue
+        if _negative_term_is_protected_positive_echo(
+            term,
+            desired_context=desired_context,
+            custom_instruction=custom_instruction,
+        ):
+            duplicates_removed = True
+            continue
+        if desired_context and not _negative_has_valid_exclusion_semantics(
+            term,
+            custom_instruction=custom_instruction,
+        ):
+            duplicates_removed = True
+            continue
+        if key in seen:
+            duplicates_removed = True
+            continue
+        if len(terms) >= max(1, int(max_terms)):
+            truncated = True
+            break
+        seen.add(key)
+        terms.append(term)
+
+    cleaned = ", ".join(terms).strip()
+    changed = cleaned != raw.strip()
+    return cleaned, bool(changed or duplicates_removed), truncated
+
+
+def _negative_prompt_generation_params(params: dict[str, Any] | None) -> dict[str, Any]:
+    """Apply a compact, low-entropy sampling envelope to Negative generation."""
+    out = dict(params or {})
+    try:
+        out["temperature"] = min(float(out.get("temperature", _NEGATIVE_PROMPT_TEMPERATURE_CAP)), _NEGATIVE_PROMPT_TEMPERATURE_CAP)
+    except (TypeError, ValueError):
+        out["temperature"] = _NEGATIVE_PROMPT_TEMPERATURE_CAP
+    try:
+        out["top_p"] = min(float(out.get("top_p", _NEGATIVE_PROMPT_TOP_P_CAP)), _NEGATIVE_PROMPT_TOP_P_CAP)
+    except (TypeError, ValueError):
+        out["top_p"] = _NEGATIVE_PROMPT_TOP_P_CAP
+    try:
+        out["max_tokens"] = min(int(float(out.get("max_tokens", _NEGATIVE_PROMPT_MAX_TOKENS))), _NEGATIVE_PROMPT_MAX_TOKENS)
+    except (TypeError, ValueError):
+        out["max_tokens"] = _NEGATIVE_PROMPT_MAX_TOKENS
+    return out
+
+
 def _guard_prompt_output(tool_id: str, clean_payload: dict[str, Any], output_text: str) -> tuple[str, str]:
+    if tool_id == "negative_prompt":
+        desired_context, custom_instruction = _negative_desired_context(clean_payload)
+        cleaned, changed, truncated = _sanitize_negative_prompt_output(
+            output_text,
+            desired_context=desired_context,
+            custom_instruction=custom_instruction,
+        )
+        warnings: list[str] = []
+        if changed:
+            warnings.append(
+                "Neo normalized the provider negative prompt and removed repeated or equivalent terms and protected positive-context echoes where present."
+            )
+        if truncated:
+            warnings.append(f"Neo capped the negative prompt at {_NEGATIVE_PROMPT_MAX_TERMS} unique terms to prevent runaway repetition.")
+        if str(output_text or "").strip() and not cleaned:
+            warnings.append("Provider Negative output contained no safe exclusion terms after positive-context filtering, so Neo returned an empty Negative result instead of negating requested content.")
+        return cleaned, " ".join(warnings)
     if tool_id not in {"prompt_generate", "prompt_enhance", "prompt_rewrite", "text_transform"}:
         return output_text, ""
+
+    candidate, extracted_final = _extract_final_prompt_output(output_text)
+    warnings: list[str] = []
+    if extracted_final:
+        warnings.append("Neo removed provider analysis/wrapper text and kept only the explicit final prompt.")
+
     source = _source_text(clean_payload)
-    if not source or _output_preserves_source(source, output_text):
-        return output_text, ""
+    if not source or _output_preserves_source(source, candidate):
+        return candidate, " ".join(warnings)
     inputs = clean_payload.get("inputs") or {}
     fallback = _anchored_prompt_fallback(
         source,
         str(inputs.get("style") or inputs.get("prompt_style") or "").strip(),
         str(inputs.get("custom_instructions") or "").strip(),
+        clean_payload.get("profile") if isinstance(clean_payload.get("profile"), dict) else {},
     )
-    return fallback, "Provider output did not preserve the source idea, so Neo replaced it with an anchored prompt fallback."
+    warnings.append("Provider output did not preserve the source idea, so Neo replaced it with an anchored prompt fallback.")
+    return fallback, " ".join(warnings)
 
 
 def _text_from_candidate(value: Any) -> str:
@@ -417,15 +902,19 @@ def run_prompt_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | N
         summary = _pc_runtime_summary("prompt", clean_payload, result={"ok": False, "error": gate_reason})
         _pc_log_error("Prompt generation provider gated.", run_id=run_id, payload=summary)
         return {"ok": False, "errors": [gate_reason], "payload": clean_payload, "route_state": "provider_gated"}
-    messages = [
-        {"role": "system", "content": _system_prompt(tool_id)},
-        {"role": "user", "content": _user_prompt(tool_id, clean_payload)},
-    ]
-    clean_params = clamp_generation_params(clean_payload.get("params") or {}, profile.get("generation_defaults") or {})
+    messages = _prompt_task_messages(tool_id, clean_payload)
+    requested_params = caption_sampling_params(clean_payload.get("params") or {}, clean_payload.get("profile") or {})
+    if tool_id == "negative_prompt":
+        requested_params = _negative_prompt_generation_params(requested_params)
+    clean_params = clamp_generation_params(requested_params, profile.get("generation_defaults") or {})
     result = run_chat(profile, messages, clean_params)
     resolved_key = _resolved_provider_key(result)
-    output_text = _provider_text(result)
-    output_text, guard_warning = _guard_prompt_output(tool_id, clean_payload, output_text)
+    provider_output_text = _provider_text(result)
+    output_text, guard_warning = _guard_prompt_output(tool_id, clean_payload, provider_output_text)
+    if output_text != provider_output_text or tool_id == "negative_prompt":
+        # Do not let provider analysis wrappers, positive-context leaks, repetition,
+        # or a source-fallback mismatch leak back through history/recovery aliases.
+        result["partial_text"] = output_text
     if guard_warning:
         result["warning"] = " ".join([str(result.get("warning") or "").strip(), guard_warning]).strip()
     if not result.get("ok") and not output_text:
@@ -445,6 +934,9 @@ def run_prompt_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | N
         "finish_reason": result.get("finish_reason") or "",
         "warning": result.get("warning") or "",
         "recoverable": bool(result.get("recoverable")),
+        # Prompt Studio is text-first. Visual analysis belongs to Caption Studio
+        # image-aware tasks only; do not imply that a text backend inspected an image.
+        "visual_analysis_request": {},
     }
     result_metadata = build_result_metadata(
         tool_id=tool_id,
@@ -456,6 +948,7 @@ def run_prompt_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | N
         event_type=f"prompt_captioning.prompt.{tool_id}",
     )
     stored_metadata = append_result_metadata(result_metadata)
+    _ingest_prompt_captioning_memory("prompt", stored_metadata, clean_payload, output_text, {**result, "provider_id": profile.get("provider_id") or "", "backend_profile_id": profile.get("profile_id") or ""})
     history = append_prompt_history({
         "tool_id": tool_id,
         "source_text": _source_text(clean_payload),
@@ -486,6 +979,8 @@ def run_prompt_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | N
         "backend_profile_id": profile.get("profile_id") or "",
         "provider_id": profile.get("provider_id") or "",
         "model": result.get("model") or "",
+        "profile": clean_payload.get("profile") if isinstance(clean_payload.get("profile"), dict) else {},
+        "visual_analysis_request": {},
         "payload": clean_payload,
         "stripped_fields": validation.get("stripped_fields", []),
         "reasoning_stripped": bool(result.get("reasoning_stripped", False)),
@@ -641,6 +1136,47 @@ def _image_content(asset_path: str) -> tuple[str, str] | tuple[None, None]:
 
 
 
+_CAPTION_IMAGE_MARKER_LINE_RE = re.compile(r"^\s*\[\s*image\s+\d+\s*\]?\s*$", re.IGNORECASE)
+_CAPTION_TRAILING_IMAGE_MARKERS_RE = re.compile(r"(?:\s*\[\s*image\s+\d+\s*\]?\s*)+$", re.IGNORECASE)
+
+
+def _sanitize_caption_output(text: str) -> tuple[str, int]:
+    """Remove provider-internal multimodal image labels from user-facing captions.
+
+    Qwen/KoboldCpp vision responses can occasionally finish a valid caption and
+    then degenerate into standalone ``[Image N]`` attachment markers. These are
+    provider/chat-template artifacts, not caption content. Remove only standalone
+    or trailing bracketed image-index markers so ordinary prose remains intact.
+    A missing closing bracket is accepted to catch token-limit truncation such as
+    ``[Image 3`` at the end of a response.
+    """
+    original = str(text or "").strip()
+    if not original:
+        return "", 0
+
+    removed = 0
+    kept_lines: list[str] = []
+    for line in original.splitlines():
+        if _CAPTION_IMAGE_MARKER_LINE_RE.fullmatch(line):
+            removed += 1
+            continue
+        kept_lines.append(line)
+
+    cleaned = "\n".join(kept_lines).strip()
+    while cleaned:
+        match = _CAPTION_TRAILING_IMAGE_MARKERS_RE.search(cleaned)
+        if not match:
+            break
+        chunk = match.group(0)
+        count = len(re.findall(r"\[\s*image\s+\d+", chunk, flags=re.IGNORECASE))
+        if not count:
+            break
+        removed += count
+        cleaned = cleaned[:match.start()].rstrip()
+
+    return cleaned.strip(), removed
+
+
 def _caption_output_aliases(output_text: str, result: dict[str, Any], resolved_key: str = "text") -> dict[str, Any]:
     """Return every safe alias the Caption Studio frontend may consume."""
     text = str(output_text or "").strip()
@@ -669,22 +1205,41 @@ def _resolved_caption_provider_key(result: dict[str, Any]) -> str:
     return ""
 
 def _caption_instruction(payload: dict[str, Any]) -> str:
-    inputs = payload.get("inputs") or {}
-    params = payload.get("params") or {}
-    lines = ["Caption this image for creative prompt reuse."]
-    instruction = str(inputs.get("caption_instruction") or "").strip()
-    if instruction:
-        lines.append(f"User instruction: {instruction}")
-    for label, key in (("Caption style", "caption_style"), ("Caption length", "caption_length"), ("Output style", "output_style")):
-        value = str(inputs.get(key) or "").strip()
-        if value:
-            lines.append(f"{label}: {value}")
-    for label, key in (("Caption mode", "caption_mode"), ("Component type", "component_type"), ("Detail level", "detail_level")):
-        value = str(params.get(key) or "").strip()
-        if value:
-            lines.append(f"{label}: {value}")
-    lines.append("Return only the caption text. No markdown fences, no commentary.")
-    return "\n".join(lines)
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+    contract = compile_caption_task_contract(
+        profile,
+        user_instruction=str(inputs.get("caption_instruction") or ""),
+        caption_length=str(inputs.get("caption_length") or "medium"),
+        detail_level=str(params.get("detail_level") or "detailed"),
+    )
+    return str(contract.get("user_prompt") or "").strip()
+
+
+def _caption_system_prompt(payload: dict[str, Any]) -> str:
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+    contract = compile_caption_task_contract(
+        profile,
+        user_instruction=str(inputs.get("caption_instruction") or ""),
+        caption_length=str(inputs.get("caption_length") or "medium"),
+        detail_level=str(params.get("detail_level") or "detailed"),
+    )
+    return str(contract.get("system_prompt") or "").strip()
+
+
+def _caption_visual_analysis_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+    return compile_caption_task_contract(
+        profile,
+        user_instruction=str(inputs.get("caption_instruction") or ""),
+        caption_length=str(inputs.get("caption_length") or "medium"),
+        detail_level=str(params.get("detail_level") or "detailed"),
+    ).get("visual_analysis_request") or {}
 
 
 def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -698,6 +1253,14 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         return {"ok": False, "route_state": validation.get("state"), **validation}
     clean_payload = validation["payload"]
     tool_id = clean_payload.get("tool") or "image_captioning"
+    canonical_profile = clean_payload.get("profile") if isinstance(clean_payload.get("profile"), dict) else {}
+    canonical_task = str(canonical_profile.get("prompt_task") or "caption_image").strip()
+    canonical_instruction = str((clean_payload.get("inputs") or {}).get("caption_instruction") or "").strip()
+    if canonical_task == "image_edit" and not canonical_instruction:
+        message = "Image → Editing Prompt requires an edit instruction."
+        summary = _pc_runtime_summary("caption", clean_payload, result={"ok": False, "error": "missing_edit_instruction"})
+        _pc_log_error(message, run_id=run_id, payload=summary)
+        return {"ok": False, "errors": [message], "payload": clean_payload, "route_state": "invalid_request"}
     profile = resolve_backend_profile(clean_payload, backend_payload, require="caption")
     allowed, gate_reason = profile_gate(profile, require="caption")
     if not allowed:
@@ -718,16 +1281,22 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         _pc_log_error("Caption generation image content failed.", run_id=run_id, payload=summary)
         return {"ok": False, "errors": ["Captioning requires a readable image asset."], "payload": clean_payload}
     messages = [
-        {"role": "system", "content": "You are Neo Studio Caption Studio. Produce concise, useful visual captions for prompt reuse."},
+        {"role": "system", "content": _caption_system_prompt(clean_payload)},
         {"role": "user", "content": [
             {"type": "text", "text": _caption_instruction(clean_payload)},
             {"type": "image_url", "image_url": {"url": image_url}},
         ]},
     ]
-    clean_params = clamp_generation_params(clean_payload.get("params") or {}, profile.get("generation_defaults") or {})
+    clean_params = clamp_generation_params(caption_sampling_params(clean_payload.get("params") or {}, clean_payload.get("profile") or {}), profile.get("generation_defaults") or {})
     result = run_chat(profile, messages, clean_params)
     resolved_key = _resolved_caption_provider_key(result)
-    caption = _provider_text(result)
+    raw_caption = _provider_text(result)
+    caption, stripped_image_markers = _sanitize_caption_output(raw_caption)
+    if raw_caption and not caption and stripped_image_markers:
+        message = "Caption backend returned only internal image markers instead of usable caption text."
+        summary = _pc_runtime_summary("caption", clean_payload, result={**result, "ok": False, "error": "caption_internal_image_markers_only"}, extra={"stripped_image_markers": stripped_image_markers})
+        _pc_log_error(message, run_id=run_id, payload=summary)
+        return {"ok": False, "errors": [message], "error": "caption_internal_image_markers_only", "payload": clean_payload, "route_state": "provider_output_invalid", "provider": profile.get("provider_id"), "stripped_image_markers": stripped_image_markers}
     if not result.get("ok") and not caption:
         error_payload = _provider_error_payload(result, "Caption generation failed.", operation="caption", profile=profile)
         summary = _pc_runtime_summary("caption", clean_payload, result={**result, **error_payload, "ok": False})
@@ -740,12 +1309,16 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         model=str(result.get("model") or profile.get("model") or ""),
         route_state="available",
     )
-    aliases = _caption_output_aliases(caption, result, resolved_key or "text")
+    result_for_aliases = dict(result)
+    result_for_aliases["partial_text"] = caption
+    aliases = _caption_output_aliases(caption, result_for_aliases, resolved_key or "text")
     outputs = {
         **aliases,
         "finish_reason": result.get("finish_reason") or "",
         "warning": result.get("warning") or "",
         "recoverable": bool(result.get("recoverable")),
+        "visual_analysis_request": _caption_visual_analysis_contract(clean_payload),
+        "stripped_image_markers": stripped_image_markers,
     }
     result_metadata = build_result_metadata(
         tool_id=tool_id,
@@ -758,6 +1331,7 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         event_type=f"prompt_captioning.caption.{tool_id}",
     )
     stored_metadata = append_result_metadata(result_metadata)
+    _ingest_prompt_captioning_memory("caption", stored_metadata, clean_payload, caption, {**result, "provider_id": profile.get("provider_id") or "", "backend_profile_id": profile.get("profile_id") or ""})
     history = append_caption_history({
         "tool_id": tool_id,
         "caption": caption,
@@ -775,7 +1349,8 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         "caption": caption,
         "output_caption": caption,
         "text": caption,
-        "partial_text": result.get("partial_text") or caption,
+        "partial_text": caption,
+        "stripped_image_markers": stripped_image_markers,
         "recoverable": bool(result.get("recoverable")),
         "warning": result.get("warning") or "",
         "provider_error": result.get("error") or "",
@@ -786,6 +1361,8 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         "backend_profile_id": profile.get("profile_id") or "",
         "provider_id": profile.get("provider_id") or "",
         "model": result.get("model") or "",
+        "profile": clean_payload.get("profile") if isinstance(clean_payload.get("profile"), dict) else {},
+        "visual_analysis_request": _caption_visual_analysis_contract(clean_payload),
         "payload": clean_payload,
         "stripped_fields": validation.get("stripped_fields", []),
         "reasoning_stripped": bool(result.get("reasoning_stripped", False)),
@@ -958,9 +1535,14 @@ def _caption_for_batch_image(image_path: Path, payload: dict[str, Any], caption_
         'tool': 'image_captioning', 'tool_id': 'image_captioning', 'inputs': inputs, 'params': params,
         'assets': {'image': str(image_path), 'source_image': str(image_path), 'images': [{'asset_ref': str(image_path), 'filename': image_path.name}]},
         'metadata': shared.get('metadata') or {},
+        'profile': shared.get('profile') if isinstance(shared.get('profile'), dict) else {},
     }
     result = run_caption_tool(single, task_profile=task_profile)
-    return str(result.get('caption') or result.get('text') or result.get('output_caption') or ''), result
+    caption = str(result.get('caption') or result.get('text') or result.get('output_caption') or '')
+    caption, stripped_image_markers = _sanitize_caption_output(caption)
+    if stripped_image_markers and isinstance(result, dict):
+        result = {**result, 'caption': caption, 'text': caption, 'output_caption': caption, 'partial_text': caption, 'stripped_image_markers': int(result.get('stripped_image_markers') or 0) + stripped_image_markers}
+    return caption, result
 
 
 def _write_batch_log(out_dir: Path, rows: list[dict[str, Any]], fmt: str) -> str:
@@ -1013,7 +1595,7 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
                     errors.append(f'{image_path.name}: {err}')
                     log_lines.append(f'Error {image_path.name}: {err}')
                 else:
-                    record = save_caption_record({'name': f'{base}_{start_no + idx - 1}', 'category': category, 'caption': caption, 'source_image': str(image_path), 'source_image_url': '', 'settings': params, 'origin': 'batch_captioning', 'metadata': {'batch_id': job_id, 'workflow_mode': workflow, 'source_file': str(image_path)}})
+                    record = save_caption_record({'name': f'{base}_{start_no + idx - 1}', 'category': category, 'caption': caption, 'source_image': str(image_path), 'source_image_url': '', 'settings': {'params': params, 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}}, 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}, 'origin': 'batch_captioning', 'metadata': {'batch_id': job_id, 'workflow_mode': workflow, 'source_file': str(image_path), 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}}})
                     row = {'file': str(image_path), 'image': str(image_path), 'caption': caption, 'status': 'saved_to_library', 'record': record.get('record')}
                     results.append(row)
                     log_rows.append({'source': str(image_path), 'image': str(image_path), 'caption': caption, 'status': 'saved_to_library', 'error': ''})
@@ -1225,6 +1807,8 @@ from .storage import (
     import_library_snapshot,
     library_snapshot,
     list_library_kind,
+    migrate_profile_storage,
+    profile_storage_migration_status,
     update_library_record,
 )
 
@@ -1254,6 +1838,17 @@ def library_import_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     return import_library_snapshot(payload, merge=merge)
 
 
+def storage_migration_status() -> dict[str, Any]:
+    return profile_storage_migration_status()
+
+
+def storage_migrate(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = payload if isinstance(payload, dict) else {}
+    dry_run = data.get("dry_run", True) is not False
+    backup = data.get("backup", True) is not False
+    return migrate_profile_storage(dry_run=dry_run, backup=backup)
+
+
 def history_clear(kind: str) -> dict[str, Any]:
     return clear_library_history(kind)
 
@@ -1275,6 +1870,7 @@ def build_reuse_payload(kind: str, record_id: str, target: str = "prompt_studio"
             assets["image"] = record.get("source_image")
         if record.get("source_image_url"):
             assets["image_url"] = record.get("source_image_url")
+    record_profile = record.get("profile") if isinstance(record.get("profile"), dict) else {}
     reuse = {
         "workspace": "prompt_captioning",
         "source_kind": kind,
@@ -1283,6 +1879,7 @@ def build_reuse_payload(kind: str, record_id: str, target: str = "prompt_studio"
         "mode": mode,
         "text": text,
         "assets": assets,
+        "profile": record_profile,
         "record": record,
         "metadata": {
             "source_surface": "prompt_captioning",
@@ -1290,6 +1887,7 @@ def build_reuse_payload(kind: str, record_id: str, target: str = "prompt_studio"
             "source_record_id": record_id,
             "target": target,
             "handoff_mode": mode,
+            "profile": record_profile,
         },
     }
     return {"ok": True, "reuse_payload": reuse}
@@ -1298,6 +1896,7 @@ def build_reuse_payload(kind: str, record_id: str, target: str = "prompt_studio"
 # Phase M — Cross-tab handoff
 ALLOWED_HANDOFF_TARGETS: dict[str, set[str]] = {
     "image": {"positive_prompt", "negative_prompt", "source_image", "source_image_2", "source_image_3"},
+    "video": {"positive_prompt", "negative_prompt"},
     "prompt_builder": {"source_text", "output_text", "negative_output_text", "custom_instructions"},
     "captioning": {"caption_instruction", "output_caption", "selected_image"},
     "clipboard": {"text"},

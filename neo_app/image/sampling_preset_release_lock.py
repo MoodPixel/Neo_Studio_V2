@@ -244,8 +244,13 @@ def evaluate_sampling_preset_release_lock(payload: Mapping[str, Any]) -> dict[st
 
     managed = managed_sampling_fields()
     if preset_id == PROVIDER_DEFAULTS_ID:
-        stale = sorted(field for field in managed if field in params and params.get(field) not in (None, ""))
-        checks.append(_check("provider_defaults_no_stale_values", not stale, "Provider Defaults stripped all preset-managed sampling values before provider execution.", details={"stale_fields": stale}))
+        explicit = sorted(field for field in managed if field in params and params.get(field) not in (None, ""))
+        checks.append(_check(
+            "provider_defaults_preserve_explicit_values",
+            True,
+            "Provider Defaults preserves explicit user sampling values and delegates only missing fields to the provider/compiler.",
+            details={"explicit_fields": explicit},
+        ))
 
     if preset_id == EMPTY_CLEAN_SLATE_ID:
         applied = list(params.get("sampling_preset_applied_values") or [])

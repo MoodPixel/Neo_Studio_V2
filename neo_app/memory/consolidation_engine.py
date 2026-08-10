@@ -261,10 +261,13 @@ class UnifiedMemoryConsolidationEngine:
     def run(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         data = payload or {}
         dry_run = bool(data.get("dry_run", False))
+        managed_job = bool(data.get("managed_job") or data.get("managed_job_id"))
+        progress_callback = data.get("progress_callback") if callable(data.get("progress_callback")) else None
+        cancel_callback = data.get("cancel_callback") if callable(data.get("cancel_callback")) else None
         archive_originals = bool(data.get("archive_originals", False))
         max_groups = _safe_int(data.get("max_groups") or data.get("limit"), 25, minimum=1, maximum=500)
         max_items = _safe_int(data.get("summary_item_limit"), 16, minimum=3, maximum=80)
-        plan_payload = dict(data)
+        plan_payload = {k: v for k, v in data.items() if k not in {"progress_callback", "cancel_callback", "managed_job"}}
         plan_payload.setdefault("limit", max_groups)
         plan_payload.setdefault("min_group_size", data.get("min_group_size") or 2)
         plan = self.plan(plan_payload)
@@ -284,16 +287,23 @@ class UnifiedMemoryConsolidationEngine:
 
         created: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+        if progress_callback:
+            progress_callback(phase="consolidation_plan", current=0, total=len(groups), percent=10, message=f"Consolidating {len(groups)} memory group(s).")
+        if cancel_callback:
+            cancel_callback("Cancelled before memory consolidation.")
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO neo_memory_jobs (job_id, job_type, status, surface, project_id, scope_id, started_at, finished_at, progress_json, result_json, error, created_at, updated_at)
-                VALUES (?, 'memory_consolidation', 'running', 'global', NULL, NULL, ?, NULL, ?, '{}', '', ?, ?)
-                """,
-                (job_id, stamp, _json_dumps({"planned_groups": len(groups)}), stamp, stamp),
-            )
+            if not managed_job:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO neo_memory_jobs (job_id, job_type, status, surface, project_id, scope_id, started_at, finished_at, progress_json, result_json, error, created_at, updated_at)
+                    VALUES (?, 'memory_consolidation', 'running', 'global', NULL, NULL, ?, NULL, ?, '{}', '', ?, ?)
+                    """,
+                    (job_id, stamp, _json_dumps({"planned_groups": len(groups)}), stamp, stamp),
+                )
             try:
-                for group in groups:
+                for group_index, group in enumerate(groups, start=1):
+                    if cancel_callback:
+                        cancel_callback("Cancelled while consolidating memory groups.")
                     frag_ids = list(group.get("candidate_fragment_ids") or [])
                     if not frag_ids:
                         continue
@@ -379,18 +389,24 @@ class UnifiedMemoryConsolidationEngine:
                         "memory_type": group.get("memory_type"),
                         "source_fragment_count": len(frag_ids),
                     })
+                    if progress_callback:
+                        progress_callback(phase="consolidating", current=group_index, total=len(groups), percent=10 + round((group_index / max(1, len(groups))) * 80), message=f"Consolidated {group_index}/{len(groups)} memory group(s).")
                 finished = _now()
                 result = {"created_count": len(created), "created": created, "errors": errors, "archive_originals": archive_originals}
-                conn.execute(
-                    "UPDATE neo_memory_jobs SET status='completed', finished_at=?, progress_json=?, result_json=?, updated_at=? WHERE job_id=?",
-                    (finished, _json_dumps({"created_count": len(created), "error_count": len(errors)}), _json_dumps(result), finished, job_id),
-                )
+                if not managed_job:
+                    conn.execute(
+                        "UPDATE neo_memory_jobs SET status='completed', finished_at=?, progress_json=?, result_json=?, updated_at=? WHERE job_id=?",
+                        (finished, _json_dumps({"created_count": len(created), "error_count": len(errors)}), _json_dumps(result), finished, job_id),
+                    )
+                if progress_callback:
+                    progress_callback(phase="consolidation_finalizing", current=len(groups), total=len(groups), percent=95, message="Finalizing memory consolidation.")
             except Exception as exc:
                 finished = _now()
-                conn.execute(
-                    "UPDATE neo_memory_jobs SET status='failed', finished_at=?, error=?, updated_at=? WHERE job_id=?",
-                    (finished, str(exc)[:1000], finished, job_id),
-                )
+                if not managed_job:
+                    conn.execute(
+                        "UPDATE neo_memory_jobs SET status='failed', finished_at=?, error=?, updated_at=? WHERE job_id=?",
+                        (finished, str(exc)[:1000], finished, job_id),
+                    )
                 raise
         return {
             "ok": True,

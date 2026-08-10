@@ -7,6 +7,43 @@ from typing import Any
 KREA2_RAW_FAMILIES = {"krea2", "krea_2", "krea2_raw", "krea_2_raw", "krea2_normal", "krea_2_normal", "krea2_base", "krea_2_base", "raw"}
 KREA2_TURBO_FAMILIES = {"krea2_turbo", "krea_2_turbo", "krea2turbo", "turbo"}
 
+KREA2_EDIT_ENGINE_NATIVE = "native"
+KREA2_EDIT_ENGINE_IDENTITY = "identity_edit"
+KREA2_IDENTITY_EDIT_NODE_REPO = "https://github.com/lbouaraba/comfyui-krea2edit.git"
+KREA2_IDENTITY_EDIT_RECOMMENDED_LORA = "krea2_identity_edit_v1_2.safetensors"
+KREA2_IDENTITY_EDIT_NODE_CLASSES = (
+    "Krea2EditModelPatch",
+    "Krea2EditGroundedEncode",
+    "LoraLoaderModelOnly",
+    "EmptySD3LatentImage",
+)
+
+
+def normalize_krea2_edit_engine(value: Any) -> str:
+    normalized = _normalize(value)
+    if normalized in {
+        "identity_edit",
+        "identity",
+        "krea2_identity_edit",
+        "krea_2_identity_edit",
+        "krea2edit",
+        "krea_2_edit",
+        "instruction_edit",
+    }:
+        return KREA2_EDIT_ENGINE_IDENTITY
+    return KREA2_EDIT_ENGINE_NATIVE
+
+
+def normalize_krea2_identity_fit_mode(value: Any) -> str:
+    normalized = _normalize(value)
+    if normalized in {"crop", "crop_legacy", "crop_(legacy)", "legacy", "v1", "v1_legacy"}:
+        return "crop (legacy)"
+    return "fit"
+
+
+def krea2_identity_edit_enabled(value: Any) -> bool:
+    return normalize_krea2_edit_engine(value) == KREA2_EDIT_ENGINE_IDENTITY
+
 
 def _normalize(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")

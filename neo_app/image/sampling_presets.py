@@ -459,14 +459,18 @@ def _manual_requirement_groups(capability: Mapping[str, Any]) -> tuple[list[dict
         elif control == "provider_profile":
             profile_unknown = True
 
-    sampler_cfg = sampling.get("sampler_cfg") if isinstance(sampling.get("sampler_cfg"), dict) else {}
-    sampler_cfg_kind = str(sampler_cfg.get("kind") or "provider_profile")
-    if sampler_cfg_kind == "provider_profile":
-        profile_unknown = True
-
     guidance_kind = str(guidance.get("kind") or "provider_profile")
     guidance_field = str(guidance.get("field") or "").strip()
     guidance_aliases = [str(item).strip() for item in (guidance.get("aliases") or []) if str(item).strip()]
+
+    sampler_cfg = sampling.get("sampler_cfg") if isinstance(sampling.get("sampler_cfg"), dict) else {}
+    sampler_cfg_kind = str(sampler_cfg.get("kind") or "provider_profile")
+    sampler_cfg_field = str(sampler_cfg.get("field") or "").strip()
+    guidance_owned_fields = {guidance_field, *guidance_aliases} - {""}
+    if sampler_cfg_kind == "selectable" and sampler_cfg_field and sampler_cfg_field not in guidance_owned_fields:
+        groups.append(_requirement_group(str(sampler_cfg.get("ui_label") or "Sampler CFG"), [sampler_cfg_field]))
+    elif sampler_cfg_kind == "provider_profile":
+        profile_unknown = True
     if guidance_kind in {"classic_cfg", "true_cfg", "embedded_guidance"} and guidance_field:
         groups.append(_requirement_group(str(guidance.get("ui_label") or "Guidance"), [*guidance_aliases, guidance_field]))
     elif guidance_kind == "provider_profile":
@@ -639,10 +643,9 @@ def apply_sampling_preset(
 def prepare_sampling_preset_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize one Image payload at the job boundary.
 
-    Provider Defaults is authoritative at submission time and strips stale
-    preset-managed values. Clean Slate is different: it is a one-time authoring
-    reset, so later manual values must survive and are validated rather than
-    erased again.
+    Presets are authoring tools, not queue-time authorities. Selection-time preset
+    application may seed fields, but the values present in the submitted payload
+    are the final user truth and are never replaced or stripped here.
     """
 
     prepared = deepcopy(dict(payload or {}))
@@ -681,13 +684,14 @@ def prepare_sampling_preset_payload(payload: Mapping[str, Any]) -> dict[str, Any
 
     entry = resolved["entry"]
     application_mode = str(entry.get("application_mode") or "replace_sampling_fields")
-    if application_mode == "delegate_provider":
-        params = _clear_managed_values(params)
-    elif application_mode == "replace_sampling_fields":
-        params = _clear_managed_values(params)
+    # Parameter Truth: presets may fill values that are genuinely missing, but they
+    # never replace or strip explicit values already present in the submission.
+    if application_mode == "replace_sampling_fields":
         values = entry.get("values") if isinstance(entry.get("values"), dict) else {}
-        params.update(deepcopy(values))
-    # clean_slate deliberately preserves manual values entered after application.
+        for key, value in values.items():
+            if params.get(key) in (None, ""):
+                params[key] = deepcopy(value)
+    # delegate_provider and clean_slate preserve every explicit submitted field.
 
     params.update(_preset_metadata(entry, resolved.get("context") or {}))
     params["sampling_preset_validation"] = validate_sampling_preset_submission(

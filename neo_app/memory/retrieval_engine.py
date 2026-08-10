@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from neo_app.admin.semantic_engine import embed_texts, rerank_results, semantic_engine_state_payload
+from neo_app.context_identity import memory_filter_from_payload
 from neo_app.memory.retrieval_profiles import get_retrieval_profile, retrieval_profiles_payload
 from neo_app.memory.unified_schema import ensure_unified_memory_schema
 
@@ -186,9 +187,11 @@ class UnifiedMemoryRetrievalEngine:
     def index_embeddings(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         self._ensure_schema()
         data = payload or {}
-        surface = str(data.get("surface") or "").strip()
-        project_id = str(data.get("project_id") or "").strip()
-        scope_id = str(data.get("scope_id") or "").strip()
+        uses_identity_contract = bool(isinstance(data.get("identity"), dict) and data.get("identity")) or bool(data.get("legacy_project_id") or data.get("surface_id"))
+        identity_filter = memory_filter_from_payload(data, legacy_project_is_scope=bool(data.get("legacy_project_id"))) if uses_identity_contract else {}
+        surface = str(identity_filter.get("surface") or data.get("surface") or "").strip()
+        project_id = str(identity_filter.get("project_id") or data.get("project_id") or "").strip()
+        scope_id = str(identity_filter.get("scope_id") or data.get("scope_id") or "").strip()
         limit = max(1, min(int(data.get("limit") or 250), 5000))
         force = bool(data.get("force", False))
         allow_fallback = bool(data.get("allow_fallback", True))
@@ -205,6 +208,13 @@ class UnifiedMemoryRetrievalEngine:
         if scope_id:
             clauses.append("scope_id = ?")
             params.append(scope_id)
+        progress_callback = data.get("progress_callback") if callable(data.get("progress_callback")) else None
+        cancel_callback = data.get("cancel_callback") if callable(data.get("cancel_callback")) else None
+        managed_job = bool(data.get("managed_job") or data.get("managed_job_id"))
+        if progress_callback:
+            progress_callback(phase="embedding_load", percent=8, message="Loading memory fragments for embedding/indexing.")
+        if cancel_callback:
+            cancel_callback("Cancelled before embedding fragment load.")
         started = time.time()
         with self._connect() as conn:
             rows = conn.execute(
@@ -219,13 +229,21 @@ class UnifiedMemoryRetrievalEngine:
             ).fetchall()
             fragments = [dict(row) for row in rows]
             if not fragments:
-                return {"ok": True, "schema_id": M9_SCHEMA_ID, "phase": M9_PHASE, "status": "no_pending_fragments", "indexed_count": 0, "filters": {"surface": surface, "project_id": project_id, "scope_id": scope_id, "force": force}}
+                return {"ok": True, "schema_id": M9_SCHEMA_ID, "phase": M9_PHASE, "status": "no_pending_fragments", "indexed_count": 0, "filters": {"surface": surface, "project_id": project_id, "scope_id": scope_id, "force": force}, "identity": identity_filter.get("identity") or {}}
             texts = [f"{item.get('title') or ''}\n{item.get('content') or ''}" for item in fragments]
+            if progress_callback:
+                progress_callback(phase="embedding_model", current=0, total=len(fragments), percent=20, message=f"Embedding {len(fragments)} memory fragment(s).")
+            if cancel_callback:
+                cancel_callback("Cancelled before embedding model execution.")
             emb = embed_texts(texts, allow_fallback=allow_fallback)
             vectors = emb.get("vectors") or []
+            if progress_callback:
+                progress_callback(phase="embedding_write", current=0, total=len(fragments), percent=70, message="Writing embeddings to Unified Memory.")
+            if cancel_callback:
+                cancel_callback("Cancelled before embedding writes.")
             stamp = _now()
             indexed = []
-            for item, vector in zip(fragments, vectors):
+            for index, (item, vector) in enumerate(zip(fragments, vectors), start=1):
                 if not vector:
                     continue
                 embedding_id = f"neoemb:{_hash(str(item.get('fragment_id')) + ':' + str(emb.get('model_id')))}"
@@ -266,13 +284,18 @@ class UnifiedMemoryRetrievalEngine:
                 )
                 conn.execute("UPDATE neo_memory_fragments SET embedding_status = 'indexed', updated_at = ? WHERE fragment_id = ?", (stamp, item.get("fragment_id")))
                 indexed.append({"fragment_id": item.get("fragment_id"), "embedding_id": embedding_id, "dimension": len(vector), "surface": item.get("surface"), "scope_id": item.get("scope_id")})
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO neo_memory_jobs(job_id, job_type, status, surface, project_id, scope_id, started_at, finished_at, progress_json, result_json, error, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (f"m9_index:{uuid4().hex[:12]}", "m9_embedding_index", "completed", surface or "global", project_id or None, scope_id or None, _now(), _now(), _json({"input": len(fragments)}), _json({"indexed_count": len(indexed), "embedding": {k: v for k, v in emb.items() if k != "vectors"}}), "", stamp, stamp),
-            )
+                if progress_callback and (index == len(fragments) or index % max(1, len(fragments) // 20) == 0):
+                    progress_callback(phase="embedding_write", current=index, total=len(fragments), percent=70 + round((index / max(1, len(fragments))) * 25), message=f"Indexed {index}/{len(fragments)} memory fragment(s).")
+                if cancel_callback:
+                    cancel_callback("Cancelled while writing embeddings.")
+            if not managed_job:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO neo_memory_jobs(job_id, job_type, status, surface, project_id, scope_id, started_at, finished_at, progress_json, result_json, error, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (f"m9_index:{uuid4().hex[:12]}", "m9_embedding_index", "completed", surface or "global", project_id or None, scope_id or None, _now(), _now(), _json({"input": len(fragments)}), _json({"indexed_count": len(indexed), "embedding": {k: v for k, v in emb.items() if k != "vectors"}}), "", stamp, stamp),
+                )
         return {
             "ok": True,
             "schema_id": M9_SCHEMA_ID,
@@ -297,9 +320,11 @@ class UnifiedMemoryRetrievalEngine:
         rerank_top = max(0, min(int(data.get("rerank_top") or data.get("top_n") or limit), 64))
         semantic_enabled = bool(data.get("semantic", profile.get("semantic", True)))
         rerank_enabled = bool(data.get("rerank", profile.get("rerank", True))) and rerank_top > 0
-        surface = str(data.get("surface") or "").strip()
-        project_id = str(data.get("project_id") or "").strip()
-        scope_id = str(data.get("scope_id") or "").strip()
+        uses_identity_contract = bool(isinstance(data.get("identity"), dict) and data.get("identity")) or bool(data.get("legacy_project_id") or data.get("surface_id"))
+        identity_filter = memory_filter_from_payload(data, legacy_project_is_scope=bool(data.get("legacy_project_id"))) if uses_identity_contract else {}
+        surface = str(identity_filter.get("surface") or data.get("surface") or "").strip()
+        project_id = str(identity_filter.get("project_id") or data.get("project_id") or "").strip()
+        scope_id = str(identity_filter.get("scope_id") or data.get("scope_id") or "").strip()
         memory_types = data.get("memory_types") if isinstance(data.get("memory_types"), list) else []
         consumer = str(data.get("consumer") or "control_center").strip() or "control_center"
         started = time.time()
@@ -308,7 +333,7 @@ class UnifiedMemoryRetrievalEngine:
         semantic_status: dict[str, Any] = {"status": "skipped", "reason": "semantic_disabled" if not semantic_enabled else "no_query"}
         if semantic_enabled and query:
             # Make retrieval self-healing: index missing scoped fragments in a bounded batch before vector search.
-            self.index_embeddings({"surface": surface, "project_id": project_id, "scope_id": scope_id, "limit": int(data.get("index_limit") or 250), "force": False, "allow_fallback": True})
+            self.index_embeddings({"identity": identity_filter.get("identity") or {}, "surface": surface, "project_id": project_id, "scope_id": scope_id, "limit": int(data.get("index_limit") or 250), "force": False, "allow_fallback": True})
             emb = embed_texts([query], allow_fallback=True)
             vectors = emb.get("vectors") or []
             if vectors:
@@ -354,6 +379,7 @@ class UnifiedMemoryRetrievalEngine:
                     "semantic": semantic_status,
                     "reranker": reranker_status,
                     "weights": weights,
+                    "canonical_identity": identity_filter.get("identity") or {},
                 })),
             )
         return {
@@ -365,6 +391,7 @@ class UnifiedMemoryRetrievalEngine:
             "query": query,
             "profile": profile_id,
             "scope": {"surface": surface, "project_id": project_id, "scope_id": scope_id, "memory_types": memory_types},
+            "identity": identity_filter.get("identity") or {},
             "backend_used": "+".join(["metadata_scope", "keyword", "sqlite_vector" if vector_candidates else "", "reranker" if rerank_enabled else ""]).strip("+"),
             "semantic": semantic_status,
             "reranker": reranker_status,

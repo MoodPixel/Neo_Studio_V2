@@ -8,6 +8,13 @@ import shutil
 from typing import Any
 from uuid import uuid4
 
+from neo_app.prompt_captioning.persistence_migration import (
+    PERSISTENCE_SCHEMA_VERSION,
+    PROFILE_BEARING_KINDS,
+    normalize_persisted_record,
+    normalize_persisted_records,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "neo_data" / "prompt_captioning"
 PROMPTS_PATH = DATA_DIR / "saved_prompts.json"
@@ -53,16 +60,26 @@ def _write_list(path: Path, records: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps({"records": records}, indent=2), encoding="utf-8")
 
 
+def _read_profile_records(kind: str, path: Path) -> list[dict[str, Any]]:
+    records, _report = normalize_persisted_records(kind, _read_list(path))
+    return records
+
+
+def _profile_record_for_write(kind: str, record: dict[str, Any]) -> dict[str, Any]:
+    clean, _report = normalize_persisted_record(kind, record)
+    return clean
+
+
 def append_prompt_history(record: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(HISTORY_PATH)
-    item = {"history_id": f"prompt_hist_{uuid4().hex[:12]}", "created_at": _now(), **record}
+    records = _read_profile_records("prompt_history", HISTORY_PATH)
+    item = _profile_record_for_write("prompt_history", {"history_id": f"prompt_hist_{uuid4().hex[:12]}", "created_at": _now(), **record})
     records.insert(0, item)
     _write_list(HISTORY_PATH, records[:100])
     return item
 
 
 def save_prompt_record(payload: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(PROMPTS_PATH)
+    records = _read_profile_records("saved_prompts", PROMPTS_PATH)
     name = str(payload.get("name") or "Untitled Prompt").strip() or "Untitled Prompt"
     prompt = str(payload.get("prompt") or payload.get("output_text") or "").strip()
     if not prompt:
@@ -80,10 +97,12 @@ def save_prompt_record(payload: dict[str, Any]) -> dict[str, Any]:
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [item.strip() for item in str(payload.get("tags") or "").split(",") if item.strip()],
         "notes": str(payload.get("notes") or ""),
         "settings": payload.get("settings") if isinstance(payload.get("settings"), dict) else {},
+        "profile": payload.get("profile") if isinstance(payload.get("profile"), dict) else {},
         "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
         "created_at": now,
         "updated_at": now,
     }
+    record = _profile_record_for_write("saved_prompts", record)
     replaced = False
     for index, item in enumerate(records):
         if item.get("prompt_id") == prompt_id:
@@ -102,7 +121,7 @@ def save_prompt_record(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_prompt_records() -> dict[str, Any]:
-    records = _read_list(PROMPTS_PATH)
+    records = _read_profile_records("saved_prompts", PROMPTS_PATH)
     return {"ok": True, "records": records, "count": len(records)}
 
 PRESETS_PATH = DATA_DIR / "prompt_presets.json"
@@ -126,17 +145,17 @@ def _filter_records(records: list[dict[str, Any]], query: str = "", category: st
 
 
 def list_prompt_history(limit: int = 25) -> dict[str, Any]:
-    records = _read_list(HISTORY_PATH)
+    records = _read_profile_records("prompt_history", HISTORY_PATH)
     return {"ok": True, "records": records[: max(1, int(limit or 25))], "count": len(records)}
 
 
 def list_prompt_presets(query: str = "", category: str = "") -> dict[str, Any]:
-    records = _filter_records(_read_list(PRESETS_PATH), query, category)
+    records = _filter_records(_read_profile_records("prompt_presets", PRESETS_PATH), query, category)
     return {"ok": True, "records": records, "count": len(records)}
 
 
 def save_prompt_preset(payload: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(PRESETS_PATH)
+    records = _read_profile_records("prompt_presets", PRESETS_PATH)
     name = str(payload.get("name") or "Untitled Preset").strip() or "Untitled Preset"
     preset_id = str(payload.get("preset_id") or f"prompt_preset_{uuid4().hex[:12]}")
     now = _now()
@@ -145,6 +164,7 @@ def save_prompt_preset(payload: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "category": str(payload.get("category") or "General").strip() or "General",
         "style": str(payload.get("style") or ""),
+        "profile": payload.get("profile") if isinstance(payload.get("profile"), dict) else {},
         "subject": str(payload.get("subject") or ""),
         "mood": str(payload.get("mood") or ""),
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [part.strip() for part in str(payload.get("tags") or "").split(",") if part.strip()],
@@ -156,6 +176,7 @@ def save_prompt_preset(payload: dict[str, Any]) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
     }
+    item = _profile_record_for_write("prompt_presets", item)
     replaced = False
     for index, record in enumerate(records):
         if record.get("preset_id") == preset_id:
@@ -339,6 +360,7 @@ def _write_caption_metadata_card(record: dict[str, Any], origin: str = "single")
         "caption_mode": record.get("caption_mode") or "",
         "tags": record.get("tags") if isinstance(record.get("tags"), list) else [],
         "settings": record.get("settings") if isinstance(record.get("settings"), dict) else {},
+        "profile": record.get("profile") if isinstance(record.get("profile"), dict) else {},
         "metadata": record.get("metadata") if isinstance(record.get("metadata"), dict) else {},
         "created_at": record.get("created_at") or _now(),
         "updated_at": record.get("updated_at") or _now(),
@@ -357,15 +379,15 @@ def persist_caption_library_assets(record: dict[str, Any], origin: str = "single
 
 
 def append_caption_history(record: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(CAPTION_HISTORY_PATH)
-    item = {"history_id": f"caption_hist_{uuid4().hex[:12]}", "created_at": _now(), **record}
+    records = _read_profile_records("caption_history", CAPTION_HISTORY_PATH)
+    item = _profile_record_for_write("caption_history", {"history_id": f"caption_hist_{uuid4().hex[:12]}", "created_at": _now(), **record})
     records.insert(0, item)
     _write_list(CAPTION_HISTORY_PATH, records[:100])
     return item
 
 
 def list_caption_history(limit: int = 25) -> dict[str, Any]:
-    records = _read_list(CAPTION_HISTORY_PATH)
+    records = _read_profile_records("caption_history", CAPTION_HISTORY_PATH)
     return {"ok": True, "records": records[: max(1, int(limit or 25))], "count": len(records)}
 
 
@@ -405,7 +427,7 @@ def save_caption_asset(src_path: str, original_name: str = "") -> dict[str, Any]
 
 
 def save_caption_record(payload: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(CAPTIONS_PATH)
+    records = _read_profile_records("saved_captions", CAPTIONS_PATH)
     caption = str(payload.get("caption") or payload.get("output_caption") or "").strip()
     if not caption:
         return {"ok": False, "errors": ["Caption text is empty."]}
@@ -428,10 +450,12 @@ def save_caption_record(payload: dict[str, Any]) -> dict[str, Any]:
         "tags": tags,
         "notes": str(payload.get("notes") or ""),
         "settings": payload.get("settings") if isinstance(payload.get("settings"), dict) else {},
+        "profile": payload.get("profile") if isinstance(payload.get("profile"), dict) else {},
         "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
         "created_at": now,
         "updated_at": now,
     }
+    record = _profile_record_for_write("saved_captions", record)
     origin = str(payload.get("origin") or payload.get("source_origin") or payload.get("library_origin") or "single").strip() or "single"
     try:
         record = persist_caption_library_assets(record, origin)
@@ -458,7 +482,7 @@ def save_caption_record(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_caption_records(query: str = "", category: str = "") -> dict[str, Any]:
-    records = _filter_caption_records(_read_list(CAPTIONS_PATH), query, category)
+    records = _filter_caption_records(_read_profile_records("saved_captions", CAPTIONS_PATH), query, category)
     return {"ok": True, "records": records, "count": len(records)}
 
 
@@ -506,12 +530,12 @@ def duplicate_caption_record(caption_id: str) -> dict[str, Any]:
 
 
 def list_caption_presets(query: str = "", category: str = "") -> dict[str, Any]:
-    records = _filter_caption_records(_read_list(CAPTION_PRESETS_PATH), query, category)
+    records = _filter_caption_records(_read_profile_records("caption_presets", CAPTION_PRESETS_PATH), query, category)
     return {"ok": True, "records": records, "count": len(records)}
 
 
 def save_caption_preset(payload: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(CAPTION_PRESETS_PATH)
+    records = _read_profile_records("caption_presets", CAPTION_PRESETS_PATH)
     preset_id = str(payload.get("preset_id") or f"caption_preset_{uuid4().hex[:12]}")
     now = _now()
     item = {
@@ -530,11 +554,13 @@ def save_caption_preset(payload: dict[str, Any]) -> dict[str, Any]:
         "instruction": str(payload.get("instruction") or payload.get("caption_instruction") or ""),
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [part.strip() for part in str(payload.get("tags") or "").split(",") if part.strip()],
         "notes": str(payload.get("notes") or ""),
+        "profile": payload.get("profile") if isinstance(payload.get("profile"), dict) else {},
         "settings": payload.get("settings") if isinstance(payload.get("settings"), dict) else {},
         "favorite": bool(payload.get("favorite", False)),
         "created_at": now,
         "updated_at": now,
     }
+    item = _profile_record_for_write("caption_presets", item)
     replaced = False
     for index, record in enumerate(records):
         if record.get("preset_id") == preset_id:
@@ -649,15 +675,15 @@ def duplicate_caption_component(component_id: str) -> dict[str, Any]:
 
 
 def append_caption_batch_result(record: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(CAPTION_BATCH_RESULTS_PATH)
-    item = {"batch_id": f"caption_batch_{uuid4().hex[:12]}", "created_at": _now(), **record}
+    records = _read_profile_records("caption_batch_results", CAPTION_BATCH_RESULTS_PATH)
+    item = _profile_record_for_write("caption_batch_results", {"batch_id": f"caption_batch_{uuid4().hex[:12]}", "created_at": _now(), **record})
     records.insert(0, item)
     _write_list(CAPTION_BATCH_RESULTS_PATH, records[:100])
     return item
 
 
 def list_caption_batch_results(limit: int = 25) -> dict[str, Any]:
-    records = _read_list(CAPTION_BATCH_RESULTS_PATH)
+    records = _read_profile_records("caption_batch_results", CAPTION_BATCH_RESULTS_PATH)
     return {"ok": True, "records": records[: max(1, int(limit or 25))], "count": len(records)}
 
 # Phase L — Library / Presets / History / Reuse hardening
@@ -697,6 +723,21 @@ def _safe_kind(kind: str) -> str:
     return value
 
 
+def _read_library_records(kind: str) -> list[dict[str, Any]]:
+    safe = _safe_kind(kind)
+    path = LIBRARY_KIND_PATHS[safe]
+    if safe in PROFILE_BEARING_KINDS:
+        return _read_profile_records(safe, path)
+    return _read_list(path)
+
+
+def _library_record_for_write(kind: str, record: dict[str, Any]) -> dict[str, Any]:
+    safe = _safe_kind(kind)
+    if safe in PROFILE_BEARING_KINDS:
+        return _profile_record_for_write(safe, record)
+    return dict(record)
+
+
 def _record_id_for_kind(kind: str, payload: dict[str, Any]) -> str:
     id_key = LIBRARY_KIND_ID_KEYS[_safe_kind(kind)]
     value = str(payload.get(id_key) or payload.get("record_id") or payload.get("id") or "").strip()
@@ -719,7 +760,7 @@ def list_handoff_history(limit: int = 50) -> dict[str, Any]:
 
 def list_library_kind(kind: str, query: str = "", category: str = "", limit: int = 200) -> dict[str, Any]:
     safe = _safe_kind(kind)
-    records = _read_list(LIBRARY_KIND_PATHS[safe])
+    records = _read_library_records(safe)
     if safe.startswith("caption") or safe == "saved_captions":
         records = _filter_caption_records(records, query, category)
     else:
@@ -734,7 +775,7 @@ def get_library_record(kind: str, record_id: str) -> dict[str, Any]:
     rid = str(record_id or "").strip()
     if not rid:
         return {"ok": False, "errors": ["Record id is required."], "kind": safe}
-    for item in _read_list(LIBRARY_KIND_PATHS[safe]):
+    for item in _read_library_records(safe):
         if str(item.get(key) or "") == rid:
             return {"ok": True, "kind": safe, "id_key": key, "record": item}
     return {"ok": False, "errors": ["Record not found."], "kind": safe, "id_key": key}
@@ -747,7 +788,7 @@ def update_library_record(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     record_id = _record_id_for_kind(safe, payload)
     if not record_id:
         return {"ok": False, "errors": ["Record id is required."], "kind": safe, "id_key": key}
-    records = _read_list(path)
+    records = _read_library_records(safe)
     now = _now()
     for index, item in enumerate(records):
         if str(item.get(key) or "") == record_id:
@@ -758,6 +799,7 @@ def update_library_record(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
                     continue
                 merged[field] = value
             merged["updated_at"] = now
+            merged = _library_record_for_write(safe, merged)
             records[index] = merged
             _write_list(path, records)
             return {"ok": True, "kind": safe, "id_key": key, "record": merged, "records": records}
@@ -769,7 +811,7 @@ def delete_library_record(kind: str, record_id: str) -> dict[str, Any]:
     path = LIBRARY_KIND_PATHS[safe]
     key = LIBRARY_KIND_ID_KEYS[safe]
     rid = str(record_id or "").strip()
-    records = _read_list(path)
+    records = _read_library_records(safe)
     kept = [item for item in records if str(item.get(key) or "") != rid]
     if len(kept) == len(records):
         return {"ok": False, "errors": ["Record not found."], "kind": safe, "id_key": key}
@@ -781,7 +823,7 @@ def duplicate_library_record(kind: str, record_id: str) -> dict[str, Any]:
     safe = _safe_kind(kind)
     path = LIBRARY_KIND_PATHS[safe]
     key = LIBRARY_KIND_ID_KEYS[safe]
-    records = _read_list(path)
+    records = _read_library_records(safe)
     source = next((item for item in records if str(item.get(key) or "") == str(record_id or "")), None)
     if not source:
         return {"ok": False, "errors": ["Record not found."], "kind": safe, "id_key": key}
@@ -793,6 +835,7 @@ def duplicate_library_record(kind: str, record_id: str) -> dict[str, Any]:
     clone["updated_at"] = clone["created_at"]
     if "favorite" in clone:
         clone["favorite"] = False
+    clone = _library_record_for_write(safe, clone)
     records.insert(0, clone)
     _write_list(path, records)
     return {"ok": True, "kind": safe, "id_key": key, "record": clone, "records": records}
@@ -800,13 +843,21 @@ def duplicate_library_record(kind: str, record_id: str) -> dict[str, Any]:
 
 def library_snapshot() -> dict[str, Any]:
     payload = {
-        "schema_version": "prompt_captioning.library.v1",
+        "schema_version": "prompt_captioning.library.v2",
+        "profile_schema_version": "prompt_captioning.profile.v1",
+        "persistence_schema_version": PERSISTENCE_SCHEMA_VERSION,
         "exported_at": _now(),
         "libraries": {},
         "counts": {},
+        "migration_report": {},
     }
     for kind, path in LIBRARY_KIND_PATHS.items():
-        records = _read_list(path)
+        raw = _read_list(path)
+        if kind in PROFILE_BEARING_KINDS:
+            records, report = normalize_persisted_records(kind, raw)
+            payload["migration_report"][kind] = report
+        else:
+            records = raw
         payload["libraries"][kind] = records
         payload["counts"][kind] = len(records)
     return {"ok": True, **payload}
@@ -817,13 +868,15 @@ def import_library_snapshot(payload: dict[str, Any], merge: bool = True) -> dict
     if not isinstance(libraries, dict):
         return {"ok": False, "errors": ["Import payload must include a libraries object."]}
     imported: dict[str, int] = {}
+    migration: dict[str, Any] = {}
     for kind, incoming in libraries.items():
         if kind not in LIBRARY_KIND_PATHS or not isinstance(incoming, list):
             continue
         path = LIBRARY_KIND_PATHS[kind]
         key = LIBRARY_KIND_ID_KEYS[kind]
-        existing = _read_list(path) if merge else []
+        existing = _read_library_records(kind) if merge else []
         by_id = {str(item.get(key) or uuid4().hex): item for item in existing}
+        migrated_count = 0
         for item in incoming:
             if not isinstance(item, dict):
                 continue
@@ -832,11 +885,79 @@ def import_library_snapshot(payload: dict[str, Any], merge: bool = True) -> dict
                 record[key] = f"{key.replace('_id', '')}_{uuid4().hex[:12]}"
             record.setdefault("created_at", _now())
             record["updated_at"] = _now()
+            if kind in PROFILE_BEARING_KINDS:
+                record, report = normalize_persisted_record(kind, record)
+                migrated_count += 1 if report.get("migrated") else 0
             by_id[str(record.get(key))] = record
         records = list(by_id.values())
         _write_list(path, records)
         imported[kind] = len(incoming)
-    return {"ok": True, "imported": imported, "snapshot": library_snapshot()}
+        if kind in PROFILE_BEARING_KINDS:
+            migration[kind] = {"imported": len(incoming), "migrated": migrated_count}
+    return {"ok": True, "imported": imported, "migration": migration, "snapshot": library_snapshot()}
+
+
+def profile_storage_migration_status() -> dict[str, Any]:
+    report: dict[str, Any] = {}
+    total_records = 0
+    total_changed = 0
+    for kind in sorted(PROFILE_BEARING_KINDS):
+        path = LIBRARY_KIND_PATHS[kind]
+        raw = _read_list(path)
+        _normalized, item_report = normalize_persisted_records(kind, raw)
+        report[kind] = item_report
+        total_records += int(item_report.get("records") or 0)
+        total_changed += int(item_report.get("changed") or 0)
+    return {
+        "ok": True,
+        "schema_version": "prompt_captioning.storage_migration_status.v1",
+        "persistence_schema_version": PERSISTENCE_SCHEMA_VERSION,
+        "records": total_records,
+        "needs_migration": total_changed,
+        "kinds": report,
+    }
+
+
+def migrate_profile_storage(*, dry_run: bool = True, backup: bool = True) -> dict[str, Any]:
+    """Idempotently materialize P23 profiles in existing local libraries.
+
+    Reads are already lazy-migrated, so this operation is optional. When apply is
+    requested it writes only profile-bearing libraries and creates a timestamped
+    backup before changing each existing JSON file.
+    """
+    before = profile_storage_migration_status()
+    if dry_run:
+        return {**before, "dry_run": True, "applied": False, "backups": []}
+
+    backups: list[str] = []
+    applied: dict[str, int] = {}
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_root = DATA_DIR / "migration_backups" / f"p23_4_{stamp}"
+    for kind in sorted(PROFILE_BEARING_KINDS):
+        path = LIBRARY_KIND_PATHS[kind]
+        raw = _read_list(path)
+        normalized, report = normalize_persisted_records(kind, raw)
+        changed = int(report.get("changed") or 0)
+        if not changed:
+            continue
+        if backup and path.exists():
+            backup_root.mkdir(parents=True, exist_ok=True)
+            dest = backup_root / path.name
+            shutil.copyfile(path, dest)
+            backups.append(str(dest))
+        _write_list(path, normalized)
+        applied[kind] = changed
+    after = profile_storage_migration_status()
+    return {
+        "ok": True,
+        "schema_version": "prompt_captioning.storage_migration_result.v1",
+        "dry_run": False,
+        "applied": True,
+        "backups": backups,
+        "changed_by_kind": applied,
+        "before": before,
+        "after": after,
+    }
 
 
 def clear_library_history(history_kind: str) -> dict[str, Any]:
@@ -849,18 +970,19 @@ def clear_library_history(history_kind: str) -> dict[str, Any]:
 
 # Phase N — Metadata + Replay Readiness
 def append_result_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    records = _read_list(RESULT_METADATA_PATH)
+    records = _read_profile_records("result_metadata", RESULT_METADATA_PATH)
     item = dict(metadata or {})
     item.setdefault("metadata_id", f"pcmeta_{uuid4().hex[:12]}")
     item.setdefault("created_at", _now())
     item.setdefault("surface_id", "prompt_captioning")
     item.setdefault("workspace_app", "neo_studio")
+    item = _profile_record_for_write("result_metadata", item)
     records.insert(0, item)
     _write_list(RESULT_METADATA_PATH, records[:500])
     return item
 
 def list_result_metadata(limit: int = 100, tool_id: str = "") -> dict[str, Any]:
-    records = _read_list(RESULT_METADATA_PATH)
+    records = _read_profile_records("result_metadata", RESULT_METADATA_PATH)
     if tool_id:
         records = [item for item in records if str(item.get("tool_id") or "") == str(tool_id)]
     safe_limit = max(1, min(int(limit or 100), 500))
@@ -870,7 +992,7 @@ def get_result_metadata(metadata_id: str) -> dict[str, Any]:
     mid = str(metadata_id or "").strip()
     if not mid:
         return {"ok": False, "errors": ["Metadata id is required."]}
-    for item in _read_list(RESULT_METADATA_PATH):
+    for item in _read_profile_records("result_metadata", RESULT_METADATA_PATH):
         if str(item.get("metadata_id") or "") == mid:
             return {"ok": True, "record": item}
     return {"ok": False, "errors": ["Metadata record not found."]}

@@ -21,10 +21,13 @@ from .vector_store import vector_store_status, upsert_chroma_chunks, query_chrom
 from .schema import MemoryCapabilityStatus, MemoryEvent, MemoryQuery, MemorySearchResult
 from .store_sqlite import SQLiteMemoryStore
 from .surface_ingestion import run_surface_memory_ingestion
+from .surface_ingestion_registry import surface_ingestion_registry_status
 from .consolidation_engine import UnifiedMemoryConsolidationEngine
 from .retrieval_engine import UnifiedMemoryRetrievalEngine
+from .retrieval_gateway import RetrievalGateway
 from .observability import MemoryObservabilityEngine
 from .writeback_engine import MemoryWritebackEngine
+from .job_service import MemoryJobService
 from .safety_guard import MemorySafetyGuard
 from neo_app.control_center import NeoControlCenter
 from neo_app.control_center.prompt_contracts import prompt_contract_status_payload
@@ -352,10 +355,12 @@ class MemoryService:
         self.consolidation_engine = UnifiedMemoryConsolidationEngine(db_path)
         self.control_center = NeoControlCenter(db_path)
         self.retrieval_engine = UnifiedMemoryRetrievalEngine(db_path)
+        self.retrieval_gateway = RetrievalGateway(db_path)
         self.observability_engine = MemoryObservabilityEngine(db_path, root_dir=ROOT_DIR)
         self.writeback_engine = MemoryWritebackEngine(db_path)
         self.safety_guard = MemorySafetyGuard(db_path)
         self.control_center_trace_review = ControlCenterTraceReviewEngine(db_path)
+        self.job_service = MemoryJobService(db_path)
 
     def capabilities(self) -> MemoryCapabilityStatus:
         return MemoryCapabilityStatus(**optional_status())
@@ -384,15 +389,19 @@ class MemoryService:
             "unified_schema": self.store.unified_schema_status(),
             "surface_ingestion": {
                 "status": "ready",
-                "phase": "M3",
+                "phase": "8",
+                "legacy_replay_phase": "M3",
                 "run_endpoint": "/api/memory/surface-ingestion/run",
+                "registry_endpoint": "/api/memory/surface-ingestion/registry",
+                "registry": surface_ingestion_registry_status(),
                 "report_paths": {
                     "json": "neo_data/memory/audits/m3_surface_memory_ingestion.json",
                     "markdown": "neo_data/memory/audits/m3_surface_memory_ingestion.md",
                 },
-                "policy": "Surface ingestion is additive/idempotent and stores SQLite memory first; embeddings are queued later.",
+                "policy": "Phase 8 registry owns surface ingestion capability. Legacy M3 scanners remain compatibility replay adapters; successful live events write SQLite memory first and embeddings are queued later.",
             },
             "retrieval_profiles": retrieval_profiles_payload(),
+            "retrieval_gateway": self.retrieval_gateway.status(),
             "retrieval_rerank": self.retrieval_rerank_status(),
             "memory_writeback": self.writeback_status(),
             "memory_safety": self.safety_status(),
@@ -1862,6 +1871,9 @@ class MemoryService:
         }
 
 
+    def retrieve_gateway(self, payload: dict[str, Any] | None = None) -> dict:
+        return self.retrieval_gateway.retrieve(payload or {})
+
     def retrieval_rerank_status(self) -> dict:
         return self.retrieval_engine.status()
 
@@ -1888,6 +1900,34 @@ class MemoryService:
     def control_center_trace_detail(self, trace_id: str) -> dict:
         return self.control_center.trace_detail(trace_id)
 
+
+    def memory_jobs_status(self, *, status: str = "", job_type: str = "", limit: int = 50) -> dict:
+        return self.job_service.list(status=status, job_type=job_type, limit=limit)
+
+    def memory_job(self, job_id: str) -> dict:
+        job = self.job_service.get(job_id)
+        return {"ok": bool(job), "schema_id": "neo.memory.jobs.phase10.v1", "status": (job or {}).get("status") or "missing_job", "job": job}
+
+    def create_memory_job(self, payload: dict[str, Any] | None = None) -> dict:
+        data = dict(payload or {})
+        job_type = str(data.pop("job_type", "") or "").strip()
+        if job_type not in self.job_service.supported_job_types():
+            return {"ok": False, "schema_id": "neo.memory.jobs.phase10.v1", "status": "unsupported_job_type", "job_type": job_type, "supported_job_types": self.job_service.supported_job_types()}
+        return self.job_service.create(
+            job_type=job_type,
+            payload=data,
+            title=str(data.get("title") or ""),
+            surface=str(data.get("surface") or data.get("surface_id") or "global"),
+            project_id=data.get("project_id"),
+            scope_id=data.get("scope_id"),
+            dedupe_key=str(data.get("dedupe_key") or ""),
+        )
+
+    def cancel_memory_job(self, job_id: str) -> dict:
+        return self.job_service.cancel(job_id)
+
+    def retry_memory_job(self, job_id: str) -> dict:
+        return self.job_service.retry(job_id)
 
     def writeback_status(self) -> dict:
         return self.writeback_engine.status()

@@ -14,6 +14,7 @@ from neo_app.image.lanpaint_family_policies import (
 from neo_app.image.lanpaint_route_contract import (
     ENGINE_ID,
     MODE_ID,
+    SUPPORTED_MODES,
     ROUTE_FAMILY_ID,
     normalize_family_id,
     normalize_lanpaint_route_contract,
@@ -486,7 +487,7 @@ def resolve_lanpaint_family_adapter(route_contract: Mapping[str, Any] | None) ->
     policy_identity = _mapping(policy.get("identity"))
     policy_status = str(policy_identity.get("status") or resolution.get("resolution_state") or "missing_policy")
     complete = bool(policy and policy_status == COMPLETE_POLICY_STATE and resolution.get("resolution_state") == "resolved_policy_only")
-    binding_spec = _ACTIVE_BINDINGS.get((family_id, loader_id)) if provider_id in SUPPORTED_PROVIDERS and mode_id == MODE_ID and engine_id == ENGINE_ID else None
+    binding_spec = _ACTIVE_BINDINGS.get((family_id, loader_id)) if provider_id in SUPPORTED_PROVIDERS and mode_id in SUPPORTED_MODES and engine_id == ENGINE_ID else None
     bound = bool(complete and binding_spec)
 
     loader_policy = _mapping(_mapping(policy.get("loader_policies")).get(loader_id))
@@ -560,7 +561,7 @@ def resolve_lanpaint_family_adapter(route_contract: Mapping[str, Any] | None) ->
             "selectable": bound,
             "executable": bound,
             "compiler_id": COMPILER_ID if bound else None,
-            "workflow_type": WORKFLOW_TYPE if bound else None,
+            "workflow_type": f"image.{mode_id}.lanpaint" if bound else None,
             "graph_profile": graph_profile,
             "phase": str((binding_spec or {}).get("phase") or "Phase 13 adapter metadata only"),
             "new_route_activated_by_phase13": False,
@@ -635,7 +636,7 @@ def resolve_lanpaint_family_adapter(route_contract: Mapping[str, Any] | None) ->
         "stabilization": {
             "state": ("phase22_anima_ideogram4_onboarded" if (family_id, loader_id) in _PHASE22_NEW_BINDINGS and bound else ("phase21_hidream_onboarded" if (family_id, loader_id) in _PHASE21_NEW_BINDINGS and bound else ("phase20_z_image_onboarded" if (family_id, loader_id) in _PHASE20_COMPLETED_BINDINGS and bound else ("phase18_qwen_edit_onboarded" if (family_id, loader_id) in _PHASE18_NEW_BINDINGS and bound else ("phase17_flux2_onboarded" if (family_id, loader_id) in _PHASE17_NEW_BINDINGS and bound else ("phase16_flux1_onboarded" if (family_id, loader_id) in _PHASE16_NEW_BINDINGS and bound else ("phase15_sd_onboarded" if (family_id, loader_id) in _PHASE15_NEW_BINDINGS and bound else ("phase14_stabilized" if (family_id, loader_id) in _PHASE14_STABILIZED_BINDINGS and bound else "not_stabilized")))))))),
             "phase_state": PHASE22_STATE if (family_id, loader_id) in _PHASE22_NEW_BINDINGS and bound else (PHASE21_STATE if (family_id, loader_id) in _PHASE21_NEW_BINDINGS and bound else (PHASE20_STATE if (family_id, loader_id) in _PHASE20_COMPLETED_BINDINGS and bound else (PHASE18_STATE if (family_id, loader_id) in _PHASE18_NEW_BINDINGS and bound else (PHASE17_STATE if (family_id, loader_id) in _PHASE17_NEW_BINDINGS and bound else (PHASE16_STATE if (family_id, loader_id) in _PHASE16_NEW_BINDINGS and bound else (PHASE15_STATE if (family_id, loader_id) in _PHASE15_NEW_BINDINGS and bound else PHASE14_STATE)))))),
-            "loader_parity_group": f"{family_id}:inpaint:lanpaint",
+            "loader_parity_group": f"{family_id}:{mode_id}:lanpaint",
             "new_binding_activated": bool((family_id, loader_id) in (_PHASE14_NEW_BINDINGS | _PHASE15_NEW_BINDINGS | _PHASE16_NEW_BINDINGS | _PHASE17_NEW_BINDINGS | _PHASE18_NEW_BINDINGS | _PHASE21_NEW_BINDINGS | _PHASE22_NEW_BINDINGS) and bound),
             "new_binding_activated_phase15": bool((family_id, loader_id) in _PHASE15_NEW_BINDINGS and bound),
             "new_binding_activated_phase16": bool((family_id, loader_id) in _PHASE16_NEW_BINDINGS and bound),
@@ -701,11 +702,12 @@ def lanpaint_family_adapter_registry(provider_id: Any = "comfyui") -> dict[str, 
     for policy in lanpaint_family_policy_registry().get("policies", []):
         identity = _mapping(policy.get("identity"))
         for loader_id in _list(identity.get("loader_ids")):
-            policies.append(get_lanpaint_family_adapter(
-                identity.get("family"), loader=loader_id, provider_id=provider,
-                variant=identity.get("variant") or "default",
-            ))
-    policies.sort(key=lambda item: (item["identity"]["family"], item["identity"]["loader"]))
+            for mode_id in sorted(SUPPORTED_MODES):
+                policies.append(get_lanpaint_family_adapter(
+                    identity.get("family"), loader=loader_id, provider_id=provider, mode=mode_id,
+                    variant=identity.get("variant") or "default",
+                ))
+    policies.sort(key=lambda item: (item["identity"]["family"], item["identity"]["loader"], item["identity"]["mode"]))
     registry = {
         "schema_id": REGISTRY_SCHEMA_ID,
         "schema_version": SCHEMA_VERSION,
