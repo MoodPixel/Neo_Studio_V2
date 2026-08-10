@@ -312,7 +312,7 @@ Forge Identity Rescue is available only when the selected Forge profile's live I
 - an Img2Img ControlNet unit slot;
 - one durable reference image.
 
-The Preview/Output Inspector Identity Rescue action stages the selected output as both the repair source and the FaceID reference, selects a compatible live model when available, clamps outer Img2Img denoise to `0.12–0.35`, and queues through `/sdapi/v1/img2img` without changing providers. Standard ControlNet and FaceID units share Forge's ControlNet unit capacity.
+The Preview/Output Inspector Identity Rescue action stages the selected output as both the repair source and the FaceID reference, selects a compatible live model when available, preserves the user-selected outer Img2Img denoise value, and queues through `/sdapi/v1/img2img` without changing providers. Standard ControlNet and FaceID units share Forge's ControlNet unit capacity.
 
 Forge executes the verified model/preprocessor pair through its Integrated ControlNet contract. Comfy-specific FaceID unified-loader fields such as provider choice, optional FaceID LoRA strength, and preset implementation are retained for UI/replay context but are not emitted as fake Forge runtime controls.
 

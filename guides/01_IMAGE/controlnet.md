@@ -1,6 +1,6 @@
 ---
 guide_id: image.controlnet
-title: ControlNet Reference Guide
+title: ControlNet & Pose Reference Guide
 surface: image
 scope: built_in
 applies_to:
@@ -38,13 +38,13 @@ tags:
   - route aware
   - loader aware
 priority: 118
-version: 6
-updated: 2026-08-02
+version: 7
+updated: 2026-08-07
 ---
 
-# ControlNet
+# ControlNet & Pose
 
-**ControlNet** is the Image → Reference extension for structural guidance. It helps Neo guide a generation using a control image or generated map: edges, depth, pose, lineart, softedge, scribble, normal maps, tile/detail, or route-specific inpaint/outpaint control.
+**ControlNet & Pose** is the Image → Reference extension for structural guidance and Qwen pose transfer. It helps Neo guide a generation using a control image or generated map: edges, depth, pose, lineart, softedge, scribble, normal maps, tile/detail, or route-specific inpaint/outpaint control.
 
 Use this guide when the user asks about the ControlNet card, control images, generated maps, map building, canny/depth/pose settings, ControlNet model dropdowns, or why ControlNet is disabled/gated.
 
@@ -61,6 +61,21 @@ Good uses:
 - preserve lineart or sketches;
 - use tile/detail guidance during refinement;
 - help inpaint/outpaint follow an existing mask/canvas route where the selected family supports it.
+
+## Pose Control vs Pose Transfer
+
+The **Pose** control type has two different methods. They share Neo's existing Image 1 / Image 2 / Image 3 source-lane system, but they do not use the same backend mechanism.
+
+| Method | What drives the pose | Source-lane use | When to choose it |
+|---|---|---|---|
+| **Pose Control · ControlNet** | DWPose/OpenPose map + a compatible ControlNet model | Normal ControlNet control image/map flow | Choose this for stronger structural locking and conventional ControlNet behavior. |
+| **Pose Transfer · Qwen 2511 + LoRAs** | Qwen Image Edit 2511 + runtime DWPose + two model-only pose LoRAs | Image 1 = subject, Image 2 = pose reference, Image 3 = generated DWPose map | Choose this when the Qwen 2511 edit workflow should copy pose semantically without a ControlNet model. |
+
+For **Pose Transfer**, Neo does not ask the user to upload a pose map as a normal source. At queue time it reads **Image 2**, runs DWPose inside the Comfy graph, feeds the generated pose image into Qwen's **Image 3** input, and applies the selected base/helper LoRAs through `LoraLoaderModelOnly`. The prompt instruction is appended only to positive Qwen conditioning.
+
+Pose Transfer is currently experimental and fail-closed for local **ComfyUI / ComfyUI Portable**, **Qwen Image Edit 2511**, **Safetensors / Components or GGUF**, in **Img2Img / Edit**. It requires a live DWPose preprocessor, `LoraLoaderModelOnly`, and exact LoRA catalog matches. Image 3 must be empty because Neo owns that lane for the generated pose map while the method is active.
+
+The first rollout deliberately does not stack Pose Transfer with normal ControlNet units in the same generation. Use one system or the other so the pose driver remains predictable.
 
 ## Preview / Output Inspector reference handoff
 
@@ -79,7 +94,7 @@ Neo never overwrites an occupied unit silently. Forge ControlNet and IP Adapter 
 
 | Field | What it does | Practical note |
 |---|---|---|
-| **Apply ControlNet** | Enables ControlNet for the current generation. | If unchecked, Neo stores the draft but does not patch ControlNet into the workflow. |
+| **Apply Control / Pose** | Enables the selected ControlNet or Pose Transfer unit for the current generation. | If unchecked, Neo stores the draft but does not apply either system. |
 | **+ Add Unit** | Adds another ControlNet unit. | Multiple units can combine pose + depth + edges, but too many can over-constrain output. |
 | **Clean Disabled** | Removes inactive/disabled units. | Use before saving presets or debugging. |
 | **Refresh Nodes** | Refreshes the selected provider's ControlNet catalog. | Comfy reads live node/model sources; Forge reads the selected profile's verified Integrated ControlNet models, modules, and slot limits. |
@@ -103,7 +118,7 @@ Neo never overwrites an occupied unit silently. Forge ControlNet and IP Adapter 
 |---|---|---|
 | **Canny / edges** | strong silhouette and edge composition | Good for pose/object boundaries; too strong can make outputs rigid. |
 | **Depth** | perspective and scene depth | Good for rooms, full-body placement, foreground/background separation. |
-| **OpenPose / DWPose** | human body pose | Enable hands/face only when needed; more pose detail can also introduce constraints. |
+| **OpenPose / DWPose** | human body pose | Choose **Pose Control** for ControlNet guidance or **Pose Transfer** on supported Qwen 2511 edit routes. Enable hands/face only when needed. |
 | **Lineart** | drawings, clean contours, anime/comic-style line guidance | Works best with clean source images. |
 | **Anime Lineart** | anime/manga-style line maps | Useful for stylized character workflows. |
 | **SoftEdge / HED** | softer structure than Canny | Good when Canny is too harsh. |
@@ -139,6 +154,7 @@ Always check the live route badge first. The current guide-level summary is:
 | **Qwen Image Edit + Components or GGUF** | Available through Qwen-safe InstantX/standard map control and DiffSynth/InstantX inpaint/outpaint adapters. |
 | **Qwen Rapid AIO + Safetensors / Bundled or GGUF** | Available through Qwen Rapid AIO-specific map and DiffSynth/InstantX adapter policy. |
 | **Qwen Image Edit 2509 + Components or GGUF** | Available through Qwen 2509-specific map and DiffSynth/InstantX adapter policy. |
+| **Qwen Image Edit 2511 + Components or GGUF** | Standard ControlNet remains route-dependent. **Pose Transfer** is experimental on local Comfy Img2Img/Edit and uses DWPose + two model-only pose LoRAs instead of a ControlNet model. |
 | **ZImage / ZImage Turbo** | Implementation target. Neo may preserve settings, but active graph patching should not be promised unless the live route says Ready/Experimental. |
 | **HiDream** | Implementation target/provider gated unless the live route matrix promotes the exact route. |
 | **xAI Grok Imagine / API profiles** | Not a local Comfy ControlNet graph patch. Do not promise ControlNet execution unless a future API/backend exposes it. |
@@ -246,10 +262,13 @@ with another profile's models.
 ## Common mistakes
 
 - Using an SDXL ControlNet model on a Flux/Qwen route.
-- Building a map but forgetting to check **Apply ControlNet** or **Use unit**.
+- Building a map but forgetting to check **Apply Control / Pose** or **Use unit**.
 - Using too much strength and flattening creativity.
 - Using Canny for subtle pose when OpenPose/Depth would be better.
 - Expecting ControlNet to preserve identity. Use IP Adapter/FaceID for identity and ControlNet for structure.
+- Treating DWPose as if it were itself a ControlNet model. DWPose is a pose extractor/preprocessor; Pose Control and Pose Transfer decide how that pose information is used.
+- Uploading a user image into Image 3 while Pose Transfer is active. Image 3 is reserved for Neo's generated DWPose map in that mode.
+- Selecting normal LoRA loading for the Qwen 2511 pose pair. Pose Transfer requires model-only loading for both pose LoRAs.
 - Assuming visible fields mean execution. The status badge/route state decides execution.
 - Pointing Admin Models at the `controlnet` child instead of the parent Comfy `models` directory.
 - Placing ControlNet files under checkpoints or another unrelated model folder.

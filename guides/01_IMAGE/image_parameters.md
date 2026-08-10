@@ -40,8 +40,8 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 4
-updated: 2026-07-26
+version: 7
+updated: 2026-08-07
 ---
 
 # Image Parameters
@@ -78,6 +78,11 @@ The Prompt panel is shared by the base Image route and compatible extensions.
 
 ## Parameters panel
 
+## Parameter authority
+
+Explicit Parameters values are the final runtime truth. Defaults and presets may populate missing fields, but generation must not silently change a manual Steps, CFG, Sampler, Scheduler, Denoise, Batch Count, Seed, Width, or Height value. Unsupported values should fail validation rather than being normalized into a different request. See `guides/01_IMAGE/parameter_truth.md`.
+
+
 Neo selects a parameter profile from the active Model Family + Main Model Type + Workflow Mode. That means fields can appear, hide, disable, or change labels depending on the route.
 
 | Field | What it does | Route behavior / advice |
@@ -85,18 +90,21 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Main Model** | Selects the primary model/checkpoint/diffusion model/GGUF file. | The label can change by loader: Checkpoint, Main Model, GGUF model, Flux Diffusion Model, Qwen model, ZImage model, etc. |
 | **VAE / AE** | Selects the decoder/encoder model when the route exposes it. | Classic SDXL/SD 1.5 can use a VAE override. Flux/ZImage/Qwen component routes may require an AE/VAE. Bundled/API routes may hide this field. |
 | **Text Encoder fields** | Select primary/secondary text encoders for split-component routes. | Flux, Qwen component, ZImage, and some GGUF routes may expose encoder fields. Classic checkpoint routes usually hide them. |
-| **Sampler** | Controls the sampling algorithm. | Use provider/default values unless testing a specific sampler. Some API/cloud routes hide this. |
-| **Scheduler** | Controls the noise schedule. | Common for Comfy checkpoint/component routes. Some routes use fixed/default scheduling. |
+| **Sampler** | Controls the sampling algorithm. | An explicit selection is authoritative. Provider/family values are fallbacks only when the field is omitted. Some API/cloud routes do not expose a sampler control. |
+| **Scheduler** | Controls the noise schedule. | An explicit selection is authoritative on routes that expose the field. Defaults apply only when it is omitted. |
 | **Width / Height** | Output dimensions. | Larger dimensions cost more VRAM/time. Use presets first, then customize. |
 | **Swap size** | Swaps width and height. | Useful for changing portrait to landscape without retyping. |
 | **Aspect scale slider** | Scales width/height together while preserving the current ratio. | Good for quick size testing without changing composition ratio. |
 | **Size Preset** | Applies common sizes such as square, portrait, landscape, reel/shorts, 4:5 feed, or YouTube thumbnail. | Choose a preset for the target platform, then adjust manually if needed. |
 | **Save size preset** | Saves the current width/height as a custom preset. | Custom presets are runtime/user data and should stay in `neo_data`. |
-| **Steps** | Number of denoising/sampling steps. | Higher can add refinement but increases time and can overcook. Turbo routes often use very low steps. |
-| **CFG** | Prompt adherence/guidance for SD-style routes. | Available on SDXL/SD 1.5 and some non-Flux routes. Hidden or disabled when the selected profile uses another guidance system. |
-| **Flux Guidance** | Flux-family guidance replacement for SD-style CFG. | Flux 1/Flux 2 component routes use Flux Guidance instead of normal CFG. |
+| **Steps** | Number of denoising/sampling steps. | The entered value is compiled as-is. Family recommendations are starting points only; Turbo/Base labels do not silently replace a manual value. |
+| **CFG** | Sampler CFG / prompt guidance value used by the selected workflow. | Explicit CFG is preserved wherever the route exposes it. Modern families may also expose a separate model-guidance field. |
+| **Flux Guidance** | Flux-family model-guidance control. | It is independent from sampler CFG. If both controls are exposed, Neo preserves both explicit values instead of forcing CFG to a family default. |
 | **Krea 2 Qwen3-VL-4B Text Encoder** | Selects Krea 2's single Qwen3-VL-4B conditioning model. | Krea 2 requires the specialized `CLIPLoader(type=krea2)` path. For Krea 2 GGUF, keep this encoder as native/safetensors in M16. |
 | **Krea 2 VAE** | Selects the Qwen Image VAE used by Krea 2. | Use `qwen_image_vae.safetensors` or a compatible Qwen Image VAE. FLUX `ae.safetensors` is not the Krea 2 VAE contract. |
+| **Krea 2 Edit Engine** | Chooses the existing Neo source/mask/canvas adapter or the opt-in Krea 2 Identity Edit v1.2 graph in image modes. | Keep **Neo Native Adapter** for existing behavior. Identity Edit requires the current `comfyui-krea2edit` nodes and a selected Identity Edit LoRA. |
+| **Identity Edit LoRA / Strength** | Selects and weights the dedicated model-only Krea 2 editing LoRA. | Required only when Identity Edit is enabled. The recommended v1.2 weight starts around strength `1.0`. |
+| **Reference Fit / Reference Boost / Grounding Resolution** | Controls v1.2 source geometry, reference-fidelity attention, and Qwen3-VL image grounding. | Start with Fit, identity boost `4.0`, scene boost `1.0`, grounding `768`, then tune per edit. |
 | **Seed** | Controls repeatability. `-1` usually means random/auto-resolved. | Use random for exploration, lock/reuse a seed for revisions, and copy seed when documenting a result. |
 | **Seed lock** | Keeps future generations on the same seed. | Use for controlled iterations. |
 | **Seed randomize** | Uses a fresh seed. | Use for exploration. |
@@ -121,10 +129,15 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 Krea 2 is a separate image architecture, not FLUX.1 Krea. Both **Krea 2 RAW** and **Krea 2 Turbo** use one Qwen3-VL-4B text encoder through `CLIPLoader(type=krea2)` plus the Qwen Image VAE. Neo preflights that Krea 2 CLIP type through backend capability discovery; an older ComfyUI build that exposes `CLIPLoader` but not `type=krea2` is blocked before queue submission.
 
 - **Krea 2 RAW:** full/base model. Neo defaults to 52 steps and CFG 3.5. A normal negative prompt remains available.
-- **Krea 2 Turbo:** distilled fast model. Neo's Comfy route follows the official Comfy graph: 8 steps, CFG 1, and zeroed negative conditioning.
+- **Krea 2 Turbo:** distilled fast model. Neo uses 8 steps / CFG 1 only as defaults when those fields are missing. Manual Steps and CFG remain authoritative. Turbo still uses its family-specific negative-conditioning graph semantics.
 - **Safetensors / Components:** the diffusion model, Qwen3-VL-4B encoder, and Qwen Image VAE remain native Comfy components.
 - **GGUF (M16 experimental):** only the Krea 2 diffusion transformer may be GGUF. Keep the Qwen3-VL-4B encoder native/safetensors through `CLIPLoader(type=krea2)` because Krea 2 consumes a specialized multi-layer conditioning stack.
-- **Img2Img / Inpaint / Outpaint:** M16 exposes provider-owned latent adapter routes. These do not imply separate official Krea 2 editing/inpaint checkpoints.
+- **Img2Img / Inpaint / Outpaint:** the M16 provider-owned latent adapters remain the default. M17 adds an explicit **Krea 2 Identity Edit v1.2** engine for the community `comfyui-krea2edit` + Identity Edit LoRA workflow.
+- **Identity Edit graph:** `LoraLoaderModelOnly -> Krea2EditModelPatch`, image-grounded positive + empty grounded negative through `Krea2EditGroundedEncode`, and one shared `EmptySD3LatentImage` target wired to both the patch and KSampler.
+- **Two references:** Image 1 is scene/context; optional Image 2 is subject/identity. Image 3 is intentionally unavailable for Identity Edit.
+- **Identity Edit inpaint:** the model edits from the trained clean target-noise path; the user mask is applied as the final commit/composite boundary. It is not combined with LanPaint.
+- **Identity Edit outpaint:** the clean source stays unpadded and is centered by v1.2 `fit` geometry inside the larger target. Asymmetric padding changes target size but cannot side-anchor the clean reference exactly.
+- **Identity Edit negative:** uses the trained empty, image-grounded unconditional path. A normal user negative prompt is not applied in this engine.
 
 ## Preview panel
 
@@ -144,12 +157,14 @@ Output deletion, metadata inspection, replay, source/control asset tracking, and
 | **Img2Img** | `img2img` | Source image plus route-compatible model. | Preserving pose/layout/style while changing the image. |
 | **Inpaint** | `inpaint` | Source image + mask image. | Editing or repairing a region. |
 | **Outpaint** | `outpaint` | Source image/canvas + outpaint padding/canvas settings. | Expanding beyond the original image. |
+
+For local Comfy masked modes, the Parameters panel also exposes **Inpaint/Outpaint Engine** (Native or LanPaint) and an independent **Crop & Stitch** checkbox. Native Crop & Stitch requires `ComfyUI-Inpaint-CropAndStitch`; LanPaint uses its existing family-aware crop/stitch graph. See `guides/01_IMAGE/inpaint_outpaint_engines.md`.
 | **Edit** | `edit` | Source image and edit instruction when exposed by the selected workspace/backend. | Instruction-based edits, especially Qwen/Grok-style image edit routes. |
 
 ## Route-aware visibility rules
 
 - **SDXL / SD 1.5 checkpoint routes** usually show Checkpoint, VAE override, Sampler, Scheduler, Steps, CFG, Seed, Batch Count, Clip Skip, and source/mask/outpaint fields as needed.
-- **Flux 1 / Flux 2 Klein component routes** use split model components and Flux Guidance. Normal CFG and Clip Skip are hidden or disabled.
+- **Flux 1 / Flux 2 Klein component routes** use split model components and Flux Guidance. Sampler CFG remains independently editable; Clip Skip stays route-specific.
   - **FLUX.1 Krea (M15):** Krea remains under Flux 1 and resolves to `krea_dev`. Select one T5XXL + one CLIP-L encoder. Krea supports Generate/Img2Img/Inpaint/Outpaint for Safetensors / Components and GGUF; its masked modes retain Krea and use latent-noise-mask + DifferentialDiffusion instead of silently changing to FLUX.1 Fill.
   - **Flux 2 Klein:** pair Klein 4B with Qwen3-4B and Klein 9B with Qwen3-8B; Neo filters the encoder lane and blocks known incompatible pairings before queue.
   - **M14.1:** the visible Klein Qwen3 encoder is stored canonically as `qwen3_text_encoder`. Legacy encoder aliases are reconciled automatically before submission; they are not independent controls.
@@ -211,7 +226,7 @@ When **Main Model Type** is **Safetensors / Components**, Neo may show a separat
 | Qwen Text Encoder | Qwen Image and Qwen Image Edit | Exact installed Qwen vision-language text encoder. |
 | Qwen3 Text Encoder | Flux 2 Klein, Z-Image, Z-Image Turbo | Exact installed Qwen3 encoder. |
 | Qwen3-VL-4B Text Encoder | Krea 2 RAW, Krea 2 Turbo | Exact installed Qwen3-VL-4B encoder. Neo requires a backend `CLIPLoader` that advertises `type=krea2`. |
-| Flux Guidance | Flux component routes | Flux-specific guidance value; this replaces normal SD CFG. |
+| Flux Guidance | Flux component routes | Flux-specific model guidance. It does not erase or silently replace an explicitly entered sampler CFG. |
 | Family Variant | Routes such as HiDream where a compiler variant is required | Select the variant supported by the current route. |
 
 The main diffusion model and VAE/AE stay in the primary model row. A component route is ready only when every required file has been explicitly selected.
@@ -236,3 +251,34 @@ For `Qwen Rapid AIO + Safetensors / Bundled`, **CFG Scale** is visible and maps 
 | CFG Fix extension | Separate dynamic-thresholding graph patch. It is not automatically enabled just because normal CFG is visible. |
 
 If generation fails, Neo distinguishes a genuine Comfy node exception from a successful history record that contains no output references.
+
+## Multi-KSampler advanced sampling
+
+Local ComfyUI Parameters can expose **Advanced Sampling → Multi-KSampler**. Stage 1 is the normal Parameters sampler. Enabling the feature adds Stage 2 and optionally Stage 3 core KSampler refinement passes that consume the previous stage's latent. Each later stage has its own Steps, CFG, Sampler, Scheduler, Denoise, and seed policy. Phase 4 uses direct latent refinement only; no inter-stage upscale is inserted automatically. Route-native custom sampler graphs such as LanPaint and Ideogram 4 remain fail-closed until dedicated adapters are implemented. See `guides/01_IMAGE/multi_ksampler.md`.
+
+## Sampler Engine · RES4LYF ClownsharKSampler
+
+Local ComfyUI Parameters now expose **Sampler Engine** next to Sampler and Scheduler. **Standard KSampler** keeps the normal core graph. **ClownsharKSampler · RES4LYF** is available only when Neo detects a compatible live `ClownsharKSampler_Beta` / `ClownsharKSampler` node signature.
+
+When selected, the ordinary user-owned Steps, CFG, Sampler, Scheduler, Denoise, and Seed fields remain authoritative. Neo adds only RES4LYF Eta and BongMath for the Phase 5 standard-mode integration. Multi-KSampler Stage 2/3 can select the sampler engine independently. See `guides/01_IMAGE/res4lyf_clownshark_sampler.md`.
+
+## Multi-KSampler Phase 6
+
+Advanced Sampling now supports the production `neo.image.multi_ksampler.v2` contract. Stage 2/3 can directly refine the previous latent or optionally run Comfy core `LatentUpscaleBy` before the next sampling pass. Scale/method are user-owned Parameters. Mixed Standard KSampler / RES4LYF ClownsharKSampler stages remain supported on graph-compatible local Comfy routes. Final stage and transition integrity is checked before `/prompt`.
+
+## Phase 7 — family compatibility authority
+
+Parameters stay user-owned, but a parameter feature is only rendered/executed when the exact family + loader + mode + engine graph can represent it. Neo now consumes `neo.image.family_compatibility.v1` from the connected local Comfy backend.
+
+This affects advanced sampling choices such as Multi-KSampler, ClownsharKSampler, inter-stage latent upscale, and Native Crop & Stitch. A gated feature is disabled with its route reason; Neo must not silently switch engines or substitute a different family compiler.
+
+See `guides/01_IMAGE/family_compatibility.md`.
+
+
+## Phase 8 generation setup summary
+
+The Parameters panel now includes a compact **Generation Setup** summary. It is a user-facing preview of the workflow Neo intends to run, not a second source of settings.
+
+It summarizes the selected family, main model type, workflow mode, Native/LanPaint masked engine, Crop & Stitch state, sampler engine, Multi-KSampler stage count, and inter-stage latent-upscale count. The editable controls above remain authoritative.
+
+The summary must never rewrite Steps, CFG, Sampler, Scheduler, Denoise, Seed, dimensions, batch count, or stage settings. Compatibility status is shown as Ready, Experimental, or Gated. Technical route keys, schema IDs, compiler IDs, and node IDs stay out of normal/guided UI and remain available only in Expert diagnostics.

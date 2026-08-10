@@ -65,6 +65,12 @@ The references compile into `alwayson_scripts`; they are not pre-composited. Sch
 
 E1 deliberately does not generalize this contract to Flux.1 Kontext, Wan or other Forge families until their Neo route identity and physical behavior are separately validated.
 
+## Hiding parts of Stitch inputs
+
+On supported ComfyUI and ComfyUI Portable Img2Img/Edit routes, Image A and Image B each expose **Hide Parts**. White-painted areas are flattened to black before the input reaches `ImageStitch`; black or clear areas remain visible. The original uploads are preserved.
+
+Masks belong to the individual Stitch input, not the completed composite. Replacing or clearing an input removes its mask. A mask must match its input image dimensions exactly or the job fails before backend submission. Inpaint masks remain separate and continue to describe the editable generation region after stitching.
+
 ## Upload, provider handoff, and replay boundary
 
 Stitch inputs use the existing `/api/image/source-image` validator. Neo retains the returned `source_id` and stored filename as portable references, resolves Neo-owned inputs into the backend input folder before queueing, and records the resolved handoff for replay. Browser preview URLs are not used as ComfyUI filenames.
@@ -73,4 +79,4 @@ The payload remains compatible with the existing `neo.image.qwen_stitch.v1` enve
 
 ## Current boundary
 
-The first shared rollout supports one composite group on non-Qwen-lane routes. Future phases may add multiple composites for families that expose multiple conditioning inputs, but they should be introduced only with a verified family-specific graph contract.
+Non-Qwen-lane routes currently support one composite group. Additional composites require a verified family-specific conditioning contract and must not be inferred from node availability alone.

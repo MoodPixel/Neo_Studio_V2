@@ -15,6 +15,8 @@ applies_to:
   - sd15
   - flux
   - flux2_klein
+  - krea2
+  - krea2_turbo
   - qwen_rapid_aio
   - qwen_image_edit
   - qwen_image_edit_2509
@@ -32,8 +34,8 @@ tags:
   - route aware
   - loader aware
 priority: 115
-version: 4
-updated: 2026-08-05
+version: 6
+updated: 2026-08-07
 ---
 
 # LoRA Stack and LoRA Library
@@ -128,6 +130,7 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 | **SD 1.5** | Checkpoint | Experimental for Generate, Img2Img, Inpaint, Outpaint. |
 | **Flux 1** | Components or GGUF | Experimental where compiler-owned LoRA patch profile exists. |
 | **Flux 2 Klein** | Components or GGUF | Experimental, including edit routes where route matrix exposes them. |
+| **Krea 2 RAW / Turbo** | Components or GGUF | Experimental model-only LoRA patching. With Identity Edit enabled, global rows are rewired before the dedicated Identity Edit LoRA and `Krea2EditModelPatch`. |
 | **Qwen Rapid AIO** | Bundled / GGUF | Experimental where route profile supports model/clip or model-only patching. |
 | **Qwen Image Edit / 2509** | Components or GGUF | Experimental for source/edit workflows where supported. |
 | **ZImage / ZImage Turbo** | Components or GGUF | Experimental for non-edit image routes. |
@@ -142,6 +145,7 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 - If the route is gated, Neo may preserve the user's LoRA intent in metadata without mutating the graph.
 - Forge prompt syntax is generated only during provider compilation; do not manually duplicate generated tags in the visible prompt.
 - Do not mix SDXL LoRAs with incompatible model families unless the user is intentionally testing and understands the risk.
+- Krea 2 Identity Edit's dedicated edit LoRA is an engine-owned required asset, not a normal LoRA Stack row. Global Krea model-only rows may still be stacked; Neo orders them before the dedicated edit LoRA so the custom model patch wraps the final model state.
 
 ## How to explain it to users
 
@@ -183,3 +187,50 @@ Successful execution metadata records:
 - catalog verification and execution state.
 
 Replay keeps only the portable identity and rebinds it against the current live provider catalog. A provider/profile switch or changed Comfy catalog therefore requires revalidation.
+
+
+## Phase 8 LoRA Stack UX cleanup
+
+The normal LoRA Stack card is intentionally focused on LoRA controls only.
+
+- Do not show Native Inpaint/LanPaint architecture explanations inside the LoRA card. Engine independence remains a backend compatibility rule, not normal LoRA help copy.
+- Do not render the full provider serialization string beside every LoRA row. The selected LoRA identity is already visible in the row and its summary.
+- Provider serialization, route identity, LoRA loader mode, and catalog/debug details belong to **Expert** mode.
+- Regional ownership guidance is reduced to Expert-only help; normal rows show only the chosen pass and target.
+- Route-gated LoRA states use short artist-facing messages instead of matrix/route-key diagnostics.
+
+This is presentation-only. Exact provider catalog binding, fail-closed execution, ordering, strength, pass, target, and replay behavior remain unchanged.
+
+
+## CivitAI catalog reconciliation hotfix — 2026-08-08
+
+LoRA Library metadata and live provider availability are separate authorities:
+
+```text
+CivitAI / saved library metadata
+  → triggers, keywords, prompts, previews, notes, base-model metadata
+
+Selected Image provider catalog
+  → whether the LoRA is currently runnable and the exact provider catalog name
+```
+
+CivitAI Pull must never make an installed LoRA disappear merely because an enriched saved record contains stale `catalog_available` state. Neo now reconciles saved metadata with the live selected-provider catalog before building LoRA picker/stack options.
+
+Rules:
+
+- Records created directly from a live provider catalog are explicitly `catalog_available: true`.
+- A matching live provider record wins for `catalog_available`, `catalog_name`, provider id/label, and catalog source.
+- Saved metadata continues to win for enrichment fields such as triggers, keywords, previews, notes, sample prompts, and CivitAI metadata.
+- CivitAI Pull refreshes the selected provider browser immediately after enrichment so the UI is rebound to current live catalog truth.
+- Old saved records incorrectly carrying `catalog_available: false` are repaired in the active browser view whenever the selected provider still advertises that LoRA.
+- Exact execution remains fail-closed against the live provider loader enum; this hotfix does not invent a LoRA or fall back to another provider.
+
+For a LoRA that is installed and visible before CivitAI enrichment, the expected sequence is now:
+
+```text
+Live provider catalog
+  → LoRA visible
+  → CivitAI Pull enriches saved metadata
+  → provider catalog is refreshed/reconciled
+  → same LoRA remains visible and selectable
+```

@@ -19,7 +19,7 @@ tags:
   - text-to-video
   - image-to-video
 priority: 97
-version: 1
+version: 2
 updated: 2026-07-11
 ---
 
@@ -77,7 +77,7 @@ The browser never receives the xAI API key and does not poll xAI directly. Image
 - Text to Video
 - Image to Video
 
-Video editing, extension, and advanced reference modes are not enabled by P3.
+Video editing and advanced local-reference modes are not enabled for the Grok Imagine Video provider unless the provider capability contract explicitly adds them.
 
 ## Setup
 
@@ -95,3 +95,6 @@ Video editing, extension, and advanced reference modes are not enabled by P3.
 - Confirm the selected mode/model/resolution combination is supported.
 - Completed provider URLs are temporary; Neo must be able to download and persist the MP4.
 - Runtime job state belongs under `neo_data/runtime/jobs/video/`, not in repository source folders.
+
+
+For the surface-wide Video architecture, see `guides/02_VIDEO/README.md`.

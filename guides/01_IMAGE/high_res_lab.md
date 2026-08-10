@@ -19,8 +19,8 @@ tags:
   - diffusion refine
   - selected output
 priority: 111
-version: 1
-updated: 2026-07-09
+version: 2
+updated: 2026-08-06
 ---
 
 # Image High-Res Lab
@@ -34,15 +34,29 @@ It is different from **Image Upscale**:
 
 ## Supported route shape
 
-High-Res Lab is primarily for local Comfy checkpoint routes.
+High-Res Lab supports local Comfy checkpoint routes and selected compiler-owned component/GGUF routes.
 
 | Route | State |
 |---|---|
 | ComfyUI / ComfyUI Portable + SDXL checkpoint + Generate/Img2Img/Inpaint/Outpaint | Available |
 | ComfyUI / ComfyUI Portable + SD 1.5 checkpoint + Generate/Img2Img/Inpaint/Outpaint | Available |
 | Forge / A1111 style routes | Planned/gated in this V2 UI contract |
-| Flux, Qwen, ZImage, HiDream component/GGUF/API routes | Do not promise unless the live route snapshot says available |
+| Flux, Qwen, ZImage, and selected component/GGUF routes | Follow the live route profile; active families keep their own sampler/model/VAE rules |
+| ComfyUI / ComfyUI Portable + Krea 2 RAW/Turbo + diffusion-model or GGUF + Generate/Img2Img/Inpaint/Outpaint | Experimental |
+| HiDream or other unverified component/GGUF/API routes | Do not promise unless the live route snapshot says available |
 | xAI Grok / cloud API route | Not a local Comfy high-res graph |
+
+## Krea 2 High-Res Lab support
+
+Krea 2 RAW and Krea 2 Turbo are available experimentally through family-specific High-Res Lab profiles. The finish pass reuses the compiled Krea model, sampler, Qwen3-VL conditioning, and Qwen Image VAE anchors. It does not downgrade the route to SDXL or rebuild the graph as a checkpoint workflow.
+
+Krea-specific safeguards:
+
+- **CFG is route-owned and hidden** in High-Res Lab; RAW preserves its compiled CFG and Turbo preserves its fixed low-CFG behavior.
+- **Ultimate SD Upscale is blocked** because it assumes SD-style conditioning semantics.
+- Pixel refine, latent refine, and upscale-only remain available with conservative Krea presets.
+- GGUF routes quantize only the selected transformer; Qwen3-VL stays native/safetensors.
+- ComfyUI and ComfyUI Portable use the same profile rules.
 
 ## Main controls
 
@@ -101,7 +115,7 @@ When the user asks about High-Res Lab:
 - recommend conservative denoise before high denoise;
 - warn that cloud/API outputs need to be staged into a compatible local Comfy finish route.
 
-## Forge Neo native post-generation Hires — Phase 6
+## Forge Neo native post-generation Hires
 
 When Forge Neo is the selected Image provider, the Preview/Output Inspector ✨ action uses Forge's native selected-image Hires path through **Neo Forge Bridge 1.2.1+**.
 

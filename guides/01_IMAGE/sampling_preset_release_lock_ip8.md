@@ -2,7 +2,7 @@
 
 ## Status
 
-**Locked.** IP-8 is the final release contract for the Image sampling-preset program introduced in IP-1 through IP-7.
+**Locked.** IP-8 is the final release contract for the Image sampling-preset program introduced in IP-1 through IP-7. The 2026-08-07 Parameter Truth update supersedes the old assumption that Provider Defaults must strip explicit queue-time values.
 
 ## Runtime order
 
@@ -37,7 +37,7 @@ The matrix is generated from the registry rather than maintained as a second num
 Fail-closed checks include:
 
 - unavailable/incomplete selected preset;
-- Provider Defaults retaining stale managed sampling values;
+- Provider Defaults losing or contradicting explicit user sampling values;
 - Clean Slate receiving hidden preset values;
 - Output Intent mutating sampling/creative fields;
 - effective negative text contradicting IP-2 eligibility;

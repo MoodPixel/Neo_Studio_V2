@@ -22,8 +22,8 @@ tags:
   - detailer
   - impact pack
 priority: 111
-version: 3
-updated: 2026-08-01
+version: 6
+updated: 2026-08-06
 ---
 
 # Image ADetailer
@@ -42,10 +42,50 @@ ADetailer is a finish-stage extension. It should run after the base generation a
 | ComfyUI / ComfyUI Portable + SD 1.5 checkpoint + Outpaint | Planned/gated |
 | Forge Neo + verified ADetailer script + supported txt2img/img2img/inpaint route | Available through Forge-native ADetailer always-on script |
 | Forge Neo + manual boxes / Reference Lock / target ordering / area filters / ONNX detector | Gated in the current Forge remap |
-| Flux/Qwen/ZImage/HiDream component or GGUF routes | Route-dependent; Comfy ADetailer graph remains gated and Forge requires a live executable route plus verified ADetailer script |
+| ComfyUI / ComfyUI Portable + Qwen Image Edit 2509/2511 + diffusion-model or GGUF + Generate/Img2Img/Inpaint | Experimental; exact compiler route contract required |
+| ComfyUI / ComfyUI Portable + Krea 2 RAW/Turbo + diffusion-model or GGUF + Generate/Img2Img/Inpaint/Outpaint | Experimental; compiler-owned route contract and Impact Pack detailer nodes required |
+| Other Flux/Qwen/Z-Image/HiDream component or GGUF routes | Route-matrix dependent; unsupported rows remain gated and Forge still requires a live executable route plus verified ADetailer script |
 | xAI Grok / cloud API routes | Not a local ADetailer execution route |
 
 ADetailer keeps one Neo extension surface. Comfy execution depends on local detector/detailer nodes such as Impact Pack/SEGS. Forge execution uses the running Forge ADetailer script contract and Forge-native detector loading.
+
+## Krea 2 ADetailer support
+
+Krea 2 RAW and Krea 2 Turbo are available experimentally in ADetailer for native diffusion-model and GGUF routes across Generate, Img2Img, Inpaint, and Outpaint. Neo uses the exact graph references published by the active Krea compiler instead of guessing checkpoint-style node positions.
+
+The repair branch preserves Krea-specific ownership:
+
+- the selected Krea model or GGUF transformer remains the generation model;
+- Qwen3-VL conditioning remains native and is never patched by a detailer LoRA;
+- the Qwen Image VAE and active KSampler anchors come from the compiled route;
+- Krea RAW keeps its route-owned 52-step / CFG 3.5 defaults;
+- Krea Turbo keeps its low-step / CFG 1 and zeroed-negative conditioning behavior;
+- detailer-only LoRAs use `LoraLoaderModelOnly`;
+- missing compiler contracts, detector nodes, or selected models fail closed before queue.
+
+The UI badge is **Experimental**. Rollout/development phase labels are intentionally not shown in user-facing ADetailer controls.
+
+## Qwen Edit detailer LoRA loader
+
+For **Qwen Image Edit 2509 and 2511**, the ADetailer identity/detailer LoRA branch uses the Comfy node shown as **`LoraLoaderModelOnly`**. This is intentional and is different from the normal checkpoint LoRA loader.
+
+```text
+Qwen Edit MODEL
+→ LoraLoaderModelOnly (model, lora_name, strength_model)
+→ compiler-owned sampling lineage when required
+→ FaceDetailer
+```
+
+Key rules:
+
+- Neo publishes `LoraLoaderModelOnly` from the active Qwen Edit compiler profile.
+- The branch does **not** patch CLIP and does not use `strength_clip`.
+- The node is conditionally required only when a detailer/identity LoRA is explicitly enabled.
+- Native/component Qwen Edit routes reapply only the sampling wrappers declared by the compiler; GGUF passthrough routes do not invent wrappers.
+- The normal `LoraLoader` remains correct for the dedicated SDXL/SD 1.5 checkpoint repair branch, where MODEL and CLIP are checkpoint-owned.
+- Missing node signatures, stale compiler profiles, or a LoRA absent from the live provider catalog block the branch before graph mutation.
+
+The built-in manifest must remain schema-valid for this panel to appear. Every `capability_profiles` entry requires its own `profile_id`; an invalid built-in manifest is skipped by the extension registry and therefore disappears from both Admin and Image. Version `0.1.24` repaired that visibility contract; version `0.1.25` keeps it intact while refining the panel setup sequence.
 
 ## Detector model discovery
 
@@ -96,6 +136,20 @@ When a user returns to clean Generate/txt2img after staging a completed output, 
 | **Available / Experimental / Route gated / Unsupported** | Whether the current route can support the tool. |
 
 Disabled does not mean broken. It means the extension exists but is not currently applied.
+
+## Panel order
+
+The ADetailer controls are ordered by setup dependency:
+
+1. **Detection** — confirm Impact Pack readiness, refresh the detector/SAM catalog, and choose shared detector thresholds.
+2. **Detailer model** — choose generation-model reuse or the isolated SDXL/SD1.5 repair checkpoint before defining passes.
+3. **Sampling** — confirm the family-owned repair preset or explicit local sampler that the pass cards will use.
+4. **Target** — configure the **Detailer pass cards**, prompts, detector target, and ordering after the shared model/sampling context is visible.
+5. **LoRA policy** — configure inherited or detailer-only LoRA behavior.
+6. **Identity protection** — review Qwen Edit identity-risk handling where applicable.
+7. **Advanced** — use manual target tools, reports, replay, and diagnostics.
+
+The visible sequence is therefore **Detection → Detailer model → Sampling → Target / Detailer pass cards → LoRA policy → Identity protection → Advanced** in both the main Neo Image panel and the standalone built-in panel. This is a layout-only rule: section IDs, saved open/closed state, detector/pass payloads, route gating, and execution order are unchanged.
 
 ## Shared defaults
 
@@ -315,7 +369,7 @@ Neo therefore validates the **selected detector model**, not every shared detect
 
 Changing `ad_extra_models_dir` still requires a complete Forge restart because ADetailer builds its custom model map at startup.
 
-## Forge provider-owned output pass — Phase 7
+## Forge provider-owned output pass
 
 When Forge Neo is the selected Image profile, Preview and Output Inspector **ADetailer** now execute as a Forge-owned derived Img2Img job.
 

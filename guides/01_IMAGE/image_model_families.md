@@ -45,8 +45,8 @@ tags:
   - checkpoint
   - routes
 priority: 120
-version: 3
-updated: 2026-07-26
+version: 4
+updated: 2026-08-07
 ---
 
 # Image Model Families, Loaders, and Routes
@@ -72,7 +72,7 @@ These are the current normal Image workspace families from the route matrix. Ava
 | **Flux 1** | `flux` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Component route uses diffusion model + text encoders + AE/VAE + Flux Guidance. Inpaint/outpaint resolve through internal Flux Fill behavior; Flux Fill is not a separate normal dropdown family. |
 | **Flux 2 Klein** | `flux2_klein` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Flux 2 Klein route. Uses component or GGUF loaders with native image-conditioned route support. |
 | **Krea 2 RAW** | `krea2` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Standalone Krea 2 base/normal family. Generate is native for components; image-conditioned and GGUF routes are selectable experimental routes. Uses Qwen3-VL-4B + Qwen Image VAE. |
-| **Krea 2 Turbo** | `krea2_turbo` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Distilled Krea 2 family with locked Comfy 8-step / CFG-1 / zeroed-negative behavior. Image-conditioned and GGUF routes are experimental. |
+| **Krea 2 Turbo** | `krea2_turbo` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Distilled Krea 2 family with an 8-step / CFG-1 recommended default profile and zeroed-negative conditioning topology. Explicit user Parameters remain authoritative. Image-conditioned and GGUF routes are experimental. |
 | **Qwen Rapid AIO** | `qwen_rapid_aio` | **Safetensors / Bundled**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Compact all-in-one Qwen image route. Bundled checkpoint keeps extra model components hidden unless needed. GGUF route needs matching GGUF/runtime support. |
 | **Qwen Image Edit** | `qwen_image` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Qwen-native edit family for source-image workflows. Stronger fit when the user wants instruction-like edits while preserving a source image. |
 | **Qwen Image Edit 2509** | `qwen_image_edit_2509` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Newer Qwen edit route with multi-source edit support where the selected loader/profile exposes it. |
@@ -139,7 +139,7 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 - These are **standalone Krea 2 families**, not FLUX.1 Krea. `krea2` is the RAW/base/normal family; `krea2_turbo` is the distilled Turbo family.
 - Native/component routes require a Krea 2 diffusion model, **Qwen3-VL-4B** through `CLIPLoader(type=krea2)`, and **Qwen Image VAE**.
 - Krea 2 does not use FLUX Guidance, FLUX dual encoders, Klein's plain Qwen3 encoder contract, or Qwen Image MMProj.
-- RAW defaults to the full-step profile (52 steps / CFG 3.5). Turbo is family-locked to the official Comfy convention: 8 steps, KSampler CFG 1.0, Euler + Simple, and zeroed negative conditioning.
+- RAW defaults to the full-step profile (52 steps / CFG 3.5). Turbo defaults to the common few-step profile (8 steps, KSampler CFG 1.0, Euler + Simple) and keeps its zeroed-negative conditioning topology. Steps/CFG/Sampler/Scheduler are still user-owned when explicitly entered.
 - Component Generate/txt2img is normal available. Img2Img/Inpaint/Outpaint are **experimental available** Neo latent adapters that keep the selected Krea 2 model.
 - Krea 2 GGUF is **experimental available** and quantizes the diffusion transformer only in M16. The Qwen3-VL-4B encoder stays native/safetensors so Comfy can preserve Krea 2's multi-layer conditioning. A Krea2-capable GGUF transformer loader/fork is required.
 - Do not tell users to select a GGUF Qwen3-VL encoder for Krea 2 in M16; Neo intentionally blocks that combination until the specialized 12-layer conditioning path is proven.
@@ -166,11 +166,18 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 - Turbo routes may hide the negative prompt and some SD-style conditioning controls.
 - Do not recommend high SDXL-like step/CFG values for Turbo unless the user is intentionally experimenting.
 
+### Anima and Ideogram 4
+
+- Anima has native Generate/Img2Img routes where the selected loader is executable. Its current masked Inpaint/Outpaint paths are LanPaint-owned; Neo does not send them through the generic checkpoint compiler.
+- Ideogram 4 native Generate uses a custom advanced sampler/dual-model graph. Inpaint/Outpaint use the exact Ideogram LanPaint custom-advanced adapter.
+- Multi-KSampler and RES4LYF are gated on the Ideogram custom-advanced and LanPaint sampler graphs until dedicated adapters exist.
+
 ### HiDream
 
-- Current normal HiDream route is Generate/txt2img-focused.
+- Native HiDream remains Generate/txt2img-focused.
+- HiDream-I1 Inpaint and Outpaint are available through the exact LanPaint family adapter when its live dependencies are ready; this does not promote generic Native masked routes.
 - HiDream variant options include I1/E1/O1 when exposed by the parameter profile.
-- Do not promise img2img/inpaint/outpaint unless the live route matrix/snapshot shows a selectable route.
+- Do not promise Img2Img/Edit or a Native masked engine unless the live compatibility matrix explicitly exposes it.
 
 ## Cloud/API image profile: xAI Grok Imagine
 
@@ -196,7 +203,7 @@ Some families exist in the manifest or route matrix but should not be presented 
 When the user asks “what model families does Neo Image support?” answer with the normal Image dropdown families first:
 
 ```text
-SDXL, SD 1.5, Flux 1, Flux 2 Klein, Qwen Rapid AIO, Qwen Image Edit, Qwen Image Edit 2509, ZImage, ZImage Turbo, and HiDream.
+SDXL, SD 1.5, Flux 1, Flux 2 Klein, Krea 2 RAW/Turbo, Qwen Rapid AIO, Qwen Image/Edit variants, ZImage/ZImage Turbo, Anima, Ideogram 4, and HiDream, subject to the live route state.
 ```
 
 Then add that exact availability depends on the selected backend profile, installed models/custom nodes, and route readiness. Mention xAI Grok Imagine separately as an Image backend profile, not as a local Model Family dropdown option.

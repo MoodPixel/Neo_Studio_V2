@@ -1,7 +1,12 @@
 # LanPaint route-family architecture
 
-Status: Phase 0 baseline and framing only  
-Date: 2026-08-03
+Status: active Inpaint + Outpaint engine family  
+Original architecture date: 2026-08-03  
+Current masked-edit authority: 2026-08-07
+
+> Current behavior: LanPaint is selectable for both **Inpaint** and **Outpaint** when the active family adapter and live Comfy capability snapshot are ready. Crop & Stitch is now an independent toggle: enabled uses the existing LanPaint crop/context/restore pipeline; disabled runs full-frame masked LanPaint sampling. Outpaint is created from Neo's core `ImagePadForOutpaint` canvas/mask and then handed to the same family-aware LanPaint graph. See `guides/01_IMAGE/inpaint_outpaint_engines.md`. Historical phase sections below are retained as implementation history, not current route limits.
+
+> Phase 7 compatibility authority: the exact family/loader/mode adapter and `neo.image.family_compatibility.v1` decide whether LanPaint is selectable. Explicit Steps/CFG/Sampler/Scheduler/Denoise remain user-owned under Parameter Truth; historical sections that describe sampling values as family-locked are superseded.
 
 
 ## Phase 22.1 capability discovery and cache behavior

@@ -23,8 +23,8 @@ tags:
   - high cfg
   - route aware
 priority: 112
-version: 3
-updated: 2026-08-03
+version: 4
+updated: 2026-08-08
 ---
 
 # CFG Fix / Dynamic Thresholding
@@ -99,3 +99,25 @@ automatic_provider_fallback: false
 ```
 
 This hotfix changes only the panel render boundary. Dynamic Thresholding still requires `DynamicThresholdingSimple`, and Full mode still requires `DynamicThresholdingFull`. Route support and workflow patch behavior are unchanged.
+
+
+## Image Runtime hotfix — 2026-08-08
+
+A frontend payload-preview defect could stop Image generation before the request reached ComfyUI whenever CFG Fix was active. The active preview referenced an undefined `effectiveRouteState` variable while building extension metadata.
+
+The hotfix binds CFG Fix metadata directly to the route returned by `cfgFixActiveRoute(record)`:
+
+```text
+route_state = route.route_state
+```
+
+This restores the normal Image job-building path. The change does **not** broaden route support, bypass node discovery, or change Dynamic Thresholding values. Existing route gating and the `DynamicThresholdingSimple` / optional `DynamicThresholdingFull` requirements remain authoritative.
+
+The client error signature fixed by this patch is:
+
+```text
+ReferenceError: effectiveRouteState is not defined
+    at cfgFixPayloadPreview(...)
+```
+
+If a future CFG Fix failure occurs after this patch, distinguish a client-side payload-builder error from a real Comfy validation/queue error before changing workflow support.

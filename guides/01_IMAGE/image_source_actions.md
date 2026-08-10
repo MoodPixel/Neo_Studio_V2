@@ -18,8 +18,8 @@ tags:
   - outpaint
   - provider routing
 priority: 114
-version: 2
-updated: 2026-08-05
+version: 4
+updated: 2026-08-07
 ---
 
 # Preview Source Actions
@@ -63,6 +63,18 @@ Prompt and reference settings are preserved unless the user explicitly selected 
 Img2Img, Inpaint, Outpaint, Qwen reference lanes, and Qwen Stitch use the shared `data-neo-image-dropzone` contract. Drop handling is delegated once at the document boundary before Image panels render. This keeps newly replaced dropzones interactive while backend capability overlays, model catalogs, or mode changes rebuild the Image DOM.
 
 Do not move image drops back to one-time listeners attached to individual preview nodes. A panel render can replace those nodes and silently remove their listeners. File pickers and dropped files still enter the same validated source/reference upload functions; the change is lifecycle ownership, not upload or provider semantics.
+
+## Hiding parts of an Img2Img source
+
+After a normal Img2Img/Edit source is staged, supported ComfyUI and ComfyUI Portable routes show **Hide Parts**. The brush editor stores a separate Source Visibility Mask: white hides source content, while black or clear keeps it visible. Neo creates a derived black-filled PNG immediately before Comfy handoff and leaves the original source unchanged.
+
+This is source preprocessing, not Inpaint. The Inpaint action still clears and opens its dedicated editable-region mask, while Outpaint keeps its own canvas and generated mask. Replacing or restaging Image 1 clears a stale Source Visibility Mask.
+
+## Qwen Pose Transfer source roles
+
+When **ControlNet & Pose → Pose Transfer** is active on Qwen Image Edit 2511, the normal multi-reference source system receives fixed temporary roles: **Image 1 = subject**, **Image 2 = pose reference**, and **Image 3 = generated DWPose map**. Image 3 is reserved and its upload target is hidden until Pose Transfer is turned off.
+
+The pose map is not persisted as a user source lane during normal generation. Neo generates it from Image 2 inside the Comfy graph and connects that output directly to Qwen's Image 3 conditioning input. The optional map preview remains diagnostic only.
 
 ## Backend validation
 

@@ -22,8 +22,8 @@ tags:
   - results
   - replay
 priority: 105
-version: 4
-updated: 2026-07-23
+version: 5
+updated: 2026-08-06
 ---
 
 # Image Output Inspector and Metadata
@@ -68,6 +68,13 @@ Metadata sidecars can include:
 | **Meta grid** | Result ID, Created, Provider, Backend Profile, Job ID, Status, Generation Time, Cleanup, Family, Loader, VAE, Clip Skip, Conditioning, etc. |
 | **Extension Inspector** | Human-readable summaries for Style Stack, CFG Fix, LoRA, Embeddings/TI, ControlNet, IP Adapter, Scene Director, ADetailer, High-Res Lab, Image Upscale, LayerDiffuse, and other extension payloads. |
 | **Raw metadata JSON** | Developer/debug view. Do not dump this in normal Assistant replies unless requested. |
+
+
+## Phase 9 ADetailer exact execution recipe
+
+When ADetailer produced a patched output, Output Inspector reads `neo.image.adetailer.execution_recipe.v1` from the extension metadata. The card presents the fingerprint, exact route, model-source owner, effective sampling, detector/pass bindings, ordered LoRA scope, identity policy, sampling-reapply classes, output rewiring, main-sampler isolation, and warning-reconfirmation state.
+
+The paired `neo.image.adetailer.replay_contract.v1` is always restored disabled. The user must review warnings and manually enable ADetailer after current-route and current-asset revalidation. A fingerprint mismatch, route mismatch, or parameter drift blocks replay. Inspector must never label a saved recipe as ready for automatic execution.
 
 ## Safe delete behavior
 

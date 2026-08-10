@@ -29,9 +29,9 @@ Entries may use `*` selectors. The resolver scores more-specific matches above w
 - application mode: `delegate_provider`,
 - values: `{}`.
 
-Selecting/applying Provider Defaults removes every preset-managed sampling value. The Image `NeoJob` boundary repeats that cleanup so stale clients cannot send old steps/CFG/size values while claiming the provider-default preset is active.
+Selecting Provider Defaults clears preset-managed values as an explicit authoring action. At the `NeoJob`/queue boundary, however, any sampling values the user entered afterward are preserved. Provider Defaults delegates only fields that remain missing.
 
-Provider Defaults is the **only** IP-3 preset intentionally allowed to delegate missing sampling values to the selected provider/compiler.
+Provider Defaults is the **only** IP-3 preset intentionally allowed to delegate missing sampling values to the selected provider/compiler. Delegation never strips explicit current values.
 
 ### Empty · Clean Slate
 
@@ -70,10 +70,10 @@ Examples:
 
 - SDXL txt2img requires selectable sampler, scheduler, steps, CFG, width and height.
 - SDXL img2img follows source resolution and requires denoise instead of width/height.
-- FLUX requires FLUX Guidance but not its fixed sampler CFG.
-- Krea 2 Turbo does not require family-forced steps or fixed Comfy CFG.
+- FLUX requires its explicit Flux Guidance and, when sampler CFG is selectable, an explicit sampler CFG as a separate control.
+- Krea 2 Turbo has no family-forced Steps/CFG. Clean Slate treats exposed sampling controls as manual user-owned values.
 - Qwen accepts explicit `true_cfg` or the current compatibility `cfg` field.
-- provider/profile-owned families fail closed under Clean Slate because Neo cannot know their complete manual sampling contract yet.
+- genuinely provider-owned/unimplemented families fail closed under Clean Slate because Neo cannot know their complete manual sampling contract yet. Qwen Rapid AIO and HiDream now expose their sampler CFG contract explicitly.
 
 Incomplete state returns a validation message beginning with `Sampling settings are incomplete:` and providers block the run instead of silently restoring compiler defaults.
 
@@ -85,7 +85,7 @@ Image job preparation order is now:
 2. IP-2 negative-prompt eligibility,
 3. provider validation/compile.
 
-That ordering matters. Provider Defaults can remove stale CFG before IP-2 evaluates negative prompting, while Clean Slate manual CFG/True CFG remains available to IP-2.
+That ordering matters. Explicit CFG remains available to IP-2 even under Provider Defaults; missing values may still be delegated. Clean Slate manual CFG/True CFG is preserved the same way.
 
 ## User presets
 
