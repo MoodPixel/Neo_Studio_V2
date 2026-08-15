@@ -118,6 +118,11 @@ def classify_krea2_vae(value: Any) -> str:
         return "missing"
     if "qwen_image_vae" in text or ("qwen" in text and "image" in text and "vae" in text):
         return "qwen_image_vae"
+    # FLUX.2 VAE files are an intentional power-user experiment seen in some
+    # Comfy workflows. Neo does not claim they are architecture-compatible with
+    # Krea 2; classify them separately so runtime can warn and let Comfy decide.
+    if ("flux2" in text or "flux_2" in text) and ("vae" in text or "ae" in text):
+        return "experimental_flux2_vae"
     if "flux" in text or text in {"ae.safetensors", "ae.gguf"} or text.startswith("ae_"):
         return "foreign_flux_ae"
     if "sdxl" in text or "sd15" in text or "sd_vae" in text:
@@ -194,6 +199,15 @@ def check_krea2_compatibility(
 
     if vae_kind == "missing":
         return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 requires the Qwen Image VAE (qwen_image_vae.safetensors or a compatible equivalent).")
+    if vae_kind == "experimental_flux2_vae":
+        return Krea2Compatibility(
+            None,
+            variant,
+            encoder_kind,
+            vae_kind,
+            loader_id,
+            "Experimental FLUX.2 VAE selected for Krea 2. Neo does not claim latent/VAE architecture compatibility; the graph is allowed through so ComfyUI can validate this custom combination at runtime.",
+        )
     if vae_kind in {"foreign_flux_ae", "foreign_sd_vae"}:
         if allow_experimental_vae:
             return Krea2Compatibility(
