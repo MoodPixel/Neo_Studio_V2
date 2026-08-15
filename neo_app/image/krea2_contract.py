@@ -152,6 +152,7 @@ def check_krea2_compatibility(
     vae_name: Any,
     *,
     loader: Any = "diffusion_model",
+    allow_experimental_vae: bool = False,
 ) -> Krea2Compatibility:
     variant = resolve_krea2_variant(family_or_variant, model_name)
     loader_id = _normalize(loader) or "diffusion_model"
@@ -194,7 +195,16 @@ def check_krea2_compatibility(
     if vae_kind == "missing":
         return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 requires the Qwen Image VAE (qwen_image_vae.safetensors or a compatible equivalent).")
     if vae_kind in {"foreign_flux_ae", "foreign_sd_vae"}:
-        return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 uses the Qwen Image VAE; the selected VAE/AE appears to belong to another architecture.")
+        if allow_experimental_vae:
+            return Krea2Compatibility(
+                None,
+                variant,
+                encoder_kind,
+                vae_kind,
+                loader_id,
+                "Experimental VAE override enabled: Neo cannot verify Krea 2 latent/VAE compatibility for the selected foreign VAE/AE. The graph will be allowed through and ComfyUI will validate the custom VAE at runtime.",
+            )
+        return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 uses the Qwen Image VAE; the selected VAE/AE appears to belong to another architecture. Enable the experimental VAE override only if you intentionally want ComfyUI to validate this custom combination at runtime.")
 
     if encoder_kind == "qwen3vl_4b_native" and vae_kind == "qwen_image_vae":
         return Krea2Compatibility(True, variant, encoder_kind, vae_kind, loader_id, "Krea 2 model, Qwen3-VL-4B encoder, and Qwen Image VAE are compatible.")
