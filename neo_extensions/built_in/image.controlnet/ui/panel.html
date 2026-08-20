@@ -43,16 +43,8 @@
       <span class="neo-badge" data-controlnet-active-count>0 active</span>
     </div>
     <div class="neo-controlnet-unit" data-controlnet-unit-template>
-      <select data-controlnet-field="unit" aria-label="Control type">
-        <option value="canny">Canny</option>
-        <option value="depth">Depth</option>
-        <option value="openpose">Pose</option>
-        <option value="lineart">Lineart</option>
-        <option value="lineart_anime">Anime Lineart</option>
-        <option value="softedge">SoftEdge</option>
-        <option value="scribble">Scribble</option>
-        <option value="normalbae">NormalBae</option>
-        <option value="tile">Tile</option>
+      <select data-controlnet-field="unit" aria-label="Control type" disabled>
+        <option value="">Resolving supported types…</option>
       </select>
       <label data-controlnet-pose-method-row hidden>
         <span>Pose method</span>
@@ -62,18 +54,16 @@
         </select>
       </label>
       <div data-controlnet-standard-settings>
-        <select data-controlnet-field="preprocessor" aria-label="Preprocessor">
-          <option value="none">None / use image as map</option>
-          <option value="canny">Canny</option>
-          <option value="depth">Depth</option>
-          <option value="openpose">OpenPose</option>
-          <option value="dwpose">DWPose</option>
-          <option value="lineart">Lineart</option>
-          <option value="softedge">SoftEdge</option>
+        <select data-controlnet-field="preprocessor" aria-label="Preprocessor" disabled>
+          <option value="none">None / use image directly</option>
         </select>
         <input data-controlnet-field="model" placeholder="ControlNet model" aria-label="ControlNet model" />
         <input data-controlnet-field="control_image" placeholder="control image asset/path" aria-label="Control image" />
         <input type="number" min="0" max="2" step="0.05" value="0.45" data-controlnet-field="strength" aria-label="Strength" />
+        <label class="neo-controlnet-row" data-controlnet-krea2-ostris-settings hidden>
+          <input type="checkbox" data-controlnet-field="ostris_kv_cache" checked />
+          <span>Ostris KV cache</span>
+        </label>
       </div>
       <div class="neo-controlnet-task-card" data-controlnet-pose-transfer-settings hidden>
         <strong>Qwen Pose Transfer</strong>

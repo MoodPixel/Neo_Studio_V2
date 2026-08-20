@@ -116,6 +116,8 @@ def _apply(monkeypatch, family, regions=None, authority="global_context", loader
     rows = regions or _regions()
     monkeypatch.setattr(lightweight, "_validate_payload", lambda payload, route, available_nodes: _validation(rows, authority))
     available = CORE | ({"FluxGuidance"} if family == "flux2_klein" else set())
+    if family in {"krea2", "krea2_turbo"}:
+        available |= {"Krea2RegionalBuilder", "Krea2ApplyRegional"}
     before = deepcopy(graph[sampler_id]["inputs"])
     result = lightweight.apply_lightweight_regional_prompt_patch(
         graph,
@@ -129,31 +131,34 @@ def _apply(monkeypatch, family, regions=None, authority="global_context", loader
     return result, before, sampler_id
 
 
-def test_krea2_raw_adds_masked_positive_and_negative_without_extra_sampler(monkeypatch):
+def test_krea2_raw_uses_external_regional_builder_apply_without_extra_sampler(monkeypatch):
     result, before, sampler_id = _apply(monkeypatch, "krea2")
     graph = result["workflow"]
     proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
+    classes = [node.get("class_type") for node in graph.values() if isinstance(node, dict)]
     assert proof["contract_ok"] is True
-    assert proof["sampler_count_before"] == proof["sampler_count_after"] == 1
-    assert graph[sampler_id]["inputs"]["model"] == before["model"]
+    assert proof["single_sampler_preserved"] is True
+    assert classes.count("Krea2RegionalBuilder") == 1
+    assert classes.count("Krea2ApplyRegional") == 1
+    assert classes.count("NeoRegionalLoRADelta") == 0
+    assert graph[sampler_id]["inputs"]["model"] != before["model"]
     assert graph[sampler_id]["inputs"]["steps"] == before["steps"]
     assert proof["regional_prompt_lane_count"] == 2
-    assert proof["regional_negative_lane_count"] == 2
+    assert proof["regional_lora_route_count"] == 0
     assert not any(node.get("class_type") in {"LoraLoader", "LoraLoaderModelOnly", "NeoSceneDirectorV054"} for node in graph.values() if isinstance(node, dict))
 
-
-def test_krea2_turbo_preserves_low_step_profile_and_zero_negative(monkeypatch):
+def test_krea2_turbo_external_engine_preserves_low_step_profile_and_zero_negative(monkeypatch):
     result, before, sampler_id = _apply(monkeypatch, "krea2_turbo")
     graph = result["workflow"]
     sampler = graph[sampler_id]["inputs"]
     proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
     assert sampler["steps"] == before["steps"] == 8
     assert sampler["cfg"] == before["cfg"] == 1.0
-    assert proof["regional_negative_lane_count"] == 0
-    assert proof["regional_negative_suppressed_count"] == 2
+    assert proof["engine"] == "krea2_regional_external"
     assert graph[str(sampler["negative"][0])]["class_type"] == "ConditioningZeroOut"
-    assert graph[str(sampler["negative"][0])]["inputs"]["conditioning"] == sampler["positive"]
-
+    apply_id = proof["apply_node_id"]
+    assert graph[str(sampler["negative"][0])]["inputs"]["conditioning"] == [apply_id, 1]
+    assert sampler["positive"] == [apply_id, 1]
 
 def test_flux2_klein_applies_same_flux_guidance_to_every_region(monkeypatch):
     result, before, sampler_id = _apply(monkeypatch, "flux2_klein")
@@ -188,20 +193,21 @@ def test_three_regions_do_not_hit_old_two_route_limit(monkeypatch):
     result, _, _ = _apply(monkeypatch, "krea2", regions=_regions(3))
     proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
     assert proof["regional_prompt_lane_count"] == 3
-    assert proof["sampler_count_after"] == 1
+    assert proof["region_count"] == 3
+    assert proof["single_sampler_preserved"] is True
 
 
-def test_scene_director_only_zeroes_global_base_but_keeps_regions(monkeypatch):
-    result, _, sampler_id = _apply(monkeypatch, "krea2", authority="scene_director_only")
+def test_krea_modern_basic_ignores_legacy_scene_director_only_and_keeps_global_prompt(monkeypatch):
+    result, _, _ = _apply(monkeypatch, "krea2", authority="scene_director_only")
     graph = result["workflow"]
-    patch = result["workflow_patch"]
-    assert patch["scene_director_global_prompt_excluded"] is True
-    assert graph[sampler_id]["inputs"]["positive"] != patch["previous_positive_ref"]
-    assert any(graph[node_id]["class_type"] == "ConditioningZeroOut" for node_id in patch["nodes_added"])
+    proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
+    builder = graph[proof["builder_node_id"]]
+    assert builder["inputs"]["base_prompt"] == "global"
+    assert proof["modern_scene_director_core"]["global_prompt_mutation"] is False
 
 
-def test_mask_nodes_use_mask_bounds_and_region_bbox(monkeypatch):
-    result, _, _ = _apply(monkeypatch, "krea2", regions=[{
+def test_mask_nodes_use_multidim_safe_default_and_region_bbox_on_neo_lightweight_routes(monkeypatch):
+    result, _, _ = _apply(monkeypatch, "z_image", regions=[{
         "id": "a", "type": "character", "bbox": {"x": .1, "y": .2, "w": .3, "h": .4},
         "prompt": "one person", "negative_prompt": "", "strength": .7, "mask": {"feather": 10},
     }])
@@ -211,15 +217,19 @@ def test_mask_nodes_use_mask_bounds_and_region_bbox(monkeypatch):
     assert lane["rect_px"] == {"x": 102, "y": 154, "w": 308, "h": 307}
     mask_node = graph[str(lane["masked_conditioning_ref"][0])]
     assert mask_node["class_type"] == "ConditioningSetMask"
-    assert mask_node["inputs"]["set_cond_area"] == "mask bounds"
+    assert mask_node["inputs"]["set_cond_area"] == "default"
+    assert patch["set_cond_area"] == "default"
+    assert patch["set_cond_area_reason"] == "multidim_safe_mask_conditioning"
 
 
-def test_prompt_only_scene_has_no_regional_lora_runtime_node(monkeypatch):
+def test_prompt_only_krea_scene_still_uses_external_prompt_engine_without_regional_lora_routes(monkeypatch):
     result, _, _ = _apply(monkeypatch, "krea2")
     patch = result["workflow_patch"]
     assert patch["scene_director_regional_lora_applied"] is False
-    assert patch["scene_director_regional_lora_status"] == "not_requested"
-    assert patch["scene_director_lightweight_runtime_proof"]["regional_lora_nodes_added"] == 0
+    assert patch["scene_director_regional_lora_status"] == "external_runtime_armed"
+    proof = patch["scene_director_lightweight_runtime_proof"]
+    assert proof["regional_lora_route_count"] == 0
+    assert proof["external_engine_nodes_added"] == 2
 
 
 def test_dispatcher_delegates_classic_and_routes_modern(monkeypatch):
@@ -229,7 +239,7 @@ def test_dispatcher_delegates_classic_and_routes_modern(monkeypatch):
     monkeypatch.setattr(workflow_dispatch, "apply_lightweight_regional_prompt_patch", lambda *args, **kwargs: calls.__setitem__("modern", calls["modern"] + 1) or {"modern": True})
     common = dict(workflow={}, payload={}, available_nodes=CORE, model_ref=["1", 0], clip_ref=["2", 0], sampler_node_id="7")
     classic = workflow_dispatch.apply_scene_director_patch(route={"backend":"comfyui","family":"sdxl","loader":"checkpoint","mode":"generate"}, **common)
-    modern = workflow_dispatch.apply_scene_director_patch(route={"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":"generate"}, **common)
+    modern = workflow_dispatch.apply_scene_director_patch(route={"backend":"comfyui","family":"z_image","loader":"diffusion_model","mode":"generate"}, **common)
     assert classic["legacy"] is True
     assert modern["modern"] is True
     assert classic["scene_director_release_lock"]["status"] == "locked"
@@ -253,17 +263,21 @@ def test_img2img_and_inpaint_like_sampler_inputs_remain_untouched(monkeypatch):
             graph,
             payload={"extensions":{"image.scene_director":{"enabled":True}}},
             route={"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":mode,"actual_params":{"width":1024,"height":768}},
-            available_nodes=CORE,
+            available_nodes=CORE | {"Krea2RegionalBuilder", "Krea2ApplyRegional"},
             model_ref=["22",0],
             clip_ref=["2",0],
             sampler_node_id=sampler_id,
         )
         after = result["workflow"][sampler_id]["inputs"]
-        assert after["model"] == before["model"] == ["22", 0]
+        assert before["model"] == ["22", 0]
+        assert after["model"] != before["model"]
+        apply_id = str(after["model"][0])
+        assert result["workflow"][apply_id]["class_type"] == "Krea2ApplyRegional"
+        assert result["workflow"][apply_id]["inputs"]["model"] == ["22", 0]
         assert after["latent_image"] == before["latent_image"] == ["21", 0]
         for key in ("steps", "cfg", "sampler_name", "scheduler", "denoise", "seed"):
             assert after[key] == before[key]
-        assert result["workflow_patch"]["scene_director_lightweight_runtime_proof"]["sampler_count_after"] == 1
+        assert result["workflow_patch"]["scene_director_lightweight_runtime_proof"]["single_sampler_preserved"] is True
 
 
 def test_missing_builtin_node_blocks_without_mutating(monkeypatch):
@@ -274,12 +288,13 @@ def test_missing_builtin_node_blocks_without_mutating(monkeypatch):
         graph,
         payload={"extensions":{"image.scene_director":{"enabled":True}}},
         route={"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":"generate"},
-        available_nodes=CORE - {"ConditioningSetMask"},
+        available_nodes=CORE,
         model_ref=["1",0], clip_ref=["2",0], sampler_node_id=sampler_id,
     )
     assert result["mutated"] is False
     assert result["workflow"] == before
-    assert "ConditioningSetMask" in result["workflow_patch"]["reason"]
+    assert "ComfyUI-Krea2-Regional" in result["workflow_patch"]["reason"]
+    assert "Krea2RegionalBuilder" in result["workflow_patch"]["reason"]
 
 
 def test_gguf_uses_same_lightweight_conditioning_contract(monkeypatch):

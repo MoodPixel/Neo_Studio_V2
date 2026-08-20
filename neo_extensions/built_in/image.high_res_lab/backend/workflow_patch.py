@@ -95,20 +95,79 @@ def _find_first_node(workflow: dict[str, Any], class_type: str) -> tuple[str, di
     return None, None
 
 
+_VAE_DECODE_CLASSES = {"VAEDecode", "VAEDecodeTiled", "VAEUtils_VAEDecodeTiled"}
+_VAE_UTILS_DECODE_CLASS = "VAEUtils_VAEDecodeTiled"
+_VAE_UTILS_LOADER_CLASS = "VAEUtils_CustomVAELoader"
+
+
 def _find_vae_ref(workflow: dict[str, Any]) -> list[Any]:
-    # Prefer the VAE already used by the base VAEDecode path.
+    # Prefer the VAE already used by the base decode path, including the
+    # ComfyUI-VAE-Utils decoder required by Wan/Qwen 2x decode VAEs.
     for node in workflow.values():
-        if isinstance(node, dict) and node.get("class_type") in {"VAEDecode", "VAEDecodeTiled"}:
+        if isinstance(node, dict) and node.get("class_type") in _VAE_DECODE_CLASSES:
             ref = (node.get("inputs") or {}).get("vae")
             if isinstance(ref, (list, tuple)) and len(ref) >= 2:
                 return _copy_ref(ref)
     # Fallback to common loader node ids/output slots.
     for node_id, node in workflow.items():
-        if isinstance(node, dict) and node.get("class_type") in {"CheckpointLoaderSimple", "VAELoader", "VaeGGUF"}:
+        if isinstance(node, dict) and node.get("class_type") in {"CheckpointLoaderSimple", "VAELoader", "VaeGGUF", _VAE_UTILS_LOADER_CLASS}:
             if node.get("class_type") == "CheckpointLoaderSimple":
                 return [str(node_id), 2]
             return [str(node_id), 0]
     return ["1", 2]
+
+
+def _base_decode_node(workflow: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+    for node_id, node in workflow.items():
+        if isinstance(node, dict) and node.get("class_type") in _VAE_DECODE_CLASSES:
+            return str(node_id), node
+    return None, None
+
+
+def _uses_vae_utils_decode(workflow: dict[str, Any]) -> bool:
+    _node_id, node = _base_decode_node(workflow)
+    if isinstance(node, dict) and node.get("class_type") == _VAE_UTILS_DECODE_CLASS:
+        return True
+    return any(
+        isinstance(node, dict) and node.get("class_type") == _VAE_UTILS_LOADER_CLASS
+        for node in workflow.values()
+    )
+
+
+def _vae_utils_decode_inputs(samples_ref: list[Any], vae_ref: list[Any], params: dict[str, Any], workflow: dict[str, Any]) -> dict[str, Any]:
+    # Start from the base VAE-Utils decoder settings when present so High-Res
+    # Lab inherits the generation contract instead of creating a different one.
+    _node_id, base = _base_decode_node(workflow)
+    base_inputs = (base or {}).get("inputs") if isinstance(base, dict) and base.get("class_type") == _VAE_UTILS_DECODE_CLASS else {}
+    base_inputs = base_inputs if isinstance(base_inputs, dict) else {}
+    return {
+        "samples": _copy_ref(samples_ref),
+        "vae": _copy_ref(vae_ref),
+        "upscale": int(base_inputs.get("upscale", -1)),
+        "tile": bool(params.get("tiled_vae", base_inputs.get("tile", False))),
+        "tile_size": int(params.get("tile_size", base_inputs.get("tile_size", 512)) or 512),
+        "overlap": int(params.get("tile_overlap", base_inputs.get("overlap", 64)) or 64),
+        "temporal_size": int(base_inputs.get("temporal_size", 4096) or 4096),
+        "temporal_overlap": int(base_inputs.get("temporal_overlap", 64) or 64),
+    }
+
+
+def _build_compatible_vae_decode_node(
+    *,
+    workflow: dict[str, Any],
+    samples_ref: list[Any],
+    vae_ref: list[Any],
+    params: dict[str, Any],
+    available_nodes: Any,
+) -> dict[str, Any]:
+    if _uses_vae_utils_decode(workflow):
+        return {
+            "class_type": _VAE_UTILS_DECODE_CLASS,
+            "inputs": _vae_utils_decode_inputs(samples_ref, vae_ref, params, workflow),
+        }
+    decode_class = "VAEDecodeTiled" if bool(params.get("tiled_vae")) and (available_nodes is None or _available_has(available_nodes, "VAEDecodeTiled")) else "VAEDecode"
+    decode_inputs = _vae_decode_tiled_inputs(samples_ref, vae_ref, params) if decode_class == "VAEDecodeTiled" else {"samples": _copy_ref(samples_ref), "vae": _copy_ref(vae_ref)}
+    return {"class_type": decode_class, "inputs": decode_inputs}
 
 
 def _find_output_image_consumers(workflow: dict[str, Any], decoded_ref: list[Any] | None = None) -> list[tuple[str, str]]:
@@ -135,7 +194,7 @@ def _find_output_image_consumers(workflow: dict[str, Any], decoded_ref: list[Any
 
 
 def _find_base_decode_ref(workflow: dict[str, Any]) -> list[Any] | None:
-    node_id, _ = _find_first_node(workflow, "VAEDecode")
+    node_id, _ = _base_decode_node(workflow)
     return [node_id, 0] if node_id else None
 
 def _find_source_load_image_ref(workflow: dict[str, Any]) -> list[Any] | None:
@@ -588,7 +647,13 @@ def apply_high_res_lab_patch(
         base_image_ref = _find_source_load_image_ref(graph) if preview_source_only else previous_decode_ref
         if base_image_ref is None:
             decode_id = next_id
-            graph[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_key, 0], "vae": vae_ref}}
+            graph[decode_id] = _build_compatible_vae_decode_node(
+                workflow=graph,
+                samples_ref=[sampler_key, 0],
+                vae_ref=vae_ref,
+                params=params,
+                available_nodes=available_nodes,
+            )
             node_ids.append(decode_id)
             base_image_ref = [decode_id, 0]
             next_id = _next_graph_id(graph)
@@ -739,13 +804,14 @@ def apply_high_res_lab_patch(
     node_ids.append(refine_sampler_id)
     next_id = _next_graph_id(graph)
 
-    decode_class = "VAEDecodeTiled" if bool(params.get("tiled_vae")) and (available_nodes is None or _available_has(available_nodes, "VAEDecodeTiled")) else "VAEDecode"
-    if decode_class == "VAEDecodeTiled":
-        decode_inputs = _vae_decode_tiled_inputs([refine_sampler_id, 0], vae_ref, params)
-    else:
-        decode_inputs = {"samples": [refine_sampler_id, 0], "vae": vae_ref}
     decode_id = next_id
-    graph[decode_id] = {"class_type": decode_class, "inputs": decode_inputs}
+    graph[decode_id] = _build_compatible_vae_decode_node(
+        workflow=graph,
+        samples_ref=[refine_sampler_id, 0],
+        vae_ref=vae_ref,
+        params=params,
+        available_nodes=available_nodes,
+    )
     node_ids.append(decode_id)
     patched_output_ref = [decode_id, 0]
 

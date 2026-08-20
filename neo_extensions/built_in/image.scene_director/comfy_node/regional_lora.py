@@ -1,4 +1,4 @@
-"""SD-28.6 regional LoRA MODEL wrapper for Neo's lightweight Scene Director.
+"""IMG-SD2 regional LoRA MODEL isolation wrapper for Neo's lightweight Scene Director.
 
 Krea 2 RAW/Turbo, FLUX.2 Klein, and Z-Image Base/Turbo use family-specific
 spatial module policies. Standard LoRA A/B activation deltas are injected only
@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover
     comfy_utils = None
 
 NODE_CLASS = "NeoRegionalLoRADelta"
-WRAPPER_KEY = "neo_scene_director_regional_lora_delta_sd28_6"
+WRAPPER_KEY = "neo_scene_director_regional_lora_delta_img_sd2"
 RUNTIME_ATTACHMENT_KEY = "neo_scene_director_regional_lora_runtime"
 SUPPORTED_FAMILIES = {"krea2", "krea2_turbo", "flux2_klein", "z_image", "z_image_turbo"}
 
@@ -265,6 +265,21 @@ def krea2_spatial_module_scope(module_name: Any) -> str | None:
 
 
 
+def krea2_isolation_exclusion_reason(module_name: Any) -> str | None:
+    """Return strict-isolation exclusions for Krea2 LoRA targets.
+
+    Krea2 uses single-stream self-attention over concatenated text + image tokens.
+    A regional LoRA delta written into attention K/V projections for one image
+    region can be consumed by queries from other image regions in the same block.
+    IMG-SD2 therefore suppresses regional LoRA writes to ``wk`` and ``wv`` while
+    retaining local-query/output/MLP/image-in/final projection deltas.
+    """
+    name = str(module_name or "").strip()
+    if re.match(r"^blocks\.\d+\.attn\.(?:wk|wv)(?:\.|$)", name):
+        return "cross_region_attention_key_value_write_suppressed"
+    return None
+
+
 def flux2_klein_spatial_module_scope(module_name: Any) -> str | None:
     """Return only FLUX.2 Klein linear paths with a provable spatial token lane.
 
@@ -346,6 +361,7 @@ def resolve_lora_pairs_to_modules(
     base_model: Any,
     diffusion_model: Any,
     spatial_scope_resolver: Any = krea2_spatial_module_scope,
+    isolation_exclusion_resolver: Any = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Resolve LoRA pair bases to live diffusion-model modules, fail-closed."""
     key_map = _comfy_key_map(base_model)
@@ -358,6 +374,7 @@ def resolve_lora_pairs_to_modules(
     unresolved: list[str] = []
     ambiguous: list[str] = []
     sliced: list[str] = []
+    isolation_excluded: list[dict[str, str]] = []
     for base, data in pairs.items():
         candidates = [
             base,
@@ -395,6 +412,14 @@ def resolve_lora_pairs_to_modules(
                 continue
         if not module_name or module_name not in named_modules:
             unresolved.append(base)
+            continue
+        exclusion_reason = isolation_exclusion_resolver(module_name) if callable(isolation_exclusion_resolver) else None
+        if exclusion_reason:
+            isolation_excluded.append({
+                "source_base": str(base),
+                "module_name": str(module_name),
+                "reason": str(exclusion_reason),
+            })
             continue
         module = named_modules[module_name]
         scope = spatial_scope_resolver(module_name) if callable(spatial_scope_resolver) else None
@@ -435,7 +460,10 @@ def resolve_lora_pairs_to_modules(
         "unresolved": unresolved,
         "ambiguous": ambiguous,
         "sliced_targets": sliced,
+        "isolation_excluded": isolation_excluded,
+        "isolation_excluded_count": len(isolation_excluded),
         "spatial_scope_policy": getattr(spatial_scope_resolver, "__name__", "custom_spatial_scope"),
+        "isolation_exclusion_policy": getattr(isolation_exclusion_resolver, "__name__", "none") if callable(isolation_exclusion_resolver) else "none",
     }
 
 def rect_token_mask(
@@ -597,7 +625,9 @@ class _Krea2RegionalSession:
         self.runtime_proof["matched_layers_per_region"] = matched_per_region
         self.runtime_proof["matched_layer_count"] = sum(matched_per_region)
         self.runtime_proof["spatial_scope_filter_active"] = True
-        self.runtime_proof["spatial_module_policy"] = "first=image_only; blocks/last.linear=combined_text_image"
+        self.runtime_proof["spatial_module_policy"] = "first=image_only; blocks/last.linear=combined_text_image; attention wk/wv excluded by strict isolation"
+        self.runtime_proof["identity_isolation_profile"] = "krea2_strict_no_attention_kv_write"
+        self.runtime_proof["cross_region_attention_kv_write_suppressed"] = True
         if any(count <= 0 for count in matched_per_region):
             raise RuntimeError(
                 "NeoRegionalLoRADelta could not match at least one regional LoRA to active family model layers; "
@@ -779,7 +809,13 @@ def build_krea2_region_entries(model: Any, routes: list[dict[str, Any]]) -> tupl
                     "SD-28.4 does not fall back to a global loader."
                 )
             file_cache[lora_name] = pairs
-        resolved, stats = resolve_lora_pairs_to_modules(file_cache[lora_name], base_model=base_model, diffusion_model=dm)
+        resolved, stats = resolve_lora_pairs_to_modules(
+            file_cache[lora_name],
+            base_model=base_model,
+            diffusion_model=dm,
+            spatial_scope_resolver=krea2_spatial_module_scope,
+            isolation_exclusion_resolver=krea2_isolation_exclusion_reason,
+        )
         if not resolved:
             raise RuntimeError(
                 f"Regional LoRA '{lora_name}' matched zero Krea2 model layers; execution was blocked to prevent a false regional-support claim."
@@ -1193,7 +1229,7 @@ class NeoRegionalLoRADelta:
     RETURN_NAMES = ("model",)
     FUNCTION = "apply"
     CATEGORY = "Neo Studio/Scene Director"
-    DESCRIPTION = "SD-28.6 Krea2 + FLUX.2 Klein + Z-Image region-masked LoRA activation-delta wrapper. Native/components and GGUF; no sampler or CLIP mutation."
+    DESCRIPTION = "IMG-SD2 modern regional LoRA isolation wrapper. Krea2 strict mode suppresses attention K/V LoRA writes; no sampler or CLIP mutation."
 
     def apply(
         self,
@@ -1226,7 +1262,7 @@ class NeoRegionalLoRADelta:
         if family_norm in {"krea2", "krea2_turbo"}:
             _require_krea2_model(model, family_norm)
             entries, load_diagnostics = build_krea2_region_entries(model, routes)
-            adapter = "krea2_activation_delta_v2"
+            adapter = "krea2_activation_delta_v3_strict_isolation"
             session_type = _Krea2RegionalSession
         elif family_norm == "flux2_klein":
             _base_model, family_diagnostics = _require_flux2_klein_model(model, variant)
@@ -1241,8 +1277,8 @@ class NeoRegionalLoRADelta:
 
         patched = model.clone()
         runtime_proof: dict[str, Any] = {
-            "schema": "neo.image.scene_director.regional_lora_delta.runtime_proof.v5",
-            "phase": "SD-28.6",
+            "schema": "neo.image.scene_director.regional_lora_delta.runtime_proof.v6",
+            "phase": "IMG-SD2",
             "adapter": adapter,
             "family": family_norm,
             "loader": loader_norm,
@@ -1262,6 +1298,10 @@ class NeoRegionalLoRADelta:
             "clip_delta_execution": "suppressed_model_side_only",
             "forward_hooks_removed": False,
             "runtime_gpu_proven": False,
+            "identity_isolation_goal": "prevent_cross_character_lora_mixing",
+            "identity_isolation_profile": "krea2_strict_no_attention_kv_write" if family_norm in {"krea2", "krea2_turbo"} else "spatial_activation_delta_best_effort",
+            "cross_region_attention_kv_write_suppressed": family_norm in {"krea2", "krea2_turbo"},
+            "hard_identity_isolation_claimed": False,
             "load_diagnostics": load_diagnostics,
             "family_diagnostics": family_diagnostics,
         }
@@ -1289,7 +1329,7 @@ class NeoRegionalLoRADelta:
         if hasattr(patched, "set_attachments"):
             patched.set_attachments(RUNTIME_ATTACHMENT_KEY, runtime_proof)
         logging.info(
-            "[NeoRegionalLoRADelta] armed SD-28.6 %s regional LoRA wrapper: %d route(s), loader=%s, model weights unchanged, CLIP untouched.",
+            "[NeoRegionalLoRADelta] armed IMG-SD2 %s regional LoRA isolation wrapper: %d route(s), loader=%s, model weights unchanged, CLIP untouched.",
             family_norm, len(entries), loader_norm,
         )
         return (patched,)
@@ -1313,6 +1353,7 @@ __all__ = [
     "rect_token_mask",
     "full_sequence_mask_fail_closed",
     "sequence_mask_for_scope",
+    "krea2_isolation_exclusion_reason",
     "NODE_CLASS_MAPPINGS",
     "NODE_DISPLAY_NAME_MAPPINGS",
 ]

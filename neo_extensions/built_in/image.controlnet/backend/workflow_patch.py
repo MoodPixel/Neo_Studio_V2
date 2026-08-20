@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any, Mapping
 
 from .asset_resolver import resolve_controlnet_task_assets
+from .capability_registry import control_intent_from_unit, resolve_route_capability, validate_model_selection_for_route
 from .node_discovery import inspect_nodes, preprocessor_status
 from .map_preprocessors import build_preprocessor_inputs
 from .payload_schema import EXTENSION_ID, normalize_block
@@ -229,6 +230,16 @@ def _flux_route_active(route_data: dict[str, Any], controlnet_task: str) -> bool
     )
 
 
+def _is_krea2_controlnet_route(route_data: dict[str, Any] | None, controlnet_task: str = TASK_MAP_CONTROL) -> bool:
+    route_data = route_data if isinstance(route_data, dict) else {}
+    family = str(route_data.get("family") or "").strip().lower()
+    loader = str(route_data.get("loader") or "").strip().lower()
+    mode = str(route_data.get("workflow_mode") or route_data.get("mode") or "generate").strip().lower()
+    if mode == "txt2img":
+        mode = "generate"
+    return family in {"krea2", "krea2_turbo"} and loader in {"diffusion_model", "gguf"} and controlnet_task == TASK_MAP_CONTROL and mode == "generate"
+
+
 def _route_profiled_node_status(status: dict[str, Any], route_data: dict[str, Any], controlnet_task: str) -> dict[str, Any]:
     """Return a node-status view that matches the route adapter.
 
@@ -237,6 +248,17 @@ def _route_profiled_node_status(status: dict[str, Any], route_data: dict[str, An
     loader/apply nodes. The generic map patcher can still chain conditioning
     when the route profile supplies compatible loader/apply schemas.
     """
+    if _is_krea2_controlnet_route(route_data, controlnet_task):
+        krea_status = status.get("krea2_control") if isinstance(status.get("krea2_control"), dict) else {}
+        if not krea_status.get("available") and status.get("object_info_present"):
+            return status
+        patched = deepcopy(status)
+        patched["base_available"] = bool(krea_status.get("available") or not status.get("object_info_present"))
+        patched["provider_gated"] = bool(status.get("object_info_present") and not krea_status.get("available"))
+        patched["missing"] = list(krea_status.get("missing") or []) if patched["provider_gated"] else []
+        patched["route_adapter"] = "krea2_control_lora"
+        patched["route_profile_id"] = route_data.get("route_profile_id")
+        return patched
     if _is_qwen_controlnet_route(route_data) and controlnet_task == TASK_MAP_CONTROL:
         qwen_status = status.get("qwen") if isinstance(status.get("qwen"), dict) else {}
         if not qwen_status.get("instantx_available") and status.get("base_available"):
@@ -1445,6 +1467,844 @@ def _apply_qwen_pose_transfer_patch(
         "prompt_instruction": instruction,
     }
 
+def _resolve_krea2_vae_ref(graph: dict[str, Any]) -> tuple[list[Any] | None, str]:
+    preferred = {"VAELoader", "VAEUtils_CustomVAELoader"}
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("class_type") or "") in preferred:
+            return [str(node_id), 0], str(node.get("class_type") or "")
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        class_type = str(node.get("class_type") or "")
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        if "vae_name" in inputs and "decode" not in class_type.lower() and "encode" not in class_type.lower():
+            return [str(node_id), 0], class_type
+    return None, "missing_krea2_vae_loader"
+
+
+def _resolve_krea2_clip_ref(graph: dict[str, Any]) -> tuple[list[Any] | None, str]:
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("class_type") or "") == "CLIPLoader":
+            return [str(node_id), 0], "CLIPLoader"
+    return None, "missing_krea2_clip_loader"
+
+
+def _krea2_conditioning_text(graph: dict[str, Any], ref: Any) -> tuple[str, str]:
+    """Recover the route-owned prompt text without inheriting ConditioningZeroOut text.
+
+    Krea 2 Turbo uses ConditioningZeroOut for the negative branch. Ostris needs its
+    own encoder on that branch, so a zeroed negative becomes an empty Ostris prompt
+    rather than reusing the positive prompt hidden upstream of ConditioningZeroOut.
+    """
+    current = _copy_ref(ref, ["", 0])
+    seen: set[str] = set()
+    for _ in range(12):
+        node_id = str(current[0] or "")
+        if not node_id or node_id in seen:
+            break
+        seen.add(node_id)
+        node = graph.get(node_id)
+        if not isinstance(node, dict):
+            break
+        class_type = str(node.get("class_type") or "")
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        if class_type == "ConditioningZeroOut":
+            return "", class_type
+        if class_type == "CLIPTextEncode":
+            return str(inputs.get("text") or ""), class_type
+        upstream = inputs.get("conditioning")
+        if not isinstance(upstream, (list, tuple)) or len(upstream) < 2:
+            break
+        current = _copy_ref(upstream, ["", 0])
+    return "", "unresolved"
+
+
+def _krea2_control_encode_policy(unit: dict[str, Any]) -> dict[str, Any]:
+    control_type = str(unit.get("unit") or unit.get("preprocessor") or "auto").strip().lower()
+    preprocessor = str(unit.get("preprocessor") or control_type or "none").strip().lower()
+    depth_like = control_type == "depth" or preprocessor == "depth"
+    return {
+        "control_type": control_type or "auto",
+        "preprocessor": preprocessor or "none",
+        "resize": "match_latent_size",
+        "upscale_method": "lanczos",
+        "crop": "center",
+        "channel_mode": "grayscale" if depth_like else "rgb",
+        "normalize": "per_image_minmax" if depth_like else "none",
+        # Map inversion is already owned by Neo's map-generation stage. Avoid
+        # inverting a generated map twice inside Krea2 Control Image Encode.
+        "invert": False,
+        "batch_mode": "independent_images",
+    }
+
+
+def _apply_krea2_control_lora_patch(
+    graph: dict[str, Any],
+    *,
+    block: dict[str, Any],
+    route_data: dict[str, Any],
+    status: dict[str, Any],
+    available_nodes: Any = None,
+    sampler_key: str,
+    sampler_inputs: dict[str, Any],
+    next_node_id: int | str | None = None,
+) -> dict[str, Any]:
+    units = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+    if len(units) != 1:
+        return {"ok": False, "reason": "Krea 2 Control Phase 1 requires exactly one active control unit.", "notes": [{"level": "error", "field": "inputs.units", "message": "Enable exactly one Krea 2 control unit for Generate.", "max_units": 1}]}
+    unit = units[0]
+    model_name = str(unit.get("model") or "").strip()
+    if not model_name:
+        return {"ok": False, "reason": "Krea 2 Control LoRA is not selected.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Select a Krea 2 Control LoRA from ComfyUI/models/loras."}]}
+    krea_status = status.get("krea2_control") if isinstance(status.get("krea2_control"), dict) else {}
+    if status.get("object_info_present") and not krea_status.get("available"):
+        return {"ok": False, "reason": "Krea 2 Control nodes are missing.", "notes": [{"level": "error", "field": "nodes.krea2_control", "message": "Krea2ControlLoRALoader, Krea2ControlImageEncode, and Krea2ControlApply must all be installed.", "missing": list(krea_status.get("missing") or [])}]}
+
+    # Phase 2.1: the UI/catalog stores portable slash-separated LoRA identities,
+    # but Comfy validates combo inputs against the *exact* live object_info value.
+    # On Windows that value commonly contains backslashes. Rebind the portable
+    # selection to the exact provider enum before graph compilation; never send
+    # the normalized UI spelling directly into Krea2ControlLoRALoader.lora_name.
+    intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+    model_compatibility = validate_model_selection_for_route(
+        model_name,
+        family=route_data.get("family"),
+        loader=route_data.get("loader"),
+        mode=route_data.get("workflow_mode"),
+        intent=intent,
+        task=((block.get("params") or {}) if isinstance(block.get("params"), dict) else {}).get("controlnet_task") or TASK_MAP_CONTROL,
+        backend=route_data.get("backend"),
+        node_status=status,
+    )
+    if status.get("object_info_present") and model_compatibility.get("status") == "incompatible":
+        return {
+            "ok": False,
+            "reason": "The selected Krea 2 Control LoRA is incompatible with the active control intent.",
+            "notes": [{
+                "level": "error",
+                "field": "inputs.units[0].model",
+                "message": "Workflow patching rejected a LoRA outside the Phase 3 intent-bound Control LoRA catalog.",
+                "intent": intent,
+                "model": model_name,
+                "compatibility_status": model_compatibility.get("status"),
+                "compatible_models": list(model_compatibility.get("compatible_models") or []),
+            }],
+            "model_compatibility": model_compatibility,
+        }
+
+    loader_class = str(krea_status.get("loader_node") or "Krea2ControlLoRALoader")
+    provider_model_name = model_name
+    catalog_binding: dict[str, Any] | None = None
+    _loader_inputs, provider_lora_choices = _object_info_node_contract(available_nodes, loader_class)
+    if provider_lora_choices:
+        catalog_binding = resolve_exact_provider_catalog_name(model_name, provider_lora_choices)
+        if not str(catalog_binding.get("status") or "").startswith("resolved"):
+            return {
+                "ok": False,
+                "reason": f"The selected Krea 2 Control LoRA '{model_name}' is not present in the active Comfy loader catalog.",
+                "notes": [{
+                    "level": "error",
+                    "field": "inputs.units[0].model",
+                    "message": "Refresh Nodes and choose a Krea 2 Control LoRA published by the active Krea2ControlLoRALoader.",
+                    "catalog_binding": deepcopy(catalog_binding),
+                }],
+                "catalog_binding": catalog_binding,
+            }
+        provider_model_name = str(catalog_binding.get("provider_catalog_name") or model_name)
+    elif status.get("object_info_present"):
+        return {
+            "ok": False,
+            "reason": "The active Krea 2 Control LoRA loader did not publish a live lora_name catalog.",
+            "notes": [{
+                "level": "error",
+                "field": "nodes.krea2_control.lora_name",
+                "message": "Refresh Nodes after restarting ComfyUI. Neo will not guess a provider enum for Krea2ControlLoRALoader.lora_name.",
+            }],
+        }
+
+    assets = block.get("assets") if isinstance(block.get("assets"), dict) else {}
+    image_name = _asset_to_image_name(_asset_for_unit(assets, str(unit.get("uid") or "unit_1")))
+    if not image_name:
+        return {"ok": False, "reason": "Krea 2 Control needs a control image or generated map.", "notes": [{"level": "error", "field": "assets.generated_maps", "message": "Build a control map or supply a control image before generation."}]}
+    model_ref = _copy_ref(sampler_inputs.get("model"), ["1", 0])
+    latent_ref = _copy_ref(sampler_inputs.get("latent_image"), ["6", 0])
+    vae_ref, vae_source = _resolve_krea2_vae_ref(graph)
+    if vae_ref is None:
+        return {"ok": False, "reason": "Krea 2 Control could not find the active Krea2/Qwen VAE.", "notes": [{"level": "error", "field": "workflow.vae", "message": "Krea2ControlImageEncode must use the same Krea2/Qwen image VAE as the base workflow."}]}
+
+    next_id = None
+    if next_node_id is not None:
+        try:
+            next_id = int(str(next_node_id))
+        except (TypeError, ValueError):
+            next_id = None
+    created: list[str] = []
+    load_image_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(load_image_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[load_image_id] = {"class_type": "LoadImage", "inputs": {"image": image_name}}
+    created.append(load_image_id)
+
+    policy = _krea2_control_encode_policy(unit)
+    encode_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(encode_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[encode_id] = {
+        "class_type": str(krea_status.get("image_encode_node") or "Krea2ControlImageEncode"),
+        "inputs": {
+            "control_image": [load_image_id, 0],
+            "vae": list(vae_ref),
+            "resize": policy["resize"],
+            "upscale_method": policy["upscale_method"],
+            "crop": policy["crop"],
+            "channel_mode": policy["channel_mode"],
+            "normalize": policy["normalize"],
+            "invert": policy["invert"],
+            "batch_mode": policy["batch_mode"],
+            "latent": list(latent_ref),
+        },
+    }
+    created.append(encode_id)
+
+    loader_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(loader_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[loader_id] = {
+        "class_type": str(krea_status.get("loader_node") or "Krea2ControlLoRALoader"),
+        "inputs": {"model": list(model_ref), "lora_name": provider_model_name, "strength": float(unit.get("strength") or 0.45)},
+    }
+    created.append(loader_id)
+
+    apply_id = _next_graph_id(graph, next_id)
+    graph[apply_id] = {
+        "class_type": str(krea_status.get("apply_node") or "Krea2ControlApply"),
+        "inputs": {"model": [loader_id, 0], "control_latent": [encode_id, 0]},
+    }
+    created.append(apply_id)
+    graph[sampler_key]["inputs"]["model"] = [apply_id, 0]
+
+    applied = deepcopy(unit)
+    applied.update({
+        "adapter": "krea2_control_lora",
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": float(unit.get("strength") or 0.45),
+        "encode_policy": deepcopy(policy),
+        "vae_source": vae_source,
+        "control_image_source": image_name,
+        "start_end_policy": "not_exposed_by_krea2_control_lora",
+    })
+    return {
+        "ok": True,
+        "adapter": "krea2_control_lora",
+        "created_node_ids": created,
+        "applied_units": [applied],
+        "patched_model_ref": [apply_id, 0],
+        "control_image_source": image_name,
+        "encode_policy": policy,
+        "vae_source": vae_source,
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": float(unit.get("strength") or 0.45),
+        "notes": [{"level": "info", "field": "workflow.krea2_control", "message": "Krea 2 Control LoRA patched the sampler model after Phase 3 intent compatibility validation; the portable UI LoRA identity was rebound to Comfy's exact live loader value before queueing."}],
+    }
+
+
+
+def _apply_krea2_control_plus_patch(
+    graph: dict[str, Any],
+    *,
+    block: dict[str, Any],
+    route_data: dict[str, Any],
+    status: dict[str, Any],
+    available_nodes: Any = None,
+    sampler_key: str,
+    sampler_inputs: dict[str, Any],
+    next_node_id: int | str | None = None,
+) -> dict[str, Any]:
+    """Apply the Krea2 Control Plus adapter for Composition / Silhouette.
+
+    This route intentionally remains separate from the physically validated
+    native Depth adapter. Control Plus adds start/end scheduling and consumes
+    the same Neo control-image/generated-map asset boundary.
+    """
+    units = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+    if len(units) != 1:
+        return {"ok": False, "reason": "Krea 2 Control Plus requires exactly one active control unit.", "notes": [{"level": "error", "field": "inputs.units", "message": "Enable exactly one Krea 2 Composition / Silhouette unit for Generate.", "max_units": 1}]}
+    unit = units[0]
+    intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+    if intent != "composition_silhouette":
+        return {"ok": False, "reason": "Krea 2 Control Plus is reserved for Composition / Silhouette in this phase.", "notes": [{"level": "error", "field": "inputs.units[0].unit", "message": "Select Composition / Silhouette for the Control Plus adapter.", "intent": intent}]}
+
+    model_name = str(unit.get("model") or "").strip()
+    if not model_name:
+        return {"ok": False, "reason": "Krea 2 Composition Control LoRA is not selected.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Select a compatible Krea 2 Composition / Silhouette Control LoRA from ComfyUI/models/loras."}]}
+
+    plus_status = status.get("krea2_control_plus") if isinstance(status.get("krea2_control_plus"), dict) else {}
+    if status.get("object_info_present") and not plus_status.get("available"):
+        return {"ok": False, "reason": "Krea 2 Control Plus nodes are missing.", "notes": [{"level": "error", "field": "nodes.krea2_control_plus", "message": "Krea2ControlPlusLoRALoader, Krea2ControlPlusImageEncode, and Krea2ControlPlusApply must all be installed.", "missing": list(plus_status.get("missing") or [])}]}
+
+    model_compatibility = validate_model_selection_for_route(
+        model_name,
+        family=route_data.get("family"),
+        loader=route_data.get("loader"),
+        mode=route_data.get("workflow_mode"),
+        intent=intent,
+        task=((block.get("params") or {}) if isinstance(block.get("params"), dict) else {}).get("controlnet_task") or TASK_MAP_CONTROL,
+        backend=route_data.get("backend"),
+        node_status=status,
+    )
+    if status.get("object_info_present") and not model_compatibility.get("valid"):
+        return {
+            "ok": False,
+            "reason": "The selected Krea 2 Control Plus LoRA is incompatible with Composition / Silhouette.",
+            "notes": [{
+                "level": "error",
+                "field": "inputs.units[0].model",
+                "message": "Workflow patching rejected a LoRA outside the Composition / Silhouette intent-bound Control Plus catalog.",
+                "intent": intent,
+                "model": model_name,
+                "compatibility_status": model_compatibility.get("status"),
+                "compatible_models": list(model_compatibility.get("compatible_models") or []),
+            }],
+            "model_compatibility": model_compatibility,
+        }
+
+    loader_class = str(plus_status.get("loader_node") or "Krea2ControlPlusLoRALoader")
+    provider_model_name = model_name
+    catalog_binding: dict[str, Any] | None = None
+    _loader_inputs, provider_lora_choices = _object_info_node_contract(available_nodes, loader_class)
+    if provider_lora_choices:
+        catalog_binding = resolve_exact_provider_catalog_name(model_name, provider_lora_choices)
+        if not str(catalog_binding.get("status") or "").startswith("resolved"):
+            return {
+                "ok": False,
+                "reason": f"The selected Krea 2 Composition LoRA '{model_name}' is not present in the active Control Plus catalog.",
+                "notes": [{
+                    "level": "error",
+                    "field": "inputs.units[0].model",
+                    "message": "Refresh Nodes and choose a Composition / Silhouette LoRA published by Krea2ControlPlusLoRALoader.",
+                    "catalog_binding": deepcopy(catalog_binding),
+                }],
+                "catalog_binding": catalog_binding,
+            }
+        provider_model_name = str(catalog_binding.get("provider_catalog_name") or model_name)
+    elif status.get("object_info_present"):
+        return {
+            "ok": False,
+            "reason": "The active Krea 2 Control Plus loader did not publish a live lora_name catalog.",
+            "notes": [{
+                "level": "error",
+                "field": "nodes.krea2_control_plus.lora_name",
+                "message": "Refresh Nodes after restarting ComfyUI. Neo will not guess a provider enum for Krea2ControlPlusLoRALoader.lora_name.",
+            }],
+        }
+
+    assets = block.get("assets") if isinstance(block.get("assets"), dict) else {}
+    image_name = _asset_to_image_name(_asset_for_unit(assets, str(unit.get("uid") or "unit_1")))
+    if not image_name:
+        return {"ok": False, "reason": "Krea 2 Composition control needs a control image or generated map.", "notes": [{"level": "error", "field": "assets.generated_maps", "message": "Supply a composition reference image directly or build an identity map before generation."}]}
+
+    model_ref = _copy_ref(sampler_inputs.get("model"), ["1", 0])
+    latent_ref = _copy_ref(sampler_inputs.get("latent_image"), ["6", 0])
+    vae_ref, vae_source = _resolve_krea2_vae_ref(graph)
+    if vae_ref is None:
+        return {"ok": False, "reason": "Krea 2 Control Plus could not find the active Krea2/Qwen VAE.", "notes": [{"level": "error", "field": "workflow.vae", "message": "Krea2ControlPlusImageEncode must use the same Krea2/Qwen image VAE as the base workflow."}]}
+
+    start_percent = max(0.0, min(1.0, float(unit.get("start_percent", 0.0) or 0.0)))
+    end_percent = max(0.0, min(1.0, float(unit.get("end_percent", 1.0) or 1.0)))
+    if end_percent < start_percent:
+        end_percent = 1.0
+    strength = float(unit.get("strength") or 0.45)
+
+    next_id = None
+    if next_node_id is not None:
+        try:
+            next_id = int(str(next_node_id))
+        except (TypeError, ValueError):
+            next_id = None
+    created: list[str] = []
+    load_image_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(load_image_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[load_image_id] = {"class_type": "LoadImage", "inputs": {"image": image_name}}
+    created.append(load_image_id)
+
+    policy = _krea2_control_encode_policy(unit)
+    # The public composition/silhouette model is trained on RGB controls without
+    # depth-style normalization or inversion.
+    policy.update({"channel_mode": "rgb", "normalize": "none", "invert": False})
+    encode_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(encode_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[encode_id] = {
+        "class_type": str(plus_status.get("image_encode_node") or "Krea2ControlPlusImageEncode"),
+        "inputs": {
+            "control_image": [load_image_id, 0],
+            "vae": list(vae_ref),
+            "resize": policy["resize"],
+            "upscale_method": policy["upscale_method"],
+            "crop": policy["crop"],
+            "channel_mode": policy["channel_mode"],
+            "normalize": policy["normalize"],
+            "invert": policy["invert"],
+            "batch_mode": policy["batch_mode"],
+            "latent": list(latent_ref),
+        },
+    }
+    created.append(encode_id)
+
+    loader_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(loader_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[loader_id] = {
+        "class_type": loader_class,
+        "inputs": {
+            "model": list(model_ref),
+            "lora_name": provider_model_name,
+            "strength": strength,
+            "start_percent": start_percent,
+            "end_percent": end_percent,
+        },
+    }
+    created.append(loader_id)
+
+    apply_id = _next_graph_id(graph, next_id)
+    graph[apply_id] = {
+        "class_type": str(plus_status.get("apply_node") or "Krea2ControlPlusApply"),
+        "inputs": {"model": [loader_id, 0], "control_latent": [encode_id, 0]},
+    }
+    created.append(apply_id)
+    graph[sampler_key]["inputs"]["model"] = [apply_id, 0]
+
+    applied = deepcopy(unit)
+    applied.update({
+        "adapter": "krea2_control_plus",
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "start_percent": start_percent,
+        "end_percent": end_percent,
+        "encode_policy": deepcopy(policy),
+        "vae_source": vae_source,
+        "control_image_source": image_name,
+        "start_end_policy": "explicit_control_plus_range",
+    })
+    return {
+        "ok": True,
+        "adapter": "krea2_control_plus",
+        "created_node_ids": created,
+        "applied_units": [applied],
+        "patched_model_ref": [apply_id, 0],
+        "control_image_source": image_name,
+        "encode_policy": policy,
+        "vae_source": vae_source,
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "start_percent": start_percent,
+        "end_percent": end_percent,
+        "notes": [{"level": "info", "field": "workflow.krea2_control_plus", "message": "Krea 2 Composition / Silhouette patched the sampler model through Krea2 Control Plus with explicit start/end scheduling and exact live LoRA catalog rebinding."}],
+    }
+
+def _apply_krea2_ostris_openpose_patch(
+    graph: dict[str, Any],
+    *,
+    block: dict[str, Any],
+    route_data: dict[str, Any],
+    status: dict[str, Any],
+    available_nodes: Any = None,
+    sampler_key: str,
+    sampler_inputs: dict[str, Any],
+    next_node_id: int | str | None = None,
+) -> dict[str, Any]:
+    """Apply Krea 2 Turbo OpenPose through the Ostris reference-edit adapter."""
+    units = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+    if len(units) != 1:
+        return {"ok": False, "reason": "Krea 2 Ostris OpenPose requires exactly one active control unit.", "notes": [{"level": "error", "field": "inputs.units", "message": "Enable exactly one Krea 2 Turbo OpenPose unit for Generate.", "max_units": 1}]}
+    unit = units[0]
+    intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+    if intent != "openpose":
+        return {"ok": False, "reason": "The Ostris adapter is reserved for OpenPose in Phase 5.", "notes": [{"level": "error", "field": "inputs.units[0].unit", "message": "Select OpenPose for the Krea 2 Ostris adapter.", "intent": intent}]}
+    if str(route_data.get("family") or "").strip().lower() != "krea2_turbo":
+        return {"ok": False, "reason": "Krea 2 OpenPose is currently qualified only for Krea 2 Turbo.", "notes": [{"level": "error", "field": "route.family", "message": "The verified public OpenPose Control LoRA targets Krea 2 Turbo; RAW remains hidden until a compatible pose LoRA is verified."}]}
+
+    model_name = str(unit.get("model") or "").strip()
+    if not model_name:
+        return {"ok": False, "reason": "Krea 2 Turbo OpenPose Control LoRA is not selected.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Select a compatible Krea 2 Turbo OpenPose Control LoRA from ComfyUI/models/loras."}]}
+
+    ostris_status = status.get("krea2_ostris") if isinstance(status.get("krea2_ostris"), dict) else {}
+    if status.get("object_info_present") and not ostris_status.get("available"):
+        return {"ok": False, "reason": "Krea 2 Ostris OpenPose nodes are missing.", "notes": [{"level": "error", "field": "nodes.krea2_ostris", "message": "TextEncodeKrea2OstrisEdit, Krea2OstrisEditModelPatch, and LoraLoaderModelOnly must all be installed.", "missing": list(ostris_status.get("missing") or [])}]}
+    if status.get("object_info_present") and not isinstance(available_nodes, Mapping):
+        return {"ok": False, "reason": "Krea 2 Ostris OpenPose needs live Comfy object_info for safe node-contract binding.", "notes": [{"level": "error", "field": "nodes.object_info", "message": "Refresh Nodes so Neo can verify Ostris and LoraLoaderModelOnly inputs."}]}
+
+    text_class = str(ostris_status.get("text_encode_node") or "TextEncodeKrea2OstrisEdit")
+    patch_class = str(ostris_status.get("model_patch_node") or "Krea2OstrisEditModelPatch")
+    loader_class = str(ostris_status.get("lora_loader_node") or "LoraLoaderModelOnly")
+    if isinstance(available_nodes, Mapping):
+        text_inputs, _ = _object_info_node_contract(available_nodes, text_class)
+        patch_inputs, _ = _object_info_node_contract(available_nodes, patch_class)
+        loader_inputs, provider_lora_choices = _object_info_node_contract(available_nodes, loader_class)
+        if not {"clip", "prompt", "vae", "image1"}.issubset(text_inputs):
+            return {"ok": False, "reason": "Installed TextEncodeKrea2OstrisEdit contract is incompatible with Phase 5.", "notes": [{"level": "error", "field": "nodes.TextEncodeKrea2OstrisEdit", "message": "Neo requires clip, prompt, vae, and image1 inputs for OpenPose reference conditioning."}]}
+        if not {"model", "kv_cache"}.issubset(patch_inputs):
+            return {"ok": False, "reason": "Installed Krea2OstrisEditModelPatch contract is incompatible with Phase 5.", "notes": [{"level": "error", "field": "nodes.Krea2OstrisEditModelPatch", "message": "Neo requires model and kv_cache inputs."}]}
+        if not {"model", "lora_name", "strength_model"}.issubset(loader_inputs):
+            return {"ok": False, "reason": "Installed LoraLoaderModelOnly contract is incompatible with Phase 5.", "notes": [{"level": "error", "field": "nodes.LoraLoaderModelOnly", "message": "Neo requires model, lora_name, and strength_model inputs."}]}
+    else:
+        provider_lora_choices = []
+
+    model_compatibility = validate_model_selection_for_route(
+        model_name,
+        family=route_data.get("family"),
+        loader=route_data.get("loader"),
+        mode=route_data.get("workflow_mode"),
+        intent=intent,
+        task=((block.get("params") or {}) if isinstance(block.get("params"), dict) else {}).get("controlnet_task") or TASK_MAP_CONTROL,
+        backend=route_data.get("backend"),
+        node_status=status,
+    )
+    if status.get("object_info_present") and not model_compatibility.get("valid"):
+        return {
+            "ok": False,
+            "reason": "The selected LoRA is incompatible with Krea 2 Turbo OpenPose.",
+            "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Choose an OpenPose Control LoRA from Neo's Ostris intent-filtered catalog.", "model": model_name, "compatible_models": list(model_compatibility.get("compatible_models") or [])}],
+            "model_compatibility": model_compatibility,
+        }
+
+    provider_model_name = model_name
+    catalog_binding: dict[str, Any] | None = None
+    if provider_lora_choices:
+        catalog_binding = resolve_exact_provider_catalog_name(model_name, provider_lora_choices)
+        if not str(catalog_binding.get("status") or "").startswith("resolved"):
+            return {"ok": False, "reason": f"The selected Krea 2 Turbo OpenPose LoRA '{model_name}' is not present in LoraLoaderModelOnly's live catalog.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Refresh Nodes and choose an installed OpenPose Control LoRA.", "catalog_binding": deepcopy(catalog_binding)}], "catalog_binding": catalog_binding}
+        provider_model_name = str(catalog_binding.get("provider_catalog_name") or model_name)
+    elif status.get("object_info_present"):
+        return {"ok": False, "reason": "LoraLoaderModelOnly did not publish a live lora_name catalog.", "notes": [{"level": "error", "field": "nodes.LoraLoaderModelOnly.lora_name", "message": "Refresh Nodes after restarting ComfyUI. Neo will not guess the provider enum."}]}
+
+    assets = block.get("assets") if isinstance(block.get("assets"), dict) else {}
+    image_name = _asset_to_image_name(_asset_for_unit(assets, str(unit.get("uid") or "unit_1")))
+    if not image_name:
+        return {"ok": False, "reason": "Krea 2 Turbo OpenPose needs a pose map.", "notes": [{"level": "error", "field": "assets.generated_maps", "message": "Build a DWPose/OpenPose map from the control image or supply a pose map directly before generation."}]}
+
+    model_ref = _copy_ref(sampler_inputs.get("model"), ["1", 0])
+    clip_ref, clip_source = _resolve_krea2_clip_ref(graph)
+    vae_ref, vae_source = _resolve_krea2_vae_ref(graph)
+    if clip_ref is None:
+        return {"ok": False, "reason": "Krea 2 Ostris OpenPose could not find the active Krea2 Qwen3-VL CLIPLoader.", "notes": [{"level": "error", "field": "workflow.clip", "message": "TextEncodeKrea2OstrisEdit must reuse the base Krea 2 CLIPLoader(type=krea2)."}]}
+    if vae_ref is None:
+        return {"ok": False, "reason": "Krea 2 Ostris OpenPose could not find the active Krea2/Qwen VAE.", "notes": [{"level": "error", "field": "workflow.vae", "message": "TextEncodeKrea2OstrisEdit must reuse the active Krea2/Qwen VAE for reference latents."}]}
+
+    positive_prompt, positive_source = _krea2_conditioning_text(graph, sampler_inputs.get("positive"))
+    negative_prompt, negative_source = _krea2_conditioning_text(graph, sampler_inputs.get("negative"))
+    strength = float(unit.get("strength") or 0.85)
+    kv_cache = bool(unit.get("ostris_kv_cache", True))
+
+    try:
+        next_id = int(str(next_node_id)) if next_node_id is not None else None
+    except (TypeError, ValueError):
+        next_id = None
+    created: list[str] = []
+
+    load_image_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(load_image_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[load_image_id] = {"class_type": "LoadImage", "inputs": {"image": image_name}}
+    created.append(load_image_id)
+
+    positive_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(positive_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[positive_id] = {
+        "class_type": text_class,
+        "inputs": {"clip": list(clip_ref), "prompt": positive_prompt, "vae": list(vae_ref), "image1": [load_image_id, 0]},
+    }
+    created.append(positive_id)
+
+    negative_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(negative_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[negative_id] = {
+        "class_type": text_class,
+        "inputs": {"clip": list(clip_ref), "prompt": negative_prompt, "vae": list(vae_ref), "image1": [load_image_id, 0]},
+    }
+    created.append(negative_id)
+
+    model_patch_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(model_patch_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[model_patch_id] = {"class_type": patch_class, "inputs": {"model": list(model_ref), "kv_cache": kv_cache}}
+    created.append(model_patch_id)
+
+    lora_id = _next_graph_id(graph, next_id)
+    graph[lora_id] = {
+        "class_type": loader_class,
+        "inputs": {"model": [model_patch_id, 0], "lora_name": provider_model_name, "strength_model": strength},
+    }
+    created.append(lora_id)
+
+    graph[sampler_key]["inputs"]["model"] = [lora_id, 0]
+    graph[sampler_key]["inputs"]["positive"] = [positive_id, 0]
+    graph[sampler_key]["inputs"]["negative"] = [negative_id, 0]
+
+    applied = deepcopy(unit)
+    applied.update({
+        "adapter": "krea2_ostris_openpose",
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "ostris_kv_cache": kv_cache,
+        "control_image_source": image_name,
+        "clip_source": clip_source,
+        "vae_source": vae_source,
+        "positive_prompt_source": positive_source,
+        "negative_prompt_source": negative_source,
+    })
+    return {
+        "ok": True,
+        "adapter": "krea2_ostris_openpose",
+        "created_node_ids": created,
+        "applied_units": [applied],
+        "patched_model_ref": [lora_id, 0],
+        "patched_positive_ref": [positive_id, 0],
+        "patched_negative_ref": [negative_id, 0],
+        "control_image_source": image_name,
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "ostris_kv_cache": kv_cache,
+        "clip_source": clip_source,
+        "vae_source": vae_source,
+        "conditioning_policy": "ostris_reference_image_conditioning",
+        "notes": [{"level": "info", "field": "workflow.krea2_ostris_openpose", "message": "Krea 2 Turbo OpenPose replaced base Krea conditioning with Ostris reference-image conditioning, patched the model through Krea2OstrisEditModelPatch, then applied the intent-bound model-only OpenPose LoRA."}],
+    }
+
+
+def _apply_krea2_nk2e_canny_patch(
+    graph: dict[str, Any],
+    *,
+    block: dict[str, Any],
+    route_data: dict[str, Any],
+    status: dict[str, Any],
+    available_nodes: Any = None,
+    sampler_key: str,
+    sampler_inputs: dict[str, Any],
+    next_node_id: int | str | None = None,
+) -> dict[str, Any]:
+    """Apply Krea 2 RAW Canny through the NK2E in-context reference adapter.
+
+    The current NK2E preferred graph is model-only LoRA -> NK2EInContextModelNode
+    on the sampler model, with a VAE-encoded edge map injected through
+    NK2ESetReferenceNode on positive conditioning. The base Krea negative lane is
+    preserved. This intentionally does not use the deprecated one-node
+    NK2EInContextEditNode shortcut.
+    """
+    units = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+    if len(units) != 1:
+        return {"ok": False, "reason": "Krea 2 NK2E Canny requires exactly one active control unit.", "notes": [{"level": "error", "field": "inputs.units", "message": "Enable exactly one Krea 2 RAW Canny unit for Generate.", "max_units": 1}]}
+    unit = units[0]
+    intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+    if intent != "canny":
+        return {"ok": False, "reason": "The NK2E adapter is reserved for Canny in Phase 6.", "notes": [{"level": "error", "field": "inputs.units[0].unit", "message": "Select Canny for the Krea 2 NK2E adapter.", "intent": intent}]}
+    if str(route_data.get("family") or "").strip().lower() != "krea2":
+        return {"ok": False, "reason": "Krea 2 NK2E Canny is currently qualified only for Krea 2 RAW.", "notes": [{"level": "error", "field": "route.family", "message": "The published NK2E Canny repository declares krea/Krea-2-Raw as its base model; Turbo remains hidden until a compatible checkpoint is verified."}]}
+
+    model_name = str(unit.get("model") or "").strip()
+    if not model_name:
+        return {"ok": False, "reason": "Krea 2 RAW NK2E Canny LoRA is not selected.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Select NK2E-canny-v0.1.safetensors or another compatible NK2E Canny LoRA from ComfyUI/models/loras."}]}
+
+    nk2e_status = status.get("krea2_nk2e") if isinstance(status.get("krea2_nk2e"), dict) else {}
+    if status.get("object_info_present") and not nk2e_status.get("available"):
+        return {"ok": False, "reason": "Krea 2 NK2E Canny nodes are missing.", "notes": [{"level": "error", "field": "nodes.krea2_nk2e", "message": "NK2EInContextModelNode, NK2ESetReferenceNode, LoraLoaderModelOnly, and VAEEncode must all be available.", "missing": list(nk2e_status.get("missing") or [])}]}
+    if status.get("object_info_present") and not isinstance(available_nodes, Mapping):
+        return {"ok": False, "reason": "Krea 2 NK2E Canny needs live Comfy object_info for safe node-contract binding.", "notes": [{"level": "error", "field": "nodes.object_info", "message": "Refresh Nodes so Neo can verify NK2E and LoraLoaderModelOnly inputs."}]}
+
+    model_class = str(nk2e_status.get("model_node") or "NK2EInContextModelNode")
+    reference_class = str(nk2e_status.get("set_reference_node") or "NK2ESetReferenceNode")
+    loader_class = str(nk2e_status.get("lora_loader_node") or "LoraLoaderModelOnly")
+    vae_encode_class = str(nk2e_status.get("vae_encode_node") or "VAEEncode")
+    if isinstance(available_nodes, Mapping):
+        model_inputs, _ = _object_info_node_contract(available_nodes, model_class)
+        reference_inputs, _ = _object_info_node_contract(available_nodes, reference_class)
+        loader_inputs, provider_lora_choices = _object_info_node_contract(available_nodes, loader_class)
+        vae_inputs, _ = _object_info_node_contract(available_nodes, vae_encode_class)
+        if not {"model"}.issubset(model_inputs):
+            return {"ok": False, "reason": "Installed NK2EInContextModelNode contract is incompatible with Phase 6.", "notes": [{"level": "error", "field": "nodes.NK2EInContextModelNode", "message": "Neo requires the NK2E model wrapper to accept model."}]}
+        if not {"conditioning", "reference"}.issubset(reference_inputs):
+            return {"ok": False, "reason": "Installed NK2ESetReferenceNode contract is incompatible with Phase 6.", "notes": [{"level": "error", "field": "nodes.NK2ESetReferenceNode", "message": "Neo requires conditioning and reference inputs for the NK2E reference handoff."}]}
+        if not {"model", "lora_name", "strength_model"}.issubset(loader_inputs):
+            return {"ok": False, "reason": "Installed LoraLoaderModelOnly contract is incompatible with Phase 6.", "notes": [{"level": "error", "field": "nodes.LoraLoaderModelOnly", "message": "Neo requires model, lora_name, and strength_model inputs."}]}
+        if not {"pixels", "vae"}.issubset(vae_inputs):
+            return {"ok": False, "reason": "Installed VAEEncode contract is incompatible with Phase 6.", "notes": [{"level": "error", "field": "nodes.VAEEncode", "message": "Neo requires pixels and vae inputs to encode the Canny reference map."}]}
+    else:
+        provider_lora_choices = []
+
+    model_compatibility = validate_model_selection_for_route(
+        model_name,
+        family=route_data.get("family"),
+        loader=route_data.get("loader"),
+        mode=route_data.get("workflow_mode"),
+        intent=intent,
+        task=((block.get("params") or {}) if isinstance(block.get("params"), dict) else {}).get("controlnet_task") or TASK_MAP_CONTROL,
+        backend=route_data.get("backend"),
+        node_status=status,
+    )
+    if status.get("object_info_present") and not model_compatibility.get("valid"):
+        return {
+            "ok": False,
+            "reason": "The selected LoRA is incompatible with Krea 2 RAW NK2E Canny.",
+            "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Choose an NK2E Canny Control LoRA from Neo's intent-filtered catalog.", "model": model_name, "compatible_models": list(model_compatibility.get("compatible_models") or [])}],
+            "model_compatibility": model_compatibility,
+        }
+
+    provider_model_name = model_name
+    catalog_binding: dict[str, Any] | None = None
+    if provider_lora_choices:
+        catalog_binding = resolve_exact_provider_catalog_name(model_name, provider_lora_choices)
+        if not str(catalog_binding.get("status") or "").startswith("resolved"):
+            return {"ok": False, "reason": f"The selected NK2E Canny LoRA '{model_name}' is not present in LoraLoaderModelOnly's live catalog.", "notes": [{"level": "error", "field": "inputs.units[0].model", "message": "Refresh Nodes and choose an installed NK2E Canny LoRA.", "catalog_binding": deepcopy(catalog_binding)}], "catalog_binding": catalog_binding}
+        provider_model_name = str(catalog_binding.get("provider_catalog_name") or model_name)
+    elif status.get("object_info_present"):
+        return {"ok": False, "reason": "LoraLoaderModelOnly did not publish a live lora_name catalog.", "notes": [{"level": "error", "field": "nodes.LoraLoaderModelOnly.lora_name", "message": "Refresh Nodes after restarting ComfyUI. Neo will not guess the provider enum."}]}
+
+    assets = block.get("assets") if isinstance(block.get("assets"), dict) else {}
+    image_name = _asset_to_image_name(_asset_for_unit(assets, str(unit.get("uid") or "unit_1")))
+    if not image_name:
+        return {"ok": False, "reason": "Krea 2 RAW NK2E Canny needs a Canny edge map.", "notes": [{"level": "error", "field": "assets.generated_maps", "message": "Build a Canny map from the control image or supply an existing edge map before generation."}]}
+
+    model_ref = _copy_ref(sampler_inputs.get("model"), ["1", 0])
+    positive_ref = _copy_ref(sampler_inputs.get("positive"), ["2", 0])
+    negative_ref = _copy_ref(sampler_inputs.get("negative"), ["3", 0])
+    vae_ref, vae_source = _resolve_krea2_vae_ref(graph)
+    if vae_ref is None:
+        return {"ok": False, "reason": "Krea 2 NK2E Canny could not find the active Krea2/Qwen VAE.", "notes": [{"level": "error", "field": "workflow.vae", "message": "VAEEncode must use the same active Krea2/Qwen image VAE as the base workflow."}]}
+
+    strength = float(unit.get("strength") if unit.get("strength") is not None else 0.70)
+    try:
+        next_id = int(str(next_node_id)) if next_node_id is not None else None
+    except (TypeError, ValueError):
+        next_id = None
+    created: list[str] = []
+
+    load_image_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(load_image_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[load_image_id] = {"class_type": "LoadImage", "inputs": {"image": image_name}}
+    created.append(load_image_id)
+
+    vae_encode_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(vae_encode_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[vae_encode_id] = {
+        "class_type": vae_encode_class,
+        "inputs": {"pixels": [load_image_id, 0], "vae": list(vae_ref)},
+    }
+    created.append(vae_encode_id)
+
+    set_reference_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(set_reference_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[set_reference_id] = {
+        "class_type": reference_class,
+        "inputs": {"conditioning": list(positive_ref), "reference": [vae_encode_id, 0]},
+    }
+    created.append(set_reference_id)
+
+    lora_id = _next_graph_id(graph, next_id)
+    try:
+        next_id = int(lora_id) + 1
+    except (TypeError, ValueError):
+        next_id = None
+    graph[lora_id] = {
+        "class_type": loader_class,
+        "inputs": {"model": list(model_ref), "lora_name": provider_model_name, "strength_model": strength},
+    }
+    created.append(lora_id)
+
+    model_node_id = _next_graph_id(graph, next_id)
+    graph[model_node_id] = {"class_type": model_class, "inputs": {"model": [lora_id, 0]}}
+    created.append(model_node_id)
+
+    graph[sampler_key]["inputs"]["model"] = [model_node_id, 0]
+    graph[sampler_key]["inputs"]["positive"] = [set_reference_id, 0]
+    graph[sampler_key]["inputs"]["negative"] = list(negative_ref)
+
+    applied = deepcopy(unit)
+    applied.update({
+        "adapter": "krea2_nk2e_canny",
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "control_image_source": image_name,
+        "vae_source": vae_source,
+        "reference_policy": "canny_map_vae_latent_to_nk2e_set_reference",
+    })
+    return {
+        "ok": True,
+        "adapter": "krea2_nk2e_canny",
+        "created_node_ids": created,
+        "applied_units": [applied],
+        "patched_model_ref": [model_node_id, 0],
+        "patched_positive_ref": [set_reference_id, 0],
+        "patched_negative_ref": list(negative_ref),
+        "control_image_source": image_name,
+        "control_lora": model_name,
+        "provider_control_lora": provider_model_name,
+        "catalog_binding": deepcopy(catalog_binding) if catalog_binding else None,
+        "model_compatibility": deepcopy(model_compatibility),
+        "control_strength": strength,
+        "vae_source": vae_source,
+        "conditioning_policy": "nk2e_in_context_reference_conditioning",
+        "reference_policy": "positive_conditioning_sets_global_nk2e_reference",
+        "notes": [{"level": "info", "field": "workflow.krea2_nk2e_canny", "message": "Krea 2 RAW Canny VAE-encoded the generated edge map, set it as the NK2E in-context reference on positive conditioning, applied the intent-bound Canny LoRA, and wrapped the sampler model through NK2EInContextModelNode."}],
+    }
+
+
 def apply_controlnet_patch(
     workflow: dict[str, Any],
     payload: dict[str, Any] | None = None,
@@ -1511,6 +2371,10 @@ def apply_controlnet_patch(
     units_for_method = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
     pose_transfer_units = [unit for unit in units_for_method if str(unit.get("pose_method") or "controlnet") == POSE_TRANSFER_METHOD]
     normal_control_units = [unit for unit in units_for_method if str(unit.get("pose_method") or "controlnet") != POSE_TRANSFER_METHOD]
+    capability_method = POSE_TRANSFER_METHOD if pose_transfer_units else ""
+    # Preserve the established Pose Transfer product guardrails before the generic
+    # family capability gate. Phase 2 must not replace clearer route/mixing errors
+    # with a generic capability message.
     if pose_transfer_units:
         if controlnet_task != TASK_MAP_CONTROL:
             return no_patch("Pose Transfer is an Img2Img/Edit reference workflow and cannot be combined with Inpaint/Outpaint ControlNet tasks.", asset_resolution=asset_resolution)
@@ -1518,6 +2382,67 @@ def apply_controlnet_patch(
             return no_patch("Use one Pose Transfer unit per generation. Multiple pose-transfer units are not supported in the same run.")
         if normal_control_units:
             return no_patch("Choose either Pose Transfer or ControlNet units for this run. Stacking both systems together is not enabled yet.")
+
+    if str(route_data.get("backend") or "").strip().lower() != "forge":
+        capability = resolve_route_capability(
+            family=route_data.get("family"),
+            loader=route_data.get("loader"),
+            mode=route_data.get("workflow_mode"),
+            task=controlnet_task,
+            backend=route_data.get("backend"),
+            method=capability_method,
+        )
+        if not capability.get("implemented") and not pose_transfer_units:
+            return no_patch(
+                "capability_gated: no implemented ControlNet adapter matches the active route",
+                extra_notes=[{
+                    "level": "error",
+                    "field": "capability.route",
+                    "message": "ControlNet workflow patching is blocked because the Phase 2 capability registry has no implemented adapter for this route.",
+                    "family": route_data.get("family"),
+                    "loader": route_data.get("loader"),
+                    "workflow_mode": route_data.get("workflow_mode"),
+                    "controlnet_task": controlnet_task,
+                    "method": capability_method,
+                }],
+                asset_resolution=asset_resolution,
+            )
+        allowed_intents = set(capability.get("implemented_intents") or []) if capability.get("implemented") else set()
+        if capability.get("implemented"):
+            invalid = []
+            for index, unit in enumerate(units_for_method):
+                intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+                if not intent and controlnet_task != TASK_MAP_CONTROL:
+                    continue
+                if intent not in allowed_intents:
+                    invalid.append({"index": index, "intent": intent or "(none)"})
+            if invalid:
+                return no_patch(
+                    "capability_gated: selected control type is not implemented for the active route",
+                    extra_notes=[{
+                        "level": "error",
+                        "field": "inputs.units",
+                        "message": "ControlNet workflow patching rejected a unit outside the family-aware capability registry.",
+                        "invalid_units": invalid,
+                        "allowed": sorted(allowed_intents),
+                    }],
+                    asset_resolution=asset_resolution,
+                )
+            max_units = capability.get("max_active_units")
+            if isinstance(max_units, int) and max_units > 0 and len(units_for_method) > max_units:
+                return no_patch(
+                    f"capability_gated: route supports at most {max_units} active ControlNet unit(s)",
+                    extra_notes=[{
+                        "level": "error",
+                        "field": "inputs.units",
+                        "message": "ControlNet workflow patching rejected too many active units for the resolved capability.",
+                        "max_units": max_units,
+                        "active_units": len(units_for_method),
+                    }],
+                    asset_resolution=asset_resolution,
+                )
+            route_data["capability"] = capability
+    if pose_transfer_units:
         if not sampler or sampler.get("class_type") != "KSampler":
             return no_patch("Pose Transfer could not find the active KSampler node.", extra_notes=[{"level": "error", "field": "workflow.sampler", "message": "Pose Transfer requires the active KSampler model and conditioning inputs."}])
         pose_status = node_status or inspect_nodes(available_nodes)
@@ -1573,6 +2498,85 @@ def apply_controlnet_patch(
         return no_patch("validation_failed: target KSampler node was not found", extra_notes=[{"level": "error", "field": "workflow.sampler", "message": "ControlNet patch requires a KSampler node with positive/negative inputs."}])
 
     status = _route_profiled_node_status(node_status or inspect_nodes(available_nodes), route_data, controlnet_task)
+
+    if _is_krea2_controlnet_route(route_data, controlnet_task):
+        krea_units = ((block.get("inputs") or {}).get("units") or []) if isinstance(block.get("inputs"), dict) else []
+        krea_intent = control_intent_from_unit(krea_units[0] if krea_units and isinstance(krea_units[0], dict) else {})
+        if krea_intent == "composition_silhouette":
+            krea_result = _apply_krea2_control_plus_patch(
+                graph, block=block, route_data=route_data, status=status, available_nodes=available_nodes,
+                sampler_key=sampler_key, sampler_inputs=sampler_inputs, next_node_id=next_node_id,
+            )
+            default_adapter = "krea2_control_plus"
+        elif krea_intent == "openpose":
+            krea_result = _apply_krea2_ostris_openpose_patch(
+                graph, block=block, route_data=route_data, status=status, available_nodes=available_nodes,
+                sampler_key=sampler_key, sampler_inputs=sampler_inputs, next_node_id=next_node_id,
+            )
+            default_adapter = "krea2_ostris_openpose"
+        elif krea_intent == "canny":
+            krea_result = _apply_krea2_nk2e_canny_patch(
+                graph, block=block, route_data=route_data, status=status, available_nodes=available_nodes,
+                sampler_key=sampler_key, sampler_inputs=sampler_inputs, next_node_id=next_node_id,
+            )
+            default_adapter = "krea2_nk2e_canny"
+        elif krea_intent == "depth":
+            krea_result = _apply_krea2_control_lora_patch(
+                graph, block=block, route_data=route_data, status=status, available_nodes=available_nodes,
+                sampler_key=sampler_key, sampler_inputs=sampler_inputs, next_node_id=next_node_id,
+            )
+            default_adapter = "krea2_control_lora"
+        else:
+            krea_result = {"ok": False, "reason": f"No Krea 2 execution adapter is implemented for control intent '{krea_intent}'.", "notes": [{"level": "error", "field": "inputs.units[0].unit", "message": "Select a Krea 2 control type exposed by the active capability registry."}]}
+            default_adapter = ""
+        adapter = str(krea_result.get("adapter") or default_adapter)
+        if not krea_result.get("ok"):
+            return no_patch(str(krea_result.get("reason") or "Krea 2 Control could not be applied."), status=status, extra_notes=krea_result.get("notes") or [])
+        patch = build_workflow_patch_summary(
+            route={**route_data, "adapter": adapter, "map_adapter": adapter, "control_image_source": krea_result.get("control_image_source")},
+            node_status=status,
+            applied_units=krea_result.get("applied_units") or [],
+            node_ids=krea_result.get("created_node_ids") or [],
+            previous_positive_ref=previous_positive_ref,
+            previous_negative_ref=previous_negative_ref,
+            patched_positive_ref=krea_result.get("patched_positive_ref") or previous_positive_ref,
+            patched_negative_ref=krea_result.get("patched_negative_ref") or previous_negative_ref,
+            sampler_node_id=sampler_key,
+            reason="patched",
+            applied=True,
+            controlnet_task=controlnet_task,
+        )
+        patch.update({
+            "adapter": adapter,
+            "control_intent": krea_intent,
+            "patched_model_ref": krea_result.get("patched_model_ref"),
+            "control_lora": krea_result.get("control_lora"),
+            "provider_control_lora": krea_result.get("provider_control_lora"),
+            "catalog_binding": deepcopy(krea_result.get("catalog_binding") or {}),
+            "model_compatibility": deepcopy(krea_result.get("model_compatibility") or {}),
+            "control_strength": krea_result.get("control_strength"),
+            "start_percent": krea_result.get("start_percent", 0.0),
+            "end_percent": krea_result.get("end_percent", 1.0),
+            "control_image_source": krea_result.get("control_image_source"),
+            "encode_policy": deepcopy(krea_result.get("encode_policy") or {}),
+            "vae_source": krea_result.get("vae_source"),
+            "clip_source": krea_result.get("clip_source"),
+            "ostris_kv_cache": krea_result.get("ostris_kv_cache"),
+            "max_units": 1,
+            "model_dir": "loras",
+            "conditioning_policy": krea_result.get("conditioning_policy") or "preserve_base_krea2_conditioning",
+            "reference_policy": krea_result.get("reference_policy"),
+        })
+        return {
+            "workflow": graph,
+            "validation": {"ok": True, "enabled": True, "block": block, "validation": notes + list(krea_result.get("notes") or []), "route": route_data, "node_status": status, "workflow_patch_allowed": True, "reason": "patched", "asset_resolution": {}},
+            "workflow_patch": patch,
+            "mutated": True,
+            "changed": True,
+            "extension_id": EXTENSION_ID,
+            "phase": ("KREA2_CONTROL_PHASE6_CANNY_NK2E" if adapter == "krea2_nk2e_canny" else ("KREA2_CONTROL_PHASE5_OPENPOSE_OSTRIS" if adapter == "krea2_ostris_openpose" else ("KREA2_CONTROL_PHASE4_COMPOSITION" if adapter == "krea2_control_plus" else "KREA2_CONTROL_PHASE1_DEPTH"))),
+            "route_state": route_data.get("controlnet_task_state") or route_data.get("route_state"),
+        }
 
     qwen_vae_ref: list[Any] | None = None
     qwen_vae_source = ""

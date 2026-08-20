@@ -2,7 +2,7 @@
   <header class="neo-scene-header neo-scene-editor-header">
     <div>
       <h3>Scene Director</h3>
-      <p class="neo-scene-editor-subtitle">Region-aware prompting and regional LoRA routing. The editor stays visible even when optional runtime capabilities are unavailable.</p>
+      <p class="neo-scene-editor-subtitle">Modern routes use Scene Director primarily for regional LoRA isolation; regional prompts are optional reinforcement. Classic SDXL keeps the full Scene Director feature set.</p>
     </div>
     <label class="neo-scene-editor-enable"><input type="checkbox" data-sd-field="enabled"> Enable</label>
   </header>
@@ -13,19 +13,19 @@
   </section>
 
   <section class="neo-scene-subsection neo-scene-editor-global">
-    <div class="neo-card-head"><h4>Global Context</h4><span class="neo-scene-editor-badge">SD-28.9</span></div>
+    <div class="neo-card-head"><h4>Global Context</h4><span class="neo-scene-editor-badge">IMG-SD3</span></div>
     <div class="neo-scene-core-prompts">
       <div><label>Global prompt<textarea data-sd-field="global_prompt" placeholder="Global scene, lighting, camera, shared style..."></textarea></label></div>
       <div><label>Global negative<textarea data-sd-field="global_negative" placeholder="Global exclusions for routes that support negative conditioning..."></textarea></label></div>
     </div>
     <div class="neo-scene-region-row">
-      <label>Prompt authority
+      <label data-sd-prompt-authority-control>Prompt authority
         <select data-sd-field="prompt_authority">
           <option value="global_context">Global context + regional prompts</option>
           <option value="scene_director_only">Scene Director only</option>
         </select>
       </label>
-      <label>Editor mode
+      <label data-sd-editor-mode-control>Editor mode
         <select data-sd-field="display_mode">
           <option value="guided">Guided</option>
           <option value="compact">Compact</option>
@@ -33,6 +33,24 @@
         </select>
       </label>
     </div>
+  </section>
+
+  <section class="neo-scene-subsection neo-scene-krea2-regional-settings" data-sd-krea2-regional-controls hidden>
+    <div class="neo-card-head"><h4>Krea 2 Regional Engine</h4><span class="neo-scene-editor-badge">External runtime</span></div>
+    <p class="neo-scene-editor-runtime-note">Scene Director uses <strong>ComfyUI-Krea2-Regional</strong> for Krea 2 regional prompt/LoRA ownership while Neo keeps the active native/GGUF loader, sampler, latent and decode path.</p>
+    <div class="neo-scene-region-row">
+      <label class="neo-scene-editor-field">Adaptive masks<select data-sd-krea2-field="adaptive_masks"><option value="off">Off</option><option value="refine boxes">Refine boxes</option><option value="free (ignore boxes)">Free / ignore boxes</option></select></label>
+      <label class="neo-scene-editor-field">Layout in base<select data-sd-krea2-field="layout_in_base"><option value="position hints">Position hints</option><option value="off">Off</option><option value="full JSON">Full JSON</option></select></label>
+    </div>
+    <div class="neo-scene-region-row">
+      <label class="neo-scene-editor-field">Region lock strength<input data-sd-krea2-field="region_lock_strength" type="number" min="0" max="1" step="0.05" value="0.4"></label>
+      <label class="neo-scene-editor-field">Restrict end<input data-sd-krea2-field="restrict_end_percent" type="number" min="0.05" max="1" step="0.05" value="0.5"></label>
+    </div>
+    <div class="neo-scene-region-flag-row">
+      <label><input data-sd-krea2-field="exclusive_masks" type="checkbox" checked> Exclusive masks</label>
+      <label><input data-sd-krea2-field="restrict_img_attn" type="checkbox"> Restrict image attention</label>
+    </div>
+    <p class="neo-scene-editor-runtime-note"><strong>Neo benchmark defaults:</strong> adaptive = refine boxes, exclusive masks = on, restrict image attention = off, region lock = 0.4. Restrict attention remains optional because it duplicated a subject in the validated GGUF benchmark.</p>
   </section>
 
   <section class="neo-scene-subsection">

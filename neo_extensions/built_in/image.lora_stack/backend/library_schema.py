@@ -131,9 +131,9 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
         base["remote_source"] = {}
     if not isinstance(base.get("field_sources"), dict):
         base["field_sources"] = {}
-    base["default_strength"] = max(-4.0, min(4.0, _float(base.get("default_strength"), 0.8)))
-    base["min_strength"] = max(-4.0, min(4.0, _float(base.get("min_strength"), 0.6)))
-    base["max_strength"] = max(-4.0, min(4.0, _float(base.get("max_strength"), 1.0)))
+    base["default_strength"] = _float(base.get("default_strength"), 0.8)
+    base["min_strength"] = _float(base.get("min_strength"), 0.6)
+    base["max_strength"] = _float(base.get("max_strength"), 1.0)
     if base["min_strength"] > base["max_strength"]:
         base["min_strength"], base["max_strength"] = base["max_strength"], base["min_strength"]
     base["provider_id"] = str(base.get("provider_id") or "").strip().casefold()

@@ -12,9 +12,13 @@
     const file = portable.split("/").pop() || portable;
     return file.replace(/\.(safetensors|ckpt|pt|pth|bin)$/i, "").toLowerCase();
   };
+  api.normalizeStrength = function normalizeStrength(value, fallback = 0.8) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  };
   api.forgeTag = function forgeTag(name, strength = 0.8) {
     const clean = api.identityKey(name);
-    const weight = Math.max(-4, Math.min(4, Number(strength ?? 0.8)));
+    const weight = api.normalizeStrength(strength, 0.8);
     return clean ? `<lora:${clean}:${Number(weight.toFixed(4))}>` : "";
   };
   api.cleanRows = function cleanRows(rows = []) {
@@ -24,7 +28,7 @@
         uid: String(row.uid || `lora_${index + 1}`),
         enabled: row.enabled !== false,
         name: api.portableName(row.name),
-        strength: Math.max(-4, Math.min(4, Number(row.strength ?? 0.8))),
+        strength: api.normalizeStrength(row.strength, 0.8),
         target: ["both", "base", "finish"].includes(row.target) ? row.target : "both",
         apply_to: row.apply_to || "global",
       };

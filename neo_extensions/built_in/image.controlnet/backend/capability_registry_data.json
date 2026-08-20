@@ -1,0 +1,1439 @@
+{
+  "schema_id": "neo.image.controlnet.capability_registry.v1",
+  "schema_version": 1,
+  "extension_id": "image.controlnet",
+  "phase": "Phase 6 — Krea 2 RAW Canny via NK2E",
+  "behavioral_activation": true,
+  "source_of_truth": {
+    "product_policy": "Only implemented family/route control intents may become normal UI choices. Krea 2 RAW routes Depth through native Krea Control, Composition / Silhouette through Krea2 Control Plus, and Canny through the NK2E in-context adapter. Krea 2 Turbo keeps Depth, Composition / Silhouette, and OpenPose through Ostris. Each intent owns its compatible live LoRA catalog and route-specific settings.",
+    "audit_inputs": [
+      "backend/route_profiles.py",
+      "backend/workflow_patch.py",
+      "backend/map_preprocessors.py",
+      "backend/node_discovery.py",
+      "ui/panel.html",
+      "ui/panel.js",
+      "neo_app/static/js/neo.js",
+      "extension_manifest.json",
+      "backend/capability_registry.py",
+      "backend/validation.py"
+    ]
+  },
+  "states": {
+    "implemented": "Neo owns an executable adapter for the intent on at least one declared route. Runtime node/model discovery may still gate a specific backend.",
+    "planned": "Architecture target is known but the Neo execution adapter is not active. Never expose in normal UI.",
+    "unsupported": "No current Neo product route. Never expose in normal UI."
+  },
+  "intents": {
+    "canny": {
+      "label": "Canny",
+      "default_preprocessor": "canny",
+      "preprocessors": [
+        "canny",
+        "none"
+      ],
+      "model_bindings": {
+        "krea2_nk2e_canny": {
+          "selection_kind": "control_lora",
+          "selector_label": "Control LoRA",
+          "catalog_source": "krea2_nk2e.lora_models",
+          "catalog_kind": "krea2_nk2e_canny_lora_live_enum",
+          "compatibility_mode": "filename_tokens",
+          "strict": true,
+          "required_all_tokens": [
+            "nk2e",
+            "canny"
+          ],
+          "required_any_tokens": [],
+          "exclude_tokens": [
+            "depth",
+            "openpose",
+            "pose",
+            "lineart",
+            "normal",
+            "normalbae",
+            "composition",
+            "silhouette",
+            "anythng"
+          ],
+          "empty_policy": "hide_intent_when_runtime_catalog_checked_and_no_compatible_models",
+          "notes": [
+            "Phase 6 binds Krea 2 RAW Canny to the live LoraLoaderModelOnly catalog used by ComfyUI-NK2E. The published ComfyUI checkpoint is NK2E-canny-v0.1.safetensors."
+          ]
+        }
+      }
+    },
+    "depth": {
+      "label": "Depth",
+      "default_preprocessor": "depth",
+      "preprocessors": [
+        "depth",
+        "none"
+      ],
+      "model_bindings": {
+        "krea2_native_control_lora": {
+          "selection_kind": "control_lora",
+          "selector_label": "Control LoRA",
+          "catalog_source": "krea2_control.lora_models",
+          "catalog_kind": "krea2_control_lora_live_enum",
+          "compatibility_mode": "filename_tokens",
+          "strict": true,
+          "required_all_tokens": [
+            "depth"
+          ],
+          "required_any_tokens": [
+            "control",
+            "controlnet"
+          ],
+          "exclude_tokens": [
+            "canny",
+            "openpose",
+            "pose",
+            "lineart",
+            "normal",
+            "normalbae",
+            "composition",
+            "silhouette",
+            "anythng",
+            "nk2e"
+          ],
+          "empty_policy": "show_intent_with_no_compatible_models",
+          "notes": [
+            "Krea2ControlLoRALoader publishes every LoRA in models/loras. Neo therefore filters the shared catalog and only exposes depth-control-like names for the currently implemented Krea Depth intent."
+          ]
+        }
+      }
+    },
+    "openpose": {
+      "label": "Pose",
+      "default_preprocessor": "openpose",
+      "preprocessors": [
+        "openpose",
+        "dwpose",
+        "none"
+      ],
+      "model_bindings": {
+        "krea2_ostris_openpose": {
+          "selection_kind": "control_lora",
+          "selector_label": "Control LoRA",
+          "catalog_source": "krea2_ostris.lora_models",
+          "catalog_kind": "krea2_ostris_pose_lora_live_enum",
+          "compatibility_mode": "filename_tokens",
+          "strict": true,
+          "required_all_tokens": [
+            "krea2",
+            "openpose"
+          ],
+          "required_any_tokens": [
+            "control",
+            "controlnet"
+          ],
+          "exclude_tokens": [
+            "depth",
+            "canny",
+            "lineart",
+            "normal",
+            "normalbae",
+            "composition",
+            "silhouette",
+            "anythng",
+            "nk2e"
+          ],
+          "empty_policy": "hide_intent_when_runtime_catalog_checked_and_no_compatible_models",
+          "notes": [
+            "Phase 5 binds Krea 2 Turbo OpenPose to the live LoraLoaderModelOnly catalog used by the Ostris edit workflow."
+          ]
+        }
+      }
+    },
+    "lineart": {
+      "label": "Lineart",
+      "default_preprocessor": "lineart",
+      "preprocessors": [
+        "lineart",
+        "none"
+      ]
+    },
+    "lineart_anime": {
+      "label": "Anime Lineart",
+      "default_preprocessor": "lineart_anime",
+      "preprocessors": [
+        "lineart_anime",
+        "none"
+      ]
+    },
+    "softedge": {
+      "label": "Soft Edge",
+      "default_preprocessor": "softedge",
+      "preprocessors": [
+        "softedge",
+        "none"
+      ]
+    },
+    "scribble": {
+      "label": "Scribble",
+      "default_preprocessor": "scribble",
+      "preprocessors": [
+        "scribble",
+        "none"
+      ]
+    },
+    "normalbae": {
+      "label": "Normal / NormalBae",
+      "default_preprocessor": "normalbae",
+      "preprocessors": [
+        "normalbae",
+        "none"
+      ]
+    },
+    "tile": {
+      "label": "Tile",
+      "default_preprocessor": "tile",
+      "preprocessors": [
+        "tile",
+        "none"
+      ]
+    },
+    "composition_silhouette": {
+      "label": "Composition / Silhouette",
+      "default_preprocessor": "none",
+      "preprocessors": [
+        "none"
+      ],
+      "model_bindings": {
+        "krea2_control_plus": {
+          "selection_kind": "control_lora",
+          "selector_label": "Control LoRA",
+          "catalog_source": "krea2_control_plus.lora_models",
+          "catalog_kind": "krea2_control_plus_lora_live_enum",
+          "compatibility_mode": "filename_tokens",
+          "strict": true,
+          "required_all_tokens": [
+            "krea2"
+          ],
+          "required_any_tokens": [
+            "anythng",
+            "silhouette",
+            "composition"
+          ],
+          "exclude_tokens": [
+            "depth",
+            "canny",
+            "openpose",
+            "pose",
+            "lineart",
+            "normal",
+            "normalbae",
+            "nk2e"
+          ],
+          "empty_policy": "show_intent_with_no_compatible_models",
+          "notes": [
+            "Krea2 Control Plus reads the shared models/loras catalog. Neo exposes only composition/silhouette-like Krea2 LoRAs for this intent; the public krea2-anythng checkpoint matches this contract."
+          ]
+        }
+      }
+    }
+  },
+  "families": {
+    "sdxl": {
+      "label": "SDXL",
+      "summary": "Standard checkpoint ControlNet is implemented for map control; inpaint/outpaint use SD-specific mask/canvas task adapters.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "inpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "sd_controlnet_apply",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "sd_checkpoint_mask_canvas_control",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "sd_checkpoint_mask_canvas_control",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": [
+        "map_control + outpaint remains an implementation target; use outpaint_control for the implemented SDXL outpaint lane."
+      ]
+    },
+    "sd15": {
+      "label": "SD 1.5",
+      "summary": "Checkpoint ControlNet has the same standard map/mask/canvas architecture as SDXL but remains experimental in Neo.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "inpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "sd_controlnet_apply",
+          "maturity": "experimental_available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "sd_checkpoint_mask_canvas_control",
+          "maturity": "experimental_available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "sd_checkpoint_mask_canvas_control",
+          "maturity": "experimental_available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "ControlNetLoader",
+            "ControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": [
+        "map_control + outpaint remains an implementation target; use outpaint_control for the experimental SD 1.5 outpaint lane."
+      ]
+    },
+    "flux": {
+      "label": "Flux.1",
+      "summary": "Flux component/safetensors and GGUF routes use Flux-specific loader/apply discovery for map control and the Alimama lane for inpaint/outpaint.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "flux1_controlnet",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "FluxControlNetLoader",
+            "FluxControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "flux_alimama_inpaint",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "FluxControlNetLoader",
+            "FluxControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "flux_alimama_canvas",
+          "maturity": "available",
+          "catalog_kind": "controlnet",
+          "required_node_roles": [
+            "FluxControlNetLoader",
+            "FluxControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": [
+        "Anime Lineart is not declared for Flux.1 route profiles and is not an implemented Flux intent."
+      ]
+    },
+    "flux2_klein": {
+      "label": "FLUX.2 Klein",
+      "summary": "Klein component/safetensors and GGUF routes use the Fun Union adapter lane.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "flux2_klein_fun_union_controlnet",
+          "maturity": "available",
+          "catalog_kind": "controlnet_or_model_patches",
+          "required_node_roles": [
+            "Flux2KleinControlNetLoader",
+            "Flux2KleinControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "flux2_fun_union_inpaint",
+          "maturity": "available",
+          "catalog_kind": "controlnet_or_model_patches",
+          "required_node_roles": [
+            "Flux2KleinControlNetLoader",
+            "Flux2KleinControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "flux2_fun_union_canvas",
+          "maturity": "available",
+          "catalog_kind": "controlnet_or_model_patches",
+          "required_node_roles": [
+            "Flux2KleinControlNetLoader",
+            "Flux2KleinControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": [
+        "Legacy route profiles mention mlsd and gray, but the current ControlNet Type UI and map preprocessor contract do not implement those intents; Phase 1 registry intentionally excludes them."
+      ]
+    },
+    "qwen_image": {
+      "label": "Qwen Image",
+      "summary": "Qwen map control uses InstantX/native-compatible loader/apply nodes; mask/canvas tasks use DiffSynth or InstantX according to live node discovery.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "qwen_instantx_or_standard_map_control",
+          "maturity": "available",
+          "catalog_kind": "live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenControlNetLoader",
+            "QwenControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_inpaint",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_canvas",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    "qwen_rapid_aio": {
+      "label": "Qwen Rapid AIO",
+      "summary": "Qwen map control uses InstantX/native-compatible loader/apply nodes; mask/canvas tasks use DiffSynth or InstantX according to live node discovery.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint_aio",
+            "gguf"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "qwen_instantx_or_standard_map_control",
+          "maturity": "available",
+          "catalog_kind": "live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenControlNetLoader",
+            "QwenControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint_aio",
+            "gguf"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_inpaint",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "checkpoint_aio",
+            "gguf"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_canvas",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    "qwen_image_edit_2509": {
+      "label": "Qwen Image Edit 2509",
+      "summary": "Qwen map control uses InstantX/native-compatible loader/apply nodes; mask/canvas tasks use DiffSynth or InstantX according to live node discovery.",
+      "implemented_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": null,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate",
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "qwen_instantx_or_standard_map_control",
+          "maturity": "available",
+          "catalog_kind": "live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenControlNetLoader",
+            "QwenControlNetApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "inpaint"
+          ],
+          "tasks": [
+            "inpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_inpaint",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "outpaint"
+          ],
+          "tasks": [
+            "outpaint_control"
+          ],
+          "adapter": "qwen_diffsynth_or_instantx_canvas",
+          "maturity": "available",
+          "catalog_kind": "model_patches_or_live_qwen_loader_enum",
+          "required_node_roles": [
+            "QwenDiffSynthOrInstantXApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent",
+            "fit_mode",
+            "detect_resolution"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    "qwen_image_edit_2511": {
+      "label": "Qwen Image Edit 2511",
+      "summary": "The ControlNet extension currently implements only its dedicated DWPose Pose Transfer method; generic map ControlNet is not promoted for this family.",
+      "implemented_intents": [
+        "openpose"
+      ],
+      "planned_intents": [],
+      "unsupported_intents": [],
+      "max_active_units": 1,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "qwen_2511_pose_transfer",
+          "maturity": "experimental_available",
+          "catalog_kind": "loras",
+          "required_node_roles": [
+            "DWPosePreprocessor",
+            "LoraLoaderModelOnly"
+          ],
+          "settings": [
+            "detect_resolution",
+            "pose_base_lora",
+            "pose_base_strength",
+            "pose_helper_lora",
+            "pose_helper_strength",
+            "pose_prompt_instruction"
+          ],
+          "method": "qwen_transfer"
+        }
+      ],
+      "notes": [
+        "Pose Transfer is mutually exclusive with normal ControlNet units in the same run.",
+        "Its map is generated from Image 2 and injected into Qwen Image 3; this is not standard ControlNet model application."
+      ]
+    },
+    "krea2": {
+      "label": "Krea 2 RAW",
+      "summary": "Krea 2 RAW Generate structural control exposes Depth, Composition / Silhouette, and Canny through three intent-specific adapters.",
+      "implemented_intents": [
+        "depth",
+        "composition_silhouette",
+        "canny"
+      ],
+      "planned_intents": [
+        "openpose"
+      ],
+      "unsupported_intents": [
+        "lineart",
+        "normalbae",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "tile"
+      ],
+      "max_active_units": 1,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "krea2_native_control_lora",
+          "maturity": "available",
+          "catalog_kind": "krea2_control_lora_live_enum",
+          "required_node_roles": [
+            "Krea2ControlLoRALoader",
+            "Krea2ControlImageEncode",
+            "Krea2ControlApply"
+          ],
+          "settings": [
+            "strength",
+            "detect_resolution"
+          ],
+          "intents": [
+            "depth"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "intents": [
+            "composition_silhouette"
+          ],
+          "adapter": "krea2_control_plus",
+          "maturity": "experimental_available",
+          "catalog_kind": "krea2_control_plus_lora_live_enum",
+          "required_node_roles": [
+            "Krea2ControlPlusLoRALoader",
+            "Krea2ControlPlusImageEncode",
+            "Krea2ControlPlusApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "intents": [
+            "canny"
+          ],
+          "adapter": "krea2_nk2e_canny",
+          "maturity": "experimental_available",
+          "catalog_kind": "krea2_nk2e_canny_lora_live_enum",
+          "required_node_roles": [
+            "NK2EInContextModelNode",
+            "NK2ESetReferenceNode",
+            "LoraLoaderModelOnly",
+            "VAEEncode"
+          ],
+          "settings": [
+            "strength",
+            "detect_resolution",
+            "canny_low",
+            "canny_high"
+          ]
+        }
+      ],
+      "notes": [
+        "Krea 2 remains single-unit only. Depth, Composition / Silhouette, and Canny are independent adapter choices and are not stacked in one generation.",
+        "Phase 6 Canny is qualified for Krea 2 RAW because the published NK2E repository declares krea/Krea-2-Raw as its base model. Turbo Canny stays hidden until a Turbo-compatible NK2E/Canny checkpoint is verified.",
+        "OpenPose remains hidden on Krea 2 RAW because the verified public OpenPose Control LoRA targets Krea 2 Turbo."
+      ]
+    },
+    "krea2_turbo": {
+      "label": "Krea 2 Turbo",
+      "summary": "Krea 2 Turbo Generate structural control exposes Depth, Composition / Silhouette, and OpenPose through three intent-specific adapters. Canny remains hidden because the verified NK2E Canny checkpoint targets Krea 2 RAW.",
+      "implemented_intents": [
+        "depth",
+        "composition_silhouette",
+        "openpose"
+      ],
+      "planned_intents": [
+        "canny"
+      ],
+      "unsupported_intents": [
+        "lineart",
+        "normalbae",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "tile"
+      ],
+      "max_active_units": 1,
+      "routes": [
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "adapter": "krea2_native_control_lora",
+          "maturity": "available",
+          "catalog_kind": "krea2_control_lora_live_enum",
+          "required_node_roles": [
+            "Krea2ControlLoRALoader",
+            "Krea2ControlImageEncode",
+            "Krea2ControlApply"
+          ],
+          "settings": [
+            "strength",
+            "detect_resolution"
+          ],
+          "intents": [
+            "depth"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "intents": [
+            "composition_silhouette"
+          ],
+          "adapter": "krea2_control_plus",
+          "maturity": "experimental_available",
+          "catalog_kind": "krea2_control_plus_lora_live_enum",
+          "required_node_roles": [
+            "Krea2ControlPlusLoRALoader",
+            "Krea2ControlPlusImageEncode",
+            "Krea2ControlPlusApply"
+          ],
+          "settings": [
+            "strength",
+            "start_percent",
+            "end_percent"
+          ]
+        },
+        {
+          "backends": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "loaders": [
+            "diffusion_model",
+            "gguf"
+          ],
+          "modes": [
+            "generate"
+          ],
+          "tasks": [
+            "map_control"
+          ],
+          "intents": [
+            "openpose"
+          ],
+          "adapter": "krea2_ostris_openpose",
+          "maturity": "experimental_available",
+          "catalog_kind": "krea2_ostris_pose_lora_live_enum",
+          "required_node_roles": [
+            "TextEncodeKrea2OstrisEdit",
+            "Krea2OstrisEditModelPatch",
+            "LoraLoaderModelOnly"
+          ],
+          "settings": [
+            "strength",
+            "detect_resolution",
+            "ostris_kv_cache"
+          ]
+        }
+      ],
+      "notes": [
+        "Krea 2 remains single-unit only. Depth, Composition / Silhouette, and OpenPose are independent adapter choices and are not stacked in one generation.",
+        "OpenPose uses the Ostris Krea 2 reference-conditioning path plus a model-only Krea2 Turbo OpenPose Control LoRA. The pose map is supplied through Neo’s existing control-image/generated-map asset boundary.",
+        "Phase 6 does not expose Canny on Turbo because the published NK2E model metadata declares Krea 2 RAW as its base."
+      ]
+    },
+    "z_image": {
+      "label": "Z-Image",
+      "summary": "ControlNet route profiles exist only as implementation targets; no ControlNet intent is product-supported yet.",
+      "implemented_intents": [],
+      "planned_intents": [],
+      "unsupported_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile",
+        "composition_silhouette"
+      ],
+      "max_active_units": null,
+      "routes": [],
+      "notes": []
+    },
+    "z_image_turbo": {
+      "label": "Z-Image Turbo",
+      "summary": "ControlNet route profiles exist only as implementation targets; no ControlNet intent is product-supported yet.",
+      "implemented_intents": [],
+      "planned_intents": [],
+      "unsupported_intents": [
+        "canny",
+        "depth",
+        "openpose",
+        "lineart",
+        "lineart_anime",
+        "softedge",
+        "scribble",
+        "normalbae",
+        "tile",
+        "composition_silhouette"
+      ],
+      "max_active_units": null,
+      "routes": [],
+      "notes": []
+    }
+  },
+  "ui_policy": {
+    "normal_visibility": [
+      "implemented"
+    ],
+    "planned_hidden": true,
+    "unsupported_hidden": true,
+    "runtime_missing_hidden": true,
+    "unknown_family_fallback": "empty",
+    "registry_is_not_yet_wired_to_frontend": false,
+    "selector_source": "backend_capability_registry",
+    "stale_selection_policy": "sanitize_to_first_implemented_intent_or_empty",
+    "submit_policy": "fail_closed_on_unimplemented_intent",
+    "model_selector_source": "resolved_intent_binding",
+    "shared_lora_catalog_policy": "strict_filter_before_control_selector",
+    "stale_model_policy": "clear_when_runtime_catalog_is_checked_and_selection_is_incompatible",
+    "type_change_model_policy": "clear_model_selection_and_require_rebind",
+    "normal_lora_stack_independent": true,
+    "submit_model_policy": "fail_closed_on_strict_intent_binding_mismatch"
+  },
+  "audit_findings": [
+    {
+      "id": "krea_legacy_broad_list",
+      "severity": "important",
+      "finding": "Krea UI currently narrows the generic list to canny/depth/openpose/lineart/normalbae and route profiles declare the same broad set, but only Depth is current Neo product capability under the Phase 0 policy.",
+      "resolution": "Registry truth is Depth implemented; Composition/OpenPose/Canny planned; all other Krea intents hidden/unsupported until dedicated adapters ship."
+    },
+    {
+      "id": "flux2_mlsd_gray_declaration_gap",
+      "severity": "important",
+      "finding": "Flux2/Klein route profiles list mlsd and gray, while the current ControlNet Type UI and map preprocessor contract do not expose/implement those intents.",
+      "resolution": "Registry excludes mlsd and gray from implemented intents."
+    },
+    {
+      "id": "qwen2511_special_lane",
+      "severity": "important",
+      "finding": "Qwen Image Edit 2511 Pose Transfer is implemented in workflow_patch.py but does not belong to the standard route-profile ControlNet family matrix.",
+      "resolution": "Registry records OpenPose/Pose Transfer as a dedicated experimental capability with qwen_transfer method."
+    },
+    {
+      "id": "sdxl_outpaint_task_split",
+      "severity": "important",
+      "finding": "SDXL map_control+outpaint is not promoted, while outpaint_control uses a dedicated SD mask/canvas adapter and is available.",
+      "resolution": "Registry keeps task capability separate from map intent visibility."
+    },
+    {
+      "id": "preprocessor_not_capability",
+      "severity": "policy",
+      "finding": "Map preprocessors are intentionally architecture-independent and can exist for types a model family cannot execute.",
+      "resolution": "Registry capability is family/route/adapter-owned; preprocessor availability is only a runtime dependency."
+    },
+    {
+      "id": "krea_shared_lora_catalog_leak",
+      "severity": "important",
+      "finding": "Krea2ControlLoRALoader exposes the full models/loras enum, so ordinary style/character LoRAs and control LoRAs for other Krea workflows can appear beside the validated Depth Control LoRA unless Neo applies an intent binding.",
+      "resolution": "Phase 3 binds Krea Depth to the krea2_native_control_lora adapter and filters the live shared LoRA enum by a strict depth-control filename token contract before UI exposure and submit/workflow validation."
+    },
+    {
+      "id": "phase4_krea2_composition_control_plus",
+      "finding": "Krea 2 Composition / Silhouette is now an implemented intent with an intent-specific Krea2 Control Plus adapter. Runtime visibility is gated by the Plus node trio and compatible shared-LoRA catalog."
+    },
+    {
+      "id": "phase5_krea2_turbo_openpose_ostris",
+      "severity": "info",
+      "finding": "Krea 2 Turbo OpenPose is implemented only through the Ostris edit adapter and remains hidden for Krea 2 RAW until a RAW-compatible pose LoRA is verified."
+    }
+  ]
+}

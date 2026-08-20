@@ -91,6 +91,23 @@ Z_IMAGE_FUN_UNION_APPLY_CANDIDATES = (
     "ControlNetApplyAdvanced",
 )
 
+KREA2_CONTROL_LORA_LOADER_CANDIDATES = ("Krea2ControlLoRALoader",)
+KREA2_CONTROL_IMAGE_ENCODE_CANDIDATES = ("Krea2ControlImageEncode",)
+KREA2_CONTROL_APPLY_CANDIDATES = ("Krea2ControlApply",)
+
+KREA2_CONTROL_PLUS_LORA_LOADER_CANDIDATES = ("Krea2ControlPlusLoRALoader",)
+KREA2_CONTROL_PLUS_IMAGE_ENCODE_CANDIDATES = ("Krea2ControlPlusImageEncode",)
+KREA2_CONTROL_PLUS_APPLY_CANDIDATES = ("Krea2ControlPlusApply",)
+
+KREA2_OSTRIS_TEXT_ENCODE_CANDIDATES = ("TextEncodeKrea2OstrisEdit",)
+KREA2_OSTRIS_MODEL_PATCH_CANDIDATES = ("Krea2OstrisEditModelPatch",)
+KREA2_OSTRIS_LORA_LOADER_CANDIDATES = ("LoraLoaderModelOnly",)
+
+KREA2_NK2E_MODEL_CANDIDATES = ("NK2EInContextModelNode",)
+KREA2_NK2E_SET_REFERENCE_CANDIDATES = ("NK2ESetReferenceNode",)
+KREA2_NK2E_LORA_LOADER_CANDIDATES = ("LoraLoaderModelOnly",)
+KREA2_NK2E_VAE_ENCODE_CANDIDATES = ("VAEEncode",)
+
 PREPROCESSOR_CANDIDATES: dict[str, tuple[str, ...]] = {
     "canny": ("CannyEdgePreprocessor", "CannyPreprocessor"),
     "softedge": ("HEDPreprocessor", "HEDPreprocessor_safe", "PiDiNetPreprocessor", "PiDiNetPreprocessor_safe", "TEEDPreprocessor"),
@@ -299,6 +316,8 @@ def _first_present(names: set[str], candidates: tuple[str, ...]) -> str | None:
 def resolve_preprocessor_group(preprocessor: str | None, *, unit: str | None = None) -> str:
     raw = str(preprocessor or unit or "").strip().lower()
     raw = raw.replace(" ", "_")
+    if raw == "none":
+        return "none"
     if raw in PREPROCESSOR_CANDIDATES:
         return raw
     if raw in PREPROCESSOR_ALIASES:
@@ -313,6 +332,8 @@ def resolve_preprocessor_group(preprocessor: str | None, *, unit: str | None = N
 
 def preprocessor_status(preprocessor: str | None, node_status: Mapping[str, Any], *, unit: str | None = None) -> dict[str, Any]:
     group = resolve_preprocessor_group(preprocessor, unit=unit)
+    if group == "none":
+        return {"group": "none", "state": AVAILABLE, "backend": "direct_image", "node": None, "reason": "No map preprocessor is required; use the attached control image directly."}
     if group not in PREPROCESSOR_CANDIDATES:
         return {"group": group, "state": UNSUPPORTED, "node": None, "reason": "Unknown ControlNet preprocessor group."}
     nodes = ((node_status.get("preprocessors") or {}).get(group) or []) if isinstance(node_status.get("preprocessors"), Mapping) else []
@@ -458,6 +479,19 @@ def inspect_nodes(
     flux2_klein_apply = _first_present(names, FLUX2_KLEIN_FUN_UNION_APPLY_CANDIDATES) or flux_apply
     z_image_patch_loader = _first_present(names, Z_IMAGE_FUN_UNION_PATCH_LOADER_CANDIDATES)
     z_image_apply = _first_present(names, Z_IMAGE_FUN_UNION_APPLY_CANDIDATES) or advanced or standard_apply
+    krea2_control_lora_loader = _first_present(names, KREA2_CONTROL_LORA_LOADER_CANDIDATES)
+    krea2_control_image_encode = _first_present(names, KREA2_CONTROL_IMAGE_ENCODE_CANDIDATES)
+    krea2_control_apply = _first_present(names, KREA2_CONTROL_APPLY_CANDIDATES)
+    krea2_control_plus_lora_loader = _first_present(names, KREA2_CONTROL_PLUS_LORA_LOADER_CANDIDATES)
+    krea2_control_plus_image_encode = _first_present(names, KREA2_CONTROL_PLUS_IMAGE_ENCODE_CANDIDATES)
+    krea2_control_plus_apply = _first_present(names, KREA2_CONTROL_PLUS_APPLY_CANDIDATES)
+    krea2_ostris_text_encode = _first_present(names, KREA2_OSTRIS_TEXT_ENCODE_CANDIDATES)
+    krea2_ostris_model_patch = _first_present(names, KREA2_OSTRIS_MODEL_PATCH_CANDIDATES)
+    krea2_ostris_lora_loader = _first_present(names, KREA2_OSTRIS_LORA_LOADER_CANDIDATES)
+    krea2_nk2e_model = _first_present(names, KREA2_NK2E_MODEL_CANDIDATES)
+    krea2_nk2e_set_reference = _first_present(names, KREA2_NK2E_SET_REFERENCE_CANDIDATES)
+    krea2_nk2e_lora_loader = _first_present(names, KREA2_NK2E_LORA_LOADER_CANDIDATES)
+    krea2_nk2e_vae_encode = _first_present(names, KREA2_NK2E_VAE_ENCODE_CANDIDATES)
     apply_node = advanced or standard_apply
     missing_base: list[str] = []
     if loader is None:
@@ -477,6 +511,18 @@ def inspect_nodes(
     live_model_inputs = _model_options(object_info, loader)
     model_catalog = discover_controlnet_model_catalog(backend_details)
     model_inputs = _merge_controlnet_model_inputs(live_model_inputs, list(model_catalog.get("models") or []))
+    krea2_loader_inputs = _node_inputs(object_info, krea2_control_lora_loader)
+    krea2_loader_merged = {**krea2_loader_inputs.get("optional", {}), **krea2_loader_inputs.get("required", {})}
+    krea2_control_loras = _dedupe_model_names(_extract_option_list(krea2_loader_merged.get("lora_name")))
+    krea2_plus_loader_inputs = _node_inputs(object_info, krea2_control_plus_lora_loader)
+    krea2_plus_loader_merged = {**krea2_plus_loader_inputs.get("optional", {}), **krea2_plus_loader_inputs.get("required", {})}
+    krea2_control_plus_loras = _dedupe_model_names(_extract_option_list(krea2_plus_loader_merged.get("lora_name")))
+    krea2_ostris_lora_inputs = _node_inputs(object_info, krea2_ostris_lora_loader)
+    krea2_ostris_lora_merged = {**krea2_ostris_lora_inputs.get("optional", {}), **krea2_ostris_lora_inputs.get("required", {})}
+    krea2_ostris_loras = _dedupe_model_names(_extract_option_list(krea2_ostris_lora_merged.get("lora_name")))
+    krea2_nk2e_lora_inputs = _node_inputs(object_info, krea2_nk2e_lora_loader)
+    krea2_nk2e_lora_merged = {**krea2_nk2e_lora_inputs.get("optional", {}), **krea2_nk2e_lora_inputs.get("required", {})}
+    krea2_nk2e_loras = _dedupe_model_names(_extract_option_list(krea2_nk2e_lora_merged.get("lora_name")))
 
     return {
         "base_available": not missing_base,
@@ -512,6 +558,19 @@ def inspect_nodes(
             "flux2_klein_apply": _schema_for_node(object_info, flux2_klein_apply),
             "z_image_patch_loader": _schema_for_node(object_info, z_image_patch_loader),
             "z_image_apply": _schema_for_node(object_info, z_image_apply),
+            "krea2_control_lora_loader": _schema_for_node(object_info, krea2_control_lora_loader),
+            "krea2_control_image_encode": _schema_for_node(object_info, krea2_control_image_encode),
+            "krea2_control_apply": _schema_for_node(object_info, krea2_control_apply),
+            "krea2_control_plus_lora_loader": _schema_for_node(object_info, krea2_control_plus_lora_loader),
+            "krea2_control_plus_image_encode": _schema_for_node(object_info, krea2_control_plus_image_encode),
+            "krea2_control_plus_apply": _schema_for_node(object_info, krea2_control_plus_apply),
+            "krea2_ostris_text_encode": _schema_for_node(object_info, krea2_ostris_text_encode),
+            "krea2_ostris_model_patch": _schema_for_node(object_info, krea2_ostris_model_patch),
+            "krea2_ostris_lora_loader": _schema_for_node(object_info, krea2_ostris_lora_loader),
+            "krea2_nk2e_model": _schema_for_node(object_info, krea2_nk2e_model),
+            "krea2_nk2e_set_reference": _schema_for_node(object_info, krea2_nk2e_set_reference),
+            "krea2_nk2e_lora_loader": _schema_for_node(object_info, krea2_nk2e_lora_loader),
+            "krea2_nk2e_vae_encode": _schema_for_node(object_info, krea2_nk2e_vae_encode),
         },
         "flux": {
             "loader_node": flux_loader,
@@ -536,6 +595,82 @@ def inspect_nodes(
             "apply_node": z_image_apply,
             "available": bool(z_image_patch_loader and z_image_apply),
             "model_dir": "model_patches",
+        },
+        "krea2_control": {
+            "loader_node": krea2_control_lora_loader,
+            "image_encode_node": krea2_control_image_encode,
+            "apply_node": krea2_control_apply,
+            "available": bool(krea2_control_lora_loader and krea2_control_image_encode and krea2_control_apply),
+            "lora_models": krea2_control_loras,
+            "model_dir": "loras",
+            "max_units": 1,
+            "missing": [
+                label
+                for present, label in (
+                    (krea2_control_lora_loader, "Krea2ControlLoRALoader"),
+                    (krea2_control_image_encode, "Krea2ControlImageEncode"),
+                    (krea2_control_apply, "Krea2ControlApply"),
+                )
+                if not present
+            ],
+        },
+        "krea2_control_plus": {
+            "loader_node": krea2_control_plus_lora_loader,
+            "image_encode_node": krea2_control_plus_image_encode,
+            "apply_node": krea2_control_plus_apply,
+            "available": bool(krea2_control_plus_lora_loader and krea2_control_plus_image_encode and krea2_control_plus_apply),
+            "lora_models": krea2_control_plus_loras,
+            "model_dir": "loras",
+            "max_units": 1,
+            "supports_start_end": True,
+            "missing": [
+                label
+                for present, label in (
+                    (krea2_control_plus_lora_loader, "Krea2ControlPlusLoRALoader"),
+                    (krea2_control_plus_image_encode, "Krea2ControlPlusImageEncode"),
+                    (krea2_control_plus_apply, "Krea2ControlPlusApply"),
+                )
+                if not present
+            ],
+        },
+        "krea2_ostris": {
+            "text_encode_node": krea2_ostris_text_encode,
+            "model_patch_node": krea2_ostris_model_patch,
+            "lora_loader_node": krea2_ostris_lora_loader,
+            "available": bool(krea2_ostris_text_encode and krea2_ostris_model_patch and krea2_ostris_lora_loader),
+            "lora_models": krea2_ostris_loras,
+            "model_dir": "loras",
+            "max_units": 1,
+            "supports_kv_cache": True,
+            "missing": [
+                label
+                for present, label in (
+                    (krea2_ostris_text_encode, "TextEncodeKrea2OstrisEdit"),
+                    (krea2_ostris_model_patch, "Krea2OstrisEditModelPatch"),
+                    (krea2_ostris_lora_loader, "LoraLoaderModelOnly"),
+                )
+                if not present
+            ],
+        },
+        "krea2_nk2e": {
+            "model_node": krea2_nk2e_model,
+            "set_reference_node": krea2_nk2e_set_reference,
+            "lora_loader_node": krea2_nk2e_lora_loader,
+            "vae_encode_node": krea2_nk2e_vae_encode,
+            "available": bool(krea2_nk2e_model and krea2_nk2e_set_reference and krea2_nk2e_lora_loader and krea2_nk2e_vae_encode),
+            "lora_models": krea2_nk2e_loras,
+            "model_dir": "loras",
+            "max_units": 1,
+            "missing": [
+                label
+                for present, label in (
+                    (krea2_nk2e_model, "NK2EInContextModelNode"),
+                    (krea2_nk2e_set_reference, "NK2ESetReferenceNode"),
+                    (krea2_nk2e_lora_loader, "LoraLoaderModelOnly"),
+                    (krea2_nk2e_vae_encode, "VAEEncode"),
+                )
+                if not present
+            ],
         },
         "missing": missing_base,
         "provider_gated": bool(missing_base),

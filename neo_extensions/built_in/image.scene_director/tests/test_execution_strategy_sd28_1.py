@@ -79,18 +79,20 @@ def test_sd28_6_promotes_all_modern_lightweight_families():
         assert strategy["execution_enabled"] is True
         assert strategy["workflow_patch_ready"] is True
         assert strategy["regional_prompt"]["supported"] is True
-        assert strategy["regional_prompt"]["mode"] == "masked_conditioning"
+        expected_prompt_mode = "krea2_regional_external" if family in {"krea2", "krea2_turbo"} else "masked_conditioning"
+        assert strategy["regional_prompt"]["mode"] == expected_prompt_mode
         assert strategy["status"] == "active"
         assert strategy["regional_prompt"]["implementation_state"] == "active"
         assert strategy["regional_lora"]["supported"] is True
         expected_mode = (
             "flux2_klein_activation_delta_v1" if family == "flux2_klein"
             else "z_image_activation_delta_v1" if family in {"z_image", "z_image_turbo"}
-            else "krea2_activation_delta_v2"
+            else "krea2_regional_external"
         )
         assert strategy["regional_lora"]["mode"] == expected_mode
         assert strategy["regional_lora"]["implementation_state"] == "active"
-        assert strategy["regional_lora"]["required_node"] == "NeoRegionalLoRADelta"
+        expected_node = "Krea2ApplyRegional" if family in {"krea2", "krea2_turbo"} else "NeoRegionalLoRADelta"
+        assert strategy["regional_lora"]["required_node"] == expected_node
         assert strategy["sampler_policy"]["single_sampler_required"] is True
         assert strategy["repair_policy"]["heavy_sd_repairs_allowed"] is False
         assert strategy["fallback_policy"] == "never_fallback_to_classic_v054"
@@ -143,10 +145,14 @@ def test_existing_sd15_support_state_is_unchanged():
 
 def test_lightweight_readiness_does_not_require_v054_node():
     route = {"backend": "comfyui", "family": "krea2", "loader": "diffusion_model", "mode": "generate"}
-    ready = node_decision.workflow_readiness(route=route, available_nodes=CORE, enabled=True)
+    ready = node_decision.workflow_readiness(
+        route=route,
+        available_nodes=CORE | {"Krea2RegionalBuilder", "Krea2ApplyRegional"},
+        enabled=True,
+    )
     assert ready["workflow_patch_allowed"] is True
     assert ready["node_status"]["custom_scene_director_node_required"] is False
-    assert ready["node_status"]["selected_node"] == "ComfyBuiltInMaskedRegionalConditioning"
+    assert ready["node_status"]["selected_node"] == "Krea2ApplyRegional"
 
 
 def test_classic_readiness_still_requires_v054():
@@ -165,7 +171,7 @@ def test_regional_lora_runtime_proof_contract_is_krea2_armed_but_not_gpu_proven(
         canvas={"width": 1024, "height": 1024},
     )
     assert contract["execution_enabled"] is True
-    assert contract["adapter"]["adapter"] == "krea2_activation_delta_v2"
+    assert contract["adapter"]["adapter"] == "krea2_activation_delta_v3_strict_isolation"
     assert contract["runtime_gpu_proven"] is False
     assert contract["global_model_mutation_allowed"] is False
     proof = {

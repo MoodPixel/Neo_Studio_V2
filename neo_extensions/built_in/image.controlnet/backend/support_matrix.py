@@ -37,7 +37,7 @@ TASK_LABELS = {
 }
 
 BACKENDS = ("comfyui", "comfyui_portable")
-FAMILIES = ("sdxl", "sd15", "flux", "flux2_klein", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "z_image_turbo", "hidream", "wan_image", "hunyuan_image")
+FAMILIES = ("sdxl", "sd15", "flux", "flux2_klein", "krea2", "krea2_turbo", "qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "z_image", "z_image_turbo", "hidream", "wan_image", "hunyuan_image")
 LOADERS = ("checkpoint", "checkpoint_aio", "diffusion_model", "gguf", "native")
 MODES = ("generate", "img2img", "edit", "inpaint", "outpaint")
 
@@ -182,6 +182,7 @@ def support_summary() -> dict[str, Any]:
     return {
         "extension_id": EXTENSION_ID,
         "phase": "P9.3-controlnet-flux-klein-enablement",
+        "feature_phase": "krea2-control-phase1-generate-enablement",
         "route_count": len(route_states),
         "task_route_count": len(task_states),
         "route_state_counts": dict(Counter(route_states)),

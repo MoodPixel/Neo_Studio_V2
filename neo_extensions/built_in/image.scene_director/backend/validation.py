@@ -98,7 +98,7 @@ def validate_scene_director_payload(
         errors.append(_message(
             "error",
             "inputs.regions",
-            "Scene Director is enabled but has no active regions. Add a visible enabled region with a prompt or identity/reference before generation.",
+            "Scene Director is enabled but has no active regions. Add a visible enabled region with a regional LoRA assignment, prompt, or identity/reference before generation.",
             "no_active_regions",
         ))
 
@@ -138,7 +138,7 @@ def validate_scene_director_payload(
         infos.append(_message(
             "info",
             "execution_strategy",
-            "SD-28.7 release-locks Krea2 RAW/Turbo, FLUX.2 Klein, and Z-Image Base/Turbo lightweight support: masked regional conditioning plus at most one family-specific NeoRegionalLoRADelta wrapper, preserving the existing sampler and requiring per-run regional-LoRA proof.",
+            "IMG-SD3 routes Krea2 RAW/Turbo through external ComfyUI-Krea2-Regional Builder/Apply ownership while FLUX.2 Klein and Z-Image retain NeoRegionalLoRADelta; all modern routes preserve the provider sampler and require per-run regional-LoRA proof.",
             "lightweight_regional_prompt_engine",
         ))
 

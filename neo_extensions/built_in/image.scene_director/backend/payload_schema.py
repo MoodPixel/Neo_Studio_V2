@@ -149,6 +149,7 @@ def _appearance_lock_params(raw: dict[str, Any], character_lock: dict[str, Any],
 
 DEFAULT_CONTRACTS = {
     "enabled": True,
+    "strict_cast_control": False,
     "use_node_auto_prompts": False,
     "count_contract": "exactly {count} visible subjects, one complete subject per character region, every assigned character region occupied",
     "subject_contract": "exactly one complete visible subject inside this assigned region, separate from neighboring subjects",
@@ -384,8 +385,24 @@ def normalize_region(region: dict[str, Any] | None, index: int = 0) -> dict[str,
     }
 
 
+def _has_regional_lora_route(region: dict[str, Any]) -> bool:
+    routes = region.get("extension_routes") if isinstance(region.get("extension_routes"), dict) else {}
+    row_ids = routes.get("lora_row_ids")
+    if isinstance(row_ids, (list, tuple, set)) and any(_text(item) for item in row_ids):
+        return True
+    if _text(routes.get("lora_row_id") or routes.get("lora")):
+        return True
+    return bool(region.get("lora"))
+
+
 def _is_active_region(region: dict[str, Any]) -> bool:
-    return bool(region.get("enabled") and region.get("visible") and (_text(region.get("prompt")) or _has_identity_reference(region)))
+    # IMG-SD2: on modern routes a region can exist solely to isolate an assigned
+    # LoRA.  A regional prompt or identity/reference is optional reinforcement.
+    return bool(
+        region.get("enabled")
+        and region.get("visible")
+        and (_text(region.get("prompt")) or _has_identity_reference(region) or _has_regional_lora_route(region))
+    )
 
 
 def active_regions(block: dict[str, Any]) -> list[dict[str, Any]]:
@@ -530,6 +547,7 @@ def _contracts(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(raw, dict):
         merged.update({key: raw[key] for key in DEFAULT_CONTRACTS if key in raw})
     merged["enabled"] = raw.get("enabled", merged["enabled"]) is not False if isinstance(raw, dict) else True
+    merged["strict_cast_control"] = bool(merged.get("strict_cast_control"))
     merged["use_node_auto_prompts"] = bool(merged.get("use_node_auto_prompts"))
     return merged
 
@@ -541,6 +559,16 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
     identity_strength = _clamp_float(raw.get("identity_strength") if raw.get("identity_strength") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("gain") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_gain")), 0.55, 0.0, 1.0)
     mask_feather = _clamp_int(raw.get("mask_feather") if raw.get("mask_feather") is not None else ((raw.get("appearance_lock") if isinstance(raw.get("appearance_lock"), dict) else {}).get("feather") if isinstance(raw.get("appearance_lock"), dict) else raw.get("appearance_lock_feather")), 18, 0, 128)
     first_pass_lock = raw.get("first_pass_character_lock_authority") if isinstance(raw.get("first_pass_character_lock_authority"), dict) else {}
+    krea2_regional = raw.get("krea2_regional") if isinstance(raw.get("krea2_regional"), dict) else {}
+    adaptive_masks = _text(krea2_regional.get("adaptive_masks") or "refine boxes")
+    if adaptive_masks not in {"off", "refine boxes", "free (ignore boxes)"}:
+        adaptive_masks = "refine boxes"
+    layout_in_base = _text(krea2_regional.get("layout_in_base") or "position hints")
+    if layout_in_base not in {"off", "position hints", "full JSON"}:
+        layout_in_base = "position hints"
+    unmaskable_layers = _text(krea2_regional.get("unmaskable_layers") or "skip")
+    if unmaskable_layers not in {"skip", "apply globally"}:
+        unmaskable_layers = "skip"
     scene_mode = _scene_mode(raw, character_lock)
     basic_mode = scene_mode == "basic"
     character_lock_active = (not basic_mode) and character_lock.get("character") != "off"
@@ -572,6 +600,22 @@ def _params(raw: dict[str, Any]) -> dict[str, Any]:
         "mask_refine": {
             "enabled": bool(mask_refine.get("enabled") or raw.get("mask_refine_enabled")),
             "mode": _text(mask_refine.get("mode") or raw.get("mask_refine_mode") or "auto"),
+        },
+        "krea2_regional": {
+            "adaptive_masks": adaptive_masks,
+            "exclusive_masks": krea2_regional.get("exclusive_masks", True) is not False,
+            "restrict_img_attn": bool(krea2_regional.get("restrict_img_attn", False)),
+            "restrict_end_percent": _clamp_float(krea2_regional.get("restrict_end_percent"), 0.5, 0.0, 1.0),
+            "adaptive_steps": _clamp_int(krea2_regional.get("adaptive_steps"), 2, 0, 20),
+            "adaptive_threshold": _clamp_float(krea2_regional.get("adaptive_threshold"), 0.45, 0.0, 1.0),
+            "base_loras_exclude_regions": bool(krea2_regional.get("base_loras_exclude_regions", False)),
+            "region_lock_strength": _clamp_float(krea2_regional.get("region_lock_strength"), 0.4, 0.0, 2.0),
+            "region_lock_start": _clamp_float(krea2_regional.get("region_lock_start"), 0.35, 0.0, 1.0),
+            "region_lock_end": _clamp_float(krea2_regional.get("region_lock_end"), 0.85, 0.0, 1.0),
+            "layout_in_base": layout_in_base,
+            "unmaskable_layers": unmaskable_layers,
+            "grow_px": _clamp_int(krea2_regional.get("grow_px"), 0, -512, 512),
+            "feather_px": _clamp_int(krea2_regional.get("feather_px"), 0, 0, 512),
         },
         "scene_mode": scene_mode,
         "scene_director_scene_mode": scene_mode,

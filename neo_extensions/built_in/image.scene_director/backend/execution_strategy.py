@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 EXECUTION_STRATEGY_PHASE = "SD-28.7"
-EXECUTION_STRATEGY_SCHEMA = "neo.image.scene_director.execution_strategy.v7"
+EXECUTION_STRATEGY_SCHEMA = "neo.image.scene_director.execution_strategy.v8"
 PUBLIC_NODE_CLASS = "NeoSceneDirectorV054"
 REGIONAL_LORA_NODE_CLASS = "NeoRegionalLoRADelta"
 
@@ -251,7 +251,12 @@ def _modern_lightweight_strategy(route: dict[str, str]) -> dict[str, Any]:
     mode_ready = mode in SUPPORTED_EXECUTION_MODES
     executable = bool(loader_ready and mode_ready)
     required_nodes = list(LIGHTWEIGHT_CORE_NODES)
-    if family == "flux2_klein":
+    if family in {"krea2", "krea2_turbo"}:
+        # IMG-SD3: Krea 2 no longer uses NeoRegionalLoRADelta as its default
+        # modern isolation engine.  Scene Director compiles through the tested
+        # external ComfyUI-Krea2-Regional runtime instead.
+        required_nodes = ["Krea2RegionalBuilder", "Krea2ApplyRegional", "ConditioningZeroOut"]
+    elif family == "flux2_klein":
         required_nodes.append("FluxGuidance")
 
     krea2_full = bool(executable and family in {"krea2", "krea2_turbo"})
@@ -268,7 +273,7 @@ def _modern_lightweight_strategy(route: dict[str, str]) -> dict[str, Any]:
         "required_comfy_nodes": required_nodes if executable else [],
         "reason": (
             (
-                (f"{family} uses the SD-28.4 Krea2 full-support lightweight engine: masked regional prompts and model-side regional LoRA are enabled with one sampler and per-run runtime proof."
+                (f"{family} uses IMG-SD3 Krea2 Regional Engine Integration: Neo keeps its provider-owned loader/sampler/latent path while Scene Director delegates Krea regional prompt + LoRA ownership to external ComfyUI-Krea2-Regional (Krea2RegionalBuilder → Krea2ApplyRegional), with one sampler and fail-closed runtime proof."
                  if krea2_full else
                  "FLUX.2 Klein uses the SD-28.5 full lightweight engine: FluxGuidance-aware masked regional prompts plus a family-specific model-side regional LoRA activation-delta adapter, with one sampler and per-run runtime proof."
                  if klein_full else
@@ -282,23 +287,37 @@ def _modern_lightweight_strategy(route: dict[str, str]) -> dict[str, Any]:
     })
     result["regional_prompt"] = {
         "supported": executable,
-        "mode": "masked_conditioning" if executable else "off",
+        "mode": ("krea2_regional_external" if family in {"krea2", "krea2_turbo"} else "masked_conditioning") if executable else "off",
         "implementation_state": STATE_ACTIVE if promoted_full else (STATE_EXPERIMENTAL if executable else STATE_UNSUPPORTED),
-        "set_cond_area": "mask bounds",
+        "set_cond_area": "external_joint_attention" if family in {"krea2", "krea2_turbo"} else "default",
         "mask_source": "scene_region_bbox",
-        "regional_negative_supported": family in REGIONAL_NEGATIVE_FAMILIES,
-        "negative_policy": "zero_from_final_positive" if family in ZERO_NEGATIVE_FAMILIES else "masked_regional_negative",
-        "family_conditioning_adapter": "flux_guidance" if family == "flux2_klein" else "direct_clip_conditioning",
+        "regional_negative_supported": False if family in {"krea2", "krea2_turbo"} else family in REGIONAL_NEGATIVE_FAMILIES,
+        "negative_policy": "zero_from_external_positive" if family == "krea2_turbo" else ("external_engine_owned" if family == "krea2" else ("zero_from_final_positive" if family in ZERO_NEGATIVE_FAMILIES else "masked_regional_negative")),
+        "family_conditioning_adapter": "krea2_regional_external" if family in {"krea2", "krea2_turbo"} else ("flux_guidance" if family == "flux2_klein" else "direct_clip_conditioning"),
     }
     krea2_regional_lora = bool(executable and family in {"krea2", "krea2_turbo"})
     klein_regional_lora = bool(executable and family == "flux2_klein")
     z_image_regional_lora = bool(executable and family in {"z_image", "z_image_turbo"})
     modern_regional_lora = bool(krea2_regional_lora or klein_regional_lora or z_image_regional_lora)
     lora_mode = (
-        "krea2_activation_delta_v2" if krea2_regional_lora
+        "krea2_regional_external" if krea2_regional_lora
         else "flux2_klein_activation_delta_v1" if klein_regional_lora
         else "z_image_activation_delta_v1" if z_image_regional_lora
         else "adapter_gated"
+    )
+    required_runtime_node = (
+        "Krea2ApplyRegional" if krea2_regional_lora
+        else REGIONAL_LORA_NODE_CLASS if (klein_regional_lora or z_image_regional_lora)
+        else None
+    )
+    clip_delta_execution = (
+        "external_joint_text_image_regional_ownership" if krea2_regional_lora
+        else "suppressed_model_side_only" if (klein_regional_lora or z_image_regional_lora)
+        else "not_available"
+    )
+    isolation_profile = (
+        "krea2_regional_adaptive_exclusive" if krea2_regional_lora
+        else "spatial_activation_delta_best_effort"
     )
     result["regional_lora"] = {
         "supported": modern_regional_lora,
@@ -308,11 +327,15 @@ def _modern_lightweight_strategy(route: dict[str, str]) -> dict[str, Any]:
         "runtime_proof_scope": "per_run",
         "runtime_gpu_proven": False,
         "global_model_mutation_allowed": False,
-        "clip_delta_execution": "suppressed_model_side_only" if modern_regional_lora else "not_available",
+        "clip_delta_execution": clip_delta_execution,
         "custom_node_required_when_requested": modern_regional_lora,
-        "required_node": REGIONAL_LORA_NODE_CLASS if modern_regional_lora else None,
+        "required_node": required_runtime_node,
+        "required_node_repo": "januspluto/ComfyUI-Krea2-Regional" if krea2_regional_lora else ("neo_scene_director" if modern_regional_lora else None),
         "route_limit": None,
         "finish_pass_fallback": "disabled_by_default",
+        "primary_purpose": "regional_lora_isolation",
+        "prompt_policy": "provider_global_unchanged_regional_optional",
+        "isolation_profile": isolation_profile,
         "adapter_gate_reason": "" if modern_regional_lora else "No family-specific masked model-delta adapter is validated for this modern family in SD-28.7.",
         "raw_turbo_cross_variant_compatible": bool(krea2_regional_lora),
         "supported_loaders": sorted(MODERN_FAMILY_LOADERS.get(family, set())) if modern_regional_lora else [],
@@ -342,9 +365,9 @@ def resolve_scene_director_execution_strategy(
 ) -> dict[str, Any]:
     """Resolve Scene Director's execution engine without mutating a workflow.
 
-    SD-28.7 release-locks Krea2 RAW/Turbo, FLUX.2 Klein, and Z-Image
-    Base/Turbo on their family-specific masked regional LoRA adapters while retaining
-    per-run runtime proof. Classic
+    IMG-SD3 routes Krea2 RAW/Turbo through the external Krea2 Regional engine while
+    FLUX.2 Klein and Z-Image Base/Turbo retain Neo's family-specific masked regional
+    LoRA adapters. All modern routes retain per-run runtime proof. Classic
     SDXL/SD1.5 keeps V054 unchanged.
     """
     normalized = _route_values(route, **overrides)

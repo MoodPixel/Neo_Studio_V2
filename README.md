@@ -1,55 +1,28 @@
 # Neo Studio V2
 
-**Neo Studio V2** is a local-first AI creative workspace for controlling image, video, prompt, roleplay, assistant, and project-memory workflows from one structured interface.
+**Neo Studio V2** is a local-first AI creative workspace that brings Image, Video, Voice, Prompt & Captioning, Roleplay, Assistant, project context, and backend management into one structured interface.
 
-Neo Studio does **not** include AI models or third-party backend engines. It connects to tools you install separately, such as **ComfyUI Portable** or **Forge Neo** for image workflows, **ComfyUI Portable** for video workflows, and **KoboldCPP** for local text/chat/roleplay workflows.
+Neo Studio does **not** bundle third-party AI models or engines. It connects to backends you install separately and keeps the selected backend profile authoritative for each workflow.
 
----
-
-## 💡 Why Neo Studio Exists
-
-Local AI tools are powerful, but they are also scattered.
-
-A creator may need ComfyUI or Forge Neo for image generation, KoboldCPP for local chat, and separate tools for video, captioning, prompt testing, memory, workflows, models, extensions, custom nodes, and backend launching. Each tool has its own setup process, interface, file structure, and workflow logic.
-
-ComfyUI is extremely flexible, but node-based workflows can become complex fast, especially when working with advanced pipelines like ControlNet, IPAdapter, inpainting, video generation, LoRAs, upscaling, metadata, and reusable presets.
-
-Neo Studio was created to make local AI usage more streamlined.
-
-The goal is not to replace tools like ComfyUI, Forge Neo, or KoboldCPP. Instead, Neo Studio acts as a structured control layer on top of them, helping creators use local AI systems through a cleaner, more organized workspace.
-
-Neo Studio is built to:
-
-- reduce workflow confusion
-- simplify repeated creative tasks
-- keep outputs, metadata, prompts, and settings organized
-- connect image, video, assistant, prompt, and roleplay systems into one workspace
-- make local AI workflows easier to launch, manage, inspect, and reuse
-- give creators more control without forcing them to manually manage every backend detail
-
-In short: **Neo Studio exists to turn scattered local AI tools into one streamlined creative system.**
-
----
-
-
+> **Current highlight:** the Voice workspace is now functional through the unified **Neo Voice Engine**, and the Image workspace supports multiple local model families through **ComfyUI / ComfyUI Portable**, **Forge Neo**, plus an optional **xAI Grok Imagine** cloud profile.
 
 ---
 
 ## Table of Contents
 
-- [✨ Features](#-features)
-- [🚧 Project Status](#-project-status)
-- [🛠️ Updates](#️-updates)
-- [🧭 Main Tabs Overview](#-main-tabs-overview)
+- [✨ What Neo Studio Does](#-what-neo-studio-does)
+- [🖼️ Workspace Screenshots](#️-workspace-screenshots)
+- [🎨 Image Backends](#-image-backends)
+- [🧠 Supported Image Model Families](#-supported-image-model-families)
+- [🎙️ Voice Workspace](#️-voice-workspace)
+- [🧭 Main Tabs](#-main-tabs)
 - [⚙️ Installation](#️-installation)
 - [🔌 Backend Setup](#-backend-setup)
 - [🧩 ComfyUI Custom Nodes](#-comfyui-custom-nodes)
 - [🧠 Memory / Embedding / Reranker Setup](#-memory--embedding--reranker-setup)
 - [📁 Runtime Data and Project Files](#-runtime-data-and-project-files)
 - [🧩 Backend Notes & Troubleshooting](#-backend-notes--troubleshooting)
-- [🎥 Setup Guide Video](#-setup-guide-video)
 - [📚 Documentation and Guides](#-documentation-and-guides)
-- [🧠 Philosophy](#-philosophy)
 - [⚠️ Known Limitations](#️-known-limitations)
 - [📜 License](#-license)
 - [🚀 Future Direction](#-future-direction)
@@ -57,148 +30,288 @@ In short: **Neo Studio exists to turn scattered local AI tools into one streamli
 
 ---
 
-## ✨ Features
+## ✨ What Neo Studio Does
 
-### 🎨 Image Workspace
+### 🎨 Image
 
-- Structured image generation and refinement workflows.
-- Route-aware model families such as Qwen Rapid AIO, Qwen image edit, checkpoint/Comfy routes, txt2img, img2img, inpaint, and outpaint.
-- Extension-aware workflows for ControlNet, IP Adapter, LoRA Stack, Style Stack, Wildcards, LayerDiffuse, CFG Fix / Dynamic Thresholding, High-Res Lab, Image Upscale, and Scene Director.
-- Neo-owned output metadata, elapsed generation timing, source asset tracking, cleanup reports, and safe cascade delete from the Output Inspector.
+- Generate, edit, inpaint, outpaint, refine, upscale, inspect, and replay Image jobs from one workspace.
+- Route requests through the selected **ComfyUI / ComfyUI Portable**, **Forge Neo**, or **Grok Imagine** backend profile without silently switching providers.
+- Supports checkpoint, component/safetensors, GGUF, bundled/AIO, and provider-owned workflows depending on the selected model family.
+- Built-in workflow tools include **ControlNet**, **IP Adapter / FaceID**, **LoRA Stack**, **Style Stack**, **Wildcards**, **ADetailer**, **LayerDiffuse**, **High-Res Lab**, **Image Upscale**, **LanPaint**, **Forge Couple**, and **Scene Director** where the selected route supports them.
+- Output Inspector records source lineage, effective settings, provider information, elapsed timing, replay metadata, and reusable result actions.
 
-### 🎬 Video Workspace
+### 🎬 Video
 
-- Video generation and normal work-task video workflows through ComfyUI-backed routes.
-- Active LTX 2.3 and WAN-oriented route support where matching local models/custom nodes are installed.
-- Supports txt2vid, img2vid, first/last-frame, multiscene, extend, vid2vid, depth/motion control, prompt scheduling, audio-video metadata routes, and finish lanes such as interpolation/upscale/repair where available.
-- Tracks progress, elapsed time, source files, output records, and Neo-owned result playback/import metadata.
+- ComfyUI-backed video generation and finishing with route-aware source workflows.
+- Current work includes LTX and WAN-oriented generation routes, Img2Vid, first/last-frame, multiscene, extend, Vid2Vid, depth/motion control, interpolation, upscale, and repair when the required local models/nodes are installed.
 
-### ✍️ Prompting & Captioning
+### 🎙️ Voice
 
-- Generate, refine, and manage prompts/captions.
-- Use local text backends for creative drafting, prompt cleanup, and caption workflows.
-- Bridge prompt/caption outputs into Assistant and project context.
+- Functional local TTS workspace through **Neo Voice Engine**.
+- Single-voice TTS, Reference / Clone, reusable Voice Profile Assets, Dialogue / Multi-speaker, Batch, Results, and non-destructive Finish tools.
+- The gateway keeps model runtimes isolated so different Voice model families can use separate environments without polluting the Neo Studio Python environment.
 
-### 🎭 Roleplay System
+### ✍️ Prompt & Captioning
 
-- **Forge** — create characters, worlds, universes, legends, and structured entities.
-- **Scene** — live roleplay / novel-writing environment with runtime guardrails.
-- **Stories** — workspace, storyline, archive, and inspector tooling.
-- Memory-aware scene packets, compile/runtime controls, and character/world records.
+- Prompt building, captioning, prompt libraries, reusable presets, batch captioning, and edit/video prompt helpers.
+
+### 🎭 Roleplay
+
+- Character/world Forge tools, scene runtime, stories, memory/retrieval, continuity support, and structured writing workflows.
 
 ### 🤖 Assistant
 
-- Scope-aware chat workspace for General, Image, Video, Prompt/Captioning, Roleplay, and Voice contexts.
-- Streaming chat, image/document attachments, project file uploads, guide-aware context, and project-brain memory capture.
-- Reads built-in `guides/`, live surface snapshots, indexed metadata, uploaded project docs, and selected project memory.
+- Scope-aware local Assistant with project context, attachments, guide-aware knowledge, memory capture, and handoff between Neo workspaces.
 
-### ⚙️ Admin / Control Tower
+### ⚙️ Admin
 
-- Configure and launch local backends such as ComfyUI Portable, Forge Neo, and KoboldCPP.
-- Manage backend profiles, provider capability checks, connection tests, extension panels, and custom node setup.
-- Runtime/user settings are stored under `neo_data/`, not inside the main source folders.
-- Model Guide / Model Manifest support for browsing curated model sources, checking local installed models, planning model downloads, and organizing Image, Video, LLM, LoRA, ControlNet, VAE, encoder, and utility model assets.
+- Backend profiles, provider connections, launch/configuration tools, model guidance, extensions, custom nodes, runtime logs, and system settings.
 
 ---
 
-## 🚧 Project Status
+## 🖼️ Workspace Screenshots
 
-Neo Studio is currently in **V2 active development**.
+### Image
 
-Functional areas include:
+![Neo Studio Image workspace][shot-image-01]
 
-- Image workspace and output inspector.
-- Video workspace and route-aware task workflows.
-- Assistant with project-brain context and attachments.
-- Roleplay Forge/Scene/Memory systems.
-- Prompting/Captioning tools.
-- Admin backend/profile/node management.
+<details>
+<summary>More Image screenshots</summary>
 
-Still evolving:
+![Image workspace details][shot-image-02]
+![Image workflow controls][shot-image-03]
 
-- UI polish and documentation coverage.
-- More complete guide pages for every surface.
-- Additional video route hardening.
-- Voice/Music/Board expansion.
-- More project automation and delivery tooling.
+</details>
+
+### Video
+
+![Neo Studio Video workspace][shot-video-01]
+
+<details>
+<summary>More Video screenshots</summary>
+
+![Video workflow panels][shot-video-02]
+![Video generation controls][shot-video-03]
+
+</details>
+
+### Voice
+
+![Neo Studio Voice workspace][shot-voice-01]
+
+<details>
+<summary>More Voice screenshots</summary>
+
+![Voice generation and controls][shot-voice-02]
+![Voice results and workflow][shot-voice-03]
+![Voice assets and finishing][shot-voice-04]
+
+</details>
+
+### Prompt & Captioning
+
+![Neo Studio Prompt and Captioning][shot-prompt-01]
+
+<details>
+<summary>More Prompt & Captioning screenshots</summary>
+
+![Prompt Studio][shot-prompt-02]
+![Prompt Library][shot-prompt-03]
+![Caption Studio][shot-prompt-04]
+![Batch Captioning][shot-prompt-05]
+![Caption Library][shot-prompt-06]
+
+</details>
+
+### Roleplay
+
+![Neo Studio Roleplay][shot-roleplay-01]
+
+<details>
+<summary>More Roleplay screenshots</summary>
+
+![Roleplay workspace][shot-roleplay-02]
+![Roleplay Forge controls][shot-roleplay-03]
+![Roleplay editor][shot-roleplay-04]
+
+</details>
+
+### Assistant
+
+![Neo Studio Assistant][shot-assistant-01]
+
+<details>
+<summary>More Assistant screenshots</summary>
+
+![Assistant project context][shot-assistant-02]
+![Assistant workflow][shot-assistant-03]
+
+</details>
+
+### Admin
+
+![Neo Studio Admin][shot-admin-01]
+
+> README screenshots are hosted through GitHub user attachments rather than committed to the repository, so normal clones do not download the screenshot image files.
 
 ---
 
-## 🛠️ Updates
+## 🎨 Image Backends
 
-**August/05/2026 - LanPaint Capability Discovery Repair**
+Neo uses the **selected Image backend profile as the execution authority**. A workflow never silently jumps to another backend just because another provider happens to be connected.
 
-| System | Update | Details |
+| Backend | Role in Neo | Typical workflow ownership |
 |---|---|---|
-| LanPaint / ComfyUI | ✅ Registry-driven node discovery | LanPaint readiness now derives its `/object_info` scope from every selectable family adapter instead of a static Krea-era list. SD, Flux, HiDream, Qwen Edit, Anima, Ideogram 4, and other active routes can discover their exact loader, encoder, sampling, and sampler nodes. |
-| Backend capability cache | ✅ Stale snapshot detection | Capability snapshots now carry registry and route fingerprints. Old matrices show **Refresh required** and instruct users to Reconnect/Test the selected profile instead of falsely reporting that LanPaint is not installed. |
-| Diagnostics | ✅ Exact missing class reporting | Genuine route failures identify the actual missing node or custom-node pack, including the difference between `LanPaint_KSampler` and Ideogram 4's `LanPaint_SamplerCustomAdvanced`. |
+| **ComfyUI / ComfyUI Portable** | Primary advanced local graph backend | Component/safetensors models, GGUF transformers, checkpoint workflows, Qwen/Krea/ZImage/Flux-family compilers, ControlNet, IP Adapter, LanPaint, custom-node workflows, live preview, local finishing. |
+| **Forge Neo** | Local API-driven Image backend | Forge checkpoint/model routes, native Img2Img/Inpaint controls, Forge High-Res Fix, LoRA/Embeddings, provider-discovered ControlNet/IP Adapter features, Forge Extras upscale, ADetailer and Forge Couple mappings where available. |
+| **xAI Grok Imagine** | Optional cloud Image backend | API image generation/editing through an explicit Grok profile and API key. It is never used as an automatic fallback for local jobs. |
 
+### How routing works
 
-**August/05/2026 - Z-Image LanPaint Inpainting**
+```text
+Image UI
+  ↓
+Selected backend profile
+  ↓
+Model family + loader + workflow mode
+  ↓
+Neo route/compiler
+  ↓
+Comfy graph OR Forge API OR cloud API
+  ↓
+Neo-owned output + metadata + replay lineage
+```
 
-| System | Update | Details |
-|---|---|---|
-| Z-Image Base | ✅ LanPaint Route | Added explicit safetensors/component and GGUF LanPaint inpainting routes under the canonical `z_image` family, with Base-owned conditioning, sampling, stability, capability, and replay contracts. |
-| Z-Image Turbo | ✅ Separate LanPaint Route | Added separate safetensors/component and GGUF routes for `z_image_turbo`; Turbo does not inherit Base negative conditioning, steps, CFG, or LanPaint thinking defaults. |
-| LoRA | ✅ Exact Catalog + Graph Proof | Phase 19 exact live Comfy catalog binding now applies to Z-Image LanPaint routes and verifies model/CLIP consumer rewiring. Explicit failures stop before queueing. |
-| Route Safety | ✅ Fail-Closed | Missing GGUF loaders, model/encoder/AE assets, AuraFlow, LanPaint, or crop/stitch nodes block the selected route. The duplicate `z_image_base` alias remains unavailable. |
-
-**August/03/2026 - Forge Neo Backend Support**
-
-| System | Update | Details |
-|---|---|---|
-| Image Backend | ✅ Forge Neo Profile | Added **Forge Neo** as a supported Image backend option alongside ComfyUI and Grok Imagine. Neo keeps Preview, Output Inspector, replay, provider capability checks, and Finish actions bound to the selected Forge Neo profile without silently switching to ComfyUI. |
-| Forge Neo Built-ins | ✅ Built-in Coverage | Neo Studio covers the Forge Neo built-in image features and extensions exposed through the provider integration, including source workflows, ControlNet/IP Adapter routes, native High-Res Fix, LoRA, Embeddings/TI, and Forge Extras upscaling where the selected Forge installation reports the required capabilities. |
-| Forge Neo External Extensions | ✅ Current Coverage | The currently covered Forge Neo external extensions are **ADetailer** and **Forge Couple**. Additional third-party Forge extensions may require separate provider mappings before Neo can control them safely. |
-| Forge Launch Contract | ✅ API Startup | Forge Neo must be started with API access enabled. Shared model roots, ComfyUI extra-model YAML reuse, and CUDA allocator flags are optional and should only be added when needed. |
-
-**July/18/2026 - Image Reference and ADetailer Reliability**
-
-| System | Update | Details |
-|---|---|---|
-| ComfyUI Model Discovery | ✅ Shared Model-Root Resolution | Unified model discovery for **ADetailer, ControlNet, Standard IP Adapter, FaceID, CLIP Vision, and SAM** using the selected ComfyUI profile, configured Admin Models root, standard model folders, and registered extra model paths. No personal paths or separate custom catalogs are required. |
-| ControlNet / IP Adapter | ✅ Model Catalog Repair | Fixed ControlNet, Standard IP Adapter, FaceID, and CLIP Vision dropdowns so installed models are loaded from the active ComfyUI profile. Added profile-aware refresh protection so late responses from another profile cannot replace the current model list. |
-| ADetailer | ✅ Detector Execution Repair | ADetailer now validates the selected detector against the active ComfyUI provider choices before queueing. Supported custom Face, Hand, Person, BBox, and Segmentation detectors can run without hardcoded filename rules. |
-| ADetailer + FaceID | ✅ Reference Lock and Source Ownership | Fixed combined FaceID and ADetailer workflows so the FaceID portrait remains identity conditioning while ADetailer repairs the newly generated or explicitly selected image. **Face only** Reference Lock helps preserve identity without replacing the prompt-driven pose, clothing, or background. |
-| IP Adapter / FaceID | ✅ Execution and Reference Reliability | Added FaceID model, preset, and checkpoint-family validation; removed duplicate reference-image handoffs; preserved Standard and FaceID selections across mode changes; and blocked stale or incompatible selections before ComfyUI execution. |
-
-**July/14/2026 - Image Background Removal**
-
-| System | Update | Details |
-|---|---|---|
-| Built-in Image Extension | ✅ Background Removal | Added a new built-in **Image → Finish → Remove Background** extension with BiRefNet removal, transparent PNG output, optional mask saving and refinement, person or object detection, and Interactive SAM selection. |
-| ComfyUI Requirements | ✅ Required Nodes Updated | Updated the required-node manifest and readiness checks for the ComfyUI BiRefNet, SAM selection, detector, mask-refinement, and output workflows. Neo now reports missing nodes or models before execution. |
-| Detector Models | ✅ Shared Model Discovery | Background Removal now discovers BBox and Segmentation models from the configured ComfyUI model folders, including supported ADetailer and Ultralytics locations. No separate custom model catalog is required. |
-| ADetailer / SAM Model Paths | ✅ Manual Paths Removed | Removed the manual custom detector and SAM model-path controls from ADetailer. Detector and SAM models are now discovered from the selected ComfyUI profile, configured Admin Models root, standard Comfy model folders, and registered model choices. This prevents personal machine paths from being stored or hardcoded in the public repository. |
-| Legacy / Native Fallback | ℹ️ Optional Installation | The standard ComfyUI workflow does not require `rembg`. Install it only if you need the optional native or legacy fallback: `pip install "rembg[cpu]"` for CPU or `pip install "rembg[gpu]"` for NVIDIA GPU support. |
-
-**July/10/2026 - Admin / Model Guide**
-
-| System | Update | Details |
-|---|---|---|
-| Neo Model Guide | ✅ Model Support Manifest | Added **Admin → Models** with a curated model manifest foundation to make it easier to find, filter, organize, and manage model sources across Image, Video, LLM, LoRA, ControlNet, VAE, encoder, and utility workflows. |
-| Model Sources | ✅ Hugging Face / Civitai Source Support | Added source-aware model entries so users can discover supported model files and variants from Hugging Face and Civitai where available, instead of manually hunting through scattered model pages. |
-| Local Model Management | ✅ Paths, Installed Scan, and Download Planning | Added model path setup, installed-model scanning, model packs, workspace requirement checks, and safe download planning under Admin so users can better understand what is installed, what is missing, and where model files should go. |
+The same model family can have different support depending on the selected loader/backend. Neo therefore checks the active route instead of assuming that a model name alone guarantees a workflow.
 
 ---
 
-## 🧭 Main Tabs Overview
+## 🧠 Supported Image Model Families
 
-Each tab in Neo Studio is designed as a focused system:
+The current Image family registry includes the following user-facing families. Exact workflow availability is still route-, loader-, model-, and node-dependent.
 
-| Tab | Purpose | Current State |
+| Family | Current Neo coverage |
+|---|---|
+| **SDXL** | Checkpoint Generate, Img2Img, Inpaint, Outpaint and finishing routes. |
+| **SD 1.5** | Checkpoint Generate, Img2Img, Inpaint, Outpaint and finishing routes. |
+| **Flux 1** | Component/safetensors and GGUF routes; includes FLUX.1 Dev-compatible variants such as FLUX.1 Krea. Generate, Img2Img, Inpaint and Outpaint where the selected route is available. |
+| **Flux 2 Klein** | Separate family with component/safetensors and GGUF generation/edit workflows, plus source-driven masked workflows. |
+| **Krea 2 RAW** | Native Krea 2 architecture, component/safetensors and experimental GGUF routes. Generate plus source-driven edit workflows. |
+| **Krea 2 Turbo** | Distilled Krea 2 few-step family with its own sampling defaults and the same family-specific edit architecture. |
+| **Qwen Rapid AIO** | Bundled/AIO and GGUF routes for Generate, Edit/Img2Img, Inpaint and Outpaint. |
+| **Qwen Image Edit** | Standard Qwen Image Edit routes for source-driven editing and mask/canvas workflows. |
+| **Qwen Image Edit 2509** | Multi-reference Qwen edit route with up to three references for Img2Img/Edit. |
+| **Qwen Image Edit 2511** | Multi-reference edit route with improved consistency/geometry; up to three references for Img2Img/Edit. |
+| **ZImage** | Component/safetensors generation and image-conditioned workflows; GGUF coverage depends on route. |
+| **ZImage Turbo** | Separate low-step family with component/safetensors and GGUF workflows. |
+| **Anima Base v1** | Qwen3-conditioned generation, Img2Img and LanPaint workflows with standard/GGUF model loading. |
+| **Ideogram 4** | Open-weight txt2img plus dedicated LanPaint inpaint/outpaint path when the required custom workflow stack is installed. |
+| **Stable Diffusion 3.5** | Dedicated LanPaint inpaint/outpaint route; not presented as a generic SDXL-style family. |
+| **Flux 2 Dev** | Dedicated LanPaint path with its own encoder/VAE architecture. |
+| **HiDream-I1** | HiDream I1 family support with dedicated multi-encoder/LanPaint routes; unrelated HiDream edit architectures remain separate. |
+| **Wan / Hunyuan Image** | Registered for provider/capability awareness but held or provider-gated where Neo does not yet have a validated Image compiler. |
+
+### Character and reference continuity
+
+Neo currently offers several continuity approaches depending on the model:
+
+- **Krea 2 Identity Edit v1.2** — dedicated identity-edit LoRA + Krea2 appearance/grounding path.
+- **Qwen Image Edit 2509 / 2511** — 1–3 visual reference images for multi-reference edits.
+- **IP Adapter / FaceID** — available on compatible routes/backends.
+- **LoRA Stack** — route-aware global LoRAs with open numeric strength entry for models that require unusually strong values.
+- **Scene Director** — structured regional identity/composition control where the selected workflow supports it.
+
+---
+
+## 🎙️ Voice Workspace
+
+Voice is no longer a placeholder surface.
+
+### Current architecture
+
+```text
+Neo Studio Voice UI
+  ↓
+voice.neo_engine profile
+  ↓
+Neo Voice Engine gateway
+  ↓
+manifest / scheduler / worker supervisor
+  ↓
+isolated Voice worker environment
+  ↓
+model runtime
+```
+
+The default runtime root is outside the source tree:
+
+```text
+<Neo parent>/Neo_Runtime/voice/
+  envs/
+  models/
+  cache/
+  temp/
+  logs/
+  state/
+  outputs/
+```
+
+This prevents the Neo Studio repository from accumulating one Python environment per Voice model family.
+
+### Currently validated Voice backend
+
+| Backend | State | Notes |
 |---|---|---|
-| **Image** | Build, refine, inspect, replay, and manage image generation workflows. | Active / expanding |
-| **Video** | Generate, finish, inspect, and manage video workflows and source assets. | Active / expanding |
-| **Prompting & Captioning** | Generate and manage prompts, captions, and text assets. | Active / expanding |
-| **Roleplay** | Build worlds/characters and run memory-aware scenes. | Active / expanding |
-| **Assistant** | Scope-aware chat, project brain, uploaded docs, and workflow help. | Active / expanding |
-| **Project** | Link outputs, notes, handoffs, milestones, and project context. | Active / expanding |
-| **Voice** | Voice/transcription-related surface foundation. | Early / planned expansion |
-| **Music** | Music/audio generation workflow surface. | Planned |
-| **Board** | Visual planning and creative organization workspace. | Planned |
-| **Admin** | Backend profiles, launchers, extensions, custom nodes, and system tools. | Active / expanding |
+| **Neo Voice Engine + Chatterbox** | ✅ Functional / validated | Unified gateway route, local TTS, reference cloning, isolated CUDA environment, job/result handling. |
+| **Chatterbox Legacy Direct** | Diagnostic fallback | Kept for direct backend troubleshooting; not the normal daily route. |
+| **Kokoro Preview** | Preview adapter | Lightweight profile exists but is not the primary validated gateway worker family. |
+| **Fish Speech HQ** | Advanced/preview adapter | Profile and capability layer exist; separate runtime validation/integration is still evolving. |
+| **Zonos / Custom TTS** | Experimental / disabled by default | Reserved for later worker-family onboarding. |
+
+### Voice features available in the UI
+
+- Single Voice TTS
+- Provider-specific controls
+- Reference audio upload + authorization check
+- Voice cloning when the selected backend supports it
+- Saved Voice Profile Assets
+- Dialogue / Multi-speaker generation
+- TXT / Markdown / CSV / JSON / SRT Batch workflows
+- Shared Voice Results registry
+- Replay to draft
+- Download/open-output actions
+- Provider-independent Finish tools for Neo-owned audio: normalize, trim, cleanup, loudness, conversion, split, and merge where FFmpeg/runtime capabilities are available
+
+### First-time Chatterbox setup
+
+```bat
+setup_chatterbox_backend.bat
+setup_neo_voice_engine.bat
+```
+
+Normal daily Voice-engine launch:
+
+```bat
+run_neo_voice_engine.bat
+```
+
+Then start Neo Studio normally with `run_neo_studio.bat`.
+
+---
+
+## 🧭 Main Tabs
+
+| Tab | Purpose | Current state |
+|---|---|---|
+| **Image** | Generate, edit, refine, inspect, replay, reference, and finish images. | Active |
+| **Video** | Generate and finish local video workflows. | Active / expanding |
+| **Voice** | TTS, clone, Dialogue, Batch, reusable Voice assets, Results and Finish. | Active |
+| **Prompt & Captioning** | Prompt generation, libraries, captioning and batch tools. | Active |
+| **Roleplay** | Character/world creation, scenes, stories and memory-aware writing. | Active |
+| **Assistant** | Scope-aware local Assistant and project context. | Active |
+| **Admin** | Backends, models, extensions, custom nodes, runtime and settings. | Active |
+| **Music** | Music/audio generation workspace. | Planned |
+| **Board** | Visual planning/organization workspace. | Planned |
 
 ---
 
@@ -255,7 +368,7 @@ Neo already ships with seeded backend profiles for the main surfaces. In most ca
 | **Image** | ComfyUI Local, ComfyUI Portable, Forge Neo, Grok Imagine | Image generation, image edit, Comfy workflows, Forge Neo workflows, cloud image generation/edit | Comfy/Forge path or launcher if local, or xAI API key for Grok |
 | **Video** | Video · ComfyUI Local, Video · ComfyUI Portable | Video generation, video finishing, source-frame workflows | Comfy path/launcher if using local video routes |
 | **Text** | KoboldCpp Local | Assistant, Roleplay, Prompting, Captioning, local chat workflows | KoboldCPP launcher/path and model setup |
-| **Voice** | Chatterbox, Kokoro Preview, Fish Speech HQ, Zonos, Custom TTS Adapter | Voice/TTS-related future or early workflows | Only needed if you are testing voice workflows |
+| **Voice** | Neo Voice Engine, Chatterbox Legacy Direct, Kokoro Preview, Fish Speech HQ, Zonos, Custom TTS Adapter | Unified Voice gateway; Chatterbox is the currently validated local worker family | Voice runtimes default to the external sibling `Neo_Runtime\voice` tree |
 | **Music / Audio** | ACE-Step, Stable Audio Open, YuE Song HQ, Custom Audio Adapter | Planned or early audio/music workflow profiles | Only needed if you are testing audio/music workflows |
 
 Supported backend tools:
@@ -530,29 +643,83 @@ ComfyUI/custom_nodes/
 
 | Node | Purpose | Link |
 |---|---|---|
+| `comfyui-art-venture` | Image, JSON, model, text, URL-loading, and inpaint helper utilities used by compatible Comfy workflows | https://github.com/sipherxyz/comfyui-art-venture.git |
 | `comfyui-essentials` | Common utility nodes used by many workflows | https://github.com/comfyorg/comfyui-essentials.git |
-| `ComfyUI-GGUF` | GGUF model support for image/video model routes. **Note:** for **Krea 2 GGUF** support, users may need a **Krea 2–compatible GGUF fork** instead of the standard `city96` build | https://github.com/city96/ComfyUI-GGUF.git |
-| `ComfyUI-GGUF` | GGUF utility support (install only one, not both; you need this if you are planning to use Krea2) | https://github.com/molbal/ComfyUI-GGUF.git |
+| `ComfyUI-GGUF` (city96) | Standard GGUF model support for image/video model routes | https://github.com/city96/ComfyUI-GGUF.git |
+| `ComfyUI-GGUF` (Krea2-compatible fork) | Alternate GGUF loader used when a Krea 2 GGUF route requires the compatible fork. Install only one ComfyUI-GGUF implementation at a time | https://github.com/molbal/ComfyUI-GGUF.git |
 | `gguf` | Additional GGUF utility support | https://github.com/calcuis/gguf.git |
 | `ComfyUI-Impact-Pack` | Detection, detailing, masks, segmentation, and utility workflows | https://github.com/ltdrdata/ComfyUI-Impact-Pack.git |
 | `ComfyUI-Impact-Subpack` | Support package for Impact Pack | https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git |
 | `ComfyUI-Inspire-Pack` | Workflow helpers and utility nodes | https://github.com/ltdrdata/ComfyUI-Inspire-Pack.git |
 | `ComfyUI-KJNodes` | Advanced utility, video, and image helper nodes | https://github.com/kijai/ComfyUI-KJNodes.git |
-| `comfyui_controlnet_aux` | ControlNet preprocessors for depth, pose, edges, and maps | https://github.com/Fannovel16/comfyui_controlnet_aux.git |
+| `comfyui_controlnet_aux` | Control-map preprocessors for depth, pose, canny, lineart, normal maps, edges, and related ControlNet workflows | https://github.com/Fannovel16/comfyui_controlnet_aux.git |
 | `ComfyUI_IPAdapter_plus` | IPAdapter reference/identity workflows | https://github.com/cubiq/ComfyUI_IPAdapter_plus.git |
 | `ComfyUI_UltimateSDUpscale` | Tiled upscale workflow support | https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git |
 | `sd-dynamic-thresholding` | CFG Fix / Dynamic Thresholding support | https://github.com/mcmonkeyprojects/sd-dynamic-thresholding |
-| `RES4LYF` | RES4LYF sampler support | https://github.com/ClownsharkBatwing/RES4LYF |
-| `rgthree-comfy` | Workflow utility nodes | https://github.com/rgthree/rgthree-comfy.git |
+| `LanPaint` | Universal inpaint/outpaint sampler used by Neo LanPaint routes across supported image families | https://github.com/scraed/LanPaint.git |
+| `ComfyUI-InpaintEasy` | Smart inpaint crop, image/mask resize, and merge helpers used by compatible masked-edit/LanPaint routes | https://github.com/CY-CHENYUE/ComfyUI-InpaintEasy.git |
+| `ComfyUI-Inpaint-CropAndStitch` | Native masked-area crop/stitch engine used by Neo Native Inpaint Crop & Stitch workflows | https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch.git |
+| `comfyui-krea2edit` | Krea 2 Identity Edit model patch + Qwen3-VL grounded instruction nodes | https://github.com/lbouaraba/comfyui-krea2edit.git |
+| `comfyui-krea2-controlnet` | Krea 2 native Control LoRA loader, control-image VAE encode, and model-apply nodes used by the Krea Depth Control route | https://github.com/facok/comfyui-krea2-controlnet.git |
+| `comfyui-krea2-controlnetPlus` | Krea 2 Control Plus nodes used by the Krea Composition / Silhouette route | https://github.com/tori29umai0123/comfyui-krea2-controlnetPlus.git |
+| `ComfyUI-Krea2-Ostris-Edit` | Krea 2 reference-image edit conditioning and model patch used by the Krea OpenPose / Ostris route | https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit.git |
+| `ComfyUI-NK2E` | NK2E in-context model/reference nodes used by the Krea Canny route | https://github.com/Nynxz/ComfyUI-NK2E.git |
+| `ComfyUI-VAE-Utils` | Extended VAE loading/decoding and latent-upscale utilities, including Wan/Qwen-compatible upscale VAE workflows | https://github.com/spacepxl/ComfyUI-VAE-Utils.git |
+| `ComfyUI-SUPIR` | Optional legacy SUPIR wrapper for restoration/upscale workflows; current ComfyUI also provides SUPIR support in core | https://github.com/kijai/ComfyUI-SUPIR.git |
 | `facerestore_cf` | CodeFormer / FaceRestore nodes used by Image Upscale face restore assist | https://github.com/mav-rik/facerestore_cf.git |
+| `ComfyUI-RMBG` | Background removal, matting, segmentation, masks, object/fashion regions, and image-preparation utilities | https://github.com/1038lab/ComfyUI-RMBG.git |
+| `ComfyUI_BiRefNet_ll` | BiRefNet image background-removal workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
 | `ComfyUI-WanVideoWrapper` | WAN video workflow support and video-specific node paths | https://github.com/kijai/ComfyUI-WanVideoWrapper.git |
 | `ComfyUI-TeaCache` | Optional video performance / caching support for compatible WAN/LTX routes | https://github.com/welltop-cn/ComfyUI-TeaCache.git |
 | `ComfyUI-LTXVideo` | LTX video generation nodes and LTX-specific workflow support | https://github.com/Lightricks/ComfyUI-LTXVideo.git |
 | `ComfyUI-Frame-Interpolation` | Finish-lane interpolation / FPS smoothing | https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git |
 | `ComfyUI-VideoHelperSuite` | Video load/combine/save helpers used by many Comfy video workflows | https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git |
 | `ComfyUI-SeedVR2_VideoUpscaler` | Video/Image Upscale workflows | https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git |
-| `ComfyUI_BiRefNet_ll` | Image BG Remove workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
+| `RES4LYF` | RES4LYF sampler support | https://github.com/ClownsharkBatwing/RES4LYF |
+| `rgthree-comfy` | Workflow utility nodes | https://github.com/rgthree/rgthree-comfy.git |
+| `ComfyUI-llama-cpp_vlm` | Local GGUF LLM/VLM execution used by the optional ComfyUI Prompt & Captioning backend | https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git |
+| `neo_prompt_captioning` | Neo-owned Comfy bridge for stable Prompt/Caption image input, text output, and Generic MTMD VLM fallback | Included in this repo; copy `neo_prompt_captioning` into ComfyUI `custom_nodes` |
 | `neo_scene_director` | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
+
+### Custom-node setup notes
+
+- **ComfyUI-llama-cpp_vlm:** installing the folder alone is not enough. Install its Python requirements with the same Python environment that runs ComfyUI, restart ComfyUI, then reconnect/test the backend in Neo. GGUF LLM/VLM files belong under `ComfyUI/models/LLM`; VLMs also need their matching `mmproj` file.
+- **Krea 2 Control (Depth):** `comfyui-krea2-controlnet` loads its Control LoRA from `ComfyUI/models/loras`. It does not generate depth/canny/pose maps itself; use normal Comfy nodes or `comfyui_controlnet_aux` for the control map.
+- **Krea 2 Control (Composition / Silhouette):** `comfyui-krea2-controlnetPlus` adds the Krea2 Control Plus loader/image-encode/apply nodes and is required before Neo can expose the Composition / Silhouette intent.
+- **Krea 2 Control (OpenPose / Ostris):** `ComfyUI-Krea2-Ostris-Edit` provides `TextEncodeKrea2OstrisEdit` and `Krea2OstrisEditModelPatch`. Neo still relies on `comfyui_controlnet_aux` to build the DWPose/OpenPose map and on a separate OpenPose control LoRA in `ComfyUI/models/loras`.
+- **Krea 2 Control (Canny / NK2E):** `ComfyUI-NK2E` provides the in-context wrapper/reference nodes used by the Krea Canny route. Neo uses the current `NK2EInContextModelNode` + `NK2ESetReferenceNode` path and expects a separate NK2E Canny LoRA in `ComfyUI/models/loras`.
+- **Krea 2 Identity Edit:** `comfyui-krea2edit` requires the Krea 2 Identity Edit LoRA separately; the node repository does not bundle the LoRA weights.
+
+### Krea 2 ControlNet install matrix
+
+> All Krea 2 Control LoRAs below belong under `ComfyUI/models/loras/`. Neo currently keeps **one active Krea control unit** at a time.
+
+| Intent | Neo route | Required custom nodes | Control LoRA / model file | Notes |
+|---|---|---|---|---|
+| **Depth** | Krea 2 RAW + Turbo | `comfyui-krea2-controlnet`, `comfyui_controlnet_aux` | `depth-control-lora.safetensors` | Native Krea control route. Physically validated on the user's setup. |
+| **Composition / Silhouette** | Krea 2 RAW + Turbo | `comfyui-krea2-controlnetPlus` | `krea2-anythng_step_007000.safetensors` | Control Plus route with Strength + Start % + End %. Start at Strength `0.7`, Start `0.0`, End `1.0`. |
+| **OpenPose / Ostris** | Krea 2 Turbo | `ComfyUI-Krea2-Ostris-Edit`, `comfyui_controlnet_aux` | `krea2_turbo_openpose_controlnet.safetensors` | Uses DWPose/OpenPose map generation plus the Ostris edit conditioning/model patch path. Start around Strength `0.85`. |
+| **Canny / NK2E** | Krea 2 RAW | `ComfyUI-NK2E`, `comfyui_controlnet_aux` | `NK2E-canny-v0.1.safetensors` | Uses the NK2E in-context model/reference path. Start around Strength `0.70`, Detect res `512`, Canny `100/200`, Denoise `1.0`. |
+
+### Krea 2 ControlNet quick links
+
+**Node repositories**
+
+- `comfyui-krea2-controlnet` — https://github.com/facok/comfyui-krea2-controlnet
+- `comfyui-krea2-controlnetPlus` — https://github.com/tori29umai0123/comfyui-krea2-controlnetPlus
+- `ComfyUI-Krea2-Ostris-Edit` — https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit
+- `ComfyUI-NK2E` — https://github.com/Nynxz/ComfyUI-NK2E
+- `comfyui_controlnet_aux` — https://github.com/Fannovel16/comfyui_controlnet_aux
+
+**Control LoRA / model files**
+
+- `depth-control-lora.safetensors` — https://huggingface.co/Patil/Krea-2-depth-controlnet/blob/main/depth-control-lora.safetensors
+- `krea2-anythng_step_007000.safetensors` — https://huggingface.co/tori29umai/krea2-controlnet/blob/main/krea2-anythng_step_007000.safetensors
+- `krea2_turbo_openpose_controlnet.safetensors` — https://huggingface.co/thedeoxen/Krea-2-pose-controlnet/blob/main/krea2_turbo_openpose_controlnet.safetensors
+- `NK2E-canny-v0.1.safetensors` — https://huggingface.co/nynxz/NK2E/tree/main/comfy/canny_v0.1
+
+- **SUPIR:** the Kijai wrapper remains useful for older workflows, but upstream notes that SUPIR support is now available in ComfyUI core.
+- **Neo-owned nodes:** after updating Neo, recopy the bundled `neo_prompt_captioning` or `neo_scene_director` folder into ComfyUI `custom_nodes` whenever that bundled node itself was updated.
 
 > **Note:** Some custom nodes require additional model files that are not included during installation. Check each node’s official GitHub page for its required models, download instructions, and correct ComfyUI model folders before using the related workflow.
 
@@ -798,7 +965,7 @@ This mainly affects:
 
 ## 🎥 Setup Guide Video
 
-Will be updated when Ready
+Will be added when the current setup walkthrough is ready.
 
 ---
 
@@ -873,7 +1040,7 @@ Neo Studio will continue evolving into a unified local creative system, expandin
 
 - video generation and finishing;
 - audio/music workflows;
-- voice and transcription pipelines;
+- additional Voice model families and speech workflows;
 - project delivery systems;
 - visual board workflows;
 - stronger Assistant project memory and automation.
@@ -887,3 +1054,30 @@ If you find Neo Studio useful and want to support development:
 👉 https://ko-fi.com/moodpixel
 
 Support is optional, but always appreciated 💙
+
+
+<!-- README screenshot URLs: upload each PNG through GitHub user-attachments, then replace only the URL on the matching line below. The PNG files themselves should stay untracked. -->
+[shot-image-01]: https://github.com/user-attachments/assets/REPLACE-Image01
+[shot-image-02]: https://github.com/user-attachments/assets/REPLACE-Image02
+[shot-image-03]: https://github.com/user-attachments/assets/REPLACE-Image03
+[shot-video-01]: https://github.com/user-attachments/assets/REPLACE-Video01
+[shot-video-02]: https://github.com/user-attachments/assets/REPLACE-Video02
+[shot-video-03]: https://github.com/user-attachments/assets/REPLACE-Video03
+[shot-voice-01]: https://github.com/user-attachments/assets/REPLACE-Voice01
+[shot-voice-02]: https://github.com/user-attachments/assets/REPLACE-Voice02
+[shot-voice-03]: https://github.com/user-attachments/assets/REPLACE-Voice03
+[shot-voice-04]: https://github.com/user-attachments/assets/REPLACE-Voice04
+[shot-prompt-01]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning01
+[shot-prompt-02]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning02
+[shot-prompt-03]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning03
+[shot-prompt-04]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning04
+[shot-prompt-05]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning05
+[shot-prompt-06]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning06
+[shot-roleplay-01]: https://github.com/user-attachments/assets/REPLACE-Roleplay01
+[shot-roleplay-02]: https://github.com/user-attachments/assets/REPLACE-Roleplay02
+[shot-roleplay-03]: https://github.com/user-attachments/assets/REPLACE-Roleplay03
+[shot-roleplay-04]: https://github.com/user-attachments/assets/REPLACE-Roleplay04
+[shot-assistant-01]: https://github.com/user-attachments/assets/REPLACE-Assistant01
+[shot-assistant-02]: https://github.com/user-attachments/assets/REPLACE-Assistant02
+[shot-assistant-03]: https://github.com/user-attachments/assets/REPLACE-Assistant03
+[shot-admin-01]: https://github.com/user-attachments/assets/REPLACE-Admin

@@ -11,7 +11,7 @@ EDITOR = ROOT / "ui" / "editor_restore.js"
 
 def test_manifest_mounts_reference_workflows_in_reference_workspace():
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert data["version"] == "1.2.20"
+    assert tuple(int(part) for part in data["version"].split(".")) >= (1, 2, 21)
     assert set(data["workspace_apps"]) == {"generations", "reference"}
     targets = {item["workflow_mode"]: item for item in data["mount_targets"]}
     assert targets["generate"]["workspace_app"] == "generations"
@@ -50,7 +50,9 @@ def test_editor_consumes_live_authority_for_modern_aliases():
     result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     rows = json.loads(result.stdout.strip())
     assert all(row["route"] == "available" for row in rows)
-    assert all(row["engine"] == "Lightweight Regional" for row in rows)
+    assert rows[0]["engine"] == "Krea2 Regional"
+    assert rows[1]["engine"] == "Lightweight Regional"
+    assert rows[2]["engine"] == "Lightweight Regional"
 
 
 def test_outpaint_is_visible_but_execution_stays_planned_gated():

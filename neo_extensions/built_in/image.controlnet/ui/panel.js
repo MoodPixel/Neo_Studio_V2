@@ -20,13 +20,13 @@
     uid: 'unit_1', enabled: true, unit: 'canny', model: '', preprocessor: 'canny', strength: 0.45,
     start_percent: 0, end_percent: 1, fit_mode: 'contain', detect_resolution: 512,
     safe_mode: true, invert_map: false, save_intermediate: false, canny_low: 100, canny_high: 200,
-    openpose_body: true, openpose_hand: false, openpose_face: false, advanced_enabled: false,
+    openpose_body: true, openpose_hand: false, openpose_face: false, ostris_kv_cache: true, advanced_enabled: false,
     advanced_engine: 'auto', strength_schedule: 'flat', weight_preset: 'balanced', mask_mode: 'none',
     batch_mode: 'auto', sliding_context: false, pose_method: 'controlnet', pose_reference_lane: 2,
     pose_map_lane: 3, pose_base_lora: '', pose_helper_lora: '', pose_base_strength: 0.70,
     pose_helper_strength: 0.70, pose_prompt_instruction: DEFAULT_POSE_INSTRUCTION,
   };
-  const VALID_UNITS = ['auto', 'canny', 'depth', 'openpose', 'lineart', 'lineart_anime', 'softedge', 'tile', 'normalbae', 'scribble'];
+  const VALID_UNITS = ['auto', 'canny', 'depth', 'composition_silhouette', 'openpose', 'lineart', 'lineart_anime', 'softedge', 'tile', 'normalbae', 'scribble'];
   const VALID_PREPROCESSORS = [...VALID_UNITS, 'dwpose', 'none'];
   function clampNumber(value, min, max, fallback) {
     const number = Number(value);
@@ -36,7 +36,7 @@
   function normalizeUnit(raw = {}, index = 0) {
     const data = { ...DEFAULT_UNIT, ...(raw || {}) };
     const unit = VALID_UNITS.includes(data.unit) ? data.unit : 'canny';
-    const defaultPreprocessor = unit === 'auto' ? 'none' : unit;
+    const defaultPreprocessor = ['auto', 'composition_silhouette'].includes(unit) ? 'none' : unit;
     const poseMethod = unit === 'openpose' && POSE_METHODS.includes(data.pose_method) ? data.pose_method : 'controlnet';
     const preprocessor = poseMethod === 'qwen_transfer' ? 'dwpose' : (VALID_PREPROCESSORS.includes(data.preprocessor) ? data.preprocessor : defaultPreprocessor);
     const clean = {
@@ -94,7 +94,13 @@
   }
   function routeControlsEnabled(route = {}) { return ACTIVE_STATES.includes(route.route_state); }
   function buildPayload(settings = {}, route = {}, applied = false) {
-    const units = cleanUnits(settings.units || []);
+    const rawUnits = Array.isArray(settings.units) ? settings.units : [];
+    const units = cleanUnits(rawUnits);
+    if (String(route.family || '').trim().toLowerCase() === 'krea2_turbo') {
+      units.forEach((unit, index) => {
+        if (unit.unit === 'openpose') unit.ostris_kv_cache = rawUnits[index]?.ostris_kv_cache !== false;
+      });
+    }
     const poseTransferActive = units.some((unit) => unit.pose_method === 'qwen_transfer') && poseTransferRouteSupported(route);
     const active = Boolean(applied && units.length && (routeControlsEnabled(route) || poseTransferActive));
     return {
@@ -110,14 +116,101 @@
       }
     };
   }
+  function capabilityRouteFromPanel(root) {
+    const task = normalizeTask(root.querySelector('[data-controlnet-field="controlnet_task"]')?.value || root.dataset.controlnetTask || 'map_control');
+    const backend = normalizeBackend(root.dataset.routeBackend || root.dataset.backend || '');
+    const family = String(root.dataset.routeFamily || root.dataset.family || '').trim().toLowerCase();
+    const loader = String(root.dataset.routeLoader || root.dataset.loader || '').trim().toLowerCase();
+    const mode = normalizeMode(root.dataset.routeMode || root.dataset.workflowMode || root.dataset.mode || 'generate');
+    const method = family === 'qwen_image_edit_2511' && ['img2img', 'edit'].includes(mode) ? 'qwen_transfer' : '';
+    return { backend, family, loader, mode, task, method };
+  }
+  function setSelectOptions(select, options = [], selected = '') {
+    if (!select) return '';
+    select.innerHTML = '';
+    (Array.isArray(options) ? options : []).forEach((option) => {
+      const node = document.createElement('option');
+      node.value = String(option.id || '');
+      node.textContent = String(option.label || option.id || 'Control');
+      node.disabled = Boolean(option.disabled);
+      select.appendChild(node);
+    });
+    const ids = Array.from(select.options).filter((option) => !option.disabled && option.value).map((option) => option.value);
+    const next = ids.includes(String(selected || '')) ? String(selected) : (ids[0] || '');
+    select.value = next;
+    select.disabled = !ids.length;
+    return next;
+  }
+  function syncPreprocessorOptions(root, selected = '') {
+    const unitSelect = root.querySelector('[data-controlnet-field="unit"]');
+    const prepSelect = root.querySelector('[data-controlnet-field="preprocessor"]');
+    const capability = root.__neoControlNetCapability || {};
+    const option = (capability.options || []).find((item) => String(item.id || '') === String(unitSelect?.value || '')) || {};
+    const allowed = Array.isArray(option.preprocessors) ? option.preprocessors : [];
+    const labels = { none: 'None / use image directly', canny: 'Canny', depth: 'Depth', openpose: 'OpenPose', dwpose: 'DWPose', lineart: 'Lineart', lineart_anime: 'Anime Lineart', softedge: 'SoftEdge', scribble: 'Scribble', normalbae: 'NormalBae', tile: 'Tile' };
+    const options = allowed.map((id) => ({ id, label: labels[id] || id }));
+    if (!options.length) options.push({ id: 'none', label: labels.none });
+    const next = setSelectOptions(prepSelect, options, selected || option.default_preprocessor || '');
+    return next;
+  }
+  async function refreshCapability(root) {
+    const route = capabilityRouteFromPanel(root);
+    const unitSelect = root.querySelector('[data-controlnet-field="unit"]');
+    const current = unitSelect?.value || '';
+    if (route.backend === 'forge') {
+      const options = VALID_UNITS.filter((id) => !['auto', 'composition_silhouette'].includes(id)).map((id) => ({ id, label: id === 'openpose' ? 'Pose' : id.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()), preprocessors: VALID_PREPROCESSORS.filter((value) => !['auto', 'composition_silhouette'].includes(value)) }));
+      setSelectOptions(unitSelect, options, current || 'canny');
+      if (unitSelect) unitSelect.disabled = false;
+      root.__neoControlNetCapability = { provider_native: true, options };
+      syncPreprocessorOptions(root);
+      return root.__neoControlNetCapability;
+    }
+    if (!route.family || !route.loader || !route.backend) {
+      root.__neoControlNetCapability = { ok: false, options: [], reason: 'Route context is required before ControlNet types can be resolved.' };
+      setSelectOptions(unitSelect, [{ id: '', label: 'Select an image route first', disabled: true }], '');
+      syncPreprocessorOptions(root);
+      return root.__neoControlNetCapability;
+    }
+    const params = new URLSearchParams({
+      backend: route.backend,
+      family: route.family,
+      loader: route.loader,
+      mode: route.mode,
+      task: route.task,
+      method: route.method,
+      profile_id: String(root.dataset.profileId || ''),
+    });
+    try {
+      const response = await fetch(`/api/extensions/controlnet/maps/capabilities?${params.toString()}`, { cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok !== true) throw new Error(payload.detail || payload.reason || 'Capability lookup failed.');
+      root.__neoControlNetCapability = payload;
+      setSelectOptions(unitSelect, payload.options || [], current);
+      syncPreprocessorOptions(root);
+      return payload;
+    } catch (error) {
+      const payload = { ok: false, options: [], reason: error?.message || String(error) };
+      root.__neoControlNetCapability = payload;
+      setSelectOptions(unitSelect, [{ id: '', label: 'No implemented ControlNet types', disabled: true }], '');
+      syncPreprocessorOptions(root);
+      return payload;
+    }
+  }
   function syncPoseUi(root) {
+    const route = capabilityRouteFromPanel(root);
     const unitSelect = root.querySelector('[data-controlnet-field="unit"]');
     const methodSelect = root.querySelector('[data-controlnet-field="pose_method"]');
     const isPose = unitSelect?.value === 'openpose';
-    const isTransfer = isPose && methodSelect?.value === 'qwen_transfer';
-    root.querySelectorAll('[data-controlnet-pose-method-row]').forEach((node) => { node.hidden = !isPose; });
+    const isKrea = ['krea2', 'krea2_turbo'].includes(route.family);
+    if (isKrea && methodSelect) methodSelect.value = 'controlnet';
+    const isTransfer = isPose && !isKrea && methodSelect?.value === 'qwen_transfer';
+    const capability = root.__neoControlNetCapability || {};
+    const option = (capability.options || []).find((item) => String(item.id || '') === String(unitSelect?.value || '')) || {};
+    const isOstris = isKrea && isPose && String(option.adapter || option.model_binding?.adapter || '') === 'krea2_ostris_openpose';
+    root.querySelectorAll('[data-controlnet-pose-method-row]').forEach((node) => { node.hidden = !isPose || isKrea; });
     root.querySelectorAll('[data-controlnet-standard-settings]').forEach((node) => { node.hidden = isTransfer; });
     root.querySelectorAll('[data-controlnet-pose-transfer-settings]').forEach((node) => { node.hidden = !isTransfer; });
+    root.querySelectorAll('[data-controlnet-krea2-ostris-settings]').forEach((node) => { node.hidden = !isOstris; });
   }
   function updateChip(root) {
     const enabled = !!root.querySelector('[data-controlnet-field="enabled"]')?.checked;
@@ -134,11 +227,16 @@
   function initControlNetPanel(root) {
     if (!root || root.dataset.controlnetReady === 'true') return;
     root.dataset.controlnetReady = 'true';
-    const refresh = () => { syncPoseUi(root); updateChip(root); };
+    const refresh = (event) => {
+      if (event?.target?.matches?.('[data-controlnet-field="unit"]')) syncPreprocessorOptions(root);
+      if (event?.target?.matches?.('[data-controlnet-field="controlnet_task"]')) void refreshCapability(root);
+      syncPoseUi(root);
+      updateChip(root);
+    };
     root.addEventListener('change', refresh);
     root.addEventListener('input', refresh);
-    refresh();
+    void refreshCapability(root).finally(() => { syncPoseUi(root); updateChip(root); });
   }
-  window.NeoControlNet = { EXTENSION_ID, SOURCE, DEFAULT_UNIT, normalizeTask, normalizeQwenAdapter, normalizeFluxAdapter, poseTransferRouteSupported, normalizeUnit, cleanUnits, buildPayload, initControlNetPanel };
+  window.NeoControlNet = { EXTENSION_ID, SOURCE, DEFAULT_UNIT, normalizeTask, normalizeQwenAdapter, normalizeFluxAdapter, poseTransferRouteSupported, normalizeUnit, cleanUnits, buildPayload, capabilityRouteFromPanel, refreshCapability, initControlNetPanel };
   document.querySelectorAll('[data-extension-id="image.controlnet"]').forEach(initControlNetPanel);
 })();

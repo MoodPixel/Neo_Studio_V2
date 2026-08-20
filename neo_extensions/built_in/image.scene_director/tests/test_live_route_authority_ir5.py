@@ -57,7 +57,7 @@ def _ui_state_from_backend(strategy: dict) -> str:
 
 def test_manifest_declares_ir5_live_route_authority_contract():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert manifest["version"] == "1.2.20"
+    assert tuple(int(part) for part in manifest["version"].split(".")) >= (1, 2, 21)
     contract = manifest["ui_schema"]["route_authority"]
     assert contract["phase"] == "IR-5"
     assert contract["route_state_source"] == "route_states"
@@ -205,7 +205,7 @@ def test_extension_editor_consumes_host_route_authority_and_has_no_family_suppor
     result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     active, planned = json.loads(result.stdout.strip())
     assert active["route"] == "available"
-    assert active["engine"] == "Lightweight Regional"
+    assert active["engine"] == "Krea2 Regional"
     assert planned["route"] == "planned gated"
     assert planned["prompt"] == "blocked"
 

@@ -38,7 +38,6 @@ def clamp_strength(value: Any, default: float = 0.8) -> float:
         number = float(value)
     except (TypeError, ValueError):
         number = default
-    number = max(-4.0, min(4.0, number))
     return round(number, 4)
 
 

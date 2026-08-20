@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from .asset_contract import validate_asset_contract
+from .capability_registry import resolve_ui_capability
+from .node_discovery import inspect_nodes
 from .map_preprocessors import batch_preview_payload, list_preprocessor_options, preview_map_payload
 from .validation import validate_controlnet_payload
 
@@ -15,6 +17,7 @@ def route_specs() -> list[dict[str, str]]:
     return [
         {"method": "GET", "path": "/api/extensions/controlnet/maps/routes"},
         {"method": "GET", "path": "/api/extensions/controlnet/maps/status"},
+        {"method": "GET", "path": "/api/extensions/controlnet/maps/capabilities"},
         {"method": "GET", "path": "/api/extensions/controlnet/maps/preprocessors"},
         {"method": "POST", "path": "/api/extensions/controlnet/maps/validate-assets"},
         {"method": "POST", "path": "/api/extensions/controlnet/maps/validate"},
@@ -69,6 +72,36 @@ def create_controlnet_map_router(
             "profile_id": str(backend.get("profile_id") or profile_id or ""),
             "route_specs": route_specs(),
             **options,
+        }
+
+    @router.get("/capabilities")
+    def controlnet_capabilities(
+        profile_id: str | None = None,
+        backend: str = "comfyui",
+        family: str = "sdxl",
+        loader: str = "checkpoint",
+        mode: str = "generate",
+        task: str = "map_control",
+        method: str = "",
+    ) -> dict[str, Any]:
+        runtime = _backend(profile_id)
+        object_info = _object_info_from_backend(runtime)
+        status = inspect_nodes(object_info, backend_details=runtime)
+        payload = resolve_ui_capability(
+            family=family,
+            loader=loader,
+            mode=mode,
+            task=task,
+            backend=backend,
+            method=method,
+            node_status=status,
+            object_info=object_info,
+        )
+        return {
+            "ok": True,
+            "profile_id": str(runtime.get("profile_id") or profile_id or ""),
+            "provider_id": str(runtime.get("provider_id") or backend or ""),
+            **payload,
         }
 
     @router.get("/preprocessors")

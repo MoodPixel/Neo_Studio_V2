@@ -1,8 +1,8 @@
 {
   "id": "image.scene_director",
   "name": "Image · Scene Director",
-  "version": "1.2.20",
-  "description": "Built-in Image Scene Director through IR-5 live route authority repair: one manifest-backed UI route contract parity-locked to the backend execution strategy, frozen classic V054 plus release-locked lightweight Krea 2 RAW/Turbo, FLUX.2 Klein, and Z-Image Base/Turbo regional engines.",
+  "version": "1.2.25",
+  "description": "Built-in Image Scene Director with IMG-SD3 Krea2 Regional Engine Integration: Krea 2 RAW/Turbo delegates regional prompt + LoRA ownership to external ComfyUI-Krea2-Regional while Neo preserves native/GGUF loader, sampler, latent and decode ownership; FLUX.2 Klein/Z-Image retain Neo regional runtime; classic SDXL/SD1.5 keep V054.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "image",
@@ -207,6 +207,7 @@
       "comfy_node/regional_lora.py",
       "backend/flux2_klein_support.py",
       "backend/z_image_support.py",
+      "backend/krea2_regional_external.py",
       "backend/krea2_support.py",
       "backend/release_lock.py",
       "backend/inspector.py"
@@ -242,10 +243,15 @@
     "non_node_safe_metadata_replay": true,
     "classic_required_node": "NeoSceneDirectorV054",
     "lightweight_prompt_required_custom_node": false,
-    "krea2_regional_lora_required_node": "NeoRegionalLoRADelta",
-    "regional_lora_missing_node_policy": "prompt_engine_may_continue_but_regional_lora_must_fail_closed_without_global_or_finish_fallback",
+    "krea2_regional_lora_required_node": "Krea2ApplyRegional",
+    "regional_lora_missing_node_policy": "fail_closed_per_family_without_cross_engine_or_global_lora_fallback",
     "flux2_klein_regional_lora_required_node": "NeoRegionalLoRADelta",
-    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta"
+    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "krea2_regional_required_nodes": [
+      "Krea2RegionalBuilder",
+      "Krea2ApplyRegional"
+    ],
+    "krea2_regional_node_repo": "januspluto/ComfyUI-Krea2-Regional"
   },
   "support_matrix_contract": {
     "phase": "SD-28.7",
@@ -283,10 +289,6 @@
       "no_lightweight_regional_heavy_sd_repair",
       "no_regional_lora_global_loader_fallback",
       "no_regional_lora_finish_sampler_fallback",
-      "regional_lora_single_model_wrapper_only",
-      "regional_lora_clip_delta_suppressed",
-      "krea2_declared_incompatible_lora_blocked_before_regional_wrapper",
-      "krea2_spatial_module_scope_filter_required",
       "krea2_turbo_8_step_cfg1_zero_negative_profile_preserved",
       "krea2_raw_turbo_cross_variant_lora_allowed",
       "flux2_klein_declared_incompatible_lora_blocked_before_regional_wrapper",
@@ -305,10 +307,13 @@
       "sd28_7_exact_route_whitelist_required",
       "sd28_7_release_lock_fail_closed_to_original_provider_graph",
       "sd28_7_modern_forbids_new_sampler_or_standard_lora_loader_nodes",
-      "sd28_7_regional_lora_exactly_one_runtime_wrapper_when_requested",
-      "sd28_7_compile_time_support_must_not_claim_gpu_spatial_proof"
+      "sd28_7_compile_time_support_must_not_claim_gpu_spatial_proof",
+      "krea2_external_builder_apply_required",
+      "krea2_neoregionalloradelta_fallback_forbidden",
+      "krea2_regional_lora_rows_must_not_global_load",
+      "krea2_external_runtime_fail_closed_when_missing"
     ],
-    "custom_node_policy": "SD-28.9 removes global UI gating on NeoSceneDirectorV054. Classic V054 execution requires NeoSceneDirectorV054; modern lightweight regional prompts require only Comfy built-ins; modern regional LoRA requires NeoRegionalLoRADelta only when a compatible regional LoRA route is requested. Missing optional nodes never hide the editor.",
+    "custom_node_policy": "IMG-SD3: Classic V054 requires NeoSceneDirectorV054. Krea2 RAW/Turbo requires external ComfyUI-Krea2-Regional (Krea2RegionalBuilder + Krea2ApplyRegional). FLUX.2 Klein/Z-Image regional LoRA requires NeoRegionalLoRADelta. Missing runtimes never hide the editor and never trigger cross-engine/global-LoRA fallback.",
     "lightweight_required_nodes": [
       "CLIPTextEncode",
       "ConditioningSetMask",
@@ -318,16 +323,20 @@
       "MaskComposite",
       "FeatherMask"
     ],
-    "krea2_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "krea2_regional_lora_required_node": "Krea2ApplyRegional",
     "regional_lora_family_state": {
-      "krea2": "supported_model_side_activation_delta_v2",
-      "krea2_turbo": "supported_model_side_activation_delta_v2",
+      "krea2": "supported_external_krea2_regional_engine",
+      "krea2_turbo": "supported_external_krea2_regional_engine",
       "flux2_klein": "supported_model_side_activation_delta_v1_runtime_proof_required",
       "z_image": "supported_model_side_activation_delta_v1_runtime_proof_required",
       "z_image_turbo": "supported_model_side_activation_delta_v1_runtime_proof_required"
     },
     "flux2_klein_regional_lora_required_node": "NeoRegionalLoRADelta",
-    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta"
+    "z_image_regional_lora_required_node": "NeoRegionalLoRADelta",
+    "krea2_regional_required_nodes": [
+      "Krea2RegionalBuilder",
+      "Krea2ApplyRegional"
+    ]
   },
   "workspace_app": "image",
   "target_subtab": "generations",
@@ -1103,5 +1112,61 @@
       "provider_gated_reason": "Scene Director execution requires a validated ComfyUI backend.",
       "planned_reason": "Scene Director outpaint remains planned-gated until its dedicated canvas/mask policy is implemented."
     }
+  },
+  "phase_img_sd2_modern_regional_lora_isolation_core": {
+    "status": "implemented_but_superseded_for_krea2_by_img_sd3",
+    "primary_purpose": "regional_lora_isolation",
+    "modern_prompt_policy": "provider_global_prompt_unchanged; regional_prompt_optional",
+    "subject_authority_default": "disabled",
+    "krea2_isolation_profile": "superseded_by_external_krea2_regional_engine",
+    "runtime_node": "NeoRegionalLoRADelta (FLUX.2 Klein/Z-Image retained; Krea2 superseded)",
+    "classic_v054_unchanged": true
+  },
+  "phase_img_sd3_krea2_regional_engine_integration": {
+    "status": "implemented",
+    "date": "2026-08-16",
+    "engine": "krea2_regional_external",
+    "families": [
+      "krea2",
+      "krea2_turbo"
+    ],
+    "loaders": [
+      "diffusion_model",
+      "gguf"
+    ],
+    "modes": [
+      "generate",
+      "img2img",
+      "inpaint"
+    ],
+    "external_runtime_repo": "januspluto/ComfyUI-Krea2-Regional",
+    "required_nodes": [
+      "Krea2RegionalBuilder",
+      "Krea2ApplyRegional"
+    ],
+    "neo_owned": [
+      "model_loader",
+      "clip_loader",
+      "vae_loader",
+      "latent",
+      "sampler",
+      "decode",
+      "img2img_inpaint_route",
+      "high_res_and_finish_extensions"
+    ],
+    "external_owned": [
+      "regional_builder",
+      "joint_attention_regional_conditioning",
+      "regional_lora_token_ownership"
+    ],
+    "defaults": {
+      "adaptive_masks": "refine boxes",
+      "exclusive_masks": true,
+      "restrict_img_attn": false,
+      "region_lock_strength": 0.4,
+      "layout_in_base": "position hints"
+    },
+    "fallback_policy": "fail_closed_no_neoregionalloradelta_or_global_lora_fallback",
+    "classic_v054_unchanged": true
   }
 }

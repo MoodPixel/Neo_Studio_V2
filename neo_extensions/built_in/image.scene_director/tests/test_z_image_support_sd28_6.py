@@ -315,7 +315,7 @@ def test_cross_variant_lora_remains_runtime_preflight_candidate_and_trigger_loca
 def test_manifest_promotes_zimage_and_registers_sd28_6_contract():
     import json
     manifest = json.loads((EXT_ROOT / "extension_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "1.2.20"
+    assert tuple(int(part) for part in manifest["version"].split(".")) >= (1, 2, 21)
     assert "backend/z_image_support.py" in manifest["asset_bundle"]["python"]
     phase = manifest["phase_sd_28_6_z_image_support"]
     assert phase["regional_lora"] == "z_image_activation_delta_v1"
@@ -355,7 +355,7 @@ def test_runtime_node_apply_selects_zimage_adapter_without_mutating_original(mon
     assert original.wrappers == []
     assert len(patched.wrappers) == 1
     proof = patched.attachments[runtime.RUNTIME_ATTACHMENT_KEY]
-    assert proof["phase"] == "SD-28.6"
+    assert proof["phase"] == "IMG-SD2"
     assert proof["adapter"] == "z_image_activation_delta_v1"
     assert proof["family"] == "z_image_turbo"
     assert proof["loader"] == "gguf"

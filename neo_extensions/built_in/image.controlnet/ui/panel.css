@@ -305,3 +305,38 @@
 .neo-controlnet-task-card .neo-badge-row { display:flex; flex-wrap:wrap; gap:.4rem; }
 [data-controlnet-standard-settings] { display:grid; gap:.55rem; }
 [data-controlnet-pose-method-row] { display:grid; gap:.35rem; }
+
+/* Krea 2 Control UI closeout: keep Strength, Detect res, and route help on one balanced row. */
+.neo-controlnet-strength-row.is-krea2-control {
+  grid-template-columns: minmax(7rem, .72fr) minmax(8rem, .78fr) minmax(16rem, 1.8fr) !important;
+  gap: 12px !important;
+  align-items: end !important;
+}
+.neo-controlnet-strength-row.is-krea2-control.is-krea2-plus {
+  grid-template-columns: minmax(7rem, .62fr) minmax(6.5rem, .58fr) minmax(6.5rem, .58fr) minmax(16rem, 1.72fr) !important;
+}
+.neo-controlnet-strength-row.is-krea2-control.is-krea2-ostris {
+  grid-template-columns: minmax(7rem, .62fr) minmax(8rem, .72fr) minmax(8rem, .72fr) minmax(16rem, 1.7fr) !important;
+}
+.neo-controlnet-krea2-checkbox {
+  min-height: 2.35rem;
+  align-self: end;
+}
+.neo-controlnet-krea2-help {
+  align-self: center;
+  line-height: 1.45;
+  padding: .15rem 0;
+  max-width: 44rem;
+}
+.neo-controlnet-canny-row.is-krea2-thresholds {
+  grid-template-columns: repeat(2, minmax(8rem, 1fr)) !important;
+}
+@media (max-width: 760px) {
+  .neo-controlnet-strength-row.is-krea2-control,
+  .neo-controlnet-canny-row.is-krea2-thresholds {
+    grid-template-columns: 1fr !important;
+  }
+  .neo-controlnet-krea2-help {
+    padding-top: .1rem;
+  }
+}

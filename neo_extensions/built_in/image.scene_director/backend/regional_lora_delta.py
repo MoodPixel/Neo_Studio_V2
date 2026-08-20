@@ -14,9 +14,9 @@ from .krea2_support import filter_krea2_bindings, krea2_full_support_contract
 from .flux2_klein_support import filter_klein_bindings, klein_full_support_contract, resolve_klein_profile
 from .z_image_support import filter_z_image_bindings, z_image_full_support_contract, resolve_z_image_profile
 
-REGIONAL_LORA_DELTA_SCHEMA = "neo.image.scene_director.regional_lora_delta.contract.v5"
+REGIONAL_LORA_DELTA_SCHEMA = "neo.image.scene_director.regional_lora_delta.contract.v6"
 REGIONAL_LORA_GRAPH_SCHEMA = "neo.image.scene_director.regional_lora_delta.graph_patch.v1"
-KREA2_ADAPTER = "krea2_activation_delta_v2"
+KREA2_ADAPTER = "krea2_activation_delta_v3_strict_isolation"
 FLUX2_KLEIN_ADAPTER = "flux2_klein_activation_delta_v1"
 Z_IMAGE_ADAPTER = "z_image_activation_delta_v1"
 RUNTIME_PROOF_FIELDS = (
@@ -144,6 +144,46 @@ def _normalized_bbox(region: dict[str, Any]) -> dict[str, float]:
     return {"x": x, "y": y, "w": w, "h": h}
 
 
+def _bbox_overlap_fraction(a: dict[str, float], b: dict[str, float]) -> float:
+    ax0, ay0 = float(a.get("x", 0.0)), float(a.get("y", 0.0))
+    ax1, ay1 = ax0 + float(a.get("w", 0.0)), ay0 + float(a.get("h", 0.0))
+    bx0, by0 = float(b.get("x", 0.0)), float(b.get("y", 0.0))
+    bx1, by1 = bx0 + float(b.get("w", 0.0)), by0 + float(b.get("h", 0.0))
+    iw = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+    ih = max(0.0, min(ay1, by1) - max(ay0, by0))
+    inter = iw * ih
+    if inter <= 0.0:
+        return 0.0
+    smaller = max(1e-8, min(float(a.get("w", 0.0)) * float(a.get("h", 0.0)), float(b.get("w", 0.0)) * float(b.get("h", 0.0))))
+    return max(0.0, min(1.0, inter / smaller))
+
+
+def _regional_overlap_diagnostics(routes: list[dict[str, Any]]) -> dict[str, Any]:
+    pairs: list[dict[str, Any]] = []
+    max_overlap = 0.0
+    for i in range(len(routes)):
+        for j in range(i + 1, len(routes)):
+            a = routes[i]
+            b = routes[j]
+            overlap = _bbox_overlap_fraction(a.get("bbox") or {}, b.get("bbox") or {})
+            max_overlap = max(max_overlap, overlap)
+            if overlap > 0.0:
+                pairs.append({
+                    "route_a": str(a.get("route_id") or ""),
+                    "route_b": str(b.get("route_id") or ""),
+                    "region_a": str(a.get("region_id") or ""),
+                    "region_b": str(b.get("region_id") or ""),
+                    "overlap_fraction_of_smaller_region": round(overlap, 6),
+                })
+    risk = "high" if max_overlap >= 0.20 else ("medium" if max_overlap >= 0.05 else ("low" if max_overlap > 0 else "none"))
+    return {
+        "pair_count": len(pairs),
+        "pairs": pairs,
+        "max_overlap_fraction": round(max_overlap, 6),
+        "risk": risk,
+    }
+
+
 def _seam_feather(region: dict[str, Any], canvas: dict[str, int]) -> float:
     mask = region.get("mask") if isinstance(region.get("mask"), dict) else {}
     try:
@@ -224,6 +264,7 @@ def build_regional_lora_delta_contract(
             "z_image_compatibility": deepcopy(binding.get("z_image_compatibility") or {}),
             "enabled": True,
         })
+    overlap_diagnostics = _regional_overlap_diagnostics(normalized_routes)
     execution_enabled = bool(adapter.get("runtime_enabled") and normalized_routes)
     status = (
         "armed_runtime_contract" if execution_enabled
@@ -253,6 +294,9 @@ def build_regional_lora_delta_contract(
         "runtime_proof_fields": list(RUNTIME_PROOF_FIELDS),
         "runtime_gpu_proven": False,
         "hard_region_isolation_claimed": False,
+        "isolation_goal": "prevent_cross_character_lora_mixing",
+        "isolation_profile": "krea2_strict_no_attention_kv_write" if family in {"krea2", "krea2_turbo"} else "spatial_activation_delta_best_effort",
+        "isolation_overlap_diagnostics": overlap_diagnostics,
         "compile_contract_isolation": "activation_delta_masked_model_side" if execution_enabled else "not_executable",
         "global_model_mutation_allowed": False,
         "clip_delta_execution": "suppressed_model_side_only" if execution_enabled else "not_available",
@@ -260,7 +304,8 @@ def build_regional_lora_delta_contract(
         "route_limit": None,
         "canvas": canvas_data,
         "policy": (
-            "SD-28.6 Krea2/FLUX.2 Klein/Z-Image regional LoRA uses one cloned MODEL with family-specific spatial-scope-filtered forward-time masked activation deltas. "
+            "IMG-SD2 regional LoRA isolation uses one cloned MODEL with family-specific spatial-scope-filtered forward-time masked activation deltas. "
+            "Krea2 additionally suppresses LoRA writes to attention key/value projections because those tokens can broadcast identity influence to queries outside the owning region. "
             "No global LoRA fallback, CLIP mutation, repair sampler, or fixed route-count cap is allowed."
         ),
     }
@@ -311,6 +356,8 @@ def apply_regional_lora_delta(
         "global_model_mutation": False,
         "clip_delta_execution": contract.get("clip_delta_execution") or "not_available",
         "runtime_gpu_proven": False,
+        "isolation_profile": contract.get("isolation_profile"),
+        "isolation_overlap_diagnostics": deepcopy(contract.get("isolation_overlap_diagnostics") or {}),
         "reason": "",
     }
     if not routes:
@@ -395,13 +442,19 @@ def validate_regional_lora_runtime_proof(proof: dict[str, Any] | None) -> dict[s
                 failed.append(field)
         if source.get("global_model_mutation") is not False:
             failed.append("global_model_mutation")
+        family = str(source.get("family") or "").strip().lower().replace("-", "_")
+        if family in {"krea2", "krea2_turbo"}:
+            if source.get("cross_region_attention_kv_write_suppressed") is not True:
+                failed.append("cross_region_attention_kv_write_suppressed")
+            if str(source.get("identity_isolation_profile") or "") != "krea2_strict_no_attention_kv_write":
+                failed.append("identity_isolation_profile")
         try:
             if int(source.get("sampler_count") or 0) != 1:
                 failed.append("sampler_count")
         except Exception:
             failed.append("sampler_count")
     return {
-        "schema": "neo.image.scene_director.regional_lora_delta.runtime_proof.v5",
+        "schema": "neo.image.scene_director.regional_lora_delta.runtime_proof.v6",
         "phase": EXECUTION_STRATEGY_PHASE,
         "ready": not missing and not failed,
         "runtime_gpu_proven": bool(source.get("runtime_gpu_proven")) and not missing and not failed,

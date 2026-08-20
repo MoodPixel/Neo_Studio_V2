@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_manifest_does_not_globally_require_v054():
     manifest = json.loads((ROOT / 'extension_manifest.json').read_text(encoding='utf-8'))
-    assert manifest['version'] == '1.2.20'
+    version = tuple(int(part) for part in str(manifest['version']).split('.'))
+    assert version >= (1, 2, 21)
     assert manifest['required_nodes']['comfyui'] == []
     conditional = manifest['conditional_required_nodes']
     assert conditional['classic_v054'] == ['NeoSceneDirectorV054']
@@ -46,7 +47,7 @@ def test_editor_keeps_modern_prompting_independent_from_regional_lora_node():
     assert "nodes.has('NeoRegionalLoRADelta')" in js
     assert "Regional prompting is available. NeoRegionalLoRADelta is missing" in js
     assert "nodes.has('NeoSceneDirectorV054')" in js
-    assert 'never falls back to a global LoRA loader' in js
+    assert 'removed from global LoRA execution' in js
 
 
 def test_editor_serializes_canonical_and_legacy_payloads():

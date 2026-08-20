@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.image.controlnet.capability_registry.schema.v1",
+  "title": "Neo Image ControlNet Capability Registry",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "schema_version",
+    "extension_id",
+    "behavioral_activation",
+    "intents",
+    "families",
+    "ui_policy",
+    "audit_findings"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.image.controlnet.capability_registry.v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "extension_id": {
+      "const": "image.controlnet"
+    },
+    "behavioral_activation": {
+      "const": true
+    },
+    "phase": {
+      "type": "string"
+    },
+    "source_of_truth": {
+      "type": "object"
+    },
+    "states": {
+      "type": "object"
+    },
+    "intents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "default_preprocessor",
+          "preprocessors"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default_preprocessor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "preprocessors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "model_bindings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "selection_kind",
+                "selector_label",
+                "catalog_source",
+                "catalog_kind",
+                "compatibility_mode",
+                "strict"
+              ],
+              "properties": {
+                "selection_kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "selector_label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "catalog_source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "catalog_kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "compatibility_mode": {
+                  "enum": [
+                    "route_catalog",
+                    "catalog_membership",
+                    "filename_tokens"
+                  ]
+                },
+                "strict": {
+                  "type": "boolean"
+                },
+                "required_all_tokens": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                },
+                "required_any_tokens": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                },
+                "exclude_tokens": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                },
+                "empty_policy": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "families": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "summary",
+          "implemented_intents",
+          "planned_intents",
+          "unsupported_intents",
+          "max_active_units",
+          "routes",
+          "notes"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string"
+          },
+          "implemented_intents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "planned_intents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "unsupported_intents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "max_active_units": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "backends",
+                "loaders",
+                "modes",
+                "tasks",
+                "adapter",
+                "maturity",
+                "catalog_kind",
+                "required_node_roles",
+                "settings"
+              ],
+              "properties": {
+                "backends": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "loaders": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "modes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "tasks": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "map_control",
+                      "inpaint_control",
+                      "outpaint_control"
+                    ]
+                  },
+                  "minItems": 1
+                },
+                "intents": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "adapter": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maturity": {
+                  "enum": [
+                    "available",
+                    "experimental_available"
+                  ]
+                },
+                "catalog_kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "required_node_roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "settings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "method": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "ui_policy": {
+      "type": "object"
+    },
+    "audit_findings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

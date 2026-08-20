@@ -71,10 +71,10 @@ def detect_node_status(nodes: Any) -> dict[str, Any]:
 def detect_execution_node_status(nodes: Any, route: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve route-specific Scene Director execution requirements.
 
-    SD-28.7 release-locked modern lightweight prompt routing does not require NeoSceneDirectorV054.
-    Krea2/FLUX.2 Klein/Z-Image regional LoRA conditionally requires NeoRegionalLoRADelta only when a
-    compatible region-targeted LoRA row is present; the LoRA patcher owns that
-    fail-closed check. The classic route keeps the exact old V054 requirement.
+    Modern lightweight routing does not require NeoSceneDirectorV054. IMG-SD3 Krea2
+    RAW/Turbo requires the external ComfyUI-Krea2-Regional Builder + Apply nodes;
+    FLUX.2 Klein/Z-Image retain NeoRegionalLoRADelta for compatible region-targeted
+    LoRA rows. The classic route keeps the exact old V054 requirement.
     """
     strategy = resolve_scene_director_execution_strategy(route or {})
     engine = str(strategy.get("engine") or "unsupported")
@@ -89,7 +89,8 @@ def detect_execution_node_status(nodes: Any, route: dict[str, Any] | None = None
     available = bool(strategy.get("execution_enabled") and not missing)
     if engine != ENGINE_LIGHTWEIGHT_REGIONAL:
         available = False
-    selected = "ComfyBuiltInMaskedRegionalConditioning" if available else None
+    krea_external = str((strategy.get("regional_lora") or {}).get("mode") or "") == "krea2_regional_external"
+    selected = ("Krea2ApplyRegional" if krea_external else "ComfyBuiltInMaskedRegionalConditioning") if available else None
     return {
         "required": bool(required),
         "custom_scene_director_node_required": False,
@@ -104,14 +105,22 @@ def detect_execution_node_status(nodes: Any, route: dict[str, Any] | None = None
             None
             if available
             else (
-                "Scene Director lightweight regional prompting is missing required Comfy built-in nodes: " + ", ".join(missing)
+                (
+                    "Krea 2 Scene Director requires januspluto/ComfyUI-Krea2-Regional; missing: " + ", ".join(missing)
+                    if str(strategy.get("family") or "") in {"krea2", "krea2_turbo"}
+                    else "Scene Director lightweight execution is missing required Comfy nodes: " + ", ".join(missing)
+                )
                 if missing
                 else str(strategy.get("reason") or "Lightweight regional execution is not enabled for this route.")
             )
         ),
         "fallback_policy": "never_fallback_to_classic_v054",
         "non_node_safe_capabilities": list(NON_NODE_SAFE_CAPABILITIES),
-        "node_required_capabilities": ["masked_regional_conditioning", "single_sampler_conditioning_rewire"],
+        "node_required_capabilities": (
+            ["krea2_external_regional_conditioning", "regional_lora_isolation", "single_sampler_conditioning_rewire"]
+            if krea_external
+            else ["masked_regional_conditioning", "single_sampler_conditioning_rewire"]
+        ),
         "execution_strategy": strategy,
     }
 
@@ -139,11 +148,14 @@ def workflow_readiness(*, route: dict[str, Any] | None = None, available_nodes: 
         reason = str(node_status.get("missing_reason") or "Scene Director execution requirements are missing.")
     else:
         readiness_state = state
-        reason = (
-            "Scene Director lightweight masked regional prompt patch is allowed."
-            if strategy.get("engine") == ENGINE_LIGHTWEIGHT_REGIONAL
-            else "Scene Director classic V054 workflow patch is allowed."
-        )
+        if strategy.get("engine") == ENGINE_LIGHTWEIGHT_REGIONAL:
+            reason = (
+                "Scene Director Krea2 Regional external engine patch is allowed."
+                if str((strategy.get("regional_lora") or {}).get("mode") or "") == "krea2_regional_external"
+                else "Scene Director lightweight masked regional prompt patch is allowed."
+            )
+        else:
+            reason = "Scene Director classic V054 workflow patch is allowed."
 
     return {
         "extension_id": EXTENSION_ID,

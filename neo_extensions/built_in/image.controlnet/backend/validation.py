@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from .asset_resolver import resolve_controlnet_task_assets
+from .capability_registry import control_intent_from_unit, resolve_route_capability, validate_model_selection_for_route
 from .node_discovery import PROVIDER_GATED, UNSUPPORTED, inspect_nodes, preprocessor_status
 from .payload_schema import EXTENSION_ID, normalize_block
 from .support_matrix import (
@@ -155,6 +156,10 @@ def _is_flux_adapter_route(family: str, loader: str, task: str) -> bool:
     return family in {"flux", "flux2_klein"} and loader in {"diffusion_model", "gguf"} and task in {TASK_MAP_CONTROL, TASK_INPAINT_CONTROL, TASK_OUTPAINT_CONTROL}
 
 
+def _is_krea2_control_route(family: str, loader: str, task: str, workflow_mode: str) -> bool:
+    return family in {"krea2", "krea2_turbo"} and loader in {"diffusion_model", "gguf"} and task == TASK_MAP_CONTROL and str(workflow_mode or "") in {"generate", "txt2img"}
+
+
 def validate_controlnet_payload(
     raw_payload: dict[str, Any] | None,
     *,
@@ -201,6 +206,97 @@ def validate_controlnet_payload(
             asset_resolution=asset_resolution,
         )
 
+    capability_method = "qwen_transfer" if any(str(unit.get("pose_method") or "").strip().lower() == "qwen_transfer" for unit in units if isinstance(unit, dict)) else ""
+    capability = None
+    if str(backend or "").strip().lower() != "forge":
+        capability = resolve_route_capability(
+            family=family, loader=loader, mode=workflow_mode, task=task, backend=backend, method=capability_method
+        )
+        if not capability.get("implemented"):
+            return _provider_gated_result(
+                state="implementation_target" if capability.get("known_family") else "unsupported",
+                reason="No implemented Neo ControlNet capability matches the active family/loader/mode/task route.",
+                route={**route, "capability": capability},
+                notes=notes + [_note("error", "capability.route", "ControlNet is not implemented for this active route. Neo does not fall back to another family adapter.", family=family, loader=loader, workflow_mode=workflow_mode, controlnet_task=task, method=capability_method)],
+                active_units=units,
+                asset_resolution=asset_resolution,
+            )
+        allowed_intents = set(capability.get("implemented_intents") or [])
+        invalid_units = []
+        for index, unit in enumerate(units):
+            intent = control_intent_from_unit(unit if isinstance(unit, dict) else {})
+            if not intent and task != TASK_MAP_CONTROL:
+                continue
+            if intent not in allowed_intents:
+                invalid_units.append({"index": index, "intent": intent or "(none)"})
+        if invalid_units:
+            return _provider_gated_result(
+                state=task_state,
+                reason="Selected ControlNet type is not implemented for the active route.",
+                route={**route, "capability": capability},
+                notes=notes + [_note("error", "inputs.units", "One or more ControlNet units use a control type that Neo has not implemented for this family/route.", invalid_units=invalid_units, allowed=sorted(allowed_intents))],
+                active_units=units,
+                asset_resolution=asset_resolution,
+            )
+        max_units = capability.get("max_active_units")
+        if isinstance(max_units, int) and max_units > 0 and len(units) > max_units:
+            return _provider_gated_result(
+                state=task_state,
+                reason=f"This ControlNet capability supports at most {max_units} active unit(s).",
+                route={**route, "capability": capability},
+                notes=notes + [_note("error", "inputs.units", "Too many active ControlNet units for the resolved capability.", max_units=max_units, active_units=len(units))],
+                active_units=units,
+                asset_resolution=asset_resolution,
+            )
+        route["capability"] = capability
+
+    if capability_method == "qwen_transfer" and family == "qwen_image_edit_2511":
+        node_status = inspect_nodes(object_info)
+        pose_nodes = ((node_status.get("preprocessors") or {}).get("openpose") or []) if isinstance(node_status.get("preprocessors"), dict) else []
+        object_names = {str(key) for key in (object_info or {}).keys()} if isinstance(object_info, dict) else set()
+        errors = []
+        if len(units) != 1:
+            errors.append(_note("error", "inputs.units", "Qwen 2511 Pose Transfer supports exactly one active pose unit.", active_units=len(units)))
+        unit = units[0] if units else {}
+        if control_intent_from_unit(unit) != "openpose":
+            errors.append(_note("error", "inputs.units[0].unit", "Qwen 2511 Pose Transfer requires the OpenPose control intent."))
+        if not str(unit.get("pose_base_lora") or "").strip():
+            errors.append(_note("error", "inputs.units[0].pose_base_lora", "Select the Pose Transfer base LoRA."))
+        if not str(unit.get("pose_helper_lora") or "").strip():
+            errors.append(_note("error", "inputs.units[0].pose_helper_lora", "Select the Pose Transfer helper LoRA."))
+        if node_status.get("object_info_present"):
+            if not pose_nodes:
+                errors.append(_note("error", "nodes.openpose", "Qwen 2511 Pose Transfer requires a DWPose/OpenPose preprocessor node."))
+            if "LoraLoaderModelOnly" not in object_names:
+                errors.append(_note("error", "nodes.LoraLoaderModelOnly", "Qwen 2511 Pose Transfer requires LoraLoaderModelOnly."))
+        route = {**route, "route_state": "experimental_available", "controlnet_task_state": "experimental_available", "capability": capability, "pose_transfer_method": "qwen_transfer"}
+        return {
+            "ok": not errors,
+            "enabled": not errors,
+            "state": "experimental_available" if not errors else ("provider_gated" if any(str(item.get("field") or "").startswith("nodes.") for item in errors) else "experimental_available"),
+            "reason": "validated" if not errors else errors[0]["message"],
+            "route": route,
+            "validation": notes + errors,
+            "node_status": node_status,
+            "unit_statuses": [],
+            "active_units": units if not errors else [],
+            "asset_resolution": asset_resolution,
+            "extension_id": EXTENSION_ID,
+        }
+
+    if family in {"krea2", "krea2_turbo"}:
+        params_for_krea = image_params if isinstance(image_params, dict) else {}
+        krea_edit_engine = str(params_for_krea.get("krea2_edit_engine") or params_for_krea.get("edit_engine") or "").strip().lower().replace("-", "_")
+        if krea_edit_engine in {"identity_edit", "krea2_identity_edit", "identity"}:
+            return _provider_gated_result(
+                state="implementation_target",
+                reason="Krea 2 Identity Edit + Control LoRA stacking is not enabled in Control Phase 1.",
+                route=route,
+                notes=notes + [_note("error", "params.krea2_edit_engine", "Use Krea 2 Control on Generate without Identity Edit. Identity Edit + Krea 2 Control will be validated in a later compatibility phase.", edit_engine=krea_edit_engine)],
+                active_units=units,
+                asset_resolution=asset_resolution,
+            )
+
     if task_state not in ACTIVE_STATES:
         return _provider_gated_result(
             state=task_state,
@@ -212,7 +308,99 @@ def validate_controlnet_payload(
         )
 
     node_status = inspect_nodes(object_info)
-    if _is_qwen_adapter_route(family, loader, task):
+    if _is_krea2_control_route(family, loader, task, workflow_mode):
+        intent = control_intent_from_unit(units[0] if units and isinstance(units[0], dict) else {}) if units else ""
+        if intent == "composition_silhouette":
+            status_key = "krea2_control_plus"
+            required_nodes = ["Krea2ControlPlusLoRALoader", "Krea2ControlPlusImageEncode", "Krea2ControlPlusApply"]
+            adapter_label = "Krea 2 Control Plus"
+            adapter_id = "krea2_control_plus"
+        elif intent == "openpose":
+            status_key = "krea2_ostris"
+            required_nodes = ["TextEncodeKrea2OstrisEdit", "Krea2OstrisEditModelPatch", "LoraLoaderModelOnly"]
+            adapter_label = "Krea 2 Ostris OpenPose"
+            adapter_id = "krea2_ostris_openpose"
+        elif intent == "canny":
+            status_key = "krea2_nk2e"
+            required_nodes = ["NK2EInContextModelNode", "NK2ESetReferenceNode", "LoraLoaderModelOnly", "VAEEncode"]
+            adapter_label = "Krea 2 NK2E Canny"
+            adapter_id = "krea2_nk2e_canny"
+        else:
+            status_key = "krea2_control"
+            required_nodes = ["Krea2ControlLoRALoader", "Krea2ControlImageEncode", "Krea2ControlApply"]
+            adapter_label = "Krea 2 Control LoRA"
+            adapter_id = "krea2_native_control_lora"
+        krea_status = node_status.get(status_key) if isinstance(node_status.get(status_key), dict) else {}
+        if node_status.get("object_info_present") and not krea_status.get("available"):
+            missing = list(krea_status.get("missing") or required_nodes)
+            return _provider_gated_result(
+                state="provider_gated",
+                reason=f"{adapter_label} nodes are missing.",
+                route=route,
+                notes=notes + [_note(
+                    "error",
+                    f"nodes.{status_key}",
+                    f"Install/update the required {adapter_label} custom nodes so the active Krea intent can run.",
+                    intent=intent,
+                    missing=missing,
+                )],
+                node_status=node_status,
+                active_units=units,
+                asset_resolution=asset_resolution,
+            )
+        if units:
+            model_name = str(units[0].get("model") or "").strip()
+            live_loras = {str(item).strip() for item in krea_status.get("lora_models") or [] if str(item).strip()}
+            model_catalog_key = model_name.replace("\\", "/").casefold()
+            live_lora_keys = {item.replace("\\", "/").casefold() for item in live_loras}
+            if model_name and node_status.get("object_info_present") and live_loras and model_catalog_key not in live_lora_keys:
+                return _provider_gated_result(
+                    state="provider_gated",
+                    reason=f"Selected {adapter_label} is not in the current Comfy catalog.",
+                    route=route,
+                    notes=notes + [_note(
+                        "error",
+                        "inputs.units[0].model",
+                        "The selected Krea 2 Control LoRA is no longer available in the active adapter's live models/loras catalog. Refresh nodes or choose an installed compatible LoRA.",
+                        model=model_name,
+                        intent=intent,
+                        adapter=adapter_id,
+                    )],
+                    node_status=node_status,
+                    active_units=units,
+                    asset_resolution=asset_resolution,
+                )
+            if model_name:
+                model_binding = validate_model_selection_for_route(
+                    model_name,
+                    family=family,
+                    loader=loader,
+                    mode=workflow_mode,
+                    intent=intent,
+                    task=task,
+                    backend=backend,
+                    method=capability_method,
+                    node_status=node_status,
+                )
+                if not model_binding.get("valid"):
+                    return _provider_gated_result(
+                        state="provider_gated",
+                        reason="Selected Krea 2 Control LoRA is incompatible with the active control intent.",
+                        route={**route, "model_binding": model_binding.get("binding") or {}},
+                        notes=notes + [_note(
+                            "error",
+                            "inputs.units[0].model",
+                            "The selected LoRA is present in ComfyUI/models/loras but is not compatible with the active Krea 2 control intent. Choose a LoRA from Neo's filtered Control LoRA list.",
+                            model=model_name,
+                            intent=intent,
+                            compatibility_status=model_binding.get("status"),
+                            compatible_models=list(model_binding.get("compatible_models") or []),
+                        )],
+                        node_status=node_status,
+                        active_units=units,
+                        asset_resolution=asset_resolution,
+                    )
+    elif _is_qwen_adapter_route(family, loader, task):
         qwen_status = node_status.get("qwen") if isinstance(node_status.get("qwen"), dict) else {}
         adapter = _qwen_adapter_from_block(block)
         if adapter == "auto":
@@ -317,7 +505,7 @@ def validate_controlnet_payload(
         else:
             unit_statuses.append({"uid": uid, "unit": unit.get("unit"), "preprocessor": unit.get("preprocessor"), "preprocessor_status": {"state": "not_required", "reason": "Inpaint/outpaint ControlNet uses the Image Tab source/mask/canvas adapter, not a map preprocessor."}})
 
-        if unit.get("advanced_enabled") and not node_status.get("advanced_available"):
+        if unit.get("advanced_enabled") and not _is_krea2_control_route(family, loader, task, workflow_mode) and not node_status.get("advanced_available"):
             errors.append(_note("error", f"{field_prefix}.advanced_enabled", "Advanced ControlNet was requested but no advanced apply node was detected.", uid=uid))
 
         mask_mode = unit.get("mask_mode")

@@ -17,8 +17,8 @@ EXTENSION_ID = "image.controlnet"
 VERSION = 1
 SCHEMA = "neo.image.controlnet.v1"
 
-VALID_UNITS = {"canny", "depth", "openpose", "lineart", "lineart_anime", "softedge", "tile", "normalbae", "scribble"}
-VALID_PREPROCESSORS = VALID_UNITS | {"dwpose", "none"}
+VALID_UNITS = {"canny", "depth", "openpose", "lineart", "lineart_anime", "softedge", "tile", "normalbae", "scribble", "composition_silhouette"}
+VALID_PREPROCESSORS = (VALID_UNITS - {"composition_silhouette"}) | {"dwpose", "none"}
 VALID_FIT_MODES = {"contain", "cover", "stretch", "native"}
 VALID_BATCH_MODES = {"auto", "repeat", "clamp", "strict"}
 VALID_MASK_MODES = {"none", "control_mask", "inpaint_mask"}
@@ -53,7 +53,7 @@ COMMON_UNIT_KEYS = {
     "sliding_context",
 }
 CANNY_KEYS = {"canny_low", "canny_high"}
-OPENPOSE_KEYS = {"openpose_body", "openpose_hand", "openpose_face", "pose_method"}
+OPENPOSE_KEYS = {"openpose_body", "openpose_hand", "openpose_face", "pose_method", "ostris_kv_cache"}
 POSE_TRANSFER_KEYS = {
     "pose_reference_lane",
     "pose_map_lane",
@@ -83,6 +83,7 @@ DEFAULT_UNIT = {
     "openpose_body": True,
     "openpose_hand": False,
     "openpose_face": False,
+    "ostris_kv_cache": True,
     "pose_method": "controlnet",
     "pose_reference_lane": 2,
     "pose_map_lane": 3,
@@ -175,7 +176,7 @@ def normalize_unit(raw: dict[str, Any] | None, index: int = 0) -> tuple[dict[str
     notes: list[dict[str, str]] = []
 
     unit = _enum(data.get("unit"), valid=VALID_UNITS, default=DEFAULT_UNIT["unit"], notes=notes, field="unit")
-    preprocessor_default = unit if unit in VALID_PREPROCESSORS else DEFAULT_UNIT["preprocessor"]
+    preprocessor_default = "none" if unit == "composition_silhouette" else (unit if unit in VALID_PREPROCESSORS else DEFAULT_UNIT["preprocessor"])
     preprocessor = _enum(data.get("preprocessor"), valid=VALID_PREPROCESSORS, default=preprocessor_default, notes=notes, field="preprocessor")
     fit_mode = _enum(data.get("fit_mode"), valid=VALID_FIT_MODES, default=DEFAULT_UNIT["fit_mode"], notes=notes, field="fit_mode")
     batch_mode = _enum(data.get("batch_mode"), valid=VALID_BATCH_MODES, default=DEFAULT_UNIT["batch_mode"], notes=notes, field="batch_mode")
@@ -222,6 +223,7 @@ def normalize_unit(raw: dict[str, Any] | None, index: int = 0) -> tuple[dict[str
         "openpose_body": _as_bool(data.get("openpose_body"), True),
         "openpose_hand": _as_bool(data.get("openpose_hand"), False),
         "openpose_face": _as_bool(data.get("openpose_face"), False),
+        "ostris_kv_cache": _as_bool(data.get("ostris_kv_cache"), True),
         "pose_method": pose_method,
         "pose_reference_lane": 2,
         "pose_map_lane": 3,
@@ -440,6 +442,10 @@ def normalize_block(
     inputs = block.get("inputs") if isinstance(block.get("inputs"), dict) else {}
     units, notes = normalize_units(inputs.get("units") or block.get("units") or [])
     active_units = [unit for unit in units if unit.get("enabled")]
+    route_family = str((route or {}).get("family") or "").strip().lower()
+    for unit in active_units:
+        if route_family != "krea2_turbo" or str(unit.get("unit") or "").strip().lower() != "openpose":
+            unit.pop("ostris_kv_cache", None)
     raw_params = block.get("params") if isinstance(block.get("params"), dict) else {}
     controlnet_task = normalize_controlnet_task(str(raw_params.get("controlnet_task") or TASK_MAP_CONTROL))
     if not active_units:

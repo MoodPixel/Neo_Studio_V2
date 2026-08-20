@@ -10,6 +10,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/extensions/controlnet/maps/capabilities"
+    },
+    {
+      "method": "GET",
       "path": "/api/extensions/controlnet/maps/preprocessors"
     },
     {
@@ -57,7 +61,10 @@
       "backend/replay.py",
       "backend/memory_event.py",
       "backend/route_profiles.py",
-      "backend/support_matrix_data.json"
+      "backend/support_matrix_data.json",
+      "backend/capability_registry.py",
+      "backend/capability_registry_data.json",
+      "backend/capability_registry.schema.json"
     ]
   },
   "asset_contract": {
@@ -298,6 +305,192 @@
         "Image 1 is the subject, Image 2 is the pose reference, and Image 3 is reserved for the DWPose map generated at runtime.",
         "Pose Transfer applies the two selected pose LoRAs to MODEL only and does not use a ControlNet model."
       ]
+    },
+    "krea2_control_lora_generate": {
+      "profile_id": "krea2_control_lora_generate",
+      "families": [
+        "krea2",
+        "krea2_turbo"
+      ],
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": {
+        "generate": "available",
+        "img2img": "implementation_target",
+        "edit": "implementation_target",
+        "inpaint": "implementation_target",
+        "outpaint": "implementation_target"
+      },
+      "required_roles": [
+        "Krea2ControlLoRALoader",
+        "Krea2ControlImageEncode",
+        "Krea2ControlApply",
+        "KSampler",
+        "Krea2/Qwen VAE"
+      ],
+      "optional_roles": [
+        "control_preprocessor_nodes"
+      ],
+      "params": [
+        "units",
+        "control_image",
+        "control_type",
+        "model",
+        "preprocessor",
+        "strength",
+        "detect_resolution"
+      ],
+      "notes": [
+        "Krea 2 Depth Generate route. The selected model field is a Depth Control LoRA from models/loras, not a standard ControlNet checkpoint.",
+        "One active Krea control unit is supported. Composition uses the separate Control Plus adapter; mixed Krea control stacking remains gated."
+      ],
+      "intents": [
+        "depth"
+      ]
+    },
+    "krea2_control_plus_composition_generate": {
+      "profile_id": "krea2_control_plus_composition_generate",
+      "families": [
+        "krea2",
+        "krea2_turbo"
+      ],
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "intents": [
+        "composition_silhouette"
+      ],
+      "modes": {
+        "generate": "experimental_available",
+        "img2img": "implementation_target",
+        "edit": "implementation_target",
+        "inpaint": "implementation_target",
+        "outpaint": "implementation_target"
+      },
+      "required_roles": [
+        "Krea2ControlPlusLoRALoader",
+        "Krea2ControlPlusImageEncode",
+        "Krea2ControlPlusApply",
+        "KSampler",
+        "Krea2/Qwen VAE"
+      ],
+      "optional_roles": [],
+      "params": [
+        "units",
+        "control_image",
+        "control_type",
+        "model",
+        "preprocessor",
+        "strength",
+        "start_percent",
+        "end_percent"
+      ],
+      "notes": [
+        "Composition / Silhouette uses a direct RGB reference image (preprocessor none) and the Krea2 Control Plus loader/encode/apply path.",
+        "Start % and End % gate control-latent projection during denoising. The Control LoRA comes from models/loras and is intent-filtered to Krea composition/silhouette checkpoints.",
+        "One active Krea control unit is supported; Depth + Composition stacking is not enabled."
+      ]
+    },
+    "krea2_ostris_openpose_generate": {
+      "profile_id": "krea2_ostris_openpose_generate",
+      "families": [
+        "krea2_turbo"
+      ],
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "intents": [
+        "openpose"
+      ],
+      "modes": {
+        "generate": "experimental_available",
+        "img2img": "implementation_target",
+        "edit": "implementation_target",
+        "inpaint": "implementation_target",
+        "outpaint": "implementation_target"
+      },
+      "required_roles": [
+        "TextEncodeKrea2OstrisEdit",
+        "Krea2OstrisEditModelPatch",
+        "LoraLoaderModelOnly",
+        "KSampler",
+        "Krea2/Qwen VAE",
+        "Krea2 Qwen3-VL CLIP"
+      ],
+      "optional_roles": [
+        "DWPreprocessor",
+        "OpenPosePreprocessor"
+      ],
+      "params": [
+        "units",
+        "control_image",
+        "control_type",
+        "model",
+        "preprocessor",
+        "strength",
+        "detect_resolution",
+        "openpose_body",
+        "openpose_hand",
+        "openpose_face",
+        "ostris_kv_cache"
+      ],
+      "notes": [
+        "Krea 2 Turbo OpenPose uses a DWPose/OpenPose map as image1 reference conditioning through TextEncodeKrea2OstrisEdit, then Krea2OstrisEditModelPatch and LoraLoaderModelOnly.",
+        "The Control LoRA is selected from the live LoraLoaderModelOnly models/loras enum and filtered to the verified Krea2 Turbo OpenPose naming contract.",
+        "Krea 2 RAW stays hidden for OpenPose until a compatible RAW pose LoRA is verified. One active Krea control unit remains the Phase 5 limit."
+      ]
+    },
+    "krea2_nk2e_canny_generate": {
+      "profile_id": "krea2_nk2e_canny_generate",
+      "families": [
+        "krea2"
+      ],
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "intents": [
+        "canny"
+      ],
+      "modes": {
+        "generate": "experimental_available",
+        "img2img": "implementation_target",
+        "edit": "implementation_target",
+        "inpaint": "implementation_target",
+        "outpaint": "implementation_target"
+      },
+      "required_roles": [
+        "NK2EInContextModelNode",
+        "NK2ESetReferenceNode",
+        "LoraLoaderModelOnly",
+        "VAEEncode",
+        "KSampler",
+        "Krea2/Qwen VAE"
+      ],
+      "optional_roles": [
+        "CannyEdgePreprocessor",
+        "CannyPreprocessor"
+      ],
+      "params": [
+        "units",
+        "control_image",
+        "control_type",
+        "model",
+        "preprocessor",
+        "strength",
+        "detect_resolution",
+        "canny_low",
+        "canny_high"
+      ],
+      "notes": [
+        "Krea 2 RAW Canny uses Neo's generated Canny edge map as a VAE-encoded NK2E in-context reference, applies the intent-bound Canny LoRA with LoraLoaderModelOnly, then wraps the sampler MODEL through NK2EInContextModelNode.",
+        "The verified public NK2E Canny checkpoint declares Krea-2-Raw as its base model, so Krea 2 Turbo Canny stays hidden.",
+        "Neo uses the preferred NK2EInContextModelNode + NK2ESetReferenceNode pair and does not compile the deprecated NK2EInContextEditNode path. One active Krea control unit remains the limit."
+      ]
     }
   },
   "controlnet_tasks": {
@@ -386,7 +579,7 @@
     "ui_selector": "inpaint/outpaint modes only"
   },
   "depends_on": [],
-  "description": "Structural image guidance with ControlNet maps plus Qwen Image Edit 2511 pose transfer using DWPose and model-only pose LoRAs.",
+  "description": "Structural image guidance with family-aware ControlNet maps, Krea 2 Depth Control LoRAs, Krea 2 Composition / Silhouette through Control Plus, Krea 2 Turbo OpenPose through Ostris reference conditioning, Krea 2 RAW Canny through NK2E in-context reference control, and Qwen Image Edit 2511 pose transfer.",
   "entrypoints": {
     "asset_contract": "backend/asset_contract.py",
     "asset_resolver": "backend/asset_resolver.py",
@@ -406,7 +599,11 @@
   "id": "image.controlnet",
   "implementation_notes": [
     "P9.3 promotes Flux Klein safetensors/components and GGUF ControlNet through Flux2/Klein Fun Union route profiles; no SD/Flux1/Qwen/ZImage fallback is allowed.",
-    "Phase 4 Qwen VAE hotfix makes VAE validation adapter-specific: DiffSynth uses only its own apply-node schema, while VAE-aware InstantX apply nodes receive the active route-owned Qwen VAE and block clearly when it is missing."
+    "Phase 4 Qwen VAE hotfix makes VAE validation adapter-specific: DiffSynth uses only its own apply-node schema, while VAE-aware InstantX apply nodes receive the active route-owned Qwen VAE and block clearly when it is missing.",
+    "Krea2 Control Phase 1 enables Generate map control for Krea2 RAW/Turbo on native diffusion_model and GGUF loaders through Krea2ControlLoRALoader + Krea2ControlImageEncode + Krea2ControlApply. One active unit is supported; Identity Edit stacking remains gated.",
+    "Krea2 Control Phase 4 adds the Composition / Silhouette intent for Krea2 RAW/Turbo Generate on diffusion_model and GGUF routes through Krea2ControlPlusLoRALoader + Krea2ControlPlusImageEncode + Krea2ControlPlusApply, with intent-bound LoRA filtering and Start/End schedule controls.",
+    "Phase 5 adds Krea 2 Turbo OpenPose through TextEncodeKrea2OstrisEdit + Krea2OstrisEditModelPatch + LoraLoaderModelOnly. RAW OpenPose stays hidden; Krea remains single-unit.",
+    "Phase 6 adds Krea 2 RAW Canny through VAEEncode + NK2ESetReferenceNode + LoraLoaderModelOnly + NK2EInContextModelNode. Turbo Canny stays hidden because the verified public NK2E Canny LoRA targets Krea-2-Raw; Krea remains single-unit."
   ],
   "memory_contract": {
     "assistant_summary_required": true,
@@ -474,7 +671,32 @@
       "openpose",
       "tile"
     ],
-    "provider_gating_policy": "Missing base nodes gate the extension for active routes. Missing node-required preprocessors gate only the selected unit/preprocessor."
+    "provider_gating_policy": "Missing standard ControlNet base nodes gate standard routes. Krea 2 Depth requires the native Krea2 Control LoRA trio; Composition / Silhouette requires the Krea2 Control Plus trio; Krea 2 Turbo OpenPose requires the Ostris text/model nodes plus LoraLoaderModelOnly; Krea 2 RAW Canny requires NK2EInContextModelNode + NK2ESetReferenceNode + LoraLoaderModelOnly + VAEEncode. Missing route-specific nodes gate only the matching intent.",
+    "krea2_control_required": [
+      "Krea2ControlLoRALoader",
+      "Krea2ControlImageEncode",
+      "Krea2ControlApply"
+    ],
+    "krea2_control_model_catalog": "Krea2ControlLoRALoader.lora_name from ComfyUI/models/loras",
+    "krea2_control_plus_required": [
+      "Krea2ControlPlusLoRALoader",
+      "Krea2ControlPlusImageEncode",
+      "Krea2ControlPlusApply"
+    ],
+    "krea2_control_plus_model_catalog": "Krea2ControlPlusLoRALoader.lora_name from ComfyUI/models/loras",
+    "krea2_ostris_required": [
+      "TextEncodeKrea2OstrisEdit",
+      "Krea2OstrisEditModelPatch",
+      "LoraLoaderModelOnly"
+    ],
+    "krea2_ostris_model_catalog": "LoraLoaderModelOnly.lora_name from ComfyUI/models/loras",
+    "krea2_nk2e_required": [
+      "NK2EInContextModelNode",
+      "NK2ESetReferenceNode",
+      "LoraLoaderModelOnly",
+      "VAEEncode"
+    ],
+    "krea2_nk2e_model_catalog": "LoraLoaderModelOnly.lora_name from ComfyUI/models/loras, intent-filtered to NK2E Canny"
   },
   "node_requirements": {
     "advanced_candidates": [
@@ -502,7 +724,32 @@
       "normalbae",
       "tile"
     ],
-    "source": "node_based_controlnet_conditioning"
+    "source": "node_based_controlnet_conditioning",
+    "krea2_control_required": [
+      "Krea2ControlLoRALoader",
+      "Krea2ControlImageEncode",
+      "Krea2ControlApply"
+    ],
+    "krea2_control_missing_state": "provider_gated",
+    "krea2_control_plus_required": [
+      "Krea2ControlPlusLoRALoader",
+      "Krea2ControlPlusImageEncode",
+      "Krea2ControlPlusApply"
+    ],
+    "krea2_control_plus_missing_state": "provider_gated_per_intent",
+    "krea2_ostris_required": [
+      "TextEncodeKrea2OstrisEdit",
+      "Krea2OstrisEditModelPatch",
+      "LoraLoaderModelOnly"
+    ],
+    "krea2_ostris_missing_state": "provider_gated_per_intent",
+    "krea2_nk2e_required": [
+      "NK2EInContextModelNode",
+      "NK2ESetReferenceNode",
+      "LoraLoaderModelOnly",
+      "VAEEncode"
+    ],
+    "krea2_nk2e_missing_state": "provider_gated_per_intent"
   },
   "output_contract": {
     "metadata_slots": [
@@ -580,7 +827,7 @@
     "schema_version": "neo.extension.payload.v1",
     "unit_parameter_visibility": "unit_and_preprocessor_profile"
   },
-  "phase_status": "P9.3-controlnet-flux-klein-enablement",
+  "phase_status": "KREA2-CONTROL-P5-openpose-ostris",
   "required_nodes": {
     "comfyui": [
       "ControlNetLoader",
@@ -3026,7 +3273,407 @@
     "forge:sd15:checkpoint:inpaint:map_control": "experimental_available",
     "forge:sd15:checkpoint:inpaint:inpaint_control": "provider_gated",
     "forge:sd15:checkpoint:inpaint:outpaint_control": "provider_gated",
-    "forge:sd15:checkpoint:outpaint": "provider_gated"
+    "forge:sd15:checkpoint:outpaint": "provider_gated",
+    "comfyui:krea2:checkpoint:generate": "unsupported",
+    "comfyui:krea2:checkpoint:generate:map_control": "unsupported",
+    "comfyui:krea2:checkpoint:generate:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:generate:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:img2img": "unsupported",
+    "comfyui:krea2:checkpoint:img2img:map_control": "unsupported",
+    "comfyui:krea2:checkpoint:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:edit": "unsupported",
+    "comfyui:krea2:checkpoint:edit:map_control": "unsupported",
+    "comfyui:krea2:checkpoint:edit:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:edit:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:inpaint": "unsupported",
+    "comfyui:krea2:checkpoint:inpaint:map_control": "unsupported",
+    "comfyui:krea2:checkpoint:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:outpaint": "unsupported",
+    "comfyui:krea2:checkpoint:outpaint:map_control": "unsupported",
+    "comfyui:krea2:checkpoint:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint:outpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:generate": "unsupported",
+    "comfyui:krea2:checkpoint_aio:generate:map_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:generate:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:generate:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:img2img": "unsupported",
+    "comfyui:krea2:checkpoint_aio:img2img:map_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:edit": "unsupported",
+    "comfyui:krea2:checkpoint_aio:edit:map_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:edit:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:edit:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:inpaint": "unsupported",
+    "comfyui:krea2:checkpoint_aio:inpaint:map_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:outpaint": "unsupported",
+    "comfyui:krea2:checkpoint_aio:outpaint:map_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:checkpoint_aio:outpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:generate": "available",
+    "comfyui:krea2:diffusion_model:generate:map_control": "available",
+    "comfyui:krea2:diffusion_model:generate:inpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:generate:outpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:img2img": "implementation_target",
+    "comfyui:krea2:diffusion_model:img2img:map_control": "implementation_target",
+    "comfyui:krea2:diffusion_model:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:edit": "unsupported",
+    "comfyui:krea2:diffusion_model:edit:map_control": "unsupported",
+    "comfyui:krea2:diffusion_model:edit:inpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:edit:outpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:inpaint": "implementation_target",
+    "comfyui:krea2:diffusion_model:inpaint:map_control": "implementation_target",
+    "comfyui:krea2:diffusion_model:inpaint:inpaint_control": "implementation_target",
+    "comfyui:krea2:diffusion_model:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:outpaint": "implementation_target",
+    "comfyui:krea2:diffusion_model:outpaint:map_control": "implementation_target",
+    "comfyui:krea2:diffusion_model:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:diffusion_model:outpaint:outpaint_control": "implementation_target",
+    "comfyui:krea2:gguf:generate": "available",
+    "comfyui:krea2:gguf:generate:map_control": "available",
+    "comfyui:krea2:gguf:generate:inpaint_control": "unsupported",
+    "comfyui:krea2:gguf:generate:outpaint_control": "unsupported",
+    "comfyui:krea2:gguf:img2img": "implementation_target",
+    "comfyui:krea2:gguf:img2img:map_control": "implementation_target",
+    "comfyui:krea2:gguf:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2:gguf:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2:gguf:edit": "unsupported",
+    "comfyui:krea2:gguf:edit:map_control": "unsupported",
+    "comfyui:krea2:gguf:edit:inpaint_control": "unsupported",
+    "comfyui:krea2:gguf:edit:outpaint_control": "unsupported",
+    "comfyui:krea2:gguf:inpaint": "implementation_target",
+    "comfyui:krea2:gguf:inpaint:map_control": "implementation_target",
+    "comfyui:krea2:gguf:inpaint:inpaint_control": "implementation_target",
+    "comfyui:krea2:gguf:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:gguf:outpaint": "implementation_target",
+    "comfyui:krea2:gguf:outpaint:map_control": "implementation_target",
+    "comfyui:krea2:gguf:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:gguf:outpaint:outpaint_control": "implementation_target",
+    "comfyui:krea2:native:generate": "unsupported",
+    "comfyui:krea2:native:generate:map_control": "unsupported",
+    "comfyui:krea2:native:generate:inpaint_control": "unsupported",
+    "comfyui:krea2:native:generate:outpaint_control": "unsupported",
+    "comfyui:krea2:native:img2img": "unsupported",
+    "comfyui:krea2:native:img2img:map_control": "unsupported",
+    "comfyui:krea2:native:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2:native:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2:native:edit": "unsupported",
+    "comfyui:krea2:native:edit:map_control": "unsupported",
+    "comfyui:krea2:native:edit:inpaint_control": "unsupported",
+    "comfyui:krea2:native:edit:outpaint_control": "unsupported",
+    "comfyui:krea2:native:inpaint": "unsupported",
+    "comfyui:krea2:native:inpaint:map_control": "unsupported",
+    "comfyui:krea2:native:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:native:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2:native:outpaint": "unsupported",
+    "comfyui:krea2:native:outpaint:map_control": "unsupported",
+    "comfyui:krea2:native:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2:native:outpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:generate": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:generate:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:generate:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:generate:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:img2img": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:img2img:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:edit": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:edit:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:edit:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:edit:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:inpaint": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:inpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:outpaint": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:outpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint:outpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:generate": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:generate:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:generate:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:generate:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:img2img": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:img2img:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:edit": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:edit:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:edit:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:edit:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:inpaint": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:inpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:outpaint": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:outpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:checkpoint_aio:outpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:generate": "available",
+    "comfyui:krea2_turbo:diffusion_model:generate:map_control": "available",
+    "comfyui:krea2_turbo:diffusion_model:generate:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:generate:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:img2img": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:img2img:map_control": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:edit": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:edit:map_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:edit:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:edit:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:inpaint": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:inpaint:map_control": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:inpaint:inpaint_control": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:outpaint": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:outpaint:map_control": "implementation_target",
+    "comfyui:krea2_turbo:diffusion_model:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:diffusion_model:outpaint:outpaint_control": "implementation_target",
+    "comfyui:krea2_turbo:gguf:generate": "available",
+    "comfyui:krea2_turbo:gguf:generate:map_control": "available",
+    "comfyui:krea2_turbo:gguf:generate:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:generate:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:img2img": "implementation_target",
+    "comfyui:krea2_turbo:gguf:img2img:map_control": "implementation_target",
+    "comfyui:krea2_turbo:gguf:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:edit": "unsupported",
+    "comfyui:krea2_turbo:gguf:edit:map_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:edit:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:edit:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:inpaint": "implementation_target",
+    "comfyui:krea2_turbo:gguf:inpaint:map_control": "implementation_target",
+    "comfyui:krea2_turbo:gguf:inpaint:inpaint_control": "implementation_target",
+    "comfyui:krea2_turbo:gguf:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:outpaint": "implementation_target",
+    "comfyui:krea2_turbo:gguf:outpaint:map_control": "implementation_target",
+    "comfyui:krea2_turbo:gguf:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:gguf:outpaint:outpaint_control": "implementation_target",
+    "comfyui:krea2_turbo:native:generate": "unsupported",
+    "comfyui:krea2_turbo:native:generate:map_control": "unsupported",
+    "comfyui:krea2_turbo:native:generate:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:generate:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:img2img": "unsupported",
+    "comfyui:krea2_turbo:native:img2img:map_control": "unsupported",
+    "comfyui:krea2_turbo:native:img2img:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:img2img:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:edit": "unsupported",
+    "comfyui:krea2_turbo:native:edit:map_control": "unsupported",
+    "comfyui:krea2_turbo:native:edit:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:edit:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:inpaint": "unsupported",
+    "comfyui:krea2_turbo:native:inpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:native:inpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:inpaint:outpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:outpaint": "unsupported",
+    "comfyui:krea2_turbo:native:outpaint:map_control": "unsupported",
+    "comfyui:krea2_turbo:native:outpaint:inpaint_control": "unsupported",
+    "comfyui:krea2_turbo:native:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:generate": "unsupported",
+    "comfyui_portable:krea2:checkpoint:generate:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:img2img": "unsupported",
+    "comfyui_portable:krea2:checkpoint:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:edit": "unsupported",
+    "comfyui_portable:krea2:checkpoint:edit:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:inpaint": "unsupported",
+    "comfyui_portable:krea2:checkpoint:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:outpaint": "unsupported",
+    "comfyui_portable:krea2:checkpoint:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:generate": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:generate:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:img2img": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:edit": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:edit:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:inpaint": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:outpaint": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:checkpoint_aio:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:generate": "available",
+    "comfyui_portable:krea2:diffusion_model:generate:map_control": "available",
+    "comfyui_portable:krea2:diffusion_model:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:img2img": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:img2img:map_control": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:edit": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:edit:map_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:inpaint": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:inpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:inpaint:inpaint_control": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:outpaint": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:outpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2:diffusion_model:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:diffusion_model:outpaint:outpaint_control": "implementation_target",
+    "comfyui_portable:krea2:gguf:generate": "available",
+    "comfyui_portable:krea2:gguf:generate:map_control": "available",
+    "comfyui_portable:krea2:gguf:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:img2img": "implementation_target",
+    "comfyui_portable:krea2:gguf:img2img:map_control": "implementation_target",
+    "comfyui_portable:krea2:gguf:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:edit": "unsupported",
+    "comfyui_portable:krea2:gguf:edit:map_control": "unsupported",
+    "comfyui_portable:krea2:gguf:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:inpaint": "implementation_target",
+    "comfyui_portable:krea2:gguf:inpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2:gguf:inpaint:inpaint_control": "implementation_target",
+    "comfyui_portable:krea2:gguf:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:outpaint": "implementation_target",
+    "comfyui_portable:krea2:gguf:outpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2:gguf:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:gguf:outpaint:outpaint_control": "implementation_target",
+    "comfyui_portable:krea2:native:generate": "unsupported",
+    "comfyui_portable:krea2:native:generate:map_control": "unsupported",
+    "comfyui_portable:krea2:native:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:img2img": "unsupported",
+    "comfyui_portable:krea2:native:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2:native:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:edit": "unsupported",
+    "comfyui_portable:krea2:native:edit:map_control": "unsupported",
+    "comfyui_portable:krea2:native:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:inpaint": "unsupported",
+    "comfyui_portable:krea2:native:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:native:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:outpaint": "unsupported",
+    "comfyui_portable:krea2:native:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2:native:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2:native:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:generate": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:generate:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:img2img": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:edit": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:edit:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:inpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:outpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:generate": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:generate:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:img2img": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:edit": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:edit:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:inpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:outpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:checkpoint_aio:outpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:generate": "available",
+    "comfyui_portable:krea2_turbo:diffusion_model:generate:map_control": "available",
+    "comfyui_portable:krea2_turbo:diffusion_model:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:img2img": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:img2img:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:edit": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:edit:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:inpaint": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:inpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:inpaint:inpaint_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:outpaint": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:outpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:diffusion_model:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:diffusion_model:outpaint:outpaint_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:generate": "available",
+    "comfyui_portable:krea2_turbo:gguf:generate:map_control": "available",
+    "comfyui_portable:krea2_turbo:gguf:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:img2img": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:img2img:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:edit": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:edit:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:inpaint": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:inpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:inpaint:inpaint_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:outpaint": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:outpaint:map_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:gguf:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:gguf:outpaint:outpaint_control": "implementation_target",
+    "comfyui_portable:krea2_turbo:native:generate": "unsupported",
+    "comfyui_portable:krea2_turbo:native:generate:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:generate:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:generate:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:img2img": "unsupported",
+    "comfyui_portable:krea2_turbo:native:img2img:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:img2img:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:img2img:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:edit": "unsupported",
+    "comfyui_portable:krea2_turbo:native:edit:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:edit:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:edit:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:inpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:native:inpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:inpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:inpaint:outpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:outpaint": "unsupported",
+    "comfyui_portable:krea2_turbo:native:outpaint:map_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:outpaint:inpaint_control": "unsupported",
+    "comfyui_portable:krea2_turbo:native:outpaint:outpaint_control": "unsupported"
   },
   "subtabs": [
     "reference"
@@ -3049,7 +3696,9 @@
     "z_image_turbo",
     "hidream",
     "wan_image",
-    "hunyuan_image"
+    "hunyuan_image",
+    "krea2",
+    "krea2_turbo"
   ],
   "supported_loaders": [
     "checkpoint",
@@ -3124,6 +3773,18 @@
         "id": "strength",
         "label": "Strength",
         "payload_path": "extensions.image.controlnet.inputs.units[].strength",
+        "type": "number"
+      },
+      {
+        "id": "start_percent",
+        "label": "Start %",
+        "payload_path": "extensions.image.controlnet.inputs.units[].start_percent",
+        "type": "number"
+      },
+      {
+        "id": "end_percent",
+        "label": "End %",
+        "payload_path": "extensions.image.controlnet.inputs.units[].end_percent",
         "type": "number"
       },
       {
@@ -3202,6 +3863,16 @@
         "image_2": "pose_reference",
         "image_3": "generated_dwpose_map"
       }
+    },
+    "capability_selector": {
+      "phase": "Phase 2 — Family-Aware Type Selector & Capability Gating",
+      "authority": "backend/capability_registry.py + backend/capability_registry_data.json",
+      "endpoint": "/api/extensions/controlnet/maps/capabilities",
+      "normal_visibility": "implemented_and_runtime_ready",
+      "unknown_family_fallback": "empty",
+      "stale_selection_policy": "sanitize_to_first_implemented_intent_or_empty",
+      "submit_policy": "fail_closed_on_unimplemented_intent",
+      "forge_policy": "provider_native_contract_preserved_pending_separate_registry_audit"
     }
   },
   "frontend_model_catalog_contract": {
@@ -3211,7 +3882,9 @@
     "response_profile_validation": true,
     "saved_selection_preserved_if_missing": true,
     "absolute_paths_browser_exposed": false,
-    "phase_scope": "phase4_frontend_catalog_reliability"
+    "phase_scope": "phase4_frontend_catalog_reliability",
+    "intent_bound_model_catalog": true,
+    "strict_binding_saved_selection_clear_when_verified": true
   },
   "version": "1.0.8-qwen-2511-pose-transfer",
   "workflow_modes": [
@@ -3265,7 +3938,15 @@
       "comfyui_portable:qwen_image_edit_2511:diffusion_model:img2img pose_transfer experimental",
       "comfyui_portable:qwen_image_edit_2511:diffusion_model:edit pose_transfer experimental",
       "comfyui_portable:qwen_image_edit_2511:gguf:img2img pose_transfer experimental",
-      "comfyui_portable:qwen_image_edit_2511:gguf:edit pose_transfer experimental"
+      "comfyui_portable:qwen_image_edit_2511:gguf:edit pose_transfer experimental",
+      "comfyui:krea2:diffusion_model:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui:krea2:gguf:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui:krea2_turbo:diffusion_model:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui:krea2_turbo:gguf:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui_portable:krea2:diffusion_model:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui_portable:krea2:gguf:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui_portable:krea2_turbo:diffusion_model:generate controlnet_task=map_control krea2_control_lora",
+      "comfyui_portable:krea2_turbo:gguf:generate controlnet_task=map_control krea2_control_lora"
     ],
     "asset_resolver": "backend/asset_resolver.py resolves source/mask/canvas assets; Phase P executes experimental Qwen GGUF/Rapid AIO inpaint/outpaint adapters through DiffSynth model patch or InstantX ControlNet.",
     "gates": [
@@ -3284,15 +3965,19 @@
       "pose_transfer requires Image 1 and Image 2 with Image 3 free",
       "pose_transfer requires a live DWPose preprocessor",
       "pose_transfer requires LoraLoaderModelOnly and exact selected LoRA catalog matches",
-      "pose_transfer cannot be mixed with normal ControlNet units in the same run"
+      "pose_transfer cannot be mixed with normal ControlNet units in the same run",
+      "Krea2 Depth requires Krea2ControlLoRALoader, Krea2ControlImageEncode, and Krea2ControlApply",
+      "Krea2 Composition / Silhouette requires Krea2ControlPlusLoRALoader, Krea2ControlPlusImageEncode, and Krea2ControlPlusApply",
+      "Krea2 control allows one active unit and requires an intent-compatible Control LoRA from models/loras",
+      "Krea2 Depth + Composition mixed stacking and Identity Edit stacking are not enabled"
     ],
-    "graph_mutation": "ControlNet map paths add or adapt control nodes for the selected route. Qwen 2511 Pose Transfer generates DWPose from Image 2, injects it into Qwen Image 3, and inserts two sequential LoraLoaderModelOnly nodes before the active sampling model path.",
+    "graph_mutation": "Standard ControlNet map paths mutate route-specific conditioning. Krea 2 Depth loads the native Krea Control LoRA chain; Krea 2 Composition / Silhouette uses the separate Control Plus chain; Krea 2 Turbo OpenPose uses Ostris reference conditioning; Krea 2 RAW Canny VAE-encodes the generated edge map, sets it as the NK2E in-context positive reference, applies the Canny LoRA, and wraps the sampler model through NK2E. Qwen 2511 Pose Transfer retains its dedicated DWPose + model-only LoRA lane.",
     "graph_node_mutation": true,
     "mutates_when": "enabled payload, active route state, required nodes, required unit model, and required control image/generated map are present",
-    "ordering": "Runs after base prompt/embedding/LoRA preparation and before sampler execution. Standard ControlNet mutates conditioning; Qwen 2511 Pose Transfer additionally patches the MODEL path with its dedicated model-only pose LoRAs.",
+    "ordering": "Runs after base route model/conditioning preparation and before sampler execution. Krea route adapters preserve unrelated sampler parameters and compile only their verified intent-specific graph path.",
     "patch_type": "conditioning",
     "phase": "P",
-    "status": "phase_q_flux_controlnet_adapter",
+    "status": "krea2_control_phase6_canny_nk2e",
     "qwen_vae_contract": {
       "schema_version": "neo.image.controlnet.qwen_vae_contract.v1",
       "diffsynth": {
@@ -3314,7 +3999,7 @@
     "reference"
   ],
   "forge_extension_compatibility": {
-    "phase": "Phase 5",
+    "phase": "Phase 6",
     "provider": "forge",
     "runtime_gate": "selected_profile_live_capability_snapshot",
     "fail_closed": true,
@@ -3327,5 +4012,6 @@
       "/controlnet/model_list",
       "/controlnet/module_list"
     ]
-  }
+  },
+  "krea2_control_phase": "KREA2-CONTROL-P6"
 }

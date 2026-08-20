@@ -149,7 +149,7 @@ def _apply(monkeypatch, *, family="krea2", loader="diffusion_model", regions=Non
         graph,
         payload={"extensions": {"image.scene_director": {"enabled": True}}},
         route={"backend": "comfyui", "family": family, "loader": loader, "mode": "generate", "actual_params": {"width": 1024, "height": 768}},
-        available_nodes=CORE | {"NeoRegionalLoRADelta"},
+        available_nodes=CORE | {"NeoRegionalLoRADelta", "Krea2RegionalBuilder", "Krea2ApplyRegional"},
         model_ref=["1", 0],
         clip_ref=["2", 0],
         sampler_node_id="7",
@@ -170,7 +170,9 @@ def test_krea_raw_and_turbo_are_available_for_components_and_gguf():
                 assert strategy["status"] == "active"
                 assert strategy["regional_prompt"]["supported"] is True
                 assert strategy["regional_lora"]["supported"] is True
-                assert strategy["regional_lora"]["mode"] == "krea2_activation_delta_v2"
+                assert strategy["regional_lora"]["mode"] == "krea2_regional_external"
+                assert strategy["regional_lora"]["required_node"] == "Krea2ApplyRegional"
+                assert strategy["regional_lora"]["required_node_repo"] == "januspluto/ComfyUI-Krea2-Regional"
 
 
 def test_krea_outpaint_stays_planned_gated():
@@ -225,9 +227,14 @@ def test_declared_non_krea_lora_is_rejected_before_wrapper_and_trigger_injection
     assert compatibility["rejected_count"] == 1
     assert patch["scene_director_regional_lora_applied"] is False
     assert "NeoRegionalLoRADelta" not in _classes(result["workflow"])
-    prompt = patch["scene_director_lightweight_regional_prompt"]["positive_lanes"][0]["prompt_with_regional_lora_triggers"]
-    assert "record_trigger_1" not in prompt
-    assert "krea_trigger_1" not in prompt
+    proof = patch["scene_director_lightweight_runtime_proof"]
+    builder = result["workflow"][proof["builder_node_id"]]
+    import json
+    rows = json.loads(builder["inputs"]["regions_data"])["regions"]
+    assert len(rows) == 1
+    assert rows[0]["loras"] == []
+    assert "record_trigger_1" not in rows[0]["desc"]
+    assert "krea_trigger_1" not in rows[0]["desc"]
 
 
 def test_unknown_lora_family_is_allowed_only_as_runtime_preflight_candidate():
@@ -237,12 +244,73 @@ def test_unknown_lora_family_is_allowed_only_as_runtime_preflight_candidate():
     assert filtered["accepted"][0]["krea2_compatibility"]["state"] == "unknown_runtime_preflight_required"
 
 
+def test_unknown_string_sentinel_is_treated_as_missing_metadata_not_incompatible():
+    filtered = krea2_support.filter_krea2_bindings([{
+        "region_id": "person_1",
+        "name": "Krea2/Lakmal/example.safetensors",
+        "lora_family": "unknown",
+        "checkpoint_family": "unknown",
+    }], "krea2_turbo")
+    assert filtered["rejected_count"] == 0
+    assert filtered["unknown_count"] == 1
+    assert filtered["accepted_count"] == 1
+    assert filtered["accepted"][0]["krea2_compatibility"]["state"] == "unknown_runtime_preflight_required"
+
+
 def test_krea_spatial_scope_policy_excludes_text_and_timestep_modules():
     assert runtime.krea2_spatial_module_scope("first") == "image_only"
     assert runtime.krea2_spatial_module_scope("blocks.0.attn.qkv") == "combined_text_image"
     assert runtime.krea2_spatial_module_scope("last.linear") == "combined_text_image"
     for name in ("txtfusion", "txtmlp", "tmlp", "tproj", "txtfusion.proj"):
         assert runtime.krea2_spatial_module_scope(name) is None
+
+
+def test_img_sd2_krea_strict_isolation_excludes_attention_key_value_writes():
+    reason = "cross_region_attention_key_value_write_suppressed"
+    assert runtime.krea2_isolation_exclusion_reason("blocks.0.attn.wk") == reason
+    assert runtime.krea2_isolation_exclusion_reason("blocks.19.attn.wv") == reason
+    assert runtime.krea2_isolation_exclusion_reason("blocks.0.attn.wq") is None
+    assert runtime.krea2_isolation_exclusion_reason("blocks.0.attn.wo") is None
+    assert runtime.krea2_isolation_exclusion_reason("blocks.0.attn.gate") is None
+
+
+def test_img_sd2_resolver_drops_kv_targets_but_keeps_local_query_target(monkeypatch):
+    class Attn(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.wq = torch.nn.Linear(4, 4, bias=False)
+            self.wk = torch.nn.Linear(4, 4, bias=False)
+            self.wv = torch.nn.Linear(4, 4, bias=False)
+            self.wo = torch.nn.Linear(4, 4, bias=False)
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.attn = Attn()
+
+    class DM(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = torch.nn.ModuleList([Block()])
+
+    dm = DM()
+    key_map = {
+        "q_target": "diffusion_model.blocks.0.attn.wq.weight",
+        "k_target": "diffusion_model.blocks.0.attn.wk.weight",
+        "v_target": "diffusion_model.blocks.0.attn.wv.weight",
+    }
+    monkeypatch.setattr(runtime, "_comfy_key_map", lambda _base: key_map)
+    pair = lambda: {"down": torch.eye(4), "up": torch.eye(4), "base_scale": 1.0}
+    resolved, stats = runtime.resolve_lora_pairs_to_modules(
+        {"q_target": pair(), "k_target": pair(), "v_target": pair()},
+        base_model=object(),
+        diffusion_model=dm,
+        spatial_scope_resolver=runtime.krea2_spatial_module_scope,
+        isolation_exclusion_resolver=runtime.krea2_isolation_exclusion_reason,
+    )
+    assert {row["module_name"] for row in resolved.values()} == {"blocks.0.attn.wq"}
+    assert stats["isolation_excluded_count"] == 2
+    assert {row["module_name"] for row in stats["isolation_excluded"]} == {"blocks.0.attn.wk", "blocks.0.attn.wv"}
 
 
 def test_linear_dimension_contract_does_not_require_reading_quantized_weight_tensor():
@@ -270,7 +338,9 @@ def test_four_regional_loras_use_one_model_wrapper_and_one_sampler(monkeypatch):
     bindings = [_binding(i, "krea2") for i in range(1, 5)]
     result = _apply(monkeypatch, regions=regions, bindings=bindings)
     classes = _classes(result["workflow"])
-    assert classes.count("NeoRegionalLoRADelta") == 1
+    assert classes.count("Krea2RegionalBuilder") == 1
+    assert classes.count("Krea2ApplyRegional") == 1
+    assert classes.count("NeoRegionalLoRADelta") == 0
     assert classes.count("KSampler") == 1
     assert "KSamplerAdvanced" not in classes
     assert "LoraLoader" not in classes
@@ -278,15 +348,18 @@ def test_four_regional_loras_use_one_model_wrapper_and_one_sampler(monkeypatch):
     contract = result["workflow_patch"]["scene_director_regional_lora_contract"]
     assert contract["route_count"] == 4
     assert contract["route_limit"] is None
+    assert contract["adapter"] == "krea2_regional_external"
 
 
-def test_gguf_route_passes_loader_identity_into_runtime_wrapper(monkeypatch):
+def test_gguf_route_preserves_provider_model_and_uses_external_krea2_engine(monkeypatch):
     result = _apply(monkeypatch, loader="gguf")
-    node_id = result["workflow_patch"]["scene_director_regional_lora_nodes_added"][0]
-    node = result["workflow"][node_id]
-    assert node["class_type"] == "NeoRegionalLoRADelta"
-    assert node["inputs"]["loader"] == "gguf"
-    assert result["workflow_patch"]["scene_director_regional_lora_contract"]["krea2_full_support"]["supported"] is True
+    patch = result["workflow_patch"]
+    proof = patch["scene_director_lightweight_runtime_proof"]
+    apply_node = result["workflow"][proof["apply_node_id"]]
+    assert apply_node["class_type"] == "Krea2ApplyRegional"
+    assert apply_node["inputs"]["model"] == ["1", 0]
+    assert patch["scene_director_execution_strategy"]["loader"] == "gguf"
+    assert patch["scene_director_regional_lora_contract"]["adapter"] == "krea2_regional_external"
 
 
 def test_runtime_node_exposes_loader_as_optional_for_saved_workflow_compatibility():

@@ -38,6 +38,12 @@ def _binding_declared_family(binding: dict[str, Any]) -> str:
     owner = binding.get("owner_row") if isinstance(binding.get("owner_row"), dict) else {}
     source = owner.get("source_record") if isinstance(owner.get("source_record"), dict) else {}
     metadata = owner.get("metadata") if isinstance(owner.get("metadata"), dict) else {}
+    # UI/catalog records can legitimately carry sentinel values such as
+    # ``unknown`` when the LoRA file has no embedded Neo family metadata.
+    # Treat those as *missing metadata*, not as an explicit declaration of an
+    # incompatible architecture.  The Krea2 regional runtime already has a
+    # fail-closed layer-resolution proof for metadata-less LoRAs.
+    unknown_tokens = {"unknown", "auto", "unspecified", "unset", "none", "verify"}
     for value in (
         binding.get("lora_family"),
         binding.get("model_family"),
@@ -54,7 +60,10 @@ def _binding_declared_family(binding: dict[str, Any]) -> str:
         metadata.get("family"),
     ):
         if str(value or "").strip():
-            return _norm(value)
+            normalized = _norm(value)
+            if normalized in unknown_tokens:
+                continue
+            return normalized
     return ""
 
 
@@ -142,6 +151,43 @@ def _ref_node(workflow: dict[str, Any], ref: Any) -> dict[str, Any] | None:
     return node if isinstance(node, dict) else None
 
 
+
+
+def _conditioning_source_class(workflow: dict[str, Any], ref: Any) -> tuple[str, list[str]]:
+    """Resolve the semantic source class through provider conditioning wrappers.
+
+    Native inpaint feeds the sampler from InpaintModelConditioning outputs, so
+    the sampler's immediate negative class is not ConditioningZeroOut even when
+    Krea2 Turbo zero-negative semantics are preserved upstream.  Walk only the
+    known conditioning-preserving wrappers and stop on ambiguous combines.
+    """
+    trace: list[str] = []
+    current = list(ref) if isinstance(ref, (list, tuple)) and len(ref) >= 2 else None
+    visited: set[tuple[str, str]] = set()
+    while current:
+        node_id = str(current[0])
+        key = (node_id, str(current[1]))
+        if key in visited:
+            break
+        visited.add(key)
+        node = workflow.get(node_id) if isinstance(workflow, dict) else None
+        if not isinstance(node, dict):
+            break
+        class_type = str(node.get("class_type") or "")
+        trace.append(class_type)
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        try:
+            output_index = int(current[1])
+        except Exception:
+            output_index = 0
+        if class_type == "InpaintModelConditioning":
+            parent = inputs.get("positive" if output_index == 0 else "negative" if output_index == 1 else "")
+        elif class_type in {"FluxGuidance"}:
+            parent = inputs.get("conditioning")
+        else:
+            break
+        current = list(parent) if isinstance(parent, (list, tuple)) and len(parent) >= 2 else None
+    return (trace[-1] if trace else ""), trace
 def validate_krea2_sampler_profile(
     workflow: dict[str, Any],
     *,
@@ -182,13 +228,14 @@ def validate_krea2_sampler_profile(
         cfg = None
     negative_node = _ref_node(workflow, inputs.get("negative"))
     negative_class = str((negative_node or {}).get("class_type") or "")
+    resolved_negative_class, negative_conditioning_trace = _conditioning_source_class(workflow, inputs.get("negative"))
     if target == "krea2_turbo":
         if steps != KREA2_TURBO_STEPS:
             errors.append(f"Krea2 Turbo must preserve {KREA2_TURBO_STEPS} sampling steps; got {steps!r}.")
         if cfg is None or abs(cfg - KREA2_TURBO_COMFY_CFG) > 1e-6:
             errors.append(f"Krea2 Turbo Comfy CFG must remain {KREA2_TURBO_COMFY_CFG}; got {cfg!r}.")
-        if negative_class != "ConditioningZeroOut":
-            errors.append("Krea2 Turbo must preserve zeroed negative conditioning via ConditioningZeroOut.")
+        if resolved_negative_class != "ConditioningZeroOut":
+            errors.append("Krea2 Turbo must preserve zeroed negative conditioning via ConditioningZeroOut, including through native inpaint conditioning wrappers.")
         profile = "turbo_8_step_zero_negative"
     else:
         profile = "raw_full_sampler_cfg"
@@ -205,6 +252,8 @@ def validate_krea2_sampler_profile(
         "steps": steps,
         "cfg": cfg,
         "negative_class": negative_class,
+        "resolved_negative_class": resolved_negative_class,
+        "negative_conditioning_trace": negative_conditioning_trace,
         "turbo_expected_steps": KREA2_TURBO_STEPS,
         "turbo_expected_cfg": KREA2_TURBO_COMFY_CFG,
         "raw_reference_steps": KREA2_RAW_REFERENCE_STEPS,

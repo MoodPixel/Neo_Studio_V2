@@ -49,28 +49,38 @@ def _before_graph():
     }
 
 
-def _modern_result(*, lora=False, extra_class="ConditioningSetMask", gpu_proven=False):
+def _modern_result(*, lora=False, extra_class=None, gpu_proven=False):
     before = _before_graph()
     graph = deepcopy(before)
-    graph["10"] = {"class_type": extra_class, "inputs": {}}
-    nodes = ["10"]
-    if lora:
-        graph["11"] = {"class_type": "NeoRegionalLoRADelta", "inputs": {"model": ["1", 0]}}
-        nodes.append("11")
+    # IMG-SD3 Krea2 prompt/LoRA execution always runs through exactly one
+    # external Builder + Apply pair. Regional LoRA ownership is represented in
+    # the Builder payload rather than a NeoRegionalLoRADelta wrapper.
+    graph["10"] = {"class_type": "Krea2RegionalBuilder", "inputs": {}}
+    graph["11"] = {"class_type": "Krea2ApplyRegional", "inputs": {"model": ["1", 0], "conditioning": ["10", 1], "regions": ["10", 0]}}
+    nodes = ["10", "11"]
+    if extra_class:
+        graph["12"] = {"class_type": extra_class, "inputs": {}}
+        nodes.append("12")
     patch = {
         "applied": True,
         "mutated": True,
         "nodes_added": nodes,
         "regions": 2,
         "subject_count": 2,
-        "fallback_policy": "never_fallback_to_classic_v054_or_global_lora",
-        "scene_director_engine": "lightweight_regional",
+        "fallback_policy": "never_fallback_to_neoregionalloradelta_or_global_lora",
+        "scene_director_engine": "krea2_regional_external",
         "scene_director_execution_strategy": execution.resolve_scene_director_execution_strategy({"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":"generate"}),
         "scene_director_regional_lora_applied": lora,
         "scene_director_regional_lora_runtime_gpu_proven": gpu_proven,
-        "scene_director_regional_lora_contract": {"mode":"krea2_activation_delta_v2", "route_count": 1 if lora else 0, "binding_compatibility": {}},
-        "scene_director_lightweight_regional_prompt": {"status":"applied"},
+        "scene_director_regional_lora_contract": {
+            "adapter":"krea2_regional_external",
+            "route_count": 1 if lora else 0,
+            "status":"external_runtime_armed",
+            "binding_compatibility": {},
+        },
+        "scene_director_lightweight_regional_prompt": {"status":"external_runtime_armed","external_engine":"krea2_regional_external"},
         "scene_director_lightweight_runtime_proof": {
+            "engine":"krea2_regional_external",
             "single_sampler_preserved": True,
             "sampler_parameters_preserved": True,
             "latent_input_unchanged": True,
@@ -79,7 +89,7 @@ def _modern_result(*, lora=False, extra_class="ConditioningSetMask", gpu_proven=
             "repair_sampler_nodes_added": 0,
             "regional_prompt_lane_count": 2,
             "regional_lora_route_count": 1 if lora else 0,
-            "regional_lora_nodes_added": 1 if lora else 0,
+            "external_engine_nodes_added": 2,
             "sampler_count_before": 1,
             "sampler_count_after": 1,
             "runtime_gpu_proven": gpu_proven,
@@ -88,12 +98,12 @@ def _modern_result(*, lora=False, extra_class="ConditioningSetMask", gpu_proven=
         "route": {"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":"generate"},
         "route_state": "available",
         "previous_model_ref": ["1", 0],
-        "patched_model_ref": ["11", 0] if lora else ["1", 0],
+        "patched_model_ref": ["11", 0],
         "clip_ref": ["2", 0],
         "previous_positive_ref": ["4", 0],
-        "patched_positive_ref": ["10", 0],
+        "patched_positive_ref": ["11", 1],
         "previous_negative_ref": ["5", 0],
-        "patched_negative_ref": ["10", 0],
+        "patched_negative_ref": ["11", 1],
     }
     return before, {"workflow": graph, "workflow_patch": patch, "validation": {"warnings":[],"errors":[],"route":patch["route"],"route_state":"available"}, "mutated": True}
 
@@ -149,13 +159,13 @@ def test_v054_insertion_on_modern_route_is_release_blocker():
     assert lock["status"] == "blocked"
 
 
-def test_two_regional_lora_wrappers_are_release_blocked():
+def test_two_krea2_apply_nodes_are_release_blocked():
     before, result = _modern_result(lora=True)
-    result["workflow"]["12"] = {"class_type":"NeoRegionalLoRADelta","inputs":{}}
-    result["workflow_patch"]["nodes_added"].append("12")
+    result["workflow"]["13"] = {"class_type":"Krea2ApplyRegional","inputs":{}}
+    result["workflow_patch"]["nodes_added"].append("13")
     lock = release.evaluate_scene_director_release_lock(before_workflow=before, result=result, route=result["workflow_patch"]["route"])
     assert lock["status"] == "blocked"
-    assert any(row["id"] == "single_regional_lora_wrapper" for row in lock["blockers"])
+    assert any(row["id"] == "krea2_external_regional_engine" for row in lock["blockers"])
 
 
 def test_outpaint_is_gated_safe_only_without_mutation():
@@ -216,7 +226,7 @@ def test_dispatch_release_lock_fails_closed_to_original_graph(monkeypatch):
     assert result["positive_ref"] == ["4", 0]
     assert result["negative_ref"] == ["5", 0]
     assert result["workflow_patch"]["nodes_added"] == []
-    assert result["workflow_patch"]["release_lock_attempted_nodes_added"] == ["10"]
+    assert result["workflow_patch"]["release_lock_attempted_nodes_added"] == ["10", "11", "12"]
     assert result["workflow_patch"]["release_lock_blocked"] is True
 
 
@@ -246,7 +256,7 @@ def test_release_route_matrix_is_exact_and_outpaint_remains_gated():
 
 def test_manifest_is_release_locked_and_declares_inspector_assets():
     manifest = json.loads((EXT_ROOT / "extension_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "1.2.20"
+    assert tuple(int(part) for part in manifest["version"].split(".")) >= (1, 2, 21)
     assert manifest["support_matrix_contract"]["phase"] == "SD-28.7"
     assert manifest["phase_sd_28_7_release_lock"]["release_state"] == "locked"
     assert "ui/release_inspector.js" in manifest["asset_bundle"]["js"]
@@ -258,7 +268,7 @@ def test_manifest_is_release_locked_and_declares_inspector_assets():
 
 def test_execution_strategy_phase_is_release_lock_phase():
     assert execution.EXECUTION_STRATEGY_PHASE == "SD-28.7"
-    assert execution.EXECUTION_STRATEGY_SCHEMA.endswith(".v7")
+    assert execution.EXECUTION_STRATEGY_SCHEMA.endswith(".v8")
 
 
 def test_active_route_noop_is_locked_not_false_positive_blocked():
@@ -270,17 +280,30 @@ def test_active_route_noop_is_locked_not_false_positive_blocked():
     assert lock["allow_output"] is True
 
 
-def test_inspector_shows_regional_lora_failed_closed_without_blocking_prompt_engine():
-    before, result = _modern_result(lora=False)
-    result["workflow_patch"]["scene_director_regional_lora_contract"] = {"mode":"krea2_activation_delta_v2","route_count":1,"status":"runtime_node_missing"}
-    result["workflow_patch"]["scene_director_regional_lora_status"] = "provider_gated_missing_runtime_node"
-    lock = release.evaluate_scene_director_release_lock(before_workflow=before, result=result, route=result["workflow_patch"]["route"])
-    ui = inspector_mod.build_scene_director_inspector(validation=result["validation"], workflow_patch=result["workflow_patch"], release_lock=lock)
+def test_inspector_shows_missing_krea_external_runtime_on_safe_noop():
+    before = _before_graph()
+    route = {"backend":"comfyui","family":"krea2","loader":"diffusion_model","mode":"generate"}
+    patch = {
+        "applied": False,
+        "mutated": False,
+        "nodes_added": [],
+        "fallback_policy": "never_fallback_to_neoregionalloradelta_or_global_lora",
+        "scene_director_execution_strategy": execution.resolve_scene_director_execution_strategy(route),
+        "scene_director_regional_lora_contract": {"adapter":"krea2_regional_external","route_count":1,"status":"missing_external_runtime"},
+        "scene_director_regional_lora_status": "missing_external_runtime",
+        "scene_director_regional_lora_applied": False,
+        "scene_director_lightweight_runtime_proof": {"contract_ok":False,"regional_lora_compile_status":"missing_external_runtime"},
+        "route": route,
+        "route_state": "available",
+        "reason": "Krea 2 Scene Director requires ComfyUI-Krea2-Regional.",
+    }
+    result = {"workflow":deepcopy(before),"workflow_patch":patch,"validation":{"warnings":[],"errors":[],"route":route,"route_state":"available"},"mutated":False}
+    lock = release.evaluate_scene_director_release_lock(before_workflow=before, result=result, route=route)
+    ui = inspector_mod.build_scene_director_inspector(validation=result["validation"], workflow_patch=patch, release_lock=lock)
     chips = {row["id"]: row for row in ui["status_chips"]}
     assert lock["status"] == "locked"
     assert chips["regional_lora"]["state"] == "blocked"
     assert chips["gpu_proof"]["state"] == "blocked"
-    assert any("failed closed" in warning for warning in ui["warnings"])
 
 
 def test_classic_release_matrix_remains_frozen():

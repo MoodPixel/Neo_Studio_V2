@@ -13,7 +13,6 @@ def format_strength(value: Any, default: float = 0.8) -> str:
         number = float(value)
     except (TypeError, ValueError):
         number = default
-    number = max(-4.0, min(4.0, number))
     return f"{number:.4f}".rstrip("0").rstrip(".") or "0"
 
 

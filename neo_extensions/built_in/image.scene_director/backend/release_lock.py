@@ -146,11 +146,27 @@ def evaluate_scene_director_release_lock(
 
         lora_applied = bool(patch.get("scene_director_regional_lora_applied"))
         wrapper_count = inserted_classes.count("NeoRegionalLoRADelta")
-        checks.append(_check(
-            "single_regional_lora_wrapper",
-            (wrapper_count == 1) if lora_applied else wrapper_count == 0,
-            "Regional LoRA execution must use exactly one NeoRegionalLoRADelta wrapper when requested and none otherwise.",
-        ))
+        if family in {"krea2", "krea2_turbo"}:
+            builder_count = inserted_classes.count("Krea2RegionalBuilder")
+            apply_count = inserted_classes.count("Krea2ApplyRegional")
+            checks.extend([
+                _check(
+                    "krea2_external_regional_engine",
+                    (builder_count == 1 and apply_count == 1) if mutated else (builder_count == 0 and apply_count == 0),
+                    "IMG-SD3 Krea2 mutated execution must use exactly one Krea2RegionalBuilder and one Krea2ApplyRegional node; a no-op graph must add neither.",
+                ),
+                _check(
+                    "krea2_no_neo_regional_lora_wrapper",
+                    wrapper_count == 0,
+                    "IMG-SD3 Krea2 must not fall back to NeoRegionalLoRADelta.",
+                ),
+            ])
+        else:
+            checks.append(_check(
+                "single_regional_lora_wrapper",
+                (wrapper_count == 1) if lora_applied else wrapper_count == 0,
+                "FLUX.2 Klein/Z-Image regional LoRA execution must use exactly one NeoRegionalLoRADelta wrapper when requested and none otherwise.",
+            ))
 
         proof = patch.get("scene_director_lightweight_runtime_proof") if isinstance(patch.get("scene_director_lightweight_runtime_proof"), dict) else {}
         checks.extend([

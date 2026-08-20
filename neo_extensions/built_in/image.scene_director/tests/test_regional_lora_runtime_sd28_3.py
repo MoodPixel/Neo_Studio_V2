@@ -156,7 +156,10 @@ def _apply(monkeypatch, *, family="krea2", count=2, runtime_node_available=True,
     graph = deepcopy(graph or _base_graph(turbo=family == "krea2_turbo"))
     available = set(CORE)
     if runtime_node_available:
-        available.add("NeoRegionalLoRADelta")
+        if family in {"krea2", "krea2_turbo"}:
+            available.update({"Krea2RegionalBuilder", "Krea2ApplyRegional"})
+        else:
+            available.add("NeoRegionalLoRADelta")
     result = lightweight.apply_lightweight_regional_prompt_patch(
         graph,
         payload={"extensions": {"image.scene_director": {"enabled": True}}},
@@ -173,23 +176,25 @@ def _classes(graph):
     return [str(node.get("class_type") or "") for node in graph.values() if isinstance(node, dict)]
 
 
-def test_krea2_inserts_exactly_one_regional_model_wrapper_and_no_extra_sampler(monkeypatch):
+def test_krea2_uses_external_builder_apply_and_no_extra_sampler(monkeypatch):
     result = _apply(monkeypatch)
     graph = result["workflow"]
     classes = _classes(graph)
-    assert classes.count("NeoRegionalLoRADelta") == 1
+    assert classes.count("Krea2RegionalBuilder") == 1
+    assert classes.count("Krea2ApplyRegional") == 1
+    assert classes.count("NeoRegionalLoRADelta") == 0
     assert classes.count("KSampler") == 1
     assert "LoraLoader" not in classes
     assert "LoraLoaderModelOnly" not in classes
-    assert result["workflow_patch"]["scene_director_regional_lora_status"] == "armed_not_gpu_proven"
-    assert result["workflow_patch"]["scene_director_lightweight_runtime_proof"]["contract_ok"] is True
-    node_id = result["workflow_patch"]["scene_director_regional_lora_nodes_added"][0]
-    node = graph[node_id]
-    assert node["inputs"]["sampler_count"] == 1
-    routes = json.loads(node["inputs"]["routes_json"])
-    assert len(routes) == 2
-    assert all(route["target_executed"] == "model_only" for route in routes)
-    assert all(route["clip_delta_execution"] == "suppressed_model_side_only" for route in routes)
+    patch = result["workflow_patch"]
+    assert patch["scene_director_regional_lora_status"] == "external_runtime_armed"
+    proof = patch["scene_director_lightweight_runtime_proof"]
+    assert proof["contract_ok"] is True
+    assert proof["external_engine_nodes_added"] == 2
+    contract = patch["scene_director_regional_lora_contract"]
+    assert contract["route_count"] == 2
+    assert contract["adapter"] == "krea2_regional_external"
+    assert contract["clip_delta_execution"] == "regional_prompt_tokens_and_image_tokens_owned_by_external_engine"
 
 
 def test_three_plus_loras_have_no_legacy_two_route_cap(monkeypatch):
@@ -197,45 +202,53 @@ def test_three_plus_loras_have_no_legacy_two_route_cap(monkeypatch):
     patch = result["workflow_patch"]
     assert patch["scene_director_regional_lora_contract"]["route_count"] == 4
     assert patch["scene_director_regional_lora_contract"]["route_limit"] is None
-    assert patch["scene_director_lightweight_runtime_proof"]["regional_lora_nodes_added"] == 1
+    proof = patch["scene_director_lightweight_runtime_proof"]
+    assert proof["external_engine_nodes_added"] == 2
+    assert _classes(result["workflow"]).count("Krea2RegionalBuilder") == 1
+    assert _classes(result["workflow"]).count("Krea2ApplyRegional") == 1
     assert _classes(result["workflow"]).count("KSampler") == 1
 
 
-def test_regional_model_wrapper_preserves_downstream_differential_diffusion(monkeypatch):
+def test_krea2_external_engine_preserves_downstream_differential_diffusion(monkeypatch):
     graph = _base_graph()
     graph["20"] = {"class_type": "DifferentialDiffusion", "inputs": {"model": ["1", 0]}}
     graph["7"]["inputs"]["model"] = ["20", 0]
     result = _apply(monkeypatch, graph=graph, model_ref=["1", 0])
     patched = result["workflow"]
-    regional_id = result["workflow_patch"]["scene_director_regional_lora_nodes_added"][0]
-    assert patched["20"]["inputs"]["model"] == [regional_id, 0]
-    assert patched["7"]["inputs"]["model"] == ["20", 0]
-    assert result["workflow_patch"]["scene_director_lightweight_runtime_proof"]["latent_input_unchanged"] is True
+    apply_id = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]["apply_node_id"]
+    assert patched["20"]["inputs"]["model"] == ["1", 0]
+    assert patched[apply_id]["inputs"]["model"] == ["20", 0]
+    assert patched["7"]["inputs"]["model"] == [apply_id, 0]
+    proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
+    assert proof["external_model_input_ref"] == ["20", 0]
+    assert proof["latent_input_unchanged"] is True
 
 
-def test_regional_wrapper_layers_after_global_lora_model_ref(monkeypatch):
+def test_krea2_external_engine_layers_after_unrelated_global_lora_model_ref(monkeypatch):
     graph = _base_graph()
     graph["10"] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "global.safetensors", "strength_model": 0.7}}
     graph["7"]["inputs"]["model"] = ["10", 0]
-    result = _apply(monkeypatch, graph=graph, model_ref=["10", 0])
-    regional_id = result["workflow_patch"]["scene_director_regional_lora_nodes_added"][0]
-    assert result["workflow"][regional_id]["inputs"]["model"] == ["10", 0]
-    assert result["workflow"]["7"]["inputs"]["model"] == [regional_id, 0]
+    result = _apply(monkeypatch, graph=graph, model_ref=["1", 0])
+    proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
+    apply_id = proof["apply_node_id"]
+    assert result["workflow"][apply_id]["inputs"]["model"] == ["10", 0]
+    assert result["workflow"]["7"]["inputs"]["model"] == [apply_id, 0]
     assert _classes(result["workflow"]).count("KSampler") == 1
 
 
-def test_missing_runtime_node_never_falls_back_to_global_or_finish_lora(monkeypatch):
+def test_missing_krea_external_runtime_never_falls_back_to_global_or_neo_runtime(monkeypatch):
     result = _apply(monkeypatch, runtime_node_available=False)
     classes = _classes(result["workflow"])
     patch = result["workflow_patch"]
-    assert patch["scene_director_regional_lora_status"] == "missing_runtime_node"
+    assert patch["scene_director_regional_lora_status"] == "missing_external_runtime"
     assert patch["scene_director_regional_lora_applied"] is False
+    assert "Krea2RegionalBuilder" not in classes
+    assert "Krea2ApplyRegional" not in classes
     assert "NeoRegionalLoRADelta" not in classes
     assert "LoraLoader" not in classes
     assert "LoraLoaderModelOnly" not in classes
     assert classes.count("KSampler") == 1
-    # Regional prompt execution remains useful even though LoRA is safely gated.
-    assert patch["scene_director_lightweight_runtime_proof"]["regional_prompt_lane_count"] == 2
+    assert "ComfyUI-Krea2-Regional" in patch["reason"]
 
 
 @pytest.mark.parametrize("family", ["z_image", "z_image_turbo"])
@@ -268,16 +281,21 @@ def test_krea_turbo_sampler_profile_is_not_changed_by_regional_lora(monkeypatch)
     assert _classes(result["workflow"]).count("KSampler") == 1
 
 
-def test_regional_lora_trigger_terms_are_injected_only_into_owning_region(monkeypatch):
+def test_krea_external_builder_keeps_regional_prompts_and_loras_local(monkeypatch):
     result = _apply(monkeypatch, count=2)
-    lanes = result["workflow_patch"]["scene_director_lightweight_regional_prompt"]["positive_lanes"]
-    first = lanes[0]["prompt_with_regional_lora_triggers"]
-    second = lanes[1]["prompt_with_regional_lora_triggers"]
-    assert "trigger_1" in first and "activation_1" in first and "owner_trigger_1" in first
-    assert "trigger_2" not in first
-    assert "trigger_2" in second and "trigger_1" not in second
-    # The provider/global CLIP text stays unchanged.
-    assert result["workflow"]["4"]["inputs"]["text"] == "global"
+    proof = result["workflow_patch"]["scene_director_lightweight_runtime_proof"]
+    builder_id = proof["builder_node_id"]
+    builder = result["workflow"][builder_id]
+    payload = json.loads(builder["inputs"]["regions_data"])
+    assert len(payload["regions"]) == 2
+    first, second = payload["regions"]
+    assert first["desc"] == "distinct character 1"
+    assert second["desc"] == "distinct character 2"
+    assert first["loras"][0]["name"] == "character_1.safetensors"
+    assert second["loras"][0]["name"] == "character_2.safetensors"
+    assert builder["inputs"]["base_prompt"] == "global"
+    assert "trigger_1" not in builder["inputs"]["base_prompt"]
+    assert "trigger_2" not in builder["inputs"]["base_prompt"]
 
 
 def test_standard_ab_pair_parser_honors_alpha_scale():
@@ -485,7 +503,7 @@ def test_node_clones_model_and_registers_wrapper_without_mutating_original(monke
 
 def test_manifest_registers_regional_runtime_through_combined_comfy_entrypoint():
     manifest = json.loads((EXT_ROOT / "extension_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version"] == "1.2.20"
+    assert tuple(int(part) for part in manifest["version"].split(".")) >= (1, 2, 21)
     assert manifest["entrypoints"]["comfy_node"] == "comfy_node/__init__.py"
     phase = manifest["phase_sd_28_3_regional_lora_runtime_foundation"]
     assert phase["runtime_node"] == "NeoRegionalLoRADelta"
