@@ -1,1 +1,25 @@
-from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+"""ComfyUI entrypoint for Neo Scene Director nodes.
+
+V054 remains the classic Scene Director node. SD-28.6 keeps one isolated MODEL
+wrapper node for Krea 2, FLUX.2 Klein, and Z-Image regional LoRA activation-delta routing.
+"""
+
+from .nodes import (
+    NODE_CLASS_MAPPINGS as V054_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as V054_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .regional_lora import (
+    NODE_CLASS_MAPPINGS as REGIONAL_LORA_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as REGIONAL_LORA_NODE_DISPLAY_NAME_MAPPINGS,
+)
+
+NODE_CLASS_MAPPINGS = {
+    **V054_NODE_CLASS_MAPPINGS,
+    **REGIONAL_LORA_NODE_CLASS_MAPPINGS,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    **V054_NODE_DISPLAY_NAME_MAPPINGS,
+    **REGIONAL_LORA_NODE_DISPLAY_NAME_MAPPINGS,
+}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

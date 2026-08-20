@@ -1,0 +1,6 @@
+# Isolated physical Voice backend. Do not merge these pins into Neo's main .venv.
+chatterbox-tts==0.1.7
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+# PerTh still imports pkg_resources; setuptools 82+ removed it.
+setuptools<82

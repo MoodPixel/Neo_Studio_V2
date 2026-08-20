@@ -85,25 +85,17 @@ The operation:
 
 It does not use ordinary Img2Img, Forge Extras, Gradio function indexes, or ComfyUI.
 
-## Upgrade verification
+## After upgrading the Bridge
 
-After replacing the Bridge, verify all of the following before enabling native Hires in production:
+After replacing the Bridge:
 
-- Forge restarted after installation;
-- selected Forge profile connected;
-- Bridge selected by that profile;
-- Bridge version is 1.2.1;
-- `native_post_hires` is true;
-- `native_txt2img_upscale` appears in `native_operations`;
-- `native_post_hires_size_contract` is true;
-- the provider-action regression and release integration audits pass.
+1. Restart Forge completely.
+2. Open **Admin → Backends → Image** in Neo Studio.
+3. Refresh/Test the selected Forge profile.
+4. Confirm the Bridge is selected by that profile when Bridge mode expects it.
+5. Confirm native High-Res Fix becomes available only when the running Bridge reports `native_post_hires`, `native_txt2img_upscale`, and `native_post_hires_size_contract`.
 
-Release commands:
-
-```text
-python scripts/validate_provider_actions_phase13.py
-python scripts/audit_provider_action_release_phase14.py
-```
+If the action remains disabled, use Neo's profile/action diagnostics to identify the missing capability. Developer regression and release audits are intentionally kept out of the user installation guide.
 
 ## Rollback
 
