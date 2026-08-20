@@ -347,6 +347,8 @@ def _route_category(result: dict[str, Any], request: dict[str, Any] | None = Non
         return "extend"
     if "multiscene" in lowered or raw_type in {"multi_scene", "multiscene"}:
         return "multiscene"
+    if "reference_to_video" in lowered or raw_type in {"reference_to_video", "reference", "ref2va", "r2v", "omni_reference"} or normalized_type == "reference_to_video":
+        return "reference_to_video"
     if ".img2vid" in lowered or normalized_type == "img2vid":
         return "img2vid"
     return "txt2vid"
@@ -369,7 +371,18 @@ def build_video_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
         **(record.get("parameters") if isinstance(record.get("parameters"), dict) else {}),
         "source_image": ((record.get("source") or {}).get("source_image") if isinstance(record.get("source"), dict) else "") or "",
         "source_image_name": ((record.get("source") or {}).get("source_image_name") if isinstance(record.get("source"), dict) else "") or "",
-        "source_video": ((record.get("source") or {}).get("relative_path") if isinstance(record.get("source"), dict) else "") or "",
+        "source_video": (
+            ((record.get("source") or {}).get("source_video") if isinstance(record.get("source"), dict) else "")
+            or ((record.get("source") or {}).get("relative_path") if isinstance(record.get("source"), dict) else "")
+            or (
+                (((record.get("source") or {}).get("source_videos") or [{}])[0].get("ref") or "")
+                if isinstance(record.get("source"), dict)
+                and isinstance((record.get("source") or {}).get("source_videos"), list)
+                and (record.get("source") or {}).get("source_videos")
+                and isinstance(((record.get("source") or {}).get("source_videos") or [{}])[0], dict)
+                else ""
+            )
+        ) or "",
         "first_image": ((record.get("source") or {}).get("first_image") if isinstance(record.get("source"), dict) else "") or "",
         "last_image": ((record.get("source") or {}).get("last_image") if isinstance(record.get("source"), dict) else "") or "",
         "parent_result_id": lineage.get("parent_result_id") or "",
@@ -552,7 +565,7 @@ def register_video_generation_result(result: dict[str, Any], request: dict[str, 
     finish_metadata = _interpolation_record_metadata(result, request) if category == "interpolate" else _upscale_record_metadata(result, request) if category == "upscale" else {}
     route_id = str(result.get("route_id") or request.get("route_id") or "wan22.unet.txt2vid")
     requested_generation_type = str(request.get("generation_type") or result.get("request", {}).get("generation_type") or "")
-    generation_type = category if category in {"interpolate", "upscale", "repair", "first_last_frame", "extend", "vid2vid", "depth_motion", "multiscene", "schedule", "audio_video"} else normalize_video_generation_type(requested_generation_type or ("img2vid" if category == "img2vid" else "txt2vid"))
+    generation_type = category if category in {"interpolate", "upscale", "repair", "first_last_frame", "extend", "vid2vid", "depth_motion", "multiscene", "schedule", "audio_video", "reference_to_video"} else normalize_video_generation_type(requested_generation_type or ("img2vid" if category == "img2vid" else "txt2vid"))
     family = str(request.get("family") or result.get("request", {}).get("family") or route_id.split(".")[0] or "wan22")
     loader = str(request.get("loader") or result.get("request", {}).get("loader") or (route_id.split(".")[1] if "." in route_id else "unet"))
     result_id = str(result.get("result_id") or _result_id(f"{family}_{generation_type}"))
@@ -637,6 +650,7 @@ def register_video_generation_result(result: dict[str, Any], request: dict[str, 
             "V19 Depth / Motion Control creates child output records under the depth_motion category without modifying the parent video.",
             "V20 Prompt/Motion Schedule creates LTX schedule records under the schedule category with replayable beat metadata.",
             "V21 Audio-Video creates LTX audio-video records under the audio_video category with replayable audio prompt metadata.",
+            "Reference-to-Video results use the reference_to_video category so semantic reference runs do not collapse into Txt2Vid storage/replay.",
             "V22 adds canonical replay metadata and optional unified-memory export for every Video result.",
             "V-G9 imports finished ComfyUI video outputs from /history + /view into Neo-owned playback folders.",
             "V15 First/Last Frame creates controlled transition records under the first_last_frame category using two source images.",

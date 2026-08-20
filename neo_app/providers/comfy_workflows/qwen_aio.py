@@ -16,6 +16,12 @@ from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResu
 from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_app.providers.comfy_workflows.vae_decode_utils import (
+    build_vae_decode_node,
+    build_vae_loader_node,
+    resolve_vae_decode_strategy,
+    vae_decode_profile_payload,
+)
 
 
 QWEN_EDIT_NODE_CANDIDATES = (
@@ -739,11 +745,19 @@ def compile_qwen_native_edit(
     aura_shift = float(_param(params, "qwen_aura_shift", "aura_shift", "shift", default=defaults.aura_shift))
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
+    vae_decode_strategy = resolve_vae_decode_strategy(
+        params=params,
+        family=visible_family,
+        loader=route.loader or job.loader or "diffusion_model",
+        mode=mode,
+        backend_capabilities=backend_capabilities,
+        validation=validation,
+    )
 
     workflow: dict[str, Any] = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": diffusion_model, "weight_dtype": weight_dtype}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder, "type": defaults.clip_type, "device": clip_device}},
-        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "3": build_vae_loader_node(vae, vae_decode_strategy),
     }
 
     route_notes: list[str] = []
@@ -865,7 +879,7 @@ def compile_qwen_native_edit(
     workflow[sampler_id] = {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler if sampler != "provider_default" else defaults.sampler, "scheduler": scheduler if scheduler != "provider_default" else defaults.scheduler, "denoise": denoise, "model": model_ref, "positive": positive_ref, "negative": negative_ref, "latent_image": latent_ref}}
     next_id += 1
     decode_id = str(next_id)
-    workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
+    workflow[decode_id] = build_vae_decode_node([sampler_id, 0], ["3", 0], vae_decode_strategy)
     output_ref: list[Any] = [decode_id, 0]
     next_id += 1
 
@@ -896,8 +910,10 @@ def compile_qwen_native_edit(
             "source_image_limit": effective_source_limit,
             "source_image_limit_policy": "2509/2511 allow 1-3 sources for img2img/edit only; inpaint/outpaint are single-source mask/canvas workflows.",
             "status": "available",
-            "provider_nodes": {"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": route_meta.get("qwen_edit_node_compatibility", {}).get("selected_node", "TextEncodeQwenImageEditPlus"), "sampling_patch": defaults.sampling_node, "vae_loader": "VAELoader"},
+            "provider_nodes": {"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": route_meta.get("qwen_edit_node_compatibility", {}).get("selected_node", "TextEncodeQwenImageEditPlus"), "sampling_patch": defaults.sampling_node, "vae_loader": vae_decode_strategy["loader_node_class"], "vae_decode": vae_decode_strategy["decode_node_class"]},
         },
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": diffusion_model,
         "qwen_text_encoder": text_encoder,
         "vae": vae,
@@ -964,6 +980,7 @@ def compile_qwen_native_edit(
                 "V25.9.20 P3 promotes Qwen native safetensors/components image-conditioned workflows as real selectable routes instead of planned gates.",
                 "Qwen native edit uses UNETLoader + CLIPLoader(type=qwen_image) + TextEncodeQwenImageEditPlus + ModelSamplingAuraFlow.",
                 "Native inpaint uses source VAEEncode + SetLatentNoiseMask + DifferentialDiffusion + final masked composite; native outpaint uses ImagePadForOutpaint + padded latent canvas.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 *route_notes,
                 f"Prompt conditioning mode: {conditioning_mode}.",
             ],

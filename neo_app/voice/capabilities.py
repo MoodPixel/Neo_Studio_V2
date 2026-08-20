@@ -99,13 +99,17 @@ FAMILY_CAPABILITIES: dict[str, dict[str, Any]] = {
         "dialogue": True,
         "batch": True,
         "recommended_tier": "low_mid_vram",
-        "adapter_phase": "VO-V12",
+        "adapter_phase": "VO-R13",
+        "backend_profile_id": "voice.neo_engine",
+        "backend_label": "Chatterbox TTS",
+        "backend_badge": "Local / Physical",
+        "physical_adapter": True,
         "batch_phase": "VO-V13",
         "finish_phase": "VO-V14",
         "memory_phase": "VO-V15",
         "project_handoff_phase": "VO-V16",
         "controls": ["language", "speaking_rate", "expression_strength", "reference_strength", "seed", "speaker_blocks", "speaker_mapping", "script_import", "batch_queue", "output_naming", "normalize", "silence_trim", "noise_cleanup", "loudness_target", "convert_audio", "split_chunks", "merge_chunks", "replay_metadata", "memory_export"],
-        "notes": ["Primary adapter target for first Voice runtime pass.", "Quick preview, render, reference clone manifests, and saved voice profiles are contract-ready; final synthesis quality depends on the backend."],
+        "notes": ["VO-R13 physical local adapter is available at the selected Chatterbox backend profile URL.", "Turbo is the lower-compute English route; reference cloning remains R6-authorized and real-audio-only."],
     },
     "chatterbox_multilingual": {
         **BASE_FEATURES,
@@ -117,13 +121,17 @@ FAMILY_CAPABILITIES: dict[str, dict[str, Any]] = {
         "dialogue": True,
         "batch": True,
         "recommended_tier": "mid_vram",
-        "adapter_phase": "VO-V12",
+        "adapter_phase": "VO-R13",
+        "backend_profile_id": "voice.neo_engine",
+        "backend_label": "Chatterbox Multilingual V3",
+        "backend_badge": "Local / Physical",
+        "physical_adapter": True,
         "batch_phase": "VO-V13",
         "finish_phase": "VO-V14",
         "memory_phase": "VO-V15",
         "project_handoff_phase": "VO-V16",
         "controls": ["language", "speaking_rate", "expression_strength", "reference_strength", "seed", "speaker_blocks", "speaker_mapping", "script_import", "batch_queue", "output_naming", "normalize", "silence_trim", "noise_cleanup", "loudness_target", "convert_audio", "split_chunks", "merge_chunks", "replay_metadata", "memory_export"],
-        "notes": ["Multilingual Chatterbox route is capability-mapped but guarded until the backend adapter exposes models/voices."],
+        "notes": ["VO-R13 physical adapter explicitly loads Chatterbox Multilingual V3 and validates its supported language set."],
     },
     "kokoro_preview": {
         **BASE_FEATURES,
@@ -202,6 +210,7 @@ FAMILY_CAPABILITIES: dict[str, dict[str, Any]] = {
 
 RUNTIME_ALIASES = {
     "chatterbox": ["chatterbox_turbo", "chatterbox_multilingual"],
+    "neo_voice_engine": ["chatterbox_turbo", "chatterbox_multilingual"],
     "kokoro": ["kokoro_preview"],
     "fish_speech": ["fish_hq"],
     "custom_tts": ["custom_tts"],
@@ -283,7 +292,7 @@ def capability_payload(*, family: str | None = None, runtime: str | None = None,
             elif key in SUPPORT_ALIAS_MAP:
                 caps[SUPPORT_ALIAS_MAP[key]] = bool(value)
     runtime_id = str(runtime or (profile.get("provider_id") if isinstance(profile, dict) else None) or "chatterbox").strip() or "chatterbox"
-    compatible = family_id in RUNTIME_ALIASES.get(runtime_id, [family_id]) or runtime_id in {"custom_tts", "chatterbox"}
+    compatible = family_id in RUNTIME_ALIASES.get(runtime_id, [family_id]) or runtime_id in {"custom_tts", "chatterbox", "neo_voice_engine"}
     status = "ready" if (backend_health or {}).get("reachable") else "adapter_contract_ready"
     if not compatible:
         status = "family_runtime_mismatch"

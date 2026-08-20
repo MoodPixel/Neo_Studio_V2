@@ -94,6 +94,67 @@ def _model_in_catalog(model_name: str, values: list[str]) -> bool:
 
 
 
+def _node_combo_values(object_info: dict[str, Any], class_candidates: tuple[str, ...], field_candidates: tuple[str, ...]) -> list[str]:
+    info = object_info or {}
+    folded = {str(key).casefold(): str(key) for key in info}
+    for candidate in class_candidates:
+        class_type = folded.get(candidate.casefold())
+        if not class_type:
+            continue
+        entry = info.get(class_type, {}) if isinstance(info.get(class_type), dict) else {}
+        inputs = entry.get("input", {}) if isinstance(entry.get("input"), dict) else {}
+        for group_name in ("required", "optional"):
+            group = inputs.get(group_name, {}) if isinstance(inputs.get(group_name), dict) else {}
+            field_folded = {str(key).casefold(): str(key) for key in group}
+            for field in field_candidates:
+                actual = field_folded.get(field.casefold())
+                if not actual:
+                    continue
+                spec = group.get(actual)
+                if isinstance(spec, list) and spec and isinstance(spec[0], list):
+                    return _unique([str(item) for item in spec[0]])
+                if isinstance(spec, dict):
+                    for key in ("values", "options", "choices"):
+                        if isinstance(spec.get(key), list):
+                            return _unique([str(item) for item in spec[key]])
+    return []
+
+
+def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_type: str) -> dict[str, list[str]]:
+    gguf = loader == "gguf"
+    model_classes = ("UnetLoaderGGUF", "UNETLoaderGGUF") if gguf else ("UNETLoader", "DiffusionModelLoader")
+    clip_classes = ("CLIPLoaderGGUF",) if gguf else ("CLIPLoader",)
+    model_values = _node_combo_values(object_info, model_classes, ("unet_name", "model_name"))
+    clip_values = _node_combo_values(object_info, clip_classes, ("clip_name", "text_encoder_name"))
+    vae_values = _node_combo_values(object_info, ("VAELoader", "VAELoaderKJ"), ("vae_name", "ckpt_name"))
+    lora_values = _node_combo_values(object_info, ("LoraLoaderModelOnly", "LoraLoader"), ("lora_name",))
+
+    def has_any(value: str, needles: tuple[str, ...]) -> bool:
+        low = value.casefold().replace("-", "_")
+        return any(needle.casefold().replace("-", "_") in low for needle in needles)
+
+    h3_models = [value for value in model_values if has_any(value, ("minimax_h3", "minimax-h3", "h3_"))]
+    if generation_type == "reference_to_video":
+        route_models = [value for value in h3_models if has_any(value, ("ref2va", "ref2v", "ref"))]
+    else:
+        route_models = [value for value in h3_models if has_any(value, ("fl2va", "fl2v", "i2v"))]
+    h3_clips = [value for value in clip_values if has_any(value, ("minimax_h3", "minimax-h3", "qwen3vl", "qwen3_vl"))]
+    h3_vaes = [value for value in vae_values if has_any(value, ("minimax_h3", "minimax-h3", "h3_"))]
+    video_vaes = [value for value in h3_vaes if "video" in value.casefold()]
+    audio_vaes = [value for value in h3_vaes if "audio" in value.casefold()]
+    turbo_loras = [value for value in lora_values if has_any(value, ("minimax_h3", "minimax-h3", "h3")) and has_any(value, ("turbo", "lightx2v", "4step", "4steps", "8step", "8steps"))]
+    return {
+        "route_models": route_models or h3_models,
+        "h3_models": h3_models,
+        "text_encoders": h3_clips or clip_values,
+        "video_vaes": video_vaes or h3_vaes,
+        "audio_vaes": audio_vaes or h3_vaes,
+        "vaes": h3_vaes or vae_values,
+        "loras": lora_values,
+        "turbo_loras": turbo_loras,
+    }
+
+
 def _rapid_aio_dynamic_catalogs(object_info: dict[str, Any]) -> dict[str, list[str]]:
     gguf: list[str] = []
     clip: list[str] = []
@@ -173,6 +234,68 @@ def video_model_discovery_from_object_info(
         "warnings": [],
         "errors": [],
     }
+
+    if nf == "minimax_h3":
+        catalogs_raw = _h3_dynamic_catalogs(info, nl, nt)
+        route_models = catalogs_raw["route_models"]
+        text_encoders = catalogs_raw["text_encoders"]
+        video_vaes = catalogs_raw["video_vaes"]
+        audio_vaes = catalogs_raw["audio_vaes"]
+        loras = catalogs_raw["loras"]
+        turbo_loras = catalogs_raw["turbo_loras"]
+        selected_model = str(high_noise_model or rapid_aio_model or "").strip()
+        selected_clip = str(clip_name or "").strip()
+        selected_vae = str(vae_name or "").strip()
+        warnings: list[str] = []
+        errors: list[str] = []
+        if not route_models:
+            errors.append("No MiniMax H3 model is visible in the selected ComfyUI model loader catalog.")
+        if not text_encoders:
+            errors.append("No MiniMax H3/Qwen3-VL text encoder is visible in the selected ComfyUI CLIP loader catalog.")
+        if not video_vaes:
+            errors.append("No MiniMax H3 video VAE is visible in the ComfyUI VAE catalog.")
+        if not audio_vaes:
+            errors.append("No MiniMax H3 audio VAE is visible in the ComfyUI VAE catalog.")
+        if nl == "gguf":
+            warnings.append("MiniMax H3 GGUF is an experimental Neo lane and depends on external ComfyUI-GGUF loader nodes and compatible converted models.")
+        catalogs = {
+            "h3_models": catalogs_raw["h3_models"],
+            "h3_route_models": route_models,
+            "diffusion_models": route_models if nl != "gguf" else [],
+            "gguf_models": route_models if nl == "gguf" else [],
+            "text_encoders": text_encoders,
+            "vaes": catalogs_raw["vaes"],
+            "h3_video_vaes": video_vaes,
+            "h3_audio_vaes": audio_vaes,
+            "loras": loras,
+            "h3_turbo_loras": turbo_loras,
+        }
+        options = {key: _options(values, role=key, recommended={
+            "h3_route_models": selected_model, "diffusion_models": selected_model, "gguf_models": selected_model,
+            "text_encoders": selected_clip, "vaes": selected_vae, "h3_video_vaes": selected_vae,
+            "h3_turbo_loras": high_noise_lora,
+        }.get(key)) for key, values in catalogs.items()}
+        base_payload.update({
+            "schema_version": "neo.video.model_discovery.h3.v1",
+            "phase": "H3-R1",
+            "catalog_ready": bool(route_models and text_encoders and video_vaes and audio_vaes),
+            "field_sources": {
+                "model_name": "live_h3_model_loader", "clip_name": "live_h3_clip_loader",
+                "vae_name": "live_h3_vae_catalog", "audio_vae_name": "live_h3_vae_catalog",
+                "h3_turbo_lora": "live_lora_catalog",
+            },
+            "selected": {
+                "model_name": selected_model or (route_models[0] if route_models else ""),
+                "clip_name": selected_clip or (text_encoders[0] if text_encoders else ""),
+                "vae_name": selected_vae or (video_vaes[0] if video_vaes else ""),
+                "audio_vae_name": audio_vaes[0] if audio_vaes else "",
+                "h3_turbo_lora": high_noise_lora or (turbo_loras[0] if turbo_loras else ""),
+            },
+            "catalogs": catalogs, "options": options,
+            "counts": {key: len(values) for key, values in catalogs.items()},
+            "warnings": warnings, "errors": errors,
+        })
+        return base_payload
 
     if route_id in WAN22_RAPID_AIO_GGUF_ROUTE_IDS:
         catalogs_raw = _rapid_aio_dynamic_catalogs(info)

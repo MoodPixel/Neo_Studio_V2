@@ -7,6 +7,7 @@ import json
 
 from neo_app.providers.profiles import get_backend_profile, list_backend_profiles
 from .capabilities import capability_payload, normalize_family
+from .provider_routing import build_voice_provider_routing, voice_profile_model_catalog, voice_profile_voice_catalog
 
 VOICE_ADAPTER_CONTRACT_VERSION = "neo.voice.adapter_contract.v12"
 DEFAULT_TIMEOUT_SECONDS = 8
@@ -91,11 +92,14 @@ def voice_profiles() -> list[dict[str, Any]]:
     return [profile for profile in list_backend_profiles("voice") if profile.get("enabled", True) is not False]
 
 
-def default_voice_profile(profile_id: str | None = None) -> dict[str, Any] | None:
-    if profile_id:
-        profile = get_backend_profile(profile_id)
-        if profile and profile.get("surface") == "voice":
+def default_voice_profile(profile_id: str | None = None, *, strict: bool = False) -> dict[str, Any] | None:
+    requested = str(profile_id or "").strip()
+    if requested:
+        profile = get_backend_profile(requested)
+        if profile and profile.get("surface") == "voice" and profile.get("enabled", True) is not False:
             return profile
+        if strict:
+            return None
     profiles = voice_profiles()
     return next((item for item in profiles if item.get("is_default")), None) or (profiles[0] if profiles else None)
 
@@ -105,11 +109,11 @@ def _profile_connection(profile: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def voice_health_payload(profile_id: str | None = None) -> dict[str, Any]:
-    profile = default_voice_profile(profile_id)
+    profile = default_voice_profile(profile_id, strict=bool(str(profile_id or "").strip()))
     connection = _profile_connection(profile)
     base_url = str(connection.get("base_url") or "").strip()
     timeout = float(connection.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
-    provider_id = str(profile.get("provider_id") if profile else "chatterbox")
+    provider_id = str(profile.get("provider_id") if profile else "")
     payload: dict[str, Any] = {
         "schema_id": "neo.voice.health.v2",
         "adapter_contract": VOICE_ADAPTER_CONTRACT_VERSION,
@@ -117,10 +121,10 @@ def voice_health_payload(profile_id: str | None = None) -> dict[str, Any]:
         "profile_id": profile.get("profile_id") if profile else "",
         "provider_id": provider_id,
         "backend": provider_id,
-        "backend_family": _profile_model_family(profile, "chatterbox_turbo"),
-        "adapter_phase": "VO-V10" if provider_id == "kokoro" else ("VO-V12" if provider_id == "fish_speech" else "VO-V12"),
-        "backend_badge": "Low-VRAM / Lightweight" if provider_id == "kokoro" else ("HQ / Advanced" if provider_id == "fish_speech" else ""),
-        "clone_supported": False if provider_id == "kokoro" else (True if provider_id == "fish_speech" else None),
+        "backend_family": _profile_model_family(profile, "chatterbox_turbo") if profile else "",
+        "adapter_phase": "VO-V10" if provider_id == "kokoro" else ("VO-V12" if provider_id == "fish_speech" else ("VO-E5A" if provider_id == "neo_voice_engine" else ("VO-R13" if provider_id == "chatterbox" else "VO-V12"))),
+        "backend_badge": "Low-VRAM / Lightweight" if provider_id == "kokoro" else ("HQ / Advanced" if provider_id == "fish_speech" else ("Unified / Gateway" if provider_id == "neo_voice_engine" else ("Legacy Direct / Physical" if provider_id == "chatterbox" else ""))),
+        "clone_supported": False if provider_id == "kokoro" else (True if provider_id in {"fish_speech", "neo_voice_engine", "chatterbox"} else None),
         "base_url_configured": bool(base_url),
         "reachable": False,
         "status": "not_configured" if not base_url else "offline",
@@ -128,8 +132,12 @@ def voice_health_payload(profile_id: str | None = None) -> dict[str, Any]:
         "message": "Configure and connect a Voice backend profile in the Backend card.",
     }
     if not profile:
-        payload["status"] = "missing_profile"
-        payload["message"] = "No enabled Voice backend profile exists."
+        payload["status"] = "invalid_profile" if str(profile_id or "").strip() else "missing_profile"
+        payload["message"] = (
+            f"Voice backend profile '{str(profile_id or '').strip()}' was not found or is not an enabled Voice profile."
+            if str(profile_id or "").strip()
+            else "No enabled Voice backend profile exists."
+        )
         return payload
     if not base_url:
         if provider_id == "kokoro":
@@ -167,8 +175,22 @@ def voice_health_payload(profile_id: str | None = None) -> dict[str, Any]:
 
 
 def voice_capabilities_payload(profile_id: str | None = None, family: str | None = None, runtime: str | None = None) -> dict[str, Any]:
-    profile = default_voice_profile(profile_id)
+    profile = default_voice_profile(profile_id, strict=bool(str(profile_id or "").strip()))
     health = voice_health_payload(profile_id)
+    if not profile:
+        return {
+            "schema_id": "neo.voice.capabilities.v13",
+            "phase": "VO-R3",
+            "surface": "voice",
+            "profile_id": str(profile_id or ""),
+            "status": "invalid_profile",
+            "compatible": False,
+            "authority": "selected_backend_profile",
+            "features": {},
+            "support_flags": {},
+            "control_manifest": {"controls": [], "zones": {}, "source_options": []},
+            "backend": health,
+        }
     family_id = normalize_family(family or _profile_model_family(profile, "chatterbox_turbo"))
     base = capability_payload(family=family_id, runtime=runtime or (profile or {}).get("provider_id"), profile=profile or {}, backend_health=health)
     connection = _profile_connection(profile)
@@ -187,27 +209,46 @@ def voice_capabilities_payload(profile_id: str | None = None, family: str | None
     return base
 
 
+def _append_remote_catalog_items(base_items: list[dict[str, Any]], raw_items: Any, *, kind: str) -> list[dict[str, Any]]:
+    items = [dict(item) for item in base_items if isinstance(item, dict)]
+    seen = {str(item.get("id") or "").strip() for item in items}
+    records = raw_items if isinstance(raw_items, list) else []
+    for item in records:
+        if isinstance(item, dict):
+            item_id = str(item.get("id") or item.get("name") or "").strip()
+            label = str(item.get("label") or item.get("name") or item_id).strip()
+            record = {**item, "id": item_id, "label": label or item_id, "source": "backend"}
+        else:
+            item_id = str(item or "").strip()
+            record = {"id": item_id, "label": item_id, "source": "backend"}
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        record["kind"] = kind
+        items.append(record)
+    return items
+
+
 def voice_models_payload(profile_id: str | None = None, family: str | None = None) -> dict[str, Any]:
-    profile = default_voice_profile(profile_id)
-    family_id = normalize_family(family or _profile_model_family(profile, "chatterbox_turbo"))
+    profile = default_voice_profile(profile_id, strict=bool(str(profile_id or "").strip()))
     health = voice_health_payload(profile_id)
-    models: list[dict[str, Any]] = []
-    defaults = (profile or {}).get("generation_defaults") if isinstance((profile or {}).get("generation_defaults"), dict) else {}
-    if defaults.get("model_family"):
-        default_raw = str(defaults.get("model_family"))
-        default_family = normalize_family({"chatterbox": "chatterbox_turbo", "kokoro": KOKORO_FAMILY, "fish_speech": FISH_FAMILY, "fish": FISH_FAMILY}.get(default_raw, default_raw))
-        tier = "low_vram" if default_family == KOKORO_FAMILY else ("high_vram_hq" if default_family == FISH_FAMILY else "")
-        models.append({"id": default_family, "label": default_family.replace("_", " ").title(), "source": "profile_default", "tier": tier})
-    if family_id.startswith("chatterbox") and not any(item["id"] == family_id for item in models):
-        models.append({"id": family_id, "label": family_id.replace("_", " ").title(), "source": "neo_contract"})
-    if family_id == KOKORO_FAMILY:
-        for model in KOKORO_CONTRACT_MODELS:
-            if not any(item["id"] == model["id"] for item in models):
-                models.append(dict(model))
-    if family_id == FISH_FAMILY:
-        for model in FISH_CONTRACT_MODELS:
-            if not any(item["id"] == model["id"] for item in models):
-                models.append(dict(model))
+    if not profile:
+        return {
+            "schema_id": "neo.voice.models.v13",
+            "phase": "VO-R3",
+            "surface": "voice",
+            "profile_id": str(profile_id or ""),
+            "provider_id": "",
+            "family": "",
+            "status": "invalid_profile",
+            "authority": "selected_backend_profile",
+            "models": [],
+            "backend": health,
+        }
+    defaults = profile.get("generation_defaults") if isinstance(profile.get("generation_defaults"), dict) else {}
+    family_id = str(defaults.get("model_family") or "provider_default").strip() or "provider_default"
+    catalog = voice_profile_model_catalog(profile)
+    models = list(catalog.get("items") or [])
     connection = _profile_connection(profile)
     base_url = str(connection.get("base_url") or "").strip()
     timeout = float(connection.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
@@ -219,42 +260,44 @@ def voice_models_payload(profile_id: str | None = None, family: str | None = Non
                 break
             except Exception:
                 continue
-    if isinstance(remote, dict):
-        raw_models = remote.get("models") or remote.get("items") or []
-    elif isinstance(remote, list):
-        raw_models = remote
-    else:
-        raw_models = []
-    for item in raw_models:
-        if isinstance(item, dict):
-            model_id = str(item.get("id") or item.get("name") or "").strip()
-            label = str(item.get("label") or item.get("name") or model_id).strip()
-        else:
-            model_id = str(item or "").strip(); label = model_id
-        if model_id and not any(model["id"] == model_id for model in models):
-            models.append({"id": model_id, "label": label, "source": "backend"})
+    raw_models = (remote.get("models") or remote.get("items") or []) if isinstance(remote, dict) else (remote if isinstance(remote, list) else [])
+    models = _append_remote_catalog_items(models, raw_models, kind="model")
     return {
-        "schema_id": "neo.voice.models.v12",
+        "schema_id": "neo.voice.models.v13",
+        "phase": "VO-R3",
         "surface": "voice",
-        "profile_id": profile.get("profile_id") if profile else "",
+        "profile_id": str(profile.get("profile_id") or ""),
+        "provider_id": str(profile.get("provider_id") or ""),
         "family": family_id,
-        "status": "ready" if health.get("reachable") else "contract_fallback",
+        "status": "ready" if health.get("reachable") else "profile_catalog",
+        "authority": "selected_backend_profile",
+        "default_id": catalog.get("default_id") or "provider_default",
+        "resolved_default_id": catalog.get("resolved_default_id") or "provider_default",
         "models": models,
         "backend": health,
     }
 
 
 def voice_voices_payload(profile_id: str | None = None, family: str | None = None) -> dict[str, Any]:
-    profile = default_voice_profile(profile_id)
-    family_id = normalize_family(family or _profile_model_family(profile, "chatterbox_turbo"))
+    profile = default_voice_profile(profile_id, strict=bool(str(profile_id or "").strip()))
     health = voice_health_payload(profile_id)
-    voices = [
-        {"id": "provider_default", "label": "Provider Default", "source": "neo_contract", "supports_preview": True},
-    ]
-    if family_id == KOKORO_FAMILY:
-        voices = [dict(item) for item in KOKORO_CONTRACT_VOICES]
-    if family_id == FISH_FAMILY:
-        voices = [dict(item) for item in FISH_CONTRACT_VOICES]
+    if not profile:
+        return {
+            "schema_id": "neo.voice.voices.v13",
+            "phase": "VO-R3",
+            "surface": "voice",
+            "profile_id": str(profile_id or ""),
+            "provider_id": "",
+            "family": "",
+            "status": "invalid_profile",
+            "authority": "selected_backend_profile",
+            "voices": [],
+            "backend": health,
+        }
+    defaults = profile.get("generation_defaults") if isinstance(profile.get("generation_defaults"), dict) else {}
+    family_id = str(defaults.get("model_family") or "provider_default").strip() or "provider_default"
+    catalog = voice_profile_voice_catalog(profile)
+    voices = list(catalog.get("items") or [])
     connection = _profile_connection(profile)
     base_url = str(connection.get("base_url") or "").strip()
     timeout = float(connection.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
@@ -266,25 +309,52 @@ def voice_voices_payload(profile_id: str | None = None, family: str | None = Non
                 break
             except Exception:
                 continue
-    raw_voices = remote.get("voices") if isinstance(remote, dict) else (remote if isinstance(remote, list) else [])
-    for item in raw_voices or []:
-        if isinstance(item, dict):
-            voice_id = str(item.get("id") or item.get("name") or "").strip()
-            label = str(item.get("label") or item.get("name") or voice_id).strip()
-        else:
-            voice_id = str(item or "").strip(); label = voice_id
-        if voice_id and not any(voice["id"] == voice_id for voice in voices):
-            voices.append({"id": voice_id, "label": label, "source": "backend", "supports_preview": True})
+    raw_voices = (remote.get("voices") or remote.get("items") or []) if isinstance(remote, dict) else (remote if isinstance(remote, list) else [])
+    voices = _append_remote_catalog_items(voices, raw_voices, kind="voice")
     return {
-        "schema_id": "neo.voice.voices.v12",
+        "schema_id": "neo.voice.voices.v13",
+        "phase": "VO-R3",
         "surface": "voice",
-        "profile_id": profile.get("profile_id") if profile else "",
+        "profile_id": str(profile.get("profile_id") or ""),
+        "provider_id": str(profile.get("provider_id") or ""),
         "family": family_id,
-        "status": "ready" if health.get("reachable") else "contract_fallback",
+        "status": "ready" if health.get("reachable") else "profile_catalog",
+        "authority": "selected_backend_profile",
+        "default_id": catalog.get("default_id") or "provider_default",
+        "resolved_default_id": catalog.get("resolved_default_id") or "provider_default",
         "voices": voices,
         "backend": health,
     }
 
+
+def voice_provider_routing_payload(profile_id: str | None = None) -> dict[str, Any]:
+    routing = build_voice_provider_routing(profile_id)
+    if not routing.get("routing_ready"):
+        return routing
+    selected_id = str((routing.get("profile") or {}).get("profile_id") or "")
+    health = voice_health_payload(selected_id)
+    models = voice_models_payload(selected_id)
+    voices = voice_voices_payload(selected_id)
+    capabilities = voice_capabilities_payload(selected_id)
+    return {
+        **routing,
+        "status": "profile_routed_live" if health.get("reachable") else "profile_routed",
+        "health": health,
+        "models": {
+            **(routing.get("models") or {}),
+            "items": models.get("models") or [],
+            "status": models.get("status") or "profile_catalog",
+            "resolved_default_id": models.get("resolved_default_id") or (routing.get("models") or {}).get("resolved_default_id") or "provider_default",
+        },
+        "voices": {
+            **(routing.get("voices") or {}),
+            "items": voices.get("voices") or [],
+            "status": voices.get("status") or "profile_catalog",
+            "resolved_default_id": voices.get("resolved_default_id") or (routing.get("voices") or {}).get("resolved_default_id") or "provider_default",
+        },
+        "legacy_capability_manifest": capabilities,
+        "remote_capabilities": capabilities.get("remote_capabilities") if isinstance(capabilities, dict) else None,
+    }
 
 def voice_remote_post_payload(path: str, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
     profile = default_voice_profile(profile_id)

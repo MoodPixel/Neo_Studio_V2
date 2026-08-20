@@ -37,6 +37,8 @@ MODE_TO_CATEGORY: Final[dict[str, str]] = {
     "reference": "reference",
     "reference_audio": "reference",
     "clone": "reference",
+    "dialogue": "render",
+    "voice_dialogue": "render",
     "metadata": "metadata",
     "history": "history",
     "exports": "exports",

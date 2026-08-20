@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .provider_routing import provider_execution_gate
+
 TEXT_TOOLS = {"prompt_generate", "prompt_enhance", "prompt_rewrite", "prompt_cleanup", "negative_prompt", "text_transform", "prompt_studio"}
 CAPTION_TOOLS = {"image_captioning", "result_image_captioning", "batch_captioning", "caption_studio"}
 
@@ -32,12 +34,19 @@ def profile_flags(profile: dict[str, Any] | None) -> dict[str, bool]:
     runtime_caps = (profile or {}).get("runtime", {}).get("capabilities") or {}
     runtime_supports_vision = as_bool(runtime_caps.get("runtime_supports_vision", runtime_caps.get("supports_vision")), False)
     runtime_supports_captioning = as_bool(runtime_caps.get("runtime_supports_captioning", runtime_caps.get("supports_captioning")), False)
-    effective_supports_vision = as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
-    # KoboldCpp reports the loaded multimodal projector as runtime vision support.
-    # In Neo, that is enough to unlock Caption Studio without maintaining a second profile.
-    effective_supports_captioning = as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
+    is_comfy_llamacpp = str((profile or {}).get("provider_id") or "") == "comfy_llamacpp"
+    if is_comfy_llamacpp:
+        effective_supports_text = as_bool(runtime_caps.get("text_execution_ready", runtime_caps.get("supports_text")), False)
+        effective_supports_vision = as_bool(runtime_caps.get("vision_ready", runtime_supports_vision), False)
+        effective_supports_captioning = as_bool(runtime_caps.get("caption_execution_ready", runtime_supports_captioning), False)
+    else:
+        effective_supports_text = as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True)
+        effective_supports_vision = as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
+        # KoboldCpp reports the loaded multimodal projector as runtime vision support.
+        # In Neo, that is enough to unlock Caption Studio without maintaining a second profile.
+        effective_supports_captioning = as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
     return {
-        "supports_text": as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True),
+        "supports_text": effective_supports_text,
         "supports_vision": effective_supports_vision,
         "supports_captioning": effective_supports_captioning,
         "streaming_enabled": as_bool(runtime_caps.get("streaming_enabled", flags.get("streaming_enabled")), False),
@@ -86,11 +95,14 @@ def profile_gate(profile: dict[str, Any] | None, *, require: str) -> tuple[bool,
     profile_id = profile.get("profile_id") or "unknown"
     if profile.get("enabled") is False:
         return False, f"Backend profile '{profile_id}' is disabled."
+    execution_ready, execution_reason = provider_execution_gate(profile)
+    if not execution_ready:
+        return False, execution_reason
     flags = profile_flags(profile)
     if require == "text" and not flags["supports_text"]:
         return False, f"Backend profile '{profile_id}' does not declare text support."
     if require == "caption" and not (flags["supports_vision"] and flags["supports_captioning"]):
-        return False, f"Backend profile '{profile_id}' has no detected vision/caption support. Load a vision model/mmproj in KoboldCpp or enable Vision + Caption flags."
+        return False, f"Backend profile '{profile_id}' has no detected vision/caption support. Load/configure a compatible vision model/projector on the selected backend, then reconnect/test it."
     status = profile_status(profile).strip().lower()
     if status in {"disconnected", "offline", "missing_config", "error", "disabled", "unknown"}:
         return False, f"Backend profile '{profile_id}' is {status}. Click Connect/Test before running this task."

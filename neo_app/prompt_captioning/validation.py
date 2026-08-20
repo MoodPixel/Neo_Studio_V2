@@ -5,6 +5,7 @@ from typing import Any
 from .support_matrix import get_support_matrix
 from .payload_contract import normalize_prompt_captioning_payload
 from .batch_safety import batch_dataset_safety
+from .provider_routing import provider_execution_gate
 
 TEXT_TOOLS = {"prompt_generate", "prompt_enhance", "prompt_rewrite", "prompt_cleanup", "negative_prompt", "text_transform", "prompt_studio"}
 CAPTION_TOOLS = {"image_captioning", "result_image_captioning", "batch_captioning", "caption_studio"}
@@ -28,12 +29,17 @@ def _profile_flags(profile: dict[str, Any] | None) -> dict[str, bool]:
     runtime_caps = (profile or {}).get("runtime", {}).get("capabilities") or {}
     runtime_supports_vision = _as_bool(runtime_caps.get("runtime_supports_vision", runtime_caps.get("supports_vision")), False)
     runtime_supports_captioning = _as_bool(runtime_caps.get("runtime_supports_captioning", runtime_caps.get("supports_captioning")), False)
-    effective_supports_vision = _as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
-    # One KoboldCpp profile is enough: if the backend reports a loaded vision/mmproj route,
-    # Caption Studio can unlock without forcing a duplicate "vision" profile.
-    effective_supports_captioning = _as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
+    is_comfy_llamacpp = str((profile or {}).get("provider_id") or "") == "comfy_llamacpp"
+    if is_comfy_llamacpp:
+        effective_supports_text = _as_bool(runtime_caps.get("text_execution_ready", runtime_caps.get("text_ready", runtime_caps.get("supports_text"))), False)
+        effective_supports_vision = _as_bool(runtime_caps.get("vision_ready", runtime_supports_vision), False)
+        effective_supports_captioning = _as_bool(runtime_caps.get("caption_execution_ready", runtime_caps.get("caption_ready", runtime_supports_captioning)), False)
+    else:
+        effective_supports_text = _as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True)
+        effective_supports_vision = _as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
+        effective_supports_captioning = _as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
     return {
-        "supports_text": _as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True),
+        "supports_text": effective_supports_text,
         "supports_vision": effective_supports_vision,
         "supports_captioning": effective_supports_captioning,
         "streaming_enabled": _as_bool(runtime_caps.get("streaming_enabled", flags.get("streaming_enabled")), False),
@@ -146,6 +152,9 @@ def _profile_route_state(profile: dict[str, Any] | None, *, require: str) -> tup
     profile_id = profile.get("profile_id") or "unknown"
     if profile.get("enabled") is False:
         return "provider_gated", "backend_profile_disabled", f"Backend profile '{profile_id}' is disabled."
+    execution_ready, execution_reason = provider_execution_gate(profile)
+    if not execution_ready:
+        return "provider_gated", "provider_execution_not_ready", execution_reason
     flags = _profile_flags(profile)
     status = _profile_status(profile)
     if status in {"offline", "missing_config", "error"}:
@@ -161,7 +170,7 @@ def _profile_route_state(profile: dict[str, Any] | None, *, require: str) -> tup
                 "missing_backend_profile": "No caption backend profile is configured.",
                 "backend_profile_disabled": f"Backend profile '{profile_id}' is disabled.",
                 "backend_profile_offline": f"Backend profile '{profile_id}' is {status}.",
-                "vision_support_disabled": "No backend vision support detected. Load a KoboldCpp vision model/mmproj or enable Vision support on the profile.",
+                "vision_support_disabled": "No backend vision support detected. Load/configure a compatible vision model/projector on the selected backend, then reconnect/test it.",
                 "caption_support_disabled": "Selected backend profile does not support image captioning. Choose a vision-capable profile.",
             }.get(caps["gate_reason"], f"Backend profile '{profile_id}' cannot run captioning.")
             return "provider_gated", caps["gate_reason"], readable

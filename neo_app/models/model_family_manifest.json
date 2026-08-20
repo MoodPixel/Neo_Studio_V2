@@ -6580,15 +6580,15 @@
             "outpaint"
           ],
           "default": 4.0,
-          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+          "help_text": "Reference-fidelity boost for the LAST reference block. In single-reference mode this controls Image 1; in two-reference mode it controls Image 2 (subject / identity). Upstream default is 1.0; Neo keeps 4.0 as the strong-likeness starting point."
         },
         {
           "field_id": "krea2_identity_edit_ref_boost_a",
-          "label": "Scene Reference Boost",
+          "label": "Scene Reference Boost (Image 1)",
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
@@ -6596,7 +6596,7 @@
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+          "help_text": "Two-reference only. Controls the FIRST reference block (Image 1 = scene / composition). 1.0 means no extra attention boost. Hidden until Image 2 contains a second reference."
         },
         {
           "field_id": "krea2_identity_edit_grounding_px",
@@ -6604,7 +6604,7 @@
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
@@ -6612,7 +6612,23 @@
             "outpaint"
           ],
           "default": 768,
-          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+          "help_text": "Longest-side cap shown to Qwen3-VL for image-grounded instruction conditioning. 768 is the upstream default; 0 uses native resolution. Valid upstream range: 0-4096 in steps of 64."
+        },
+        {
+          "field_id": "krea2_identity_edit_system_prompt",
+          "label": "Grounding System Prompt",
+          "control_type": "text",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_system_prompt",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
         },
         {
           "field_id": "source_image",
@@ -6943,15 +6959,15 @@
             "outpaint"
           ],
           "default": 4.0,
-          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+          "help_text": "Reference-fidelity boost for the LAST reference block. In single-reference mode this controls Image 1; in two-reference mode it controls Image 2 (subject / identity). Upstream default is 1.0; Neo keeps 4.0 as the strong-likeness starting point."
         },
         {
           "field_id": "krea2_identity_edit_ref_boost_a",
-          "label": "Scene Reference Boost",
+          "label": "Scene Reference Boost (Image 1)",
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
@@ -6959,7 +6975,7 @@
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+          "help_text": "Two-reference only. Controls the FIRST reference block (Image 1 = scene / composition). 1.0 means no extra attention boost. Hidden until Image 2 contains a second reference."
         },
         {
           "field_id": "krea2_identity_edit_grounding_px",
@@ -6967,7 +6983,7 @@
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
@@ -6975,7 +6991,23 @@
             "outpaint"
           ],
           "default": 768,
-          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+          "help_text": "Longest-side cap shown to Qwen3-VL for image-grounded instruction conditioning. 768 is the upstream default; 0 uses native resolution. Valid upstream range: 0-4096 in steps of 64."
+        },
+        {
+          "field_id": "krea2_identity_edit_system_prompt",
+          "label": "Grounding System Prompt",
+          "control_type": "text",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_system_prompt",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
         },
         {
           "field_id": "source_image",
@@ -7299,15 +7331,15 @@
             "outpaint"
           ],
           "default": 4.0,
-          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+          "help_text": "Reference-fidelity boost for the LAST reference block. In single-reference mode this controls Image 1; in two-reference mode it controls Image 2 (subject / identity). Upstream default is 1.0; Neo keeps 4.0 as the strong-likeness starting point."
         },
         {
           "field_id": "krea2_identity_edit_ref_boost_a",
-          "label": "Scene Reference Boost",
+          "label": "Scene Reference Boost (Image 1)",
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
@@ -7315,7 +7347,7 @@
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+          "help_text": "Two-reference only. Controls the FIRST reference block (Image 1 = scene / composition). 1.0 means no extra attention boost. Hidden until Image 2 contains a second reference."
         },
         {
           "field_id": "krea2_identity_edit_grounding_px",
@@ -7323,7 +7355,7 @@
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
@@ -7331,7 +7363,23 @@
             "outpaint"
           ],
           "default": 768,
-          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+          "help_text": "Longest-side cap shown to Qwen3-VL for image-grounded instruction conditioning. 768 is the upstream default; 0 uses native resolution. Valid upstream range: 0-4096 in steps of 64."
+        },
+        {
+          "field_id": "krea2_identity_edit_system_prompt",
+          "label": "Grounding System Prompt",
+          "control_type": "text",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_system_prompt",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
         },
         {
           "field_id": "source_image",
@@ -7655,15 +7703,15 @@
             "outpaint"
           ],
           "default": 4.0,
-          "help_text": "Attention boost for the last reference block (the subject/identity reference). 4.0 is a strong likeness starting point; tune per edit."
+          "help_text": "Reference-fidelity boost for the LAST reference block. In single-reference mode this controls Image 1; in two-reference mode it controls Image 2 (subject / identity). Upstream default is 1.0; Neo keeps 4.0 as the strong-likeness starting point."
         },
         {
           "field_id": "krea2_identity_edit_ref_boost_a",
-          "label": "Scene Reference Boost",
+          "label": "Scene Reference Boost (Image 1)",
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
@@ -7671,7 +7719,7 @@
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Attention boost for the first reference when using two images. Image 1 is scene/context; Image 2 is subject/identity."
+          "help_text": "Two-reference only. Controls the FIRST reference block (Image 1 = scene / composition). 1.0 means no extra attention boost. Hidden until Image 2 contains a second reference."
         },
         {
           "field_id": "krea2_identity_edit_grounding_px",
@@ -7679,7 +7727,7 @@
           "control_type": "number",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
@@ -7687,7 +7735,23 @@
             "outpaint"
           ],
           "default": 768,
-          "help_text": "Pixel resolution used by Krea2EditGroundedEncode for image-aware Qwen3-VL instruction conditioning. Upstream default is 768."
+          "help_text": "Longest-side cap shown to Qwen3-VL for image-grounded instruction conditioning. 768 is the upstream default; 0 uses native resolution. Valid upstream range: 0-4096 in steps of 64."
+        },
+        {
+          "field_id": "krea2_identity_edit_system_prompt",
+          "label": "Grounding System Prompt",
+          "control_type": "text",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "role_id": "krea2_identity_edit_system_prompt",
+          "modes": [
+            "img2img",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "",
+          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
         },
         {
           "field_id": "source_image",

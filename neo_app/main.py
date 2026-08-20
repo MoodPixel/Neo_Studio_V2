@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 import argparse
+import asyncio
 import json
 import logging
+import mimetypes
 import re
 from datetime import datetime, timezone
 from urllib import parse
@@ -55,14 +57,82 @@ def _run_runtime_data_bootstrap(call_site: str) -> dict:
     return BOOTSTRAP_STATE
 
 
+def _is_expected_windows_proactor_disconnect(context: dict) -> bool:
+    exc = context.get("exception") if isinstance(context, dict) else None
+    message = str((context or {}).get("message") or "")
+    handle = str((context or {}).get("handle") or "")
+    winerror = getattr(exc, "winerror", None)
+    return (
+        os.name == "nt"
+        and isinstance(exc, ConnectionResetError)
+        and winerror == 10054
+        and "_ProactorBasePipeTransport._call_connection_lost" in f"{message} {handle}"
+    )
+
+
+def _install_windows_asyncio_disconnect_filter() -> None:
+    if os.name != "nt":
+        return
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+
+    def _handler(active_loop, context):
+        if _is_expected_windows_proactor_disconnect(context):
+            logging.getLogger("neo.runtime").debug("Ignored expected Windows client disconnect during socket cleanup.")
+            return
+        if previous:
+            previous(active_loop, context)
+        else:
+            active_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
+
+
+async def _comfy_llamacpp_runtime_validation_loop() -> None:
+    """Keep current-session Comfy LLM/VLM discovery truthful across restarts.
+
+    Phase 9 intentionally runs this as a low-frequency background validator.
+    It only updates process-local runtime truth; it never rewrites user backend
+    profile configuration. Offline profiles are retried sooner than healthy ones.
+    """
+    from neo_app.providers.profiles import revalidate_comfy_llamacpp_profiles
+
+    source = "startup_revalidate"
+    await asyncio.sleep(0.25)
+    while True:
+        try:
+            summary = await asyncio.to_thread(
+                revalidate_comfy_llamacpp_profiles,
+                source=source,
+                timeout_seconds=5.0,
+            )
+            offline = int((summary or {}).get("offline_count") or 0)
+            delay = 15.0 if offline else 60.0
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - background validation cannot crash Neo startup.
+            logging.getLogger("neo.runtime").warning("Comfy LLM/VLM runtime validation failed: %s", exc)
+            delay = 15.0
+        source = "reconnect_monitor"
+        await asyncio.sleep(delay)
+
+
 @asynccontextmanager
 async def neo_runtime_lifespan(app: FastAPI):
-    """Run first-run runtime data bootstrap when FastAPI starts."""
+    """Run runtime bootstrap plus Phase-9 Comfy LLM/VLM live validation."""
 
     _run_runtime_data_bootstrap("fastapi_startup")
     _ensure_legacy_surface_runtime_dirs()
     configure_runtime_logging()
-    yield
+    _install_windows_asyncio_disconnect_filter()
+    comfy_validation_task = asyncio.create_task(_comfy_llamacpp_runtime_validation_loop())
+    app.state.comfy_llamacpp_validation_task = comfy_validation_task
+    try:
+        yield
+    finally:
+        comfy_validation_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await comfy_validation_task
 
 from neo_app.surfaces.registry import get_surface, get_surface_payload
 from neo_app.surfaces.blueprint import surface_blueprint, surface_blueprint_payload
@@ -93,6 +163,8 @@ from neo_app.admin.image_node_manager import (
 from neo_app.providers.comfy_model_paths import query_comfy_model_folders
 from neo_app.providers.comfy_model_paths import resolve_comfy_model_paths
 from neo_app.providers.comfy_provider import ComfyProvider
+from neo_app.services.comfy_gpu_lifecycle import ComfyGpuBusyError, comfy_gpu_lifecycle_recover, comfy_gpu_lifecycle_status, get_comfy_gpu_lifecycle_manager
+from neo_app.services.comfy_runtime_recovery import classify_comfy_runtime_error
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
 from neo_app.image.upload_validation import ImageUploadValidationError, validate_and_store_image_upload
 from neo_app.providers.comfy_workflows.image_stitch_route import image_stitch_has_ready_group
@@ -138,6 +210,7 @@ from neo_app.voice.adapter_client import (
     voice_health_payload,
     voice_models_payload,
     voice_voices_payload,
+    voice_provider_routing_payload,
 )
 from neo_app.voice.batch_service import (
     import_voice_batch_payload,
@@ -183,6 +256,15 @@ from neo_app.voice.profile_store import (
     update_voice_profile_payload,
     voice_profile_payload,
     voice_profiles_payload,
+)
+from neo_app.voice.profile_assets import (
+    VoiceProfileAssetError,
+    apply_voice_profile_asset_payload,
+    create_voice_profile_asset_payload,
+    delete_voice_profile_asset_payload,
+    update_voice_profile_asset_payload,
+    voice_profile_asset_payload,
+    voice_profile_assets_payload,
 )
 from neo_app.voice.project_handoff import (
     build_voice_project_handoff_payload,
@@ -472,6 +554,7 @@ from neo_app.video.vid2vid_compiler import video_ltx23_vid2vid_compile_payload, 
 from neo_app.video.depth_motion_compiler import video_ltx23_depth_motion_compile_payload, video_ltx23_depth_motion_generate_payload
 from neo_app.video.schedule_compiler import video_ltx23_schedule_compile_payload, video_ltx23_schedule_generate_payload
 from neo_app.video.audio_video_compiler import video_ltx23_audio_video_compile_payload, video_ltx23_audio_video_generate_payload
+from neo_app.video.minimax_h3_compiler import video_minimax_h3_compile_payload, video_minimax_h3_generate_payload
 from neo_app.video.output_records import list_video_output_records, load_video_output_record, refresh_video_result_from_comfy, register_video_source_upload, video_output_file_path
 from neo_app.video.output_inspector import video_output_inspector_payload
 from neo_app.video.output_settings import (
@@ -487,6 +570,48 @@ from neo_app.video.replay_memory import video_replay_metadata_payload, video_mem
 from neo_app.video.project_handoff import build_video_project_handoff_payload, send_video_result_to_project_payload, video_project_asset_tray_payload
 from neo_app.voice.output_paths import output_path_payload as voice_output_path_payload, resolve_voice_output_file
 from neo_app.voice.surface_contract import voice_surface_contract_payload
+from neo_app.voice.base_contract import voice_base_common_contract_payload, normalize_voice_common_settings
+from neo_app.voice.provider_controls import voice_provider_controls_payload
+from neo_app.voice.generation_runtime import generate_voice_payload, poll_voice_generation_payload, voice_generation_jobs_payload
+from neo_app.voice.results_runtime import (
+    open_voice_result_folder_payload,
+    voice_result_output_path,
+    voice_result_payload,
+    voice_result_replay_payload,
+    voice_results_payload,
+)
+from neo_app.voice.reference_clone_runtime import (
+    analyze_current_reference_payload,
+    attest_reference_payload,
+    current_reference_payload,
+    current_references_payload,
+    generate_voice_clone_payload,
+    poll_voice_clone_payload,
+    store_current_reference_upload,
+)
+from neo_app.voice.finish_runtime import (
+    merge_voice_finish_payload,
+    process_voice_finish_payload,
+    split_voice_finish_payload,
+    voice_finish_capabilities_payload as voice_finish_runtime_capabilities_payload,
+    voice_finish_history_payload as voice_finish_runtime_history_payload,
+    voice_finish_job_payload as voice_finish_runtime_job_payload,
+)
+from neo_app.voice.dialogue_runtime import (
+    generate_voice_dialogue_payload,
+    parse_voice_dialogue_script,
+    poll_voice_dialogue_payload,
+    voice_dialogue_capabilities_payload as voice_dialogue_runtime_capabilities_payload,
+)
+from neo_app.voice.batch_runtime import (
+    import_voice_batch_runtime_payload,
+    poll_voice_batch_payload,
+    retry_voice_batch_runtime_item_payload,
+    run_voice_batch_payload,
+    voice_batch_capabilities_payload as voice_batch_runtime_capabilities_payload,
+    voice_batch_runtime_history_payload,
+    voice_batch_runtime_payload,
+)
 from neo_app.image.seed_utils import normalize_image_seed_params
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
 from neo_app.image.prompt_extensions import apply_prompt_extensions, apply_scene_director_prompt_extension_interop, build_prompt_extension_execution_snapshot
@@ -652,17 +777,74 @@ def _video_runtime_payload_summary(payload: dict | None, result: dict | None = N
 
 def _run_video_runtime_call(route_id: str, event_prefix: str, payload: dict | None, handler) -> dict:
     data = payload if isinstance(payload, dict) else {}
-    if str(event_prefix or "").startswith("video.queue") or str(event_prefix or "").startswith("video.finish"):
-        _require_backend_connected_for_task(str(data.get("profile_id") or data.get("backend_profile_id") or ""), surface="video", operation="video generation")
+    event_name = str(event_prefix or "")
+    is_execution = event_name.startswith("video.queue") or event_name.startswith("video.finish")
+    profile_id = str(data.get("profile_id") or data.get("backend_profile_id") or "")
+    if is_execution:
+        _require_backend_connected_for_task(profile_id, surface="video", operation="video generation")
     run_id = _video_runtime_run_id(data, route_id)
     log_surface_event("video", f"{event_prefix}.started", run_id=run_id, payload=_video_runtime_payload_summary(data, route_id=route_id))
+
+    gpu_manager = get_comfy_gpu_lifecycle_manager()
+    gpu_lease: dict = {}
+    gpu_lease_token = ""
+    gpu_base_url = ""
+    if is_execution and profile_id:
+        profile = get_backend_profile(profile_id) or {}
+        provider_id = str(profile.get("provider_id") or "").strip().lower()
+        if provider_id in {"comfyui", "comfyui_portable", "comfy"}:
+            gpu_base_url = str((profile.get("connection") or {}).get("base_url") or "http://127.0.0.1:8188").rstrip("/")
+            wait_timeout = float((profile.get("connection") or {}).get("gpu_wait_timeout_seconds") or 900.0)
+            try:
+                gpu_lease = gpu_manager.acquire(
+                    base_url=gpu_base_url,
+                    owner_kind="video_finish" if event_name.startswith("video.finish") else "video",
+                    owner_label=f"Video {'Finish' if event_name.startswith('video.finish') else 'generation'} · {route_id}",
+                    profile_id=profile_id,
+                    wait_timeout_seconds=wait_timeout,
+                    metadata={"run_id": run_id, "route_id": route_id, "event": event_name},
+                )
+                gpu_lease_token = str(gpu_lease.get("token") or "")
+            except ComfyGpuBusyError as exc:
+                result = {
+                    "ok": False,
+                    "queued": False,
+                    "recoverable": True,
+                    "error_type": "comfy_gpu_busy",
+                    "error": str(exc),
+                    "gpu_lifecycle": exc.status,
+                }
+                log_surface_event("video", f"{event_prefix}.blocked", run_id=run_id, level="WARNING", payload=_video_runtime_payload_summary(data, result, route_id=route_id))
+                return result
     try:
         result = handler(data)
+        if gpu_lease_token:
+            if isinstance(result, dict) and result.get("queued"):
+                prompt_id = str(result.get("prompt_id") or (result.get("queue_response") or {}).get("prompt_id") or "").strip()
+                if prompt_id:
+                    gpu_manager.bind_prompt(gpu_lease_token, prompt_id=prompt_id, cleanup_after=False, watch=True)
+                    result["gpu_lifecycle"] = gpu_manager.status(group=gpu_lease.get("resource_group"))
+                else:
+                    result["gpu_lifecycle"] = gpu_manager.release(gpu_lease_token, state="queued_without_prompt_id")
+            else:
+                lifecycle = gpu_manager.release(gpu_lease_token, state="not_queued")
+                if isinstance(result, dict):
+                    result["gpu_lifecycle"] = lifecycle
         summary = _video_runtime_payload_summary(data, result if isinstance(result, dict) else {}, route_id=route_id)
         record_surface_snapshot("video", "neo_last_compile" if event_prefix.endswith("compile") else "neo_last_payload", summary, run_id=run_id)
         log_surface_event("video", f"{event_prefix}.completed", run_id=run_id, level="INFO" if (not isinstance(result, dict) or result.get("ok") is not False) else "WARNING", payload=summary)
         return result
     except Exception as exc:
+        if gpu_lease_token:
+            failure = classify_comfy_runtime_error(exc, phase="queue")
+            if bool(failure.get("gpu_state_uncertain")):
+                gpu_manager.guard_unbound_after_queue_uncertainty(
+                    gpu_lease_token,
+                    cleanup_after=False,
+                    reason=str(failure.get("message") or exc),
+                )
+            else:
+                gpu_manager.release(gpu_lease_token, state="queue_failed")
         record_surface_error("video", f"Video route failed: {route_id}", exc=exc, payload=_video_runtime_payload_summary(data, route_id=route_id), run_id=run_id)
         raise
 
@@ -5958,13 +6140,53 @@ async def video_source_image_upload(file: UploadFile = File(...)) -> dict:
     }
 
 
+@app.post("/api/video/h3-reference-media")
+async def video_h3_reference_media_upload(file: UploadFile = File(...), kind: str = Form(...)) -> dict:
+    """Store MiniMax H3 semantic video/audio references in Neo's Video source folder.
+
+    Images continue through /api/video/source-image so they retain the existing image
+    safety validator. This endpoint is intentionally limited to video/audio media.
+    """
+    from neo_app.video.output_paths import get_video_output_paths
+    clean_kind = str(kind or "").strip().lower()
+    allowed = {
+        "video": {".mp4", ".webm", ".mov", ".mkv", ".gif"},
+        "audio": {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"},
+    }
+    if clean_kind not in allowed:
+        raise HTTPException(status_code=400, detail="H3 reference kind must be video or audio.")
+    original = Path(str(file.filename or f"h3_reference_{clean_kind}")).name
+    ext = Path(original).suffix.lower()
+    if ext not in allowed[clean_kind]:
+        raise HTTPException(status_code=415, detail=f"Unsupported H3 {clean_kind} reference extension: {ext or 'none'}")
+    content = await file.read()
+    max_bytes = 512 * 1024 * 1024
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded H3 reference file is empty.")
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail="H3 reference media is limited to 512 MB per file.")
+    target_dir = get_video_output_paths("source", create=True).output_dir
+    stem = sanitize_video_path_part(Path(original).stem, fallback=f"h3_{clean_kind}")
+    stored_name = f"h3_{clean_kind}_{stem}_{uuid4().hex[:10]}{ext}"
+    target = (target_dir / stored_name).resolve()
+    if target_dir.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="Unsafe H3 reference filename.")
+    target.write_bytes(content)
+    return {
+        "ok": True, "kind": clean_kind, "source_id": stored_name, "filename": original,
+        "stored_filename": stored_name, "path": str(target), "url": f"/api/video/source-file/{stored_name}",
+        "storage": "neo_data/outputs/video/source", "size_bytes": len(content),
+        "comfy_name": stored_name, "validation": "minimax_h3_reference_media_v1",
+    }
+
+
 @app.get("/api/video/source-file/{source_id}")
 def video_source_image_file(source_id: str) -> FileResponse:
     from neo_app.video.output_paths import get_video_output_paths
     safe_name = Path(source_id).name
     path = get_video_output_paths("source", create=True).output_dir / safe_name
     if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="Video source image not found")
+        raise HTTPException(status_code=404, detail="Video source/reference media not found")
     return FileResponse(path)
 
 
@@ -6310,6 +6532,39 @@ def image_generate(payload: dict) -> dict:
             provider_id=provider_backend_id,
             profile_id=str(profile_id),
         )
+        scene_submit_authority = normalized_params.get("_neo_scene_director_submit_authority") if isinstance(normalized_params.get("_neo_scene_director_submit_authority"), dict) else {}
+        if scene_submit_authority.get("enabled") is True and scene_submit_authority.get("submit_intent") is True and scene_submit_authority.get("route_allowed") is True:
+            def _submit_extension_block(container: object, extension_id: str) -> dict:
+                if not isinstance(container, dict):
+                    return {}
+                direct = container.get(extension_id)
+                if isinstance(direct, dict):
+                    return direct
+                for key in ("payloads", "extensions"):
+                    nested = container.get(key)
+                    if isinstance(nested, dict) and isinstance(nested.get(extension_id), dict):
+                        return nested.get(extension_id) or {}
+                return {}
+
+            scene_block = _submit_extension_block(effective_extensions, "image.scene_director")
+            if scene_block.get("enabled") is not True:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Scene Director was enabled with regional intent, but its canonical payload disappeared before NeoJob creation. Generation was blocked instead of silently running the base workflow.",
+                )
+            assigned_lora_ids = [str(item) for item in (scene_submit_authority.get("regional_lora_row_ids") or []) if str(item)]
+            if assigned_lora_ids:
+                lora_block = _submit_extension_block(effective_extensions, "lora_stack")
+                params_block = lora_block.get("params") if isinstance(lora_block.get("params"), dict) else {}
+                owner_rows = params_block.get("loras") if isinstance(params_block.get("loras"), list) else []
+                owner_ids = {str(row.get("uid") or row.get("row_id") or "") for row in owner_rows if isinstance(row, dict)}
+                missing_ids = [row_id for row_id in assigned_lora_ids if row_id not in owner_ids]
+                if lora_block.get("enabled") is not True or missing_ids:
+                    missing_label = ", ".join(missing_ids) if missing_ids else "owner payload disabled"
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Scene Director regional LoRA routing lost its LoRA Stack owner rows before NeoJob creation ({missing_label}). Generation was blocked to prevent global or missing LoRA execution.",
+                    )
         if preview_reference_handoff.get("status") == "blocked":
             warning_codes = ", ".join(preview_reference_handoff.get("warning_codes") or [])
             raise HTTPException(
@@ -7293,6 +7548,22 @@ def video_vram_preflight(payload: dict | None = None) -> dict:
     return video_vram_preflight_payload(payload if isinstance(payload, dict) else {})
 
 
+@app.get("/api/runtime/comfy-gpu-lifecycle")
+def runtime_comfy_gpu_lifecycle() -> dict:
+    """Return shared Comfy GPU lease, recovery, and cleanup-debt state."""
+    return comfy_gpu_lifecycle_status()
+
+
+@app.post("/api/runtime/comfy-gpu-lifecycle/recover")
+def runtime_comfy_gpu_lifecycle_recover(payload: dict | None = None) -> dict:
+    """Run a safe Comfy lease reconciliation pass without blind interruption."""
+    data = payload if isinstance(payload, dict) else {}
+    return comfy_gpu_lifecycle_recover(
+        str(data.get("base_url") or "").strip() or None,
+        force_if_queue_clear=bool(data.get("force_if_queue_clear", False)),
+    )
+
+
 @app.post("/api/video/runtime-preflight")
 def video_runtime_preflight(payload: dict | None = None) -> dict:
     """Run V-G7 queue-safe runtime preflight before Video /prompt queueing."""
@@ -7327,6 +7598,12 @@ def video_compile_wan22_img2vid(payload: dict | None = None) -> dict:
     return _run_video_runtime_call("wan22-img2vid", "video.compile", data, video_wan22_img2vid_compile_payload)
 
 
+
+
+@app.post("/api/video/compile/minimax-h3")
+def video_compile_minimax_h3(payload: dict | None = None) -> dict:
+    """Compile a native MiniMax H3 T2VA/FL2VA/Ref2VA workflow without queueing it."""
+    return _run_video_runtime_call("minimax-h3", "video.compile", payload, video_minimax_h3_compile_payload)
 
 
 @app.post("/api/video/compile/ltx23-txt2vid")
@@ -7503,6 +7780,8 @@ def video_generate(payload: dict | None = None) -> dict:
     loader = str(data.get("loader", "unet") or "unet").lower().replace("-", "_")
     if loader in {"rapid_aio_gguf", "gguf_rapid_aio", "rapid_gguf", "wan_rapid_aio", "wan22_rapid_aio_gguf"}:
         return _run_video_runtime_call("wan22-rapid-aio-gguf-production", "video.queue", data, video_wan22_rapid_aio_gguf_generate_payload)
+    if family in {"minimax_h3", "minimaxh3", "h3", "minimax"}:
+        return _run_video_runtime_call("minimax-h3", "video.queue", data, video_minimax_h3_generate_payload)
     if family in {"ltx23", "ltx", "ltx_23", "ltx2_3"}:
         if generation_type in {"first_last_frame", "first_last", "start_end", "start_end_frame"}:
             return _run_video_runtime_call("ltx23-first-last-frame", "video.queue", data, video_ltx23_first_last_frame_generate_payload)
@@ -7835,6 +8114,22 @@ def image_preview_action_evaluation(
         raise HTTPException(status_code=404, detail=f"Unknown backend profile: {profile_id}")
     if str(profile.get("surface") or "image") != "image":
         raise HTTPException(status_code=400, detail=f"Backend profile is not an Image profile: {profile_id}")
+
+    # Preview/Output Finish availability must use the same selected-profile
+    # runtime truth as Image capability overlays and generation.  The raw
+    # registry profile is deliberately passive for local backends when
+    # auto_connect is disabled, so evaluating it directly makes every
+    # runtime-required Finish action look offline even after Connect/Test or a
+    # successful generation.  Only promote to the live task-facing profile
+    # after the explicit current-session task gate has been satisfied; never
+    # probe or select a different backend from this read-only evaluator.
+    provider_id = str(profile.get("provider_id") or "").strip().lower()
+    if (
+        provider_id in {"comfyui", "comfyui_portable"}
+        and is_backend_profile_connected_for_task(profile_id)
+    ):
+        profile = get_backend_profile_for_live_task(profile_id) or profile
+
     overlay = build_image_capability_overlay(profile)
     return build_preview_action_provider_evaluation(
         profile=profile,
@@ -8941,14 +9236,206 @@ def voice_output_paths(create: bool = False) -> dict:
 
 @app.get("/api/voice/surface-contract")
 def voice_surface_contract(create_paths: bool = False) -> dict:
-    """Return the VO-V0 Voice surface contract and planned runtime ladder."""
+    """Return the preserved Voice runtime contract plus current onboarding metadata."""
     return voice_surface_contract_payload(create_paths=create_paths)
+
+
+@app.get("/api/voice/base-contract")
+def voice_base_contract() -> dict:
+    """Return the VO-R2 provider-neutral common Voice/TTS settings contract."""
+    return voice_base_common_contract_payload()
+
+
+@app.post("/api/voice/base-contract/validate")
+def voice_base_contract_validate(payload: dict | None = None, require_script: bool = False) -> dict:
+    """Normalize/validate a Voice common-settings draft without executing synthesis."""
+    return normalize_voice_common_settings(payload or {}, require_script=require_script)
 
 
 @app.get("/api/voice/health")
 def voice_health(profile_id: str | None = None) -> dict:
     """Probe the configured Voice backend through the Neo adapter contract."""
     return voice_health_payload(profile_id=profile_id)
+
+
+@app.post("/api/voice/generate")
+def voice_generate(payload: dict | None = None) -> dict:
+    """Run the VO-R4 canonical TTS generation contract for the selected Voice profile."""
+    return generate_voice_payload(payload or {})
+
+
+@app.get("/api/voice/generation/jobs/{job_id}")
+def voice_generation_job(job_id: str) -> dict:
+    """Poll one VO-R4 Voice generation job and import completed provider audio into Neo storage."""
+    return poll_voice_generation_payload(job_id)
+
+
+@app.get("/api/voice/generation/jobs")
+def voice_generation_jobs(limit: int = 50) -> dict:
+    """List recent VO-R4 jobs from Neo's shared durable generation registry."""
+    return voice_generation_jobs_payload(limit=limit)
+
+
+@app.get("/api/voice/results")
+def voice_results(limit: int = 50, status: str | None = None) -> dict:
+    """Return the VO-R5 result ledger normalized from the shared generation registry."""
+    return voice_results_payload(limit=limit, status=status)
+
+
+@app.get("/api/voice/results/{job_id}")
+def voice_result(job_id: str) -> dict:
+    """Return one VO-R5 selected-result inspector payload."""
+    result = voice_result_payload(job_id)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice result not found")
+    return result
+
+
+@app.get("/api/voice/results/{job_id}/replay")
+def voice_result_replay(job_id: str) -> dict:
+    """Return safe replay-to-draft data without auto-switching backend profiles."""
+    result = voice_result_replay_payload(job_id)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice result not found")
+    return result
+
+
+@app.get("/api/voice/results/{job_id}/download")
+def voice_result_download(job_id: str) -> FileResponse:
+    """Download a validated Neo-owned Voice result audio file."""
+    try:
+        path = voice_result_output_path(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Voice result audio not found") from exc
+    return FileResponse(str(path), filename=path.name, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@app.post("/api/voice/results/{job_id}/open-folder")
+def voice_result_open_folder(job_id: str) -> dict:
+    """Open the validated Neo-owned folder for one current Voice result."""
+    return open_voice_result_folder_payload(job_id)
+
+
+@app.get("/api/voice/finish-runtime/capabilities")
+def voice_finish_runtime_capabilities() -> dict:
+    """Return the VO-R9 local, provider-independent Voice Finish capability contract."""
+    return voice_finish_runtime_capabilities_payload()
+
+
+@app.post("/api/voice/finish-runtime/process")
+def voice_finish_runtime_process(payload: dict | None = None) -> dict:
+    """Run non-destructive VO-R9 normalize/trim/cleanup/loudness/format processing."""
+    return process_voice_finish_payload(payload or {})
+
+
+@app.post("/api/voice/finish-runtime/split")
+def voice_finish_runtime_split(payload: dict | None = None) -> dict:
+    """Split one completed Neo-owned Voice result into real audio child files."""
+    return split_voice_finish_payload(payload or {})
+
+
+@app.post("/api/voice/finish-runtime/merge")
+def voice_finish_runtime_merge(payload: dict | None = None) -> dict:
+    """Merge multiple completed Neo-owned Voice results into one child audio output."""
+    return merge_voice_finish_payload(payload or {})
+
+
+@app.get("/api/voice/finish-runtime/history")
+def voice_finish_runtime_history(limit: int = 50, status: str | None = None) -> dict:
+    """Return current VO-R9 Finish history from the shared generation registry."""
+    return voice_finish_runtime_history_payload(limit=limit, status=status)
+
+
+@app.get("/api/voice/finish-runtime/jobs/{job_id}")
+def voice_finish_runtime_job(job_id: str) -> dict:
+    """Return one current VO-R9 Finish child job."""
+    result = voice_finish_runtime_job_payload(job_id)
+    if result.get("ok") is False and result.get("status") == "missing":
+        raise HTTPException(status_code=404, detail="Voice Finish job not found")
+    return result
+
+
+@app.get("/api/voice/dialogue-runtime/capabilities")
+def voice_dialogue_runtime_capabilities(profile_id: str | None = None) -> dict:
+    """Return current VO-R10 Dialogue readiness for the selected Voice backend profile."""
+    return voice_dialogue_runtime_capabilities_payload(profile_id=profile_id)
+
+
+@app.post("/api/voice/dialogue-runtime/parse")
+def voice_dialogue_runtime_parse(payload: dict | None = None) -> dict:
+    """Parse a deterministic speaker-block Dialogue script without generating audio."""
+    data = payload or {}
+    try:
+        return {"ok": True, "status": "parsed", "plan": parse_voice_dialogue_script(str(data.get("script") or ""))}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/voice/dialogue-runtime/generate")
+def voice_dialogue_runtime_generate(payload: dict | None = None) -> dict:
+    """Run current VO-R10 multi-speaker orchestration using R4/R6 child runtimes."""
+    return generate_voice_dialogue_payload(payload or {})
+
+
+@app.get("/api/voice/dialogue-runtime/jobs/{job_id}")
+def voice_dialogue_runtime_job(job_id: str) -> dict:
+    """Poll one current VO-R10 Dialogue parent job."""
+    return poll_voice_dialogue_payload(job_id)
+
+
+@app.get("/api/voice/batch-runtime/capabilities")
+def voice_batch_runtime_capabilities(profile_id: str | None = None) -> dict:
+    """Return current VO-R11 Batch orchestration readiness for the selected Voice backend profile."""
+    return voice_batch_runtime_capabilities_payload(profile_id=profile_id)
+
+
+@app.post("/api/voice/batch-runtime/import")
+def voice_batch_runtime_import(payload: dict | None = None) -> dict:
+    """Import TXT/MD/CSV/JSON/SRT into a current VO-R11 batch manifest without generating audio."""
+    return import_voice_batch_runtime_payload(payload or {})
+
+
+@app.post("/api/voice/batch-runtime/{batch_id}/run")
+def voice_batch_runtime_run(batch_id: str, payload: dict | None = None) -> dict:
+    """Run a current Voice Batch through R4/R6/R10 child runtimes."""
+    return run_voice_batch_payload(batch_id, payload or {})
+
+
+@app.get("/api/voice/batch-runtime/history")
+def voice_batch_runtime_history(limit: int = 50) -> dict:
+    """Return current VO-R11 Batch manifest history."""
+    return voice_batch_runtime_history_payload(limit=limit)
+
+
+@app.get("/api/voice/batch-runtime/{batch_id}")
+def voice_batch_runtime_get(batch_id: str) -> dict:
+    """Return one current VO-R11 Batch manifest and durable parent state."""
+    return voice_batch_runtime_payload(batch_id)
+
+
+@app.get("/api/voice/batch-runtime/{batch_id}/poll")
+def voice_batch_runtime_poll(batch_id: str) -> dict:
+    """Poll current VO-R11 child jobs and dispatch the next bounded batch items."""
+    return poll_voice_batch_payload(batch_id)
+
+
+@app.post("/api/voice/batch-runtime/{batch_id}/retry-item")
+def voice_batch_runtime_retry_item(batch_id: str, payload: dict | None = None) -> dict:
+    """Retry one failed VO-R11 Batch item with a new current child generation job."""
+    data = payload or {}
+    return retry_voice_batch_runtime_item_payload(batch_id, str(data.get("item_id") or ""), data)
+
+
+@app.get("/api/voice/provider-routing")
+def voice_provider_routing(profile_id: str | None = None) -> dict:
+    """Return the VO-R3 selected-profile routing, model, voice, and capability contract."""
+    return voice_provider_routing_payload(profile_id=profile_id)
+
+
+@app.get("/api/voice/provider-controls")
+def voice_provider_controls(profile_id: str | None = None, mode: str = "tts") -> dict:
+    """Return the VO-R8 provider-specific synthesis control contract for one selected Voice profile."""
+    return voice_provider_controls_payload(profile_id=profile_id, mode=mode)
 
 
 @app.get("/api/voice/capabilities")
@@ -8983,6 +9470,74 @@ def voice_preview(payload: dict | None = None) -> dict:
 @app.post("/api/voice/render")
 def voice_render(payload: dict | None = None) -> dict:
     return render_voice_payload(payload or {})
+
+
+
+
+@app.post("/api/voice/references/upload")
+async def voice_current_reference_upload(
+    file: UploadFile = File(...),
+    transcript: str | None = Form(None),
+    label: str | None = Form(None),
+    rights_confirmed: bool = Form(False),
+    rights_basis: str | None = Form(None),
+) -> dict:
+    """Stage one VO-R6 Neo-owned reference asset with explicit authorization confirmation."""
+    try:
+        return await store_current_reference_upload(
+            file, transcript=transcript, label=label, rights_confirmed=rights_confirmed, rights_basis=rights_basis
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/voice/references")
+def voice_current_references(limit: int = 50) -> dict:
+    """List current VO-R6 reference assets from Neo-owned storage."""
+    return current_references_payload(limit=limit)
+
+
+@app.get("/api/voice/references/{reference_id}")
+def voice_current_reference(reference_id: str) -> dict:
+    """Return one normalized VO-R6 reference asset."""
+    result = current_reference_payload(reference_id)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice reference not found")
+    return result
+
+
+@app.post("/api/voice/references/{reference_id}/analyze")
+def voice_current_reference_analyze(reference_id: str, payload: dict | None = None) -> dict:
+    """Re-run reference QC without changing provider state."""
+    try:
+        return analyze_current_reference_payload(reference_id, payload or {})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/voice/references/{reference_id}/attest")
+def voice_current_reference_attest(reference_id: str, payload: dict | None = None) -> dict:
+    """Attach explicit authorization confirmation to a stored reference asset."""
+    try:
+        return attest_reference_payload(reference_id, payload or {})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/voice/clone/generate")
+def voice_current_clone_generate(payload: dict | None = None) -> dict:
+    """Run the VO-R6 current reference-clone generation contract."""
+    return generate_voice_clone_payload(payload or {})
+
+
+@app.get("/api/voice/clone/jobs/{job_id}")
+def voice_current_clone_job(job_id: str) -> dict:
+    """Poll one VO-R6 clone job from Neo's shared generation registry."""
+    return poll_voice_clone_payload(job_id)
 
 
 @app.post("/api/voice/clone")
@@ -9050,6 +9605,57 @@ def voice_profile_delete(profile_id: str) -> dict:
     result = delete_voice_profile_payload(profile_id)
     if result.get("ok") is False:
         raise HTTPException(status_code=404, detail="Voice profile not found")
+    return result
+
+
+@app.get("/api/voice/profile-assets")
+def voice_profile_assets(limit: int = 100, active_profile_id: str = "") -> dict:
+    return voice_profile_assets_payload(limit=limit, active_backend_profile_id=active_profile_id or None)
+
+
+@app.post("/api/voice/profile-assets")
+def voice_profile_asset_create(payload: dict | None = None) -> dict:
+    try:
+        return create_voice_profile_asset_payload(payload or {})
+    except VoiceProfileAssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/voice/profile-assets/{asset_id}")
+def voice_profile_asset_get(asset_id: str, active_profile_id: str = "") -> dict:
+    result = voice_profile_asset_payload(asset_id, active_backend_profile_id=active_profile_id or None)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice Profile Asset not found")
+    return result
+
+
+@app.patch("/api/voice/profile-assets/{asset_id}")
+def voice_profile_asset_update(asset_id: str, payload: dict | None = None) -> dict:
+    try:
+        result = update_voice_profile_asset_payload(asset_id, payload or {})
+    except VoiceProfileAssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice Profile Asset not found")
+    return result
+
+
+@app.delete("/api/voice/profile-assets/{asset_id}")
+def voice_profile_asset_delete(asset_id: str) -> dict:
+    result = delete_voice_profile_asset_payload(asset_id)
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice Profile Asset not found")
+    return result
+
+
+@app.post("/api/voice/profile-assets/{asset_id}/apply")
+def voice_profile_asset_apply(asset_id: str, payload: dict | None = None) -> dict:
+    try:
+        result = apply_voice_profile_asset_payload(asset_id, payload or {})
+    except VoiceProfileAssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("ok") is False:
+        raise HTTPException(status_code=404, detail="Voice Profile Asset not found")
     return result
 
 

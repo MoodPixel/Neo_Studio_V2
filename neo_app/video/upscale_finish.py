@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 import shutil
@@ -12,7 +12,12 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from neo_app.video.backend_probe import _get_json, video_backend_profile_payload
-from neo_app.video.external_node_manager import SEEDVR2_UPSCALE_ADMIN_READINESS_SCHEMA, seedvr2_upscale_admin_readiness
+from neo_app.video.external_node_manager import (
+    SEEDVR2_LOW_VRAM_DIT_RECOMMENDATIONS,
+    SEEDVR2_UPSCALE_ADMIN_READINESS_SCHEMA,
+    SEEDVR2_VAE_RECOMMENDATIONS,
+    seedvr2_upscale_admin_readiness,
+)
 from neo_app.video.output_paths import ROOT_DIR, get_video_output_paths, sanitize_path_part
 from neo_app.video.output_records import load_video_output_record, register_video_generation_result, video_output_file_path
 
@@ -30,6 +35,7 @@ ROUTE_ID: Final[str] = "finish.upscale"
 WORKFLOW_SCHEMA_VERSION: Final[str] = "neo.video.finish.seedvr2_upscale.workflow.v25_9_19_phase_7"
 STRIP_INTERPOLATION_LOCK_SCHEMA_VERSION: Final[str] = "neo.video.finish.seedvr2_upscale.no_interpolation_lock.v25_9_19_phase_7"
 SEEDVR2_UPSCALE_COMPILER_ID: Final[str] = "seedvr2_native_no_interpolation_phase7"
+MODEL_RESOLUTION_SCHEMA_VERSION: Final[str] = "neo.video.finish.seedvr2_upscale.model_resolution.v25_9_19_hotfix_20260817"
 EXTENSION_ID: Final[str] = "video.finish_upscale"
 FINISH_OPERATION_ID: Final[str] = "upscale"
 MOUNT_SLOT: Final[str] = "video.finish.finish_upscale"
@@ -152,8 +158,8 @@ SEEDVR2_VRAM_PROFILE_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
         "id": "custom",
         "label": "Custom",
         "intent": "Expert override / still safety-clamped",
-        "recommended_dit_model": "auto",
-        "recommended_vae_model": "auto",
+        "recommended_dit_model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+        "recommended_vae_model": "ema_vae_fp16.safetensors",
         "target_preset": "hd_1080",
         "resolution": 1080,
         "max_short_edge": 4320,
@@ -289,8 +295,12 @@ class VideoSeedVR2UpscaleRequest:
             int(profile_contract["max_blocks_to_swap"]),
         )
         batch_size = _profile_seedvr2_batch_size(data.get("batch_size"), profile_contract)
-        dit_model = _profile_model_value(data.get("dit_model"), profile_contract["recommended_dit_model"])
-        vae_model = _profile_model_value(data.get("vae_model"), profile_contract["recommended_vae_model"])
+        # Custom keeps ``auto`` as a Neo-side sentinel until live /object_info can
+        # resolve it to a concrete loader combo value. Non-custom profiles retain
+        # their deterministic recommendation at normalization time.
+        preserve_auto = vram_profile == "custom"
+        dit_model = _profile_model_value(data.get("dit_model"), profile_contract["recommended_dit_model"], preserve_auto=preserve_auto)
+        vae_model = _profile_model_value(data.get("vae_model"), profile_contract["recommended_vae_model"], preserve_auto=preserve_auto)
         return cls(
             request_schema_version=REQUEST_SCHEMA_VERSION,
             source_result_id=_nullable_string(data.get("source_result_id", data.get("parent_result_id"))),
@@ -441,10 +451,12 @@ def _device_choice(value: Any, fallback: str) -> str:
 
 
 
-def _profile_model_value(value: Any, fallback: Any) -> str:
+def _profile_model_value(value: Any, fallback: Any, *, preserve_auto: bool = False) -> str:
     text = str(value or "").strip()
-    if not text or text.casefold() == "auto":
-        return str(fallback or "auto")
+    if not text:
+        return "auto" if preserve_auto else str(fallback or "auto")
+    if text.casefold() == "auto":
+        return "auto" if preserve_auto else str(fallback or "auto")
     return text
 
 
@@ -1005,6 +1017,149 @@ def upscale_node_readiness(object_info: dict[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _combo_values_from_input_spec(spec: Any) -> list[str]:
+    values: list[str] = []
+    if isinstance(spec, (list, tuple)) and spec:
+        first = spec[0]
+        second = spec[1] if len(spec) > 1 else None
+        if isinstance(first, (list, tuple)):
+            values.extend(str(item) for item in first if item not in (None, ""))
+        elif isinstance(first, str) and first.upper() not in {"COMBO", "STRING", "INT", "FLOAT", "BOOLEAN"}:
+            values.append(first)
+        if isinstance(second, dict):
+            for key in ("values", "options", "choices"):
+                option_values = second.get(key)
+                if isinstance(option_values, (list, tuple)):
+                    values.extend(str(item) for item in option_values if item not in (None, ""))
+            default = second.get("default")
+            if isinstance(default, str) and default:
+                values.append(default)
+    elif isinstance(spec, dict):
+        for key in ("values", "options", "choices"):
+            option_values = spec.get(key)
+            if isinstance(option_values, (list, tuple)):
+                values.extend(str(item) for item in option_values if item not in (None, ""))
+        default = spec.get("default")
+        if isinstance(default, str) and default:
+            values.append(default)
+    return list(dict.fromkeys(values))
+
+
+def _seedvr2_loader_model_catalog(object_info: dict[str, Any], class_type: str) -> list[str]:
+    inputs = _available_node_inputs(object_info, class_type)
+    folded = {str(key).casefold(): key for key in inputs}
+    for candidate in ("model", "model_name", "ckpt_name"):
+        key = folded.get(candidate.casefold())
+        if key is None:
+            continue
+        values = _combo_values_from_input_spec(inputs.get(key))
+        if values:
+            return values
+    return []
+
+
+def _match_catalog_value(value: str, catalog: list[str]) -> str | None:
+    wanted = str(value or "").strip().casefold()
+    if not wanted:
+        return None
+    return next((item for item in catalog if str(item).casefold() == wanted), None)
+
+
+def _resolve_seedvr2_model_value(
+    *,
+    kind: str,
+    requested: str,
+    catalog: list[str],
+    preferred: tuple[str, ...],
+) -> dict[str, Any]:
+    requested_clean = str(requested or "auto").strip() or "auto"
+    is_auto = requested_clean.casefold() == "auto"
+    if not catalog:
+        return {
+            "ok": False,
+            "kind": kind,
+            "requested": requested_clean,
+            "resolved": "",
+            "strategy": "missing_live_catalog",
+            "available": [],
+            "error": f"SeedVR2 {kind.upper()} model catalog is unavailable. Refresh/reconnect the Video backend after installing models.",
+        }
+    if not is_auto:
+        exact = _match_catalog_value(requested_clean, catalog)
+        if exact:
+            return {
+                "ok": True,
+                "kind": kind,
+                "requested": requested_clean,
+                "resolved": exact,
+                "strategy": "explicit_exact_live_match",
+                "available": list(catalog),
+            }
+        return {
+            "ok": False,
+            "kind": kind,
+            "requested": requested_clean,
+            "resolved": "",
+            "strategy": "explicit_model_not_in_live_catalog",
+            "available": list(catalog),
+            "error": f"Selected SeedVR2 {kind.upper()} model '{requested_clean}' is not available on the connected ComfyUI backend.",
+        }
+    for candidate in preferred:
+        match = _match_catalog_value(candidate, catalog)
+        if match:
+            return {
+                "ok": True,
+                "kind": kind,
+                "requested": requested_clean,
+                "resolved": match,
+                "strategy": "auto_preferred_live_match",
+                "available": list(catalog),
+            }
+    return {
+        "ok": True,
+        "kind": kind,
+        "requested": requested_clean,
+        "resolved": catalog[0],
+        "strategy": "auto_first_live_model",
+        "available": list(catalog),
+    }
+
+
+def resolve_seedvr2_request_models(req: VideoUpscaleRequest, object_info: dict[str, Any] | None) -> tuple[VideoUpscaleRequest, dict[str, Any]]:
+    info = object_info or {}
+    bindings = discover_upscale_bindings(info, engine=req.engine)
+    classes = bindings.get("classes") or {}
+    dit_class = str(classes.get("dit_loader") or "SeedVR2LoadDiTModel")
+    vae_class = str(classes.get("vae_loader") or "SeedVR2LoadVAEModel")
+    dit_catalog = _seedvr2_loader_model_catalog(info, dit_class)
+    vae_catalog = _seedvr2_loader_model_catalog(info, vae_class)
+    profile = seedvr2_vram_profile_contract(req.vram_profile)
+    dit_preferred = tuple(dict.fromkeys([
+        str(profile.get("recommended_dit_model") or ""),
+        *SEEDVR2_LOW_VRAM_DIT_RECOMMENDATIONS,
+    ]))
+    vae_preferred = tuple(dict.fromkeys([
+        str(profile.get("recommended_vae_model") or ""),
+        *SEEDVR2_VAE_RECOMMENDATIONS,
+    ]))
+    dit = _resolve_seedvr2_model_value(kind="dit", requested=req.dit_model, catalog=dit_catalog, preferred=dit_preferred)
+    vae = _resolve_seedvr2_model_value(kind="vae", requested=req.vae_model, catalog=vae_catalog, preferred=vae_preferred)
+    errors = [str(item.get("error")) for item in (dit, vae) if not item.get("ok") and item.get("error")]
+    report = {
+        "schema_version": MODEL_RESOLUTION_SCHEMA_VERSION,
+        "ok": not errors,
+        "dit_loader": dit_class,
+        "vae_loader": vae_class,
+        "dit": dit,
+        "vae": vae,
+        "errors": errors,
+        "policy": "Neo-only auto sentinels must resolve to exact live ComfyUI combo values before /prompt.",
+    }
+    if errors:
+        return req, report
+    return replace(req, dit_model=str(dit["resolved"]), vae_model=str(vae["resolved"])), report
+
+
 def _is_path_video_loader(class_type: str) -> bool:
     lowered = str(class_type or "").casefold().replace("_", "").replace(" ", "")
     return "path" in lowered or "frompath" in lowered
@@ -1542,14 +1697,45 @@ def video_upscale_compile_payload(payload: dict[str, Any] | None = None, object_
             warnings.append(f"Compiled with fallback upscale bindings because ComfyUI /object_info was unavailable: {exc}")
             object_info = {}
     readiness = upscale_node_readiness(object_info)
-    compiled = build_upscale_workflow(req, source, object_info=object_info)
+    effective_req, model_resolution = resolve_seedvr2_request_models(req, object_info)
+    if not model_resolution.get("ok"):
+        return {
+            "ok": False,
+            "queued": False,
+            "dry_run": True,
+            "schema_version": SCHEMA_VERSION,
+            "workflow_schema_version": WORKFLOW_SCHEMA_VERSION,
+            "request_schema_version": REQUEST_SCHEMA_VERSION,
+            "phase": PHASE,
+            "legacy_phase": LEGACY_PHASE,
+            "surface": "video",
+            "route_id": ROUTE_ID,
+            "error": " ".join(model_resolution.get("errors") or ["SeedVR2 model selection could not be resolved."]),
+            "source": source,
+            "request": req.payload(),
+            "model_resolution": model_resolution,
+            "node_readiness": readiness,
+            "warnings": warnings,
+        }
+    compiled = build_upscale_workflow(effective_req, source, object_info=object_info)
     metadata_dir = get_video_output_paths("metadata", create=True).output_dir
     output_paths = get_video_output_paths("upscale", create=True)
     sidecar_name = f"{sanitize_path_part(req.filename_prefix, 'video_upscale')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_compile.json"
     sidecar_path = metadata_dir / sidecar_name
     strip_lock = scan_upscale_workflow_for_forbidden_nodes(compiled.get("workflow", {}))
-    sidecar_payload = {**compiled, "request": req.payload(), "backend_profile": profile, "warnings": warnings, "node_readiness": readiness, "workflow_schema_version": WORKFLOW_SCHEMA_VERSION, "strip_interpolation_lock": strip_lock, "vram_profile_contract": seedvr2_vram_profile_contract(req.vram_profile)}
-    sidecar_payload["output_metadata"] = build_seedvr2_upscale_output_metadata(sidecar_payload, req)
+    sidecar_payload = {
+        **compiled,
+        "request": effective_req.payload(),
+        "requested_request": req.payload(),
+        "model_resolution": model_resolution,
+        "backend_profile": profile,
+        "warnings": warnings,
+        "node_readiness": readiness,
+        "workflow_schema_version": WORKFLOW_SCHEMA_VERSION,
+        "strip_interpolation_lock": strip_lock,
+        "vram_profile_contract": seedvr2_vram_profile_contract(effective_req.vram_profile),
+    }
+    sidecar_payload["output_metadata"] = build_seedvr2_upscale_output_metadata(sidecar_payload, effective_req)
     sidecar_path.write_text(json.dumps(sidecar_payload, indent=2), encoding="utf-8")
     response_payload = {
         **sidecar_payload,
@@ -1559,7 +1745,7 @@ def video_upscale_compile_payload(payload: dict[str, Any] | None = None, object_
         "backend": {"profile": profile, "base_url": base_url},
         "neo_output": {"category": output_paths.category, "root": output_paths.relative_output_dir, "metadata_sidecar": str(sidecar_path)},
     }
-    return _persist_finish_record(response_payload, req)
+    return _persist_finish_record(response_payload, effective_req)
 
 
 def video_upscale_generate_payload(payload: dict[str, Any] | None = None, object_info_override: dict[str, Any] | None = None, timeout: float = 5.0) -> dict[str, Any]:
@@ -1569,6 +1755,8 @@ def video_upscale_generate_payload(payload: dict[str, Any] | None = None, object
         return compile_payload
     if req.dry_run:
         return compile_payload
+    if not compile_payload.get("model_resolution", {}).get("ok"):
+        return {**compile_payload, "ok": False, "queued": False, "error": compile_payload.get("error") or "SeedVR2 DiT/VAE model selection could not be resolved from the connected backend."}
     if object_info_override is not None and not compile_payload.get("node_readiness", {}).get("ready"):
         return {**compile_payload, "ok": False, "queued": False, "error": "V25.9.19 Phase 8 upscale is missing required ComfyUI video I/O, SeedVR2 native compiler nodes, or SeedVR2 model catalogs."}
     backend = compile_payload.get("backend") or {}
@@ -1585,4 +1773,5 @@ def video_upscale_generate_payload(payload: dict[str, Any] | None = None, object
         "queue_response": queue_response,
         "prompt_id": queue_response.get("prompt_id") or queue_response.get("node_id") or "",
     }
-    return _persist_finish_record(response_payload, req)
+    effective_req = VideoUpscaleRequest.from_payload(compile_payload.get("request") or req.payload())
+    return _persist_finish_record(response_payload, effective_req)

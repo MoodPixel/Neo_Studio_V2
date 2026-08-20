@@ -39,6 +39,11 @@ NODE_CATEGORY_ALIASES: Final[dict[str, tuple[str, ...]]] = {
         "Wan22ImageToVideoLatent", "WanImageToVideoLatent", "WanImageToVideo", "WanVideoToVideoLatent",
         "WanFirstLastFrameToVideo", "WanFunControlToVideo",
     ),
+    "h3": (
+        "MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3AddGuide", "MiniMaxH3SigmaShift",
+        "EmptyMiniMaxH3LatentAV", "VAEDecodeAudio", "CreateVideo", "SaveVideo", "LoadAudio", "GetVideoComponents",
+        "SpectrumApplyMiniMaxH3", "MiniMaxH3BlockCacheT8", "MiniMax H3 Block Cache (T8)",
+    ),
     "ltx": (
         "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVScheduler", "LTXVCropGuides",
         "LTXVConcatAVLatent", "LTXVSeparateAVLatent", "LTXVLatentUpsampler",
@@ -79,6 +84,30 @@ NODE_CATEGORY_ALIASES: Final[dict[str, tuple[str, ...]]] = {
 }
 
 ROUTE_REQUIRED_NODE_SETS: Final[dict[str, dict[str, tuple[tuple[str, ...], ...]]]] = {
+    **{route_id: {
+        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoraLoaderModelOnly",),),
+    } for route_id in ("minimax_h3.unet.txt2vid",)},
+    **{route_id: {
+        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoraLoaderModelOnly",),),
+    } for route_id in ("minimax_h3.unet.img2vid", "minimax_h3.unet.first_last_frame")},
+    "minimax_h3.unet.reference_to_video": {
+        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoadImage",), ("LoadVideo",), ("GetVideoComponents",), ("LoadAudio",), ("LoraLoaderModelOnly",)),
+    },
+    **{route_id: {
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoraLoaderModelOnly",),),
+    } for route_id in ("minimax_h3.gguf.txt2vid",)},
+    **{route_id: {
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoraLoaderModelOnly",),),
+    } for route_id in ("minimax_h3.gguf.img2vid", "minimax_h3.gguf.first_last_frame")},
+    "minimax_h3.gguf.reference_to_video": {
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "recommended": (("LoadImage",), ("LoadVideo",), ("GetVideoComponents",), ("LoadAudio",), ("LoraLoaderModelOnly",)),
+    },
     "wan22.unet.txt2vid": {
         "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("Wan22ImageToVideoLatent", "WanImageToVideoLatent"), ("KSampler",), ("VAEDecode", "VAEDecodeTiled")),
         "recommended": (("SaveWEBM", "VideoCombine", "VHS_VideoCombine", "SaveAnimatedWEBP"),),
@@ -501,7 +530,7 @@ def video_backend_probe_payload(
                 warnings.append(str(item))
         action_items.extend(str(item) for item in performance_probe.get("action_items", []) if item)
 
-    if reachable and route_id in ({WAN22_GGUF_DUAL_NOISE_ROUTE_ID, *WAN22_RAPID_AIO_GGUF_ROUTE_IDS}):
+    if reachable and (route_id in ({WAN22_GGUF_DUAL_NOISE_ROUTE_ID, *WAN22_RAPID_AIO_GGUF_ROUTE_IDS}) or nf == "minimax_h3"):
         model_discovery = video_model_discovery_from_object_info(
             object_info,
             family=nf,
@@ -539,6 +568,10 @@ def video_backend_probe_payload(
                 if item not in warnings:
                     warnings.append(str(item))
             action_items.extend(str(item) for item in gguf_model_probe.get("action_items", []) if item)
+        elif nf == "minimax_h3":
+            model_ready = bool((model_discovery or {}).get("catalog_ready"))
+            if not model_ready:
+                action_items.append("Install/select the MiniMax H3 FL2VA or Ref2VA model, H3 text encoder, video VAE, and audio VAE in the active ComfyUI backend.")
         else:
             model_ready = bool((model_discovery or {}).get("catalog_ready"))
             action_items.append("Rapid AIO GGUF is catalog/audit-only in Phase 10n; do not queue until the compiler pass verifies node signatures.")

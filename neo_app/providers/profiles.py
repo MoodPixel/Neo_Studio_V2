@@ -6,9 +6,11 @@ from typing import Any
 from urllib import request, error
 import json
 import os
+import threading
 from datetime import datetime, timezone
 
 from neo_app.providers.registry import get_provider, get_provider_feature_capabilities
+from neo_app.providers.comfy_llamacpp_discovery import discover_comfy_llamacpp, evaluate_comfy_llamacpp_readiness, comfy_llamacpp_models_payload
 from neo_app.providers.forge_neo_client import ForgeNeoClient
 from neo_app.providers.forge_admin import (
     forge_models_for_backend_profile,
@@ -40,6 +42,26 @@ PROFILE_TEMPLATE_PATH = PROVIDER_DIR / "backend_profiles.json"
 # This prevents a stale saved runtime block from silently enabling Image, Video,
 # Assistant, Roleplay, or Prompt & Captioning work after a fresh launch.
 _CONNECTED_TASK_PROFILE_IDS: set[str] = set()
+
+# Phase 9: current-session Comfy LLM/VLM truth is intentionally kept separate
+# from the persisted profile runtime snapshot. Persisted runtime is useful as
+# last-known diagnostics, but it is never sufficient to prove that a restarted
+# Comfy server still exposes the same nodes/models.
+_COMFY_LLAMACPP_RUNTIME_LOCK = threading.RLock()
+_COMFY_LLAMACPP_LIVE_RUNTIME: dict[str, dict[str, Any]] = {}
+_COMFY_LLAMACPP_VALIDATION_STATE: dict[str, Any] = {
+    "schema_id": "neo.prompt_captioning.comfy_llamacpp.session_validation.v1",
+    "status": "pending",
+    "source": "startup",
+    "started_at": "",
+    "completed_at": "",
+    "target_count": 0,
+    "validated_count": 0,
+    "ready_count": 0,
+    "offline_count": 0,
+    "skipped_count": 0,
+    "results": [],
+}
 # Runtime user profile edits live in neo_data, not in the app/template file.
 PROFILE_PATH = backend_profile_runtime_path()
 SECRET_PATH = backend_api_key_secret_runtime_path()
@@ -67,6 +89,109 @@ BACKEND_SELECTION_ALIASES = {
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+def _comfy_llamacpp_cached_runtime(profile_id: str) -> dict[str, Any] | None:
+    pid = str(profile_id or "").strip()
+    if not pid:
+        return None
+    with _COMFY_LLAMACPP_RUNTIME_LOCK:
+        runtime = _COMFY_LLAMACPP_LIVE_RUNTIME.get(pid)
+        return dict(runtime) if isinstance(runtime, dict) else None
+
+
+def _set_comfy_llamacpp_cached_runtime(profile_id: str, runtime: dict[str, Any] | None) -> None:
+    pid = str(profile_id or "").strip()
+    if not pid:
+        return
+    with _COMFY_LLAMACPP_RUNTIME_LOCK:
+        if isinstance(runtime, dict):
+            _COMFY_LLAMACPP_LIVE_RUNTIME[pid] = dict(runtime)
+        else:
+            _COMFY_LLAMACPP_LIVE_RUNTIME.pop(pid, None)
+
+
+def _clear_comfy_llamacpp_cached_runtime(profile_id: str) -> None:
+    _set_comfy_llamacpp_cached_runtime(profile_id, None)
+
+
+def comfy_llamacpp_validation_status() -> dict[str, Any]:
+    with _COMFY_LLAMACPP_RUNTIME_LOCK:
+        return {
+            **_COMFY_LLAMACPP_VALIDATION_STATE,
+            "results": [dict(item) for item in (_COMFY_LLAMACPP_VALIDATION_STATE.get("results") or []) if isinstance(item, dict)],
+            "live_profile_ids": sorted(_COMFY_LLAMACPP_LIVE_RUNTIME),
+        }
+
+
+def _comfy_llamacpp_previous_success_at(runtime: dict[str, Any] | None) -> str:
+    previous = runtime if isinstance(runtime, dict) else {}
+    validation = previous.get("validation") if isinstance(previous.get("validation"), dict) else {}
+    value = str(validation.get("last_successful_validation_at") or "").strip()
+    if value:
+        return value
+    discovery = previous.get("backend_capabilities") if isinstance(previous.get("backend_capabilities"), dict) else {}
+    if previous.get("reachable") and discovery.get("object_info_available"):
+        return str(previous.get("last_checked") or "").strip()
+    return ""
+
+
+def _decorate_comfy_llamacpp_live_runtime(
+    profile: dict[str, Any],
+    runtime: dict[str, Any],
+    *,
+    source: str,
+    previous_runtime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    live = dict(runtime or {})
+    discovery = live.get("backend_capabilities") if isinstance(live.get("backend_capabilities"), dict) else {}
+    reachable = bool(live.get("reachable", False))
+    catalog_current = bool(reachable and discovery.get("object_info_available"))
+    checked_at = str(live.get("last_checked") or _now_iso())
+    previous_success = _comfy_llamacpp_previous_success_at(previous_runtime)
+    if catalog_current:
+        previous_success = checked_at
+    if catalog_current:
+        state = "live_validated"
+    elif reachable:
+        state = "live_catalog_unavailable"
+    else:
+        state = "offline"
+    live["validation"] = {
+        "schema_id": "neo.prompt_captioning.comfy_llamacpp.live_validation.v1",
+        "state": state,
+        "source": str(source or "runtime_revalidate"),
+        "validated_at": checked_at,
+        "last_successful_validation_at": previous_success,
+        "catalog_refreshed_at": checked_at if catalog_current else str(((previous_runtime or {}).get("validation") or {}).get("catalog_refreshed_at") or ""),
+        "live_catalog_current": catalog_current,
+        "saved_config_restored": True,
+        "profile_updated_at": str((profile.get("metadata") or {}).get("updated_at") or ""),
+    }
+    return live
+
+
+def _comfy_llamacpp_unverified_runtime(profile: dict[str, Any], *, validating: bool) -> dict[str, Any]:
+    previous = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    previous_validation = previous.get("validation") if isinstance(previous.get("validation"), dict) else {}
+    return {
+        "status": "validating" if validating else "not_checked",
+        "reachable": False,
+        "base_url": str((profile.get("connection") or {}).get("base_url") or ""),
+        "last_checked": str(previous.get("last_checked") or ""),
+        "message": "Neo is validating this ComfyUI LLM/VLM backend against the current live node/model catalog." if validating else "Saved ComfyUI LLM/VLM settings are restored, but live readiness has not been validated in this Neo session yet.",
+        "models": _empty_models(),
+        "validation": {
+            "schema_id": "neo.prompt_captioning.comfy_llamacpp.live_validation.v1",
+            "state": "startup_validating" if validating else "unverified_saved_state",
+            "source": "startup",
+            "validated_at": "",
+            "last_successful_validation_at": str(previous_validation.get("last_successful_validation_at") or _comfy_llamacpp_previous_success_at(previous)),
+            "catalog_refreshed_at": str(previous_validation.get("catalog_refreshed_at") or ""),
+            "live_catalog_current": False,
+            "saved_config_restored": True,
+            "profile_updated_at": str((profile.get("metadata") or {}).get("updated_at") or ""),
+        },
+    }
 
 
 def _normalize_auth_mode(value: Any, default: str = "env") -> str:
@@ -761,6 +886,72 @@ def _merge_missing_seeded_profiles_from_template(payload: dict[str, Any]) -> tup
     return payload, added
 
 
+def _reconcile_voice_engine_default_vo_e5(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Migrate only the historical direct-Chatterbox default to the VO-E5 gateway.
+
+    Existing runtime profile stores outlive repository templates. VO-E5 needs the
+    newly seeded ``voice.neo_engine`` profile to become the default on installs
+    that still use the historical ``voice.chatterbox`` default, while preserving
+    an explicit custom/other Voice default chosen by the user.
+    """
+    payload = dict(payload or {})
+    profiles = payload.get("profiles") if isinstance(payload.get("profiles"), list) else []
+    by_id = {
+        str(profile.get("profile_id") or "").strip(): profile
+        for profile in profiles
+        if isinstance(profile, dict) and str(profile.get("profile_id") or "").strip()
+    }
+    gateway = by_id.get("voice.neo_engine")
+    if gateway is None:
+        return payload, False
+
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    defaults = dict(defaults)
+    explicit_default = str(defaults.get("voice") or "").strip()
+    if not explicit_default:
+        explicit_default = next(
+            (
+                str(profile.get("profile_id") or "").strip()
+                for profile in profiles
+                if isinstance(profile, dict)
+                and profile.get("surface") == "voice"
+                and profile.get("is_default") is True
+            ),
+            "",
+        )
+
+    changed = False
+    if explicit_default in {"", "voice.chatterbox", "voice.neo_engine"}:
+        for profile in profiles:
+            if not isinstance(profile, dict) or profile.get("surface") != "voice":
+                continue
+            profile_id = str(profile.get("profile_id") or "").strip()
+            desired = profile_id == "voice.neo_engine"
+            if profile_id in {"voice.neo_engine", "voice.chatterbox"} and bool(profile.get("is_default")) != desired:
+                profile["is_default"] = desired
+                changed = True
+        if defaults.get("voice") != "voice.neo_engine":
+            defaults["voice"] = "voice.neo_engine"
+            changed = True
+    else:
+        # The user/runtime already has a different explicit Voice default. The new
+        # seeded gateway must not steal it merely because its template is_default.
+        if gateway.get("is_default") is True:
+            gateway["is_default"] = False
+            changed = True
+
+    payload["profiles"] = profiles
+    payload["defaults"] = defaults
+    if changed:
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        payload["metadata"] = {
+            **metadata,
+            "voice_engine_default_migration": "VO-E5",
+            "voice_engine_default_migration_at": _now_iso(),
+        }
+    return payload, changed
+
+
 def _read_payload() -> dict[str, Any]:
     _ensure_profile_payload_exists()
     profile_path = Path(PROFILE_PATH)
@@ -769,7 +960,8 @@ def _read_payload() -> dict[str, Any]:
     raw_payload = json.loads(profile_path.read_text(encoding="utf-8"))
     raw_payload, migrated = _migrate_inline_api_keys_to_secret_store(raw_payload)
     raw_payload, seeded_added = _merge_missing_seeded_profiles_from_template(raw_payload)
-    if migrated or seeded_added:
+    raw_payload, voice_engine_migrated = _reconcile_voice_engine_default_vo_e5(raw_payload)
+    if migrated or seeded_added or voice_engine_migrated:
         profile_path.write_text(json.dumps(raw_payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return _normalize_profile_payload(raw_payload)
 
@@ -1027,6 +1219,11 @@ def _normalize_connection(connection: dict[str, Any], connection_type: str, prov
         result.setdefault("timeout_seconds", config_schema.get("timeout_seconds") or 120)
     elif connection_type in {"local_http", "local_process_or_http"}:
         result.setdefault("base_url", config_schema.get("base_url") or result.get("base_url") or "")
+        # VO-R13: the shipped Chatterbox physical adapter owns a stable loopback
+        # default. Existing seeded profiles historically persisted an empty string,
+        # which would otherwise mask the new template value forever.
+        if provider_manifest.get("provider_id") == "chatterbox" and not str(result.get("base_url") or "").strip():
+            result["base_url"] = str(config_schema.get("base_url") or "http://127.0.0.1:8791").strip()
         result.setdefault("auto_connect", False)
         result.setdefault("auto_start", False)
         result.setdefault("portable_path", "")
@@ -1074,10 +1271,42 @@ def _normalize_profile_schema(profile: dict[str, Any]) -> dict[str, Any]:
         **(profile.get("defaults") or {}),
     }
     template_model = provider_default_profile.get("model") or {}
-    model_block = {
-        "default_model": connection.get("model") or (profile.get("model") or {}).get("default_model") or template_model.get("default_model") or generation_defaults.get("model") or "",
-        "available_models": (profile.get("model") or {}).get("available_models") or template_model.get("available_models") or [],
+    profile_model = profile.get("model") if isinstance(profile.get("model"), dict) else {}
+    template_model_capabilities = template_model.get("capabilities_by_model") if isinstance(template_model.get("capabilities_by_model"), dict) else {}
+    profile_model_capabilities = profile_model.get("capabilities_by_model") if isinstance(profile_model.get("capabilities_by_model"), dict) else {}
+    merged_model_capabilities: dict[str, Any] = {
+        str(model_id): dict(capability) if isinstance(capability, dict) else capability
+        for model_id, capability in profile_model_capabilities.items()
     }
+    # Provider-template capability truth wins for known provider models so saved
+    # profiles cannot freeze stale API limits. Unknown/custom model records remain.
+    for model_id, template_capability in template_model_capabilities.items():
+        saved_capability = merged_model_capabilities.get(str(model_id))
+        merged_model_capabilities[str(model_id)] = {
+            **(saved_capability if isinstance(saved_capability, dict) else {}),
+            **(template_capability if isinstance(template_capability, dict) else {}),
+        }
+    model_block = {
+        **(template_model if isinstance(template_model, dict) else {}),
+        **profile_model,
+        "capabilities_by_model": merged_model_capabilities,
+        "default_model": connection.get("model") or profile_model.get("default_model") or template_model.get("default_model") or generation_defaults.get("model") or "",
+        "available_models": profile_model.get("available_models") or template_model.get("available_models") or [],
+    }
+    template_reference_input = provider_default_profile.get("reference_input") if isinstance(provider_default_profile.get("reference_input"), dict) else {}
+    profile_reference_input = profile.get("reference_input") if isinstance(profile.get("reference_input"), dict) else {}
+    # Provider limits are API truth, not user preference. The template refreshes
+    # stale saved limits while preserving any profile-only informational keys.
+    reference_input = {**profile_reference_input, **template_reference_input}
+    template_mode_constraints = provider_default_profile.get("mode_constraints") if isinstance(provider_default_profile.get("mode_constraints"), dict) else {}
+    profile_mode_constraints = profile.get("mode_constraints") if isinstance(profile.get("mode_constraints"), dict) else {}
+    mode_constraints: dict[str, Any] = dict(profile_mode_constraints)
+    for mode_id, template_constraint in template_mode_constraints.items():
+        saved_constraint = mode_constraints.get(mode_id)
+        mode_constraints[mode_id] = {
+            **(saved_constraint if isinstance(saved_constraint, dict) else {}),
+            **(template_constraint if isinstance(template_constraint, dict) else {}),
+        }
     metadata = {
         "schema_version": PROFILE_REGISTRY_VERSION,
         "created_at": "",
@@ -1085,6 +1314,11 @@ def _normalize_profile_schema(profile: dict[str, Any]) -> dict[str, Any]:
         "notes": profile.get("notes") or "",
         **(profile.get("metadata") or {} if isinstance(profile.get("metadata"), dict) else {}),
     }
+    template_provider_settings = provider_default_profile.get("provider_settings") if isinstance(provider_default_profile.get("provider_settings"), dict) else {}
+    profile_provider_settings = profile.get("provider_settings") if isinstance(profile.get("provider_settings"), dict) else {}
+    provider_settings = _deep_merge_dicts(template_provider_settings, profile_provider_settings)
+    template_provider_controls = provider_default_profile.get("provider_controls") if isinstance(provider_default_profile.get("provider_controls"), list) else []
+    provider_controls = profile.get("provider_controls") if isinstance(profile.get("provider_controls"), list) else template_provider_controls
     template_ui = provider_default_profile.get("ui") or {}
     ui = {
         **_ui_visibility_for(surface, connection_type, provider_id),
@@ -1108,6 +1342,10 @@ def _normalize_profile_schema(profile: dict[str, Any]) -> dict[str, Any]:
         "generation_defaults": generation_defaults,
         "defaults": generation_defaults,
         "model": model_block,
+        "reference_input": reference_input,
+        "mode_constraints": mode_constraints,
+        "provider_settings": provider_settings,
+        "provider_controls": provider_controls,
         "ui": ui,
         "metadata": metadata,
         "notes": profile.get("notes") or metadata.get("notes") or "",
@@ -1815,6 +2053,302 @@ def _probe_cloud_api_profile(profile: dict[str, Any]) -> dict[str, Any]:
             "models": _cloud_model_records_from_profile(profile),
         }
 
+def _probe_voice_local_http_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """Probe a selected local Voice adapter by its configured HTTP contract.
+
+    Voice providers used to fall through to MockProvider.status(), which made
+    Admin Connect/Test report manifest state instead of the selected profile's
+    actual endpoint. VO-R13 makes the local Voice URL authoritative.
+    """
+    connection = profile.get("connection", {}) or {}
+    base_url = str(connection.get("base_url") or "").rstrip("/")
+    timeout = float(connection.get("timeout_seconds") or 3)
+    checked_at = _now_iso()
+    if not base_url:
+        return {
+            "status": "missing_config",
+            "reachable": False,
+            "base_url": "",
+            "last_checked": checked_at,
+            "message": "Voice backend base URL is empty.",
+            "models": _empty_models(),
+        }
+    health_path = str(connection.get("healthcheck_path") or "/api/voice/health").strip() or "/api/voice/health"
+    if not health_path.startswith("/"):
+        health_path = f"/{health_path}"
+    try:
+        remote_health = _http_get_json(base_url, health_path, timeout=timeout)
+        remote_models: Any = []
+        try:
+            model_payload = _http_get_json(base_url, "/api/voice/models", timeout=timeout)
+            remote_models = model_payload.get("models") or model_payload.get("items") or [] if isinstance(model_payload, dict) else model_payload
+        except Exception:
+            remote_models = []
+        remote_status = str(remote_health.get("status") or remote_health.get("state") or "connected") if isinstance(remote_health, dict) else "connected"
+        remote_message = str(remote_health.get("message") or "Voice backend adapter responded.") if isinstance(remote_health, dict) else "Voice backend adapter responded."
+        return {
+            "status": "connected",
+            "reachable": True,
+            "base_url": base_url,
+            "last_checked": checked_at,
+            "message": remote_message,
+            "models": _split_model_records(remote_models),
+            "voice_health": remote_health if isinstance(remote_health, dict) else {},
+            "voice_adapter_status": remote_status,
+            "capability_source": "selected_voice_profile_http",
+        }
+    except Exception as exc:  # noqa: BLE001 - connection tests must fail closed without crashing Admin.
+        return {
+            "status": "offline",
+            "reachable": False,
+            "base_url": base_url,
+            "last_checked": checked_at,
+            "message": f"Could not reach Voice backend at {base_url}: {exc}",
+            "models": _empty_models(),
+        }
+
+
+def _probe_comfy_llamacpp_profile(profile: dict[str, Any], *, timeout_override: float | None = None) -> dict[str, Any]:
+    """Probe the shared Comfy Prompt & Captioning backend and discover llama.cpp/VLM assets.
+
+    Phase 3 reads live `/object_info`, publishes node/model capability truth,
+    and verifies the bundled Neo text/image handoff nodes required for execution.
+    """
+    connection = profile.get("connection", {}) or {}
+    base_url = str(connection.get("base_url") or "").rstrip("/")
+    timeout = float(timeout_override if timeout_override is not None else (connection.get("timeout_seconds") or 15))
+    checked_at = _now_iso()
+    if not base_url:
+        discovery = discover_comfy_llamacpp({})
+        settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
+        readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=False)
+        return {
+            "status": "missing_config",
+            "reachable": False,
+            "base_url": "",
+            "last_checked": checked_at,
+            "message": "ComfyUI LLM/VLM base URL is empty.",
+            "models": comfy_llamacpp_models_payload(discovery),
+            "capabilities": {
+                "supports_text": False,
+                "supports_vision": False,
+                "supports_captioning": False,
+                "runtime_supports_vision": False,
+                "runtime_supports_captioning": False,
+                "prompt_captioning_execution_ready": False,
+                "text_ready": False,
+                "vision_ready": False,
+                "caption_ready": False,
+            },
+            "backend_capabilities": discovery,
+            "readiness": readiness,
+            "capability_source": "comfy_object_info_phase9_live_validation",
+        }
+    try:
+        stats = _http_get_json(base_url, "/system_stats", timeout=timeout)
+        object_info_error = ""
+        try:
+            object_info = _http_get_json(base_url, "/object_info", timeout=timeout)
+            if not isinstance(object_info, dict):
+                object_info = {}
+                object_info_error = "ComfyUI /object_info returned a non-object payload."
+        except Exception as exc:  # noqa: BLE001 - reachable Comfy can remain connected with fail-closed capability discovery.
+            object_info = {}
+            object_info_error = str(exc)
+
+        discovery = discover_comfy_llamacpp(object_info, discovery_error=object_info_error)
+        settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
+        readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=True)
+        models = comfy_llamacpp_models_payload(discovery)
+        text_ready = bool(discovery.get("text_ready"))
+        vision_ready = bool(discovery.get("vision_ready"))
+        caption_ready = bool(discovery.get("caption_ready"))
+        text_execution_ready = bool(discovery.get("text_execution_ready"))
+        caption_execution_ready = bool(discovery.get("caption_execution_ready"))
+        warnings = list(discovery.get("warnings") or [])
+        prompt_ready = bool(readiness.get("prompt_ready"))
+        ready_caption = bool(readiness.get("caption_ready"))
+        status = "connected" if prompt_ready and ready_caption and not warnings else "connected_with_warnings"
+        model_count = len((discovery.get("models") or {}).get("all") or [])
+        mmproj_count = len((discovery.get("models") or {}).get("mmproj") or [])
+        if prompt_ready and ready_caption:
+            message = f"Connected to ComfyUI. Prompt and Caption are ready with {model_count} model(s) and {mmproj_count} mmproj projector(s) detected."
+        elif prompt_ready:
+            blocker = readiness.get("caption_blocker") or {}
+            message = f"Connected to ComfyUI. Prompt Studio is ready; Caption Studio is blocked: {blocker.get('detail') or 'VLM readiness is incomplete.'}"
+        else:
+            blocker = readiness.get("prompt_blocker") or {}
+            message = f"Connected to ComfyUI, but Prompt/Caption execution is blocked: {blocker.get('detail') or 'backend readiness is incomplete.'}"
+
+        return {
+            "status": status,
+            "reachable": True,
+            "base_url": base_url,
+            "last_checked": checked_at,
+            "message": message,
+            "system_stats": stats,
+            "models": models,
+            "capabilities": {
+                "supports_text": prompt_ready,
+                "supports_vision": ready_caption,
+                "supports_captioning": ready_caption,
+                "runtime_supports_vision": ready_caption,
+                "runtime_supports_captioning": ready_caption,
+                "prompt_captioning_execution_ready": prompt_ready,
+                "prompt_ready": prompt_ready,
+                "readiness_caption_ready": ready_caption,
+                "text_ready": text_ready,
+                "vision_ready": vision_ready,
+                "caption_ready": caption_ready,
+                "text_execution_ready": text_execution_ready,
+                "caption_execution_ready": caption_execution_ready,
+                "object_info_available": bool(discovery.get("object_info_available")),
+                "object_info_node_count": int(discovery.get("object_info_node_count") or 0),
+            },
+            "backend_capabilities": discovery,
+            "readiness": readiness,
+            "capability_source": "comfy_object_info_phase9_live_validation",
+        }
+    except Exception as exc:  # noqa: BLE001
+        discovery = discover_comfy_llamacpp({})
+        settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
+        readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=False)
+        return {
+            "status": "offline",
+            "reachable": False,
+            "base_url": base_url,
+            "last_checked": checked_at,
+            "message": f"Could not reach ComfyUI LLM/VLM backend at {base_url}: {exc}",
+            "models": comfy_llamacpp_models_payload(discovery),
+            "capabilities": {
+                "supports_text": False,
+                "supports_vision": False,
+                "supports_captioning": False,
+                "runtime_supports_vision": False,
+                "runtime_supports_captioning": False,
+                "prompt_captioning_execution_ready": False,
+                "text_ready": False,
+                "vision_ready": False,
+                "caption_ready": False,
+            },
+            "backend_capabilities": discovery,
+            "readiness": readiness,
+            "capability_source": "comfy_object_info_phase9_live_validation",
+        }
+
+
+def revalidate_comfy_llamacpp_profiles(
+    *,
+    source: str = "runtime_revalidate",
+    timeout_seconds: float = 5.0,
+) -> dict[str, Any]:
+    """Refresh current-session Comfy LLM/VLM truth without trusting saved runtime.
+
+    Phase 9 uses this during Neo startup and reconnect monitoring. The live
+    result is kept in a process-local cache so a background probe cannot race a
+    user profile edit by rewriting the backend profile store. Explicit
+    Connect/Test still persists its own diagnostic snapshot through the normal
+    profile save path.
+    """
+    started_at = _now_iso()
+    payload = _read_payload()
+    profiles = [item for item in payload.get("profiles", []) if isinstance(item, dict)]
+    targets = [
+        item for item in profiles
+        if str(item.get("provider_id") or "") == "comfy_llamacpp"
+        and item.get("enabled") is not False
+    ]
+    results: list[dict[str, Any]] = []
+    with _COMFY_LLAMACPP_RUNTIME_LOCK:
+        _COMFY_LLAMACPP_VALIDATION_STATE.update({
+            "status": "running",
+            "source": str(source or "runtime_revalidate"),
+            "started_at": started_at,
+            "completed_at": "",
+            "target_count": len(targets),
+            "validated_count": 0,
+            "ready_count": 0,
+            "offline_count": 0,
+            "skipped_count": 0,
+            "results": [],
+        })
+
+    ready_count = 0
+    offline_count = 0
+    skipped_count = 0
+    for profile in targets:
+        profile_id = str(profile.get("profile_id") or "").strip()
+        persisted_runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+        activation = str(persisted_runtime.get("activation") or "").strip().lower()
+        if activation == "manual_disconnect":
+            _clear_comfy_llamacpp_cached_runtime(profile_id)
+            mark_backend_profile_connected_for_task(profile_id, False)
+            skipped_count += 1
+            results.append({
+                "profile_id": profile_id,
+                "status": "skipped_manual_disconnect",
+                "reachable": False,
+                "prompt_ready": False,
+                "caption_ready": False,
+            })
+            continue
+
+        previous_runtime = _comfy_llamacpp_cached_runtime(profile_id) or persisted_runtime
+        try:
+            runtime = _probe_comfy_llamacpp_profile(profile, timeout_override=max(1.0, float(timeout_seconds or 5.0)))
+        except Exception as exc:  # noqa: BLE001 - startup/reconnect validation must stay resilient.
+            runtime = {
+                "status": "offline",
+                "reachable": False,
+                "base_url": str((profile.get("connection") or {}).get("base_url") or ""),
+                "last_checked": _now_iso(),
+                "message": f"ComfyUI LLM/VLM validation failed: {exc}",
+                "models": _empty_models(),
+            }
+        runtime = _decorate_comfy_llamacpp_live_runtime(
+            profile,
+            runtime,
+            source=str(source or "runtime_revalidate"),
+            previous_runtime=previous_runtime,
+        )
+        runtime["activation"] = str(source or "runtime_revalidate")
+        _set_comfy_llamacpp_cached_runtime(profile_id, runtime)
+        reachable = bool(runtime.get("reachable", False))
+        mark_backend_profile_connected_for_task(profile_id, reachable)
+        readiness = runtime.get("readiness") if isinstance(runtime.get("readiness"), dict) else {}
+        prompt_ready = bool(readiness.get("prompt_ready"))
+        caption_ready = bool(readiness.get("caption_ready"))
+        if reachable:
+            ready_count += 1
+        else:
+            offline_count += 1
+        results.append({
+            "profile_id": profile_id,
+            "status": str(runtime.get("status") or "offline"),
+            "reachable": reachable,
+            "prompt_ready": prompt_ready,
+            "caption_ready": caption_ready,
+            "validated_at": str((runtime.get("validation") or {}).get("validated_at") or runtime.get("last_checked") or ""),
+            "last_successful_validation_at": str((runtime.get("validation") or {}).get("last_successful_validation_at") or ""),
+        })
+
+    completed_at = _now_iso()
+    with _COMFY_LLAMACPP_RUNTIME_LOCK:
+        _COMFY_LLAMACPP_VALIDATION_STATE.update({
+            "status": "completed",
+            "source": str(source or "runtime_revalidate"),
+            "completed_at": completed_at,
+            "target_count": len(targets),
+            "validated_count": len(targets) - skipped_count,
+            "ready_count": ready_count,
+            "offline_count": offline_count,
+            "skipped_count": skipped_count,
+            "results": results,
+        })
+    _clear_profile_cache()
+    return comfy_llamacpp_validation_status()
+
+
 def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
     provider_id = profile.get("provider_id", "")
     connection = profile.get("connection", {}) or {}
@@ -1822,11 +2356,18 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
     timeout = float(connection.get("timeout_seconds") or 3)
     checked_at = _now_iso()
 
-    if str(profile.get("connection_type") or connection.get("connection_type") or "") == "cloud_api":
+    connection_type = str(profile.get("connection_type") or connection.get("connection_type") or "")
+    if connection_type == "cloud_api":
         return _probe_cloud_api_profile(profile)
+
+    if str(profile.get("surface") or "") == "voice" and connection_type in {"local_http", "local_process_or_http"}:
+        return _probe_voice_local_http_profile(profile)
 
     if provider_id in {"koboldcpp", "openai_compatible_text"}:
         return _probe_koboldcpp_profile(profile)
+
+    if provider_id == "comfy_llamacpp":
+        return _probe_comfy_llamacpp_profile(profile)
 
     if provider_id == "forge":
         snapshot = probe_forge_admin_profile(profile, persist=True)
@@ -1935,6 +2476,9 @@ def _enrich_profile(
     live_runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     provider = get_provider(profile.get("provider_id", ""), profile=profile)
+    provider_id = str(profile.get("provider_id") or "").strip()
+    profile_id = str(profile.get("profile_id") or "").strip()
+    is_comfy_llamacpp = provider_id == "comfy_llamacpp"
     connection = profile.get("connection", {}) or {}
     runtime = profile.get("runtime") or {}
     auto_connect = bool(connection.get("auto_connect", False))
@@ -1959,20 +2503,46 @@ def _enrich_profile(
     # Profiles that were never manually connected remain passive and show
     # Disconnected while auto_connect is off.
     resolved_live_runtime = dict(live_runtime) if isinstance(live_runtime, dict) else None
-    should_validate_saved_runtime = auto_connect or allow_manual_runtime
+    # Phase 9 keeps a session-only Comfy discovery snapshot. Passive profile
+    # listings use that live cache instead of either re-probing /object_info on
+    # every render or trusting a Connected runtime saved by an older Neo session.
+    # Task execution remains stricter: allow_manual_runtime=True always performs
+    # a fresh probe so a Comfy restart/model change is caught before queueing.
+    cached_comfy_runtime = _comfy_llamacpp_cached_runtime(profile_id) if is_comfy_llamacpp else None
+    if resolved_live_runtime is None and is_comfy_llamacpp and not allow_manual_runtime and cached_comfy_runtime:
+        resolved_live_runtime = cached_comfy_runtime
+
+    comfy_llamacpp_session_connected = is_comfy_llamacpp and is_backend_profile_connected_for_task(profile_id)
+    should_validate_saved_runtime = auto_connect or allow_manual_runtime or (comfy_llamacpp_session_connected and not cached_comfy_runtime)
     if resolved_live_runtime is None and should_validate_saved_runtime:
         try:
             resolved_live_runtime = _probe_profile(profile)
+            if is_comfy_llamacpp and isinstance(resolved_live_runtime, dict):
+                resolved_live_runtime = _decorate_comfy_llamacpp_live_runtime(
+                    profile,
+                    resolved_live_runtime,
+                    source="live_task_revalidate" if allow_manual_runtime else "auto_connect",
+                    previous_runtime=cached_comfy_runtime or runtime,
+                )
+                _set_comfy_llamacpp_cached_runtime(profile_id, resolved_live_runtime)
+                mark_backend_profile_connected_for_task(profile_id, bool(resolved_live_runtime.get("reachable", False)))
         except Exception:  # noqa: BLE001 - profile listing must stay resilient.
             resolved_live_runtime = None
 
     if resolved_live_runtime:
         runtime_payload = _decorate_connection_test_result(profile, {
             **resolved_live_runtime,
-            "activation": runtime.get("activation") or ("auto_connect" if auto_connect else "manual_connect"),
-        }, operation="auto_connect" if auto_connect else "manual_connect")
+            "activation": resolved_live_runtime.get("activation") or runtime.get("activation") or ("auto_connect" if auto_connect else "manual_connect"),
+        }, operation=str((resolved_live_runtime.get("validation") or {}).get("source") or ("auto_connect" if auto_connect else "manual_connect")))
         runtime_status = runtime_payload.get("status") or "missing_config"
         show_live_runtime = bool(runtime_payload.get("reachable", False)) and str(runtime_status).lower() in CONNECTION_TEST_READY_STATUSES
+    elif is_comfy_llamacpp and str(comfy_llamacpp_validation_status().get("status") or "") in {"pending", "running"}:
+        show_live_runtime = False
+        runtime_payload = _comfy_llamacpp_unverified_runtime(
+            profile,
+            validating=str(comfy_llamacpp_validation_status().get("status") or "") == "running",
+        )
+        runtime_status = str(runtime_payload.get("status") or "not_checked")
     elif preserve_saved_diagnostic:
         show_live_runtime = False
         runtime_payload = _decorate_connection_test_result(profile, runtime, operation=activation_raw or "manual_test")
@@ -1996,7 +2566,7 @@ def _enrich_profile(
             "message": "Auto-connect is off. Click Connect/Test to probe this backend.",
         }
 
-    if not show_live_runtime and runtime_payload.get("status") not in CONNECTION_TEST_DIAGNOSTIC_STATUSES | {"not_checked", "disabled"}:
+    if not show_live_runtime and runtime_payload.get("status") not in CONNECTION_TEST_DIAGNOSTIC_STATUSES | {"not_checked", "disabled", "validating"}:
         # A stale saved Connected state should not paint a Connected badge when the
         # live probe is not reachable or no probe was requested.
         runtime_payload = {
@@ -2019,6 +2589,8 @@ def _enrich_profile(
     if not show_live_runtime:
         runtime_payload.pop("backend_capabilities", None)
         runtime_payload.pop("capability_source", None)
+        runtime_payload.pop("readiness", None)
+        runtime_payload.pop("capabilities", None)
 
     models = runtime_payload.get("models") or _empty_models()
 
@@ -2054,6 +2626,7 @@ def get_backend_profile_payload() -> dict[str, Any]:
         "backend_profile_store": storage,
         "backend_selection_persistence": backend_selection_persistence_policy(),
         "selection_persistence": backend_selection_persistence_policy(),
+        "comfy_llamacpp_validation": comfy_llamacpp_validation_status(),
     }
 
 
@@ -2097,6 +2670,10 @@ def get_backend_profile_for_live_task(profile_id: str) -> dict[str, Any] | None:
     raw_profile = get_backend_profile_for_runtime(profile_id)
     if raw_profile is None:
         return None
+    if str(raw_profile.get("provider_id") or "") == "comfy_llamacpp":
+        runtime = raw_profile.get("runtime") if isinstance(raw_profile.get("runtime"), dict) else {}
+        if str(runtime.get("activation") or "").strip().lower() == "manual_disconnect":
+            return _enrich_profile(raw_profile, allow_manual_runtime=False)
     return _enrich_profile(raw_profile, allow_manual_runtime=True)
 
 
@@ -2157,6 +2734,25 @@ def _coerce_profile_update_values(updates: dict[str, Any]) -> dict[str, Any]:
                     except Exception:
                         generation[key] = 0.0
             fixed[defaults_name] = generation
+    if isinstance(fixed.get("provider_settings"), dict):
+        provider_settings = _deep_merge_dicts({}, fixed["provider_settings"])
+        comfy = provider_settings.get("comfy_llamacpp")
+        if isinstance(comfy, dict):
+            comfy = {**comfy}
+            for key in ("n_ctx", "vram_limit", "image_min_tokens", "image_max_tokens", "max_size", "max_frames", "seed"):
+                if key in comfy:
+                    try:
+                        comfy[key] = int(comfy.get(key) if comfy.get(key) is not None else 0)
+                    except Exception:
+                        comfy[key] = 0
+            for key in ("force_offload", "save_states", "load_mtp"):
+                if key in comfy:
+                    comfy[key] = _coerce_bool(comfy.get(key), key == "force_offload")
+            for key in ("comfy_llamacpp_model", "comfy_llamacpp_mmproj", "comfy_llamacpp_chat_handler"):
+                if key in comfy:
+                    comfy[key] = str(comfy.get(key) or "").strip()
+            provider_settings["comfy_llamacpp"] = comfy
+        fixed["provider_settings"] = provider_settings
     return fixed
 
 
@@ -2210,6 +2806,8 @@ def create_backend_profile(updates: dict[str, Any]) -> dict[str, Any]:
         "capability_flags": _deep_merge_dicts(template_capabilities if isinstance(template_capabilities, dict) else {}, updates.get("capability_flags") or updates.get("capabilities") or {}),
         "generation_defaults": _deep_merge_dicts(template_defaults if isinstance(template_defaults, dict) else {}, updates.get("generation_defaults") or updates.get("defaults") or {}),
         "model": _deep_merge_dicts(provider_template.get("model") or {}, updates.get("model") or {}),
+        "provider_settings": _deep_merge_dicts(provider_template.get("provider_settings") or {}, updates.get("provider_settings") or {}),
+        "provider_controls": updates.get("provider_controls") if isinstance(updates.get("provider_controls"), list) else (provider_template.get("provider_controls") if isinstance(provider_template.get("provider_controls"), list) else []),
         "ui": _deep_merge_dicts(provider_template.get("ui") or {}, updates.get("ui") or {}),
         "metadata": {"created_at": _now_iso(), "updated_at": _now_iso()},
         "notes": updates.get("notes") or provider_template.get("notes") or "Created from Admin Backend Profiles.",
@@ -2236,7 +2834,7 @@ def save_backend_profile(profile_id: str, updates: dict[str, Any]) -> dict[str, 
     updates = _coerce_profile_update_values(updates)
     payload = _read_payload()
     profiles = payload.setdefault("profiles", [])
-    nested_keys = {"connection", "runtime", "capability_flags", "capabilities", "generation_defaults", "defaults", "model", "ui", "metadata"}
+    nested_keys = {"connection", "runtime", "capability_flags", "capabilities", "generation_defaults", "defaults", "model", "provider_settings", "provider_controls", "ui", "metadata"}
     for index, profile in enumerate(profiles):
         if profile.get("profile_id") == profile_id:
             merged = {**profile, **{k: v for k, v in updates.items() if k not in nested_keys}}
@@ -2269,14 +2867,56 @@ def save_backend_profile(profile_id: str, updates: dict[str, Any]) -> dict[str, 
                 merged["defaults"] = merged_defaults
             if "model" in updates:
                 merged["model"] = {**profile.get("model", {}), **updates.get("model", {})}
+            if "provider_settings" in updates:
+                merged["provider_settings"] = _deep_merge_dicts(
+                    profile.get("provider_settings", {}) if isinstance(profile.get("provider_settings"), dict) else {},
+                    updates.get("provider_settings", {}) if isinstance(updates.get("provider_settings"), dict) else {},
+                )
+            if "provider_controls" in updates and isinstance(updates.get("provider_controls"), list):
+                merged["provider_controls"] = updates.get("provider_controls")
             if "ui" in updates:
                 merged["ui"] = {**profile.get("ui", {}), **updates.get("ui", {})}
             if "metadata" in updates:
                 merged["metadata"] = {**profile.get("metadata", {}), **updates.get("metadata", {})}
+            # Phase 7: provider settings are validated against the already-live
+            # Comfy catalog immediately.  This keeps Prompt/Caption readiness in
+            # sync when a user selects a model/mmproj/handler without forcing a
+            # second network probe.  A future Connect/Test still refreshes the
+            # underlying /object_info catalog itself.
+            if str(merged.get("provider_id") or "") == "comfy_llamacpp" and "provider_settings" in updates:
+                live_cached = _comfy_llamacpp_cached_runtime(profile_id)
+                runtime = dict(live_cached or profile.get("runtime") or {}) if isinstance(live_cached or profile.get("runtime"), dict) else {}
+                discovery = runtime.get("backend_capabilities") if isinstance(runtime.get("backend_capabilities"), dict) else {}
+                if runtime.get("reachable") and discovery:
+                    settings = ((merged.get("provider_settings") or {}).get("comfy_llamacpp") or {})
+                    readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=True)
+                    runtime["readiness"] = readiness
+                    caps = dict(runtime.get("capabilities") or {}) if isinstance(runtime.get("capabilities"), dict) else {}
+                    caps.update({
+                        "supports_text": bool(readiness.get("prompt_ready")),
+                        "supports_vision": bool(readiness.get("caption_ready")),
+                        "supports_captioning": bool(readiness.get("caption_ready")),
+                        "runtime_supports_vision": bool(readiness.get("caption_ready")),
+                        "runtime_supports_captioning": bool(readiness.get("caption_ready")),
+                        "prompt_captioning_execution_ready": bool(readiness.get("prompt_ready")),
+                        "prompt_ready": bool(readiness.get("prompt_ready")),
+                        "readiness_caption_ready": bool(readiness.get("caption_ready")),
+                    })
+                    runtime["capabilities"] = caps
+                    runtime["capability_source"] = "comfy_object_info_phase9_live_validation"
+                    runtime = _decorate_comfy_llamacpp_live_runtime(
+                        merged, runtime, source="settings_recheck", previous_runtime=live_cached or profile.get("runtime") or {}
+                    )
+                    merged["runtime"] = runtime
+                    _set_comfy_llamacpp_cached_runtime(profile_id, runtime)
             merged.setdefault("metadata", {})["updated_at"] = _now_iso()
             # Any profile config change invalidates stale runtime status until the next Connect/Test.
-            if any(key in updates for key in {"connection", "capability_flags", "capabilities", "generation_defaults", "defaults", "provider_id", "surface", "connection_type", "model"}):
+            invalidates_live_runtime = any(key in updates for key in {"connection", "capability_flags", "capabilities", "generation_defaults", "defaults", "provider_id", "surface", "connection_type", "model"})
+            if invalidates_live_runtime:
                 merged.pop("runtime", None)
+                if str(profile.get("provider_id") or "") == "comfy_llamacpp" or str(merged.get("provider_id") or "") == "comfy_llamacpp":
+                    _clear_comfy_llamacpp_cached_runtime(profile_id)
+                    mark_backend_profile_connected_for_task(profile_id, False)
             normalized_profile = _normalize_profile_schema(merged)
             profiles[index] = normalized_profile
             if normalized_profile.get("is_default"):
@@ -2334,7 +2974,13 @@ def connect_backend_profile(profile_id: str) -> dict[str, Any]:
     payload = _read_payload()
     for index, profile in enumerate(payload.get("profiles", [])):
         if profile.get("profile_id") == profile_id:
-            runtime = _decorate_connection_test_result(profile, {**_probe_profile(profile), "activation": "manual_connect"}, operation="manual_connect")
+            probed = _probe_profile(profile)
+            if str(profile.get("provider_id") or "") == "comfy_llamacpp":
+                probed = _decorate_comfy_llamacpp_live_runtime(
+                    profile, probed, source="manual_connect", previous_runtime=_comfy_llamacpp_cached_runtime(profile_id) or profile.get("runtime") or {}
+                )
+                _set_comfy_llamacpp_cached_runtime(profile_id, probed)
+            runtime = _decorate_connection_test_result(profile, {**probed, "activation": "manual_connect"}, operation="manual_connect")
             profile["runtime"] = runtime
             payload["profiles"][index] = profile
             _write_payload(payload)
@@ -2363,9 +3009,20 @@ def disconnect_backend_profile(profile_id: str) -> dict[str, Any]:
                 **runtime,
                 "status": "disconnected",
                 "reachable": False,
+                "activation": "manual_disconnect",
                 "last_checked": _now_iso(),
-                "message": "Disconnected by user.",
+                "message": "Disconnected by user. Automatic Comfy LLM/VLM revalidation stays paused until you Connect/Test again.",
+                "validation": {
+                    **(runtime.get("validation") if isinstance(runtime.get("validation"), dict) else {}),
+                    "state": "manual_disconnected",
+                    "source": "manual_disconnect",
+                    "validated_at": _now_iso(),
+                    "live_catalog_current": False,
+                    "saved_config_restored": True,
+                },
             }
+            if str(profile.get("provider_id") or "") == "comfy_llamacpp":
+                _clear_comfy_llamacpp_cached_runtime(profile_id)
             payload["profiles"][index] = profile
             _write_payload(payload)
             _clear_profile_cache()
@@ -2378,7 +3035,13 @@ def test_backend_profile(profile_id: str) -> dict[str, Any]:
     payload = _read_payload()
     for index, profile in enumerate(payload.get("profiles", [])):
         if profile.get("profile_id") == profile_id:
-            runtime = _decorate_connection_test_result(profile, {**_probe_profile(profile), "activation": "manual_test"}, operation="manual_test")
+            probed = _probe_profile(profile)
+            if str(profile.get("provider_id") or "") == "comfy_llamacpp":
+                probed = _decorate_comfy_llamacpp_live_runtime(
+                    profile, probed, source="manual_test", previous_runtime=_comfy_llamacpp_cached_runtime(profile_id) or profile.get("runtime") or {}
+                )
+                _set_comfy_llamacpp_cached_runtime(profile_id, probed)
+            runtime = _decorate_connection_test_result(profile, {**probed, "activation": "manual_test"}, operation="manual_test")
             profile["runtime"] = runtime
             payload["profiles"][index] = profile
             _write_payload(payload)

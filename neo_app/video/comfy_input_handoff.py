@@ -203,3 +203,81 @@ def prepare_video_source_image_handoff(payload: dict[str, Any] | None, base_url:
         "upload_response": upload.get("response", {}),
         "warning": "Uploaded image could not be verified through /view; Comfy may still accept the returned upload name." if not verified else "",
     }
+
+
+def resolve_video_source_file_path(value: str | None) -> Path | None:
+    """Resolve any Neo-owned Video source/reference media file (image/video/audio)."""
+    raw = str(value or "").strip()
+    if not raw or raw.startswith(("http://", "https://")):
+        return None
+    if raw.startswith("/api/video/source-file/"):
+        raw = raw.rsplit("/", 1)[-1]
+    path = Path(raw)
+    if path.is_absolute():
+        found = _existing_file(path)
+        if found:
+            return found
+    else:
+        found = _existing_file((ROOT_DIR / raw).resolve())
+        if found:
+            return found
+        safe = _safe_name(raw)
+        for folder in (get_video_output_paths("source", create=True).output_dir, VIDEO_SOURCE_DIR, IMAGE_SOURCE_DIR):
+            found = _existing_file(folder / safe)
+            if found:
+                return found
+    return None
+
+
+def verify_comfy_input_file(base_url: str, file_name: str, *, timeout: float = 5.0) -> bool:
+    """Verify an arbitrary file in ComfyUI's input directory through /view.
+
+    ComfyUI's historical /upload/image endpoint stores arbitrary uploaded bytes in
+    the input directory, and /view serves the stored file by MIME type when no
+    image-preview transform is requested. This lets Neo hand off H3 video/audio
+    references without a separate shared filesystem contract.
+    """
+    safe = _safe_name(file_name)
+    if not safe:
+        return False
+    query = parse.urlencode({"filename": safe, "type": "input"})
+    url = parse.urljoin(base_url.rstrip("/") + "/", f"view?{query}")
+    try:
+        req = request.Request(url, headers={"User-Agent": "NeoStudioVideoComfyInputHandoff/1.0"}, method="GET")
+        with request.urlopen(req, timeout=max(timeout, 5.0)) as response:  # noqa: S310 - user-configured local Comfy URL.
+            return 200 <= int(getattr(response, "status", 200)) < 300
+    except Exception:
+        return False
+
+
+def prepare_comfy_input_file_handoff(
+    value: str | None,
+    base_url: str,
+    *,
+    timeout: float = 10.0,
+    prefix: str = "neo_video_ref",
+    existing_comfy_name: str | None = None,
+) -> dict[str, Any]:
+    """Upload arbitrary H3 reference media to ComfyUI input and return its file name."""
+    existing = _safe_name(existing_comfy_name)
+    if existing and verify_comfy_input_file(base_url, existing, timeout=timeout):
+        return {"ok": True, "uploaded": False, "comfy_name": existing, "verified": True, "source_path": ""}
+    source_path = resolve_video_source_file_path(value)
+    if source_path is None:
+        candidate = _safe_name(value)
+        if candidate and verify_comfy_input_file(base_url, candidate, timeout=timeout):
+            return {"ok": True, "uploaded": False, "comfy_name": candidate, "verified": True, "source_path": ""}
+        return {"ok": False, "uploaded": False, "comfy_name": "", "verified": False, "source_path": "", "error": "H3 reference media could not be resolved to a Neo-owned file or existing Comfy input file."}
+    upload = _post_multipart_image(base_url, source_path, timeout=timeout, prefix=prefix)
+    comfy_name = str(upload.get("name") or "").strip()
+    verified = verify_comfy_input_file(base_url, comfy_name, timeout=timeout) if comfy_name else False
+    return {
+        "ok": bool(comfy_name),
+        "uploaded": bool(comfy_name),
+        "comfy_name": comfy_name,
+        "verified": verified,
+        "source_path": str(source_path),
+        "upload_response": upload.get("response", {}),
+        "error": "" if comfy_name else "Comfy /upload/image did not return a stored file name.",
+        "warning": "Uploaded reference could not be verified through /view; Comfy may still accept the returned input name." if comfy_name and not verified else "",
+    }

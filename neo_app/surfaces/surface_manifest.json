@@ -396,8 +396,8 @@
     {
       "surface_id": "voice",
       "display_name": "Voice",
-      "description": "Future voice workspace placeholder. Voice workflows are planned for a later Neo Studio V2 update.",
-      "status": "planned",
+      "description": "Provider-aware Voice workspace with VO-R2 common settings, VO-R3 routing, VO-R4 TTS, VO-R5 Results, VO-R6 Reference/Clone, VO-R7 reusable Voice Profile Assets, VO-R8 provider controls, VO-R9 Finish, VO-R10 Dialogue / Multi-speaker, and VO-R11 bounded Batch orchestration.",
+      "status": "active",
       "provider_types": [
         "tts",
         "stt",
@@ -406,6 +406,7 @@
       "extension_targets": [
         "workflow_extension",
         "ui_panel_extension",
+        "output_extension",
         "assistant_tool_extension"
       ],
       "memory_policy": {
@@ -417,18 +418,108 @@
         ],
         "record_events": [
           "surface.opened",
+          "voice.workspace_app.opened",
           "voice.preview.prepared",
           "voice.render.completed",
-          "voice.profile.saved"
+          "voice.profile.saved",
+          "voice.common_settings.changed",
+          "voice.common_settings.reset",
+          "voice.provider_routing.refreshed",
+          "voice.backend_profile.changed",
+          "voice.generation.submitted",
+          "voice.generation.polled",
+          "voice.generation.completed_poll",
+          "voice.result.selected",
+          "voice.result.replayed_to_draft",
+          "voice.result.open_folder",
+          "voice.profile_asset.selected",
+          "voice.profile_asset.created",
+          "voice.profile_asset.updated",
+          "voice.profile_asset.applied",
+          "voice.profile_asset.deleted",
+          "voice.provider_control.changed",
+          "voice.finish.completed",
+          "voice.finish.split.completed",
+          "voice.finish.merge.completed",
+          "voice.finish.source.selected",
+          "voice.dialogue.parsed",
+          "voice.dialogue.mapping.changed",
+          "voice.dialogue.submitted",
+          "voice.dialogue.polled",
+          "voice.dialogue.completed",
+          "voice.batch.imported",
+          "voice.batch.run",
+          "voice.batch.polled",
+          "voice.batch.item.retried",
+          "voice.batch.completed"
         ]
       },
       "subtabs": [
         {
-          "subtab_id": "planned",
-          "display_name": "Planned",
-          "description": "Voice workflows are not active in this preview release.",
+          "subtab_id": "generation",
+          "display_name": "Generation",
+          "description": "Generate single-speaker TTS with durable VO-R4 job tracking, capability-gated Dialogue / Multi-speaker, or bounded VO-R11 Batch jobs through one selected Voice Backend Profile using current durable child runtimes and Neo-owned output persistence.",
           "slots": [
-            "voice.planned.placeholder"
+            "voice.generation.backend",
+            "voice.generation.script",
+            "voice.generation.selection",
+            "voice.generation.parameters",
+            "voice.generation.preview",
+            "voice.generation.run",
+            "voice.generation.outputs",
+            "voice.generation.dialogue",
+            "voice.generation.speaker_mapping",
+            "voice.generation.dialogue_run",
+            "voice.generation.batch"
+          ]
+        },
+        {
+          "subtab_id": "assets",
+          "display_name": "Assets",
+          "description": "Create, inspect, safely apply, update, and delete reusable VO-R7 Voice Profile Assets scoped to the selected backend while preserving portable cross-backend settings.",
+          "slots": [
+            "voice.assets.profile_assets",
+            "voice.assets.profile_inspector",
+            "voice.assets.compatibility",
+            "voice.assets.references"
+          ]
+        },
+        {
+          "subtab_id": "reference",
+          "display_name": "Reference",
+          "description": "Stage Neo-owned reference audio, confirm authorization, inspect QC, select reusable reference assets, and run capability-gated VO-R6 voice cloning through the active Voice profile.",
+          "slots": [
+            "voice.reference.upload",
+            "voice.reference.ledger",
+            "voice.reference.qc",
+            "voice.reference.capabilities",
+            "voice.reference.clone"
+          ]
+        },
+        {
+          "subtab_id": "finish",
+          "display_name": "Finish",
+          "description": "Post-process completed Neo-owned Voice results with capability-gated local normalize, silence trim, cleanup, loudness, WAV/MP3 conversion, split, merge, and non-destructive child-output lineage.",
+          "slots": [
+            "voice.finish.source",
+            "voice.finish.capabilities",
+            "voice.finish.process",
+            "voice.finish.split",
+            "voice.finish.merge",
+            "voice.finish.history",
+            "voice.finish.output_actions"
+          ]
+        },
+        {
+          "subtab_id": "results",
+          "display_name": "Results",
+          "description": "Review current TTS, reference-clone, Dialogue, Finish, and Batch-child audio jobs through the shared-registry ledger with playback, lineage, download/open-folder actions, and safe replay-to-draft.",
+          "slots": [
+            "voice.results.ledger",
+            "voice.results.playback",
+            "voice.results.inspector",
+            "voice.results.replay",
+            "voice.results.output_actions"
           ]
         }
       ]

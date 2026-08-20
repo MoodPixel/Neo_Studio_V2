@@ -24,6 +24,12 @@ from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_app.providers.comfy_workflows.vae_decode_utils import (
+    build_vae_decode_node,
+    build_vae_loader_node,
+    resolve_vae_decode_strategy,
+    vae_decode_profile_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,13 @@ def _int_param(params: dict[str, Any], *names: str, default: int = 0) -> int:
         return int(_param(params, *names, default=default) or 0)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _validate_numeric_range(validation: ProviderValidationResult, label: str, value: float | int, minimum: float | int, maximum: float | int) -> None:
+    if minimum <= value <= maximum:
+        return
+    validation.errors.append(f"{label} must be between {minimum} and {maximum}; received {value}.")
+    validation.ok = False
 
 
 def _image_name_value(value: Any) -> str:
@@ -261,6 +274,7 @@ def _compile_krea2_identity_edit(
     clip_device: str,
     conditioning: dict[str, Any],
     effective_prompt: str,
+    vae_decode_strategy: dict[str, Any],
 ) -> CompiledJob:
     source_name = _source_image_name_for_lane(params, 1)
     source_b_name = _source_image_name_for_lane(params, 2)
@@ -276,9 +290,16 @@ def _compile_krea2_identity_edit(
     ref_boost = float(_param(params, "krea2_identity_edit_ref_boost", "ref_boost", default=4.0))
     ref_boost_a = float(_param(params, "krea2_identity_edit_ref_boost_a", "ref_boost_a", default=1.0))
     fit_mode = normalize_krea2_identity_fit_mode(_param(params, "krea2_identity_edit_fit_mode", "fit_mode", default="fit"))
-    grounding_px = max(0, int(_param(params, "krea2_identity_edit_grounding_px", "grounding_px", default=768)))
+    grounding_px = int(_param(params, "krea2_identity_edit_grounding_px", "grounding_px", default=768))
     system_prompt = str(_param(params, "krea2_identity_edit_system_prompt", "grounding_system_prompt", default="") or "")
+    _validate_numeric_range(validation, "Krea 2 Identity Reference Boost", ref_boost, 0.0, 1000.0)
+    _validate_numeric_range(validation, "Krea 2 Scene Reference Boost", ref_boost_a, 0.0, 1000.0)
+    _validate_numeric_range(validation, "Krea 2 Grounding Resolution", grounding_px, 0, 4096)
     two_reference = bool(source_b_name)
+    if system_prompt:
+        system_prompt_warning = "Krea 2 Identity Edit is using an explicit Qwen3-VL grounding system-prompt override; leave this blank for the upstream training default unless targeted visual attention is intentional."
+        if system_prompt_warning not in validation.warnings:
+            validation.warnings.append(system_prompt_warning)
     if str(job.negative_prompt or "").strip():
         warning = "Krea 2 Identity Edit uses an empty image-grounded negative to match training; the user negative prompt is not applied in this engine."
         if warning not in validation.warnings:
@@ -295,7 +316,7 @@ def _compile_krea2_identity_edit(
     workflow: dict[str, Any] = {
         "1": model_node,
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder, "type": KREA2_DEFAULTS.clip_type, "device": clip_device}},
-        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "3": build_vae_loader_node(vae, vae_decode_strategy),
     }
     next_id = 6
     route_notes: list[str] = [
@@ -437,7 +458,7 @@ def _compile_krea2_identity_edit(
     }
     next_id += 1
     decode_id = str(next_id)
-    workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
+    workflow[decode_id] = build_vae_decode_node([sampler_id, 0], ["3", 0], vae_decode_strategy)
     output_ref: list[Any] = [decode_id, 0]
     next_id += 1
 
@@ -473,6 +494,8 @@ def _compile_krea2_identity_edit(
         "text_encoder_1": text_encoder,
         "text_encoder_2": "",
         "vae": vae,
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": "" if loader == "gguf" else model_name,
         "gguf_model": model_name if loader == "gguf" else "",
         "clip_type": KREA2_DEFAULTS.clip_type,
@@ -588,6 +611,7 @@ def _compile_krea2_identity_edit(
                 "SafeTensor and GGUF routes share the same edit graph after the base diffusion loader. GGUF does not quantize Qwen3-VL, VAE, or the Identity Edit LoRA.",
                 "Krea2EditModelPatch receives VAE latent source(s), the blur-proof pixel path, and the same EmptySD3LatentImage target used by KSampler so source VAE pre-encoding happens before sampling.",
                 "Krea2EditGroundedEncode is used for both positive instruction conditioning and an empty-prompt grounded negative, matching the training recipe.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 *route_notes,
             ],
             "prompt_conditioning": conditioning,
@@ -688,6 +712,14 @@ def compile_krea2_workflow(
     denoise = float(_param(params, "denoise", "strength", default=denoise_default))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
+    vae_decode_strategy = resolve_vae_decode_strategy(
+        params=params,
+        family=route.family or job.family or params.get("krea2_variant") or "krea2",
+        loader=loader,
+        mode=mode,
+        backend_capabilities=backend_capabilities,
+        validation=validation,
+    )
 
     conditioning_mode = normalize_prompt_conditioning_mode(params.get("prompt_conditioning_mode", params.get("clamp", "raw")))
     conditioning = condition_prompt_pair(job.prompt or "", job.negative_prompt or "", conditioning_mode)
@@ -748,6 +780,7 @@ def compile_krea2_workflow(
             clip_device=clip_device,
             conditioning=conditioning,
             effective_prompt=effective_prompt,
+            vae_decode_strategy=vae_decode_strategy,
         )
 
     workflow: dict[str, Any] = {
@@ -755,7 +788,7 @@ def compile_krea2_workflow(
         # Deliberately native for both model formats. Krea2 requires Comfy's
         # specialized 12-layer Qwen3-VL aggregation from CLIPLoader(type=krea2).
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder, "type": defaults.clip_type, "device": clip_device}},
-        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "3": build_vae_loader_node(vae, vae_decode_strategy),
         "4": {"class_type": "CLIPTextEncode", "inputs": {"text": effective_prompt, "clip": ["2", 0]}},
     }
     if turbo:
@@ -775,6 +808,8 @@ def compile_krea2_workflow(
         "text_encoder_1": text_encoder,
         "text_encoder_2": "",
         "vae": vae,
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": "" if is_gguf else model_name,
         "gguf_model": model_name if is_gguf else "",
         "clip_type": defaults.clip_type,
@@ -933,7 +968,7 @@ def compile_krea2_workflow(
     }
     next_id += 1
     decode_id = str(next_id)
-    workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
+    workflow[decode_id] = build_vae_decode_node([sampler_id, 0], ["3", 0], vae_decode_strategy)
     output_ref: list[Any] = [decode_id, 0]
     next_id += 1
 
@@ -1004,6 +1039,7 @@ def compile_krea2_workflow(
                 "RAW uses 52 steps / CFG 3.5 defaults and encodes the negative prompt normally.",
                 "M16 GGUF support quantizes the diffusion transformer only; the Qwen3-VL-4B encoder remains native to preserve Krea2's 12-layer conditioning stack.",
                 "img2img/inpaint/outpaint are Neo provider-owned latent adaptations and are marked experimental in the route matrix.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 *route_notes,
             ],
             "prompt_conditioning": conditioning,

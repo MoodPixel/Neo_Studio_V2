@@ -29,7 +29,7 @@ _ALLOWED_IMAGE_RESOLUTIONS = {"1k", "2k"}
 _ALLOWED_VIDEO_ASPECT_RATIOS = {"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"}
 _ALLOWED_VIDEO_RESOLUTIONS = {"480p", "720p", "1080p"}
 _IMAGE_MODES = {"txt2img", "generate", "img2img", "image_to_image", "multi_image_edit"}
-_VIDEO_MODES = {"txt2vid", "text_to_video", "img2vid", "image_to_video"}
+_VIDEO_MODES = {"txt2vid", "text_to_video", "img2vid", "image_to_video", "reference_to_video", "vid2vid", "video_edit", "extend", "video_extend"}
 _XAI_PENDING_VIDEO_STATUSES = {"pending", "queued", "running", "processing", "in_progress"}
 
 
@@ -199,7 +199,7 @@ class XaiGrokProvider(BaseProvider):
                     "parameter_profile": "grok_imagine_video_api",
                 },
                 "progress": {"percent": 5, "stage": "submitted", "label": "Submitted to Grok Video"},
-                "phase": "V25.9.20-P3-unified-workspace-routing",
+                "phase": "V25.9.20-P4-xai-video-creation-capability-hardening",
                 "provider_polling": True,
             }
             registry = get_generation_job_registry()
@@ -318,15 +318,21 @@ class XaiGrokProvider(BaseProvider):
         provider_status = str(raw.get("status") or "pending").strip().lower()
         if provider_status in _XAI_PENDING_VIDEO_STATUSES:
             previous_percent = _safe_int((record.get("progress") or {}).get("percent"), 10) if isinstance(record.get("progress"), dict) else 10
-            percent = min(90, max(15, previous_percent + 5))
-            progress = {"percent": percent, "stage": "generating", "label": "Grok Video is generating"}
+            raw_progress = raw.get("progress")
+            if isinstance(raw_progress, (int, float)) and not isinstance(raw_progress, bool):
+                percent = min(95, max(5, int(round(float(raw_progress)))))
+                progress_source = "xai"
+            else:
+                percent = min(90, max(15, previous_percent + 5))
+                progress_source = "neo_poll_estimate"
+            progress = {"percent": percent, "stage": "generating", "label": "Grok Video is generating", "source": progress_source}
             updated = registry.mark_running(
                 job_id,
                 surface="video",
                 message="Grok Video is still generating.",
-                runtime={"external_request_id": external_request_id, "provider_status": provider_status, "last_provider_response": _redact_large_media(raw)},
+                runtime={"external_request_id": external_request_id, "provider_status": provider_status, "provider_progress": raw_progress, "last_provider_response": _redact_large_media(raw)},
                 progress=progress,
-                poll_state={"provider_status": provider_status, "polled_at": _utc_now()},
+                poll_state={"provider_status": provider_status, "provider_progress": raw_progress, "polled_at": _utc_now()},
             )
             return ProviderRunResult(
                 job_id=job_id,
@@ -398,6 +404,9 @@ class XaiGrokProvider(BaseProvider):
                         "respect_moderation": video.get("respect_moderation"),
                         "external_request_id": external_request_id,
                         "result_id": result_id,
+                        "provider_model": raw.get("model") or xai_payload.get("model"),
+                        "provider_progress": raw.get("progress"),
+                        "usage": raw.get("usage") if isinstance(raw.get("usage"), dict) else {},
                     },
                 }
                 for item in (files or [{"filename": local_path.name, "url": ""}])
@@ -409,7 +418,10 @@ class XaiGrokProvider(BaseProvider):
                 "result_id": result_id,
                 "neo_persisted": persisted,
                 "provider_response": _redact_large_media(raw),
-                "progress": {"percent": 100, "stage": "completed", "label": "Grok Video saved to Neo"},
+                "provider_model": raw.get("model") or xai_payload.get("model"),
+                "provider_progress": raw.get("progress"),
+                "usage": raw.get("usage") if isinstance(raw.get("usage"), dict) else {},
+                "progress": {"percent": 100, "stage": "completed", "label": "Grok Video saved to Neo", "source": "xai" if raw.get("progress") is not None else "neo_completion"},
             }
             registry.mark_completed(
                 job_id,
@@ -458,9 +470,9 @@ class XaiGrokProvider(BaseProvider):
         if self.profile.get("enabled") is False:
             raise ValueError("Grok backend profile is disabled in Admin > Backends.")
         normalized = self._normalize_mode(job.mode, surface=surface)
-        allowed = {"txt2img", "img2img", "multi_image_edit"} if surface == "image" else {"txt2vid", "img2vid"}
+        allowed = {"txt2img", "img2img", "multi_image_edit"} if surface == "image" else {"txt2vid", "img2vid", "reference_to_video", "vid2vid", "extend"}
         if normalized not in allowed:
-            raise ValueError(f"Grok Imagine {surface.title()} does not support mode '{job.mode}' in P3.")
+            raise ValueError(f"Grok Imagine {surface.title()} does not support mode '{job.mode}' for the selected profile.")
         if not self.profile:
             raise ValueError(f"Grok backend profile is required. Select the seeded {surface.title()} Grok profile in Admin > Backends.")
         if str(self.profile.get("connection_type") or "").strip().lower() != "cloud_api":
@@ -480,7 +492,12 @@ class XaiGrokProvider(BaseProvider):
         surface = str(job.surface or self._profile_surface() or "image").strip().lower()
         normalized = self._normalize_mode(job.mode, surface=surface)
         if surface == "video":
-            path = str(defaults.get("generation_path") or "/videos/generations")
+            if normalized == "vid2vid":
+                path = str(defaults.get("edit_path") or "/videos/edits")
+            elif normalized == "extend":
+                path = str(defaults.get("extension_path") or "/videos/extensions")
+            else:
+                path = str(defaults.get("generation_path") or "/videos/generations")
         elif normalized == "txt2img":
             path = str(defaults.get("generation_path") or "/images/generations")
         else:
@@ -543,33 +560,126 @@ class XaiGrokProvider(BaseProvider):
         if not prompt:
             raise ValueError("Prompt is required for Grok Video requests.")
         mode = self._normalize_mode(job.mode, surface="video")
-        if mode not in {"txt2vid", "img2vid"}:
+        if mode not in {"txt2vid", "img2vid", "reference_to_video", "vid2vid", "extend"}:
             raise ValueError(f"Unsupported Grok Video mode: {job.mode}")
+        model_capability = self._video_model_capability(model)
+        allowed_modes = {str(item).strip() for item in (model_capability.get("modes") or []) if str(item or "").strip()}
+        if allowed_modes and mode not in allowed_modes:
+            raise ValueError(f"Grok Video model {model} does not support {mode}.")
 
-        duration = max(1, min(15, _safe_int(params.get("duration_seconds", params.get("duration", defaults.get("duration_seconds", 4))), 4)))
+        raw_duration = _safe_int(params.get("duration_seconds", params.get("duration", defaults.get("duration_seconds", 4))), 4)
+        mode_constraints = self.profile.get("mode_constraints") if isinstance(self.profile.get("mode_constraints"), dict) else {}
+        constraint = mode_constraints.get(mode) if isinstance(mode_constraints.get(mode), dict) else {}
+        duration_min = max(1, _safe_int(constraint.get("duration_min"), 2 if mode == "extend" else 1))
+        duration_max = max(duration_min, _safe_int(constraint.get("duration_max"), 10 if mode == "extend" else 15))
+        duration_max_by_mode = model_capability.get("duration_max_by_mode") if isinstance(model_capability.get("duration_max_by_mode"), dict) else {}
+        if mode in duration_max_by_mode:
+            duration_max = min(duration_max, max(duration_min, _safe_int(duration_max_by_mode.get(mode), duration_max)))
+        duration = max(duration_min, min(duration_max, raw_duration or (6 if mode == "extend" else 4)))
         aspect_ratio = str(params.get("aspect_ratio") or defaults.get("aspect_ratio") or "16:9").strip()
         if aspect_ratio not in _ALLOWED_VIDEO_ASPECT_RATIOS:
             aspect_ratio = "16:9"
         resolution = str(params.get("resolution") or defaults.get("resolution") or "720p").strip().lower()
         if resolution not in _ALLOWED_VIDEO_RESOLUTIONS:
             resolution = "720p"
-        if resolution == "1080p" and not (mode == "img2vid" and model == "grok-imagine-video-1.5"):
-            raise ValueError("1080p Grok Video requires model grok-imagine-video-1.5 in Image-to-Video mode.")
+        resolutions_by_mode = model_capability.get("resolutions_by_mode") if isinstance(model_capability.get("resolutions_by_mode"), dict) else {}
+        mode_resolutions = resolutions_by_mode.get(mode) if isinstance(resolutions_by_mode.get(mode), list) else model_capability.get("resolutions")
+        allowed_resolutions = {str(item).strip().lower() for item in (mode_resolutions or []) if str(item or "").strip()}
+        if mode in {"txt2vid", "img2vid", "reference_to_video"} and allowed_resolutions and resolution not in allowed_resolutions:
+            supported = ", ".join(sorted(allowed_resolutions, key=lambda item: _safe_int(item.rstrip("p"), 0)))
+            raise ValueError(f"Grok Video model {model} does not support {resolution}. Supported resolutions: {supported}.")
 
-        payload: dict[str, Any] = {
-            "model": model,
-            "prompt": prompt,
-            "duration": duration,
-            "aspect_ratio": aspect_ratio,
-            "resolution": resolution,
-        }
+        payload: dict[str, Any] = {"model": model, "prompt": prompt}
+        if mode in {"txt2vid", "img2vid", "reference_to_video"}:
+            payload.update({"duration": duration, "aspect_ratio": aspect_ratio, "resolution": resolution})
+        elif mode == "extend":
+            payload["duration"] = duration
+
         if mode == "img2vid":
-            image_records = self._image_input_records(params, max_images=1, include_type=False)
-            if not image_records:
+            image_value = str(params.get("source_image") or params.get("source_image_path") or params.get("init_image") or "").strip()
+            if not image_value:
                 raise ValueError("Grok Image-to-Video requires a source image.")
-            payload["image"] = image_records[0]["payload"]
-            payload["_neo_source_images"] = [image_records[0]["metadata"]]
+            image_payload, image_meta = self._media_input_record(
+                image_value,
+                media_kind="image",
+                name=params.get("source_image_name"),
+            )
+            payload["image"] = image_payload
+            payload["_neo_source_images"] = [image_meta]
+        elif mode == "reference_to_video":
+            reference_records = self._reference_image_records(params, max_images=7)
+            if not reference_records:
+                raise ValueError("Grok Reference-to-Video requires at least one reference image.")
+            payload["reference_images"] = [record["payload"] for record in reference_records]
+            payload["_neo_reference_images"] = [record["metadata"] for record in reference_records]
+        elif mode in {"vid2vid", "extend"}:
+            video_value = str(params.get("source_video") or params.get("source_video_path") or params.get("video") or "").strip()
+            if not video_value:
+                raise ValueError("Grok Video Editing/Extension requires a source video.")
+            video_payload, video_meta = self._media_input_record(video_value, media_kind="video", name=params.get("source_video_name"))
+            payload["video"] = video_payload
+            payload["_neo_source_videos"] = [video_meta]
         return payload
+
+    def _reference_image_records(self, params: dict[str, Any], *, max_images: int = 7) -> list[dict[str, Any]]:
+        raw = params.get("reference_images") if isinstance(params.get("reference_images"), list) else []
+        usable: list[Any] = []
+        for item in raw:
+            if isinstance(item, dict):
+                value = str(item.get("path") or item.get("ref") or item.get("url") or item.get("file_id") or "").strip()
+            else:
+                value = str(item or "").strip()
+            if value:
+                usable.append(item)
+        if len(usable) > max_images:
+            raise ValueError(f"Grok Reference-to-Video accepts at most {max_images} reference images; received {len(usable)}.")
+        records: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, item in enumerate(usable, start=1):
+            if isinstance(item, dict):
+                value = str(item.get("path") or item.get("ref") or item.get("url") or item.get("file_id") or "").strip()
+                name = item.get("name") or item.get("filename")
+            else:
+                value = str(item or "").strip()
+                name = ""
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            media_payload, metadata = self._media_input_record(value, media_kind="image", name=name, lane=index)
+            records.append({"payload": media_payload, "metadata": metadata})
+        return records
+
+    def _media_input_record(self, value: str, *, media_kind: str, name: Any = None, lane: int = 1) -> tuple[dict[str, Any], dict[str, Any]]:
+        clean = str(value or "").strip()
+        replay_ref = clean
+        if clean.startswith(("http://", "https://", "data:")):
+            payload = {"url": clean}
+            input_kind = "data_uri" if clean.startswith("data:") else "url"
+            if input_kind == "data_uri":
+                replay_ref = "inline_data_uri"
+        else:
+            path = Path(clean).expanduser()
+            if path.exists() and path.is_file():
+                if media_kind == "video" and path.suffix.lower() != ".mp4":
+                    raise ValueError("Grok Video Editing/Extension requires an MP4 source video.")
+                mime = mimetypes.guess_type(path.name)[0] or ("video/mp4" if media_kind == "video" else "image/png")
+                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                payload = {"url": f"data:{mime};base64,{encoded}"}
+                input_kind = "data_uri"
+                # Preserve the Neo-owned file path for replay/lineage while keeping
+                # the large base64 body out of metadata and diagnostic payloads.
+                replay_ref = clean
+            elif "/" not in clean and "\\" not in clean:
+                payload = {"file_id": clean}
+                input_kind = "file_id"
+            else:
+                raise ValueError(f"Source {media_kind} not found: {clean}")
+        metadata = {
+            "lane": lane, "name": str(name or Path(clean).name or f"{media_kind}_{lane}").strip(),
+            "role": "reference" if media_kind == "image" else "source_video",
+            "input_kind": input_kind, "ref": replay_ref,
+        }
+        return payload, metadata
 
     def _image_input_records(self, params: dict[str, Any], *, max_images: int = 3, include_type: bool = True) -> list[dict[str, Any]]:
         candidates = [
@@ -660,7 +770,7 @@ class XaiGrokProvider(BaseProvider):
     def _download_video_output(self, video_url: str, *, result_id: str, mode: str) -> Path:
         from neo_app.video.output_paths import get_video_output_paths, sanitize_path_part
 
-        category = "img2vid" if mode == "img2vid" else "txt2vid"
+        category = {"img2vid": "img2vid", "reference_to_video": "reference_to_video", "vid2vid": "vid2vid", "extend": "extend"}.get(mode, "txt2vid")
         output_dir = get_video_output_paths(category, create=True).output_dir
         parsed_suffix = Path(urlparse(video_url).path).suffix.lower()
         suffix = parsed_suffix if parsed_suffix in {".mp4", ".webm", ".mov", ".mkv"} else ".mp4"
@@ -726,6 +836,8 @@ class XaiGrokProvider(BaseProvider):
 
         profile_id = self._profile_id(job)
         source_images = xai_payload.get("_neo_source_images") if isinstance(xai_payload.get("_neo_source_images"), list) else []
+        reference_images = xai_payload.get("_neo_reference_images") if isinstance(xai_payload.get("_neo_reference_images"), list) else []
+        source_videos = xai_payload.get("_neo_source_videos") if isinstance(xai_payload.get("_neo_source_videos"), list) else []
         request_payload = {
             "profile_id": profile_id,
             "route_id": f"xai_grok.api_model.{mode}",
@@ -736,6 +848,11 @@ class XaiGrokProvider(BaseProvider):
             "negative_prompt": "",
             "source_image": (job.params or {}).get("source_image") or "",
             "source_image_name": (job.params or {}).get("source_image_name") or "",
+            "source_video": (job.params or {}).get("source_video") or (job.params or {}).get("source_video_path") or "",
+            "source_video_name": (job.params or {}).get("source_video_name") or "",
+            "reference_images": (job.params or {}).get("reference_images") or [],
+            "source_result_id": (job.params or {}).get("source_result_id") or "",
+            "parent_result_id": (job.params or {}).get("source_result_id") or "",
         }
         result_payload = {
             "ok": True,
@@ -747,6 +864,11 @@ class XaiGrokProvider(BaseProvider):
                 "source_image": (job.params or {}).get("source_image") or "",
                 "source_image_name": (job.params or {}).get("source_image_name") or "",
                 "source_images": source_images,
+                "reference_images": reference_images,
+                "source_videos": source_videos,
+                "source_video": (job.params or {}).get("source_video") or (job.params or {}).get("source_video_path") or "",
+                "source_video_name": (job.params or {}).get("source_video_name") or "",
+                "source_result_id": (job.params or {}).get("source_result_id") or "",
             },
             "backend": {
                 "profile": {"profile_id": profile_id, "provider_id": "xai_grok"},
@@ -762,6 +884,9 @@ class XaiGrokProvider(BaseProvider):
                 "external_request_id": external_request_id,
                 "duration": provider_response["video"].get("duration"),
                 "respect_moderation": provider_response["video"].get("respect_moderation"),
+                "provider_model": provider_response.get("model") or xai_payload.get("model"),
+                "provider_progress": provider_response.get("progress"),
+                "usage": provider_response.get("usage") if isinstance(provider_response.get("usage"), dict) else {},
             }
         return register_video_generation_result(result_payload, request_payload)
 
@@ -831,6 +956,8 @@ class XaiGrokProvider(BaseProvider):
 
     def _video_actual_params(self, job: NeoJob, xai_payload: dict[str, Any]) -> dict[str, Any]:
         source_images = xai_payload.get("_neo_source_images") if isinstance(xai_payload.get("_neo_source_images"), list) else []
+        reference_images = xai_payload.get("_neo_reference_images") if isinstance(xai_payload.get("_neo_reference_images"), list) else []
+        source_videos = xai_payload.get("_neo_source_videos") if isinstance(xai_payload.get("_neo_source_videos"), list) else []
         return {
             "provider_id": "xai_grok",
             "profile_id": self._profile_id(job),
@@ -840,8 +967,13 @@ class XaiGrokProvider(BaseProvider):
             "duration_seconds": xai_payload.get("duration"),
             "aspect_ratio": xai_payload.get("aspect_ratio"),
             "resolution": xai_payload.get("resolution"),
+            "model_capability": self._video_model_capability(str(xai_payload.get("model") or "")),
             "source_image_count": len(source_images),
             "source_images": source_images,
+            "reference_image_count": len(reference_images),
+            "reference_images": reference_images,
+            "source_video_count": len(source_videos),
+            "source_videos": source_videos,
             "unsupported_inline_controls": [
                 key for key in ("negative_prompt", "steps", "guidance", "cfg", "sampler", "scheduler", "seed", "frames", "fps", "vae", "text_encoder", "vram_profile", "performance_profile")
                 if key in (job.params or {})
@@ -854,6 +986,46 @@ class XaiGrokProvider(BaseProvider):
             "provider_neutral_allowed": ["wildcards", "style_stack", "prompt_extensions"],
             "inline_blocked_for_cloud_api": ["adetailer", "highres_lab", "controlnet", "ip_adapter", "lora_stack", "regional_conditioning"],
             "request_extensions": extensions,
+        }
+
+    def _video_model_capability(self, model: str) -> dict[str, Any]:
+        model_id = str(model or "").strip()
+        model_block = self.profile.get("model") if isinstance(self.profile.get("model"), dict) else {}
+        matrix = model_block.get("capabilities_by_model") if isinstance(model_block.get("capabilities_by_model"), dict) else {}
+        configured = matrix.get(model_id) if isinstance(matrix.get(model_id), dict) else None
+        if configured is not None:
+            resolutions_by_mode = configured.get("resolutions_by_mode") if isinstance(configured.get("resolutions_by_mode"), dict) else {}
+            duration_max_by_mode = configured.get("duration_max_by_mode") if isinstance(configured.get("duration_max_by_mode"), dict) else {}
+            return {
+                "modes": [str(item) for item in (configured.get("modes") or []) if str(item or "").strip()],
+                "resolutions": [str(item).lower() for item in (configured.get("resolutions") or []) if str(item or "").strip()],
+                "resolutions_by_mode": {
+                    str(mode): [str(item).lower() for item in values if str(item or "").strip()]
+                    for mode, values in resolutions_by_mode.items() if isinstance(values, list)
+                },
+                "duration_max_by_mode": {
+                    str(mode): _safe_int(value, 15) for mode, value in duration_max_by_mode.items()
+                },
+            }
+        # Conservative fallback for old/custom profiles that predate the model matrix.
+        # Current xAI docs expose 1.5 for Image-to-Video only; Text/Reference/Edit/
+        # Extension remain documented against the base grok-imagine-video model.
+        if model_id == "grok-imagine-video-1.5":
+            return {
+                "modes": ["img2vid"],
+                "resolutions": ["480p", "720p", "1080p"],
+                "resolutions_by_mode": {"img2vid": ["480p", "720p", "1080p"]},
+                "duration_max_by_mode": {"img2vid": 15},
+            }
+        return {
+            "modes": ["txt2vid", "img2vid", "reference_to_video", "vid2vid", "extend"],
+            "resolutions": ["480p", "720p"],
+            "resolutions_by_mode": {
+                "txt2vid": ["480p", "720p"],
+                "img2vid": ["480p", "720p"],
+                "reference_to_video": ["480p", "720p"],
+            },
+            "duration_max_by_mode": {"txt2vid": 15, "img2vid": 15, "reference_to_video": 10},
         }
 
     def _defaults(self) -> dict[str, Any]:
@@ -875,6 +1047,12 @@ class XaiGrokProvider(BaseProvider):
                 return "txt2vid"
             if clean in {"img2vid", "image_to_video", "image-to-video", "i2v"}:
                 return "img2vid"
+            if clean in {"reference_to_video", "reference-to-video", "reference2video", "ref2vid", "r2v", "omni_reference"}:
+                return "reference_to_video"
+            if clean in {"vid2vid", "video_edit", "video-edit", "video_editing", "edit_video"}:
+                return "vid2vid"
+            if clean in {"extend", "video_extend", "video-extension", "video_extension", "extend_video"}:
+                return "extend"
             return clean
         if clean in {"generate", "txt2img"}:
             return "txt2img"
@@ -933,6 +1111,10 @@ def _redact_large_media(payload: dict[str, Any]) -> dict[str, Any]:
         redacted["image"] = scrub_image(redacted["image"])
     if isinstance(redacted.get("images"), list):
         redacted["images"] = [scrub_image(item) for item in redacted["images"]]
+    if isinstance(redacted.get("reference_images"), list):
+        redacted["reference_images"] = [scrub_image(item) for item in redacted["reference_images"]]
+    if isinstance(redacted.get("video"), dict) and str(redacted["video"].get("url") or "").startswith("data:"):
+        redacted["video"] = {**redacted["video"], "url": "data:video/*;base64,<redacted>"}
     return redacted
 
 

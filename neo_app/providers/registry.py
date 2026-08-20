@@ -6,6 +6,7 @@ from typing import Any
 import json
 
 from neo_app.providers.comfy_provider import ComfyProvider
+from neo_app.providers.comfy_llamacpp_provider import ComfyLlamaCppProvider
 from neo_app.providers.mock_provider import MockProvider
 from neo_app.providers.forge_neo_provider import ForgeNeoProvider
 from neo_app.providers.xai_grok_provider import XaiGrokProvider
@@ -33,6 +34,8 @@ def list_providers() -> list[ProviderManifest]:
 def build_provider(manifest: ProviderManifest, *, profile: dict[str, Any] | None = None):
     if manifest.provider_id in {"comfyui", "comfyui_portable"}:
         return ComfyProvider(manifest)
+    if manifest.provider_id == "comfy_llamacpp":
+        return ComfyLlamaCppProvider(manifest)
     if manifest.provider_id == "forge":
         return ForgeNeoProvider(manifest, profile=profile)
     if manifest.provider_id == "xai_grok":

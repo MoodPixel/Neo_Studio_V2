@@ -44,6 +44,7 @@ class VideoRoute:
 VIDEO_MODEL_FAMILIES: Final[tuple[VideoRouteOption, ...]] = (
     VideoRouteOption("wan22", "WAN 2.2", "active", "Primary low/mid-VRAM foundation route for the first video compiler.", ("wan", "wan2.2", "wan_2_2")),
     VideoRouteOption("ltx23", "LTX 2.3", "active", "Advanced cinematic route with GGUF/safetensors and future audio/multiscene support.", ("ltx", "ltx2.3", "ltx_2_3")),
+    VideoRouteOption("minimax_h3", "MiniMax H3", "active", "Omni-modal local video+stereo-audio route with keyframe and multimodal reference generation.", ("minimax", "h3", "minimaxh3", "minimax_h3_base")),
     VideoRouteOption("hunyuan_video", "HunyuanVideo", "future", "Registry slot only; not selectable until a route contract exists."),
     VideoRouteOption("mochi", "Mochi", "future", "Registry slot only; not selectable until a route contract exists."),
     VideoRouteOption("cogvideox", "CogVideoX", "future", "Registry slot only; not selectable until a route contract exists."),
@@ -69,10 +70,61 @@ VIDEO_GENERATION_TYPES: Final[tuple[VideoRouteOption, ...]] = (
     VideoRouteOption("depth_motion", "Depth / Motion Control", "active", "Controlled video generation using depth or motion preprocessors.", ("depth_control", "motion_control", "control_video")),
     VideoRouteOption("prompt_schedule", "Prompt / Motion Schedule", "active", "Timeline-style prompt and motion beats for LTX scheduled generation.", ("prompt_scheduling", "motion_schedule", "schedule", "scheduled")),
     VideoRouteOption("audio_video", "Audio-Video", "active", "LTX audio-video generation with audio prompt, dialogue, soundscape, and sync metadata.", ("audio", "audio_visual", "audiovideo")),
+    VideoRouteOption("reference_to_video", "Omni Reference", "active", "MiniMax H3 semantic reference generation using images, videos, and audio.", ("reference", "ref2va", "r2v", "omni_reference", "reference_video")),
 )
 
 # Enabled means visible/selectable in Neo Studio V2. Planned means known but guarded for a future compiler update.
 VIDEO_ROUTES: Final[tuple[VideoRoute, ...]] = (
+    # MiniMax H3 native ComfyUI foundation. H3 generates a packed video+audio latent and
+    # uses the FL2VA model for text/keyframe lanes and the Ref2VA model for semantic references.
+    VideoRoute(
+        "minimax_h3.unet.txt2vid", "minimax_h3", "unet", "txt2vid", "enabled", "H3-R1", True,
+        ("Native H3 T2VA using the FL2VA checkpoint with no keyframe connected.", "Generates native stereo audio together with video."),
+        {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_ref_image_size": "match", "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.unet.img2vid", "minimax_h3", "unet", "img2vid", "enabled", "H3-R1", False,
+        ("Native H3 single-keyframe I2VA/L2VA lane.", "The keyframe can be assigned as either the first or last frame."),
+        {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "source_image_required": True, "h3_keyframe_role": "first", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.unet.first_last_frame", "minimax_h3", "unet", "first_last_frame", "enabled", "H3-R1", False,
+        ("Native H3 FL2VA lane with explicit first and last keyframes.",),
+        {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "first_image_required": True, "last_image_required": True, "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UNETLoader", "CLIPLoader", "VAELoader", "LoadImage", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.unet.reference_to_video", "minimax_h3", "unet", "reference_to_video", "enabled", "H3-R1", False,
+        ("Native H3 Ref2VA lane with semantic image/video/audio references.", "Reference prompts use <Picture i>, <Video i>, and <Audio i> tags."),
+        {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_ref_image_size": "match", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard", "reference_input": {"schema_version": "neo.video.reference_input_contract.v1", "supported": True, "media_types": ["image", "video", "audio"], "max_images": 9, "max_videos": 3, "max_audios": 3, "max_total": 12, "min_total": 1, "audio_requires_visual_reference": True, "prompt_reference_style": "<Picture i>, <Video i>, <Audio i>"}},
+        ("UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.gguf.txt2vid", "minimax_h3", "gguf", "txt2vid", "experimental", "H3-R1", False,
+        ("Experimental low-VRAM H3 T2VA through ComfyUI-GGUF-compatible loaders.",),
+        {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.gguf.img2vid", "minimax_h3", "gguf", "img2vid", "experimental", "H3-R1", False,
+        ("Experimental GGUF H3 single-keyframe I2VA/L2VA lane.",),
+        {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "source_image_required": True, "h3_keyframe_role": "first", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "LoadImage", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.gguf.first_last_frame", "minimax_h3", "gguf", "first_last_frame", "experimental", "H3-R1", False,
+        ("Experimental GGUF H3 FL2VA lane.",),
+        {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "first_image_required": True, "last_image_required": True, "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
+        ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "LoadImage", "MiniMaxH3ImageToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.gguf.reference_to_video", "minimax_h3", "gguf", "reference_to_video", "experimental", "H3-R1", False,
+        ("Experimental GGUF H3 Ref2VA lane with multimodal semantic references.",),
+        {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_ref_image_size": "match", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard", "reference_input": {"schema_version": "neo.video.reference_input_contract.v1", "supported": True, "media_types": ["image", "video", "audio"], "max_images": 9, "max_videos": 3, "max_audios": 3, "max_total": 12, "min_total": 1, "audio_requires_visual_reference": True, "prompt_reference_style": "<Picture i>, <Video i>, <Audio i>"}},
+        ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
     VideoRoute(
         "wan22.unet.txt2vid",
         "wan22",
@@ -629,7 +681,7 @@ def loader_options_for_family(family: str | None) -> tuple[VideoRouteOption, ...
     nf = normalize_video_family(family)
     loader_ids = []
     for route in VIDEO_ROUTES:
-        if route.family == nf and route.generation_type in {"txt2vid", "img2vid", "first_last_frame", "multiscene", "extend", "vid2vid", "depth_motion", "prompt_schedule", "audio_video"} and route.status in VIDEO_ROUTE_VISIBLE_STATUSES and route.loader not in loader_ids:
+        if route.family == nf and route.generation_type in {"txt2vid", "img2vid", "first_last_frame", "multiscene", "extend", "vid2vid", "depth_motion", "prompt_schedule", "audio_video", "reference_to_video"} and route.status in VIDEO_ROUTE_VISIBLE_STATUSES and route.loader not in loader_ids:
             loader_ids.append(route.loader)
     return tuple(option for option in VIDEO_LOADERS if option.id in loader_ids)
 

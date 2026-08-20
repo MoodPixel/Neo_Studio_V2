@@ -15,9 +15,14 @@ from pathlib import Path
 
 from neo_app.providers.profiles import get_backend_profile_for_live_task, get_backend_profile_payload
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
+from neo_app.services.comfy_gpu_lifecycle import comfy_gpu_lifecycle_status
 from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
 
-from .providers_koboldcpp import run_chat
+from .provider_chat import run_chat
+from .providers_comfy_llamacpp import (
+    finish_comfy_llamacpp_batch_session,
+    start_comfy_llamacpp_batch_session,
+)
 from .caption_profiles import compile_caption_task_contract, caption_sampling_params
 from .prompt_profiles import compile_prompt_task_contract
 from .storage import (
@@ -1011,7 +1016,13 @@ def backend_execution_status() -> dict[str, Any]:
             "text_gate": profile_gate(profile, require="text")[1] if not profile_gate(profile, require="text")[0] else "",
             "caption_gate": profile_gate(profile, require="caption")[1] if not profile_gate(profile, require="caption")[0] else "",
         })
-    return {"ok": True, "profiles": records, "count": len(records), "defaults": backend_payload.get("defaults") or {}}
+    return {
+        "ok": True,
+        "profiles": records,
+        "count": len(records),
+        "defaults": backend_payload.get("defaults") or {},
+        "comfy_gpu_lifecycle": comfy_gpu_lifecycle_status(),
+    }
 
 
 def save_prompt(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1301,7 +1312,14 @@ def run_caption_tool(payload: dict[str, Any], *, task_profile: dict[str, Any] | 
         error_payload = _provider_error_payload(result, "Caption generation failed.", operation="caption", profile=profile)
         summary = _pc_runtime_summary("caption", clean_payload, result={**result, **error_payload, "ok": False})
         _pc_log_error("Caption generation failed.", run_id=run_id, payload=summary)
-        return {"ok": False, **error_payload, "payload": clean_payload, "provider": profile.get("provider_id")}
+        return {
+            "ok": False,
+            **error_payload,
+            "payload": clean_payload,
+            "provider": profile.get("provider_id"),
+            "batch_session_fatal": bool(result.get("batch_session_fatal")),
+            "runtime": result.get("runtime") if isinstance(result.get("runtime"), dict) else {},
+        }
     source_image = str(asset_check.get("path") or image_path)
     route = normalize_route(
         provider_id=str(profile.get("provider_id") or ""),
@@ -1451,6 +1469,18 @@ def _batch_job_get(job_key: str) -> dict[str, Any]:
     with CAPTION_BATCH_JOB_LOCK:
         return dict(CAPTION_BATCH_JOBS.get(job_key) or {})
 
+def _batch_cancel_requested(job_key: str) -> bool:
+    return bool(_batch_job_get(job_key).get("cancel_requested"))
+
+def _batch_session_snapshot(session: Any) -> dict[str, Any]:
+    if session is None or not hasattr(session, "snapshot"):
+        return {}
+    try:
+        value = session.snapshot()
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
 def _normalize_batch_workflow_mode(value: object) -> str:
     text = str(value or "dataset").strip().lower().replace("-", "_").replace(" ", "_")
     if text in {"library", "save_to_library", "save_library"}:
@@ -1564,7 +1594,7 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
     inputs, params, dataset, library = _batch_inputs(payload)
     workflow = _normalize_batch_workflow_mode(inputs.get('workflow_mode') or 'dataset')
     caption_mode = (params.get('caption_settings') or {}).get('caption_mode') or params.get('caption_mode') or ''
-    _batch_job_update(job_id, status='running', message='Batch running.', log=['Batch started.', 'Batch running.'])
+    _batch_job_update(job_id, status='running', message='Batch running.', log=['Batch started.', 'Batch running.'], cancel_requested=False)
     if caption_mode == 'custom_crop':
         _batch_job_update(job_id, status='failed', message='Batch captioning does not support Custom crop mode.', errors=['Batch captioning does not support Custom crop mode.'], error_count=1, log=['Batch failed: custom crop is not supported.'])
         return
@@ -1573,27 +1603,105 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
     if not images:
         _batch_job_update(job_id, status='failed', message='No supported images found for batch captioning.', total_items=0, processed=0, saved=0, skipped=0, errors=['No supported images found for batch captioning.'], error_count=1, log=['Batch failed: no supported images found.'])
         return
-    _batch_job_update(job_id, total_items=total, current_index=0, processed=0, saved=0, skipped=0, error_count=0, errors=[], results=[], progress_percent=0)
+
     results: list[dict[str, Any]] = []
     errors: list[str] = []
     log_rows: list[dict[str, Any]] = []
     log_lines: list[str] = ['Batch started.', f'Found {total} image(s).']
     saved = 0
     skipped = 0
+    processed = 0
     log_path = ''
+    cancelled = False
+    session = None
+    session_release: dict[str, Any] = {}
+    session_terminal_state = 'completed'
+    provider_id = str((task_profile or {}).get('provider_id') or '').strip()
+    dataset_caption_images = bool(dataset.get('caption_images', True))
+    use_comfy_batch_session = provider_id == 'comfy_llamacpp' and (workflow == 'library' or dataset_caption_images)
+
+    _batch_job_update(
+        job_id,
+        total_items=total,
+        current_index=0,
+        processed=0,
+        saved=0,
+        skipped=0,
+        error_count=0,
+        errors=[],
+        results=[],
+        progress_percent=0,
+        batch_session={
+            'schema_id': 'neo.prompt_captioning.comfy_batch_session.v1',
+            'enabled': use_comfy_batch_session,
+            'active': False,
+            'model_retained': False,
+            'processed': 0,
+            'total_items': total,
+        } if use_comfy_batch_session else {},
+    )
+
+    def update_progress(*, message: str = '', current_index: int | None = None, current_file: str | None = None) -> None:
+        nonlocal processed
+        percent = round((processed / total) * 100, 2) if total else 0
+        updates: dict[str, Any] = {
+            'processed': processed,
+            'saved': saved,
+            'skipped': skipped,
+            'errors': list(errors),
+            'error_count': len(errors),
+            'results': list(results),
+            'progress_percent': percent,
+            'log': log_lines[-100:],
+        }
+        if message:
+            updates['message'] = message
+        if current_index is not None:
+            updates['current_index'] = current_index
+        if current_file is not None:
+            updates['current_file'] = current_file
+        if session is not None:
+            updates['batch_session'] = _batch_session_snapshot(session)
+        _batch_job_update(job_id, **updates)
+
+    def should_cancel_before_next_item() -> bool:
+        nonlocal cancelled, session_terminal_state
+        if not _batch_cancel_requested(job_id):
+            return False
+        cancelled = True
+        session_terminal_state = 'cancelled'
+        log_lines.append('Cancel requested. Batch stopped before the next image.')
+        return True
+
     try:
+        if use_comfy_batch_session:
+            session = start_comfy_llamacpp_batch_session(task_profile or {}, batch_id=job_id, total_items=total)
+            log_lines.append('Comfy VLM batch session started; the model will be retained between caption items.')
+            _batch_job_update(
+                job_id,
+                message='Batch running · Comfy VLM session retained.',
+                batch_session=_batch_session_snapshot(session),
+                log=log_lines[-100:],
+            )
+
         if workflow == 'library':
             base = str(library.get('base_name') or 'caption')
             category = str(library.get('new_category') or library.get('category') or 'Uncategorized').strip() or 'Uncategorized'
             storage_save_category({'label': category, 'used_by': ['caption', 'batch']})
             start_no = int(library.get('number_start') or 1)
             for idx, image_path in enumerate(images, start=1):
-                _batch_job_update(job_id, current_index=idx, current_file=str(image_path), message=f'Processing {idx} / {total}', log=log_lines[-100:])
+                if should_cancel_before_next_item():
+                    break
+                if session is not None:
+                    session.item_start(idx, str(image_path))
+                update_progress(message=f'Processing {idx} / {total}', current_index=idx, current_file=str(image_path))
                 caption, result = _caption_for_batch_image(image_path, payload, True, task_profile=task_profile)
                 if not caption:
                     err = '; '.join(result.get('errors') or [result.get('error') or 'Caption failed'])
                     errors.append(f'{image_path.name}: {err}')
                     log_lines.append(f'Error {image_path.name}: {err}')
+                    if result.get('batch_session_fatal'):
+                        raise RuntimeError(err)
                 else:
                     record = save_caption_record({'name': f'{base}_{start_no + idx - 1}', 'category': category, 'caption': caption, 'source_image': str(image_path), 'source_image_url': '', 'settings': {'params': params, 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}}, 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}, 'origin': 'batch_captioning', 'metadata': {'batch_id': job_id, 'workflow_mode': workflow, 'source_file': str(image_path), 'profile': payload.get('profile') if isinstance(payload.get('profile'), dict) else {}}})
                     row = {'file': str(image_path), 'image': str(image_path), 'caption': caption, 'status': 'saved_to_library', 'record': record.get('record')}
@@ -1602,29 +1710,29 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
                     saved += 1
                     log_lines.append(f'Saved {image_path.name} to library.')
                 processed = idx
-                _batch_job_update(job_id, processed=processed, saved=saved, skipped=skipped, errors=list(errors), error_count=len(errors), results=list(results), progress_percent=round((processed / total) * 100, 2), log=log_lines[-100:])
+                update_progress(current_index=idx, current_file=str(image_path))
         else:
             output_folder = str(dataset.get('output_folder') or '').strip()
             if not output_folder:
-                _batch_job_update(job_id, status='failed', message='Dataset Preparation requires an output folder.', errors=['Dataset Preparation requires an output folder.'], error_count=1, log=['Batch failed: missing output folder.'])
-                return
+                raise RuntimeError('Dataset Preparation requires an output folder.')
             safety = batch_dataset_safety(dataset)
             if not safety.get('ok'):
-                _batch_job_update(job_id, status='failed', message='; '.join(safety.get('errors') or ['Batch safety confirmation is required.']), errors=list(safety.get('errors') or []), error_count=len(safety.get('errors') or []), log=['Batch failed: safety confirmation required.'])
-                return
+                raise RuntimeError('; '.join(safety.get('errors') or ['Batch safety confirmation is required.']))
             out_dir = Path(output_folder).expanduser(); out_dir.mkdir(parents=True, exist_ok=True)
             prefix = str(dataset.get('prefix') or 'character')
             pattern = str(dataset.get('pattern') or '{prefix}_{num}')
             number = int(dataset.get('number_start') or 1)
             padding = int(dataset.get('number_padding') or 4)
-            caption_images = bool(dataset.get('caption_images', True))
+            caption_images = dataset_caption_images
             save_txt = bool(dataset.get('save_txt', True))
             rename = bool(dataset.get('rename_images', True))
             transfer = normalize_transfer_mode(dataset.get('transfer_mode') or 'copy')
             skip = bool(dataset.get('skip_processed', True))
             overwrite = bool(dataset.get('overwrite_existing', False))
             for idx, image_path in enumerate(images, start=1):
-                _batch_job_update(job_id, current_index=idx, current_file=str(image_path), message=f'Processing {idx} / {total}', log=log_lines[-100:])
+                if should_cancel_before_next_item():
+                    break
+                update_progress(message=f'Processing {idx} / {total}', current_index=idx, current_file=str(image_path))
                 stem = _dataset_name(pattern, prefix, number + idx - 1, padding, image_path) if rename else image_path.stem
                 dest_img = out_dir / f'{stem}{image_path.suffix.lower()}'
                 dest_txt = out_dir / f'{stem}.txt'
@@ -1637,11 +1745,15 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
                     errors.append(err)
                     log_lines.append(f'Error {err}')
                 else:
+                    if caption_images and session is not None:
+                        session.item_start(idx, str(image_path))
                     caption, result = _caption_for_batch_image(image_path, payload, caption_images, task_profile=task_profile)
                     if caption_images and not caption:
                         err = '; '.join(result.get('errors') or [result.get('error') or 'Caption failed'])
                         errors.append(f'{image_path.name}: {err}')
                         log_lines.append(f'Error {image_path.name}: {err}')
+                        if result.get('batch_session_fatal'):
+                            raise RuntimeError(err)
                     else:
                         if transfer == 'move':
                             shutil.move(str(image_path), str(dest_img))
@@ -1655,19 +1767,77 @@ def _caption_batch_worker(job_id: str, payload: dict[str, Any], *, task_profile:
                         saved += 1
                         log_lines.append(f'Wrote {dest_img.name}.')
                 processed = idx
-                _batch_job_update(job_id, processed=processed, saved=saved, skipped=skipped, errors=list(errors), error_count=len(errors), results=list(results), progress_percent=round((processed / total) * 100, 2), log=log_lines[-100:])
+                update_progress(current_index=idx, current_file=str(image_path))
             log_path = _write_batch_log(out_dir, log_rows, str(dataset.get('log_format') or 'csv'))
-        final_status = 'completed' if not errors else 'completed_with_errors'
-        batch = append_caption_batch_result({'batch_id': job_id, 'workflow_mode': workflow, 'count': total, 'completed': len(results), 'saved': saved, 'skipped': skipped, 'errors': errors, 'results': results, 'payload': payload, 'log_path': log_path, 'status': final_status})
-        log_lines.append('Batch completed.' if not errors else 'Batch completed with issues.')
-        final_job = _batch_job_update(job_id, ok=not errors, status=final_status, message='Batch completed.' if not errors else 'Batch completed with issues.', batch=batch, records=list_caption_batch_results().get('records', []), categories=storage_list_categories().get('categories', []), log=log_lines[-100:], current_index=total, processed=total, saved=saved, skipped=skipped, errors=list(errors), error_count=len(errors), results=list(results), progress_percent=100)
-        _pc_log_event("batch_caption.completed", run_id=job_id, level="INFO" if not errors else "WARNING", payload=_pc_runtime_summary("batch_caption", payload, result=final_job, extra={"saved": saved, "skipped": skipped, "error_count": len(errors), "log_path": log_path}), snapshot_name="neo_last_caption_payload")
+
+        if cancelled:
+            final_status = 'cancelled'
+            final_message = 'Batch cancelled after the current image completed.'
+        else:
+            final_status = 'completed' if not errors else 'completed_with_errors'
+            final_message = 'Batch completed.' if not errors else 'Batch completed with issues.'
+            session_terminal_state = final_status
+
+        if session is not None:
+            _batch_job_update(job_id, status='finalizing', message='Finalizing Comfy VLM batch session...', batch_session=_batch_session_snapshot(session), log=log_lines[-100:])
+            session_release = finish_comfy_llamacpp_batch_session(session, state=session_terminal_state)
+            session_summary = _batch_session_snapshot(session)
+            session_summary['release'] = session_release
+            session = None
+            log_lines.append('Comfy VLM batch session finalized; model cleanup ran once for the batch.' if session_summary.get('cleanup_after') else 'Comfy VLM batch session finalized; model retention setting left cleanup disabled.')
+        else:
+            session_summary = {}
+
+        batch = append_caption_batch_result({'batch_id': job_id, 'workflow_mode': workflow, 'count': total, 'completed': len(results), 'saved': saved, 'skipped': skipped, 'errors': errors, 'results': results, 'payload': payload, 'log_path': log_path, 'status': final_status, 'batch_session': session_summary})
+        log_lines.append(final_message)
+        final_percent = round((processed / total) * 100, 2) if total else 0
+        if final_status in {'completed', 'completed_with_errors'}:
+            final_percent = 100
+        final_job = _batch_job_update(
+            job_id,
+            ok=final_status == 'completed',
+            status=final_status,
+            message=final_message,
+            batch=batch,
+            records=list_caption_batch_results().get('records', []),
+            categories=storage_list_categories().get('categories', []),
+            log=log_lines[-100:],
+            current_index=processed,
+            processed=processed,
+            saved=saved,
+            skipped=skipped,
+            errors=list(errors),
+            error_count=len(errors),
+            results=list(results),
+            progress_percent=final_percent,
+            batch_session=session_summary,
+            cancel_requested=cancelled,
+        )
+        _pc_log_event("batch_caption.completed", run_id=job_id, level="INFO" if final_status == 'completed' else "WARNING", payload=_pc_runtime_summary("batch_caption", payload, result=final_job, extra={"saved": saved, "skipped": skipped, "error_count": len(errors), "log_path": log_path, "status": final_status}), snapshot_name="neo_last_caption_payload")
     except Exception as exc:  # noqa: BLE001 - batch worker must never die silently
+        session_terminal_state = 'failed'
         errors.append(str(exc))
         log_lines.append(f'Batch failed: {exc}')
-        failed_job = _batch_job_update(job_id, ok=False, status='failed', message=str(exc), errors=list(errors), error_count=len(errors), log=log_lines[-100:])
+        session_summary: dict[str, Any] = {}
+        if session is not None:
+            try:
+                session_release = finish_comfy_llamacpp_batch_session(session, state='failed')
+                session_summary = _batch_session_snapshot(session)
+                session_summary['release'] = session_release
+            except Exception as cleanup_exc:  # noqa: BLE001
+                session_summary = {'cleanup_error': str(cleanup_exc)}
+                log_lines.append(f'Batch session cleanup warning: {cleanup_exc}')
+            finally:
+                session = None
+        failed_job = _batch_job_update(job_id, ok=False, status='failed', message=str(exc), errors=list(errors), error_count=len(errors), log=log_lines[-100:], batch_session=session_summary, processed=processed, saved=saved, skipped=skipped, results=list(results), progress_percent=round((processed / total) * 100, 2) if total else 0)
         _pc_log_error("Batch captioning failed.", run_id=job_id, payload=_pc_runtime_summary("batch_caption", payload, result=failed_job, extra={"error_count": len(errors)}), exc=exc)
-
+    finally:
+        if session is not None:
+            try:
+                release = finish_comfy_llamacpp_batch_session(session, state=session_terminal_state)
+                _batch_job_update(job_id, batch_session={**_batch_session_snapshot(session), 'release': release})
+            except Exception as cleanup_exc:  # noqa: BLE001
+                _batch_job_update(job_id, batch_session={'cleanup_error': str(cleanup_exc)})
 
 def run_caption_batch(payload: dict[str, Any], *, task_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     batch_log_run_id = f"caption_batch_{uuid4().hex[:12]}"
@@ -1726,6 +1896,7 @@ def run_caption_batch(payload: dict[str, Any], *, task_profile: dict[str, Any] |
         log=['Batch started.', f'Found {total} image(s).'],
         categories=storage_list_categories().get('categories', []),
         payload=payload,
+        cancel_requested=False,
     )
     if workflow == 'dataset' and not bool(dataset.get('caption_images', True)):
         _caption_batch_worker(job_id, payload, task_profile=task_profile)
@@ -1766,15 +1937,26 @@ def caption_batch_status(job_id: str = '') -> dict[str, Any]:
         'results': results,
         'records': records,
         'log': current_record.get('log') or [],
+        'batch_session': current_record.get('batch_session') if isinstance(current_record.get('batch_session'), dict) else {},
     }
 
 def caption_batch_cancel(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
-        'ok': False,
-        'status': 'unsupported',
-        'message': 'Batch cancel is not available yet. Run/preview/status/export are the supported batch actions.',
-        'errors': ['Batch cancel is not implemented for the current worker.'],
-    }
+    data = payload if isinstance(payload, dict) else {}
+    job_id = str(data.get('job_id') or data.get('batch_id') or '').strip()
+    if not job_id:
+        return {'ok': False, 'status': 'invalid_request', 'message': 'A batch job id is required.', 'errors': ['Missing batch job id.']}
+    current = _batch_job_get(job_id)
+    if not current:
+        return {'ok': False, 'status': 'not_found', 'job_id': job_id, 'message': 'Batch job was not found.', 'errors': ['Batch job was not found.']}
+    status = str(current.get('status') or '').strip().lower()
+    if status in {'completed', 'completed_with_errors', 'failed', 'cancelled', 'interrupted', 'idle'}:
+        return {'ok': True, **current, 'message': current.get('message') or f'Batch is already {status}.'}
+    updated = _batch_job_update(
+        job_id,
+        cancel_requested=True,
+        message='Cancel requested. The current image will finish, then the batch session will clean up and stop.',
+    )
+    return {'ok': True, **updated}
 
 
 def caption_batch_resume(payload: dict[str, Any] | None = None) -> dict[str, Any]:

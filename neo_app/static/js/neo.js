@@ -6,6 +6,13 @@ const backendProfileSelectionRequestEpochBySurface = {};
 let imagePreviewActionEvaluationRefreshTimer = null;
 let ipAdapterNodeStatusRequestEpoch = 0;
 let controlNetMapStatusRequestEpoch = 0;
+let voiceProviderRoutingRequestEpoch = 0;
+let voiceGenerationPollEpoch = 0;
+let voiceGenerationPollTimer = null;
+let voiceDialoguePollEpoch = 0;
+let voiceDialoguePollTimer = null;
+let voiceBatchPollEpoch = 0;
+let voiceBatchPollTimer = null;
 
 const state = {
   surfaces: [],
@@ -47,6 +54,15 @@ const state = {
   operator: { status: null, lastPlan: null, lastRun: null, command: "" },
   voiceInput: { status: null, lastPrepare: null, lastRun: null, transcript: "" },
   voiceSurfaceContract: null,
+  voiceBaseCommonContract: null,
+  voiceProviderRouting: null,
+  voiceProviderControls: { tts: null, voice_clone: null },
+  voiceDialogueCapabilities: null,
+  voiceDialogueDraft: { mode: 'tts', plan: null, speaker_map: {}, parse_error: '', notice: '', error: '', last_job: null },
+  voiceBatchCapabilities: null,
+  voiceBatchHistory: null,
+  voiceBatchDraft: { name: 'Voice Batch', filename: '', format: 'txt', content: '', default_mode: 'tts', concurrency: 1, batch_id: '', batch: null, notice: '', error: '', last_job: null },
+  voiceCommonValidation: null,
   voiceOutputPaths: null,
   voiceBackendHealth: null,
   voiceCapabilities: null,
@@ -56,16 +72,43 @@ const state = {
   voiceProfiles: null,
   voiceLastProfileSave: null,
   voiceLastJob: null,
+  voiceResults: null,
+  voiceSelectedResultId: '',
+  voiceSelectedResult: null,
+  voiceResultError: '',
+  voiceResultNotice: '',
+  voiceReferenceAssets: null,
+  voiceSelectedReferenceId: '',
+  voiceSelectedReference: null,
+  voiceReferenceError: '',
+  voiceReferenceNotice: '',
+  voiceProfileAssets: null,
+  voiceSelectedProfileAssetId: '',
+  voiceSelectedProfileAsset: null,
+  voiceProfileAssetError: '',
+  voiceProfileAssetNotice: '',
+  voiceFinishCapabilities: null,
+  voiceFinishHistory: null,
+  voiceFinishSourceJobId: '',
+  voiceFinishMergeSourceIds: [],
+  voiceFinishNotice: '',
+  voiceFinishError: '',
+  voiceFinishDraft: { normalize: false, silence_trim: false, noise_cleanup: false, loudness_enabled: false, loudness_target: -16, output_format: 'wav', split_parts: 2 },
   voicePreviewStale: true,
   voiceDraft: {
     family: 'chatterbox_turbo',
     runtime: 'chatterbox',
-    model_id: 'chatterbox_turbo',
+    model_id: 'provider_default',
     job_type: 'quick_preview',
     voice_source_type: 'built_in',
     voice_id: 'provider_default',
     saved_profile_id: '',
+    profile_asset_id: '',
     reference_audio: '',
+    reference_id: '',
+    reference_qc: null,
+    reference_label: '',
+    reference_transcript: '',
     script_title: '',
     language: 'en',
     script_body: '',
@@ -78,6 +121,7 @@ const state = {
     seed: -1,
     output_format: 'wav',
     max_chunk_chars: 650,
+    provider_controls: { tts: {}, voice_clone: {} },
   },
   internetAccess: { status: null, lastPlan: null, lastRun: null, query: "" },
   toolRegistry: { registry: null, profiles: null, lastSave: null },
@@ -165,6 +209,12 @@ const state = {
     source_image_url: '',
     source_image_name: '',
     source_image_comfy_name: '',
+    reference_images: [],
+    reference_videos: [],
+    reference_audios: [],
+    cloud_source_video: '',
+    cloud_source_video_name: '',
+    cloud_source_result_id: '',
     first_image: '',
     first_image_url: '',
     first_image_name: '',
@@ -400,6 +450,7 @@ const state = {
     flux_guidance: 3.5,
     flux_variant: 'dev',
     vae: 'automatic',
+    vae_decode_mode: 'native',
     sampler: 'provider_default',
     sampler_backend: 'standard',
     res4lyf_eta: 0.5,
@@ -947,7 +998,7 @@ function serializeUiState() {
     detailMode: state.detailMode,
     imageDraft: serializeImageDraftForUiPreset(state.imageDraft),
     videoDraft: { ...state.videoDraft },
-    imageCustomSizePresets: state.imageCustomSizePresets || [],
+    imageCustomSizePresets: normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []),
     activeSavedOutputFileId: state.activeSavedOutputFileId,
     promptCaptioning: JSON.parse(JSON.stringify(state.promptCaptioning || {})),
     extensionWorkflowApplications: { ...(state.extensionWorkflowApplications || {}) },
@@ -993,7 +1044,7 @@ function applyUiState(saved = {}) {
     detailMode: snapshot.detailMode || state.detailMode,
     imageDraft: applyImageDraftFromUiPreset(state.imageDraft, snapshot.imageDraft || {}),
     videoDraft: { ...state.videoDraft, ...(snapshot.videoDraft || {}) },
-    imageCustomSizePresets: Array.isArray(snapshot.imageCustomSizePresets) ? snapshot.imageCustomSizePresets : state.imageCustomSizePresets,
+    imageCustomSizePresets: Array.isArray(snapshot.imageCustomSizePresets) ? normalizeImageCustomSizePresetCollection(snapshot.imageCustomSizePresets) : normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets),
     activeSavedOutputFileId: snapshot.activeSavedOutputFileId || state.activeSavedOutputFileId,
     promptCaptioning: normalizePromptCaptioningState(snapshot.promptCaptioning || state.promptCaptioning),
     extensionWorkflowApplications: snapshot.extensionWorkflowApplications && typeof snapshot.extensionWorkflowApplications === 'object' ? snapshot.extensionWorkflowApplications : state.extensionWorkflowApplications, 
@@ -2167,6 +2218,15 @@ function krea2IdentityEditActive() {
     && ['img2img', 'inpaint', 'outpaint'].includes(mode)
     && String(state.imageDraft.krea2_edit_engine || 'native') === 'identity_edit';
 }
+function krea2IdentitySecondReferenceActive() {
+  return krea2IdentityEditActive() && Boolean(state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url);
+}
+function syncKrea2IdentityReferenceRoles() {
+  if (!krea2IdentityEditActive()) return;
+  const twoReference = krea2IdentitySecondReferenceActive();
+  state.imageDraft.source_image_1_role = twoReference ? 'scene_reference' : 'main_subject';
+  state.imageDraft.source_image_2_role = 'main_subject';
+}
 function imageMultiReferenceSlotLimit(profile = activeImageProfile()) {
   return krea2IdentityEditActive() ? 2 : 3;
 }
@@ -2186,7 +2246,9 @@ function imageMultiReferenceLabel(profile = activeImageProfile()) {
 function imageMultiReferenceHelpText(profile = activeImageProfile()) {
   if (controlNetPoseTransferActive()) return 'Pose Transfer uses Image 1 as the subject, Image 2 as the human pose reference, and Image 3 as a runtime-generated DWPose map. Image 3 must stay free while this method is enabled.';
   if (cloudMultiImageEditActive(profile)) return 'Grok receives up to 3 source images through the image edit API. Roles are saved into Neo metadata for audit/replay.';
-  if (krea2IdentityEditActive()) return 'Krea 2 Identity Edit v1.2 uses Image 1 as scene/context and optional Image 2 as the subject/identity reference. Image 2 is the final reference block, matching the trained subject-reference order. Image 3 is intentionally unavailable.';
+  if (krea2IdentityEditActive()) return krea2IdentitySecondReferenceActive()
+    ? 'Krea 2 Identity Edit v1.2 two-reference order: Image 1 is scene/context and Image 2 is subject/identity. Identity Reference Boost targets Image 2; Scene Reference Boost targets Image 1. Image 3 is intentionally unavailable.'
+    : 'Krea 2 Identity Edit v1.2 single-reference mode: Image 1 is the primary edit/identity reference and Identity Reference Boost targets it. Add Image 2 only when you want the trained scene + subject two-reference workflow.';
   if (qwenGgufMultiReferenceActive()) return 'This Qwen workflow receives Image 1 plus optional Image 2/Image 3 through the Qwen image edit encoder for img2img/edit. Inpaint and outpaint are implemented as single-source mask/canvas workflows.';
   if (flux2KleinMultiReferenceActive()) return 'Flux 2 Klein GGUF exposes Image 1 plus optional Image 2/Image 3 as source-stack lanes; component/P4 routes keep Image 2/Image 3 hidden and use Image 1 as the active Flux2 latent anchor.';
   if (fluxGgufSourceStackActive()) return 'Flux GGUF uses Image 1 as the latent anchor. Image 2 and Image 3 are submitted, uploaded to Comfy, and saved as reference lanes for metadata/replay and future adapter routing.';
@@ -2528,10 +2590,91 @@ function activeSurface() { return state.surfaces.find((surface) => surface.surfa
 function activeSubtab(surface) {
   if (!surface) return null;
   const runtime = ensureSurfaceRuntime(surface.surface_id);
-  const subtabId = surface.surface_id === 'image' ? runtime.workflow_mode : surface.surface_id === 'video' ? runtime.workspace_app : runtime.subtab;
+  const subtabId = surface.surface_id === 'image' ? runtime.workflow_mode : ['video', 'voice'].includes(surface.surface_id) ? runtime.workspace_app : runtime.subtab;
   return surface?.subtabs?.find((subtab) => subtab.subtab_id === subtabId) || surface?.subtabs?.[0];
 }
 function imageSubtabSetup(subtabId) { return state.imageBase?.subtabs?.find((subtab) => subtab.subtab_id === subtabId); }
+const IMAGE_CUSTOM_SIZE_PRESET_LIMIT = 48;
+const IMAGE_CUSTOM_SIZE_PRESET_STORAGE_SCHEMA = 2;
+
+function imageCustomSizePresetStoragePayload() {
+  return {
+    schema_id: 'neo.image.size_presets.v2',
+    schema_version: IMAGE_CUSTOM_SIZE_PRESET_STORAGE_SCHEMA,
+    imageCustomSizePresets: normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []),
+  };
+}
+
+function imageCustomSizePresetSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    || 'preset';
+}
+
+function imageCustomSizePresetLegacyName(label, width, height) {
+  const raw = String(label || '').trim();
+  if (!raw) return `Preset ${width} × ${height}`;
+  const withoutDims = raw.replace(new RegExp(`\s*[—–-]?\s*${width}\s*[×x]\s*${height}\s*$`, 'i'), '').trim();
+  if (!withoutDims || /^custom$/i.test(withoutDims)) return `Preset ${width} × ${height}`;
+  return withoutDims;
+}
+
+function normalizeImageCustomSizePresetRecord(item, index = 0) {
+  if (!item || typeof item !== 'object') return null;
+  const width = Math.round(Number(item.width));
+  const height = Math.round(Number(item.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 64 || height < 64) return null;
+  const name = String(item.name || imageCustomSizePresetLegacyName(item.label || '', width, height)).trim() || `Preset ${width} × ${height}`;
+  const id = String(item.id || `custom_${imageCustomSizePresetSlug(name)}_${width}x${height}_${index}`).trim() || `custom_${imageCustomSizePresetSlug(name)}_${width}x${height}_${index}`;
+  return {
+    id,
+    name,
+    label: `${name} — ${width} × ${height}`,
+    width,
+    height,
+    schema_version: IMAGE_CUSTOM_SIZE_PRESET_STORAGE_SCHEMA,
+  };
+}
+
+function normalizeImageCustomSizePresetCollection(list) {
+  const records = [];
+  const seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((item, index) => {
+    const record = normalizeImageCustomSizePresetRecord(item, index);
+    if (!record || seen.has(record.id)) return;
+    seen.add(record.id);
+    records.push(record);
+  });
+  return records.slice(-IMAGE_CUSTOM_SIZE_PRESET_LIMIT);
+}
+
+async function persistImageCustomSizePresets() {
+  const response = await fetch('/api/ui-state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageCustomSizePresets: state.imageCustomSizePresets || [] }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || 'Could not save custom size presets.');
+  state.imageCustomSizePresets = normalizeImageCustomSizePresetCollection(payload.imageCustomSizePresets || state.imageCustomSizePresets || []);
+  return payload;
+}
+
+async function loadImageCustomSizePresets() {
+  try {
+    const response = await fetch('/api/ui-state');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || 'Could not load custom size presets.');
+    state.imageCustomSizePresets = normalizeImageCustomSizePresetCollection(payload.imageCustomSizePresets || []);
+  } catch (error) {
+    console.warn('[Neo][Image] Custom size preset load failed.', error);
+    state.imageCustomSizePresets = normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []);
+  }
+}
+
 function imageSizePresetDimensions(presetId) {
   const map = {
     square_1024: [1024, 1024],
@@ -2542,14 +2685,14 @@ function imageSizePresetDimensions(presetId) {
     thumbnail_1280_720: [1280, 720],
   };
   if (map[presetId]) return map[presetId];
-  const custom = (state.imageCustomSizePresets || []).find((item) => item.id === presetId);
+  const custom = normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []).find((item) => item.id === presetId);
   return custom ? [Number(custom.width), Number(custom.height)] : null;
 }
 function imageSizePresetOptions() {
   const base = state.imageBase?.size_presets || [];
-  const custom = (state.imageCustomSizePresets || []).map((item) => ({
+  const custom = normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []).map((item) => ({
     id: item.id,
-    label: `${item.label} ${item.width} × ${item.height}`,
+    label: item.label || `${item.name} — ${item.width} × ${item.height}`,
     description: 'Custom saved size preset.',
   }));
   return [...base, ...custom, { id: 'custom', label: 'Custom', description: 'Manual width and height.' }];
@@ -2573,13 +2716,36 @@ async function saveCurrentImageSizePreset() {
     alert('Set a valid width and height before saving a custom preset.');
     return;
   }
-  const id = `custom_${Math.round(width)}_${Math.round(height)}`;
-  const label = `Custom ${Math.round(width)} × ${Math.round(height)}`;
-  const existing = (state.imageCustomSizePresets || []).filter((item) => item.id !== id);
-  state.imageCustomSizePresets = [...existing, { id, label, width: Math.round(width), height: Math.round(height) }].slice(-24);
-  state.imageDraft.size_preset = id;
-  await saveUiStateNow();
-  setWorkspaceProgress(`Saved size preset ${Math.round(width)}×${Math.round(height)}`, 100);
+  const normalizedExisting = normalizeImageCustomSizePresetCollection(state.imageCustomSizePresets || []);
+  const sameSize = normalizedExisting.find((item) => item.width === Math.round(width) && item.height === Math.round(height));
+  const suggestedName = sameSize?.name || `Preset ${Math.round(width)} × ${Math.round(height)}`;
+  const rawName = window.prompt('Name this size preset:', suggestedName);
+  if (rawName === null) return;
+  const name = String(rawName || '').trim();
+  if (!name) {
+    alert('Preset name cannot be empty.');
+    return;
+  }
+  const id = `custom_${imageCustomSizePresetSlug(name)}_${Math.round(width)}x${Math.round(height)}`;
+  const record = normalizeImageCustomSizePresetRecord({ id, name, width, height }, normalizedExisting.length);
+  if (!record) {
+    alert('Could not save this size preset.');
+    return;
+  }
+  const existingById = normalizedExisting.find((item) => item.id === record.id);
+  if (existingById && !window.confirm(`Overwrite size preset “${existingById.name}”?`)) return;
+  state.imageCustomSizePresets = normalizeImageCustomSizePresetCollection([
+    ...normalizedExisting.filter((item) => item.id !== record.id),
+    record,
+  ]);
+  state.imageDraft.size_preset = record.id;
+  try {
+    await persistImageCustomSizePresets();
+    setWorkspaceProgress(`Saved size preset “${record.name}”`, 100);
+  } catch (error) {
+    console.error('[Neo][Image] Custom size preset save failed.', error);
+    alert(error?.message || 'Could not save custom size preset.');
+  }
   render();
 }
 function modelFamilyMeta(familyId) { return state.modelFamilies?.families?.find((family) => family.family_id === familyId); }
@@ -3567,6 +3733,7 @@ function renderGgufRuntimeCard(p) {
   const guidance = Number(state.imageDraft.flux_guidance ?? p.flux_guidance ?? 3.5);
   const mode = activeImageMode();
   const mmprojRequired = !forgeBundle && isQwen && ['img2img', 'inpaint', 'outpaint', 'edit'].includes(mode);
+  const vaeDecodeField = (isQwen || isKrea2) ? renderImageVaeDecodeField() : '';
   const cards = buildGgufBundleItems();
   const singleEncoderOnly = ['qwen_image', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_dev', 'flux2_klein', 'krea2'].includes(architecture);
   const routeRequiresDual = ggufRouteRequiresDualEncoders(architecture, mode);
@@ -3605,7 +3772,8 @@ function renderGgufRuntimeCard(p) {
     </div>
     ${expertDiagnostics}
     <div class="neo-gguf-runtime-grid ${isQwen ? 'three' : 'two'}">
-      <label>${isKrea2 ? 'Qwen Image VAE' : 'AE / VAE'}${optionSelect('imageParam_vae', imageOptionsForField('vae'), vae)}</label>
+      <label>${isKrea2 ? 'Qwen Image VAE' : 'AE / VAE'}${optionSelect('imageParam_vae', imageOptionsForField('vae'), vae)}${isKrea2 ? imageKrea2ExperimentalVaeOverrideNote(vae) : ''}</label>
+      ${vaeDecodeField}
       ${isFlux ? `<label>Flux guidance<div class="neo-slider-pair"><input id="imageParam_flux_guidance" type="number" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance"><input id="imageFluxGuidanceRange" type="range" step="0.1" min="0" max="10" value="${escapeAttr(guidance)}" aria-label="Flux guidance slider"></div></label>` : ''}
       ${isQwen ? `<label>MMProj${optionSelect('imageParam_qwen_mmproj', imageOptionsForField('qwen_mmproj'), mmproj)}</label><label class="neo-param-field neo-param-status"><span>Route readiness</span><span class="neo-badge ${mmprojRequired && !mmproj ? 'warning' : ''}">${mmprojRequired ? 'MMProj required' : 'MMProj optional module'}</span></label>` : ''}
     </div>
@@ -3642,6 +3810,20 @@ async function refreshBackendProfiles() {
   state.backendProfiles = await loadJson('/api/backend-profiles', { profiles: [], defaults: {} });
 }
 
+function comfyLlamaCppStartupValidationSummary() {
+  return state.backendProfiles?.comfy_llamacpp_validation || {};
+}
+
+async function settleComfyLlamaCppStartupValidation(attempt = 0) {
+  const summary = comfyLlamaCppStartupValidationSummary();
+  const status = String(summary?.status || '').toLowerCase();
+  if (!['pending', 'running'].includes(status) || attempt >= 7) return;
+  await new Promise((resolve) => window.setTimeout(resolve, 900));
+  await refreshBackendProfiles().catch(() => null);
+  render();
+  return settleComfyLlamaCppStartupValidation(attempt + 1);
+}
+
 async function refreshBackendProviderOptions() {
   state.backendProviderOptions = await loadJson('/api/backend-providers', { providers: [], surfaces: [] });
 }
@@ -3660,6 +3842,14 @@ const VIDEO_WORKSPACE_APPS = [
   { id: 'reference', label: 'Reference', sections: ['motion_reference', 'depth_reference', 'image_reference', 'external'], description: 'Prepare route-specific motion, depth, and image reference inputs for controlled Video generation.' },
   { id: 'finish', label: 'Finish', sections: ['source', 'presets', 'interpolate', 'upscale', 'repair', 'external'], description: 'Post-process an existing Neo-owned video with interpolation, upscale, repair/cleanup, and compatible finish extensions.' },
   { id: 'results', label: 'Results', sections: ['output_ledger', 'preview', 'replay', 'external'], description: 'Review Video history, selected output playback, replay metadata, memory export, and result-scoped extensions.' },
+];
+
+const VOICE_WORKSPACE_APPS = [
+  { id: 'generation', label: 'Generation', sections: ['script', 'selection', 'parameters', 'preview', 'run', 'outputs'], description: 'Generate speech through the selected Voice backend using shared delivery controls and provider-specific options.' },
+  { id: 'assets', label: 'Assets', sections: ['voices', 'profiles', 'audio'], description: 'Review selected-profile Voice catalog context while reusable asset/profile mutation stays staged and the common draft remains persistent.' },
+  { id: 'reference', label: 'Reference', sections: ['audio', 'qc', 'capabilities'], description: 'Review selected-profile reference/clone capability while upload, QC, and clone execution remain staged.' },
+  { id: 'finish', label: 'Finish', sections: ['source', 'tools', 'export'], description: 'Review selected-profile Finish capability context while non-destructive processing execution remains staged.' },
+  { id: 'results', label: 'Results', sections: ['history', 'playback', 'metadata'], description: 'Review existing Voice history and Neo-owned audio outputs without losing the editable common generation draft.' },
 ];
 
 const VIDEO_ROUTE_MATRIX_ENDPOINT = '/api/video/route-matrix';
@@ -3930,6 +4120,7 @@ function normalizeSurfaceWorkspaceAppId(surfaceId = '', value = '') {
     return IMAGE_WORKSPACE_APPS.some((app) => app.id === normalized) ? normalized : 'generations';
   }
   if (id === 'video') return normalizeVideoWorkspaceAppId(value);
+  if (id === 'voice') return VOICE_WORKSPACE_APPS.some((app) => app.id === value) ? value : 'generation';
   if (id === 'prompt_captioning') return value || 'prompt_preset_details';
   return value || surfaceRuntimeDefaults(id).workspace_app || 'workspace';
 }
@@ -3948,6 +4139,12 @@ function syncLegacySurfaceState(surfaceId = state.activeSurfaceId, runtime = nul
     state.activeWorkspaceAppId = normalizeSurfaceWorkspaceAppId('video', current.workspace_app || current.subtab || 'generation');
     state.activeSubtabId = state.activeWorkspaceAppId;
     state.activeSubtabsBySurface.video = state.activeSubtabId;
+    return;
+  }
+  if (id === 'voice') {
+    state.activeWorkspaceAppId = normalizeSurfaceWorkspaceAppId('voice', current.workspace_app || current.subtab || 'generation');
+    state.activeSubtabId = state.activeWorkspaceAppId;
+    state.activeSubtabsBySurface.voice = state.activeSubtabId;
     return;
   }
   if (id === 'prompt_captioning') {
@@ -3981,6 +4178,10 @@ function ensureSurfaceRuntime(surfaceId = state.activeSurfaceId || 'image') {
     runtime.generation_mode = runtime.generation_mode || state.videoDraft?.mode || 'txt2vid';
     runtime.subtab = runtime.workspace_app;
     state.videoDraft.mode = runtime.generation_mode;
+  } else if (id === 'voice') {
+    const legacyWorkspace = id === state.activeSurfaceId ? state.activeWorkspaceAppId : state.activeSubtabsBySurface?.voice;
+    runtime.workspace_app = normalizeSurfaceWorkspaceAppId('voice', runtime.workspace_app || runtime.subtab || legacyWorkspace || 'generation');
+    runtime.subtab = runtime.workspace_app;
   } else if (id === 'prompt_captioning') {
     const mode = runtime.workspace_mode === 'captioning' ? 'captioning' : (state.promptCaptioning?.activeWorkspaceMode === 'captioning' ? 'captioning' : 'prompt_builder');
     runtime.workspace_mode = mode;
@@ -4014,7 +4215,7 @@ function getSurfaceWorkspaceAppId(surfaceId = state.activeSurfaceId || 'image') 
 function setSurfaceWorkspaceAppId(surfaceId = state.activeSurfaceId || 'image', workspaceAppId = '') {
   const runtime = ensureSurfaceRuntime(surfaceId);
   runtime.workspace_app = normalizeSurfaceWorkspaceAppId(surfaceId, workspaceAppId);
-  if (surfaceId === 'video') runtime.subtab = runtime.workspace_app;
+  if (surfaceId === 'video' || surfaceId === 'voice') runtime.subtab = runtime.workspace_app;
   if (surfaceId === 'prompt_captioning') runtime.child_tab = runtime.workspace_app;
   state.surfaceRuntime[surfaceId] = runtime;
   syncLegacySurfaceState(surfaceId, runtime);
@@ -4734,6 +4935,12 @@ function videoWanPayload({ dryRun = false } = {}) {
     last_strength: Number(state.videoDraft.last_strength ?? state.videoDraft.transition_strength ?? 0.75),
     transition_strength: Number(state.videoDraft.transition_strength ?? 0.75),
     segments: videoMultisceneSegments(),
+    reference_images: videoReferenceItems('image'),
+    reference_videos: videoReferenceItems('video'),
+    reference_audios: videoReferenceItems('audio'),
+    h3_reference_images: videoReferenceItems('image'),
+    h3_reference_videos: videoReferenceItems('video'),
+    h3_reference_audios: videoReferenceItems('audio'),
     image_strength: Number(state.videoDraft.image_strength ?? 0.7),
     resize_mode: state.videoDraft.resize_mode || 'fit_crop',
     chunk_feed_forward: Number(state.videoDraft.chunk_feed_forward || 2),
@@ -5149,10 +5356,13 @@ async function applyVideoWanGgufFirstTestPreset() {
 function videoCloudPayload() {
   const mode = ensureCloudVideoMode();
   const profile = videoActiveBackendProfile();
-  const defaultDuration = Number(videoCloudDefault('duration_seconds', 4));
+  const constraints = profile?.mode_constraints?.[mode] || {};
   const model = videoCloudModel();
-  const resolution = String(state.videoDraft.cloud_resolution || videoCloudDefault('resolution', '720p'));
-  return {
+  const durationBounds = videoCloudDurationBounds(model, mode, profile);
+  const minDuration = durationBounds.min;
+  const maxDuration = durationBounds.max;
+  const defaultDuration = Number(videoCloudDefault('duration_seconds', mode === 'extend' ? 6 : 4));
+  const payload = {
     profile_id: videoBackendProfileId(),
     backend_profile_id: videoBackendProfileId(),
     provider_id: profile?.provider_id || 'xai_grok',
@@ -5162,15 +5372,16 @@ function videoCloudPayload() {
     mode,
     model,
     prompt: String(state.videoDraft.positive_prompt || '').trim(),
-    duration_seconds: Math.max(1, Math.min(15, Number(state.videoDraft.cloud_duration_seconds || defaultDuration || 4))),
-    aspect_ratio: String(state.videoDraft.cloud_aspect_ratio || videoCloudDefault('aspect_ratio', '16:9')),
-    resolution,
-    ...(mode === 'img2vid' ? {
-      source_image: state.videoDraft.source_image || '',
-      source_image_path: state.videoDraft.source_image || '',
-      source_image_name: state.videoDraft.source_image_name || '',
-    } : {}),
   };
+  if (['txt2vid', 'img2vid', 'reference_to_video', 'extend'].includes(mode)) payload.duration_seconds = Math.max(minDuration, Math.min(maxDuration, Number(state.videoDraft.cloud_duration_seconds || defaultDuration)));
+  if (['txt2vid', 'img2vid', 'reference_to_video'].includes(mode)) {
+    payload.aspect_ratio = String(state.videoDraft.cloud_aspect_ratio || videoCloudDefault('aspect_ratio', '16:9'));
+    payload.resolution = String(state.videoDraft.cloud_resolution || videoCloudDefault('resolution', '720p'));
+  }
+  if (mode === 'img2vid') Object.assign(payload, { source_image: state.videoDraft.source_image || '', source_image_path: state.videoDraft.source_image || '', source_image_name: state.videoDraft.source_image_name || '' });
+  if (mode === 'reference_to_video') payload.reference_images = videoReferenceItems('image').map((item) => ({ ...item }));
+  if (mode === 'vid2vid' || mode === 'extend') Object.assign(payload, { source_video: videoCloudSourceVideoPath(), source_video_path: videoCloudSourceVideoPath(), source_video_name: state.videoDraft.cloud_source_video_name || '', source_result_id: state.videoDraft.cloud_source_result_id || '' });
+  return payload;
 }
 
 function stopVideoProviderJobPoller() {
@@ -5236,7 +5447,8 @@ async function generateCloudVideoRoute() {
     return { ok: false, queued: false, error: backendProfileBlockedMessage(profile, 'Video generation') };
   }
   if (!videoCloudCanGenerate()) {
-    const message = ensureCloudVideoMode() === 'img2vid' ? 'Add a prompt and source image before generating.' : 'Add a prompt before generating.';
+    const blockedMode = ensureCloudVideoMode();
+    const message = blockedMode === 'img2vid' ? 'Add a prompt and source image before generating.' : blockedMode === 'reference_to_video' ? 'Add a prompt and at least one reference image before generating.' : ['vid2vid', 'extend'].includes(blockedMode) ? 'Add a prompt and source video before generating.' : 'Add a prompt before generating.';
     setVideoWorkspaceProgress(message, 100, { status: 'blocked', reset_timing: true });
     return { ok: false, queued: false, error: message };
   }
@@ -5760,7 +5972,7 @@ function videoUpscaleProfileContract(profileId = state.videoDraft.upscale_vram_p
     low: { id: 'low', label: 'Low', hint: '8–12GB · safest', recommended_dit_model: 'seedvr2_ema_3b_fp8_e4m3fn.safetensors', recommended_vae_model: 'ema_vae_fp16.safetensors', batch_size: 5, max_batch_size: 5, block_swap: 32, min_block_swap: 32, max_block_swap: 64, encode_tile_size: 768, decode_tile_size: 512, cpu_offload: true, swap_io_components: true, encode_tiled: true, decode_tiled: true, dit_offload_device: 'cpu', vae_offload_device: 'cpu', upscaler_offload_device: 'cpu', max_short_edge: 720, target_preset: 'safe_720' },
     medium: { id: 'medium', label: 'Medium', hint: '12–16GB · balanced', recommended_dit_model: 'seedvr2_ema_3b_fp8_e4m3fn.safetensors', recommended_vae_model: 'ema_vae_fp16.safetensors', batch_size: 9, max_batch_size: 9, block_swap: 24, min_block_swap: 16, max_block_swap: 32, encode_tile_size: 1024, decode_tile_size: 768, cpu_offload: true, swap_io_components: false, encode_tiled: true, decode_tiled: true, dit_offload_device: 'cpu', vae_offload_device: 'cpu', upscaler_offload_device: 'cpu', max_short_edge: 1080, target_preset: 'hd_1080' },
     high: { id: 'high', label: 'High', hint: '24GB+ · faster', recommended_dit_model: 'seedvr2_ema_3b_fp16.safetensors', recommended_vae_model: 'ema_vae_fp16.safetensors', batch_size: 21, max_batch_size: 33, block_swap: 8, min_block_swap: 0, max_block_swap: 16, encode_tile_size: 1024, decode_tile_size: 1024, cpu_offload: false, swap_io_components: false, encode_tiled: true, decode_tiled: true, dit_offload_device: 'cpu', vae_offload_device: 'cpu', upscaler_offload_device: 'cpu', max_short_edge: 2160, target_preset: 'hd_1080' },
-    custom: { id: 'custom', label: 'Custom', hint: 'expert · clamped', recommended_dit_model: 'auto', recommended_vae_model: 'auto', batch_size: Number(state.videoDraft.upscale_batch_size || 9) || 9, max_batch_size: 65, block_swap: Number(state.videoDraft.upscale_block_swap || 24) || 24, min_block_swap: 0, max_block_swap: 64, encode_tile_size: Number(state.videoDraft.upscale_encode_tile_size || 1024) || 1024, decode_tile_size: Number(state.videoDraft.upscale_decode_tile_size || 768) || 768, cpu_offload: state.videoDraft.upscale_cpu_offload !== false, swap_io_components: false, encode_tiled: state.videoDraft.upscale_encode_tiled !== false, decode_tiled: state.videoDraft.upscale_decode_tiled !== false, dit_offload_device: 'cpu', vae_offload_device: 'cpu', upscaler_offload_device: 'cpu', max_short_edge: 4320, target_preset: state.videoDraft.upscale_target_preset || 'hd_1080' },
+    custom: { id: 'custom', label: 'Custom', hint: 'expert · clamped', recommended_dit_model: 'seedvr2_ema_3b_fp8_e4m3fn.safetensors', recommended_vae_model: 'ema_vae_fp16.safetensors', batch_size: Number(state.videoDraft.upscale_batch_size || 9) || 9, max_batch_size: 65, block_swap: Number(state.videoDraft.upscale_block_swap || 24) || 24, min_block_swap: 0, max_block_swap: 64, encode_tile_size: Number(state.videoDraft.upscale_encode_tile_size || 1024) || 1024, decode_tile_size: Number(state.videoDraft.upscale_decode_tile_size || 768) || 768, cpu_offload: state.videoDraft.upscale_cpu_offload !== false, swap_io_components: false, encode_tiled: state.videoDraft.upscale_encode_tiled !== false, decode_tiled: state.videoDraft.upscale_decode_tiled !== false, dit_offload_device: 'cpu', vae_offload_device: 'cpu', upscaler_offload_device: 'cpu', max_short_edge: 4320, target_preset: state.videoDraft.upscale_target_preset || 'hd_1080' },
   };
   return profiles[id] || profiles.medium;
 }
@@ -5771,14 +5983,27 @@ function videoSeedVR2ModelCatalog(kind = 'dit') {
   const catalog = kind === 'vae' ? models.vae : models.dit;
   return Array.isArray(catalog?.values) ? catalog.values.filter(Boolean).map(String) : [];
 }
+function videoSeedVR2EffectiveModelSelection(kind = 'dit', selected = 'auto', recommended = 'auto') {
+  const requested = String(selected || 'auto').trim() || 'auto';
+  const catalog = videoSeedVR2ModelCatalog(kind);
+  const exact = catalog.find((value) => value.toLowerCase() === requested.toLowerCase());
+  if (requested.toLowerCase() !== 'auto' && exact) return exact;
+  if (requested.toLowerCase() !== 'auto' && !catalog.length) return requested;
+  const recommendedExact = catalog.find((value) => value.toLowerCase() === String(recommended || '').trim().toLowerCase());
+  if (recommendedExact) return recommendedExact;
+  if (catalog.length) return catalog[0];
+  return String(recommended || '').trim() || requested;
+}
 function videoSeedVR2ModelOptionsHtml(kind = 'dit', selected = 'auto', recommended = 'auto') {
   const values = [];
   const push = (value) => { const clean = String(value || '').trim(); if (clean && !values.includes(clean)) values.push(clean); };
+  const effective = videoSeedVR2EffectiveModelSelection(kind, selected, recommended);
   push('auto');
   push(recommended);
   videoSeedVR2ModelCatalog(kind).forEach(push);
   if (selected) push(selected);
-  return values.map((value) => `<option value="${escapeAttr(value)}" ${String(selected || 'auto') === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+  if (effective) push(effective);
+  return values.map((value) => `<option value="${escapeAttr(value)}" ${effective === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
 }
 function videoUpscaleTargetResolution(targetPreset = state.videoDraft.upscale_target_preset || 'hd_1080') {
   if (targetPreset === 'safe_720') return 720;
@@ -5822,8 +6047,8 @@ function videoUpscaleSourcePayload() {
     finish_pipeline_preset: motionTiming.preset,
     output_format: state.videoDraft.upscale_output_format || 'auto',
     seed: Number(state.videoDraft.upscale_seed || 42),
-    dit_model: state.videoDraft.upscale_dit_model || profile.recommended_dit_model || 'auto',
-    vae_model: state.videoDraft.upscale_vae_model || profile.recommended_vae_model || 'auto',
+    dit_model: videoSeedVR2EffectiveModelSelection('dit', state.videoDraft.upscale_dit_model || 'auto', profile.recommended_dit_model || 'auto'),
+    vae_model: videoSeedVR2EffectiveModelSelection('vae', state.videoDraft.upscale_vae_model || 'auto', profile.recommended_vae_model || 'auto'),
     batch_size: Math.min(Number(state.videoDraft.upscale_batch_size || profile.batch_size || 9), Number(profile.max_batch_size || 65)),
     uniform_batch_size: true,
     color_correction: state.videoDraft.upscale_color_correction || 'lab',
@@ -5912,7 +6137,13 @@ function videoUpscaleInlineStatusHtml(model) {
   const tone = model?.tone ? ` ${escapeAttr(model.tone)}` : '';
   return `<div class="neo-inline-status${tone}" data-testid="video-finish-upscale-inline-status">${rows.map((row) => `<span>${escapeHtml(row)}</span>`).join('')}</div>`;
 }
+async function ensureVideoSeedVR2ModelCatalogFresh() {
+  if (videoSeedVR2ModelCatalog('dit').length && videoSeedVR2ModelCatalog('vae').length) return activeVideoExternalNodeManager();
+  return refreshVideoExternalNodeManager();
+}
 async function compileVideoUpscale() {
+  setVideoWorkspaceProgress('Refreshing SeedVR2 model catalogs…', 8, { status: 'compiling' });
+  await ensureVideoSeedVR2ModelCatalogFresh().catch(() => null);
   setVideoWorkspaceProgress('Compiling SeedVR2 Upscale workflow…', 12, { status: 'compiling' });
   const payload = { ...videoUpscaleSourcePayload(), dry_run: true };
   state.videoLastUpscale = videoUpscalePendingResult(payload, 'compile');
@@ -5933,7 +6164,9 @@ async function compileVideoUpscale() {
   return result;
 }
 async function generateVideoUpscale() {
-  setVideoWorkspaceProgress('Preparing SeedVR2 Upscale finish pass…', 8, { status: 'starting', reset_timing: true });
+  setVideoWorkspaceProgress('Refreshing SeedVR2 model catalogs…', 6, { status: 'starting', reset_timing: true });
+  await ensureVideoSeedVR2ModelCatalogFresh().catch(() => null);
+  setVideoWorkspaceProgress('Preparing SeedVR2 Upscale finish pass…', 8, { status: 'starting' });
   revokeVideoLivePreview();
   state.videoLivePreviewFrameCount = 0;
   const payload = { ...videoUpscaleSourcePayload(), dry_run: false };
@@ -6224,8 +6457,7 @@ function videoCompilerStatusHtml() {
     result ? `Last result: ${result.queued ? 'queued' : result.ok ? 'compiled' : 'failed'}` : 'Last result: none',
   ];
   const preflightRows = runtimePreflight ? [
-    `Preflight schema: ${runtimePreflight.schema_version || 'unknown'}`,
-    `Risk: ${runtimePreflight.vram?.risk?.tier || 'unknown'} · ${runtimePreflight.vram?.risk?.relative_work_units || '?'}×`,
+    `VRAM risk: ${runtimePreflight.vram?.risk?.tier || 'unknown'} · ${runtimePreflight.vram?.risk?.relative_work_units || '?'}× relative load`,
     ...videoRuntimePreflightBlockRows(runtimePreflight),
   ] : [];
   const resultRows = result ? [
@@ -6636,7 +6868,7 @@ function isSurfacePlanned(surface) {
 
 function plannedSurfaceMessage(surface) {
   const id = String(surface?.surface_id || '').toLowerCase();
-  if (id === 'voice') return 'Voice workflows are planned for a future Neo Studio V2 update. Generation, cloning, and finishing controls are not active in this preview release.';
+  if (id === 'voice') return 'Voice is active with provider-routed generation, reference cloning, reusable voice assets, dialogue, batch workflows, results, and audio finishing.';
   if (id === 'music') return 'Music and audio generation workflows are planned for a future Neo Studio V2 update. This workspace is a placeholder in this preview release.';
   if (id === 'board') return 'Board is planned as a future visual planning workspace for outputs, notes, prompts, and reusable assets.';
   return 'This workspace is planned for a future Neo Studio V2 update.';
@@ -6830,14 +7062,14 @@ function renderVideoCommandStrip(ctx = {}) {
         <label>Workflow Mode <span class="neo-field-hint">existing Video workspace</span>${optionSelect('videoGenerationMode', videoCloudModeOptions(), mode)}</label>
         <div class="neo-ui-card compact"><strong>${escapeHtml(profile?.display_name || profile?.provider_label || 'Cloud Video')}</strong><small>${escapeHtml(profile?.provider_id || '')} · API model route</small></div>
       </div>
-      <div class="neo-route-mode-badges" data-testid="video-route-badges">${badgeRow([`Provider: ${profile?.display_name || 'Cloud Video'}`, mode === 'img2vid' ? 'Image to Video' : 'Text to Video', 'Existing Video workspace', 'Provider polling'])}</div>`;
+      <div class="neo-route-mode-badges" data-testid="video-route-badges">${badgeRow([`Provider: ${profile?.display_name || 'Cloud Video'}`, videoCloudModeLabel(mode), 'Existing Video workspace', 'Provider polling'])}</div>`;
     const actionsHtml = `
       <div class="neo-workspace-actions neo-run-actions" data-testid="video-workspace-runtime-actions" data-command-role="video-run-actions">
         <button class="neo-btn primary" id="videoGenerateWanTxt2VidBtn" type="button" ${canRun ? '' : 'disabled'}>Generate</button>
         <button class="neo-btn secondary" id="videoRefreshResultsBtn" type="button">Refresh Results</button>
       </div>
       <div class="neo-progress-wrap" aria-label="Video generation progress" data-command-role="video-progress">
-        <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="videoProgressLabel">${videoProgressLabel(canRun ? 'Ready' : backendConnected ? (mode === 'img2vid' ? 'Add a prompt and source image' : 'Add a prompt') : 'Backend disconnected')}</span><span id="videoProgressElapsed" class="neo-progress-elapsed">${videoProgressElapsedLabel()}</span></span></div>
+        <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="videoProgressLabel">${videoProgressLabel(canRun ? 'Ready' : backendConnected ? videoCloudReadinessLabel(mode) : 'Backend disconnected')}</span><span id="videoProgressElapsed" class="neo-progress-elapsed">${videoProgressElapsedLabel()}</span></span></div>
         <div class="neo-progress-track"><span id="videoProgressFill" style="width: ${videoProgressPercent()}%"></span></div>
       </div>`;
     return commandStripShell('video', 'video-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-video-command-strip neo-cloud-video-command-strip');
@@ -6867,26 +7099,150 @@ function renderVideoCommandStrip(ctx = {}) {
   return commandStripShell('video', 'video-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-video-command-strip');
 }
 
+function voiceWorkspaceAppOptions() {
+  return VOICE_WORKSPACE_APPS.map((app) => ({ id: app.id, label: app.label }));
+}
+
+function voiceGenerationModeOptions() {
+  return [
+    { id: 'tts', label: 'Single Voice TTS' },
+    { id: 'dialogue', label: 'Dialogue / Multi-speaker' },
+    { id: 'batch', label: 'Batch' },
+  ];
+}
+
+function voiceActiveRuntimeJob() {
+  const mode = voiceDialogueMode();
+  if (mode === 'batch') return state.voiceBatchDraft?.last_job || state.voiceBatchDraft?.batch || null;
+  if (mode === 'dialogue') return state.voiceDialogueDraft?.last_job || state.voiceLastJob || null;
+  return state.voiceLastJob || null;
+}
+
+function voiceCommandProgressSnapshot() {
+  const job = voiceActiveRuntimeJob();
+  if (!job) return { label: 'Idle', percent: 0, status: 'idle' };
+  const status = String(job.status || 'idle').toLowerCase();
+  const percentRaw = Number(job.summary?.percent ?? job.progress?.percent ?? (['completed', 'completed_with_failures'].includes(status) ? 100 : status === 'failed' ? 100 : 0));
+  const percent = Number.isFinite(percentRaw) ? Math.max(0, Math.min(100, percentRaw)) : 0;
+  if (voiceDialogueMode() === 'batch') {
+    const summary = job.summary || {};
+    const total = Number(summary.total_count ?? (job.batch?.items || []).length ?? 0);
+    const completed = Number(summary.completed_count ?? 0);
+    const failed = Number(summary.failed_count ?? 0);
+    const counts = total ? `${completed}/${total} completed` : 'Batch idle';
+    const failure = failed ? ` · ${failed} failed` : '';
+    return {
+      label: job.message || `${humanize(status || 'batch')} · ${counts}${failure}`,
+      percent,
+      status,
+    };
+  }
+  return {
+    label: job.message || voiceGenerationStatusLabel(job),
+    percent,
+    status,
+  };
+}
+
+function voiceCommandRunCapability() {
+  const mode = voiceDialogueMode();
+  if (mode === 'dialogue') return { canRun: voiceDialogueCanRun(), label: 'Generate' };
+  if (mode === 'batch') {
+    const batch = voiceCurrentBatchManifest();
+    const ready = state.voiceBatchCapabilities?.ready === true;
+    return { canRun: Boolean(batch?.batch_id) && ready && !voiceBatchTerminal(batch?.status || ''), label: 'Generate' };
+  }
+  return { canRun: voiceGenerationCanRun(), label: 'Generate' };
+}
+
+function voiceCommandReadinessSummary() {
+  const workspace = VOICE_WORKSPACE_APPS.find((app) => app.id === getSurfaceWorkspaceAppId('voice')) || VOICE_WORKSPACE_APPS[0];
+  const routing = state.voiceProviderRouting || {};
+  const profile = routing.profile || {};
+  const common = voiceCommonDraftPayload();
+  const mode = voiceDialogueMode();
+  const blockers = [];
+  const warnings = [];
+  const scriptPresent = Boolean(String(common.script || '').trim());
+  if (!profile.profile_id) blockers.push('Select a Voice backend profile.');
+  if (!routing.routing_ready) blockers.push(routing.errors?.[0] || 'Voice profile routing unavailable.');
+  else if (routing.health?.reachable !== true) blockers.push('Provider status: backend not connected.');
+  if (mode !== 'batch' && !scriptPresent) blockers.push('Add a script before generating Voice audio.');
+  if (mode === 'dialogue') {
+    if (!voiceDialogueCapabilitiesReady()) blockers.push((state.voiceDialogueCapabilities?.reasons || ['Dialogue is unavailable for this backend.'])[0]);
+    if (!voiceDialoguePlan()?.turn_count) warnings.push('Parse the script to map speakers before dialogue generation.');
+  } else if (mode === 'batch') {
+    const batch = voiceCurrentBatchManifest();
+    if (state.voiceBatchCapabilities?.ready !== true) blockers.push((state.voiceBatchCapabilities?.reasons || ['Batch is unavailable for the selected backend.'])[0]);
+    if (!batch?.batch_id) warnings.push('Import a batch source before running Batch.');
+    else if (!Array.isArray(batch.items) || !batch.items.length) warnings.push('The current batch manifest has no runnable items yet.');
+  }
+  if (workspace.id !== 'generation') warnings.push(`Generate stays available while ${workspace.label} remains the active workspace.`);
+  const stateLabel = blockers.length ? 'Blocked' : warnings.length ? 'Ready with notes' : 'Ready';
+  const detail = blockers[0] || warnings[0] || 'Selected profile routed. Common draft, workspace shell, and current runtime actions are aligned.';
+  return { blockers, warnings, stateLabel, detail };
+}
+
+async function setVoiceGenerationModeRuntime(requested = 'tts') {
+  state.voiceDialogueDraft = state.voiceDialogueDraft || { mode: 'tts', plan: null, speaker_map: {} };
+  state.voiceDialogueDraft.mode = ['dialogue', 'batch'].includes(requested) ? requested : 'tts';
+  state.voiceDialogueDraft.error = '';
+  state.voiceDialogueDraft.notice = '';
+  if (state.voiceDialogueDraft.mode === 'dialogue') await refreshVoiceDialogueCapabilities({ renderAfter: false });
+  if (state.voiceDialogueDraft.mode === 'batch') await refreshVoiceBatchRuntime({ renderAfter: false });
+  recordMemoryEvent('voice.generation.mode.changed', 'voice', { phase: state.voiceDialogueDraft.mode === 'batch' ? 'VO-R11' : state.voiceDialogueDraft.mode === 'dialogue' ? 'VO-R10' : 'VO-R4', mode: state.voiceDialogueDraft.mode, profile_id: voiceBackendProfileId() });
+}
+
+async function runActiveVoiceGenerationMode() {
+  const mode = voiceDialogueMode();
+  if (mode === 'dialogue') { await submitVoiceDialogueGeneration(); return; }
+  if (mode === 'batch') { await runVoiceBatchRuntime(); return; }
+  await submitVoiceGeneration();
+}
+
 function renderVoiceCommandStrip() {
+  const workspace = VOICE_WORKSPACE_APPS.find((app) => app.id === getSurfaceWorkspaceAppId('voice')) || VOICE_WORKSPACE_APPS[0];
+  const common = state.voiceBaseCommonContract || {};
+  const routing = state.voiceProviderRouting || {};
+  const profile = routing.profile || {};
+  const mode = voiceDialogueMode();
+  const readiness = voiceCommandReadinessSummary();
+  const progress = voiceCommandProgressSnapshot();
+  const runCapability = voiceCommandRunCapability();
   const configHtml = `
-      <div class="neo-workspace-row compact-row" data-testid="voice-workspace-model-route-row" data-command-role="voice-route">
-        <label>Model Family${optionSelect('voiceWorkspaceFamily', VOICE_MODEL_FAMILY_OPTIONS, state.voiceDraft.family || 'chatterbox_turbo')}</label>
-        <label>Runtime${optionSelect('voiceWorkspaceRuntime', VOICE_RUNTIME_OPTIONS, state.voiceDraft.runtime || 'chatterbox')}</label>
-        <label>Job Type${optionSelect('voiceJobType', VOICE_JOB_TYPE_OPTIONS, state.voiceDraft.job_type || 'quick_preview')}</label>
+      <div class="neo-workspace-row compact-row neo-voice-command-config-row" data-testid="voice-r12a-command-config" data-command-role="voice-route">
+        <label>Workspace <span class="neo-field-hint">active tab lane</span>${optionSelect('voiceWorkspaceAppSelect', voiceWorkspaceAppOptions(), workspace.id)}</label>
+        <label>Selected Profile <span class="neo-field-hint">backend authority</span><input id="voiceWorkspaceProfileSummary" type="text" readonly value="${escapeAttr(profile.display_name || profile.profile_id || 'No Voice profile selected')}"></label>
+        <label>Workflow Mode <span class="neo-field-hint">generation type</span>${optionSelect('voiceWorkspaceGenerationMode', voiceGenerationModeOptions(), mode)}</label>
       </div>
-      <div class="neo-route-mode-badges" data-testid="voice-route-badges">${badgeRow(voiceFamilyBadges())}</div>`;
-  const actionsHtml = `
-        <div class="neo-workspace-actions neo-run-actions" data-testid="voice-workspace-runtime-actions" data-command-role="voice-run-actions">
-          <button class="neo-btn secondary" id="voiceRefreshAdapterBtn" type="button">Probe Backend</button>
-          <button class="neo-btn primary" id="voicePreviewBtn" type="button" ${voiceBackendConnected() ? '' : 'disabled'}>Preview</button>
-          <button class="neo-btn secondary" id="voiceRenderBtn" type="button" ${voiceBackendConnected() ? '' : 'disabled'}>Render</button>
-          <button class="neo-btn secondary" id="voiceRefreshHistoryBtn" type="button">Refresh Results</button>
+      <div class="neo-voice-command-status ${readiness.blockers.length ? 'is-blocked' : readiness.warnings.length ? 'is-warning' : 'is-ready'}" data-testid="voice-r12a-command-status" data-command-role="voice-readiness">
+        <div class="neo-voice-command-status-main">
+          <strong class="neo-voice-command-status-title">${escapeHtml(readiness.stateLabel)}</strong>
+          <p class="neo-voice-command-status-copy">${escapeHtml(readiness.detail)}</p>
         </div>
-        <div class="neo-progress-wrap" aria-label="Voice generation progress" data-command-role="voice-progress">
-          <div class="neo-progress-meta"><span>Progress</span><span id="voiceProgressLabel">${voiceBackendConnected() ? 'Adapter ready' : 'Backend disconnected'}</span></div>
-          <div class="neo-progress-track"><span id="voiceProgressFill" style="width: 0%"></span></div>
-        </div>`;
-  return commandStripShell('voice', 'voice-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-voice-command-strip');
+        <div class="neo-voice-command-status-badges">
+          ${badgeRow([
+            `${readiness.blockers.length} blocker${readiness.blockers.length === 1 ? '' : 's'}`,
+            `${readiness.warnings.length} warning${readiness.warnings.length === 1 ? '' : 's'}`,
+            profile.provider_id ? `Provider: ${profile.provider_id}` : 'Provider unresolved',
+            voiceRoutingReady() ? 'Provider routing: active' : 'Provider routing: blocked',
+            'Shared Voice settings',
+          ])}
+          ${badgeRow(voiceProviderRoutingBadges())}
+        </div>
+      </div>`;
+  const actionsHtml = `
+      <div class="neo-workspace-actions neo-run-actions neo-voice-command-actions" data-testid="voice-r12a-command-actions" data-command-role="voice-run-actions" data-voice-runtime="VO-R4 generation runtime active">
+        <button class="neo-btn secondary" id="voiceWorkspaceValidateBtn" type="button">Validate</button>
+        <button class="neo-btn primary" id="voiceWorkspaceGenerateBtn" type="button" ${runCapability.canRun ? '' : 'disabled'}>${runCapability.label}</button>
+        <button class="neo-btn secondary" id="voicePauseBtn" type="button" disabled>Pause</button>
+        <button class="neo-btn secondary" id="voiceStopBtn" type="button" disabled>Stop</button>
+      </div>
+      <div class="neo-progress-wrap neo-voice-command-progress" aria-label="Voice generation progress" data-command-role="voice-progress">
+        <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="voiceProgressLabel">${escapeHtml(progress.label)}</span></span></div>
+        <div class="neo-progress-track"><span id="voiceProgressFill" style="width: ${progress.percent}%"></span></div>
+      </div>`;
+  return commandStripShell('voice', 'voice-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-voice-command-strip neo-voice-r12a-command-strip');
 }
 
 function renderPromptCaptioningCommandStrip() {
@@ -6967,7 +7323,7 @@ function renderWorkspaceHeader(surface, subtab) {
   const imageReadiness = surface.surface_id === 'image' ? buildImageGenerationReadiness(activeProfile, subtab) : null;
   const imageContextStrip = imageContext ? `<div class="neo-image-workspace-workflow-strip" data-testid="image-workspace-workflow-strip"><span class="neo-context-pill"><strong>Workspace</strong>${escapeHtml(imageContext.workspace_label)}</span><span class="neo-context-pill"><strong>Workflow Mode</strong>${escapeHtml(imageContext.workflow_label)}</span></div>` : '';
   const videoContextStrip = videoContext ? `<div class="neo-image-workspace-workflow-strip neo-video-workspace-workflow-strip" data-testid="video-workspace-workflow-strip"><span class="neo-context-pill"><strong>Workspace</strong>${escapeHtml(videoContext.workspace_label)}</span><span class="neo-context-pill"><strong>Generation Type</strong>${escapeHtml(videoContext.generation_label)}</span></div>` : '';
-  const voiceContextStrip = voiceContext ? `<div class="neo-image-workspace-workflow-strip neo-voice-workspace-workflow-strip" data-testid="voice-workspace-workflow-strip"><span class="neo-context-pill"><strong>Workspace</strong>${escapeHtml(voiceContext.workspace_label)}</span><span class="neo-context-pill"><strong>Job Type</strong>${escapeHtml(voiceContext.job)}</span><span class="neo-context-pill"><strong>Source</strong>${escapeHtml(voiceContext.source)}</span></div>` : '';
+  const voiceContextStrip = voiceContext ? `<div class="neo-image-workspace-workflow-strip neo-voice-workspace-workflow-strip" data-testid="voice-workspace-workflow-strip"><span class="neo-context-pill"><strong>Workspace</strong>${escapeHtml(voiceContext.workspace_label)}</span><span class="neo-context-pill"><strong>Model</strong>${escapeHtml(voiceContext.model)}</span><span class="neo-context-pill"><strong>Voice</strong>${escapeHtml(voiceContext.voice)}</span></div>` : '';
   const imagePreflightCard = imageReadiness ? renderImageGenerationReadinessPreflight(imageReadiness) : '';
 
   const promptCaptioningHeader = surface.surface_id === 'prompt_captioning';
@@ -7033,8 +7389,20 @@ function renderWorkspaceHeader(surface, subtab) {
         invalidateImageReferenceModelCatalogs(profileId);
         render();
       }
+      if (surface.surface_id === 'voice') {
+        voiceProviderRoutingRequestEpoch += 1;
+        state.voiceProviderRouting = null;
+        state.voiceBackendHealth = null;
+        state.voiceCapabilities = null;
+        state.voiceModels = { models: [] };
+        state.voiceVoices = { voices: [] };
+        state.voiceDraft.model_id = 'provider_default';
+        state.voiceDraft.voice_id = 'provider_default';
+        render();
+      }
       await selectionRequest;
       if (surface.surface_id === 'image') await refreshImageCapabilityOverlay(profileId).catch(() => null);
+      if (surface.surface_id === 'voice') await refreshVoiceProviderRouting({ renderAfter: false }).catch(() => null);
       if (surface.surface_id === 'image' && imageReferenceCatalogProfileId() === profileId) {
         void backgroundRemovalRefreshModelCatalog({ silent: true });
         void refreshImageReferenceModelCatalogsForSelectedProfile({ profileId, reset: false });
@@ -7075,6 +7443,7 @@ function renderWorkspaceHeader(surface, subtab) {
       } finally {
         if (!profileUpdated) await refreshBackendProfiles().catch(() => {});
         if (surface.surface_id === 'image') await refreshImageCapabilityOverlay(activeProfile.profile_id).catch(() => null);
+        if (surface.surface_id === 'voice') await refreshVoiceProviderRouting({ renderAfter: false }).catch(() => null);
         render();
       }
     });
@@ -7092,6 +7461,7 @@ function renderWorkspaceHeader(surface, subtab) {
         alert(`Backend disconnect failed. ${error?.message || 'Please try again.'}`);
       } finally {
         await refreshBackendProfiles().catch(() => {});
+        if (surface.surface_id === 'voice') await refreshVoiceProviderRouting({ renderAfter: false }).catch(() => null);
         render();
       }
     });
@@ -7112,7 +7482,7 @@ function renderWorkspaceHeader(surface, subtab) {
       const routePayload = await loadJson(`/api/video/route-validation?family=${encodeURIComponent(state.videoDraft.family)}&loader=${encodeURIComponent(state.videoDraft.loader)}&generation_type=${encodeURIComponent(state.videoDraft.mode)}`, null);
       const parameterPayload = await loadJson(`/api/video/parameter-profile?family=${encodeURIComponent(state.videoDraft.family)}&loader=${encodeURIComponent(state.videoDraft.loader)}&generation_type=${encodeURIComponent(state.videoDraft.mode)}&vram_profile=${encodeURIComponent(state.videoDraft.vram_profile || 'balanced')}`, null);
       const categories = Object.keys(payload?.categories || {}).join(', ');
-      alert(`Video contract active\n\nCanonical output root: ${payload?.root || 'neo_data/outputs/video'}\nCategories: ${categories || 'not loaded'}\nSelected route: ${routePayload?.route?.route_id || 'incompatible'}\nParameter profile: ${parameterPayload?.schema_version || 'neo.video.parameter_profile.v3'} · ${parameterPayload?.vram_profile?.label || humanize(state.videoDraft.vram_profile || 'balanced')}\nRoute status: ${routePayload?.message || videoRouteStateLabel()}\nRuntime generation compiler: compiler inactive`);
+      alert(`Video route validation\n\nOutput root: ${payload?.root || 'neo_data/outputs/video'}\nCategories: ${categories || 'not loaded'}\nSelected route: ${routePayload?.route?.route_id || 'incompatible'}\nVRAM profile: ${parameterPayload?.vram_profile?.label || humanize(state.videoDraft.vram_profile || 'balanced')}\nRoute status: ${routePayload?.message || videoRouteStateLabel()}`);
       recordMemoryEvent('video.parameter_profile.validated', 'video', { root: payload?.root || '', categories: Object.keys(payload?.categories || {}), route: routePayload?.route?.route_id || '', compatible: Boolean(routePayload?.compatible), parameter_profile: parameterPayload?.schema_version || '' });
       render();
     });
@@ -7310,6 +7680,31 @@ function renderSubtabs(surface) {
         saveUiState();
         render();
         recordMemoryEvent('video.workspace_app.opened', 'video', { app: app.id, generation_mode: state.videoDraft.mode });
+      });
+      el.subtabNav.appendChild(button);
+    });
+    return;
+  }
+
+  if (surface.surface_id === 'voice') {
+    el.subtabNav.setAttribute('aria-label', 'Voice Workspace navigation');
+    el.subtabNav.dataset.navKind = 'voice-workspace';
+    if (!VOICE_WORKSPACE_APPS.some((app) => app.id === getSurfaceWorkspaceAppId('voice'))) setSurfaceWorkspaceAppId('voice', 'generation');
+    VOICE_WORKSPACE_APPS.forEach((app) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = app.label;
+      button.title = `Open ${app.label} workspace.`;
+      button.setAttribute('aria-label', `${app.label} workspace`);
+      button.dataset.voiceWorkspaceApp = app.id;
+      button.setAttribute('data-voice-workspace-app', app.id);
+      button.className = app.id === getSurfaceWorkspaceAppId('voice') ? 'active' : '';
+      button.addEventListener('click', async () => {
+        setSurfaceWorkspaceAppId('voice', app.id);
+        saveUiState();
+        if (app.id === 'results') await refreshVoiceResults({ renderAfter: false });
+        render();
+        recordMemoryEvent('voice.workspace_app.opened', 'voice', { app: app.id, phase: app.id === 'reference' ? 'VO-R6' : app.id === 'results' ? 'VO-R6' : 'VO-R2' });
       });
       el.subtabNav.appendChild(button);
     });
@@ -7629,6 +8024,9 @@ function backendProfileConnectionDiagnostic(profile) {
 function backendProfileCapabilitySummary(profile, isTextProfile) {
   const capabilities = { ...(profile?.capability_flags || {}), ...(profile?.capabilities || {}) };
   if (isTextProfile) {
+    if (profile?.provider_id === 'comfy_llamacpp') {
+      return badgeRow(['Local Comfy', 'Prompt + Caption', 'Shared GPU']);
+    }
     const effectiveFlags = promptCaptioningProfileFlags(profile);
     return badgeRow([
       `Text: ${effectiveFlags.supports_text ? 'yes' : 'no'}`,
@@ -7648,6 +8046,218 @@ function backendProfileCapabilitySummary(profile, isTextProfile) {
     .map(([key]) => key.replace(/^supports_/, '').replaceAll('_', ' '))
     .slice(0, 5);
   return badgeRow([...(active.length ? active.map((item) => `✓ ${item}`) : ['No active capabilities declared']), ...(blocked.length ? blocked.map((item) => `× ${item}`) : [])]);
+}
+
+function backendProfileComfyLlamaCppDiscoveryPanel(profile) {
+  if (!profile || profile.provider_id !== 'comfy_llamacpp') return '';
+  const runtime = profile.runtime || {};
+  const discovery = runtime.backend_capabilities || {};
+  const readiness = comfyLlamaCppReadiness(profile);
+  const validation = runtime.validation || {};
+  const models = discovery.models || {};
+  const nodes = discovery.nodes || {};
+  const uiState = comfyLlamaCppUiState(profile);
+  const settings = comfyLlamaCppProfileSettings(profile);
+  const selected = readiness.selected || {};
+  const promptReady = Boolean(readiness.prompt_ready ?? discovery.text_execution_ready);
+  const captionReady = Boolean(readiness.caption_ready ?? discovery.caption_execution_ready);
+  const primaryAction = comfyLlamaCppPrimaryAction(profile, promptReady ? 'caption' : 'prompt');
+  const currentModel = selected.model || settings.comfy_llamacpp_model || 'Auto';
+  const currentMmproj = selected.mmproj || settings.comfy_llamacpp_mmproj || 'Auto';
+  const currentHandler = comfyLlamaCppDisplayHandler(profile);
+  const captionHandler = comfyLlamaCppDisplayHandler(profile, { caption: true });
+  const captionRoute = comfyLlamaCppCaptionRoute(profile);
+  const nodePill = (available, optional = false) => `<span class="neo-state-pill ${available ? 'success' : (optional ? 'warning' : 'danger')}">${available ? 'Ready' : (optional ? 'Optional' : 'Missing')}</span>`;
+  const routePill = (ready) => `<span class="neo-state-pill ${ready ? 'success' : 'danger'}">${ready ? 'Ready' : 'Blocked'}</span>`;
+  const listText = (items, limit = 6) => (Array.isArray(items) && items.length ? items.slice(0, limit).join(', ') + (items.length > limit ? ` · +${items.length - limit} more` : '') : 'none');
+
+  return `<div class="neo-mini-card neo-backend-comfy-llama-discovery" data-testid="backend-comfy-llama-discovery">
+    <div class="neo-backend-profile-section-head"><div><strong>Comfy LLM / VLM</strong><p class="neo-muted">Live provider readiness and selected execution policy.</p></div><span class="neo-state-pill ${escapeAttr(uiState.cls)}">${escapeHtml(uiState.label)}</span></div>
+    ${badgeRow([
+      `Prompt ${promptReady ? '✅ Ready' : '❌ Blocked'}`,
+      `Caption ${captionReady ? '✅ Ready' : '❌ Blocked'}`,
+      `Catalog ${validation.live_catalog_current ? '✅ Live' : '○ Unverified'}`,
+      'GPU Shared',
+    ])}
+    ${primaryAction && !(promptReady && captionReady) ? `<div class="neo-inline-status ${escapeAttr(uiState.cls === 'danger' ? 'warning' : uiState.cls)}"><strong>Action:</strong> ${escapeHtml(primaryAction)}</div>` : ''}
+    <div class="neo-meta-list neo-comfy-readiness-groups">
+      <div><strong>Connection</strong><span>Server ${nodePill(Boolean(runtime.reachable))} · Catalog ${nodePill(Boolean(discovery.object_info_available))}</span></div>
+      <div><strong>Core nodes</strong><span>Loader ${nodePill(Boolean(nodes.loader?.available))} · Instruct ${nodePill(Boolean(nodes.instruct?.available))} · Parameters ${nodePill(Boolean(nodes.parameters?.available), true)}</span></div>
+      <div><strong>Neo bridge</strong><span>Text ${nodePill(Boolean(nodes.neo_text_output?.available))} · Image ${nodePill(Boolean(nodes.neo_image_input?.available))} · Generic MTMD ${nodePill(Boolean(nodes.neo_generic_mtmd_loader?.available && nodes.neo_generic_mtmd_instruct?.available), true)}</span></div>
+      <div><strong>Prompt route</strong><span>${routePill(promptReady)} · ${escapeHtml(currentModel)} · ${escapeHtml(currentHandler)}</span></div>
+      <div><strong>Caption route</strong><span>${routePill(captionReady)} · ${escapeHtml(currentMmproj)} · ${escapeHtml(captionHandler)}${captionRoute.family ? ` · ${escapeHtml(captionRoute.family)}` : ''}</span></div>
+      <div><strong>GPU policy</strong><span>Shared Comfy GPU · Unload ${settings.force_offload !== false ? 'after normal runs' : 'disabled'} · Batch model retention enabled</span></div>
+    </div>
+    <details class="neo-pc-comfy-advanced">
+      <summary>Catalog & validation details</summary>
+      <div class="neo-meta-list">
+        <div><strong>Main models</strong><span>${escapeHtml(listText(models.all))}</span></div>
+        <div><strong>GGUF models</strong><span>${escapeHtml(listText(models.gguf))}</span></div>
+        <div><strong>mmproj</strong><span>${escapeHtml(listText(models.mmproj))}</span></div>
+        <div><strong>Chat handlers</strong><span>${escapeHtml(listText(models.usable_chat_handlers, 8))}</span></div>
+        <div><strong>Generic MTMD</strong><span>${nodes.neo_generic_mtmd_loader?.available && nodes.neo_generic_mtmd_instruct?.available ? 'available' : 'not installed in Neo bridge'}</span></div>
+        <div><strong>Validation source</strong><span>${escapeHtml(validation.source || 'not validated')}</span></div>
+        <div><strong>Catalog refreshed</strong><span>${escapeHtml(validation.catalog_refreshed_at || validation.validated_at || 'not yet')}</span></div>
+        <div><strong>Last successful validation</strong><span>${escapeHtml(validation.last_successful_validation_at || 'not yet')}</span></div>
+      </div>
+      ${comfyLlamaCppReadinessChecklist(profile, { compact: true })}
+    </details>
+  </div>`;
+}
+
+function comfyLlamaCppProfileSettings(profile) {
+  return profile?.provider_settings?.comfy_llamacpp || {};
+}
+
+function comfyLlamaCppDiscoveryModels(profile) {
+  return profile?.runtime?.backend_capabilities?.models || {};
+}
+
+function comfyLlamaCppReadiness(profile) {
+  return profile?.runtime?.readiness || {};
+}
+
+function comfyLlamaCppCaptionRoute(profile) {
+  return comfyLlamaCppReadiness(profile)?.caption_route || {};
+}
+
+function comfyLlamaCppDisplayHandler(profile, { caption = false } = {}) {
+  const settings = comfyLlamaCppProfileSettings(profile);
+  const selected = comfyLlamaCppReadiness(profile)?.selected || {};
+  const explicit = selected.chat_handler || settings.comfy_llamacpp_chat_handler || '';
+  if (explicit) return explicit;
+  if (caption) {
+    const label = String(comfyLlamaCppCaptionRoute(profile)?.label || '').trim();
+    if (label) return label;
+  }
+  return 'Auto';
+}
+
+function comfyLlamaCppUiState(profile, route = 'all') {
+  const runtime = profile?.runtime || {};
+  const discovery = runtime.backend_capabilities || {};
+  const readiness = comfyLlamaCppReadiness(profile);
+  const validation = runtime.validation || {};
+  const activation = String(runtime.activation || '').toLowerCase();
+  const validationState = String(validation.state || '').toLowerCase();
+  const recoveryState = String(runtime.recovery_state || runtime.gpu_lifecycle?.recovery_state || '').toLowerCase();
+  const promptReady = Boolean(readiness.prompt_ready ?? discovery.text_execution_ready);
+  const captionReady = Boolean(readiness.caption_ready ?? discovery.caption_execution_ready);
+  if (activation === 'manual_disconnect' || validationState === 'manual_disconnected') return { label: 'Disconnected', cls: 'muted', promptReady, captionReady };
+  if (validationState.includes('validating') || validationState === 'unverified_saved_state') return { label: 'Validating', cls: 'info', promptReady, captionReady };
+  if (recoveryState && !['normal', 'released', 'terminal'].includes(recoveryState)) return { label: 'Recovering', cls: 'warning', promptReady, captionReady };
+  if (!runtime.reachable) return { label: 'Offline', cls: 'danger', promptReady, captionReady };
+  if (!discovery.object_info_available) return { label: 'Needs setup', cls: 'danger', promptReady, captionReady };
+  if (route === 'prompt') return { label: promptReady ? 'Ready' : 'Needs setup', cls: promptReady ? 'success' : 'danger', promptReady, captionReady };
+  if (route === 'caption') return { label: captionReady ? 'Ready' : 'Needs setup', cls: captionReady ? 'success' : 'danger', promptReady, captionReady };
+  if (promptReady && captionReady) return { label: 'Ready', cls: 'success', promptReady, captionReady };
+  if (promptReady) return { label: 'Prompt only', cls: 'warning', promptReady, captionReady };
+  if (captionReady) return { label: 'Caption only', cls: 'warning', promptReady, captionReady };
+  return { label: 'Needs setup', cls: 'danger', promptReady, captionReady };
+}
+
+function comfyLlamaCppReadinessClass(ready, checked = true) {
+  if (!checked) return 'muted';
+  return ready ? 'success' : 'danger';
+}
+
+function comfyLlamaCppReadinessAction(readiness, route = 'prompt') {
+  const blocker = readiness?.[`${route}_blocker`] || {};
+  const detail = String(blocker.detail || '').trim();
+  const action = String(blocker.next_action || '').trim();
+  if (!detail && !action) return '';
+  return `${detail}${action ? ` Next: ${action}` : ''}`;
+}
+
+function comfyLlamaCppPrimaryAction(profile, route = 'prompt') {
+  const readiness = comfyLlamaCppReadiness(profile);
+  const blocker = readiness?.[`${route}_blocker`] || {};
+  const action = String(blocker.next_action || '').trim();
+  if (action) return action;
+  const actions = Array.isArray(readiness.actions) ? readiness.actions : [];
+  if (actions.length) return String(actions[0] || '').trim();
+  const runtime = profile?.runtime || {};
+  const validation = runtime.validation || {};
+  if (String(runtime.activation || '').toLowerCase() === 'manual_disconnect') return 'Use Connect/Test when you want to enable this backend again.';
+  if (!runtime.reachable) return 'Start ComfyUI and use Connect/Test.';
+  if (!validation.live_catalog_current) return 'Use Connect/Test to refresh the live Comfy node and model catalog.';
+  return '';
+}
+
+function comfyLlamaCppReadinessChecklist(profile, { compact = false, route = '' } = {}) {
+  const readiness = comfyLlamaCppReadiness(profile);
+  const checks = Array.isArray(readiness.checks) ? readiness.checks : [];
+  if (!checks.length) return '';
+  let visible = checks;
+  if (route) visible = visible.filter((item) => Array.isArray(item.required_for) && item.required_for.includes(route));
+  if (compact) {
+    const issues = visible.filter((item) => item.status !== 'ready');
+    visible = issues.length ? issues.slice(0, 5) : [];
+  }
+  if (!visible.length) return `<div class="neo-inline-status success">Required ${route || 'provider'} checks are ready.</div>`;
+  return `<div class="neo-meta-list neo-comfy-readiness-checks">${visible.map((item) => {
+    const status = item.status || (item.ok ? 'ready' : 'blocked');
+    const cls = status === 'ready' ? 'success' : status === 'blocked' ? 'danger' : status === 'warning' ? 'warning' : 'muted';
+    const scope = Array.isArray(item.required_for) && item.required_for.length ? ` · ${item.required_for.join('+')}` : ' · optional';
+    const detail = String(item.detail || '').trim();
+    return `<div><strong>${escapeHtml(item.label || item.check_id || 'Check')}</strong><span><span class="neo-state-pill ${cls}">${escapeHtml(status)}</span>${escapeHtml(scope)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+
+function comfyLlamaCppSelectOptions(values, currentValue = '', autoLabel = 'Auto / resolve from Comfy') {
+  const current = String(currentValue || '').trim();
+  const seen = new Set();
+  const options = [{ id: '', label: autoLabel }];
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const text = String(value || '').trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    options.push({ id: text, label: text });
+  });
+  if (current && !seen.has(current)) options.splice(1, 0, { id: current, label: `${current} (saved · not in current discovery)` });
+  return options;
+}
+
+function comfyLlamaCppVramBudgetOptions(currentValue = -1) {
+  const current = Number(currentValue ?? -1);
+  const values = [
+    { id: '-1', label: 'Unlimited / llama.cpp default' },
+    { id: '0', label: 'Minimal GPU' },
+    { id: '2', label: '2 GB' },
+    { id: '4', label: '4 GB' },
+    { id: '6', label: '6 GB' },
+    { id: '8', label: '8 GB' },
+    { id: '10', label: '10 GB' },
+    { id: '12', label: '12 GB' },
+    { id: '16', label: '16 GB' },
+    { id: '24', label: '24 GB' },
+  ];
+  if (!values.some((item) => Number(item.id) === current)) values.splice(1, 0, { id: String(current), label: `${current} GB (custom saved)` });
+  return values;
+}
+
+function backendProfileComfyLlamaCppSettingsFields(profile) {
+  if (!profile || profile.provider_id !== 'comfy_llamacpp') return '';
+  const settings = comfyLlamaCppProfileSettings(profile);
+  const models = comfyLlamaCppDiscoveryModels(profile);
+  const mainModelOptions = comfyLlamaCppSelectOptions(models.all, settings.comfy_llamacpp_model, 'Auto model');
+  const mmprojOptions = comfyLlamaCppSelectOptions(models.mmproj, settings.comfy_llamacpp_mmproj, 'Auto projector');
+  const handlerOptions = comfyLlamaCppSelectOptions(models.usable_chat_handlers, settings.comfy_llamacpp_chat_handler, 'Auto / route-aware');
+  const fields = [
+    backendProfileSelect('LLM / VLM Model', 'provider_settings.comfy_llamacpp.comfy_llamacpp_model', settings.comfy_llamacpp_model || '', mainModelOptions),
+    backendProfileSelect('Chat Handler', 'provider_settings.comfy_llamacpp.comfy_llamacpp_chat_handler', settings.comfy_llamacpp_chat_handler || '', handlerOptions),
+    backendProfileSelect('Vision Projector (mmproj)', 'provider_settings.comfy_llamacpp.comfy_llamacpp_mmproj', settings.comfy_llamacpp_mmproj || '', mmprojOptions),
+    backendProfileNumber('Context Length', 'provider_settings.comfy_llamacpp.n_ctx', settings.n_ctx ?? 8192, 'min="1024" max="327680" step="128"'),
+    backendProfileSelect('VRAM Budget', 'provider_settings.comfy_llamacpp.vram_limit', String(settings.vram_limit ?? -1), comfyLlamaCppVramBudgetOptions(settings.vram_limit ?? -1)),
+    backendProfileBoolSelect('Unload After Run', 'provider_settings.comfy_llamacpp.force_offload', settings.force_offload !== false, true),
+    backendProfileNumber('Image Analysis Size', 'provider_settings.comfy_llamacpp.max_size', settings.max_size ?? 512, 'min="128" max="16384" step="64"'),
+    backendProfileNumber('Image Token Min', 'provider_settings.comfy_llamacpp.image_min_tokens', settings.image_min_tokens ?? 0, 'min="0" max="4096" step="32"'),
+    backendProfileNumber('Image Token Max', 'provider_settings.comfy_llamacpp.image_max_tokens', settings.image_max_tokens ?? 0, 'min="0" max="4096" step="32"'),
+  ].join('');
+  const catalogState = profile?.runtime?.backend_capabilities?.object_info_available
+    ? 'Live Comfy /object_info catalog loaded.'
+    : 'Run Test Connection after ComfyUI starts to populate model, projector, and handler choices.';
+  return backendProfileSection('Comfy LLM / VLM Settings', `Provider-specific llama.cpp settings. ${catalogState}`, fields, 'Comfy only');
 }
 
 function forgeAdminSnapshot(profile) {
@@ -7830,11 +8440,13 @@ function backendProfileCard(profile) {
   const samplerCount = Array.isArray(profile.models?.samplers) ? profile.models.samplers.length : 0;
   const schedulerCount = Array.isArray(profile.models?.schedulers) ? profile.models.schedulers.length : 0;
   const templateModelCount = Array.isArray(model.available_models) ? model.available_models.length : 0;
-  const modelSummary = ui.show_cloud_generation_fields
-    ? `${templateModelCount} manifest models · default ${defaultModel || 'not set'}`
-    : isTextProfile
-      ? `${textModelCount || modelCount} text models · ${visionModelCount} vision models`
-      : `${modelCount} checkpoints · ${vaeCount} VAEs · ${samplerCount} samplers · ${schedulerCount} schedulers`;
+  const modelSummary = profile.provider_id === 'comfy_llamacpp'
+    ? `${textModelCount || modelCount} LLM/VLM models · ${Array.isArray(profile.models?.mmproj) ? profile.models.mmproj.length : 0} mmproj projectors`
+    : ui.show_cloud_generation_fields
+      ? `${templateModelCount} manifest models · default ${defaultModel || 'not set'}`
+      : isTextProfile
+        ? `${textModelCount || modelCount} text models · ${visionModelCount} vision models`
+        : `${modelCount} checkpoints · ${vaeCount} VAEs · ${samplerCount} samplers · ${schedulerCount} schedulers`;
   const connectionFields = [
     backendProfileInput('Profile Name', 'display_name', profile.display_name || '', `aria-label="${escapeAttr(profile.display_name)} profile name"`),
     `<label>Provider Type${backendProviderProfileSelect(profile)}</label>`,
@@ -7913,6 +8525,7 @@ function backendProfileCard(profile) {
     backendProfileSection('Local HTTP', 'Local server connection fields. Hidden for cloud API profiles.', localHttpFields),
     backendProfileSection('Local Launcher', 'Portable path and launch command. Hidden unless this profile owns a local process.', localLaunchFields),
     backendProfileSection('Cloud API Auth', 'API credentials and cloud endpoint settings. Manual local keys are saved in neo_data/settings/secrets and never returned to the browser. Leave the password field blank to keep the saved key.', cloudApiFields, ui.show_api_auth_fields ? apiKeyStatus : ''),
+    backendProfileComfyLlamaCppSettingsFields(profile),
     backendProfileSection('Text Defaults', 'Text/chat generation defaults for text-capable profiles.', textGenerationFields),
     backendProfileSection('Cloud Image Defaults', 'Provider-native defaults for cloud image/video generation.', cloudGenerationFields),
     backendProfileSection('SD / Comfy Capabilities', 'Local node/workflow capabilities only. Hidden for cloud API profiles.', sdGenerationFields),
@@ -7926,7 +8539,8 @@ function backendProfileCard(profile) {
       <div class="neo-chipline">${enabledBadge}${defaultBadge}<span class="neo-state-pill ${statusClass(status)}">${escapeHtml(status)}</span></div>
     </div>
     ${backendProfileCapabilitySummary(profile, isTextProfile)}
-    ${backendProfileConnectionDiagnostic(profile)}
+    ${profile.provider_id === 'comfy_llamacpp' ? '' : backendProfileConnectionDiagnostic(profile)}
+    ${backendProfileComfyLlamaCppDiscoveryPanel(profile)}
     ${backendProfileForgeAdminPanel(profile)}
     ${sections}
     <div class="neo-backend-profile-actions">
@@ -8080,8 +8694,8 @@ function coerceBackendProfileFieldValue(path, value) {
     'capability_flags.supports_adetailer_inline',
     'capability_flags.supports_highres_inline',
   ];
-  if (boolFields.includes(path)) return value === 'true';
-  if (['connection.timeout_seconds', 'generation_defaults.max_tokens', 'defaults.n'].includes(path)) return Number.parseInt(value || '0', 10) || 0;
+  if (boolFields.includes(path) || ['provider_settings.comfy_llamacpp.force_offload', 'provider_settings.comfy_llamacpp.save_states', 'provider_settings.comfy_llamacpp.load_mtp'].includes(path)) return value === 'true';
+  if (['connection.timeout_seconds', 'generation_defaults.max_tokens', 'defaults.n', 'provider_settings.comfy_llamacpp.n_ctx', 'provider_settings.comfy_llamacpp.vram_limit', 'provider_settings.comfy_llamacpp.image_min_tokens', 'provider_settings.comfy_llamacpp.image_max_tokens', 'provider_settings.comfy_llamacpp.max_size', 'provider_settings.comfy_llamacpp.max_frames', 'provider_settings.comfy_llamacpp.seed'].includes(path)) return Number.parseInt(value || '0', 10) || 0;
   if (['generation_defaults.temperature', 'generation_defaults.top_p'].includes(path)) return Number.parseFloat(value || '0');
   if (path === 'generation_defaults.stop_sequences') return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
   return value;
@@ -9232,6 +9846,21 @@ function sceneDirectorSettings() {
     mask_source: raw.mask_source || 'region_box',
     contracts_enabled: raw.contracts_enabled !== false,
     use_node_auto_prompts: Boolean(raw.use_node_auto_prompts),
+    // IMG-SD3 Krea2 Regional external-engine defaults are benchmarked against
+    // the working GGUF community workflow: adaptive refine + exclusive masks,
+    // with cross-region image-attention restriction off by default.
+    krea2_regional_adaptive_masks: raw.krea2_regional_adaptive_masks || 'refine boxes',
+    krea2_regional_exclusive_masks: raw.krea2_regional_exclusive_masks !== false,
+    krea2_regional_restrict_img_attn: Boolean(raw.krea2_regional_restrict_img_attn),
+    krea2_regional_restrict_end_percent: raw.krea2_regional_restrict_end_percent ?? 0.5,
+    krea2_regional_adaptive_steps: raw.krea2_regional_adaptive_steps ?? 2,
+    krea2_regional_adaptive_threshold: raw.krea2_regional_adaptive_threshold ?? 0.45,
+    krea2_regional_region_lock_strength: raw.krea2_regional_region_lock_strength ?? 0.4,
+    krea2_regional_region_lock_start: raw.krea2_regional_region_lock_start ?? 0.35,
+    krea2_regional_region_lock_end: raw.krea2_regional_region_lock_end ?? 0.85,
+    krea2_regional_layout_in_base: raw.krea2_regional_layout_in_base || 'position hints',
+    krea2_regional_unmaskable_layers: raw.krea2_regional_unmaskable_layers || 'skip',
+    krea2_regional_base_loras_exclude_regions: Boolean(raw.krea2_regional_base_loras_exclude_regions),
     count_contract: raw.count_contract || 'exactly {count} visible subjects, one complete subject per character region, every assigned character region occupied',
     subject_contract: raw.subject_contract || 'exactly one complete visible subject inside this assigned region, separate from neighboring subjects',
     negative_contract: raw.negative_contract || 'fewer than {count} visible subjects, more than {count} visible subjects, missing assigned subject region, merged subjects, shared limbs, fused faces',
@@ -9444,6 +10073,16 @@ if (typeof window !== 'undefined') {
   };
 }
 function sceneDirectorRouteControlsEnabled(route) { return ['available', 'experimental_available'].includes(route.route_state); }
+function sceneDirectorModernBasicOnly(route = {}) {
+  return String(route?.engine || '').trim().toLowerCase() === 'lightweight_regional';
+}
+function sceneDirectorKrea2RegionalRoute(route = {}) {
+  const family = sceneDirectorRouteToken(route?.family || '');
+  return sceneDirectorModernBasicOnly(route) && ['krea2', 'krea2_turbo', 'krea_2', 'krea_2_turbo'].includes(family);
+}
+function sceneDirectorEffectiveBasicMode(settings = {}, route = {}) {
+  return sceneDirectorModernBasicOnly(route) || sceneDirectorBasicMode(settings);
+}
 function sceneDirectorStateLabel(route) {
   const labels = { available: 'Available', experimental_available: 'Experimental', planned_gated: 'Planned', provider_gated: 'Provider gated', unsupported: 'Unsupported' };
   return labels[route.route_state] || route.route_state || 'Unknown';
@@ -10439,11 +11078,39 @@ function sceneDirectorExtensionUnitOptions(kind = '') {
       if (!row || row.enabled === false) return;
       const id = String(row.uid || `lora_${index + 1}`);
       const label = `${row.name || 'LoRA row'} · ${row.strength ?? 0.8} (${id})`;
-      const ownerEnabled = Boolean(settings.enabled || extensionWorkflowAppliedById(LORA_STACK_EXTENSION_ID));
+      const ownerEnabled = Boolean(settings.execution_enabled || settings.enabled || extensionWorkflowAppliedById(LORA_STACK_EXTENSION_ID));
       options.push({ id, label: ownerEnabled ? label : `${label} · extension off` });
     });
   }
   return options;
+}
+
+function sceneDirectorExtensionRoutingCatalog() {
+  const loraSettings = typeof loraStackSettings === 'function' ? loraStackSettings() : { rows: [], execution_enabled: false };
+  const loraRows = typeof loraStackCleanRows === 'function' ? loraStackCleanRows(loraSettings.rows) : [];
+  return {
+    schema: 'neo.image.scene_director.extension_routing_catalog.img_sd1.v1',
+    options: {
+      controlnet: sceneDirectorExtensionUnitOptions('controlnet'),
+      adetailer: sceneDirectorExtensionUnitOptions('adetailer'),
+      ipadapter: sceneDirectorExtensionUnitOptions('ipadapter'),
+      lora: sceneDirectorExtensionUnitOptions('lora'),
+    },
+    lora_rows: loraRows.map((row) => ({ ...row })),
+    owner_state: {
+      lora_stack_enabled: Boolean(loraSettings.execution_enabled),
+      controlnet_enabled: sceneDirectorOwnerExtensionActiveForRoute('controlnet'),
+      adetailer_enabled: sceneDirectorOwnerExtensionActiveForRoute('adetailer'),
+      ipadapter_enabled: sceneDirectorOwnerExtensionActiveForRoute('ipadapter'),
+    },
+  };
+}
+if (typeof window !== 'undefined') {
+  window.NeoSceneDirectorExtensionRouting = {
+    schema: 'neo.image.scene_director.extension_routing_bridge.img_sd1.v1',
+    getCatalog: () => sceneDirectorExtensionRoutingCatalog(),
+    getOptions: (kind) => sceneDirectorExtensionUnitOptions(String(kind || '')),
+  };
 }
 
 function sceneDirectorExtensionUnitSelect(kind, selected, index, locked = '') {
@@ -11103,6 +11770,47 @@ function sceneDirectorSubjectCountConflictPreview(regions = [], negativePrompt =
   });
   ['extra people', 'extra person', 'additional person', 'additional people'].forEach((term) => {
     if (subjectCount > 1 && negative.includes(term)) add('subject_count_negative_ambiguous', term, 'info', `“${term}” is ambiguous in a ${subjectCount}-subject scene. Prefer count-aware wording for people beyond the requested Character regions.`);
+  });
+  return warnings;
+}
+
+function sceneDirectorMaskHorizontalPosition(region = {}) {
+  const box = sceneDirectorClampCanvasBox(region?.bbox || {});
+  const center = Number(box.x || 0) + (Number(box.w || 0) / 2);
+  if (center <= 0.42) return 'left';
+  if (center >= 0.58) return 'right';
+  return 'center';
+}
+
+function sceneDirectorPromptHorizontalDirection(prompt = '') {
+  const text = String(prompt || '').toLowerCase().replace(/\s+/g, ' ');
+  if (!text.trim()) return '';
+  const patterns = {
+    left: [/(?:standing|sitting|seated|positioned|located|placed|walking|posed) (?:on|at|to) the left\b/i, /\bon the left(?: side)?\b(?! of\b)/i, /\bleft[- ]side(?:d)? (?:subject|person|character|man|woman)\b/i],
+    right: [/(?:standing|sitting|seated|positioned|located|placed|walking|posed) (?:on|at|to) the right\b/i, /\bon the right(?: side)?\b(?! of\b)/i, /\bright[- ]side(?:d)? (?:subject|person|character|man|woman)\b/i],
+    center: [/(?:standing|sitting|seated|positioned|located|placed|walking|posed) (?:in|at) the cent(?:er|re)\b/i, /\bin the cent(?:er|re)\b/i, /\bcent(?:er|re)[- ](?:subject|person|character|man|woman)\b/i],
+  };
+  const hits = Object.entries(patterns).filter(([, rows]) => rows.some((pattern) => pattern.test(text))).map(([key]) => key);
+  return hits.length === 1 ? hits[0] : '';
+}
+
+function sceneDirectorPromptDirectionConflictPreview(regions = []) {
+  const warnings = [];
+  sceneDirectorCleanRegions(Array.isArray(regions) ? regions : []).forEach((region, index) => {
+    if (sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character') return;
+    const maskPosition = sceneDirectorMaskHorizontalPosition(region);
+    const promptDirection = sceneDirectorPromptHorizontalDirection(region.prompt || '');
+    if (!promptDirection || promptDirection === maskPosition) return;
+    warnings.push({
+      extension_id: SCENE_DIRECTOR_EXTENSION_ID,
+      level: 'warning',
+      field: `inputs.regions[${index}].prompt`,
+      code: 'prompt_direction_vs_mask_position',
+      region_id: region.id || '',
+      mask_position: maskPosition,
+      prompt_direction: promptDirection,
+      message: `${region.label || `Region ${index + 1}`} is masked on the ${maskPosition}, but its regional prompt explicitly says ${promptDirection}. The mask stays authoritative; Neo will not silently rewrite your prompt.`,
+    });
   });
   return warnings;
 }
@@ -12377,10 +13085,34 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   sceneDirectorSyncExtensionRoutesFromDomToDraft();
   // Phase 27.17A.1: the visible Advanced execution controls are authoritative at submit.
   // This repairs old drafts whose stored execution field was previously sanitized to Off.
-  const settings = sceneDirectorSyncAdvancedExecutionControlsFromDomToDraft();
+  const requestedSettings = sceneDirectorSyncAdvancedExecutionControlsFromDomToDraft();
   const corePrompts = sceneDirectorCorePromptSnapshot();
-  const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const route = sceneDirectorActiveRoute(record);
+  // IMG-SD2A: this predicate is consumed by both the settings normalization
+  // branch and the final payload contract below. Keep one function-scoped
+  // authority value so submit cannot reference an out-of-scope UI local.
+  const modernBasicOnly = sceneDirectorModernBasicOnly(route);
+  // IMG-SD1A: modern/lightweight families are Basic-only by product contract.
+  // Preserve any saved Advanced values in the draft for SDXL replay, but never
+  // submit those controls into a Krea2/Klein/Z-Image lightweight job.
+  const settings = modernBasicOnly
+    ? {
+        ...requestedSettings,
+        scene_mode: 'basic',
+        scene_director_scene_mode: 'basic',
+        basic_mode: true,
+        scene_director_basic_mode: true,
+        character_lock_mode: 'off',
+        // IMG-SD2: modern Scene Director exists to isolate region-assigned LoRAs.
+        // Keep the provider/user global prompt authoritative and do not carry
+        // SD1C/SD1D cast/count prompt contracts into lightweight routes.
+        contracts_enabled: false,
+        use_node_auto_prompts: false,
+        prompt_authority: 'global_context',
+        region_context_enabled: false,
+      }
+    : requestedSettings;
+  const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const sourceWorkflowActive = sceneDirectorV054SourceWorkflowActive(route);
   const applied = appliedOverride === null ? (extensionWorkflowAppliedAnyContext(record) || Boolean(settings.enabled)) : Boolean(appliedOverride);
   const cleanRegions = sceneDirectorCleanRegions(settings.regions);
@@ -12436,8 +13168,8 @@ function sceneDirectorPayloadPreview(record, appliedOverride = null) {
   return { extensions: { [SCENE_DIRECTOR_EXTENSION_ID]: {
     enabled: active,
     version: 1,
-    inputs: active ? { scene_graph_json: sceneGraph, scene_graph: sceneGraph, regions: cleanRegions, contracts: { enabled: settings.contracts_enabled, use_node_auto_prompts: settings.use_node_auto_prompts, count_contract: settings.count_contract, subject_contract: settings.subject_contract, negative_contract: settings.negative_contract, style_merge: settings.style_merge }, global: { positive_prompt: corePrompts.positive_prompt, negative_prompt: corePrompts.negative_prompt, style_prompt: corePrompts.style_prompt, prompt_authority: promptAuthorityContract.mode } } : {},
-    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', prompt_authority: promptAuthorityContract.mode, scene_director_prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), scene_director_scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), basic_mode: sceneDirectorBasicMode(settings), character_lock_mode: sceneDirectorBasicMode(settings) ? 'off' : sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off'), character_lock: sceneDirectorEffectiveCharacterLockFromSettings(settings), character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_pass_plan: sceneDirectorEffectiveCharacterLockExecutionMode(settings), first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v2', phase: 'SD-V054-27.1', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), execution: sceneDirectorEffectiveCharacterLockExecutionMode(settings), enabled: !sceneDirectorBasicMode(settings) && Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
+    inputs: active ? { scene_graph_json: sceneGraph, scene_graph: sceneGraph, regions: cleanRegions, contracts: { enabled: modernBasicOnly ? false : settings.contracts_enabled, strict_cast_control: false, use_node_auto_prompts: modernBasicOnly ? false : settings.use_node_auto_prompts, count_contract: settings.count_contract, subject_contract: settings.subject_contract, negative_contract: settings.negative_contract, style_merge: settings.style_merge }, global: { positive_prompt: corePrompts.positive_prompt, negative_prompt: corePrompts.negative_prompt, style_prompt: corePrompts.style_prompt, prompt_authority: promptAuthorityContract.mode } } : {},
+    params: active ? { backend_mode: settings.backend_mode || 'v054_scene_graph', strict_cast_control: false, modern_lora_isolation_core: modernBasicOnly, krea2_regional: { adaptive_masks: settings.krea2_regional_adaptive_masks || 'refine boxes', exclusive_masks: settings.krea2_regional_exclusive_masks !== false, restrict_img_attn: Boolean(settings.krea2_regional_restrict_img_attn), restrict_end_percent: Number(settings.krea2_regional_restrict_end_percent ?? 0.5), adaptive_steps: Number(settings.krea2_regional_adaptive_steps ?? 2), adaptive_threshold: Number(settings.krea2_regional_adaptive_threshold ?? 0.45), region_lock_strength: Number(settings.krea2_regional_region_lock_strength ?? 0.4), region_lock_start: Number(settings.krea2_regional_region_lock_start ?? 0.35), region_lock_end: Number(settings.krea2_regional_region_lock_end ?? 0.85), layout_in_base: settings.krea2_regional_layout_in_base || 'position hints', unmaskable_layers: settings.krea2_regional_unmaskable_layers || 'skip', base_loras_exclude_regions: Boolean(settings.krea2_regional_base_loras_exclude_regions), grow_px: 0, feather_px: 0 }, authority_mode: settings.authority_mode || 'balanced', scene_director_authority_mode: settings.authority_mode || 'balanced', prompt_authority: promptAuthorityContract.mode, scene_director_prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), scene_director_scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), basic_mode: sceneDirectorBasicMode(settings), character_lock_mode: sceneDirectorBasicMode(settings) ? 'off' : sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off'), character_lock: sceneDirectorEffectiveCharacterLockFromSettings(settings), character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), scene_director_character_lock_pass_plan: sceneDirectorEffectiveCharacterLockExecutionMode(settings), first_pass_character_lock_authority: { schema: 'neo.image.scene_director.first_pass_character_lock_authority.settings.v054.v2', phase: 'SD-V054-27.1', dedupe_releaseStage: 'preview', ui_owner: 'fix_pass_controls', execution_mode: sceneDirectorEffectiveCharacterLockExecutionMode(settings), execution: sceneDirectorEffectiveCharacterLockExecutionMode(settings), enabled: !sceneDirectorBasicMode(settings) && Boolean(settings.character_lock_first_pass_enabled), apply_to: settings.character_lock_first_pass_apply_to || 'strong_strict_only', timing: settings.character_lock_first_pass_timing || 'before_adapters', denoise: Number(settings.character_lock_first_pass_denoise ?? 0.30), steps: Number(settings.character_lock_first_pass_steps ?? 10), cfg_mode: settings.character_lock_first_pass_cfg_mode || 'inherit', cfg: settings.character_lock_first_pass_cfg === '' ? '' : Number(settings.character_lock_first_pass_cfg || 0), mask_source: settings.character_lock_first_pass_mask_source || 'full_character_mask', mask_feather: Number(settings.character_lock_first_pass_mask_feather ?? 24), protect_outfit: Boolean(settings.character_lock_first_pass_protect_outfit), protect_pose_contact: Boolean(settings.character_lock_first_pass_protect_pose_contact), source: 'fix_pass_controls_visible_fields' }, identity_strength: Number(settings.identity_strength ?? settings.appearance_lock_gain ?? 0.55), detail_strength: Number(settings.detail_strength ?? 0.85), background_strength: Number(settings.background_strength ?? 0.65), mask_feather: Number(settings.mask_feather ?? settings.appearance_lock_feather ?? 18), base_weight: Number(settings.base_weight || 0.35), region_gain: Number(settings.region_gain || 0.65), normalize_masks: Boolean(settings.normalize_masks), max_subject_slots: Number(settings.max_subject_slots || 4), mask_source: settings.mask_source, region_context: { enabled: Boolean(settings.region_context_enabled), mode: settings.region_context_mode, weight: Number(settings.region_context_weight || 0.35), position: 'suffix' }, style_stack_isolation: { global_only: true, apply_to_region_refinement: Boolean(settings.apply_global_style_to_region_refinement), local_refinement_prompt_source: settings.apply_global_style_to_region_refinement ? 'styled_global' : 'original_global' }, mask_refine: { enabled: Boolean(settings.mask_refine_enabled), mode: 'auto' }, advanced_fix_pass_controls: sceneDirectorAdvancedFixPassControls(settings, effectiveRegions) } : {},
     assets: active ? { identity_units: identityUnits, ipadapter_bindings: ipadapterBindings, lora_bindings: loraBindings } : {},
         metadata: active ? { ...disabledMeta, workflow_patch_requested: true, workflow_patch_allowed: false, reason: '', gated_reason: 'Backend validation must confirm NeoSceneDirectorV054 before graph mutation.', prompt_authority: promptAuthorityContract.mode, prompt_authority_contract: promptAuthorityContract, global_prompt_excluded: promptAuthorityContract.global_prompt_excluded, suppress_global_ipadapter: Boolean(ipadapterBindings.length), regional_count: cleanRegions.length, subject_count: sceneDirectorCharacterCount(settings.regions), detail_region_count: cleanRegions.filter((region) => sceneDirectorV054NormalizeRole(region.role || region.type) !== 'character').length, scene_graph_region_count: sceneGraph.regions.length, scene_mode: sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')), basic_mode: sceneDirectorBasicMode(settings), basic_mode_single_sampler_requested: sceneDirectorBasicMode(settings) } : disabledMeta,
   } } };
@@ -12456,9 +13188,10 @@ function sceneDirectorValidationPreview(record, appliedOverride = null) {
   if (!sceneDirectorRouteControlsEnabled(route)) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
   const providerCapability = sceneDirectorV054ProviderCapability(route);
   (providerCapability.notices || []).forEach((notice) => items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: notice.level || 'info', field: 'metadata.provider_capabilities', message: notice.message || 'Provider capability notice.' }));
-  if (applied && !regions.length) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'inputs.regions', message: 'Add at least one active Scene Director region with a prompt or identity/reference profile.' });
+  if (applied && !regions.length) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'warning', field: 'inputs.regions', message: sceneDirectorModernBasicOnly(route) ? 'Add at least one active Scene Director region with a regional LoRA assignment or optional local prompt.' : 'Add at least one active Scene Director region with a prompt or identity/reference profile.' });
   regions.forEach((region, index) => {
-    if (!region.prompt && !sceneDirectorRegionHasReference(region)) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'info', field: `inputs.regions[${index}].prompt`, message: 'Region prompt is empty.' });
+    const hasRegionalLora = Boolean((sceneDirectorV054ExtensionRoutesFromRegion(region).lora_row_ids || []).length);
+    if (!region.prompt && !sceneDirectorRegionHasReference(region) && !hasRegionalLora) items.push({ extension_id: SCENE_DIRECTOR_EXTENSION_ID, level: 'info', field: `inputs.regions[${index}].prompt`, message: sceneDirectorModernBasicOnly(route) ? 'Regional prompt is optional. Assign a LoRA Stack row to use this region for modern isolation.' : 'Region prompt is empty.' });
     const role = sceneDirectorV054NormalizeRole(region.role || region.type);
     const characterLock = sceneDirectorCharacterLockFromSettings(settings);
     const strongCharacterLock = ['strong', 'strict'].includes(sceneDirectorCharacterLockMode(characterLock.character || settings.character_lock_mode));
@@ -12480,6 +13213,7 @@ function sceneDirectorValidationPreview(record, appliedOverride = null) {
   items.push(...sceneDirectorV054ConflictPreview(regions));
   items.push(...sceneDirectorTraitColorConflictPreview(regions));
   items.push(...sceneDirectorSubjectCountConflictPreview(regions, corePrompts.negative_prompt || settings.negative_prompt || ''));
+  if (sceneDirectorModernBasicOnly(route)) items.push(...sceneDirectorPromptDirectionConflictPreview(regions));
   items.push(...sceneDirectorV054ComplexityPreview(regions));
   items.push(...sceneDirectorV054ControlPreview(regions));
   items.push(...sceneDirectorV054DetailerPreview(regions));
@@ -13187,11 +13921,42 @@ function sceneDirectorRegionCanvas(regions = [], disabled = '', selectedIndex = 
     <div class="neo-badge-row"><span class="neo-badge">Canvas · ${size.width}×${size.height}</span><span class="neo-badge">${escapeHtml(size.orientation)} orientation</span><span class="neo-badge">Normalized 0–1 coordinates</span></div>
   </section>`;
 }
+function sceneDirectorBasicExtensionRoutingBlock(region = {}, index = 0, locked = '', modern = false) {
+  const selectedIp = region.extension_routes?.ipadapter_profile_id
+    ? `profile:${region.extension_routes.ipadapter_profile_id}`
+    : (region.extension_routes?.ipadapter_unit_id ? `unit:${region.extension_routes.ipadapter_unit_id}` : '');
+  const selectedLora = (region.extension_routes?.lora_row_ids || [])[0] || region.ext_lora_row_id || '';
+  if (modern) {
+    return `<section class="neo-scene-region-routing neo-scene-region-routing-basic neo-scene-modern-lora-isolation" data-scene-director-extension-routing="basic" data-modern-scene-core="regional_lora_isolation">
+      <div class="neo-scene-region-routing-head"><strong>Regional LoRA Isolation</strong><small>primary modern Scene Director control</small></div>
+      <div class="neo-scene-region-row neo-scene-region-meta-row neo-scene-extension-route-grid">
+        ${sceneDirectorExtensionUnitSelect('lora', selectedLora, index, locked)}
+        <label>Regional LoRA strength<input data-scene-region-field="ext_lora_strength" data-scene-region-index="${index}" type="number" step="0.05" min="-2" max="2" value="${Number(region.ext_lora_strength ?? region.lora?.strength ?? 1)}" ${locked}></label>
+      </div>
+      ${sceneDirectorExtensionRoutingTruthLabels(region, index)}
+      <p class="neo-muted">The region box owns regional LoRA placement. Region-assigned LoRA rows are removed from global LoRA execution. Krea 2 routes them through Krea2 Regional; other lightweight families use Neo's regional runtime. Regional prompt text is optional reinforcement; the main prompt keeps scene/composition authority.</p>
+    </section>`;
+  }
+  return `<section class="neo-scene-region-routing neo-scene-region-routing-basic" data-scene-director-extension-routing="basic">
+    <div class="neo-scene-region-routing-head"><strong>Extension Routing</strong><small>assign owner-extension rows/units to this region</small></div>
+    <div class="neo-scene-region-row neo-scene-region-meta-row neo-scene-extension-route-grid">
+      ${sceneDirectorExtensionUnitSelect('controlnet', region.extension_routes?.controlnet_unit_id, index, locked)}
+      ${sceneDirectorExtensionUnitSelect('adetailer', region.extension_routes?.adetailer_pass_id, index, locked)}
+      ${sceneDirectorExtensionUnitSelect('ipadapter', selectedIp, index, locked)}
+      ${sceneDirectorExtensionUnitSelect('lora', selectedLora, index, locked)}
+      <label>Mask mode<select data-scene-region-field="ext_route_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${region.extension_routes?.mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="subject" ${region.extension_routes?.mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="detail" ${region.extension_routes?.mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="background" ${region.extension_routes?.mask_mode === 'background' ? 'selected' : ''}>Background mask</option></select></label>
+    </div>
+    ${sceneDirectorExtensionRoutingTruthLabels(region, index)}
+    <p class="neo-muted">Owner extensions create the rows/units. Scene Director only assigns them spatially. Region-assigned LoRA rows are removed from global LoRA execution and must survive the regional execution proof.</p>
+  </section>`;
+}
 function sceneDirectorPanel(record) {
   const settings = sceneDirectorSettings();
   const corePrompts = sceneDirectorCorePromptSnapshot();
   const promptAuthorityContract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
   const route = sceneDirectorActiveRoute(record);
+  const modernBasicOnly = sceneDirectorModernBasicOnly(route);
+  const effectiveBasicMode = sceneDirectorEffectiveBasicMode(settings, route);
   const routeEnabled = sceneDirectorRouteControlsEnabled(route);
   const expert = state.detailMode === 'expert';
   const compact = state.detailMode === 'compact';
@@ -13212,9 +13977,10 @@ function sceneDirectorPanel(record) {
     const region = sceneDirectorNormalizeRegion(sourceRegion, index);
     const bbox = region.bbox;
     const locked = disabled || region.locked ? 'disabled' : '';
-    const regionActive = region.enabled !== false && region.visible !== false && (String(region.prompt || '').trim() || sceneDirectorRegionHasReference(region));
+    const regionHasLoraRoute = Boolean((sceneDirectorV054ExtensionRoutesFromRegion(region).lora_row_ids || []).length);
+    const regionActive = region.enabled !== false && region.visible !== false && (String(region.prompt || '').trim() || sceneDirectorRegionHasReference(region) || (modernBasicOnly && regionHasLoraRoute));
     const regionStateClass = region.enabled === false ? 'is-disabled' : (regionActive ? 'is-active' : 'is-inactive');
-    const regionStateLabel = region.enabled === false ? 'Disabled' : (regionActive ? 'Active' : 'Needs prompt/ref');
+    const regionStateLabel = region.enabled === false ? 'Disabled' : (regionActive ? 'Active' : (modernBasicOnly ? 'Needs LoRA/prompt' : 'Needs prompt/ref'));
     return `<article class="neo-scene-region-card ${regionStateClass}" data-scene-region-index="${index}">
       <div class="neo-card-head neo-scene-region-head">
         <div class="neo-scene-region-title-wrap">
@@ -13224,14 +13990,15 @@ function sceneDirectorPanel(record) {
         <div class="neo-inline-actions neo-scene-region-order-actions"><button class="neo-icon-btn" type="button" data-scene-region-move="up" data-scene-region-index="${index}" ${disabled || index === 0 ? 'disabled' : ''} title="Move region up">⬆️</button><button class="neo-icon-btn" type="button" data-scene-region-move="down" data-scene-region-index="${index}" ${disabled || index === regions.length - 1 ? 'disabled' : ''} title="Move region down">⬇️</button><button class="neo-icon-btn" type="button" data-scene-region-duplicate="${index}" ${disabled} title="Duplicate region">⧉</button><button class="neo-icon-btn" type="button" data-scene-region-remove="${index}" ${disabled} title="Delete region">🗑️</button></div>
       </div>
       <div class="neo-scene-region-row neo-scene-region-meta-row"><label>Label<input data-scene-region-field="label" data-scene-region-index="${index}" value="${escapeAttr(region.label || '')}" ${locked}></label><label>V054 Role<select data-scene-region-field="role" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RoleOptions(region.role || region.type)}</select></label></div>
-      ${sceneDirectorBasicMode(settings) ? '<p class="neo-muted neo-scene-basic-mode-note">Basic Scene Mode: Character Trait Lock, Pose, corrections, and advanced region controls are hidden and not submitted.</p>' : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? '<p class="neo-muted neo-scene-basic-mode-note">Advanced Scene Mode is active. Enable Character Lock to expose Character Trait Lock, including Pose.</p>' : sceneDirectorRegionTraitFields(region, index, locked))}
+      ${effectiveBasicMode ? `<p class="neo-muted neo-scene-basic-mode-note">${modernBasicOnly ? 'Modern Scene Director is a Basic regional LoRA-isolation layer. The main model/prompt owns scene composition; regional prompt text is optional reinforcement. Advanced V054 repair controls are unavailable on this family.' : 'Basic Scene Mode: Character Trait Lock, Pose, corrections, and advanced region controls are hidden and not submitted.'}</p>` : (sceneDirectorCharacterLockMode(settings.character_lock_mode || 'off') === 'off' ? '<p class="neo-muted neo-scene-basic-mode-note">Advanced Scene Mode is active. Enable Character Lock to expose Character Trait Lock, including Pose.</p>' : sceneDirectorRegionTraitFields(region, index, locked))}
       ${sceneDirectorAttachedDetailControls(region, index, locked, regions)}
-      <details class="neo-scene-nested-card neo-scene-region-advanced"><summary><span>Advanced Region Control</span><small>attachment, prompts, routes, edit tools</small></summary><div class="neo-scene-nested-body neo-scene-region-advanced-body"><details class="neo-scene-region-control-group" open><summary>Relationship & Attachment</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Attach to<select data-scene-region-field="attach_to" data-scene-region-index="${index}" ${locked}>${parentOptionsForRegion(region.id, region.attach_to)}</select></label><label>Relationship<select data-scene-region-field="relationship" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RelationshipOptions(region.relationship || sceneDirectorV054LinkMetadata(region).relationship)}</select></label><label>Target area<input data-scene-region-field="target_area" data-scene-region-index="${index}" value="${escapeAttr(region.target_area || sceneDirectorV054LinkMetadata(region).targetArea || '')}" placeholder="hair, face, hands, outfit" ${locked}></label><label>Priority<select data-scene-region-field="priority" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054PriorityOptions(region.priority)}</select></label></div></details><details class="neo-scene-region-control-group"><summary>Prompt Overrides</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Parent prompt override<textarea data-scene-region-field="relationship_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Use {parent}, {child}, {target}, {relationship}" ${locked}>${escapeHtml(region.relationship_prompt || '')}</textarea></label><label class="wide">Local mask prompt override<textarea data-scene-region-field="local_prompt_template" data-scene-region-index="${index}" rows="2" placeholder="Optional local prompt for this region mask" ${locked}>${escapeHtml(region.local_prompt_template || '')}</textarea></label><label class="wide">Negative guard override<textarea data-scene-region-field="negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative guard for this relationship" ${locked}>${escapeHtml(region.negative_guard || '')}</textarea></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Conflict resolution override<textarea data-scene-region-field="conflict_resolution_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: {child_label} wins over parent wording for {parent_label}" ${locked}>${escapeHtml(region.conflict_resolution_prompt || '')}</textarea></label><label class="wide">Conflict negative guard<textarea data-scene-region-field="conflict_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative prompt only when this lane conflicts" ${locked}>${escapeHtml(region.conflict_negative_guard || '')}</textarea></label></div></details><details class="neo-scene-region-control-group"><summary>Background Slot</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Background zone<input data-scene-region-field="zone" data-scene-region-index="${index}" value="${escapeAttr(region.zone || sceneDirectorV054BackgroundZone(region))}" placeholder="left side / right side / center seam" ${locked}></label><label class="wide">Background prompt override<textarea data-scene-region-field="background_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: ancient medieval fantasy ruins, warm torchlight, stone walls" ${locked}>${escapeHtml(region.background_prompt || '')}</textarea></label><label class="wide">Background negative guard<textarea data-scene-region-field="background_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="background covering subjects, extra people, wrong era bleed" ${locked}>${escapeHtml(region.background_negative_guard || '')}</textarea></label></div>${sceneDirectorBackgroundComposerControls(region, index, locked, regions)}<p class="neo-muted">Manual background regions only. Background override is compiled as the local background lane; global prompt remains scene context/style only.</p></details>${showSceneDirectorImg2ImgControls ? `<details class="neo-scene-region-control-group"><summary>Img2Img Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Img2Img intent<select data-scene-region-field="edit_intent_mode" data-scene-region-index="${index}" ${locked}><option value="preserve" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'preserve' ? 'selected' : ''}>Preserve</option><option value="modify" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'modify' ? 'selected' : ''}>Modify</option><option value="replace" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'replace' ? 'selected' : ''}>Replace</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="edit_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054EditIntentFromRegion(region).denoise ?? 0.35)}" ${locked}></label><label>Mask reuse<select data-scene-region-field="edit_mask_reuse" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'region' ? 'selected' : ''}>Region mask</option><option value="source" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'source' ? 'selected' : ''}>Source mask</option><option value="metadata" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'metadata' ? 'selected' : ''}>Saved metadata</option></select></label><label class="wide">Source image<input data-scene-region-field="source_image" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054EditIntentFromRegion(region).source_image || region.source_image || '')}" placeholder="output/source image name" ${locked}></label></div></details>` : ''}${showSceneDirectorInpaintControls ? `<details class="neo-scene-region-control-group"><summary>Inpaint Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="neo-scene-region-enable"><input type="checkbox" data-scene-region-field="inpaint_enabled" data-scene-region-index="${index}" ${sceneDirectorV054InpaintTargetFromRegion(region).enabled ? 'checked' : ''} ${locked}> <span>Inpaint Target</span></label><label>Action<select data-scene-region-field="inpaint_action" data-scene-region-index="${index}" ${locked}><option value="change_hair" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_hair' ? 'selected' : ''}>Change Hair</option><option value="change_outfit" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_outfit' ? 'selected' : ''}>Change Outfit</option><option value="add_held_prop" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'add_held_prop' ? 'selected' : ''}>Add Held Prop</option><option value="remove_object" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'remove_object' ? 'selected' : ''}>Remove Object</option><option value="replace_background" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'replace_background' ? 'selected' : ''}>Replace Background</option><option value="fix_face" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_face' ? 'selected' : ''}>Fix Face</option><option value="fix_hands" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_hands' ? 'selected' : ''}>Fix Hands</option><option value="edit_text_plate" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'edit_text_plate' ? 'selected' : ''}>Edit Text Plate</option><option value="custom" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'custom' ? 'selected' : ''}>Custom</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="inpaint_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).denoise ?? 0.5)}" ${locked}></label><label>Mask feather<input type="number" min="0" max="128" step="1" data-scene-region-field="inpaint_mask_feather" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).mask_feather ?? 16)}" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask mode<select data-scene-region-field="inpaint_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="detail" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="subject" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="background" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'background' ? 'selected' : ''}>Background mask</option><option value="source" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'source' ? 'selected' : ''}>Source mask</option></select></label><label class="wide">Inpaint prompt<input data-scene-region-field="inpaint_prompt" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).prompt || '')}" placeholder="Prompt for this inpaint target" ${locked}></label><label class="wide">Inpaint negative<input data-scene-region-field="inpaint_negative" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).negative || '')}" placeholder="Negative for this inpaint target" ${locked}></label></div></details>` : ''}<details class="neo-scene-region-control-group"><summary>Text Region</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Text mode<select data-scene-region-field="text_mode" data-scene-region-index="${index}" ${locked}><option value="composite" ${sceneDirectorV054TextFromRegion(region).mode === 'composite' ? 'selected' : ''}>Composite Text</option><option value="diffusion" ${sceneDirectorV054TextFromRegion(region).mode === 'diffusion' ? 'selected' : ''}>Diffusion Text</option><option value="native" ${sceneDirectorV054TextFromRegion(region).mode === 'native' ? 'selected' : ''}>Model Native</option></select></label><label class="wide">Text content<textarea data-scene-region-field="text" data-scene-region-index="${index}" rows="2" placeholder="Readable text to composite" ${locked}>${escapeHtml(sceneDirectorV054TextFromRegion(region).text || '')}</textarea></label><label>Font style<input data-scene-region-field="font_style" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).font_style || '')}" placeholder="bold futuristic sans-serif" ${locked}></label><label>Color<input data-scene-region-field="color" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).color || 'white')}" placeholder="white / #ffffff" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Font size<input type="number" min="4" max="512" step="1" data-scene-region-field="font_size" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).font_size ?? 48)}" ${locked}></label><label>Align<select data-scene-region-field="align" data-scene-region-index="${index}" ${locked}><option value="left" ${sceneDirectorV054TextFromRegion(region).align === 'left' ? 'selected' : ''}>Left</option><option value="center" ${sceneDirectorV054TextFromRegion(region).align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${sceneDirectorV054TextFromRegion(region).align === 'right' ? 'selected' : ''}>Right</option></select></label><label>Vertical<select data-scene-region-field="valign" data-scene-region-index="${index}" ${locked}><option value="top" ${sceneDirectorV054TextFromRegion(region).valign === 'top' ? 'selected' : ''}>Top</option><option value="middle" ${sceneDirectorV054TextFromRegion(region).valign === 'middle' ? 'selected' : ''}>Middle</option><option value="bottom" ${sceneDirectorV054TextFromRegion(region).valign === 'bottom' ? 'selected' : ''}>Bottom</option></select></label><label>Opacity<input type="number" min="0" max="1" step="0.01" data-scene-region-field="opacity" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).opacity ?? 1)}" ${locked}></label></div></details><details class="neo-scene-region-control-group"><summary>Extension Routing</summary><div class="neo-scene-region-row neo-scene-region-meta-row neo-scene-extension-route-grid">${sceneDirectorExtensionUnitSelect('controlnet', region.extension_routes?.controlnet_unit_id, index, locked)}${sceneDirectorExtensionUnitSelect('adetailer', region.extension_routes?.adetailer_pass_id, index, locked)}${sceneDirectorExtensionUnitSelect('ipadapter', region.extension_routes?.ipadapter_profile_id ? `profile:${region.extension_routes.ipadapter_profile_id}` : (region.extension_routes?.ipadapter_unit_id ? `unit:${region.extension_routes.ipadapter_unit_id}` : ''), index, locked)}${sceneDirectorExtensionUnitSelect('lora', (region.extension_routes?.lora_row_ids || [])[0] || region.ext_lora_row_id || '', index, locked)}<label>Mask mode<select data-scene-region-field="ext_route_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${region.extension_routes?.mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="subject" ${region.extension_routes?.mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="detail" ${region.extension_routes?.mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="background" ${region.extension_routes?.mask_mode === 'background' ? 'selected' : ''}>Background mask</option></select></label></div>${sceneDirectorExtensionRoutingAdvancedSettings(region, index, locked)}${sceneDirectorExtensionRoutingTruthLabels(region, index)}<p class="neo-muted">Owner extensions create units/passes/profiles/rows. Scene Director owns region assignment; ControlNet, ADetailer, assigned LoRA rows, and IP Adapter identity restore can route through region masks when runtime support is available. Advanced route settings stay hidden until a route is selected; truth labels show requested vs actual compiled behavior.</p></details><p class="neo-muted">Defaults come from the prompt compiler registry, conflict resolver, mixed-background registry, regional ControlNet router, and regional Detailer router, inpaint target planner, and text compositor. Override here when the scene needs custom wording; templates support {parent}, {parent_label}, {child}, {child_label}, {target}, {relationship}, {zone}, and {focus}.</p></div></details>
+      <details class="neo-scene-nested-card neo-scene-region-advanced" ${effectiveBasicMode ? 'hidden' : ''}><summary><span>Advanced Region Control</span><small>attachment, prompts, edit tools</small></summary><div class="neo-scene-nested-body neo-scene-region-advanced-body"><details class="neo-scene-region-control-group" open><summary>Relationship & Attachment</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Attach to<select data-scene-region-field="attach_to" data-scene-region-index="${index}" ${locked}>${parentOptionsForRegion(region.id, region.attach_to)}</select></label><label>Relationship<select data-scene-region-field="relationship" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054RelationshipOptions(region.relationship || sceneDirectorV054LinkMetadata(region).relationship)}</select></label><label>Target area<input data-scene-region-field="target_area" data-scene-region-index="${index}" value="${escapeAttr(region.target_area || sceneDirectorV054LinkMetadata(region).targetArea || '')}" placeholder="hair, face, hands, outfit" ${locked}></label><label>Priority<select data-scene-region-field="priority" data-scene-region-index="${index}" ${locked}>${sceneDirectorV054PriorityOptions(region.priority)}</select></label></div></details><details class="neo-scene-region-control-group"><summary>Prompt Overrides</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Parent prompt override<textarea data-scene-region-field="relationship_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Use {parent}, {child}, {target}, {relationship}" ${locked}>${escapeHtml(region.relationship_prompt || '')}</textarea></label><label class="wide">Local mask prompt override<textarea data-scene-region-field="local_prompt_template" data-scene-region-index="${index}" rows="2" placeholder="Optional local prompt for this region mask" ${locked}>${escapeHtml(region.local_prompt_template || '')}</textarea></label><label class="wide">Negative guard override<textarea data-scene-region-field="negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative guard for this relationship" ${locked}>${escapeHtml(region.negative_guard || '')}</textarea></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="wide">Conflict resolution override<textarea data-scene-region-field="conflict_resolution_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: {child_label} wins over parent wording for {parent_label}" ${locked}>${escapeHtml(region.conflict_resolution_prompt || '')}</textarea></label><label class="wide">Conflict negative guard<textarea data-scene-region-field="conflict_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="Optional negative prompt only when this lane conflicts" ${locked}>${escapeHtml(region.conflict_negative_guard || '')}</textarea></label></div></details><details class="neo-scene-region-control-group"><summary>Background Slot</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Background zone<input data-scene-region-field="zone" data-scene-region-index="${index}" value="${escapeAttr(region.zone || sceneDirectorV054BackgroundZone(region))}" placeholder="left side / right side / center seam" ${locked}></label><label class="wide">Background prompt override<textarea data-scene-region-field="background_prompt" data-scene-region-index="${index}" rows="2" placeholder="Optional. Example: ancient medieval fantasy ruins, warm torchlight, stone walls" ${locked}>${escapeHtml(region.background_prompt || '')}</textarea></label><label class="wide">Background negative guard<textarea data-scene-region-field="background_negative_guard" data-scene-region-index="${index}" rows="2" placeholder="background covering subjects, extra people, wrong era bleed" ${locked}>${escapeHtml(region.background_negative_guard || '')}</textarea></label></div>${sceneDirectorBackgroundComposerControls(region, index, locked, regions)}<p class="neo-muted">Manual background regions only. Background override is compiled as the local background lane; global prompt remains scene context/style only.</p></details>${showSceneDirectorImg2ImgControls ? `<details class="neo-scene-region-control-group"><summary>Img2Img Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Img2Img intent<select data-scene-region-field="edit_intent_mode" data-scene-region-index="${index}" ${locked}><option value="preserve" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'preserve' ? 'selected' : ''}>Preserve</option><option value="modify" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'modify' ? 'selected' : ''}>Modify</option><option value="replace" ${sceneDirectorV054EditIntentFromRegion(region).mode === 'replace' ? 'selected' : ''}>Replace</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="edit_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054EditIntentFromRegion(region).denoise ?? 0.35)}" ${locked}></label><label>Mask reuse<select data-scene-region-field="edit_mask_reuse" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'region' ? 'selected' : ''}>Region mask</option><option value="source" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'source' ? 'selected' : ''}>Source mask</option><option value="metadata" ${sceneDirectorV054EditIntentFromRegion(region).mask_reuse === 'metadata' ? 'selected' : ''}>Saved metadata</option></select></label><label class="wide">Source image<input data-scene-region-field="source_image" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054EditIntentFromRegion(region).source_image || region.source_image || '')}" placeholder="output/source image name" ${locked}></label></div></details>` : ''}${showSceneDirectorInpaintControls ? `<details class="neo-scene-region-control-group"><summary>Inpaint Settings</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label class="neo-scene-region-enable"><input type="checkbox" data-scene-region-field="inpaint_enabled" data-scene-region-index="${index}" ${sceneDirectorV054InpaintTargetFromRegion(region).enabled ? 'checked' : ''} ${locked}> <span>Inpaint Target</span></label><label>Action<select data-scene-region-field="inpaint_action" data-scene-region-index="${index}" ${locked}><option value="change_hair" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_hair' ? 'selected' : ''}>Change Hair</option><option value="change_outfit" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'change_outfit' ? 'selected' : ''}>Change Outfit</option><option value="add_held_prop" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'add_held_prop' ? 'selected' : ''}>Add Held Prop</option><option value="remove_object" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'remove_object' ? 'selected' : ''}>Remove Object</option><option value="replace_background" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'replace_background' ? 'selected' : ''}>Replace Background</option><option value="fix_face" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_face' ? 'selected' : ''}>Fix Face</option><option value="fix_hands" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'fix_hands' ? 'selected' : ''}>Fix Hands</option><option value="edit_text_plate" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'edit_text_plate' ? 'selected' : ''}>Edit Text Plate</option><option value="custom" ${sceneDirectorV054InpaintTargetFromRegion(region).action === 'custom' ? 'selected' : ''}>Custom</option></select></label><label>Denoise<input type="number" min="0" max="1" step="0.01" data-scene-region-field="inpaint_denoise" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).denoise ?? 0.5)}" ${locked}></label><label>Mask feather<input type="number" min="0" max="128" step="1" data-scene-region-field="inpaint_mask_feather" data-scene-region-index="${index}" value="${Number(sceneDirectorV054InpaintTargetFromRegion(region).mask_feather ?? 16)}" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Mask mode<select data-scene-region-field="inpaint_mask_mode" data-scene-region-index="${index}" ${locked}><option value="region" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'region' ? 'selected' : ''}>Region mask</option><option value="detail" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'detail' ? 'selected' : ''}>Detail mask</option><option value="subject" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'subject' ? 'selected' : ''}>Subject mask</option><option value="background" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'background' ? 'selected' : ''}>Background mask</option><option value="source" ${sceneDirectorV054InpaintTargetFromRegion(region).mask_mode === 'source' ? 'selected' : ''}>Source mask</option></select></label><label class="wide">Inpaint prompt<input data-scene-region-field="inpaint_prompt" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).prompt || '')}" placeholder="Prompt for this inpaint target" ${locked}></label><label class="wide">Inpaint negative<input data-scene-region-field="inpaint_negative" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054InpaintTargetFromRegion(region).negative || '')}" placeholder="Negative for this inpaint target" ${locked}></label></div></details>` : ''}<details class="neo-scene-region-control-group"><summary>Text Region</summary><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Text mode<select data-scene-region-field="text_mode" data-scene-region-index="${index}" ${locked}><option value="composite" ${sceneDirectorV054TextFromRegion(region).mode === 'composite' ? 'selected' : ''}>Composite Text</option><option value="diffusion" ${sceneDirectorV054TextFromRegion(region).mode === 'diffusion' ? 'selected' : ''}>Diffusion Text</option><option value="native" ${sceneDirectorV054TextFromRegion(region).mode === 'native' ? 'selected' : ''}>Model Native</option></select></label><label class="wide">Text content<textarea data-scene-region-field="text" data-scene-region-index="${index}" rows="2" placeholder="Readable text to composite" ${locked}>${escapeHtml(sceneDirectorV054TextFromRegion(region).text || '')}</textarea></label><label>Font style<input data-scene-region-field="font_style" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).font_style || '')}" placeholder="bold futuristic sans-serif" ${locked}></label><label>Color<input data-scene-region-field="color" data-scene-region-index="${index}" value="${escapeAttr(sceneDirectorV054TextFromRegion(region).color || 'white')}" placeholder="white / #ffffff" ${locked}></label></div><div class="neo-scene-region-row neo-scene-region-meta-row"><label>Font size<input type="number" min="4" max="512" step="1" data-scene-region-field="font_size" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).font_size ?? 48)}" ${locked}></label><label>Align<select data-scene-region-field="align" data-scene-region-index="${index}" ${locked}><option value="left" ${sceneDirectorV054TextFromRegion(region).align === 'left' ? 'selected' : ''}>Left</option><option value="center" ${sceneDirectorV054TextFromRegion(region).align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${sceneDirectorV054TextFromRegion(region).align === 'right' ? 'selected' : ''}>Right</option></select></label><label>Vertical<select data-scene-region-field="valign" data-scene-region-index="${index}" ${locked}><option value="top" ${sceneDirectorV054TextFromRegion(region).valign === 'top' ? 'selected' : ''}>Top</option><option value="middle" ${sceneDirectorV054TextFromRegion(region).valign === 'middle' ? 'selected' : ''}>Middle</option><option value="bottom" ${sceneDirectorV054TextFromRegion(region).valign === 'bottom' ? 'selected' : ''}>Bottom</option></select></label><label>Opacity<input type="number" min="0" max="1" step="0.01" data-scene-region-field="opacity" data-scene-region-index="${index}" value="${Number(sceneDirectorV054TextFromRegion(region).opacity ?? 1)}" ${locked}></label></div></details><details class="neo-scene-region-control-group"><summary>Route Advanced Settings</summary>${sceneDirectorExtensionRoutingAdvancedSettings(region, index, locked)}<p class="neo-muted">Advanced route tuning is available only on Classic V054 routes. Primary Extension Routing lives in the Basic region card.</p></details><p class="neo-muted">Defaults come from the prompt compiler registry, conflict resolver, mixed-background registry, regional ControlNet router, and regional Detailer router, inpaint target planner, and text compositor. Override here when the scene needs custom wording; templates support {parent}, {parent_label}, {child}, {child_label}, {target}, {relationship}, {zone}, and {focus}.</p></div></details>
       <div class="neo-scene-region-row neo-scene-region-flags neo-scene-region-flag-row">${sceneDirectorBoolControl(`sceneRegionVisible${index}`, 'Visible', region.visible !== false, disabled, `data-scene-region-field="visible" data-scene-region-index="${index}"`)}${sceneDirectorBoolControl(`sceneRegionLocked${index}`, 'Locked', Boolean(region.locked), disabled, `data-scene-region-field="locked" data-scene-region-index="${index}"`)}</div>
       <label>Prompt<textarea data-scene-region-field="prompt" data-scene-region-index="${index}" ${locked}>${escapeHtml(region.prompt || '')}</textarea></label>
       <label>Region negative prompt<textarea data-scene-region-field="negative_prompt" data-scene-region-index="${index}" ${locked}>${escapeHtml(region.negative_prompt || '')}</textarea></label>
       <div class="neo-scene-region-box neo-scene-region-bbox-row">${['x','y','w','h'].map((axis, i) => `<label>${axis}<input type="number" min="0" max="1" step="0.01" data-scene-region-bbox="${i}" data-scene-region-index="${index}" value="${Number(bbox[axis] ?? 0)}" ${locked}></label>`).join('')}</div>
       <div class="neo-scene-region-row neo-scene-region-strength-row"><label>Strength<input type="number" min="0" max="2" step="0.01" data-scene-region-field="strength" data-scene-region-index="${index}" value="${Number(region.strength ?? 1)}" ${locked}></label><label>Mask feather<input type="number" min="0" max="64" step="1" data-scene-region-field="feather" data-scene-region-index="${index}" value="${Number(region.feather ?? 8)}" ${locked}></label></div>
+      ${sceneDirectorBasicExtensionRoutingBlock(region, index, locked, modernBasicOnly)}
       
     </article>`;
   }).join('');
@@ -13258,15 +14025,15 @@ function sceneDirectorPanel(record) {
   const globalContextBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-global-context-routing"><summary><span>🌐 Prompt routing status</span><small>controlled by the single Prompt authority selector</small></summary><div class="neo-scene-nested-body"><p class="neo-muted">${escapeHtml(promptAuthorityContract.label)}. ${promptAuthorityContract.global_prompt_excluded ? 'Neo core positive/negative conditioning is excluded from the Scene Director node.' : 'Neo core context stays on the canvas lane and a compact suffix is shared with regional branches.'}</p><div class="neo-badge-row"><span class="neo-badge">Authority: ${escapeHtml(promptAuthorityContract.mode)}</span><span class="neo-badge">Regional suffix: ${promptAuthorityContract.regional_context_enabled ? 'on' : 'off'}</span><span class="neo-badge">Weight: ${escapeHtml(String(promptAuthorityContract.regional_context_weight))}</span><span class="neo-badge">Position: suffix</span></div></div></details>`;
   const identityProfilesBlock = '';   const presetsBlock = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-presets-combined"><summary><span>🎛️ Presets</span><small>scene presets and region layout presets</small></summary><div class="neo-scene-nested-body"><div class="neo-scene-preset-group"><h4>🎬 Scene Presets</h4><p class="neo-muted">Save/load the full Scene Director state: regions, prompt rules, routing, Character Lock, and mask settings.</p><div class="neo-scene-region-row"><label>Scene preset<select id="sceneDirectorScenePresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.scenePresets, settings.selected_scene_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-scene-preset="1" ${disabled}>Load</button><button class="neo-btn secondary" type="button" data-scene-director-save-scene-preset="1" ${disabled}>Save Current</button></div></div><div class="neo-scene-preset-group"><h4>🧩 Region Layout Presets</h4><p class="neo-muted">Save/load only region rectangles, labels, types, visible/locked state. Prompts, identity profile data, and external LoRA/IPAdapter routing stay intact where possible.</p><div class="neo-scene-region-row"><label>Layout preset<select id="sceneDirectorLayoutPresetSelect" ${disabled}>${sceneDirectorLibraryOptions(lib.regionLayoutPresets, settings.selected_region_layout_preset)}</select></label><button class="neo-btn secondary" type="button" data-scene-director-load-layout-preset="1" ${disabled}>Load Layout</button><button class="neo-btn secondary" type="button" data-scene-director-save-layout-preset="1" ${disabled}>Save Layout</button></div></div>${lib.status ? `<p class="neo-muted">${escapeHtml(lib.status)}</p>` : ''}</div></details>`;
   const advancedCoreControls = `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-core-controls"><summary><span>⚙️ Expert execution controls</span><small>weights, slots, masks, legacy authority compatibility</small></summary><div class="neo-scene-nested-body"><div class="neo-parameter-row neo-scene-balance-row"><label>Legacy authority mode<select id="sceneDirectorAuthorityMode" ${disabled}><option value="neutral_planning" ${String(settings.authority_mode || 'balanced') === 'neutral_planning' ? 'selected' : ''}>Neutral / planning only</option><option value="layout_only" ${String(settings.authority_mode || 'balanced') === 'layout_only' ? 'selected' : ''}>Layout only</option><option value="soft_regional_guide" ${String(settings.authority_mode || 'balanced') === 'soft_regional_guide' ? 'selected' : ''}>Soft regional guide</option><option value="anime_safe_prompt" ${String(settings.authority_mode || 'balanced') === 'anime_safe_prompt' ? 'selected' : ''}>Anime safe / prompt append only</option><option value="balanced" ${String(settings.authority_mode || 'balanced') === 'balanced' ? 'selected' : ''}>Balanced</option><option value="strong_correction" ${String(settings.authority_mode || 'balanced') === 'strong_correction' ? 'selected' : ''}>Strong regional correction</option><option value="debug_aggressive" ${String(settings.authority_mode || 'balanced') === 'debug_aggressive' ? 'selected' : ''}>Debug / aggressive</option></select></label><label>Base weight<input id="sceneDirectorBaseWeight" type="number" min="0" max="1" step="0.01" value="${settings.base_weight}" ${disabled}></label><label>Region gain<input id="sceneDirectorRegionGain" type="number" min="0" max="1" step="0.01" value="${settings.region_gain}" ${disabled}></label><label>Max subject slots<input id="sceneDirectorMaxSubjectSlots" type="number" min="1" max="8" step="1" value="${settings.max_subject_slots}" ${disabled}></label></div><p class="neo-muted">These fields stay available for expert tuning and legacy payload replay. Prompt ownership is controlled above.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorNormalizeMasks', 'Normalize masks', settings.normalize_masks, disabled)}${sceneDirectorBoolControl('sceneDirectorMaskRefine', 'Character mask refinement metadata', settings.mask_refine_enabled, disabled)}</div></div></details>`;
-  const advancedSceneControlBlock = sceneDirectorBasicMode(settings) ? '' : `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Controls</span><small>Character Lock, repair, layout, contracts, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${characterLockBlock}${characterRepairBlock}${sceneRepairBlock}${layoutSafetyBlock}${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
+  const advancedSceneControlBlock = effectiveBasicMode ? '' : `<details class="neo-scene-subsection neo-scene-nested-card neo-scene-advanced-scene-control"><summary><span>🧰 Advanced Scene Controls</span><small>Character Lock, repair, layout, contracts, presets</small></summary><div class="neo-scene-nested-body neo-scene-advanced-scene-body">${characterLockBlock}${characterRepairBlock}${sceneRepairBlock}${layoutSafetyBlock}${advancedCoreControls}${contractBlock}${contextBlock}${backgroundSpaceBlock}${globalContextBlock}${identityProfilesBlock}${presetsBlock}</div></details>`;
   const expertBlock = expert ? `<section class="neo-scene-subsection neo-scene-expert"><h4>Expert payload preview</h4><div class="neo-badge-row"><span class="neo-badge">Route: ${escapeHtml(route.backend)}:${escapeHtml(route.family)}:${escapeHtml(route.loader)}:${escapeHtml(route.workflow_mode)}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label)}</span><span class="neo-badge">Runtime: ${escapeHtml(route.node_label)}</span><span class="neo-badge">State: ${escapeHtml(route.route_state)}</span></div><pre>${escapeHtml(JSON.stringify(sceneDirectorPayloadPreview(record).extensions[SCENE_DIRECTOR_EXTENSION_ID], null, 2))}</pre></section>` : '';
-  const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}" data-scene-mode="${escapeAttr(sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')))}">
+  const body = `<section class="neo-scene-director-panel" data-extension-id="${SCENE_DIRECTOR_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}" data-display-mode="${escapeAttr(state.detailMode || 'guided')}" data-scene-mode="${escapeAttr(effectiveBasicMode ? 'basic' : sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced')))}">
     <header class="neo-scene-header"><div><strong>Scene Director</strong>${!compact ? '<span class="neo-muted">Built-in regional scene planner</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-workflow-chip ${settings.enabled ? 'enabled' : 'disabled'}">${settings.enabled ? 'Enabled' : 'Disabled'}</span><span class="neo-state-pill ${routeTone}">${escapeHtml(sceneDirectorStateLabel(route))}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label)}</span><span class="neo-badge">Runtime: ${escapeHtml(route.node_label)}</span></div></header>
     <div class="neo-extension-card-actions"><button class="neo-btn ${settings.enabled ? 'secondary' : 'primary'}" type="button" data-scene-director-toggle="1" ${disabled}>${settings.enabled ? 'Disable for workflow' : 'Enable for workflow'}</button><button class="neo-btn secondary" type="button" data-scene-director-add-region="1" ${disabled}>➕ Add Region</button></div>
     <div class="neo-badge-row"><span class="neo-badge ${routeTone}">${escapeHtml(status)}</span><span class="neo-badge">Active regions: ${activeCount}</span><span class="neo-badge">Subjects: ${subjectCount}</span><span class="neo-badge">${escapeHtml(route.family)} / ${escapeHtml(route.loader)}</span></div>
     ${supportWarning}
     ${dependencyWarningBlock}
-    ${compact ? '' : `<p class="neo-muted">Region prompts, prompt balance, suffix context, mask-refine metadata, IPAdapter bindings, and LoRA region targeting are available here. Hidden/gated values are pruned before active payload preview.</p>`}
+    ${compact ? '' : `<p class="neo-muted">Modern routes use Scene Director primarily for regional LoRA isolation; regional prompts are optional reinforcement. Classic SDXL routes retain the full Scene Director control set. Hidden/gated values are pruned before active payload preview.</p>`}
     <section class="neo-scene-subsection"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><p class="neo-muted">Scene Director now reads Neo core positive/negative prompts as the global scene context. Edit those in the main prompt fields, not inside this extension.</p><div class="neo-parameter-row neo-scene-balance-row"><label>Scene Director authority<select id="sceneDirectorAuthorityMode" ${disabled}><option value="neutral_planning" ${String(settings.authority_mode || 'balanced') === 'neutral_planning' ? 'selected' : ''}>Neutral / planning only</option><option value="layout_only" ${String(settings.authority_mode || 'balanced') === 'layout_only' ? 'selected' : ''}>Layout only</option><option value="soft_regional_guide" ${String(settings.authority_mode || 'balanced') === 'soft_regional_guide' ? 'selected' : ''}>Soft regional guide</option><option value="anime_safe_prompt" ${String(settings.authority_mode || 'balanced') === 'anime_safe_prompt' ? 'selected' : ''}>Anime safe / prompt append only</option><option value="balanced" ${String(settings.authority_mode || 'balanced') === 'balanced' ? 'selected' : ''}>Balanced</option><option value="strong_correction" ${String(settings.authority_mode || 'balanced') === 'strong_correction' ? 'selected' : ''}>Strong regional correction</option><option value="debug_aggressive" ${String(settings.authority_mode || 'balanced') === 'debug_aggressive' ? 'selected' : ''}>Debug / aggressive</option></select></label><label>Base weight<input id="sceneDirectorBaseWeight" type="number" min="0" max="1" step="0.01" value="${settings.base_weight}" ${disabled}></label><label>Region gain<input id="sceneDirectorRegionGain" type="number" min="0" max="1" step="0.01" value="${settings.region_gain}" ${disabled}></label><label>Max subject slots<input id="sceneDirectorMaxSubjectSlots" type="number" min="1" max="8" step="1" value="${settings.max_subject_slots}" ${disabled}></label></div><p class="neo-muted">Neutral / planning only keeps Scene Director metadata without sampler mutation. Anime safe / prompt append only keeps the base model path intact and applies regional guidance as prompt text.</p><div class="neo-scene-region-row neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorNormalizeMasks', 'Normalize masks', settings.normalize_masks, disabled)}${sceneDirectorBoolControl('sceneDirectorMaskRefine', 'Character mask refinement metadata', settings.mask_refine_enabled, disabled)}</div></section>
     ${advancedSceneControlBlock}
     ${sceneDirectorRegionCanvas(regions, disabled, settings.selected_region_index || 0)}
@@ -13277,13 +14044,26 @@ function sceneDirectorPanel(record) {
 }
 function sceneDirectorPromptAuthorityPanelBlock(settings, corePrompts, disabled = '', route = {}) {
   const contract = sceneDirectorPromptAuthorityContract(settings, corePrompts);
-  const sceneMode = sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced'));
+  const modernBasicOnly = sceneDirectorModernBasicOnly(route);
+  if (modernBasicOnly) {
+    const directionConflicts = sceneDirectorPromptDirectionConflictPreview(settings.regions || []);
+    const conflictBlock = directionConflicts.length ? `<div class="neo-warning-block neo-scene-subject-count-conflicts"><strong>⚠ Optional regional prompt position conflicts</strong>${directionConflicts.map((item) => `<p>${escapeHtml(item.message)}</p>`).join('')}</div>` : '';
+    const kreaExternal = sceneDirectorKrea2RegionalRoute(route);
+    const kreaControls = kreaExternal ? `<div class="neo-scene-krea2-regional-controls"><div class="neo-card-head"><h5>Krea 2 Regional Engine</h5><span class="neo-badge success">External runtime</span></div><p class="neo-muted">Uses <strong>ComfyUI-Krea2-Regional</strong> inside Scene Director while Neo keeps the active GGUF/native loader, sampler, latent and decode path.</p><div class="neo-grid-2"><label>Adaptive masks<select id="sceneDirectorKrea2AdaptiveMasks" ${disabled}><option value="off" ${settings.krea2_regional_adaptive_masks === 'off' ? 'selected' : ''}>Off</option><option value="refine boxes" ${settings.krea2_regional_adaptive_masks === 'refine boxes' ? 'selected' : ''}>Refine boxes</option><option value="free (ignore boxes)" ${settings.krea2_regional_adaptive_masks === 'free (ignore boxes)' ? 'selected' : ''}>Free / ignore boxes</option></select></label><label>Layout in base<select id="sceneDirectorKrea2LayoutInBase" ${disabled}><option value="position hints" ${settings.krea2_regional_layout_in_base === 'position hints' ? 'selected' : ''}>Position hints</option><option value="off" ${settings.krea2_regional_layout_in_base === 'off' ? 'selected' : ''}>Off</option><option value="full JSON" ${settings.krea2_regional_layout_in_base === 'full JSON' ? 'selected' : ''}>Full JSON</option></select></label><label>Region lock strength<input id="sceneDirectorKrea2RegionLockStrength" type="number" min="0" max="2" step="0.05" value="${escapeHtml(String(settings.krea2_regional_region_lock_strength ?? 0.4))}" ${disabled}></label><label>Restrict end<input id="sceneDirectorKrea2RestrictEnd" type="number" min="0" max="1" step="0.05" value="${escapeHtml(String(settings.krea2_regional_restrict_end_percent ?? 0.5))}" ${disabled}></label></div><div class="neo-scene-region-flags">${sceneDirectorBoolControl('sceneDirectorKrea2ExclusiveMasks', 'Exclusive masks', settings.krea2_regional_exclusive_masks !== false, disabled)}${sceneDirectorBoolControl('sceneDirectorKrea2RestrictImgAttn', 'Restrict image attention', Boolean(settings.krea2_regional_restrict_img_attn), disabled)}</div><p class="neo-muted"><strong>Benchmarked defaults:</strong> Adaptive = Refine boxes · Exclusive masks = On · Restrict image attention = Off · Region lock = 0.4. Restrict attention stays optional because it duplicated a subject in the GGUF benchmark.</p></div>` : '';
+    return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel neo-scene-modern-isolation-core"><h4>${kreaExternal ? 'Krea 2 Regional LoRA Isolation' : 'Modern Regional LoRA Isolation'}</h4><div class="neo-scene-core-prompts"><div><strong>Main prompt authority</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Scene Director role</strong><p>${kreaExternal ? 'Routes region prompts and assigned LoRAs through Krea2RegionalBuilder → Krea2ApplyRegional. Neo does not use NeoRegionalLoRADelta on Krea 2.' : 'Only isolates region-assigned LoRA rows and optionally adds masked local prompt reinforcement. It does not add hidden cast/count rules or replace the model\'s native scene understanding.'}</p></div></div>${conflictBlock}${kreaControls}<div class="neo-badge-row"><span class="neo-badge success">Basic only</span><span class="neo-badge">Global prompt: model-native</span><span class="neo-badge">Regional prompt: optional</span><span class="neo-badge">Regional LoRA: ${kreaExternal ? 'Krea2 Regional' : 'isolated'}</span><span class="neo-badge">1 sampler</span></div></section>`;
+  }
+  const sceneMode = modernBasicOnly ? 'basic' : sceneDirectorSceneMode(settings.scene_mode || (sceneDirectorBasicMode(settings) ? 'basic' : 'advanced'));
   const countConflicts = sceneDirectorSubjectCountConflictPreview(settings.regions || [], corePrompts.negative_prompt || settings.negative_prompt || '');
-  const conflictBlock = countConflicts.length ? `<div class="neo-warning-block neo-scene-subject-count-conflicts"><strong>⚠ Subject-count prompt check</strong>${countConflicts.map((item) => `<p>${escapeHtml(item.message)}</p>`).join('')}</div>` : '';
+  const directionConflicts = modernBasicOnly ? sceneDirectorPromptDirectionConflictPreview(settings.regions || []) : [];
+  const promptConflicts = [...countConflicts, ...directionConflicts];
+  const conflictBlock = promptConflicts.length ? `<div class="neo-warning-block neo-scene-subject-count-conflicts"><strong>⚠ Subject-count prompt check / regional position conflicts</strong>${promptConflicts.map((item) => `<p>${escapeHtml(item.message)}</p>`).join('')}</div>` : '';
   const modeHelp = sceneMode === 'basic'
     ? 'Basic keeps regional layout, prompts, masks, and subject structure only. Character Lock, Character Traits/Pose, corrections, advanced region controls, and repair passes stay hidden and are not submitted.'
     : 'Advanced exposes the existing Character Lock, Character Trait/Pose, correction, repair, layout, routing, and expert controls without changing their saved values or execution methods.';
-  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label><label>Scene mode<select id="sceneDirectorSceneMode" ${disabled}>${sceneDirectorSceneModeOptions(sceneMode)}</select></label><div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns regional structure and placement.'}</p><p class="neo-muted"><strong>${escapeHtml(sceneMode === 'basic' ? 'Basic' : 'Advanced')}:</strong> ${escapeHtml(modeHelp)}</p></div></div>${conflictBlock}<div class="neo-badge-row"><span class="neo-badge">Mode: ${escapeHtml(sceneMode)}</span><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label || 'Scene Director')}</span><span class="neo-badge">Regional prompt: ${escapeHtml(route.regional_prompt_mode || 'off')}</span><span class="neo-badge">Regional LoRA: ${escapeHtml(route.regional_lora_mode || 'off')}</span></div></section>`;
+  const sceneModeControl = modernBasicOnly
+    ? '<div><strong>Scene mode</strong><p class="neo-muted">Basic only for modern/lightweight families. Advanced V054 controls are reserved for SDXL/classic routes.</p></div>'
+    : `<label>Scene mode<select id="sceneDirectorSceneMode" ${disabled}>${sceneDirectorSceneModeOptions(sceneMode)}</select></label>`;
+  return `<section class="neo-scene-subsection neo-scene-prompt-authority-panel"><h4>Global Scene Director settings</h4><div class="neo-scene-core-prompts"><div><strong>Global positive source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.positive_prompt, 'Neo core positive prompt is empty.'))}</p></div><div><strong>Global negative source</strong><p>${escapeHtml(sceneDirectorPromptPreview(corePrompts.negative_prompt, 'Neo core negative prompt is empty.'))}</p></div></div><div class="neo-scene-authority-choice"><label>Prompt authority<select id="sceneDirectorPromptAuthority" ${disabled}>${sceneDirectorPromptAuthorityOptions(contract.mode, disabled)}</select></label>${sceneModeControl}<div><strong>${escapeHtml(contract.label)}</strong><p class="neo-muted">${contract.global_prompt_excluded ? 'The Scene Director node owns conditioning; Neo core positive/negative prompts stay available for replay but are excluded from this route.' : 'Neo core prompts own scene mood, environment, style, lighting, and camera context. Scene Director owns regional structure and placement.'}</p><p class="neo-muted"><strong>${escapeHtml(sceneMode === 'basic' ? 'Basic' : 'Advanced')}:</strong> ${escapeHtml(modeHelp)}</p></div></div>${conflictBlock}<div class="neo-badge-row"><span class="neo-badge">Mode: ${escapeHtml(sceneMode)}</span><span class="neo-badge">Regional context: ${contract.regional_context_enabled ? 'compact suffix on' : 'off'}</span><span class="neo-badge">Suffix weight: ${escapeHtml(String(contract.regional_context_weight))}</span><span class="neo-badge">Engine: ${escapeHtml(route.engine_label || 'Scene Director')}</span><span class="neo-badge">Regional prompt: ${escapeHtml(route.regional_prompt_mode || 'off')}</span><span class="neo-badge">Regional LoRA: ${escapeHtml(route.regional_lora_mode || 'off')}</span></div></section>`;
 }
 
 function sceneDirectorSimplifyPanelBody(body, settings, corePrompts, disabled = '', route = {}) {
@@ -13326,6 +14106,12 @@ function bindSceneDirectorPanel() {
   bindValue('sceneDirectorMaxSubjectSlots', 'max_subject_slots', Number);
   bindValue('sceneDirectorNormalizeMasks', 'normalize_masks', Boolean, 'change');
   bindValue('sceneDirectorMaskRefine', 'mask_refine_enabled', Boolean, 'change');
+  bindValue('sceneDirectorKrea2AdaptiveMasks', 'krea2_regional_adaptive_masks', String, 'change');
+  bindValue('sceneDirectorKrea2ExclusiveMasks', 'krea2_regional_exclusive_masks', Boolean, 'change');
+  bindValue('sceneDirectorKrea2RestrictImgAttn', 'krea2_regional_restrict_img_attn', Boolean, 'change');
+  bindValue('sceneDirectorKrea2RestrictEnd', 'krea2_regional_restrict_end_percent', Number);
+  bindValue('sceneDirectorKrea2RegionLockStrength', 'krea2_regional_region_lock_strength', Number);
+  bindValue('sceneDirectorKrea2LayoutInBase', 'krea2_regional_layout_in_base', String, 'change');
   bindValue('sceneDirectorSetupsEnabled', 'contracts_enabled', Boolean, 'change');
   bindValue('sceneDirectorNodeAutoPrompts', 'use_node_auto_prompts', Boolean, 'change');
   bindValue('sceneDirectorCountSetup', 'count_contract');
@@ -18041,6 +18827,8 @@ function ipAdapterStatusLabel(route, applied, units = []) {
   if (!ipAdapterRouteControlsEnabled(route)) return ipAdapterRouteBadge(route);
   const activeCount = ipAdapterCleanUnits(units).length;
   if (!activeCount) return 'No active units';
+  const maxUnits = controlNetMaxUnitsForRoute(route);
+  if (Number.isFinite(maxUnits) && activeCount > maxUnits) return 'Too many units';
   if (route.route_state === 'experimental_available') return 'Experimental';
   return 'Ready';
 }
@@ -18074,6 +18862,9 @@ function imageReferenceCatalogProfileIsCurrent(profileId = '') {
 function invalidateImageReferenceModelCatalogs(profileId = imageReferenceCatalogProfileId()) {
   ipAdapterNodeStatusRequestEpoch += 1;
   controlNetMapStatusRequestEpoch += 1;
+  controlNetCapabilityRequestEpoch += 1;
+  controlNetCapabilityCache.clear();
+  controlNetCapabilityPending.clear();
   updateIpAdapterSettings({
     node_status: {
       ...IP_ADAPTER_DEFAULT_SETTINGS.node_status,
@@ -19042,6 +19833,11 @@ const CONTROLNET_UI_POLICY = {
   provider_gated: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Backend required', tone: 'warning' },
   unsupported: { visible: true, diagnostic: true, controls_enabled: false, badge: 'Not compatible', tone: 'danger' },
 };
+const CONTROLNET_CAPABILITY_SCHEMA = 'neo.image.controlnet.capability_ui.v6';
+let controlNetCapabilityRequestEpoch = 0;
+const controlNetCapabilityCache = new Map();
+const controlNetCapabilityPending = new Map();
+
 const CONTROLNET_UNIT_OPTIONS = [
   { id: 'auto', label: 'Auto / match model' },
   { id: 'canny', label: 'Canny / edges' },
@@ -19159,6 +19955,7 @@ const CONTROLNET_DEFAULT_UNIT = {
   openpose_body: true,
   openpose_hand: false,
   openpose_face: false,
+  ostris_kv_cache: true,
   pose_method: 'controlnet',
   pose_reference_lane: 2,
   pose_map_lane: 3,
@@ -19224,7 +20021,7 @@ function controlNetDomUnits() {
       const field = node.getAttribute('data-controlnet-unit-field');
       if (!field) return;
       const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high', 'pose_base_strength', 'pose_helper_strength']);
-      const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'sliding_context']);
+      const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'ostris_kv_cache', 'sliding_context']);
       if (checkboxFields.has(field)) unit[field] = Boolean(node.checked);
       else if (numericFields.has(field)) unit[field] = Number(node.value);
       else unit[field] = String(node.value || '').trim();
@@ -19443,34 +20240,168 @@ function controlNetFluxAdapterSelector(route, settings, selectedTask) {
   </div>`;
 }
 function controlNetOptionSelect(id, options, selected, disabled = false, attrs = '') {
-  return `<select id="${escapeAttr(id)}" ${attrs} ${disabled ? 'disabled' : ''}>${options.map((option) => `<option value="${escapeAttr(option.id)}" ${option.id === selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`;
+  return `<select id="${escapeAttr(id)}" ${attrs} ${disabled ? 'disabled' : ''}>${options.map((option) => `<option value="${escapeAttr(option.id)}" ${option.id === selected ? 'selected' : ''} ${option.disabled ? 'disabled' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`;
 }
 function controlNetForgePolicy() {
   return activeImageCapabilityOverlay()?.extension_policy?.[CONTROLNET_EXTENSION_ID] || {};
 }
-function controlNetModelOptions(selected = '') {
+function controlNetKrea2Route(route = null) {
+  const active = route || controlNetCurrentRoute();
+  const family = String(active?.family || state.imageDraft?.family || '').trim();
+  const loader = String(active?.loader || state.imageDraft?.loader || '').trim();
+  const mode = controlNetWorkflowMode(active?.workflow_mode || getImageWorkflowMode?.() || 'generate');
+  const backend = normalizeRouteBackend(active?.backend || activeRouteBackend());
+  return backend !== 'forge' && ['krea2', 'krea2_turbo'].includes(family) && ['diffusion_model', 'gguf'].includes(loader) && mode === 'generate';
+}
+function controlNetCurrentRoute() {
+  const record = extensionRecordById(CONTROLNET_EXTENSION_ID) || imageWorkflowExtensionRecordById?.(CONTROLNET_EXTENSION_ID) || {};
+  const baseRoute = controlNetActiveRoute(record);
   const settings = controlNetSettings();
-  const activeProfileId = imageReferenceCatalogProfileId();
-  const catalogProfileId = String(settings.map_status?.profile_id || '').trim();
-  const modelInputs = catalogProfileId && catalogProfileId === activeProfileId ? (settings.map_status?.node_status?.model_inputs || {}) : {};
-  const forgeModels = normalizeRouteBackend(activeImageProfile()?.provider_id || '') === 'forge' ? (controlNetForgePolicy().models || []) : [];
+  return controlNetRouteForTask(baseRoute, settings.controlnet_task || 'map_control');
+}
+function controlNetCapabilityMethodForRoute(route = null) {
+  const active = route || controlNetCurrentRoute();
+  const mode = controlNetWorkflowMode(active?.workflow_mode || 'generate');
+  return active?.family === 'qwen_image_edit_2511' && ['img2img', 'edit'].includes(mode) ? 'qwen_transfer' : '';
+}
+function controlNetCapabilityRouteKey(route = null) {
+  const active = route || controlNetCurrentRoute();
+  const profileId = imageReferenceCatalogProfileId();
+  const task = controlNetNormalizeTaskForRoute(active, active?.controlnet_task || controlNetSettings().controlnet_task || 'map_control');
+  return [profileId, active?.backend || '', active?.family || '', active?.loader || '', controlNetWorkflowMode(active?.workflow_mode || 'generate'), task, controlNetCapabilityMethodForRoute(active)].join('|');
+}
+function controlNetCapabilityForRoute(route = null) {
+  const active = route || controlNetCurrentRoute();
+  if (normalizeRouteBackend(active?.backend || activeRouteBackend()) === 'forge') return null;
+  return controlNetCapabilityCache.get(controlNetCapabilityRouteKey(active)) || null;
+}
+async function controlNetRefreshCapabilityForRoute(route = null, options = {}) {
+  const active = route || controlNetCurrentRoute();
+  if (normalizeRouteBackend(active?.backend || activeRouteBackend()) === 'forge') return { ok: true, provider_native: true };
+  const key = controlNetCapabilityRouteKey(active);
+  if (!options.force && controlNetCapabilityCache.has(key)) return controlNetCapabilityCache.get(key);
+  if (!options.force && controlNetCapabilityPending.has(key)) return controlNetCapabilityPending.get(key);
+  const requestEpoch = controlNetCapabilityRequestEpoch;
+  const profileId = imageReferenceCatalogProfileId();
+  const params = new URLSearchParams({
+    profile_id: profileId,
+    backend: String(active?.backend || activeRouteBackend() || 'comfyui'),
+    family: String(active?.family || ''),
+    loader: String(active?.loader || ''),
+    mode: controlNetWorkflowMode(active?.workflow_mode || 'generate'),
+    task: controlNetNormalizeTaskForRoute(active, active?.controlnet_task || controlNetSettings().controlnet_task || 'map_control'),
+    method: controlNetCapabilityMethodForRoute(active),
+  });
+  const promise = fetch(`/api/extensions/controlnet/maps/capabilities?${params.toString()}`, { cache: 'no-store' })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok !== true) throw new Error(payload.detail || payload.message || 'Could not resolve ControlNet capabilities.');
+      if (requestEpoch !== controlNetCapabilityRequestEpoch || !imageReferenceCatalogProfileIsCurrent(profileId)) return { stale: true };
+      controlNetCapabilityCache.set(key, payload);
+      return payload;
+    })
+    .catch((error) => {
+      if (requestEpoch !== controlNetCapabilityRequestEpoch) return { stale: true };
+      const payload = { ok: false, schema_version: CONTROLNET_CAPABILITY_SCHEMA, options: [], runtime: { checked: false, ready: false, state: 'provider_gated' }, reason: error?.message || String(error) };
+      controlNetCapabilityCache.set(key, payload);
+      return payload;
+    })
+    .finally(() => controlNetCapabilityPending.delete(key));
+  controlNetCapabilityPending.set(key, promise);
+  const result = await promise;
+  if (options.renderAfter !== false && !result?.stale) render();
+  return result;
+}
+function controlNetEnsureCapabilityForRoute(route = null) {
+  const active = route || controlNetCurrentRoute();
+  if (normalizeRouteBackend(active?.backend || activeRouteBackend()) === 'forge') return;
+  const key = controlNetCapabilityRouteKey(active);
+  if (controlNetCapabilityCache.has(key) || controlNetCapabilityPending.has(key)) return;
+  void controlNetRefreshCapabilityForRoute(active);
+}
+function controlNetMaxUnitsForRoute(route = null) {
+  const active = route || controlNetCurrentRoute();
+  const capability = controlNetCapabilityForRoute(active);
+  const value = Number(capability?.max_active_units);
+  if (Number.isFinite(value) && value > 0) return value;
+  return controlNetKrea2Route(active) ? 1 : Number.POSITIVE_INFINITY;
+}
+function controlNetUnitOptionsForRoute(route = null) {
+  const active = route || controlNetCurrentRoute();
+  if (normalizeRouteBackend(active?.backend || activeRouteBackend()) === 'forge') return CONTROLNET_UNIT_OPTIONS;
+  const capability = controlNetCapabilityForRoute(active);
+  if (!capability) {
+    controlNetEnsureCapabilityForRoute(active);
+    return [{ id: '', label: 'Loading supported types…', disabled: true }];
+  }
+  const options = Array.isArray(capability.options) ? capability.options : [];
+  if (!options.length) return [{ id: '', label: capability.runtime?.state === 'provider_gated' ? 'Required ControlNet nodes are unavailable' : 'No implemented ControlNet types for this route', disabled: true }];
+  return options.map((option) => ({ ...option, id: String(option.id || ''), label: String(option.label || option.id || 'Control'), preprocessors: Array.isArray(option.preprocessors) ? option.preprocessors : [], default_preprocessor: option.default_preprocessor || option.id, model_binding: option.model_binding || {}, compatible_models: Array.isArray(option.compatible_models) ? option.compatible_models : [], model_catalog_checked: Boolean(option.model_catalog_checked), model_catalog_count: Number(option.model_catalog_count || 0), compatible_model_count: Number(option.compatible_model_count || 0) }));
+}
+function controlNetCatalogKey(value) {
+  return String(value || '').trim().replace(/\\/g, '/').toLowerCase();
+}
+function controlNetIntentCapabilityOption(route = null, intent = '') {
+  const capability = controlNetCapabilityForRoute(route);
+  if (!capability) return null;
+  return (capability.options || []).find((item) => String(item.id || '') === String(intent || '')) || null;
+}
+function controlNetModelOptions(selected = '', route = null, intent = '') {
+  const forgeRoute = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
+  const isKrea2Control = controlNetKrea2Route(route);
+  const capability = forgeRoute ? null : controlNetCapabilityForRoute(route);
+  const intentOption = forgeRoute ? null : controlNetIntentCapabilityOption(route, intent);
+  const binding = intentOption?.model_binding || {};
+  const selectorLabel = String(binding.selector_label || (isKrea2Control ? 'Control LoRA' : 'Model'));
+  const placeholder = selectorLabel === 'Control LoRA' ? `Select ${isKrea2Control ? 'Krea 2 ' : ''}Control LoRA` : 'Select ControlNet model';
   const seen = new Set();
-  const options = [{ id: '', label: 'Select ControlNet model' }];
-  [...Object.values(modelInputs), forgeModels].forEach((values) => {
+  const options = [{ id: '', label: placeholder }];
+
+  let catalogs = [];
+  if (forgeRoute) {
+    const forgeModels = controlNetForgePolicy().models || [];
+    catalogs = [forgeModels];
+  } else if (capability && intentOption) {
+    catalogs = [Array.isArray(intentOption.compatible_models) ? intentOption.compatible_models : []];
+  }
+  catalogs.forEach((values) => {
     (Array.isArray(values) ? values : []).forEach((value) => {
-      const id = String(value || '').trim();
-      if (!id || seen.has(id)) return;
-      seen.add(id);
+      const id = String(value || '').trim().replace(/\\/g, '/');
+      const key = controlNetCatalogKey(id);
+      if (!id || seen.has(key)) return;
+      seen.add(key);
       options.push({ id, label: id });
     });
   });
-  const current = String(selected || '').trim();
-  if (current && !seen.has(current)) options.push({ id: current, label: `${current} (selected · not in current profile catalog)` });
-  if (options.length === 1) options.push({ id: 'select_controlnet_model_later', label: 'Refresh backend capabilities to load models' });
+
+  const current = String(selected || '').trim().replace(/\\/g, '/');
+  const currentKey = controlNetCatalogKey(current);
+  const catalogChecked = Boolean(intentOption?.model_catalog_checked);
+  const strict = Boolean(binding.strict);
+  if (current && !seen.has(currentKey) && (!strict || !catalogChecked)) {
+    options.push({ id: current, label: `${current} (selected · catalog verification pending)` });
+  }
+  if (options.length === 1) {
+    let label = forgeRoute ? 'Refresh backend capabilities to load models' : 'Resolving compatible ControlNet models…';
+    if (capability && intentOption && catalogChecked) {
+      label = strict
+        ? `No compatible ${selectorLabel}${selectorLabel.endsWith('LoRA') ? 's' : ' models'} found for ${intentOption.label || intent}`
+        : 'Refresh backend capabilities to load models';
+    }
+    options.push({ id: '__controlnet_model_unavailable__', label, disabled: true });
+  }
   return options;
 }
-function controlNetPreprocessorOptions(selected = '') {
+function controlNetPreprocessorOptions(selected = '', route = null, intent = '') {
   const forgeModules = normalizeRouteBackend(activeImageProfile()?.provider_id || '') === 'forge' ? (controlNetForgePolicy().modules || []) : [];
+  if (!forgeModules.length && normalizeRouteBackend(route?.backend || activeRouteBackend()) !== 'forge') {
+    const capability = controlNetCapabilityForRoute(route);
+    if (!capability) return CONTROLNET_PREPROCESSOR_OPTIONS.filter((option) => ['none', String(selected || '').trim()].includes(option.id));
+    const option = (capability.options || []).find((item) => String(item.id || '') === String(intent || '').trim());
+    const allowed = new Set(Array.isArray(option?.preprocessors) ? option.preprocessors : []);
+    if (!allowed.size) return [{ id: 'none', label: 'None / use image directly' }];
+    return CONTROLNET_PREPROCESSOR_OPTIONS.filter((item) => allowed.has(item.id));
+  }
   if (!forgeModules.length) return CONTROLNET_PREPROCESSOR_OPTIONS;
   const seen = new Set();
   const options = [{ id: 'None', label: 'None / use image directly' }];
@@ -19539,10 +20470,20 @@ function controlNetImageBox(field, index, value, label, placeholder, locked = fa
 }
 function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
   const data = { ...CONTROLNET_DEFAULT_UNIT, ...(raw || {}) };
-  const unitValues = CONTROLNET_UNIT_OPTIONS.map((item) => item.id);
-  const prepValues = controlNetPreprocessorOptions(data.preprocessor).map((item) => item.id);
-  const unit = unitValues.includes(data.unit) ? data.unit : 'canny';
-  const defaultPreprocessor = unit === 'auto' ? 'none' : unit;
+  const capability = controlNetCapabilityForRoute(route);
+  const routeIsForge = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
+  const unitOptions = controlNetUnitOptionsForRoute(route).filter((item) => item.id);
+  const unitValues = unitOptions.map((item) => item.id);
+  const requestedUnit = String(data.unit || '').trim();
+  const fallbackUnit = unitValues[0] || (routeIsForge ? 'canny' : (capability ? '' : requestedUnit));
+  const unit = unitValues.includes(requestedUnit) ? requestedUnit : fallbackUnit;
+  const selectedOption = unitOptions.find((item) => item.id === unit) || {};
+  const modelBinding = selectedOption.model_binding || {};
+  const compatibleModelKeys = new Set((selectedOption.compatible_models || []).map((value) => controlNetCatalogKey(value)));
+  let normalizedModel = String(data.model || '').trim().replace(/\\/g, '/');
+  if (modelBinding.strict && selectedOption.model_catalog_checked === true && normalizedModel && !compatibleModelKeys.has(controlNetCatalogKey(normalizedModel))) normalizedModel = '';
+  const prepValues = controlNetPreprocessorOptions(data.preprocessor, route, unit).map((item) => item.id);
+  const defaultPreprocessor = selectedOption.default_preprocessor || (!unit || unit === 'auto' ? 'none' : unit);
   const preprocessor = prepValues.includes(data.preprocessor) ? data.preprocessor : defaultPreprocessor;
   const start = Math.max(0, Math.min(1, Number(data.start_percent ?? 0) || 0));
   const endRaw = Math.max(0, Math.min(1, Number(data.end_percent ?? 1) || 1));
@@ -19551,7 +20492,7 @@ function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
     uid: String(data.uid || `unit_${index + 1}`),
     enabled: data.enabled !== false,
     unit,
-    model: String(data.model || '').trim(),
+    model: normalizedModel,
     preprocessor,
     strength: Math.max(0, Math.min(2, Number(data.strength ?? 0.45) || 0.45)),
     start_percent: start,
@@ -19577,6 +20518,7 @@ function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
     pose_helper_strength: Math.max(0, Math.min(2, Number(data.pose_helper_strength ?? 0.70) || 0.70)),
     pose_prompt_instruction: String(data.pose_prompt_instruction || CONTROLNET_DEFAULT_UNIT.pose_prompt_instruction).trim().slice(0, 2000),
   };
+  if (capability?.route?.method === 'qwen_transfer' && unit === 'openpose') clean.pose_method = 'qwen_transfer';
   if (clean.pose_method === 'qwen_transfer') {
     clean.preprocessor = 'dwpose';
     clean.model = '';
@@ -19605,6 +20547,23 @@ function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
     clean.openpose_hand = Boolean(data.openpose_hand);
     clean.openpose_face = Boolean(data.openpose_face);
   }
+  if (controlNetKrea2Route(route)) {
+    const kreaAdapter = String(selectedOption.adapter || modelBinding.adapter || '');
+    const kreaSettings = new Set(Array.isArray(selectedOption.settings) ? selectedOption.settings : []);
+    clean.pose_method = 'controlnet';
+    clean.advanced_enabled = false;
+    clean.advanced_engine = 'auto';
+    if (kreaAdapter !== 'krea2_control_plus' || !kreaSettings.has('start_percent') || !kreaSettings.has('end_percent')) {
+      clean.start_percent = 0;
+      clean.end_percent = 1;
+    }
+    if (kreaAdapter === 'krea2_ostris_openpose' && kreaSettings.has('ostris_kv_cache')) clean.ostris_kv_cache = data.ostris_kv_cache !== false;
+    else delete clean.ostris_kv_cache;
+    clean.fit_mode = 'contain';
+    clean.mask_mode = 'none';
+    clean.batch_mode = 'auto';
+    clean.sliding_context = false;
+  }
   if (normalizeRouteBackend(route?.backend) === 'forge') {
     clean.advanced_enabled = false;
     clean.advanced_engine = 'auto';
@@ -19625,7 +20584,7 @@ function controlNetNormalizeUnit(raw = {}, index = 0, route = null) {
 function controlNetCleanUnits(units = [], route = null) {
   const seen = new Set();
   return (Array.isArray(units) ? units : []).map((unit, index) => controlNetNormalizeUnit(unit, index, route)).filter((unit, index) => {
-    if (!unit.enabled) return false;
+    if (!unit.enabled || !String(unit.unit || '').trim()) return false;
     const uid = unit.uid || `unit_${index + 1}`;
     if (seen.has(uid)) unit.uid = `${uid}_${index + 1}`;
     seen.add(unit.uid);
@@ -19711,8 +20670,16 @@ function controlNetValidationPreview(record) {
   if (poseTransferActive && normalControlUnits.length) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'inputs.units', message: 'Choose either Pose Transfer or normal ControlNet units for this generation. Stacking both pose systems is not enabled yet.' });
   if (!controlNetRouteControlsEnabled(route) && !(poseTransferActive && controlNetPoseTransferRouteSupported(route))) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'route_state', message: route.reason || `Route gated: ${route.route_state}` });
   if (!cleanUnits.length) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: 'units', message: 'No active control or pose units selected.' });
+  const maxUnits = controlNetMaxUnitsForRoute(route);
+  if (Number.isFinite(maxUnits) && cleanUnits.length > maxUnits) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: 'inputs.units', message: `This ControlNet route supports at most ${maxUnits} active unit${maxUnits === 1 ? '' : 's'}.` });
+  const capability = controlNetCapabilityForRoute(route);
+  const allowedIntentIds = new Set((capability?.options || []).map((item) => String(item.id || '')));
   cleanUnits.forEach((unit, index) => {
     const source = (settings.units || [])[index] || {};
+    if (capability && !allowedIntentIds.has(unit.unit)) {
+      items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].unit`, message: `Control type ${unit.unit || '(none)'} is not implemented for the active ${route.family || 'model'} route.` });
+      return;
+    }
     if (unit.pose_method === 'qwen_transfer') {
       const laneState = controlNetPoseTransferLaneSummary();
       if (!controlNetPoseTransferRouteSupported(route)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].pose_method`, message: 'Pose Transfer currently requires Qwen Image Edit 2511 Img2Img/Edit on local ComfyUI with Safetensors/Components or GGUF.' });
@@ -19723,7 +20690,14 @@ function controlNetValidationPreview(record) {
       if (!unit.pose_helper_lora) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].pose_helper_lora`, message: 'Select the AnyPose helper LoRA.' });
       return;
     }
-    if (!unit.model) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: 'ControlNet model is not selected yet.' });
+    const intentOption = controlNetIntentCapabilityOption(route, unit.unit);
+    const binding = intentOption?.model_binding || {};
+    const rawModel = String(source.model || '').trim();
+    const compatibleKeys = new Set((intentOption?.compatible_models || []).map((value) => controlNetCatalogKey(value)));
+    if (binding.strict && intentOption?.model_catalog_checked === true && rawModel && !compatibleKeys.has(controlNetCatalogKey(rawModel))) {
+      items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: `${rawModel} is not compatible with the active ${intentOption?.label || unit.unit} control intent. Choose a model from the filtered list.` });
+    }
+    if (!unit.model) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'warning', field: `inputs.units[${index}].model`, message: controlNetKrea2Route(route) ? 'Krea 2 Control LoRA is not selected yet.' : 'ControlNet model is not selected yet.' });
     if (!source.control_image && !controlNetAssetRefValue(source.generated_map)) items.push({ extension_id: CONTROLNET_EXTENSION_ID, level: 'info', field: `assets.control_images.${unit.uid}`, message: 'Attach a control image or build a generated map before queueing.' });
   });
   return items;
@@ -19732,14 +20706,18 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
   const unit = { ...CONTROLNET_DEFAULT_UNIT, ...(row || {}) };
   const showCanny = unit.unit === 'canny' || unit.preprocessor === 'canny';
   const showOpenPose = unit.unit === 'openpose' || ['openpose', 'dwpose'].includes(unit.preprocessor);
-  const isPoseTransfer = unit.unit === 'openpose' && unit.pose_method === 'qwen_transfer';
+  const krea2ControlRoute = controlNetKrea2Route(route);
+  const capability = controlNetCapabilityForRoute(route);
+  const qwenTransferOnly = capability?.route?.method === 'qwen_transfer';
+  if (qwenTransferOnly && unit.unit === 'openpose') unit.pose_method = 'qwen_transfer';
+  const isPoseTransfer = !krea2ControlRoute && unit.unit === 'openpose' && unit.pose_method === 'qwen_transfer';
   const poseTransferSupported = controlNetPoseTransferRouteSupported(route);
   const expert = state.detailMode === 'expert';
   const forgeRoute = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
-  const prepOptions = controlNetPreprocessorOptions(unit.preprocessor);
+  const prepOptions = controlNetPreprocessorOptions(unit.preprocessor, route, unit.unit);
   const laneState = controlNetPoseTransferLaneSummary();
   const posePreview = controlNetAssetPreviewValue(unit.generated_map, unit.generated_map_preview || '');
-  const poseMethodControl = unit.unit === 'openpose'
+  const poseMethodControl = unit.unit === 'openpose' && !krea2ControlRoute && !qwenTransferOnly
     ? `<label>Pose method${controlNetOptionSelect(`controlNetPoseMethod${index}`, [
         { id: 'controlnet', label: 'Pose Control · ControlNet' },
         { id: 'qwen_transfer', label: 'Pose Transfer · Qwen 2511 + LoRAs' },
@@ -19751,7 +20729,17 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
          <span class="neo-badge">DWPose</span><span class="neo-badge">Image 1 · subject</span><span class="neo-badge">Image 2 · pose reference</span><span class="neo-badge">Image 3 · generated pose map</span>
        </div>`
     : `<label>Preprocessor${controlNetOptionSelect(`controlNetPreprocessor${index}`, prepOptions, unit.preprocessor || unit.unit || 'canny', locked, `data-controlnet-unit-field="preprocessor" data-controlnet-unit-index="${index}"`)}</label>
-       <label>Model${controlNetOptionSelect(`controlNetModel${index}`, controlNetModelOptions(unit.model), unit.model || '', locked, `data-controlnet-unit-field="model" data-controlnet-unit-index="${index}"`)}</label>`;
+       <label>${krea2ControlRoute ? 'Control LoRA' : 'Model'}${controlNetOptionSelect(`controlNetModel${index}`, controlNetModelOptions(unit.model, route, unit.unit), unit.model || '', locked, `data-controlnet-unit-field="model" data-controlnet-unit-index="${index}"`)}</label>`;
+  const intentCapability = controlNetIntentCapabilityOption(route, unit.unit);
+  const modelBinding = intentCapability?.model_binding || {};
+  const intentAdapter = String(intentCapability?.adapter || modelBinding.adapter || '');
+  const intentSettings = new Set(Array.isArray(intentCapability?.settings) ? intentCapability.settings : []);
+  const krea2ControlPlus = krea2ControlRoute && intentAdapter === 'krea2_control_plus';
+  const krea2OstrisOpenPose = krea2ControlRoute && intentAdapter === 'krea2_ostris_openpose';
+  const krea2Nk2eCanny = krea2ControlRoute && intentAdapter === 'krea2_nk2e_canny';
+  const modelBindingNotice = !isPoseTransfer && modelBinding.strict
+    ? `<p class="neo-muted neo-controlnet-model-binding-note">${escapeHtml(intentCapability?.label || unit.unit)}-compatible ${escapeHtml(modelBinding.selector_label || 'control model')}s only · ${escapeHtml(String(intentCapability?.compatible_model_count ?? 0))}/${escapeHtml(String(intentCapability?.model_catalog_count ?? 0))} matching the active provider catalog.</p>`
+    : '';
   const poseTransferCard = !isPoseTransfer ? '' : `<div class="neo-controlnet-pose-transfer-card" data-testid="qwen-2511-pose-transfer-unit">
       <div class="neo-controlnet-pose-transfer-head">
         <div><strong>Qwen Pose Transfer</strong><p class="neo-muted">Image 2 is analyzed by DWPose at runtime. Neo injects that generated map into Qwen Image 3, then applies both pose LoRAs to the model only.</p></div>
@@ -19777,15 +20765,20 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
       ${laneState.pose_map_conflict ? '<p class="neo-warn">Image 3 already contains a user source. Clear it before generation; Pose Transfer reserves Image 3 for the generated pose map.</p>' : ''}
     </div>`;
   const standardAssets = isPoseTransfer ? '' : `<div class="neo-controlnet-assets-row">
-      ${controlNetImageBox('control_image', index, unit.control_image || '', 'Control image', 'Drop image, asset id, URL, or path', locked, unit.control_image_preview || '')}
+      ${controlNetImageBox('control_image', index, unit.control_image || '', 'Control image', krea2ControlPlus ? 'Drop the composition / silhouette reference image' : (krea2OstrisOpenPose ? 'Drop the source image to build a DWPose / OpenPose map' : (krea2Nk2eCanny ? 'Drop the source image to build a Canny edge map' : 'Drop image, asset id, URL, or path')), locked, unit.control_image_preview || '')}
       ${controlNetImageBox('generated_map', index, unit.generated_map || '', 'Generated map', 'Map id/path from preview', locked, unit.generated_map_preview || '')}
-      <button class="neo-btn secondary" type="button" data-controlnet-unit-action="build-map" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>Build Map</button>
+      <button class="neo-btn secondary" type="button" data-controlnet-unit-action="build-map" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>${krea2ControlPlus ? 'Build Identity Map' : (krea2OstrisOpenPose ? 'Build Pose Map' : (krea2Nk2eCanny ? 'Build Canny Map' : 'Build Map'))}</button>
     </div>
-    <div class="neo-controlnet-strength-row">
+    <div class="neo-controlnet-strength-row ${krea2ControlRoute ? 'is-krea2-control' : ''} ${krea2ControlPlus ? 'is-krea2-plus' : ''} ${krea2OstrisOpenPose ? 'is-krea2-ostris' : ''} ${krea2Nk2eCanny ? 'is-krea2-nk2e' : ''}">
       <label>Strength<input type="number" min="0" max="2" step="0.05" data-controlnet-unit-field="strength" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.strength ?? 0.45)}" ${locked ? 'disabled' : ''}></label>
-      <label>Start %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="start_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.start_percent ?? 0)}" ${locked ? 'disabled' : ''}></label>
-      <label>End %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="end_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.end_percent ?? 1)}" ${locked ? 'disabled' : ''}></label>
-      <label>Fit mode${controlNetOptionSelect(`controlNetFit${index}`, [{id:'contain',label:'Contain'}, {id:'cover',label:'Cover'}, {id:'stretch',label:'Stretch'}, {id:'native',label:'Native'}], unit.fit_mode || 'contain', locked, `data-controlnet-unit-field="fit_mode" data-controlnet-unit-index="${index}"`)}</label>
+      ${krea2ControlRoute ? (krea2ControlPlus
+        ? `<label>Start %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="start_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.start_percent ?? 0)}" ${locked ? 'disabled' : ''}></label><label>End %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="end_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.end_percent ?? 1)}" ${locked ? 'disabled' : ''}></label><span class="neo-muted neo-controlnet-krea2-help">Control Plus uses the RGB composition / silhouette reference and gates control between Start and End. Start with 0 → 1.</span>`
+        : (krea2OstrisOpenPose
+          ? `<label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label><label class="neo-toggle-row neo-controlnet-krea2-checkbox"><input type="checkbox" data-controlnet-unit-field="ostris_kv_cache" data-controlnet-unit-index="${index}" ${unit.ostris_kv_cache !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>KV cache</span></label><span class="neo-muted neo-controlnet-krea2-help">Ostris uses the DWPose / OpenPose map as the Krea reference image. Keep KV cache on for LoRAs trained for cached reference attention; disable it for normal Ostris edit LoRAs.</span>`
+          : (krea2Nk2eCanny
+            ? `<label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label><span class="neo-muted neo-controlnet-krea2-help">NK2E uses the generated Canny edge map as an in-context reference. Start around strength 0.7 and tune the Canny low/high thresholds below.</span>`
+            : `<label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label><span class="neo-muted neo-controlnet-krea2-help">Depth uses the native Krea 2 Control LoRA adapter for the full Generate sampling path.</span>`)))
+        : `<label>Start %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="start_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.start_percent ?? 0)}" ${locked ? 'disabled' : ''}></label><label>End %<input type="number" min="0" max="1" step="0.01" data-controlnet-unit-field="end_percent" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.end_percent ?? 1)}" ${locked ? 'disabled' : ''}></label><label>Fit mode${controlNetOptionSelect(`controlNetFit${index}`, [{id:'contain',label:'Contain'}, {id:'cover',label:'Cover'}, {id:'stretch',label:'Stretch'}, {id:'native',label:'Native'}], unit.fit_mode || 'contain', locked, `data-controlnet-unit-field="fit_mode" data-controlnet-unit-index="${index}"`)}</label>`}
     </div>`;
   return `<div class="neo-controlnet-unit ${isPoseTransfer ? 'is-pose-transfer' : ''}" data-controlnet-unit-index="${index}">
     <div class="neo-controlnet-unit-header">
@@ -19794,27 +20787,28 @@ function controlNetUnitHtml(row, index, locked, compact = false, route = null) {
         <span class="neo-badge">${escapeHtml(isPoseTransfer ? 'pose transfer' : (unit.unit || 'control'))}${isPoseTransfer ? '' : ` · ${escapeHtml(formatMaybeNumber(unit.strength ?? 0.45))}`}</span>
         <div class="neo-unit-icon-actions neo-controlnet-unit-actions" aria-label="ControlNet unit actions">
           <button class="neo-icon-btn secondary" type="button" title="Move unit up" aria-label="Move unit up" data-controlnet-unit-action="up" data-controlnet-unit-index="${index}" ${locked || index === 0 ? 'disabled' : ''}>↑</button>
-          <button class="neo-icon-btn secondary" type="button" title="Duplicate unit" aria-label="Duplicate unit" data-controlnet-unit-action="duplicate" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>⧉</button>
+          <button class="neo-icon-btn secondary" type="button" title="Duplicate unit" aria-label="Duplicate unit" data-controlnet-unit-action="duplicate" data-controlnet-unit-index="${index}" ${locked || Number.isFinite(controlNetMaxUnitsForRoute(route)) ? 'disabled' : ''}>⧉</button>
           <button class="neo-icon-btn secondary" type="button" title="Move unit down" aria-label="Move unit down" data-controlnet-unit-action="down" data-controlnet-unit-index="${index}" ${locked || index >= ((controlNetSettings().units || []).length || 1) - 1 ? 'disabled' : ''}>↓</button>
           <button class="neo-icon-btn danger" type="button" title="Remove unit" aria-label="Remove unit" data-controlnet-unit-action="remove" data-controlnet-unit-index="${index}" ${locked ? 'disabled' : ''}>×</button>
         </div>
       </div>
     </div>
     <div class="neo-controlnet-config-row">
-      <label>Type${controlNetOptionSelect(`controlNetUnit${index}`, CONTROLNET_UNIT_OPTIONS, unit.unit || 'canny', locked, `data-controlnet-unit-field="unit" data-controlnet-unit-index="${index}"`)}</label>
+      <label>Type${controlNetOptionSelect(`controlNetUnit${index}`, controlNetUnitOptionsForRoute(route), unit.unit || '', locked, `data-controlnet-unit-field="unit" data-controlnet-unit-index="${index}"`)}</label>
       ${poseMethodControl}
       ${standardConfig}
     </div>
+    ${modelBindingNotice}
     ${poseTransferCard}
     ${standardAssets}
-    ${!showCanny ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="canny">
-      <label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label>
+    ${!showCanny ? '' : `<div class="neo-controlnet-canny-row ${krea2ControlRoute ? 'is-krea2-thresholds' : ''}" data-controlnet-visible-for="canny">
+      ${krea2ControlRoute ? '' : `<label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label>`}
       <label>Canny low<input type="number" min="0" max="255" data-controlnet-unit-field="canny_low" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.canny_low ?? 100)}" ${locked ? 'disabled' : ''}></label>
       <label>Canny high<input type="number" min="0" max="255" data-controlnet-unit-field="canny_high" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.canny_high ?? 200)}" ${locked ? 'disabled' : ''}></label>
     </div>`}
-    ${showCanny ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="detect-resolution"><label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label></div>`}
+    ${showCanny || krea2ControlRoute ? '' : `<div class="neo-controlnet-canny-row" data-controlnet-visible-for="detect-resolution"><label>Detect res<input type="number" min="64" max="4096" step="64" data-controlnet-unit-field="detect_resolution" data-controlnet-unit-index="${index}" value="${escapeAttr(unit.detect_resolution ?? 512)}" ${locked ? 'disabled' : ''}></label></div>`}
     ${!showOpenPose ? '' : `<div class="neo-controlnet-unit-conditional" data-controlnet-visible-for="openpose"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_body" data-controlnet-unit-index="${index}" ${unit.openpose_body !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Body</span></label>${forgeRoute ? '' : `<label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_hand" data-controlnet-unit-index="${index}" ${unit.openpose_hand ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Hands</span></label><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="openpose_face" data-controlnet-unit-index="${index}" ${unit.openpose_face ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Face</span></label>`}</div>`}
-    ${expert && !isPoseTransfer ? (forgeRoute
+    ${expert && !isPoseTransfer && !krea2ControlRoute ? (forgeRoute
       ? `<div class="neo-controlnet-unit-expert"><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}<p class="neo-muted">Forge exposes the standard ControlNet unit contract only, so experimental advanced toggles stay hidden here.</p></div>`
       : `<div class="neo-controlnet-unit-expert"><label class="neo-toggle-row"><input type="checkbox" data-controlnet-unit-field="advanced_enabled" data-controlnet-unit-index="${index}" ${unit.advanced_enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Advanced ControlNet</span></label><label>Mask mode${controlNetOptionSelect(`controlNetMask${index}`, [{id:'none',label:'None'}, {id:'control_mask',label:'Control mask'}, {id:'inpaint_mask',label:'Inpaint mask'}], unit.mask_mode || 'none', locked, `data-controlnet-unit-field="mask_mode" data-controlnet-unit-index="${index}"`)}</label>${controlNetImageBox('control_mask', index, unit.control_mask || '', 'Control mask', 'Mask asset id/path', locked, unit.control_mask_preview || '')}</div>`)
       : ''}
@@ -19827,30 +20821,49 @@ function controlNetPanel(record) {
   const route = controlNetRouteForTask(baseRoute, selectedTask);
   if (!controlNetRouteVisible(route)) return null;
   const applied = Boolean(settings.enabled);
+  const forgeRoute = normalizeRouteBackend(route?.backend || activeRouteBackend()) === 'forge';
+  if (!forgeRoute) controlNetEnsureCapabilityForRoute(route);
+  const capability = controlNetCapabilityForRoute(route);
   const poseTransferCapable = controlNetPoseTransferRouteSupported(route);
-  const controlsEnabled = controlNetRouteControlsEnabled(route) || poseTransferCapable;
+  const capabilityResolved = forgeRoute || capability?.ok === true;
+  const capabilityReady = forgeRoute || Boolean(capability?.ok === true && Array.isArray(capability.options) && capability.options.length);
+  const controlsEnabled = (controlNetRouteControlsEnabled(route) || poseTransferCapable) && capabilityReady;
   const locked = !controlsEnabled;
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
-  const units = Array.isArray(settings.units) && settings.units.length ? settings.units : [{ ...CONTROLNET_DEFAULT_UNIT }];
-  const cleanCount = controlNetCleanUnits(units).length;
+  const rawUnits = Array.isArray(settings.units) && settings.units.length ? settings.units : [{ ...CONTROLNET_DEFAULT_UNIT }];
+  const units = rawUnits.map((unit, index) => controlNetNormalizeUnit(unit, index, route));
+  const cleanCount = controlNetCleanUnits(units, route).length;
+  if (capabilityResolved && JSON.stringify(rawUnits) !== JSON.stringify(units)) {
+    state.imageDraft[CONTROLNET_EXTENSION_ID] = { ...settings, units };
+    saveUiState();
+  }
+  const krea2ControlRoute = controlNetKrea2Route(route);
+  const maxUnits = controlNetMaxUnitsForRoute(route);
+  const unitLimitReached = Number.isFinite(maxUnits) && units.length >= maxUnits;
+  const unitLimitViolated = Number.isFinite(maxUnits) && cleanCount > maxUnits;
   const status = controlNetStatusLabel(route, applied, units);
   const routeBadge = poseTransferCapable && controlNetPoseTransferActive(settings) ? 'Pose Transfer' : controlNetRouteBadge(route);
   const taskSelector = controlNetTaskSelector(baseRoute, settings);
   const qwenAdapterSelector = controlNetQwenAdapterSelector(route, settings, selectedTask);
   const fluxAdapterSelector = controlNetFluxAdapterSelector(route, settings, selectedTask);
-  const explanation = controlsEnabled ? '' : controlNetRouteExplanation(route, applied);
+  const capabilityNotice = forgeRoute ? '' : (!capability
+    ? '<p class="neo-muted">Resolving family-aware ControlNet capabilities…</p>'
+    : (!capabilityReady ? `<p class="neo-warn">${escapeHtml(capability.reason || 'No implemented ControlNet type is available for this route.')}</p>` : ''));
+  const explanation = controlNetRouteControlsEnabled(route) || poseTransferCapable ? '' : controlNetRouteExplanation(route, applied);
   const controlsHtml = !controlsEnabled && !expert ? '' : `
-    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply Control / Pose</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
+    <div class="neo-controlnet-toolbar"><label class="neo-toggle-row"><input id="controlNetEnabled" type="checkbox" ${applied ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Apply Control / Pose</span></label><button class="neo-btn secondary" type="button" id="controlNetAddUnit" ${locked || unitLimitReached ? 'disabled' : ''}>+ Add Unit</button><button class="neo-btn secondary" type="button" id="controlNetCleanUnits" ${locked ? 'disabled' : ''}>Clean Disabled</button><button class="neo-btn secondary" type="button" id="controlNetRefreshMaps" ${settings.map_status_loading ? 'disabled' : ''}>${settings.map_status_loading ? 'Refreshing…' : 'Refresh Nodes'}</button><button class="neo-btn secondary" type="button" id="controlNetBatchBuild" ${locked ? 'disabled' : ''}>Batch Build Maps</button><span class="neo-badge">${cleanCount} active</span></div>
     <div class="neo-controlnet-units">${units.map((unit, index) => controlNetUnitHtml(unit, index, locked, compact, route)).join('')}</div>`;
   const body = `<section class="neo-controlnet-panel" data-extension-id="${CONTROLNET_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-controls-enabled="${controlsEnabled ? 'true' : 'false'}" data-display-mode="${escapeAttr(state.detailMode)}">
-    <header class="neo-controlnet-panel__header"><div><strong>ControlNet & Pose</strong>${!compact ? '<span class="neo-muted">Structural control and Qwen pose transfer</span>' : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
-    ${compact ? '' : `<p class="neo-muted">Use ControlNet for structural maps, or choose Pose Transfer on Qwen Image Edit 2511 to drive pose with DWPose plus model-only pose LoRAs. Hidden unit-specific fields are stripped before payload emission.${normalizeRouteBackend(route.backend) === 'forge' ? ' Forge routes show only the verified standard unit controls and preserve generated-map assets across the backend remap.' : ''}</p>`}
+    <header class="neo-controlnet-panel__header"><div><strong>ControlNet & Pose</strong>${!compact ? `<span class="neo-muted">${krea2ControlRoute ? 'Krea 2 structural control through a Control LoRA' : 'Structural control and Qwen pose transfer'}</span>` : ''}</div><div class="neo-extension-status-line">${extensionEnableStateChip(applied)}<span class="neo-state-pill ${status === 'Ready' ? 'success' : (status === 'Experimental' ? 'warning' : (locked ? 'warning' : ''))}">${escapeHtml(status)}</span><span class="neo-badge">${escapeHtml(routeBadge)}</span></div></header>
+    ${compact ? '' : `<p class="neo-muted">${krea2ControlRoute ? 'Krea 2 Generate reuses Neo’s normal control-image and generated-map flow, then applies one Krea 2 Control LoRA from models/loras. Depth uses the native Krea adapter. Composition / Silhouette uses Krea2 Control Plus with Start/End scheduling. Krea 2 RAW can also expose Canny through the NK2E in-context adapter when its nodes and a compatible Canny LoRA are installed. Krea 2 Turbo can expose OpenPose through the Ostris reference-image adapter. Unsupported intents stay hidden per route.' : `Use ControlNet for structural maps, or choose Pose Transfer on Qwen Image Edit 2511 to drive pose with DWPose plus model-only pose LoRAs. Hidden unit-specific fields are stripped before payload emission.${normalizeRouteBackend(route.backend) === 'forge' ? ' Forge routes show only the verified standard unit controls and preserve generated-map assets across the backend remap.' : ''}`}</p>`}
     ${taskSelector}
     ${qwenAdapterSelector}
     ${fluxAdapterSelector}
+    ${capabilityNotice}
     ${explanation}
     ${controlsHtml}
+    ${unitLimitViolated ? `<p class="neo-warn">This ControlNet capability supports at most ${escapeHtml(String(maxUnits))} active unit${maxUnits === 1 ? '' : 's'}. Disable or remove extra units before generating.</p>` : ''}
     ${settings.map_error && (controlsEnabled || expert) ? `<p class="neo-warn">${escapeHtml(settings.map_error)}</p>` : ''}
     ${settings.map_preview?.output?.url && (controlsEnabled || expert) ? `<p class="neo-muted">Latest map: ${escapeHtml(settings.map_preview.output.url)} · ${escapeHtml(settings.map_preview.backend || '')}</p>` : ''}
     ${expert && settings.map_status?.options ? `<p class="neo-muted">Preprocessors: ${escapeHtml(settings.map_status.options.map((item) => `${item.id}:${item.state}${item.node ? `:${item.node}` : ''}`).join(' · '))}</p>` : ''}
@@ -19860,6 +20873,9 @@ function controlNetPanel(record) {
 }
 function addControlNetUnit() {
   const settings = controlNetSettings();
+  const route = controlNetCurrentRoute();
+  const maxUnits = controlNetMaxUnitsForRoute(route);
+  if (Number.isFinite(maxUnits) && settings.units.length >= maxUnits) return;
   const next = [...settings.units, { ...CONTROLNET_DEFAULT_UNIT, uid: `unit_${settings.units.length + 1}` }];
   updateControlNetSettings({ units: next });
   setWorkflowExtensionApplied(CONTROLNET_EXTENSION_ID, true);
@@ -19878,6 +20894,9 @@ function removeControlNetUnit(index) {
 }
 function duplicateControlNetUnit(index) {
   const settings = controlNetSettings();
+  const route = controlNetCurrentRoute();
+  const maxUnits = controlNetMaxUnitsForRoute(route);
+  if (Number.isFinite(maxUnits) && settings.units.length >= maxUnits) return;
   const units = settings.units.length ? [...settings.units] : [{ ...CONTROLNET_DEFAULT_UNIT }];
   const source = units[index] || { ...CONTROLNET_DEFAULT_UNIT };
   units.splice(index + 1, 0, { ...source, uid: `unit_${Date.now().toString(36)}_${index + 2}`, enabled: true });
@@ -19910,6 +20929,7 @@ async function controlNetRefreshMapStatus(options = {}) {
     if (!requestIsCurrent) return { stale: true, profile_id: profileId };
     if (responseProfileId && responseProfileId !== profileId) throw new Error('ControlNet model response did not match the selected backend profile.');
     updateControlNetSettings({ map_status: { ...payload, profile_id: profileId }, map_status_loading: false, map_error: '' });
+    await controlNetRefreshCapabilityForRoute(controlNetCurrentRoute(), { force: true, renderAfter: false });
     render();
     return payload;
   } catch (error) {
@@ -20020,13 +21040,18 @@ function bindControlNetControls() {
       const index = Number(node.getAttribute('data-controlnet-unit-index'));
       const field = node.getAttribute('data-controlnet-unit-field');
       const numericFields = new Set(['strength', 'start_percent', 'end_percent', 'detect_resolution', 'canny_low', 'canny_high', 'pose_base_strength', 'pose_helper_strength']);
-      const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'sliding_context']);
+      const checkboxFields = new Set(['enabled', 'safe_mode', 'invert_map', 'save_intermediate', 'advanced_enabled', 'openpose_body', 'openpose_hand', 'openpose_face', 'ostris_kv_cache', 'sliding_context']);
       const value = checkboxFields.has(field) ? Boolean(event.target.checked) : (numericFields.has(field) ? Number(event.target.value) : event.target.value);
       const patch = { [field]: value };
       if (field === 'unit') {
-        const fallbackPreprocessor = value === 'auto' ? 'none' : value;
+        const intentOption = controlNetIntentCapabilityOption(controlNetCurrentRoute(), value);
+        const fallbackPreprocessor = String(intentOption?.default_preprocessor || (value === 'auto' ? 'none' : value));
         patch.preprocessor = fallbackPreprocessor;
+        patch.model = '';
         if (value !== 'openpose') patch.pose_method = 'controlnet';
+        const nextAdapter = String(intentOption?.adapter || '');
+        if (nextAdapter !== 'krea2_control_plus') { patch.start_percent = 0; patch.end_percent = 1; }
+        if (nextAdapter === 'krea2_ostris_openpose') patch.ostris_kv_cache = true;
       }
       if (field === 'pose_method' && value === 'qwen_transfer') {
         patch.preprocessor = 'dwpose';
@@ -20189,6 +21214,15 @@ function updateLoraStackSettings(patch = {}) {
   };
   state.imageDraft[LORA_STACK_EXTENSION_ID] = next;
   saveUiState();
+  if (typeof document !== 'undefined' && document.dispatchEvent) {
+    document.dispatchEvent(new CustomEvent('neo:lora-stack-changed', {
+      detail: {
+        extension_id: LORA_STACK_EXTENSION_ID,
+        enabled: Boolean(next.execution_enabled),
+        rows: loraStackCleanRows(next.rows),
+      },
+    }));
+  }
 }
 function loraStackWorkflowMode() {
   return (getImageWorkflowMode() || 'generate') === 'txt2img' ? 'generate' : (getImageWorkflowMode() || 'generate');
@@ -20261,6 +21295,10 @@ function loraStackNormalizeApplyTo(value) {
 function loraIdentityKey(value) {
   return loraForgeName(value).trim().toLowerCase();
 }
+function loraStackNormalizeStrength(value, fallback = 0.8) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
 function loraStackCleanRows(rows = []) {
   const seen = new Set();
   return (Array.isArray(rows) ? rows : []).filter((row) => row && row.enabled !== false && String(row.name || '').trim()).map((row, index) => {
@@ -20269,7 +21307,7 @@ function loraStackCleanRows(rows = []) {
       uid: String(row.uid || `lora_${index + 1}`),
       enabled: row.enabled !== false,
       name: portableName,
-      strength: Math.max(-4, Math.min(4, Number(row.strength ?? 0.8))),
+      strength: loraStackNormalizeStrength(row.strength, 0.8),
       target: ['both', 'base', 'finish'].includes(row.target) ? row.target : 'both',
       apply_to: loraStackNormalizeApplyTo(row.apply_to),
     };
@@ -20746,7 +21784,7 @@ function loraRowHtml(row, index, locked, selectedIndex = 0) {
       <button class="neo-lora-row-select" type="button" data-lora-row-select="${index}" aria-pressed="${selected ? 'true' : 'false'}" title="Show this LoRA in the library details">${selected ? '●' : '○'} Focus</button>
       <label class="neo-toggle-row"><input type="checkbox" data-lora-row-field="enabled" data-lora-row-index="${index}" ${row.enabled !== false ? 'checked' : ''} ${locked ? 'disabled' : ''}> <span>Use</span></label>
       <label class="neo-lora-field neo-lora-field-name">LoRA${select('name', loraCatalogOptions(row.name || ''), row.name || '')}</label>
-      <label class="neo-lora-field neo-lora-field-strength">Strength<input type="number" min="-4" max="4" step="0.05" value="${escapeAttr(row.strength ?? 0.8)}" data-lora-row-field="strength" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}></label>
+      <label class="neo-lora-field neo-lora-field-strength">Strength<input type="number" step="0.05" value="${escapeAttr(row.strength ?? 0.8)}" data-lora-row-field="strength" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}></label>
       <div class="neo-lora-row-actions">
         <button class="neo-icon-btn" type="button" data-lora-row-action="up" data-lora-row-index="${index}" ${index === 0 || locked ? 'disabled' : ''}>↑</button>
         <button class="neo-icon-btn" type="button" data-lora-row-action="down" data-lora-row-index="${index}" ${locked ? 'disabled' : ''}>↓</button>
@@ -20810,7 +21848,7 @@ function loraStackPanel(record) {
     <div class="neo-lora-picker-grid">
       <label>Search<input id="loraStackPickerSearch" type="search" value="${escapeAttr(library.picker_query || '')}" placeholder="Search selected-provider LoRAs"></label>
       <label>LoRA<select id="loraStackPickerSelect">${pickerOptions || '<option value="">No LoRAs reported by selected provider</option>'}</select></label>
-      <label>Strength<input id="loraStackPickerStrength" type="number" min="-4" max="4" step="0.05" value="${escapeAttr(pickerStrength)}"></label>
+      <label>Strength<input id="loraStackPickerStrength" type="number" step="0.05" value="${escapeAttr(pickerStrength)}"></label>
     </div>
     <div class="neo-chipline"><span class="neo-muted">Selected from ${escapeHtml(provider.provider_label)}.</span>${state.detailMode === 'expert' ? `<span class="neo-badge">${escapeHtml(loraProviderSyntaxPreview(pickerName, pickerStrength, provider.provider_id))}</span>` : ''}</div>
     <div class="neo-lora-library-actions"><button class="neo-btn primary" type="button" id="loraStackPickerAdd" ${pickerSelected && !locked ? '' : 'disabled'}>Add selected LoRA</button><button class="neo-btn secondary" type="button" id="loraStackPickerCancel">Cancel</button></div>
@@ -21419,7 +22457,7 @@ function addLoraStackRow(source = {}) {
   const identity = loraIdentityKey(portableName);
   if (!identity) return false;
   const existingIndex = settings.rows.findIndex((row) => loraIdentityKey(row.name) === identity);
-  const strength = Math.max(-4, Math.min(4, Number(source.strength ?? source.default_strength ?? 0.8)));
+  const strength = loraStackNormalizeStrength(source.strength ?? source.default_strength, 0.8);
   const sourceRecordId = source.source_record_id || source.id || loraRecordIdForName(portableName);
   if (existingIndex >= 0) {
     const existing = settings.rows[existingIndex];
@@ -21500,7 +22538,7 @@ function bindLoraStackControls() {
       library: {
         picker_open: !settings.library.picker_open,
         selected_record_id: settings.library.selected_record_id || first?.id || '',
-        pending_strength: Number(settings.library.pending_strength ?? first?.default_strength ?? 0.8),
+        pending_strength: loraStackNormalizeStrength(settings.library.pending_strength ?? first?.default_strength, 0.8),
       },
     });
     render();
@@ -21520,14 +22558,14 @@ function bindLoraStackControls() {
       selected_record_id: recordId,
       current_record: null,
       selected_preview_index: 0,
-      pending_strength: Number(selectedRecord?.default_strength ?? loraStackSettings().library.pending_strength ?? 0.8),
+      pending_strength: loraStackNormalizeStrength(selectedRecord?.default_strength ?? loraStackSettings().library.pending_strength, 0.8),
     } });
     if (recordId) loraLibraryFetchRecord(recordId);
     render();
   });
   const pickerStrength = document.getElementById('loraStackPickerStrength');
   if (pickerStrength) pickerStrength.addEventListener('input', (event) => {
-    updateLoraStackSettings({ library: { pending_strength: Math.max(-4, Math.min(4, Number(event.target.value || 0.8))) } });
+    updateLoraStackSettings({ library: { pending_strength: loraStackNormalizeStrength(event.target.value, 0.8) } });
     render();
   });
   const pickerAdd = document.getElementById('loraStackPickerAdd');
@@ -23201,6 +24239,33 @@ function sceneDirectorCanonicalBlockHasIntent(block = {}) {
 }
 function sceneDirectorCanonicalRouteAssignments(block = {}, legacySettings = null) {
   const base = sceneDirectorRegionExtensionAssignmentMap(legacySettings || sceneDirectorSettings());
+  const inputs = block.inputs && typeof block.inputs === 'object' ? block.inputs : {};
+  const regions = Array.isArray(inputs.regions) ? inputs.regions : [];
+  regions.forEach((region, index) => {
+    if (!region || region.enabled === false || region.visible === false) return;
+    const routes = sceneDirectorStripDisabledOwnerRoutes(sceneDirectorV054ExtensionRoutesFromRegion(region));
+    const selected = {};
+    if (routes.controlnet_unit_id) {
+      base.controlnetUnitIds.add(routes.controlnet_unit_id);
+      selected.controlnet_unit_id = routes.controlnet_unit_id;
+    }
+    if (routes.adetailer_pass_id) {
+      base.adetailerPassIds.add(routes.adetailer_pass_id);
+      selected.adetailer_pass_id = routes.adetailer_pass_id;
+    }
+    (routes.lora_row_ids || []).forEach((rowId) => {
+      if (!rowId) return;
+      base.loraRowIds.add(rowId);
+      if (!base.loraRowToRegion[rowId]) base.loraRowToRegion[rowId] = String(region.id || `scene_region_${index + 1}`);
+    });
+    if ((routes.lora_row_ids || []).length) selected.lora_row_ids = [...routes.lora_row_ids];
+    if (Object.keys(selected).length) {
+      const regionId = String(region.id || `scene_region_${index + 1}`);
+      if (!base.regionRoutes.some((item) => item && item.region_id === regionId)) {
+        base.regionRoutes.push({ region_id: regionId, region_index: index + 1, label: region.label || `Region ${index + 1}`, routes: selected, mask_mode: routes.mask_mode || 'region' });
+      }
+    }
+  });
   const assets = block.assets && typeof block.assets === 'object' ? block.assets : {};
   (Array.isArray(assets.lora_bindings) ? assets.lora_bindings : []).forEach((binding) => {
     const rowId = String(binding?.lora_row_id || binding?.row_id || binding?.uid || '').trim();
@@ -23233,6 +24298,34 @@ function sceneDirectorCanonicalSubmitSnapshot(record = null) {
   }
   return { phase: 'IR-6.3/SD-28.10A', source, enabled, submit_intent: submitIntent, route_gate: routeGate, record: fallbackRecord, block, legacy_settings: legacySettings, route_assignments: sceneDirectorCanonicalRouteAssignments(block, legacySettings) };
 }
+function sceneDirectorSubmitAuthoritySnapshot(sceneDirectorSnapshot = null, extensionMetadata = null) {
+  const snapshot = sceneDirectorSnapshot || sceneDirectorCanonicalSubmitSnapshot();
+  const metadata = extensionMetadata && typeof extensionMetadata === 'object' ? extensionMetadata : {};
+  const payloads = metadata.payloads && typeof metadata.payloads === 'object' ? metadata.payloads : {};
+  const sceneBlock = payloads[SCENE_DIRECTOR_EXTENSION_ID];
+  const loraBlock = payloads[LORA_STACK_EXTENSION_ID];
+  const assignments = snapshot.route_assignments || { loraRowIds: new Set(), loraRowToRegion: {}, regionRoutes: [] };
+  const regions = Array.isArray(snapshot.block?.inputs?.regions) ? snapshot.block.inputs.regions.filter((region) => region && region.enabled !== false && region.visible !== false) : [];
+  const regionalLoraRowIds = Array.from(assignments.loraRowIds || []);
+  return {
+    schema: 'neo.image.scene_director.submit_authority.img_sd1.v1',
+    phase: 'IMG-SD1',
+    enabled: Boolean(snapshot.enabled),
+    submit_intent: Boolean(snapshot.submit_intent),
+    route_allowed: Boolean(snapshot.route_gate?.allowed),
+    source: snapshot.source || 'scene_director_canonical_submit_bridge',
+    payload_emitted: Boolean(sceneBlock && sceneBlock.enabled === true),
+    lora_owner_payload_emitted: regionalLoraRowIds.length ? Boolean(loraBlock && loraBlock.enabled === true) : Boolean(loraBlock),
+    region_count: regions.length,
+    region_ids: regions.map((region, index) => String(region.id || `scene_region_${index + 1}`)),
+    regional_lora_row_ids: regionalLoraRowIds,
+    regional_lora_row_to_region: { ...(assignments.loraRowToRegion || {}) },
+    extension_route_count: Array.isArray(assignments.regionRoutes) ? assignments.regionRoutes.length : 0,
+    fail_closed: true,
+    policy: 'requested Scene Director regional execution must carry its canonical payload and any assigned LoRA Stack owner rows through the same submitted NeoJob',
+  };
+}
+
 function imageExtensionSubmitStateSnapshot(sceneDirectorSnapshotOverride = null) {
   const stateFor = (extensionIdValue, requested, extra = {}) => {
     const gate = imageExtensionSubmitRouteGate(extensionIdValue);
@@ -23260,7 +24353,7 @@ function imageExtensionSubmitStateSnapshot(sceneDirectorSnapshotOverride = null)
         ui_enabled: Boolean(layerDiffuseSettings().enabled),
         mode: layerDiffuseSettings().mode || 'transparent_asset',
       }),
-      [SCENE_DIRECTOR_EXTENSION_ID]: { extension_id: SCENE_DIRECTOR_EXTENSION_ID, enabled: Boolean(sceneDirectorSnapshot.enabled), workflow_applied: Boolean(sceneDirectorSnapshot.enabled), source: 'scene_director_canonical_submit_bridge', route_state: sceneDirectorSnapshot.route_gate?.route?.route_state || 'available', route_gated: Boolean(sceneDirectorSnapshot.submit_intent && !sceneDirectorSnapshot.route_gate?.allowed), gated_reason: sceneDirectorSnapshot.route_gate?.reason || '', sanitizer_phase: 'IR-6.3/SD-28.10A' },
+      [SCENE_DIRECTOR_EXTENSION_ID]: { extension_id: SCENE_DIRECTOR_EXTENSION_ID, enabled: Boolean(sceneDirectorSnapshot.enabled), workflow_requested: Boolean(sceneDirectorSnapshot.enabled), workflow_applied: false, workflow_status: sceneDirectorSnapshot.enabled ? 'pending_provider_compile' : 'inactive', source: 'scene_director_canonical_submit_bridge', route_state: sceneDirectorSnapshot.route_gate?.route?.route_state || 'available', route_gated: Boolean(sceneDirectorSnapshot.submit_intent && !sceneDirectorSnapshot.route_gate?.allowed), gated_reason: sceneDirectorSnapshot.route_gate?.reason || '', sanitizer_phase: 'IMG-SD1/IR-6.3/SD-28.10A' },
       [IP_ADAPTER_EXTENSION_ID]: stateFor(IP_ADAPTER_EXTENSION_ID, Boolean(ipAdapterSettings().enabled)),
       [CONTROLNET_EXTENSION_ID]: stateFor(CONTROLNET_EXTENSION_ID, Boolean(controlNetSettings().enabled)),
       [LORA_STACK_EXTENSION_ID]: stateFor(LORA_STACK_EXTENSION_ID, Boolean(loraStackSettings().execution_enabled), {
@@ -23273,7 +24366,11 @@ function imageExtensionSubmitStateSnapshot(sceneDirectorSnapshotOverride = null)
       [CFG_FIX_EXTENSION_ID]: stateFor(CFG_FIX_EXTENSION_ID, Boolean(cfgFixSettings().preset && cfgFixSettings().preset !== 'off'), {
         preset: cfgFixSettings().preset || 'off',
       }),
-      [HIGH_RES_LAB_EXTENSION_ID]: stateFor(HIGH_RES_LAB_EXTENSION_ID, Boolean(highResLabSettings().enabled)),
+      [HIGH_RES_LAB_EXTENSION_ID]: stateFor(HIGH_RES_LAB_EXTENSION_ID, Boolean(highResLabSettings().enabled), {
+        workflow_requested: Boolean(highResLabSettings().enabled && extensionWorkflowAppliedById(HIGH_RES_LAB_EXTENSION_ID)),
+        workflow_applied: false,
+        workflow_status: 'pending_provider_compile',
+      }),
       [ADETAILER_EXTENSION_ID]: stateFor(ADETAILER_EXTENSION_ID, Boolean(adetailerSettings().enabled)),
       [PID_INTEGRATED_EXTENSION_ID]: stateFor(PID_INTEGRATED_EXTENSION_ID, extensionWorkflowAppliedById(PID_INTEGRATED_EXTENSION_ID)),
       [SPECTRUM_EXTENSION_ID]: stateFor(SPECTRUM_EXTENSION_ID, extensionWorkflowAppliedById(SPECTRUM_EXTENSION_ID)),
@@ -23591,6 +24688,25 @@ function activeWorkflowExtensionMetadata(sceneDirectorSnapshotOverride = null, s
       const preview = wildcardsPayloadPreview(fallbackRecord, true).extensions[WILDCARDS_EXTENSION_ID];
       payloads[WILDCARDS_EXTENSION_ID] = preview;
       validation.push(...wildcardsValidationPreview(fallbackRecord, true));
+    }
+  }
+
+  if (!payloads[LORA_STACK_EXTENSION_ID] && Boolean(loraStackSettings().execution_enabled) && loraStackCleanRows(loraStackSettings().rows).length) {
+    const preview = loraStackPayloadPreview(undefined, true).extensions[LORA_STACK_EXTENSION_ID];
+    if (sceneDirectorRouteAssignments.loraRowIds.size) {
+      const markRegional = (row) => {
+        if (!row || !sceneDirectorRouteAssignments.loraRowIds.has(String(row.uid || ''))) return row;
+        const rowId = String(row.uid || '');
+        return { ...row, apply_to: sceneDirectorRouteAssignments.loraRowToRegion[rowId] || 'scene_region_unassigned', scene_director_region_assigned: true };
+      };
+      if (preview.inputs && Array.isArray(preview.inputs.loras)) preview.inputs.loras = preview.inputs.loras.map(markRegional);
+      if (preview.params && Array.isArray(preview.params.loras)) preview.params.loras = preview.params.loras.map(markRegional);
+      preview.metadata = { ...(preview.metadata || {}), scene_director_region_assignment: true, suppressed_global_row_ids: Array.from(sceneDirectorRouteAssignments.loraRowIds), region_row_map: { ...sceneDirectorRouteAssignments.loraRowToRegion }, regional_target_preservation: { ...((preview.metadata || {}).regional_target_preservation || {}), enabled: true, source: 'scene_director_extension_routes_img_sd1', assigned_row_ids: Array.from(sceneDirectorRouteAssignments.loraRowIds), policy: 'regional rows remain owner payload data and are excluded from global LoRA execution' } };
+    }
+    payloads[LORA_STACK_EXTENSION_ID] = preview;
+    validation.push(...loraStackValidationPreview(undefined, true));
+    if (!used.some((item) => item?.extension_id === LORA_STACK_EXTENSION_ID)) {
+      used.push({ extension_id: LORA_STACK_EXTENSION_ID, name: 'Image · LoRA Stack', version: 1, origin: 'built_in', workspace_app: 'assets', workflow_mode: getImageWorkflowMode() || 'generate', status: 'enabled' });
     }
   }
 
@@ -25344,10 +26460,10 @@ function forgeCoupleValidationPreview(record, forSubmit = false) {
     issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'provider_capability', message: policy.reason || 'The native ForgeCouple always-on script contract is unavailable.' });
   }
   if (!['sd15', 'sdxl'].includes(family)) {
-    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'family', message: `ForgeCouple Phase 3 supports SD 1.5 and SDXL checkpoint routes only; ${family || 'the selected family'} is gated.` });
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'family', message: `Forge Couple currently supports SD 1.5 and SDXL checkpoint routes only; ${family || 'the selected family'} is gated.` });
   }
   if (!['Basic', 'Advanced', 'Mask'].includes(settings.mode)) {
-    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mode', message: 'Phase 3 supports Basic, Advanced, and Mask modes.' });
+    issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'params.mode', message: 'Supports Basic, Advanced, and Mask modes.' });
   }
   if (regions.some((region) => !region)) {
     issues.push({ extension_id: FORGE_COUPLE_EXTENSION_ID, level: 'error', field: 'positive_prompt', message: 'Prompt regions cannot be empty. Remove trailing or repeated separators.' });
@@ -26594,7 +27710,7 @@ function forgeE3BridgePanel(record) {
   const detected = Number(summary.installed_extensions || 0);
   const adapterRequired = Number(summary.adapter_required || 0);
   const mapped = Number(summary.neo_mapped || 0);
-  const body = `<section class="neo-forge-e3-panel" data-extension-id="${FORGE_SCRIPT_BRIDGE_EXTENSION_ID}"><header class="neo-cfg-fix-panel__header"><div><strong>Forge Script Bridge</strong><span class="neo-muted">Provider-owned generic bridge · E3</span></div><div class="neo-extension-status-line">${extensionEnableStateChip(extensionWorkflowApplied(record))}${extensionRouteStateChip(record)}<span class="neo-badge">${escapeHtml(policy.contract || 'live schema')}</span></div></header><div class="neo-extension-card-actions">${apply}</div>${badgeRow([`Forge extensions ${detected}`, `Bridge-safe ${scripts.length}`, `Adapter required ${adapterRequired}`, `Neo-mapped ${mapped}`])}<p class="neo-muted">Only primitive /script-info schemas are bridged automatically. Image, file, mask, object, unknown-type, and complex scripts stay detected in Forge Admin and require a dedicated Neo adapter.</p>${cards || NeoUI.emptyState('No bridge-safe Forge scripts are available for the current workflow mode. Refresh Forge Admin after installing/enabling extensions.')} ${policy.reason ? `<p class="neo-muted">${escapeHtml(policy.reason)}</p>` : ''}${forgeE3BridgeValidationPreview(record).map((item) => `<p class="neo-${item.level === 'error' ? 'error' : 'warn'}">${escapeHtml(item.message)}</p>`).join('')}${state.detailMode === 'expert' ? `<details><summary>Live bridge catalog</summary><pre>${escapeHtml(JSON.stringify(policy.scripts || [], null, 2))}</pre></details>` : ''}</section>`;
+  const body = `<section class="neo-forge-e3-panel" data-extension-id="${FORGE_SCRIPT_BRIDGE_EXTENSION_ID}"><header class="neo-cfg-fix-panel__header"><div><strong>Forge Script Bridge</strong><span class="neo-muted">Provider-owned generic bridge</span></div><div class="neo-extension-status-line">${extensionEnableStateChip(extensionWorkflowApplied(record))}${extensionRouteStateChip(record)}<span class="neo-badge">${escapeHtml(policy.contract || 'live schema')}</span></div></header><div class="neo-extension-card-actions">${apply}</div>${badgeRow([`Forge extensions ${detected}`, `Bridge-safe ${scripts.length}`, `Adapter required ${adapterRequired}`, `Neo-mapped ${mapped}`])}<p class="neo-muted">Only primitive /script-info schemas are bridged automatically. Image, file, mask, object, unknown-type, and complex scripts stay detected in Forge Admin and require a dedicated Neo adapter.</p>${cards || NeoUI.emptyState('No bridge-safe Forge scripts are available for the current workflow mode. Refresh Forge Admin after installing/enabling extensions.')} ${policy.reason ? `<p class="neo-muted">${escapeHtml(policy.reason)}</p>` : ''}${forgeE3BridgeValidationPreview(record).map((item) => `<p class="neo-${item.level === 'error' ? 'error' : 'warn'}">${escapeHtml(item.message)}</p>`).join('')}${state.detailMode === 'expert' ? `<details><summary>Live bridge catalog</summary><pre>${escapeHtml(JSON.stringify(policy.scripts || [], null, 2))}</pre></details>` : ''}</section>`;
   return panel(record?.manifest?.name || 'Forge Script Bridge', body, false, extensionWorkflowApplied(record) ? 'Enabled' : 'Disabled');
 }
 function bindForgeE3BridgeControls() {
@@ -27443,7 +28559,7 @@ function adminEngineIndexJobsHtml(engine) {
     const warnings = Array.isArray(progress.warnings) ? progress.warnings : [];
     const errors = Array.isArray(progress.errors) ? progress.errors : [];
     const elapsed = Number(job.elapsed_seconds || 0);
-    return `<div class="neo-ui-record-card admin-engine-record-card compact admin-memory-job-card"><div class="neo-ui-section-head admin-engine-row-between"><div><strong>${escapeHtml(job.title || job.job_type || 'Memory job')}</strong><small>${escapeHtml(job.job_id || '')} · ${escapeHtml(job.job_type || '')}</small></div><span class="neo-badge ${badgeClass}">${escapeHtml(status)}</span></div><div class="admin-index-progress"><span style="width:${percent}%"></span></div>${listItems([`Phase: ${progress.phase || status}`, `Progress: ${percent}%${progress.total ? ` · ${progress.current || 0}/${progress.total}` : ''}`, `Elapsed: ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s` : `${elapsed.toFixed(1)}s`}`, `Warnings: ${warnings.length}`, `Errors: ${errors.length}`, `Surface: ${job.surface || 'global'} · Scope: ${job.scope_id || 'none'}`, `Message: ${progress.message || ''}`])}<div class="neo-ui-toolbar admin-engine-badge-row">${actions}</div></div>`;
+    return `<div class="neo-ui-record-card admin-engine-record-card compact admin-memory-job-card"><div class="neo-ui-section-head admin-engine-row-between"><div><strong>${escapeHtml(job.title || job.job_type || 'Memory job')}</strong><small>${escapeHtml(job.job_id || '')} · ${escapeHtml(job.job_type || '')}</small></div><span class="neo-badge ${badgeClass}">${escapeHtml(status)}</span></div><div class="admin-index-progress"><span style="width:${percent}%"></span></div>${listItems([`Stage: ${progress.phase || status}`, `Progress: ${percent}%${progress.total ? ` · ${progress.current || 0}/${progress.total}` : ''}`, `Elapsed: ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s` : `${elapsed.toFixed(1)}s`}`, `Warnings: ${warnings.length}`, `Errors: ${errors.length}`, `Surface: ${job.surface || 'global'} · Scope: ${job.scope_id || 'none'}`, `Message: ${progress.message || ''}`])}<div class="neo-ui-toolbar admin-engine-badge-row">${actions}</div></div>`;
   }).join('') : `<div class="neo-ui-empty admin-engine-empty"><strong>No unified memory jobs yet.</strong><p>Long Project Brain, embedding, consolidation, writeback, and compatibility indexing jobs will appear here.</p></div>`;
   const rows = jobs.length ? jobs.slice(0, 8).map((job) => {
     const status = job.status || 'queued';
@@ -27462,7 +28578,7 @@ function adminEngineIndexJobsHtml(engine) {
   return `
     <div class="neo-ui-grid two admin-engine-grid two">
       <div class="neo-ui-card admin-engine-card wide">
-        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Unified memory background jobs</strong><p>Persistent job state is stored in neo_memory_jobs. Jobs continue independently of the current Admin/Assistant tab and expose phase, progress, cancellation, retry, and results.</p></div><span class="neo-badge ${memoryQueue.status === 'ready' ? 'success' : ''}">${escapeHtml(memoryQueue.status || 'ready')}</span></div>
+        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Unified memory background jobs</strong><p>Persistent job state is stored in neo_memory_jobs. Jobs continue independently of the current Admin/Assistant tab and expose stage, progress, cancellation, retry, and results.</p></div><span class="neo-badge ${memoryQueue.status === 'ready' ? 'success' : ''}">${escapeHtml(memoryQueue.status || 'ready')}</span></div>
         ${listItems([`Total: ${memorySummary.total ?? 0}`, `Queued: ${memorySummary.queued ?? 0}`, `Running: ${memorySummary.running ?? 0}`, `Completed: ${memorySummary.completed ?? 0}`, `Failed: ${memorySummary.failed ?? 0}`, `Cancelled: ${memorySummary.cancelled ?? 0}`])}
         <div class="neo-ui-record-list admin-engine-record-list compact">${unifiedRows}</div>
         <div class="neo-ui-toolbar admin-engine-badge-row"><button type="button" class="neo-btn admin-engine-btn" onclick="reloadAdminMemoryJobs()">Refresh unified jobs</button></div>
@@ -28026,9 +29142,9 @@ function adminOwnershipMapHtml(center) {
   const rows = Object.entries(areas).map(([routeId, area]) => `${area.label || routeId} · ${area.owner || 'owner'} · ${area.purpose || ''}`);
   return NeoUI.card({
     title: 'Admin ownership map',
-    description: 'Phase 12 boundary map. Use links between Admin areas instead of duplicating another area’s controls.',
+    description: 'Use links between Admin areas instead of duplicating another area’s controls.',
     badge: NeoUI.statusBadge(contract.status || 'active'),
-    body: `${NeoUI.badgeRow([`Phase ${contract.phase || 12}`, `${rows.length} primary areas`, contract.schema_id || 'ux contract'])}${rows.length ? NeoUI.metaList(rows, { code: false }) : NeoUI.emptyState('Admin UX contract is not loaded yet.', 'Refresh Admin Control Center.')}`,
+    body: `${NeoUI.badgeRow([`Boundary ${contract.area || 'active'}`, `${rows.length} primary areas`, contract.schema_id || 'ux contract'])}${rows.length ? NeoUI.metaList(rows, { code: false }) : NeoUI.emptyState('Admin UX contract is not loaded yet.', 'Refresh Admin Control Center.')}`,
     actions: `<button type="button" class="neo-btn" onclick="setActiveSubtab('admin','memory')">Memory governance</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','engine')">Memory infrastructure</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','projects')">Delivery Projects</button><button type="button" class="neo-btn" onclick="setActiveSubtab('admin','assistant_operator')">Assistant / Operator</button>`,
     className: 'neo-admin-ownership-map-card',
   });
@@ -28179,7 +29295,7 @@ function adminReleaseCandidateHtml(center) {
         <div><strong>${escapeHtml(String(summary.failure_count || 0))}</strong><span>failures</span></div>
         <div><strong>${summary.release_candidate_ready ? 'ready' : 'review'}</strong><span>readiness</span></div>
       </div>
-      ${NeoUI.badgeRow([rc.schema_id || 'neo.release_candidate.audit', rc.generated_at || 'not generated'])}
+      ${NeoUI.badgeRow(['Readiness audit', rc.generated_at || 'not generated'])}
       ${failureRows.length ? NeoUI.metaList(failureRows, { code: false }) : NeoUI.emptyState('No readiness blockers detected.', 'Feature work should freeze here and move into stabilization/polish verification.')}
       <div class="neo-readiness-item-list">${NeoUI.metaList(implementationRows, { code: false, empty: 'No implementation inventory loaded.' })}</div>
     `,
@@ -30942,7 +32058,7 @@ async function reloadModernUiSystem() {
 async function runModernUiSystemAudit() {
   if (await neoTryAdminAction('runModernUiSystemAudit')) return;
   const response = await fetch('/api/ui/modern/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-  if (!response.ok) { window.alert(`M17 modern UI audit failed: ${await response.text()}`); return; }
+  if (!response.ok) { window.alert(`Modern UI audit failed: ${await response.text()}`); return; }
   state.modernUi.audit = await response.json();
   state.modernUi.status = state.modernUi.audit.modern_ui || state.modernUi.status;
   render();
@@ -35940,7 +37056,7 @@ function restoreAdetailerSettingsFromReuse(reuse = {}) {
     preview_action_source: inputs.preview_action_source || metadata.preview_action_source || null,
     restored_from_output: reuse.result_id || metadata.restored_from_output || '',
     restored_from_replay: true,
-    source_phase: metadata.source_phase || executionRecipe?.source_phase || 'Phase 9',
+    source_phase: metadata.source_phase || executionRecipe?.source_phase || 'runtime',
     execution_recipe: executionRecipe,
     execution_recipe_fingerprint: metadata.execution_recipe_fingerprint || executionRecipe?.fingerprint || '',
     replay_contract_schema_id: metadata.replay_contract_schema_id || executionRecipe?.replay?.schema_id || 'neo.image.adetailer.replay_contract.v1',
@@ -37202,7 +38318,7 @@ function imageLanpaintCapabilityEvaluation({ contractEligible = false, family = 
       executable: false,
       blockers: [{ code: 'unsupported_route', message: 'LanPaint is not implemented for this provider/family/loader/mode.' }],
       warnings: [],
-      remediation: ['Use Native Inpaint or select one of the exact Phase 10 LanPaint routes.'],
+      remediation: ['Use Native Inpaint or select one of the supported LanPaint routes.'],
       snapshot: null,
       selected_assets: imageLanpaintSelectedAssets({ family, loader }),
     };
@@ -37683,11 +38799,11 @@ function renderImageSourcePanelBody() {
         <div class="neo-source-stack-header">
           <div>
             <strong>Source Images</strong>
-            <p class="neo-muted">${krea2IdentityEditActive() ? 'Identity Edit uses Image 1 for scene/context and optional Image 2 for the subject/identity reference.' : (controlNetPoseTransferActive() ? 'Pose Transfer uses Image 1 as the subject, Image 2 as the pose reference, and reserves Image 3 for the generated DWPose map.' : 'Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.')}</p>
+            <p class="neo-muted">${krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? 'Two-reference Identity Edit: Image 1 is scene/context and Image 2 is subject/identity.' : 'Single-reference Identity Edit: Image 1 is the primary edit/identity reference. Add Image 2 for the trained scene + subject workflow.') : (controlNetPoseTransferActive() ? 'Pose Transfer uses Image 1 as the subject, Image 2 as the pose reference, and reserves Image 3 for the generated DWPose map.' : 'Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.')}</p>
           </div>
           <span class="neo-badge">${escapeHtml(multiReferenceLabel)}</span>
         </div>
-        ${krea2IdentityEditActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : `<label class="neo-source-file-label">Image 1 Role
+        ${krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : '<div class="neo-source-meta"><span class="neo-badge">Image 1: Primary / identity reference</span></div>') : `<label class="neo-source-file-label">Image 1 Role
           ${optionSelect('imageQwenSourceRole1', qwenSourceRoleOptions(1), state.imageDraft.source_image_1_role || 'main_subject')}
         </label>`}
         ${[2, 3].filter((lane) => qwenVisibleSourceSlotCount() >= lane).map((lane) => renderQwenSourceCard(lane)).join('')}
@@ -37865,9 +38981,12 @@ function renderImageParameterField(field, p) {
     const select = optionSelect(id, options, value);
     return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span>${select}${required}${helpText}</label>`;
   }
-  const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength', 'krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.1' : '1');
+  const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.01' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength'].includes(fieldId) ? '0.1' : '1'));
   const inputType = field.control_type === 'slider' || field.control_type === 'number' ? 'number' : 'text';
-  return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}" value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
+  const kreaRange = ['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId)
+    ? ' min="0" max="1000"'
+    : (fieldId === 'krea2_identity_edit_grounding_px' ? ' min="0" max="4096"' : '');
+  return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}"${kreaRange} value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
 }
 const IMAGE_COMPONENT_PARAMETER_FIELD_IDS = new Set([
   'text_encoder_1',
@@ -37892,6 +39011,7 @@ const KREA2_EDIT_PARAMETER_FIELD_IDS = new Set([
   'krea2_identity_edit_ref_boost',
   'krea2_identity_edit_ref_boost_a',
   'krea2_identity_edit_grounding_px',
+  'krea2_identity_edit_system_prompt',
 ]);
 
 function activeKrea2EditParameterFields() {
@@ -37901,6 +39021,7 @@ function activeKrea2EditParameterFields() {
     KREA2_EDIT_PARAMETER_FIELD_IDS.has(field.field_id)
     && !hidden.has(field.field_id)
     && (!field.advanced || state.detailMode === 'expert')
+    && (field.field_id !== 'krea2_identity_edit_ref_boost_a' || krea2IdentitySecondReferenceActive())
   ));
 }
 
@@ -38031,8 +39152,23 @@ function activeParameterProfileHiddenFields() {
   fieldIds.forEach((fieldId) => { if (imageOverlayFieldPolicy(fieldId)?.visible === false) hidden.add(fieldId); });
   return hidden;
 }
+function imageSupportsInpaintTargetField() {
+  if (isCloudImageProfile()) return false;
+  if (activeImageMode() !== 'inpaint') return false;
+  const hidden = activeParameterProfileHiddenFields();
+  if (routeUsesParameterField('inpaint_selection_target') && !hidden.has('inpaint_selection_target')) return true;
+  if (imageUsesStrictForgeRouteGating()) return false;
+  const profileId = String(activeImageParameterProfile()?.profile_id || '').trim().toLowerCase();
+  if (!profileId) return false;
+  return profileId.startsWith('krea2')
+    || profileId.startsWith('qwen')
+    || profileId.startsWith('flux')
+    || profileId.startsWith('z_image');
+}
+
 function shouldShowProfileField(fieldId) {
   if (isCloudImageProfile()) return false;
+  if (fieldId === 'inpaint_selection_target') return imageSupportsInpaintTargetField();
   return routeUsesParameterField(fieldId) && !activeParameterProfileHiddenFields().has(fieldId);
 }
 
@@ -38125,6 +39261,85 @@ function imageModelComponentRouteNote() {
   return 'Checkpoint route. Extra model components stay hidden unless this family needs them.';
 }
 
+function imageVaeDecodeBackendCapabilities(profile = activeImageProfile()) {
+  const direct = profile?.backend_capabilities || profile?.runtime?.backend_capabilities || profile?.runtime?.capabilities?.backend_capabilities || {};
+  const overlay = imageCapabilityOverlayForProfile(profile);
+  const overlayCaps = overlay?.backend_capabilities || overlay?.capabilities?.backend_capabilities || {};
+  if (overlayCaps && typeof overlayCaps === 'object' && Object.keys(overlayCaps).length) {
+    return {
+      ...(direct && typeof direct === 'object' ? direct : {}),
+      ...overlayCaps,
+      object_info_node_inputs: {
+        ...((direct && typeof direct === 'object' ? direct.object_info_node_inputs : null) || {}),
+        ...((overlayCaps && typeof overlayCaps === 'object' ? overlayCaps.object_info_node_inputs : null) || {}),
+      },
+    };
+  }
+  return direct && typeof direct === 'object' ? direct : {};
+}
+
+function imageVaeDecodeEligibleRoute({ family = '', loader = '', mode = '' } = {}) {
+  const profile = activeImageProfile();
+  const backend = normalizeRouteBackend(profile?.provider_id || profile?.backend || activeRouteBackend());
+  if (backend !== 'comfyui') return false;
+  const resolvedFamily = String(family || state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const resolvedLoader = String(loader || state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const resolvedMode = String(mode || activeImageMode() || 'txt2img').trim().toLowerCase();
+  if (!['txt2img', 'img2img', 'edit'].includes(resolvedMode)) return false;
+  if (['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(resolvedFamily)) return ['diffusion_model', 'gguf'].includes(resolvedLoader);
+  if (['krea2', 'krea2_turbo'].includes(resolvedFamily)) return ['diffusion_model', 'gguf'].includes(resolvedLoader);
+  return false;
+}
+
+function imageVaeDecodeNodesAvailable(profile = activeImageProfile()) {
+  const capabilities = imageVaeDecodeBackendCapabilities(profile);
+  const diagnostics = capabilities?.vae_utils_decode_diagnostics || {};
+  if (diagnostics?.available === true) return true;
+  const nodeMap = capabilities?.object_info_node_inputs || {};
+  if (!nodeMap || !Object.keys(nodeMap).length) return false;
+  return Boolean(nodeMap.VAEUtils_CustomVAELoader) && Boolean(nodeMap.VAEUtils_VAEDecodeTiled);
+}
+
+function imageCurrentVaeDecodeMode() {
+  if (!imageVaeDecodeEligibleRoute()) return 'native';
+  const selected = String(state.imageDraft.vae_decode_mode || valueOf('imageVaeDecodeMode') || 'native').trim().toLowerCase();
+  return selected === 'vae_utils_auto' ? 'vae_utils_auto' : 'native';
+}
+
+function imageVaeDecodeOptions() {
+  const enabled = imageVaeDecodeNodesAvailable();
+  return [
+    { id: 'native', label: 'Native decode' },
+    {
+      id: 'vae_utils_auto',
+      label: enabled ? 'VAE Utils auto (Wan/Qwen 2× ready)' : 'VAE Utils auto · unavailable',
+      disabled: !enabled,
+      title: enabled ? 'Uses VAEUtils_CustomVAELoader + VAEUtils_VAEDecodeTiled with auto upscale detection (-1).' : 'Install ComfyUI-VAE-Utils and refresh the backend profile to enable this mode.',
+    },
+  ];
+}
+
+function renderImageVaeDecodeField() {
+  if (!imageVaeDecodeEligibleRoute()) return '';
+  const selected = imageCurrentVaeDecodeMode();
+  const enabled = imageVaeDecodeNodesAvailable();
+  const note = enabled
+    ? 'Select the special 2× Wan/Qwen VAE in the VAE dropdown to get auto pixel-shuffle upscale. Normal VAEs still decode at standard size.'
+    : 'Requires ComfyUI-VAE-Utils nodes VAEUtils_CustomVAELoader and VAEUtils_VAEDecodeTiled from live /object_info.';
+  return `<label>VAE Decode${optionSelect('imageVaeDecodeMode', imageVaeDecodeOptions(), selected)}<small>${escapeHtml(note)}</small></label>`;
+}
+
+function imageKrea2ExperimentalVaeOverrideNote(value = '') {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  if (!['krea2', 'krea2_turbo'].includes(family)) return '';
+  const selected = String(value || state.imageDraft.vae || valueOf('imageVae') || valueOf('imageParam_vae') || '').trim();
+  const normalized = selected.toLowerCase().replaceAll('\\', '/').split('/').pop();
+  if (!normalized || ['automatic', 'provider_default', 'none'].includes(normalized)) return '';
+  const qwenImageVae = normalized.includes('qwen_image_vae') || (normalized.includes('qwen') && normalized.includes('image') && normalized.includes('vae'));
+  if (qwenImageVae) return '';
+  return '<small class="neo-muted" data-testid="krea2-experimental-vae-note">⚠ Experimental VAE override — this is not the default Krea/Qwen Image VAE. Neo will allow it and ComfyUI will validate compatibility at runtime.</small>';
+}
+
 function renderImagePrimaryModelRow(p) {
   if (isCloudImageProfile()) return '';
   if (isImageGgufRuntimeActive()) return '';
@@ -38136,12 +39351,15 @@ function renderImagePrimaryModelRow(p) {
       ? (state.imageDraft.diffusion_model || p.diffusion_model || 'provider_default')
       : (state.imageDraft[fieldId] || state.imageDraft.model || p.model || 'provider_default');
   const bundledCheckpoint = (state.imageDraft.loader || imageCommandValue('loader')) === 'checkpoint_aio';
+  const selectedVae = state.imageDraft.vae || p.vae || 'automatic';
   const vaeField = bundledCheckpoint
     ? ''
-    : `<label>VAE${optionSelect('imageVae', imageOptionsForField('vae'), p.vae || 'automatic')}</label>`;
+    : `<label>VAE${optionSelect('imageVae', imageOptionsForField('vae'), selectedVae)}${imageKrea2ExperimentalVaeOverrideNote(selectedVae)}</label>`;
+  const vaeDecodeField = bundledCheckpoint ? '' : renderImageVaeDecodeField();
   return `<div class="neo-parameter-row neo-model-vae-row${bundledCheckpoint ? ' neo-model-bundled-row' : ''}">
     <label>${label}${optionSelect(fieldId === 'model' ? 'imageModel' : `imageParam_${fieldId}`, imageOptionsForField(fieldId), value)}</label>
     ${vaeField}
+    ${vaeDecodeField}
     <span class="neo-muted neo-param-note">${escapeHtml(imageModelComponentRouteNote())}</span>
   </div>`;
 }
@@ -38900,15 +40118,18 @@ function promptCaptioningSectionBody(items, helperText = '') {
 function promptCaptioningProfileFlags(profile) {
   const flags = profile?.capability_flags || {};
   const runtimeFlags = profile?.runtime?.capabilities || {};
+  const isComfyLlamaCpp = profile?.provider_id === 'comfy_llamacpp';
   const profileSupportsText = Boolean(flags.supports_text ?? runtimeFlags.supports_text ?? true);
   const profileSupportsVision = Boolean(flags.supports_vision ?? false);
   const profileSupportsCaptioning = Boolean(flags.supports_captioning ?? false);
-  const runtimeSupportsVision = Boolean(runtimeFlags.runtime_supports_vision ?? runtimeFlags.supports_vision ?? false);
-  const runtimeSupportsCaptioning = Boolean(runtimeFlags.runtime_supports_captioning ?? runtimeFlags.supports_captioning ?? false);
-  const effectiveSupportsVision = profileSupportsVision || runtimeSupportsVision;
-  const effectiveSupportsCaptioning = profileSupportsCaptioning || runtimeSupportsCaptioning || runtimeSupportsVision;
+  const runtimeSupportsVision = Boolean(runtimeFlags.vision_ready ?? runtimeFlags.runtime_supports_vision ?? runtimeFlags.supports_vision ?? false);
+  const runtimeSupportsCaptioning = Boolean(runtimeFlags.caption_execution_ready ?? runtimeFlags.caption_ready ?? runtimeFlags.runtime_supports_captioning ?? runtimeFlags.supports_captioning ?? false);
+  const readiness = isComfyLlamaCpp ? comfyLlamaCppReadiness(profile) : {};
+  const effectiveSupportsText = isComfyLlamaCpp ? Boolean(readiness.prompt_ready ?? runtimeFlags.text_execution_ready ?? runtimeFlags.text_ready ?? runtimeFlags.supports_text ?? false) : profileSupportsText;
+  const effectiveSupportsVision = isComfyLlamaCpp ? Boolean(readiness.caption_ready ?? runtimeSupportsVision) : (profileSupportsVision || runtimeSupportsVision);
+  const effectiveSupportsCaptioning = isComfyLlamaCpp ? Boolean(readiness.caption_ready ?? runtimeSupportsCaptioning) : (profileSupportsCaptioning || runtimeSupportsCaptioning || runtimeSupportsVision);
   return {
-    supports_text: profileSupportsText,
+    supports_text: effectiveSupportsText,
     supports_vision: effectiveSupportsVision,
     supports_captioning: effectiveSupportsCaptioning,
     streaming_enabled: Boolean(runtimeFlags.streaming_enabled ?? flags.streaming_enabled ?? false),
@@ -38916,7 +40137,7 @@ function promptCaptioningProfileFlags(profile) {
     profile_supports_captioning: profileSupportsCaptioning,
     runtime_supports_vision: runtimeSupportsVision,
     runtime_supports_captioning: runtimeSupportsCaptioning,
-    capability_source: profileSupportsCaptioning ? 'profile_caption_flag' : (profileSupportsVision ? 'profile_vision_flag' : ((runtimeSupportsVision || runtimeSupportsCaptioning) ? 'runtime_vision_detected' : 'profile_flag')),
+    capability_source: isComfyLlamaCpp ? 'comfy_object_info_phase9_live_validation' : (profileSupportsCaptioning ? 'profile_caption_flag' : (profileSupportsVision ? 'profile_vision_flag' : ((runtimeSupportsVision || runtimeSupportsCaptioning) ? 'runtime_vision_detected' : 'profile_flag'))),
   };
 }
 
@@ -38953,6 +40174,25 @@ function promptCaptioningRouteState(toolId, requiredCapability = 'text', selecte
   const flags = promptCaptioningProfileFlags(profile);
   const status = backendProfileStatus(profile);
   if (!backendProfileConnectedForRuntime(profile)) return { state: 'provider_gated', reason: `backend_not_connected: ${profile.display_name || profile.profile_id} must be connected/tested before running Prompt & Captioning. Current status: ${status || 'not_checked'}.`, gate_reason: 'backend_not_connected', profile };
+  if (profile.provider_id === 'comfy_llamacpp') {
+    const readiness = comfyLlamaCppReadiness(profile);
+    const discovery = profile?.runtime?.backend_capabilities || {};
+    if (Object.keys(readiness).length) {
+      const routeKey = requiredCapability === 'caption' ? 'caption' : 'prompt';
+      const routeReady = routeKey === 'caption' ? Boolean(readiness.caption_ready) : Boolean(readiness.prompt_ready);
+      if (!routeReady) {
+        const blocker = readiness?.[`${routeKey}_blocker`] || {};
+        const detail = blocker.detail || `ComfyUI LLM/VLM ${routeKey} readiness is incomplete.`;
+        const action = blocker.next_action || 'Run Connect/Test in Admin → Backends and review the readiness checklist.';
+        return { state: 'provider_gated', reason: `provider_readiness_blocked: ${detail} Next: ${action}`, gate_reason: blocker.code || 'provider_readiness_blocked', profile };
+      }
+    } else {
+      if (!discovery.node_pack_ready) return { state: 'provider_gated', reason: 'provider_execution_not_ready: ComfyUI is connected, but the required llama.cpp model-loader/instruct nodes were not detected.', gate_reason: 'provider_execution_not_ready', profile };
+      if (!discovery.text_ready) return { state: 'provider_gated', reason: 'provider_execution_not_ready: The llama.cpp nodes are detected, but no usable main LLM/VLM model is exposed yet.', gate_reason: 'provider_execution_not_ready', profile };
+      if (!discovery.text_execution_ready) return { state: 'provider_gated', reason: 'provider_execution_not_ready: NeoPromptCaptionTextOutput is missing. Install the bundled neo_prompt_captioning Comfy node package and reconnect.', gate_reason: 'provider_execution_not_ready', profile };
+      if (requiredCapability === 'caption' && !discovery.caption_execution_ready) return { state: 'provider_gated', reason: 'provider_execution_not_ready: Caption Studio needs a VLM model + mmproj and NeoPromptCaptionImageInput on this Comfy backend.', gate_reason: 'provider_execution_not_ready', profile };
+    }
+  }
   if (requiredCapability === 'text' && !flags.supports_text) return { state: 'provider_gated', reason: `text_support_disabled: ${profile.display_name || profile.profile_id} does not support text.`, gate_reason: 'text_support_disabled', profile };
   if (requiredCapability === 'caption') {
     const gate = promptCaptioningCaptionGateReason(profile);
@@ -38976,6 +40216,136 @@ function promptCaptioningSupportChip(label, route) {
   return `<span class="neo-state-pill ${cls}" title="${escapeAttr(route?.reason || '')}">${escapeHtml(label)}: ${escapeHtml(state)}</span>`;
 }
 
+function promptCaptioningComfyLlamaCppDiscoverySummary(profile) {
+  if (!profile || profile.provider_id !== 'comfy_llamacpp') return '';
+  const discovery = profile?.runtime?.backend_capabilities || {};
+  const readiness = comfyLlamaCppReadiness(profile);
+  const validation = profile?.runtime?.validation || {};
+  const settings = comfyLlamaCppProfileSettings(profile);
+  const models = discovery.models || {};
+  const mode = promptCaptioningState().mode === 'captioning' ? 'caption' : 'prompt';
+  const routeReady = mode === 'caption' ? Boolean(readiness.caption_ready ?? discovery.caption_execution_ready) : Boolean(readiness.prompt_ready ?? discovery.text_execution_ready);
+  const uiState = comfyLlamaCppUiState(profile, mode);
+  const selected = readiness.selected || {};
+  const model = selected.model || settings.comfy_llamacpp_model || 'Auto';
+  const handler = comfyLlamaCppDisplayHandler(profile, { caption: mode === 'caption' });
+  const mmproj = selected.mmproj || settings.comfy_llamacpp_mmproj || 'Auto';
+  const action = comfyLlamaCppPrimaryAction(profile, mode);
+  const title = mode === 'caption' ? 'Comfy Caption route' : 'Comfy Prompt route';
+  const routeDetail = mode === 'caption'
+    ? [`Model: ${model}`, `mmproj: ${mmproj}`, `Handler: ${handler}`]
+    : [`Model: ${model}`, `Handler: ${handler}`];
+  const catalogDetail = mode === 'caption'
+    ? `${(models.all || []).length} models · ${(models.mmproj || []).length} projectors · ${(models.usable_chat_handlers || []).length} handlers`
+    : `${(models.all || []).length} models · ${(models.usable_chat_handlers || []).length} handlers`;
+  return `<div class="neo-mini-card neo-pc-comfy-discovery" data-testid="prompt-captioning-comfy-discovery">
+    <div class="admin-engine-row-between"><div><strong>${escapeHtml(title)}</strong><p class="neo-muted">${escapeHtml(catalogDetail)}</p></div><span class="neo-state-pill ${escapeAttr(uiState.cls)}">${escapeHtml(routeReady ? 'Ready' : uiState.label)}</span></div>
+    ${badgeRow([...routeDetail, `Catalog ${validation.live_catalog_current ? 'live' : 'unverified'}`, 'GPU shared'])}
+    ${routeReady ? '<div class="neo-inline-status success">Selected route is ready.</div>' : `<div class="neo-inline-status warning"><strong>Action:</strong> ${escapeHtml(action || 'Open Admin → Backends and refresh this Comfy backend.')}</div>`}
+    ${!routeReady ? `<details class="neo-pc-comfy-advanced"><summary>Why this route is blocked</summary>${comfyLlamaCppReadinessChecklist(profile, { compact: true, route: mode })}</details>` : ''}
+  </div>`;
+}
+
+function promptCaptioningComfyLlamaCppSettingsPanel(modeId, profile = promptCaptioningSelectedBackendProfile(modeId)) {
+  if (!profile || profile.provider_id !== 'comfy_llamacpp') return '';
+  const settings = comfyLlamaCppProfileSettings(profile);
+  const models = comfyLlamaCppDiscoveryModels(profile);
+  const isCaption = modeId === 'captioning';
+  const prefix = isCaption ? 'promptCaptioningCaptionComfy' : 'promptCaptioningPromptComfy';
+  const selectControl = (id, key, value, options, label) => `<label>${escapeHtml(label)}<select id="${escapeAttr(id)}" data-pc-comfy-setting="${escapeAttr(key)}" data-pc-comfy-setting-type="string">${(options || []).map((option) => `<option value="${escapeAttr(option.id)}" ${String(option.id) === String(value || '') ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select></label>`;
+  const numberControl = (id, key, value, label, attrs = '') => `<label>${escapeHtml(label)}<input id="${escapeAttr(id)}" type="number" value="${escapeAttr(value)}" data-pc-comfy-setting="${escapeAttr(key)}" data-pc-comfy-setting-type="int" ${attrs}></label>`;
+  const boolControl = (id, key, value, label) => `<label>${escapeHtml(label)}<select id="${escapeAttr(id)}" data-pc-comfy-setting="${escapeAttr(key)}" data-pc-comfy-setting-type="bool"><option value="true" ${value ? 'selected' : ''}>On</option><option value="false" ${!value ? 'selected' : ''}>Off</option></select></label>`;
+  const mainModelOptions = comfyLlamaCppSelectOptions(models.all, settings.comfy_llamacpp_model, isCaption ? 'Auto VLM model' : 'Auto LLM model');
+  const handlerOptions = comfyLlamaCppSelectOptions(models.usable_chat_handlers, settings.comfy_llamacpp_chat_handler, isCaption ? 'Auto / route-aware (MTMD fallback)' : 'Auto chat handler');
+  const mmprojOptions = comfyLlamaCppSelectOptions(models.mmproj, settings.comfy_llamacpp_mmproj, 'Auto projector');
+  const liveCatalog = Boolean(profile?.runtime?.backend_capabilities?.object_info_available);
+  const common = `
+    ${selectControl(`${prefix}Model`, 'comfy_llamacpp_model', settings.comfy_llamacpp_model || '', mainModelOptions, 'LLM / VLM Model')}
+    ${selectControl(`${prefix}ChatHandler`, 'comfy_llamacpp_chat_handler', settings.comfy_llamacpp_chat_handler || '', handlerOptions, 'Chat Handler')}
+    ${numberControl(`${prefix}Context`, 'n_ctx', settings.n_ctx ?? 8192, 'Context Length', 'min="1024" max="327680" step="128"')}
+    ${selectControl(`${prefix}Vram`, 'vram_limit', String(settings.vram_limit ?? -1), comfyLlamaCppVramBudgetOptions(settings.vram_limit ?? -1), 'VRAM Budget')}
+    ${boolControl(`${prefix}Offload`, 'force_offload', settings.force_offload !== false, 'Unload After Run')}`;
+  const captionRoute = isCaption ? comfyLlamaCppCaptionRoute(profile) : {};
+  const usingGenericMtmd = isCaption && String(captionRoute.mode || '') === 'generic_mtmd';
+  const captionOnly = isCaption ? `
+    <div class="neo-form-grid neo-pc-comfy-caption-core">
+      ${selectControl(`${prefix}Mmproj`, 'comfy_llamacpp_mmproj', settings.comfy_llamacpp_mmproj || '', mmprojOptions, 'Vision Projector (mmproj)')}
+    </div>
+    <details class="neo-pc-comfy-advanced">
+      <summary>Caption VLM Advanced</summary>
+      <div class="neo-form-grid">
+        ${numberControl(`${prefix}MaxSize`, 'max_size', settings.max_size ?? 512, 'Image Analysis Size', 'min="128" max="16384" step="64"')}
+        ${usingGenericMtmd ? '' : numberControl(`${prefix}ImageMinTokens`, 'image_min_tokens', settings.image_min_tokens ?? 0, 'Image Token Min', 'min="0" max="4096" step="32"')}
+        ${usingGenericMtmd ? '' : numberControl(`${prefix}ImageMaxTokens`, 'image_max_tokens', settings.image_max_tokens ?? 0, 'Image Token Max', 'min="0" max="4096" step="32"')}
+      </div>
+      ${usingGenericMtmd ? '<p class="neo-muted">Generic MTMD uses the model&#39;s embedded chat template. Image Token Min/Max are dedicated-handler controls and are not applied on this route.</p>' : ''}
+    </details>` : '';
+  const catalogMessage = liveCatalog
+    ? `Live Comfy catalog: ${(models.all || []).length} models · ${(models.mmproj || []).length} projectors · ${(models.usable_chat_handlers || []).length} handlers.`
+    : 'Run Connect/Test in Admin → Backends to refresh the live Comfy model/projector/handler catalog.';
+  const routeUi = comfyLlamaCppUiState(profile, isCaption ? 'caption' : 'prompt');
+  return `<div class="neo-mini-card neo-pc-comfy-settings" data-pc-comfy-settings-panel="true" data-profile-id="${escapeAttr(profile.profile_id || '')}" data-pc-mode="${escapeAttr(modeId)}">
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>ComfyUI LLM / VLM Settings</strong><p>${escapeHtml(catalogMessage)}</p></div><span class="neo-state-pill ${escapeAttr(routeUi.cls)}">${escapeHtml(routeUi.label)}</span></div>
+    <div class="neo-form-grid">${common}</div>
+    ${captionOnly}
+    ${badgeRow([`GPU: shared`, `Unload: ${settings.force_offload !== false ? 'after normal runs' : 'off'}`, isCaption ? `Route: ${comfyLlamaCppDisplayHandler(profile, { caption: true })}` : 'Neo owns prompt history', isCaption ? 'Batch retention: enabled' : 'History: Neo-owned'])}
+    <p class="neo-muted">These are backend-only controls and save automatically. Max Tokens, Temperature, Top-p, and Top-k remain the normal shared Prompt/Caption controls above.</p>
+    <div class="neo-inline-status muted" data-pc-comfy-settings-status>Backend settings saved</div>
+  </div>`;
+}
+
+let promptCaptioningComfySettingsSaveTimer = null;
+
+function collectPromptCaptioningComfySettings(panel) {
+  const settings = {};
+  panel?.querySelectorAll?.('[data-pc-comfy-setting]').forEach((input) => {
+    const key = input.getAttribute('data-pc-comfy-setting') || '';
+    const type = input.getAttribute('data-pc-comfy-setting-type') || 'string';
+    if (!key) return;
+    if (type === 'bool') settings[key] = String(input.value) === 'true';
+    else if (type === 'int') settings[key] = Number.parseInt(input.value || '0', 10) || 0;
+    else settings[key] = String(input.value || '').trim();
+  });
+  return settings;
+}
+
+async function savePromptCaptioningComfySettingsPanel(panel) {
+  const profileId = String(panel?.getAttribute?.('data-profile-id') || '').trim();
+  const status = panel?.querySelector?.('[data-pc-comfy-settings-status]');
+  if (!profileId) return;
+  const settings = collectPromptCaptioningComfySettings(panel);
+  if (status) { status.className = 'neo-inline-status muted'; status.textContent = 'Saving backend settings…'; }
+  try {
+    const response = await fetch(`/api/backend-profiles/${encodeURIComponent(profileId)}/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider_settings: { comfy_llamacpp: settings } }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!result.ok || !result.profile) throw new Error((result.errors || ['Could not save Comfy LLM/VLM settings.']).join('\n'));
+    if (Array.isArray(state.backendProfiles?.profiles)) {
+      state.backendProfiles.profiles = state.backendProfiles.profiles.map((item) => item.profile_id === profileId ? result.profile : item);
+    }
+    if (status) { status.className = 'neo-inline-status success'; status.textContent = 'Backend settings saved'; }
+  } catch (error) {
+    if (status) { status.className = 'neo-inline-status danger'; status.textContent = `Save failed: ${error.message}`; }
+  }
+}
+
+function bindPromptCaptioningComfySettingsPanels() {
+  document.querySelectorAll('[data-pc-comfy-settings-panel]').forEach((panel) => {
+    panel.querySelectorAll('[data-pc-comfy-setting]').forEach((input) => {
+      if (input.dataset.pcComfyBound === 'true') return;
+      input.dataset.pcComfyBound = 'true';
+      input.addEventListener('change', () => {
+        const status = panel.querySelector('[data-pc-comfy-settings-status]');
+        if (status) { status.className = 'neo-inline-status warning'; status.textContent = 'Settings changed · saving…'; }
+        clearTimeout(promptCaptioningComfySettingsSaveTimer);
+        promptCaptioningComfySettingsSaveTimer = window.setTimeout(() => savePromptCaptioningComfySettingsPanel(panel), 250);
+      });
+    });
+  });
+}
+
 function promptCaptioningCapabilityPanel(modeId) {
   const promptRoute = promptCaptioningRouteState('prompt_generate', 'text', promptCaptioningProviderProfileId('prompt_builder'), 'prompt_builder');
   const captionRoute = promptCaptioningRouteState('image_captioning', 'caption', promptCaptioningProviderProfileId('captioning'), 'captioning');
@@ -38984,9 +40354,9 @@ function promptCaptioningCapabilityPanel(modeId) {
   const chips = modeId === 'captioning'
     ? [promptCaptioningSupportChip('Image captioning', captionRoute), promptCaptioningSupportChip('Batch captioning', captionRoute)]
     : [promptCaptioningSupportChip('Prompt tools', promptRoute), promptCaptioningSupportChip('Text transform', promptRoute)];
-  const helper = promptCaptioningHelperText('Route-aware gating is active. Text tools can use text backends. Image captioning requires explicit Vision + Caption support and valid image assets.');
+  const helper = promptCaptioningHelperText("Route-aware gating is active. Text tools can use connected text backends. Image captioning requires detected Vision + Caption support and valid image assets. ComfyUI LLM / VLM shows only the selected route's live readiness here; full installation, catalog, selection, GPU-policy, and validation details remain in Admin → Backends.");
   const expert = promptCaptioningExpertDiagnostics({ backend_profile: profile?.profile_id || '', provider: profile?.provider_id || '', flags, prompt_route: promptRoute, caption_route: captionRoute });
-  return `${helper}<div class="neo-badge-row">${chips.join('')}</div>${expert}`;
+  return `${helper}<div class="neo-badge-row">${chips.join('')}</div>${promptCaptioningComfyLlamaCppDiscoverySummary(profile)}${expert}`;
 }
 
 function promptCaptioningValidationStatus(modeId, toolId) {
@@ -39999,6 +41369,7 @@ function promptCaptioningPromptStudioPanel() {
       <label>Temperature${promptCaptioningInput('promptCaptioningTemperature', params.temperature ?? 0.7, '0.7', 'number')}</label>
       <label>Top-p${promptCaptioningInput('promptCaptioningTopP', params.top_p ?? 0.9, '0.9', 'number')}</label>
     </div>
+    ${promptCaptioningComfyLlamaCppSettingsPanel('prompt_builder', promptCaptioningSelectedBackendProfile('prompt_builder'))}
     ${isVideo ? `<div class="neo-mini-card"><strong>Temporal prompt contract</strong><p class="neo-muted">Neo will keep the source idea intact while organizing the result around starting state → motion/action → continuity → camera behavior → ending state. It will not invent extra cuts, characters, locations, or actions unless you ask for them.</p></div>` : ''}
     ${isEdit ? `<div class="neo-mini-card"><strong>Text-only edit contract</strong><p class="neo-muted">Prompt Studio does not see an image. It will describe the requested change and preservation constraints without pretending to know unseen source details.</p></div>` : ''}
     ${pb.isRunning ? promptCaptioningRunningPanel(pb.activeTool || pb.generationMode || 'prompt_generate') : ''}
@@ -41189,6 +42560,9 @@ function promptCaptioningBatchProgressPanel(batch = {}, library = {}) {
   const status = batch.statusRaw || batch.status || 'Idle';
   const currentFile = batch.currentFile || batch.current_file || '';
   const expert = promptCaptioningDisplayModeSetup().expert;
+  const session = (batch.batchSession && typeof batch.batchSession === 'object') ? batch.batchSession : ((batch.batch_session && typeof batch.batch_session === 'object') ? batch.batch_session : {});
+  const sessionEnabled = Boolean(session.enabled || session.schema_id === 'neo.prompt_captioning.comfy_batch_session.v1');
+  const sessionLine = sessionEnabled ? `<div class="neo-inline-status ${session.active ? 'success' : ''}" data-pc-batch-session="true">Comfy VLM session: ${session.active ? 'active' : 'closed'} · model ${session.model_retained ? 'retained between items' : 'not loaded yet'} · inference ${escapeHtml(String(session.processed || 0))}/${escapeHtml(String(session.total_items || total || '?'))}${session.cleanup_after ? ' · cleanup once at batch end' : ' · cleanup disabled by backend setting'}</div>` : '';
   return `
     <div class="neo-pc-batch-progress" data-pc-batch-progress="true">
       <div class="neo-chip-row">
@@ -41204,6 +42578,7 @@ function promptCaptioningBatchProgressPanel(batch = {}, library = {}) {
         <span>Skipped: ${escapeHtml(String(skipped))}</span>
         <span>Errors: ${escapeHtml(String(errorCount))}</span>
       </div>
+      ${sessionLine}
       <div class="neo-inline-status" data-pc-batch-last-action="true">Last action: ${escapeHtml(batch.lastAction || batch.message || status || 'Idle')}</div>
       <pre class="neo-json-preview neo-pc-batch-log" data-pc-batch-log="true">${escapeHtml(promptCaptioningBatchLogText(batch))}</pre>
     </div>`;
@@ -41310,6 +42685,7 @@ function promptCaptioningBatchCaptioningPanel(cap, library) {
     <div class="neo-button-row neo-button-group">
       <button type="button" id="promptCaptioningPreviewBatchCaptioning" class="neo-btn secondary">Preview files</button>
       <button type="button" id="promptCaptioningRunBatchCaptioning" class="neo-btn primary" data-pc-batch-run="true">Run batch</button>
+      <button type="button" id="promptCaptioningCancelBatchCaptioning" class="neo-btn secondary" data-pc-batch-cancel="true">Cancel batch</button>
       <button type="button" id="promptCaptioningExportBatchLog" class="neo-btn ghost">Export log</button>
       <button type="button" id="promptCaptioningRefreshBatchResults" class="neo-btn ghost">Refresh results</button>
     </div>
@@ -41619,6 +42995,18 @@ function promptCaptioningCapabilityChips(profile, modeId = 'captioning') {
   const flags = promptCaptioningProfileFlags(profile);
   if (!profile) return '<div class="neo-badge-row neo-pc-capability-chips"><span class="neo-state-pill warning">No backend profile selected</span></div>';
   const status = backendProfileStatus(profile);
+  if (profile.provider_id === 'comfy_llamacpp') {
+    const discovery = profile?.runtime?.backend_capabilities || {};
+    const readiness = comfyLlamaCppReadiness(profile);
+    const isCaption = modeId === 'captioning';
+    const ready = isCaption ? Boolean(readiness.caption_ready ?? discovery.caption_execution_ready) : Boolean(readiness.prompt_ready ?? discovery.text_execution_ready);
+    const uiState = comfyLlamaCppUiState(profile, isCaption ? 'caption' : 'prompt');
+    return `<div class="neo-badge-row neo-chip-row neo-pc-capability-chips" data-testid="caption-effective-capability-chips">
+      <span class="neo-state-pill ${ready ? 'success' : 'danger'}">${isCaption ? 'Caption' : 'Prompt'} ${ready ? '✅ Ready' : '❌ Blocked'}</span>
+      <span class="neo-state-pill ${escapeAttr(uiState.cls)}">${escapeHtml(uiState.label)}</span>
+      <span class="neo-state-pill muted">Shared Comfy GPU</span>
+    </div>`;
+  }
   const runtimeHint = (flags.runtime_supports_vision || flags.runtime_supports_captioning)
     ? '<span class="neo-state-pill muted">Runtime vision detected</span>'
     : '';
@@ -41698,6 +43086,7 @@ function promptCaptioningCaptionStudioPanel() {
       <label>Temperature${promptCaptioningInput('promptCaptioningCaptionTemperature', params.temperature ?? 0.7, '0.7', 'number')}</label>
       <label>Top-p${promptCaptioningInput('promptCaptioningCaptionTopP', params.top_p ?? 0.9, '0.9', 'number')}</label>
     </div>
+    ${promptCaptioningComfyLlamaCppSettingsPanel('captioning', promptCaptioningSelectedBackendProfile('captioning'))}
     ${cap.isRunning ? promptCaptioningRunningPanel(cap.activeTool || 'image_captioning') : ''}
     <div class="neo-pc-caption-source-layout" data-testid="caption-studio-source-output-layout">
       ${renderCaptionImageDropzone()}
@@ -46413,7 +47802,7 @@ function roleplayPackageRegistryHtml() {
       <div class="roleplay-v1-scene-row-between"><div><strong>Plugin marketplace / package registry</strong><p>Local-first registry for Roleplay packages, plugin manifests, template packs, runtime packs, and memory packs.</p></div><span class="neo-badge">registry</span></div>
       <div class="roleplay-meta-grid"><div><strong>${escapeHtml(counts.available ?? 0)}</strong><span>Available</span></div><div><strong>${escapeHtml(counts.installed ?? 0)}</strong><span>Installed</span></div><div><strong>${escapeHtml(counts.enabled ?? 0)}</strong><span>Enabled</span></div><div><strong>${escapeHtml(counts.disabled ?? 0)}</strong><span>Disabled</span></div></div>
       <div class="roleplay-v1-studio-row"><button type="button" class="neo-btn admin-engine-btn" onclick="refreshRoleplayPackageRegistryState()">Refresh registry</button><span class="neo-badge">${escapeHtml(registry.registry_root || 'neo_data/roleplay/package_registry')}</span></div>
-      ${lastAction.ok ? `<div class="roleplay-v1-studio-empty"><strong>Last registry action:</strong> ${escapeHtml(lastAction.schema_id || 'ok')}</div>` : ''}
+      ${lastAction.ok ? `<div class="roleplay-v1-studio-empty"><strong>Last registry action:</strong> completed</div>` : ''}
     </div>
     <div class="roleplay-v1-studio-grid two">
       <div class="roleplay-v1-studio-card">
@@ -48696,10 +50085,9 @@ function renderRoleplayPanels(surface, subtab) {
   const foundation = state.roleplayFoundation;
   const intro = [
     `Active tab: ${baseTab?.display_name || subtab.display_name}`,
-    `Setup: ${base?.schema_id || 'neo.roleplay.base.v1 pending load'}`,
+    `Core setup: ${base ? 'loaded' : 'loading'}`,
     `Storage: ${foundation?.ready ? 'ready' : 'pending check'}`,
-    'Temporary world/characters/session workshell removed',
-    'Roleplay advanced systems are staged until the core workspace is stable',
+    'Characters, worlds, scenes, stories, and memory stay inside the active Roleplay workspace.',
   ];
   columns.left.appendChild(renderRoleplayFoundationPanel('Roleplay', intro, base?.status || surface.status || 'Active'));
   if (baseTab?.sections?.length) {
@@ -50010,7 +51398,7 @@ function assistantLegacySurfaceSnapshotFor(surface) {
   else if (surface === 'video') { payload.videoDraft = state.videoDraft || {}; payload.videoLastGenerate = state.videoLastGenerate || null; payload.videoRunProgress = state.videoRunProgress || null; }
   else if (surface === 'prompt_captioning') payload.promptCaptioning = state.promptCaptioning || {};
   else if (surface === 'roleplay') { payload.roleplayRuntime = state.roleplayRuntime || null; payload.roleplayForge = state.roleplayForge || null; payload.roleplayStudio = state.roleplayStudio || null; }
-  else if (surface === 'voice') { payload.voiceDraft = state.voiceDraft || {}; payload.voiceLastJob = state.voiceLastJob || null; }
+  else if (surface === 'voice') { payload.voiceDraft = state.voiceDraft || {}; payload.voiceLastJob = state.voiceLastJob || null; payload.voiceSelectedResult = state.voiceSelectedResult?.result || null; }
   return payload;
 }
 
@@ -50132,7 +51520,7 @@ async function assistantUploadProjectFiles(input) {
 
 
 function videoOutputPathRows() {
-  const categories = ['txt2vid', 'img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion', 'schedule', 'audio_video', 'interpolate', 'upscale', 'repair', 'metadata', 'previews', 'frames', 'source'];
+  const categories = ['txt2vid', 'img2vid', 'reference_to_video', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion', 'schedule', 'audio_video', 'interpolate', 'upscale', 'repair', 'metadata', 'previews', 'frames', 'source'];
   return categories.map((category) => `<li><strong>${escapeHtml(category)}</strong><code>neo_data/outputs/video/${escapeHtml(category)}/</code></li>`).join('');
 }
 
@@ -50157,30 +51545,91 @@ function videoProfileSupportsCapability(capability, profile = videoActiveBackend
   const caps = videoProfileCapabilities(profile);
   if (capability === 'txt2vid') return caps.txt2video === true || caps.text_to_video === true || caps.txt2vid === true;
   if (capability === 'img2vid') return caps.img2video === true || caps.image_to_video === true || caps.img2vid === true;
+  if (capability === 'reference_to_video') return caps.reference_to_video === true;
+  if (capability === 'vid2vid') return caps.video_edit === true || caps.vid2vid === true;
+  if (capability === 'extend') return caps.video_extend === true || caps.extend === true;
   return caps?.[capability] === true;
+}
+
+function videoCloudModeLabel(mode = state.videoDraft.mode || 'txt2vid') {
+  return ({ txt2vid: 'Text-to-Video', img2vid: 'Image-to-Video', reference_to_video: 'Reference-to-Video', vid2vid: 'Video Editing', extend: 'Video Extension' })[mode] || videoGenerationTypeLabel(mode);
+}
+
+function videoCloudModelCapability(model = videoCloudModel(), profile = videoActiveBackendProfile()) {
+  const matrix = profile?.model?.capabilities_by_model || {};
+  const configured = matrix?.[model] || null;
+  if (configured) return {
+    modes: Array.isArray(configured.modes) ? configured.modes : [],
+    resolutions: Array.isArray(configured.resolutions) ? configured.resolutions : [],
+    resolutions_by_mode: configured.resolutions_by_mode && typeof configured.resolutions_by_mode === 'object' ? configured.resolutions_by_mode : {},
+    duration_max_by_mode: configured.duration_max_by_mode && typeof configured.duration_max_by_mode === 'object' ? configured.duration_max_by_mode : {},
+  };
+  if (model === 'grok-imagine-video-1.5') return {
+    modes: ['img2vid'],
+    resolutions: ['480p', '720p', '1080p'],
+    resolutions_by_mode: { img2vid: ['480p', '720p', '1080p'] },
+    duration_max_by_mode: { img2vid: 15 },
+  };
+  return {
+    modes: ['txt2vid', 'img2vid', 'reference_to_video', 'vid2vid', 'extend'],
+    resolutions: ['480p', '720p'],
+    resolutions_by_mode: { txt2vid: ['480p', '720p'], img2vid: ['480p', '720p'], reference_to_video: ['480p', '720p'] },
+    duration_max_by_mode: { txt2vid: 15, img2vid: 15, reference_to_video: 10 },
+  };
+}
+
+function videoCloudAllowedResolutions(model = videoCloudModel(), mode = ensureCloudVideoMode(), profile = videoActiveBackendProfile()) {
+  const capability = videoCloudModelCapability(model, profile);
+  const byMode = capability.resolutions_by_mode || {};
+  const values = Array.isArray(byMode?.[mode]) && byMode[mode].length ? byMode[mode] : capability.resolutions;
+  return Array.isArray(values) && values.length ? values.map(String) : ['480p', '720p'];
+}
+
+function videoCloudDurationBounds(model = videoCloudModel(), mode = ensureCloudVideoMode(), profile = videoActiveBackendProfile()) {
+  const constraints = profile?.mode_constraints?.[mode] || {};
+  const capability = videoCloudModelCapability(model, profile);
+  const min = Number(constraints.duration_min || (mode === 'extend' ? 2 : 1));
+  const genericMax = Number(constraints.duration_max || (mode === 'extend' ? 10 : 15));
+  const modelMax = Number(capability.duration_max_by_mode?.[mode] || genericMax);
+  return { min, max: Math.max(min, Math.min(genericMax, modelMax)) };
+}
+
+function videoCloudModeOptions(profile = videoActiveBackendProfile()) {
+  const declared = [
+    ['txt2vid', 'Text-to-Video'],
+    ['img2vid', 'Image-to-Video'],
+    ['reference_to_video', 'Reference-to-Video'],
+    ['vid2vid', 'Video Editing'],
+    ['extend', 'Video Extension'],
+  ].filter(([id]) => videoProfileSupportsCapability(id, profile));
+  return declared.map(([id, label]) => ({ id, label, status: 'api' }));
 }
 
 function ensureCloudVideoMode() {
   if (!isCloudVideoProfile()) return state.videoDraft.mode || 'txt2vid';
-  const allowed = [];
-  if (videoProfileSupportsCapability('txt2vid')) allowed.push('txt2vid');
-  if (videoProfileSupportsCapability('img2vid')) allowed.push('img2vid');
-  if (!allowed.length) allowed.push('txt2vid');
-  if (!allowed.includes(state.videoDraft.mode)) state.videoDraft.mode = allowed[0];
+  const options = videoCloudModeOptions();
+  const ids = options.map((item) => item.id);
+  if (!ids.length) ids.push('txt2vid');
+  if (!ids.includes(state.videoDraft.mode)) state.videoDraft.mode = ids[0];
+  const model = videoCloudModel();
+  const modelModes = videoCloudModelCapability(model).modes;
+  if (modelModes.length && !modelModes.includes(state.videoDraft.mode)) {
+    const supported = ids.find((id) => modelModes.includes(id));
+    state.videoDraft.mode = supported || ids[0];
+  }
   return state.videoDraft.mode;
-}
-
-function videoCloudModeOptions() {
-  const options = [];
-  if (videoProfileSupportsCapability('txt2vid')) options.push({ id: 'txt2vid', label: 'Text to Video', status: 'api' });
-  if (videoProfileSupportsCapability('img2vid')) options.push({ id: 'img2vid', label: 'Image to Video', status: 'api' });
-  return options.length ? options : [{ id: 'txt2vid', label: 'Text to Video', status: 'api' }];
 }
 
 function videoCloudModelOptions(profile = videoActiveBackendProfile()) {
   const models = Array.isArray(profile?.model?.available_models) ? profile.model.available_models : [];
   const fallback = profile?.model?.default_model || 'grok-imagine-video';
-  return (models.length ? models : [fallback]).filter(Boolean).map((model) => ({ id: String(model), label: String(model), status: 'api' }));
+  const mode = state.videoDraft.mode || 'txt2vid';
+  const all = (models.length ? models : [fallback]).filter(Boolean).map(String);
+  const supported = all.filter((model) => {
+    const modes = videoCloudModelCapability(model, profile).modes;
+    return !modes.length || modes.includes(mode);
+  });
+  return (supported.length ? supported : all).map((model) => ({ id: model, label: model, status: 'api' }));
 }
 
 function videoCloudDefault(field, fallback) {
@@ -50192,16 +51641,32 @@ function videoCloudModel() {
   const profile = videoActiveBackendProfile();
   const options = videoCloudModelOptions(profile);
   const candidate = state.videoDraft.cloud_model || profile?.model?.default_model || options[0]?.id || 'grok-imagine-video';
-  return options.some((item) => item.id === candidate) ? candidate : (profile?.model?.default_model || options[0]?.id || 'grok-imagine-video');
+  return options.some((item) => item.id === candidate) ? candidate : (options[0]?.id || profile?.model?.default_model || 'grok-imagine-video');
 }
 
 function videoCloudCanGenerate() {
   if (!isCloudVideoProfile() || !videoBackendConnected()) return false;
   const mode = ensureCloudVideoMode();
   const hasPrompt = Boolean(String(state.videoDraft.positive_prompt || '').trim());
-  const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
-  return hasPrompt && (mode !== 'img2vid' || hasSource);
+  const hasSourceImage = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
+  const hasReferences = videoReferenceItems('image').length > 0;
+  const hasSourceVideo = Boolean(videoCloudSourceVideoPath());
+  if (!hasPrompt) return false;
+  if (mode === 'img2vid') return hasSourceImage;
+  if (mode === 'reference_to_video') return hasReferences;
+  if (mode === 'vid2vid' || mode === 'extend') return hasSourceVideo;
+  return true;
 }
+
+function videoCloudReadinessLabel(mode = ensureCloudVideoMode()) {
+  const hasPrompt = Boolean(String(state.videoDraft.positive_prompt || '').trim());
+  if (!hasPrompt) return 'Add a prompt';
+  if (mode === 'img2vid' && !(state.videoDraft.source_image || state.videoDraft.source_image_url)) return 'Add a source image';
+  if (mode === 'reference_to_video' && videoReferenceItems('image').length < 1) return 'Add at least one reference image';
+  if ((mode === 'vid2vid' || mode === 'extend') && !videoCloudSourceVideoPath()) return 'Add a source video';
+  return 'Waiting for required input';
+}
+
 
 
 function videoBackendCanProbe() {
@@ -50299,26 +51764,33 @@ function videoCloudParameterPanelHtml() {
   const profile = videoActiveBackendProfile();
   const mode = ensureCloudVideoMode();
   const model = videoCloudModel();
-  const duration = Number(state.videoDraft.cloud_duration_seconds || videoCloudDefault('duration_seconds', 4));
+  const constraints = profile?.mode_constraints?.[mode] || {};
+  const modelCapability = videoCloudModelCapability(model, profile);
+  const defaultDuration = Number(videoCloudDefault('duration_seconds', mode === 'extend' ? 6 : 4));
+  const durationBounds = videoCloudDurationBounds(model, mode, profile);
+  const minDuration = durationBounds.min;
+  const maxDuration = durationBounds.max;
+  const duration = Math.max(minDuration, Math.min(maxDuration, Number(state.videoDraft.cloud_duration_seconds || defaultDuration)));
   const aspect = String(state.videoDraft.cloud_aspect_ratio || videoCloudDefault('aspect_ratio', '16:9'));
   const resolution = String(state.videoDraft.cloud_resolution || videoCloudDefault('resolution', '720p'));
   const aspectOptions = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'].map((id) => ({ id, label: id }));
-  const resolutionOptions = [
-    { id: '480p', label: '480p' },
-    { id: '720p', label: '720p' },
-    ...(mode === 'img2vid' && model === 'grok-imagine-video-1.5' ? [{ id: '1080p', label: '1080p · 1.5 Img2Vid only' }] : []),
-  ];
-  const safeResolution = resolutionOptions.some((item) => item.id === resolution) ? resolution : '720p';
-  if (safeResolution !== state.videoDraft.cloud_resolution) state.videoDraft.cloud_resolution = safeResolution;
-  return `<div class="neo-parameter-stack neo-video-parameter-stack neo-cloud-video-parameter-stack" data-testid="video-cloud-parameter-stack" data-schema="neo.video.cloud_parameter_profile.v25_9_20_p3">
-    <div class="neo-ui-card neo-video-profile-summary"><strong>Grok Video API Parameters</strong><p>The existing Video workspace is active. Local Comfy model, sampler, VAE, encoder, VRAM, frame, and compile controls are hidden and excluded from this request.</p>${NeoUI.badgeRow([`Backend: ${videoBackendConnected() ? 'connected' : 'disconnected'}`, `Mode: ${mode === 'img2vid' ? 'Image to Video' : 'Text to Video'}`, 'Provider polling', 'Neo-owned output copy'])}</div>
+  const allowedResolutions = videoCloudAllowedResolutions(model, mode, profile);
+  const resolutionOptions = allowedResolutions.map((id) => ({ id, label: id === '1080p' ? '1080p · supported model/mode only' : id }));
+  const safeResolution = allowedResolutions.includes(resolution) ? resolution : (allowedResolutions.includes('720p') ? '720p' : allowedResolutions[0]);
+  if (safeResolution && safeResolution !== state.videoDraft.cloud_resolution) state.videoDraft.cloud_resolution = safeResolution;
+  if (duration !== Number(state.videoDraft.cloud_duration_seconds || defaultDuration)) state.videoDraft.cloud_duration_seconds = duration;
+  const editing = mode === 'vid2vid';
+  const extending = mode === 'extend';
+  const geometryInherited = editing || extending;
+  const outputFields = geometryInherited
+    ? (extending ? `<label>Extension Duration <span class="neo-field-hint">${minDuration}–${maxDuration} seconds</span><input id="videoCloudDuration" type="number" min="${minDuration}" max="${maxDuration}" step="1" value="${duration}"></label>` : '<p class="neo-muted">Duration, aspect ratio, and resolution are inherited from the source video; xAI caps edited output resolution at its supported source-output limit.</p>')
+    : `<label>Duration <span class="neo-field-hint">${minDuration}–${maxDuration} seconds</span><input id="videoCloudDuration" type="number" min="${minDuration}" max="${maxDuration}" step="1" value="${duration}"></label><label>Aspect Ratio${optionSelect('videoCloudAspectRatio', aspectOptions, aspect)}</label><label>Resolution${optionSelect('videoCloudResolution', resolutionOptions, safeResolution)}</label>`;
+  const modeHelp = mode === 'img2vid' ? 'Add one starting image in the Source panel.' : mode === 'reference_to_video' ? 'Add 1–7 reference images in the shared Reference Inputs panel. References guide subjects/style and are not treated as frame zero.' : editing ? 'Choose/upload a source MP4 in the Source panel, then describe the edit.' : extending ? 'Choose/upload a source MP4 in the Source panel, then describe what should happen next.' : 'Describe the scene and motion from text.';
+  return `<div class="neo-parameter-stack neo-video-parameter-stack neo-cloud-video-parameter-stack" data-testid="video-cloud-parameter-stack" data-schema="neo.video.cloud_parameter_profile.v25_9_20_p5">
+    <div class="neo-ui-card neo-video-profile-summary"><strong>Grok Video API Parameters</strong><p>The existing Video workspace is active. Controls change by workflow so Neo never submits parameters the selected xAI endpoint ignores.</p>${NeoUI.badgeRow([`Backend: ${videoBackendConnected() ? 'connected' : 'disconnected'}`, `Mode: ${videoCloudModeLabel(mode)}`, `Model: ${model}`, 'Provider polling'])}</div>
     <section class="neo-video-param-line" data-video-param-line="Cloud Model"><h4>Model</h4><div class="neo-video-param-line-fields"><label>Grok Video Model${optionSelect('videoCloudModel', videoCloudModelOptions(profile), model)}</label></div></section>
-    <section class="neo-video-param-line" data-video-param-line="Cloud Output"><h4>Output</h4><div class="neo-video-param-line-fields">
-      <label>Duration <span class="neo-field-hint">1–15 seconds</span><input id="videoCloudDuration" type="number" min="1" max="15" step="1" value="${Math.max(1, Math.min(15, duration || 4))}"></label>
-      <label>Aspect Ratio${optionSelect('videoCloudAspectRatio', aspectOptions, aspect)}</label>
-      <label>Resolution${optionSelect('videoCloudResolution', resolutionOptions, safeResolution)}</label>
-    </div></section>
-    ${mode === 'img2vid' ? '<div class="neo-ui-card compact"><strong>Image-to-Video</strong><p>The selected source image becomes the starting frame. Upload it in the existing Source / Reference panel.</p></div>' : ''}
+    <section class="neo-video-param-line" data-video-param-line="Cloud Output"><h4>${extending ? 'Extension' : geometryInherited ? 'Source-owned Output' : 'Output'}</h4><div class="neo-video-param-line-fields">${outputFields}</div></section>
+    <div class="neo-ui-card compact"><strong>${escapeHtml(videoCloudModeLabel(mode))}</strong><p>${escapeHtml(modeHelp)}</p></div>
   </div>`;
 }
 
@@ -50411,13 +51883,141 @@ function videoMultiscenePanelHtml() {
   return `<div class="neo-ui-card" data-testid="video-multiscene-source-panel"><strong>Multi-Image / MultiScene Sources</strong><p>Uses 2–4 LTX image guide segments. Each segment can carry its own prompt, frame count, and guide strength.</p>${NeoUI.badgeRow([videoMultisceneReady() ? 'Segments: ready' : 'Segments: need at least 2 images', 'LTX only', 'WAN guarded for this mode'])}<div class="neo-ui-field-grid two">${cards}</div><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoAddMultisceneSegmentBtn" ${segments.length >= 4 ? 'disabled' : ''}>Add segment</button><button type="button" class="neo-btn secondary" id="videoClearMultisceneSegmentsBtn" ${segments.some((item) => item.image || item.prompt) ? '' : 'disabled'}>Clear MultiScene</button></div></div>`;
 }
 
+function videoReferenceInputContract() {
+  const mode = state.videoDraft.mode || 'txt2vid';
+  if (mode !== 'reference_to_video') return { supported: false, media_types: [], max_images: 0, max_videos: 0, max_audios: 0, max_total: 0, min_total: 0 };
+  if (isCloudVideoProfile()) {
+    const contract = videoActiveBackendProfile()?.reference_input || {};
+    return { supported: Boolean(contract.supported), media_types: Array.isArray(contract.media_types) ? contract.media_types : ['image'], max_images: Number(contract.max_images || 0), max_videos: Number(contract.max_videos || 0), max_audios: Number(contract.max_audios || 0), max_total: Number(contract.max_total || contract.max_images || 0), min_total: Number(contract.min_total || 1), prompt_reference_style: contract.prompt_reference_style || '<IMAGE_1> ...', audio_requires_visual_reference: Boolean(contract.audio_requires_visual_reference) };
+  }
+  const route = videoFindRoute();
+  const contract = route?.parameter_profile?.reference_input || {};
+  return { supported: Boolean(contract.supported), media_types: Array.isArray(contract.media_types) ? contract.media_types : [], max_images: Number(contract.max_images || 0), max_videos: Number(contract.max_videos || 0), max_audios: Number(contract.max_audios || 0), max_total: Number(contract.max_total || 0), min_total: Number(contract.min_total || 1), prompt_reference_style: contract.prompt_reference_style || '', audio_requires_visual_reference: Boolean(contract.audio_requires_visual_reference) };
+}
+
+function videoReferenceItems(kind = 'image') {
+  const key = kind === 'video' ? 'reference_videos' : kind === 'audio' ? 'reference_audios' : 'reference_images';
+  const items = state.videoDraft?.[key];
+  return Array.isArray(items) ? items.filter((item) => item && (item.path || item.ref || item.url || item.file_id || item.name)) : [];
+}
+
+function videoReferenceTotalCount() {
+  return videoReferenceItems('image').length + videoReferenceItems('video').length + videoReferenceItems('audio').length;
+}
+
+function videoReferenceKindLabel(kind) {
+  return kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'Image';
+}
+
+function videoReferenceCollectionKey(kind) {
+  return kind === 'video' ? 'reference_videos' : kind === 'audio' ? 'reference_audios' : 'reference_images';
+}
+
+function videoReferencePanelHtml() {
+  const contract = videoReferenceInputContract();
+  if (!contract.supported) return NeoUI.emptyState('Reference-to-Video is unavailable for this route.', 'Select a provider/model route that declares reference input support.');
+  const kinds = contract.media_types || [];
+  const counts = { image: videoReferenceItems('image').length, video: videoReferenceItems('video').length, audio: videoReferenceItems('audio').length };
+  const maximums = { image: contract.max_images, video: contract.max_videos, audio: contract.max_audios };
+  const total = videoReferenceTotalCount();
+  const cards = kinds.map((kind) => {
+    const items = videoReferenceItems(kind);
+    const max = Number(maximums[kind] || 0);
+    const itemHtml = items.map((item, index) => `<div class="neo-ui-card compact" data-video-reference-item="${escapeAttr(kind)}:${index}"><strong>${escapeHtml(videoReferenceKindLabel(kind))} ${index + 1}</strong><small>${escapeHtml(item.name || item.filename || item.path || item.url || item.file_id || 'Reference')}</small><button type="button" class="neo-btn ghost" data-video-reference-remove="${escapeAttr(kind)}:${index}">Remove</button></div>`).join('');
+    const accept = kind === 'image' ? 'image/*' : kind === 'video' ? 'video/mp4,video/webm,video/quicktime,video/x-matroska,.mp4,.webm,.mov,.mkv,.gif' : 'audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg,.opus';
+    const canAdd = counts[kind] < max && total < contract.max_total;
+    return `<section class="neo-ui-card compact" data-video-reference-kind="${escapeAttr(kind)}"><strong>${escapeHtml(videoReferenceKindLabel(kind))} References</strong><p>${counts[kind]} / ${max}</p><div class="neo-ui-field-grid two compact">${itemHtml || '<span class="neo-muted">No references added.</span>'}</div><label>Add ${escapeHtml(videoReferenceKindLabel(kind).toLowerCase())} reference<input type="file" data-video-reference-upload="${escapeAttr(kind)}" accept="${escapeAttr(accept)}" ${canAdd ? '' : 'disabled'}></label></section>`;
+  }).join('');
+  const promptStyle = contract.prompt_reference_style ? `Prompt tags: ${contract.prompt_reference_style}` : 'Reference order is preserved in the provider payload.';
+  const audioRule = contract.audio_requires_visual_reference ? 'Audio cannot be the only reference type.' : '';
+  return `<div class="neo-ui-card" data-testid="video-shared-reference-inputs" data-schema="neo.video.reference_input_contract.v1"><strong>Reference-to-Video Inputs</strong><p>Shared Neo reference UI; the selected provider/route owns media types and limits.</p>${NeoUI.badgeRow([`Total ${total}/${contract.max_total}`, ...kinds.map((kind) => `${videoReferenceKindLabel(kind)} ${counts[kind]}/${maximums[kind]}`)])}${cards}${NeoUI.metaList([promptStyle, audioRule].filter(Boolean), { code: false })}</div>`;
+}
+
+async function uploadVideoReferenceFile(file, kind = 'image') {
+  if (!file) return;
+  const contract = videoReferenceInputContract();
+  const key = videoReferenceCollectionKey(kind);
+  const current = videoReferenceItems(kind);
+  const max = Number(kind === 'image' ? contract.max_images : kind === 'video' ? contract.max_videos : contract.max_audios);
+  if (!contract.supported || !contract.media_types.includes(kind)) throw new Error(`${videoReferenceKindLabel(kind)} references are not supported by this route.`);
+  if (current.length >= max || videoReferenceTotalCount() >= contract.max_total) throw new Error(`Reference limit reached for ${videoReferenceKindLabel(kind).toLowerCase()} inputs.`);
+  const form = new FormData();
+  form.append('file', file);
+  let endpoint = '/api/video/source-image';
+  if (kind !== 'image') { endpoint = '/api/video/h3-reference-media'; form.append('kind', kind); }
+  const response = await fetch(endpoint, { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Reference upload failed.');
+  const record = { kind, path: payload.path || '', ref: payload.path || payload.source_id || '', url: payload.url || '', name: payload.comfy_image_name || payload.comfy_name || payload.stored_filename || payload.filename || file.name, filename: payload.filename || file.name, comfy_name: payload.comfy_image_name || payload.comfy_name || payload.stored_filename || '' };
+  state.videoDraft[key] = [...current, record];
+  saveUiState();
+  recordMemoryEvent('video.reference_media.uploaded', 'video', { kind, index: state.videoDraft[key].length, route: state.videoDraft.mode || '', name: record.name });
+  render();
+}
+
+function removeVideoReferenceItem(kind, index) {
+  const key = videoReferenceCollectionKey(kind);
+  const current = videoReferenceItems(kind);
+  current.splice(Math.max(0, Number(index || 0)), 1);
+  state.videoDraft[key] = current;
+  saveUiState();
+  render();
+}
+
+function videoCloudSourceVideoPath() {
+  return String(state.videoDraft.cloud_source_video || '').trim();
+}
+
+function videoCloudSourceVideoPanelHtml() {
+  const mode = ensureCloudVideoMode();
+  const isExtend = mode === 'extend';
+  const path = videoCloudSourceVideoPath();
+  const active = activeVideoResultRecord();
+  const activeFile = videoResultFile(active);
+  const activeFileName = String(activeFile?.filename || activeFile?.path || '');
+  const activeIsMp4 = Boolean(activeFile?.path && activeFileName.toLowerCase().endsWith('.mp4'));
+  const sourceLimit = isExtend ? 'Source MP4: 2–15 seconds. Extension duration: 2–10 seconds.' : 'Source MP4: maximum 8.7 seconds.';
+  return `<div class="neo-ui-card" data-testid="video-cloud-source-video-panel"><strong>${isExtend ? 'Video Extension Source' : 'Video Editing Source'}</strong><p>${isExtend ? 'Choose the video to continue. Output geometry is inherited from the source.' : 'Choose the video to edit. Output duration and geometry are inherited from the source.'}</p>${NeoUI.badgeRow([path ? `Source: ${state.videoDraft.cloud_source_video_name || 'selected'}` : 'Source: missing', activeFile?.filename ? `Selected Result: ${activeFile.filename}` : 'No selected result', activeFile?.path && !activeIsMp4 ? 'Selected result is not MP4' : 'MP4 source required'])}<p class="neo-muted">${escapeHtml(sourceLimit)} Neo shows the provider limit here; xAI remains authoritative for source-media validation.</p><label>Upload source video<input id="videoCloudSourceVideoUpload" type="file" accept="video/mp4,.mp4"></label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoCloudUseSelectedResultBtn" ${activeIsMp4 ? '' : 'disabled'}>Use Selected Neo Result</button><button type="button" class="neo-btn secondary" id="videoCloudClearSourceVideoBtn" ${path ? '' : 'disabled'}>Clear source</button></div>${path ? `<small>${escapeHtml(path)}</small>` : ''}</div>`;
+}
+
+async function uploadVideoCloudSourceVideo(file) {
+  if (!file) return;
+  if (!String(file.name || '').toLowerCase().endsWith('.mp4')) throw new Error('Grok Video Editing/Extension requires an MP4 source video.');
+  const form = new FormData();
+  form.append('file', file);
+  form.append('lane', 'grok_source');
+  const response = await fetch('/api/video/source-video/upload', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.error || 'Source video upload failed.');
+  const record = payload.record || {};
+  const fileRecord = videoResultFile(record) || {};
+  state.videoDraft.cloud_source_video = fileRecord.path || record?.source?.source_video_path || '';
+  state.videoDraft.cloud_source_video_name = fileRecord.filename || payload.original_filename || file.name;
+  state.videoDraft.cloud_source_result_id = record.result_id || '';
+  saveUiState();
+  render();
+}
+
+function useSelectedResultAsCloudSourceVideo() {
+  const record = activeVideoResultRecord();
+  const file = videoResultFile(record);
+  if (!file?.path || !String(file.filename || file.path).toLowerCase().endsWith('.mp4')) return;
+  state.videoDraft.cloud_source_video = file.path;
+  state.videoDraft.cloud_source_video_name = file.filename || 'Selected Neo result';
+  state.videoDraft.cloud_source_result_id = record?.result_id || '';
+  saveUiState();
+  render();
+}
+
 function videoSourcePanelHtml() {
   if (isCloudVideoProfile()) {
     const mode = ensureCloudVideoMode();
+    if (mode === 'reference_to_video') return videoReferencePanelHtml();
+    if (mode === 'vid2vid' || mode === 'extend') return videoCloudSourceVideoPanelHtml();
     const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
     const preview = state.videoDraft.source_image_url ? `<img src="${escapeAttr(state.videoDraft.source_image_url)}" alt="Grok Video source image" class="neo-mini-preview">` : '<div class="neo-result-placeholder compact">No source image selected</div>';
-    if (mode !== 'img2vid') return '<div class="neo-ui-card compact"><strong>Text-to-Video</strong><p>No source image is used in this mode. Switch Workflow Mode to Image to Video to reveal the existing image upload lane.</p></div>';
-    return `<div class="neo-ui-card" data-testid="video-cloud-img2vid-source-panel"><strong>Image-to-Video Source</strong><p>Reuse the existing Video source-image uploader. The image is sent as the starting frame; no Comfy resize, strength, or VACE controls are submitted.</p>${NeoUI.badgeRow([hasSource ? `Source: ${state.videoDraft.source_image_name || 'selected'}` : 'Source: missing', 'Existing Video workspace', 'Single source image'])}<label>Upload source image<input id="videoSourceImageUpload" type="file" accept="image/*"></label>${preview}${state.videoDraft.source_image ? `<div class="neo-source-path">${escapeHtml(state.videoDraft.source_image)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoClearSourceImageBtn" ${hasSource ? '' : 'disabled'}>Clear source</button></div></div>`;
+    if (mode !== 'img2vid') return '<div class="neo-ui-card compact"><strong>Text-to-Video</strong><p>No source media is required for this mode.</p></div>';
+    return `<div class="neo-ui-card" data-testid="video-cloud-img2vid-source-panel"><strong>Image-to-Video Source</strong><p>The selected source image becomes the starting frame. No local Comfy source controls are submitted.</p>${NeoUI.badgeRow([hasSource ? `Source: ${state.videoDraft.source_image_name || 'selected'}` : 'Source: missing', 'Single source image'])}<label>Upload source image<input id="videoSourceImageUpload" type="file" accept="image/*"></label>${preview}${state.videoDraft.source_image ? `<div class="neo-source-path">${escapeHtml(state.videoDraft.source_image)}</div>` : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoClearSourceImageBtn" ${hasSource ? '' : 'disabled'}>Clear source</button></div></div>`;
   }
   const route = videoFindRoute();
   const isRapidAio = videoIsWanRapidAioGgufRoute(route);
@@ -50503,8 +52103,8 @@ function videoExternalNodeManagerHtml() {
     const status = pack.installed ? (pack.status === 'installed_experimental' ? 'experimental' : 'installed') : 'missing';
     const statusClass = pack.installed ? (pack.status === 'installed_experimental' ? 'warning' : 'success') : 'muted';
     const matched = Array.isArray(pack.matched_nodes) && pack.matched_nodes.length ? pack.matched_nodes.join(', ') : '—';
-    return `<tr><td><strong>${escapeHtml(pack.display_name || pack.pack_id)}</strong><small>${escapeHtml(pack.pack_id || '')}</small></td><td>${escapeHtml(pack.category || '')}</td><td><span class="neo-badge ${statusClass}">${escapeHtml(status)}</span></td><td>${escapeHtml(pack.phase_target || '')}</td><td>${escapeHtml(matched)}</td></tr>`;
-  }).join('') : '<tr><td colspan="5" class="neo-muted">Not probed yet. Click Check external nodes to read ComfyUI /object_info.</td></tr>';
+    return `<tr><td><strong>${escapeHtml(pack.display_name || pack.pack_id)}</strong><small>${escapeHtml(pack.pack_id || '')}</small></td><td>${escapeHtml(pack.category || '')}</td><td><span class="neo-badge ${statusClass}">${escapeHtml(status)}</span></td><td>${escapeHtml(matched)}</td></tr>`;
+  }).join('') : '<tr><td colspan="4" class="neo-muted">Not checked yet. Click Check external nodes to inspect the connected ComfyUI installation.</td></tr>';
   const warnings = Array.isArray(manager?.warnings) && manager.warnings.length ? NeoUI.metaList(manager.warnings) : '';
   const errors = Array.isArray(manager?.errors) && manager.errors.length ? `<div class="neo-warning-panel">${NeoUI.metaList(manager.errors)}</div>` : '';
   return `<div class="neo-ui-card neo-video-external-node-manager" data-testid="video-external-node-manager-panel" data-schema="neo.video.external_node_manager.v11">
@@ -50513,7 +52113,7 @@ function videoExternalNodeManagerHtml() {
     ${NeoUI.badgeRow([`Installed ${installed}/${total}`, `Missing ${Math.max(total - installed, 0)}`, `Recommended missing ${manager?.summary?.recommended_missing || 0}`, `Backend ${manager?.backend?.reachable ? 'reachable' : 'not checked'}`])}
     ${videoExternalSeedVR2UpscaleReadinessHtml(manager)}
     ${videoExternalFrameInterpolationReadinessHtml(manager)}
-    <div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Pack</th><th>Category</th><th>Status</th><th>Target</th><th>Matched Nodes</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="neo-table-scroll"><table class="neo-table compact"><thead><tr><th>Pack</th><th>Category</th><th>Status</th><th>Matched Nodes</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${warnings}${errors}
     <div class="neo-ui-toolbar"><button type="button" class="neo-btn" disabled>Install/update guarded in ComfyUI Manager</button></div>
   </div>`;
@@ -50727,7 +52327,7 @@ async function loadVideoInspectorRecipeIntoGeneration() {
 
   const providerId = String(validation.provider_id || '').trim();
   if (providerId === 'xai_grok') {
-    state.videoDraft.mode = ['img2vid', 'txt2vid'].includes(payload.generation_type) ? payload.generation_type : 'txt2vid';
+    state.videoDraft.mode = ['txt2vid', 'img2vid', 'reference_to_video', 'vid2vid', 'extend'].includes(payload.generation_type) ? payload.generation_type : 'txt2vid';
     state.videoDraft.positive_prompt = payload.prompt || '';
     state.videoDraft.negative_prompt = payload.negative_prompt || '';
     if (payload.model || payload.model_name) state.videoDraft.cloud_model = payload.model || payload.model_name;
@@ -50736,6 +52336,10 @@ async function loadVideoInspectorRecipeIntoGeneration() {
     if (payload.resolution) state.videoDraft.cloud_resolution = payload.resolution;
     if (payload.source_image) state.videoDraft.source_image = payload.source_image;
     if (payload.source_image_name) state.videoDraft.source_image_name = payload.source_image_name;
+    if (Array.isArray(payload.reference_images)) state.videoDraft.reference_images = payload.reference_images;
+    if (payload.source_video || payload.source_video_path) state.videoDraft.cloud_source_video = payload.source_video || payload.source_video_path;
+    if (payload.source_video_name) state.videoDraft.cloud_source_video_name = payload.source_video_name;
+    if (payload.source_result_id) state.videoDraft.cloud_source_result_id = payload.source_result_id;
   } else {
     const route = videoFindRoute(payload.family, payload.loader, payload.generation_type, true);
     if (!route || !videoRouteStatusSelectable(route.status)) {
@@ -50776,7 +52380,7 @@ function videoCloudWorkspaceSummaryHtml() {
     <p>This existing Video workspace is using the selected cloud API profile. Neo submits and polls the provider server-side, then stores completed MP4 files in the normal Video result system.</p>
     ${badgeRow([
       connected ? 'API profile connected' : 'API profile not connected',
-      mode === 'img2vid' ? 'Image to Video' : 'Text to Video',
+      videoCloudModeLabel(mode),
       capabilities.async_jobs || capabilities.provider_polling ? 'Provider polling' : 'Synchronous route',
       'Neo-owned output storage',
     ])}
@@ -51016,7 +52620,8 @@ function videoAssetInventoryHtml() {
     d.first_image_name || d.first_image ? `First frame: ${d.first_image_name || d.first_image}` : 'First frame: none selected',
     d.last_image_name || d.last_image ? `Last frame: ${d.last_image_name || d.last_image}` : 'Last frame: none selected',
     `MultiScene inputs: ${segments.filter((item) => item.image).length}/${Math.max(segments.length, 0)} image segments ready`,
-    sourceFile?.filename ? `Selected result video: ${sourceFile.filename}` : 'Selected result video: none attached',
+    `Reference inputs: ${videoReferenceItems('image').length} image · ${videoReferenceItems('video').length} video · ${videoReferenceItems('audio').length} audio`,
+    videoCloudSourceVideoPath() ? `Cloud source video: ${state.videoDraft.cloud_source_video_name || videoCloudSourceVideoPath()}` : (sourceFile?.filename ? `Selected result video: ${sourceFile.filename}` : 'Selected result video: none attached'),
   ];
   return `<div class="neo-ui-card neo-video-asset-inventory" data-testid="video-asset-inventory"><strong>Active Asset Inventory</strong><p>Assets reflects the inputs currently staged for Video workflows. Changing workspace does not change the selected generation type.</p>${NeoUI.metaList(rows)}</div>`;
 }
@@ -51027,16 +52632,17 @@ function videoAssetsWorkspaceHtml() {
 
 function videoReferenceWorkspaceHtml() {
   const mode = state.videoDraft.mode || 'txt2vid';
-  const referenceModes = new Set(['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'depth_motion']);
+  const referenceModes = new Set(['img2vid', 'first_last_frame', 'multiscene', 'reference_to_video', 'vid2vid', 'extend', 'depth_motion']);
   const context = referenceModes.has(mode)
     ? `The active ${videoGenerationTypeLabel(mode)} route exposes reference/source controls in the panel beside this workspace summary.`
-    : `The active ${videoGenerationTypeLabel(mode)} route has no dedicated Reference input. Choose Img2Vid, First / Last Frame, MultiScene, Video-to-Video, or Depth / Motion Control in the command strip when reference conditioning is needed.`;
+    : `The active ${videoGenerationTypeLabel(mode)} route has no dedicated Reference input. Choose a source/reference workflow such as Img2Vid, Reference-to-Video, First / Last Frame, Video Editing, Video Extension, or another route that consumes media.`;
   return `<div class="neo-ui-card compact" data-testid="video-reference-context"><strong>Reference route context</strong><p>${escapeHtml(context)}</p>${badgeRow([`Generation type: ${videoGenerationTypeLabel(mode)}`, referenceModes.has(mode) ? 'Reference controls available' : 'No reference input required'])}</div>${videoBuiltInToolsHtml('reference')}${videoExternalExtensionsHtml('reference')}`;
 }
 
 function videoReferenceInputHtml() {
   const mode = state.videoDraft.mode || 'txt2vid';
-  if (['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'depth_motion'].includes(mode)) return videoSourcePanelHtml();
+  if (mode === 'reference_to_video') return videoReferencePanelHtml();
+  if (['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'extend', 'depth_motion'].includes(mode)) return videoSourcePanelHtml();
   return NeoUI.emptyState('No reference input for this generation type.', 'Reference stays intentionally clean until a route that consumes image, video, motion, or depth guidance is selected.');
 }
 
@@ -51080,7 +52686,7 @@ const VOICE_BUILT_IN_EXTENSION_CARDS = [
   { id: 'voice_source', label: 'Voice Source', status: 'Ready', description: 'Built-in voice, saved profile, and reference clone source lanes.' },
   { id: 'delivery_controls', label: 'Delivery Controls', status: 'Ready', description: 'Speaking rate, expression, seed, cleanup, and output format controls.' },
   { id: 'preview_results', label: 'Preview / Results', status: 'Ready', description: 'Preview uses Neo-owned playback output plus the Chatterbox adapter bridge.' },
-  { id: 'finish_tools', label: 'Finish Tools', status: 'Planned', description: 'Normalize, trim, cleanup, and export lanes for completed audio.' },
+  { id: 'finish_tools', label: 'Finish Tools', status: 'Ready', description: 'Current R9 normalize, trim, cleanup, conversion, split, and merge lanes for completed Neo-owned audio.' },
 ];
 
 
@@ -51097,25 +52703,195 @@ function voiceBackendConnected() {
   return backendProfileStatus(profile) === 'connected' || state.voiceBackendHealth?.reachable === true;
 }
 
-function voiceAdapterQuery() {
-  const params = new URLSearchParams();
+function voiceRoutingProfile() {
+  return state.voiceProviderRouting?.profile || null;
+}
+
+function voiceRoutingReady() {
+  return state.voiceProviderRouting?.routing_ready === true;
+}
+
+function voiceCommonControlState(fieldId) {
+  return state.voiceProviderRouting?.common_controls?.[fieldId] || { visible: true, enabled: true, authority: 'common_contract' };
+}
+
+function voiceOptionSelect(id, options, selected, enabled = true) {
+  const html = optionSelect(id, options, selected);
+  return enabled ? html : html.replace(`<select id="${id}">`, `<select id="${id}" disabled aria-disabled="true">`);
+}
+
+function voiceProviderRoutingBadges() {
+  const routing = state.voiceProviderRouting || {};
+  const profile = routing.profile || {};
+  const caps = routing.capabilities || {};
+  const modelCount = Array.isArray(routing.models?.items) ? Math.max(0, routing.models.items.filter((item) => item?.id !== 'provider_default').length) : 0;
+  const voiceCount = Array.isArray(routing.voices?.items) ? Math.max(0, routing.voices.items.filter((item) => item?.id !== 'provider_default').length) : 0;
+  return [
+    profile.provider_label || profile.provider_id || 'No Voice provider',
+    profile.family ? `Family: ${profile.family}` : 'Family unavailable',
+    `${modelCount} profile model${modelCount === 1 ? '' : 's'}`,
+    `${voiceCount} profile voice${voiceCount === 1 ? '' : 's'}`,
+    caps.multilingual ? 'Multilingual' : 'Language constrained',
+    caps.voice_clone ? 'Clone capable · staged' : 'Clone unsupported/staged',
+  ];
+}
+
+function voiceProviderControlMode() {
+  return getSurfaceWorkspaceAppId('voice') === 'reference' ? 'voice_clone' : 'tts';
+}
+
+function voiceProviderControlContract(mode = voiceProviderControlMode()) {
+  return state.voiceProviderControls?.[mode] || { controls: [], defaults: {}, control_ids: [] };
+}
+
+function voiceProviderControlsDraftPayload(mode = voiceProviderControlMode()) {
+  const root = state.voiceDraft.provider_controls || {};
+  const raw = root[mode] && typeof root[mode] === 'object' ? root[mode] : {};
+  const allowed = new Set((voiceProviderControlContract(mode).control_ids || []).map(String));
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => allowed.has(String(key))));
+}
+
+function applyVoiceProviderControlContract(mode, contract) {
+  state.voiceProviderControls = state.voiceProviderControls || { tts: null, voice_clone: null };
+  state.voiceProviderControls[mode] = contract || { controls: [], defaults: {}, control_ids: [] };
+  state.voiceDraft.provider_controls = state.voiceDraft.provider_controls || { tts: {}, voice_clone: {} };
+  const allowed = new Set((contract?.control_ids || []).map(String));
+  const current = state.voiceDraft.provider_controls[mode] || {};
+  const next = {};
+  Object.entries(current).forEach(([key, value]) => { if (allowed.has(String(key))) next[key] = value; });
+  Object.entries(contract?.defaults || {}).forEach(([key, value]) => { if (next[key] === undefined) next[key] = value; });
+  state.voiceDraft.provider_controls[mode] = next;
+}
+
+async function refreshVoiceProviderControls({ renderAfter = false } = {}) {
   const profileId = voiceBackendProfileId();
+  const providerControlQuery = (mode) => {
+    const params = new URLSearchParams();
+    if (profileId) params.set('profile_id', profileId);
+    params.set('mode', mode);
+    return `?${params.toString()}`;
+  };
+  const [tts, clone] = await Promise.all([
+    loadJson(`/api/voice/provider-controls${providerControlQuery('tts')}`, null),
+    loadJson(`/api/voice/provider-controls${providerControlQuery('voice_clone')}`, null),
+  ]);
+  if (profileId !== voiceBackendProfileId()) return null;
+  applyVoiceProviderControlContract('tts', tts);
+  applyVoiceProviderControlContract('voice_clone', clone);
+  if (renderAfter) render();
+  return { tts, voice_clone: clone };
+}
+
+function voiceProviderControlFieldHtml(control, mode) {
+  const id = String(control.id || '');
+  const value = voiceProviderControlsDraftPayload(mode)[id] ?? control.default ?? '';
+  const attrs = `data-voice-provider-control="${escapeAttr(id)}" data-voice-provider-mode="${escapeAttr(mode)}"`;
+  if (control.type === 'boolean') return `<label>${escapeHtml(control.label || id)}${optionSelect(`voiceProvider_${mode}_${id}`, [{id:'true',label:'Enabled'},{id:'false',label:'Disabled'}], String(Boolean(value)))}</label>`.replace('<select ', `<select ${attrs} `);
+  if (control.type === 'json') return `<label>${escapeHtml(control.label || id)}<textarea rows="4" ${attrs} placeholder='{"key":"value"}'>${escapeHtml(JSON.stringify(value || {}, null, 2))}</textarea></label>`;
+  if (control.type === 'tags') return `<label>${escapeHtml(control.label || id)}<input ${attrs} value="${escapeAttr(Array.isArray(value) ? value.join(', ') : value || '')}" placeholder="tag one, tag two"></label>`;
+  if (control.type === 'number' || control.type === 'integer') return `<label>${escapeHtml(control.label || id)}<input type="number" ${attrs} min="${escapeAttr(control.min ?? '')}" max="${escapeAttr(control.max ?? '')}" step="${escapeAttr(control.step ?? (control.type === 'integer' ? 1 : 0.05))}" value="${escapeAttr(value)}"></label>`;
+  return `<label>${escapeHtml(control.label || id)}<input ${attrs} maxlength="${escapeAttr(control.max_length || 500)}" value="${escapeAttr(value || '')}"></label>`;
+}
+
+function voiceProviderControlsPanelHtml() {
+  const profile = state.voiceProviderRouting?.profile || {};
+  const orchestrationMode = ['dialogue', 'batch'].includes(voiceDialogueMode()) && getSurfaceWorkspaceAppId('voice') === 'generation';
+  const modes = orchestrationMode
+    ? ['tts', ...(voiceCloneRouteSupported() ? ['voice_clone'] : [])]
+    : [voiceProviderControlMode()];
+  const sections = modes.map((mode) => {
+    const contract = voiceProviderControlContract(mode);
+    const controls = Array.isArray(contract.controls) ? contract.controls : [];
+    if (!controls.length) return `<div class="neo-ui-card compact"><strong>${mode === 'voice_clone' ? 'Clone turn controls' : 'TTS turn controls'}</strong><p class="neo-muted">No additional provider-specific controls are exposed for this mode.</p></div>`;
+    return `<div class="neo-ui-card compact"><strong>${mode === 'voice_clone' ? 'Clone turn controls' : 'TTS turn controls'}</strong>${badgeRow([`${controls.length} supported`, 'Profile-scoped'])}</div><div class="neo-ui-field-grid two compact">${controls.map((control) => voiceProviderControlFieldHtml(control, mode)).join('')}</div>`;
+  }).join('');
+  const mode = voiceDialogueMode();
+  const phaseSuffix = mode === 'dialogue' ? ' · Dialogue' : mode === 'batch' ? ' · Batch' : '';
+  const modeBadge = mode === 'dialogue' ? 'Dialogue mode' : mode === 'batch' ? 'Batch defaults' : (modes[0] === 'voice_clone' ? 'Clone controls' : 'TTS controls');
+  return `<div class="neo-parameter-stack" data-testid="voice-r8-provider-controls"><div class="neo-ui-card compact"><span class="neo-card-kicker">Voice${phaseSuffix}</span><strong>Provider Controls · ${escapeHtml(profile.display_name || profile.provider_id || '')}</strong><p>These controls come from the selected backend profile and apply only to that provider. Dialogue and Batch keep their own per-turn voice controls.</p>${badgeRow([modeBadge, 'Profile-scoped', 'Cross-backend replay clears'])}</div>${sections}</div>`;
+}
+
+function voiceAdapterQuery(profileId = voiceBackendProfileId()) {
+  const params = new URLSearchParams();
   if (profileId) params.set('profile_id', profileId);
-  if (state.voiceDraft.family) params.set('family', state.voiceDraft.family);
-  if (state.voiceDraft.runtime) params.set('runtime', state.voiceDraft.runtime);
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
 
+function applyVoiceProviderRoutingPayload(payload, { resetInvalidSelections = true } = {}) {
+  state.voiceProviderRouting = payload || null;
+  const routing = state.voiceProviderRouting || {};
+  const profile = routing.profile || {};
+  const modelItems = Array.isArray(routing.models?.items) ? routing.models.items : [];
+  const voiceItems = Array.isArray(routing.voices?.items) ? routing.voices.items : [];
+  state.voiceBackendHealth = routing.health || state.voiceBackendHealth || null;
+  state.voiceCapabilities = routing.legacy_capability_manifest || {
+    schema_id: 'neo.voice.capabilities.r3.profile',
+    phase: 'VO-R3',
+    profile_id: profile.profile_id || '',
+    runtime: profile.provider_id || '',
+    family: profile.family || '',
+    features: routing.capabilities || {},
+    support_flags: {},
+    status: routing.status || 'profile_routed',
+  };
+  state.voiceModels = {
+    schema_id: 'neo.voice.models.r3.profile',
+    phase: 'VO-R3',
+    profile_id: profile.profile_id || '',
+    provider_id: profile.provider_id || '',
+    status: routing.models?.status || routing.status || 'profile_catalog',
+    default_id: routing.models?.default_id || 'provider_default',
+    resolved_default_id: routing.models?.resolved_default_id || 'provider_default',
+    models: modelItems,
+  };
+  state.voiceVoices = {
+    schema_id: 'neo.voice.voices.r3.profile',
+    phase: 'VO-R3',
+    profile_id: profile.profile_id || '',
+    provider_id: profile.provider_id || '',
+    status: routing.voices?.status || routing.status || 'profile_catalog',
+    default_id: routing.voices?.default_id || 'provider_default',
+    resolved_default_id: routing.voices?.resolved_default_id || 'provider_default',
+    voices: voiceItems,
+  };
+  if (!resetInvalidSelections) return;
+  const validModels = new Set(modelItems.map((item) => String(item?.id || '')).filter(Boolean));
+  const validVoices = new Set(voiceItems.map((item) => String(item?.id || '')).filter(Boolean));
+  if (!validModels.has(String(state.voiceDraft.model_id || 'provider_default'))) state.voiceDraft.model_id = 'provider_default';
+  if (!validVoices.has(String(state.voiceDraft.voice_id || 'provider_default'))) state.voiceDraft.voice_id = 'provider_default';
+  const languageControl = routing.common_controls?.language || {};
+  if (languageControl.mode === 'fixed' && languageControl.fixed_value) state.voiceDraft.language = String(languageControl.fixed_value);
+  if (profile.family) state.voiceDraft.family = String(profile.family);
+  if (profile.provider_id) state.voiceDraft.runtime = String(profile.provider_id);
+}
+
+async function refreshVoiceProviderRouting({ renderAfter = true, resetInvalidSelections = true } = {}) {
+  const profileId = voiceBackendProfileId();
+  const requestEpoch = ++voiceProviderRoutingRequestEpoch;
+  const payload = await loadJson(`/api/voice/provider-routing${voiceAdapterQuery(profileId)}`, null);
+  if (requestEpoch !== voiceProviderRoutingRequestEpoch || profileId !== voiceBackendProfileId()) return null;
+  applyVoiceProviderRoutingPayload(payload, { resetInvalidSelections });
+  await refreshVoiceProviderControls({ renderAfter: false });
+  await refreshVoiceDialogueCapabilities({ renderAfter: false });
+  await refreshVoiceBatchRuntime({ renderAfter: false, loadHistory: false });
+  if (state.voiceProfileAssets) await refreshVoiceProfileAssets({ renderAfter: false, selectAssetId: state.voiceSelectedProfileAssetId || state.voiceDraft.profile_asset_id || '' });
+  saveUiState();
+  recordMemoryEvent('voice.provider_routing.refreshed', 'voice', {
+    phase: 'VO-R3',
+    profile_id: payload?.profile?.profile_id || profileId || '',
+    provider_id: payload?.profile?.provider_id || '',
+    status: payload?.status || 'unknown',
+    routing_ready: payload?.routing_ready === true,
+  });
+  if (renderAfter) render();
+  return payload;
+}
+
 async function refreshVoiceAdapterState() {
-  const query = voiceAdapterQuery();
-  state.voiceBackendHealth = await loadJson(`/api/voice/health${query}`, state.voiceBackendHealth || null);
-  state.voiceCapabilities = await loadJson(`/api/voice/capabilities${query}`, state.voiceCapabilities || null);
-  state.voiceModels = await loadJson(`/api/voice/models${query}`, state.voiceModels || null);
-  state.voiceVoices = await loadJson(`/api/voice/voices${query}`, state.voiceVoices || null);
+  await refreshVoiceProviderRouting({ renderAfter: false });
   state.voiceHistory = await loadJson('/api/voice/history', state.voiceHistory || null);
   saveUiState();
-  recordMemoryEvent('voice.adapter.refreshed', 'voice', { profile_id: voiceBackendProfileId(), status: state.voiceBackendHealth?.status || '', reachable: !!state.voiceBackendHealth?.reachable });
   render();
 }
 
@@ -51182,29 +52958,800 @@ async function submitVoiceRender() {
   render();
 }
 
+
+function voiceGenerationCanRun() {
+  const common = voiceCommonDraftPayload();
+  return voiceRoutingReady() && state.voiceProviderRouting?.health?.reachable === true && Boolean(String(common.script || '').trim());
+}
+
+function clearVoiceGenerationPoll() {
+  voiceGenerationPollEpoch += 1;
+  if (voiceGenerationPollTimer) window.clearTimeout(voiceGenerationPollTimer);
+  voiceGenerationPollTimer = null;
+}
+
+function voiceGenerationStatusLabel(job = state.voiceLastJob || null) {
+  if (!job) return 'Idle';
+  const progress = job.progress?.percent;
+  if (Number.isFinite(Number(progress)) && !['completed','failed','cancelled','canceled'].includes(String(job.status || '').toLowerCase())) return `${job.status || 'running'} · ${Math.round(Number(progress))}%`;
+  return job.status || 'unknown';
+}
+
+async function pollVoiceGenerationJob(jobId, pollEpoch = voiceGenerationPollEpoch) {
+  if (!jobId || pollEpoch !== voiceGenerationPollEpoch) return;
+  const result = await loadJson(`/api/voice/generation/jobs/${encodeURIComponent(jobId)}`, null);
+  if (pollEpoch !== voiceGenerationPollEpoch || !result) return;
+  state.voiceLastJob = result;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 20));
+  setWorkspaceProgress(result.message || result.status || 'Voice generation', Number.isFinite(percent) ? percent : 20, { allowBackwards: false });
+  saveUiState();
+  const terminal = ['completed','failed','cancelled','canceled','missing'].includes(String(result.status || '').toLowerCase());
+  recordMemoryEvent(terminal ? 'voice.generation.completed_poll' : 'voice.generation.polled', 'voice', { phase: 'VO-R4', job_id: result.job_id || jobId, status: result.status || '', progress: result.progress?.percent ?? null });
+  if (terminal) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || jobId });
+  render();
+  if (!terminal) voiceGenerationPollTimer = window.setTimeout(() => pollVoiceGenerationJob(jobId, pollEpoch), 1400);
+}
+
+async function submitVoiceGeneration() {
+  clearVoiceGenerationPoll();
+  const profileId = voiceBackendProfileId();
+  if (!voiceRoutingReady()) { window.alert('Select a valid Voice backend profile first.'); return; }
+  if (state.voiceProviderRouting?.health?.reachable !== true) { window.alert('Connect the selected Voice backend from the Backend card first.'); return; }
+  const common = voiceCommonDraftPayload();
+  if (!String(common.script || '').trim()) { window.alert('Add a script before generating Voice audio.'); return; }
+  setWorkspaceProgress('Validating Voice generation', 6, { allowBackwards: true });
+  const response = await fetch('/api/voice/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile_id: profileId, common_settings: common, provider_controls: voiceProviderControlsDraftPayload('tts'), voice_profile_asset_id: state.voiceDraft.profile_asset_id || '' }),
+  });
+  const result = await response.json().catch(() => ({ status: 'failed', message: 'Voice generation returned no JSON response.', outputs: [] }));
+  state.voiceLastJob = result;
+  state.voicePreviewStale = false;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 12));
+  setWorkspaceProgress(result.message || result.status || 'Voice generation submitted', Number.isFinite(percent) ? percent : 12, { allowBackwards: true });
+  saveUiState();
+  recordMemoryEvent('voice.generation.submitted', 'voice', { phase: 'VO-R4', profile_id: result.profile_id || profileId, provider_id: result.provider_id || '', job_id: result.job_id || '', status: result.status || '' });
+  if (['completed','failed','cancelled','canceled'].includes(String(result.status || '').toLowerCase())) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || '' });
+  render();
+  if (['queued','running'].includes(String(result.status || '').toLowerCase()) && result.job_id) {
+    const pollEpoch = ++voiceGenerationPollEpoch;
+    voiceGenerationPollTimer = window.setTimeout(() => pollVoiceGenerationJob(result.job_id, pollEpoch), 1200);
+  }
+}
+
+
+function voiceDialogueMode() {
+  const mode = String(state.voiceDialogueDraft?.mode || 'tts');
+  return ['dialogue', 'batch'].includes(mode) ? mode : 'tts';
+}
+
+function clearVoiceDialoguePoll() {
+  voiceDialoguePollEpoch += 1;
+  if (voiceDialoguePollTimer) window.clearTimeout(voiceDialoguePollTimer);
+  voiceDialoguePollTimer = null;
+}
+
+async function refreshVoiceDialogueCapabilities({ renderAfter = false } = {}) {
+  const profileId = voiceBackendProfileId();
+  const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : '';
+  const payload = await loadJson(`/api/voice/dialogue-runtime/capabilities${query}`, null);
+  if (profileId !== voiceBackendProfileId()) return null;
+  state.voiceDialogueCapabilities = payload;
+  if (renderAfter) render();
+  return payload;
+}
+
+function voiceDialoguePlan() {
+  return state.voiceDialogueDraft?.plan && typeof state.voiceDialogueDraft.plan === 'object' ? state.voiceDialogueDraft.plan : null;
+}
+
+function voiceDialogueSpeakerMap() {
+  state.voiceDialogueDraft = state.voiceDialogueDraft || { mode: 'tts', plan: null, speaker_map: {} };
+  state.voiceDialogueDraft.speaker_map = state.voiceDialogueDraft.speaker_map && typeof state.voiceDialogueDraft.speaker_map === 'object' ? state.voiceDialogueDraft.speaker_map : {};
+  return state.voiceDialogueDraft.speaker_map;
+}
+
+function voiceDialogueDefaultMapping(speaker = {}) {
+  return { source_type: 'built_in', model_id: state.voiceDraft.model_id || 'provider_default', voice_id: state.voiceDraft.voice_id || 'provider_default', language: state.voiceDraft.language || 'en', speaking_rate: Number(state.voiceDraft.speaking_rate ?? 1) };
+}
+
+function voiceDialogueEnsureSpeakerMappings(plan = voiceDialoguePlan()) {
+  if (!plan) return;
+  const map = voiceDialogueSpeakerMap();
+  (plan.speakers || []).forEach((speaker) => {
+    const key = String(speaker.speaker_id || speaker.name || 'speaker');
+    if (!map[key] || typeof map[key] !== 'object') map[key] = voiceDialogueDefaultMapping(speaker);
+  });
+  const valid = new Set((plan.speakers || []).map((speaker) => String(speaker.speaker_id || speaker.name || 'speaker')));
+  Object.keys(map).forEach((key) => { if (!valid.has(key)) delete map[key]; });
+}
+
+async function parseCurrentVoiceDialogueRuntime({ renderAfter = true } = {}) {
+  state.voiceDialogueDraft = state.voiceDialogueDraft || { mode: 'dialogue', plan: null, speaker_map: {} };
+  state.voiceDialogueDraft.parse_error = '';
+  state.voiceDialogueDraft.error = '';
+  const script = String(state.voiceDraft.script_body || '');
+  if (!script.trim()) {
+    state.voiceDialogueDraft.plan = null;
+    state.voiceDialogueDraft.parse_error = 'Add a Dialogue script first.';
+    if (renderAfter) render();
+    return null;
+  }
+  const response = await fetch('/api/voice/dialogue-runtime/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true || !payload.plan) {
+    state.voiceDialogueDraft.plan = null;
+    state.voiceDialogueDraft.parse_error = payload.detail || payload.message || 'Dialogue parsing failed.';
+    if (renderAfter) render();
+    return null;
+  }
+  state.voiceDialogueDraft.plan = payload.plan;
+  voiceDialogueEnsureSpeakerMappings(payload.plan);
+  state.voiceDialogueDraft.notice = `Parsed ${payload.plan.turn_count || 0} turn(s) across ${payload.plan.speaker_count || 0} speaker(s).`;
+  recordMemoryEvent('voice.dialogue.parsed', 'voice', { phase: 'VO-R10', speaker_count: payload.plan.speaker_count || 0, turn_count: payload.plan.turn_count || 0 });
+  if (renderAfter) render();
+  return payload.plan;
+}
+
+async function parseCurrentVoiceDialogue() {
+  return parseCurrentVoiceDialogueRuntime({ renderAfter: true });
+}
+
+function voiceDialogueCapabilitiesReady() {
+  return state.voiceDialogueCapabilities?.ready === true;
+}
+
+function voiceDialogueCanRun() {
+  const plan = voiceDialoguePlan();
+  return voiceDialogueCapabilitiesReady() && Boolean(plan?.turn_count) && Boolean(String(state.voiceDraft.script_body || '').trim());
+}
+
+function voiceDialogueAssetOptions() {
+  return voiceProfileAssetItems().map((item) => ({ id: item.asset_id || '', label: item.name || item.asset_id || 'Voice Profile Asset' })).filter((item) => item.id);
+}
+
+function voiceDialogueReferenceOptions() {
+  return voiceReferenceItems().filter((item) => item?.clone_ready === true).map((item) => ({ id: item.reference_id || '', label: item.label || item.reference_id || 'Reference' })).filter((item) => item.id);
+}
+
+function voiceDialogueSpeakerMappingHtml(speaker) {
+  const key = String(speaker?.speaker_id || speaker?.name || 'speaker');
+  const map = voiceDialogueSpeakerMap();
+  const mapping = map[key] || voiceDialogueDefaultMapping(speaker);
+  const sourceType = ['built_in','profile_asset','reference_clone'].includes(String(mapping.source_type || '')) ? String(mapping.source_type) : 'built_in';
+  const sourceOptions = [
+    { id: 'built_in', label: 'Built-in / Provider Voice' },
+    { id: 'profile_asset', label: 'Voice Profile Asset' },
+    { id: 'reference_clone', label: 'Reference Clone' },
+  ];
+  let sourceDetail = '';
+  if (sourceType === 'profile_asset') {
+    const assets = voiceDialogueAssetOptions();
+    sourceDetail = `<label>Voice Profile Asset${optionSelect(`voiceDialogueAsset_${key}`, assets.length ? assets : [{id:'',label:'No current assets'}], mapping.asset_id || mapping.profile_asset_id || '')}</label>`;
+  } else if (sourceType === 'reference_clone') {
+    const refs = voiceDialogueReferenceOptions();
+    sourceDetail = `<label>Authorized Reference${optionSelect(`voiceDialogueReference_${key}`, refs.length ? refs : [{id:'',label:'No clone-ready references'}], mapping.reference_id || '')}</label>`;
+  } else {
+    sourceDetail = `<div class="neo-ui-field-grid two compact"><label>Model${optionSelect(`voiceDialogueModel_${key}`, voiceModelOptions(), mapping.model_id || state.voiceDraft.model_id || 'provider_default')}</label><label>Voice${optionSelect(`voiceDialogueVoice_${key}`, voiceVoiceOptions(), mapping.voice_id || state.voiceDraft.voice_id || 'provider_default')}</label></div>`;
+  }
+  return `<div class="neo-ui-card compact neo-voice-dialogue-speaker" data-voice-dialogue-speaker="${escapeAttr(key)}"><span class="neo-card-kicker">Speaker</span><strong>${escapeHtml(speaker?.name || key)}</strong>${badgeRow([`${speaker?.turn_count || 0} turn(s)`, `${speaker?.word_count || 0} words`])}<label>Source${optionSelect(`voiceDialogueSource_${key}`, sourceOptions, sourceType)}</label>${sourceDetail}</div>`;
+}
+
+function voiceR10DialogueWorkspaceHtml() {
+  const caps = state.voiceDialogueCapabilities || {};
+  const plan = voiceDialoguePlan();
+  const reasons = Array.isArray(caps.reasons) ? caps.reasons : [];
+  const notice = state.voiceDialogueDraft?.notice ? `<div class="neo-ui-card compact"><strong>Dialogue</strong><p>${escapeHtml(state.voiceDialogueDraft.notice)}</p></div>` : '';
+  const errorText = state.voiceDialogueDraft?.error || state.voiceDialogueDraft?.parse_error || '';
+  const error = errorText ? `<div class="neo-ui-card compact"><strong>Dialogue error</strong><p>${escapeHtml(errorText)}</p></div>` : '';
+  const speakers = plan ? (plan.speakers || []).map(voiceDialogueSpeakerMappingHtml).join('') : `<div class="neo-empty-state"><strong>Parse the script to map speakers</strong><span>Use [Speaker] blocks or Speaker: line syntax. Neo only parses names and text; it does not infer emotion or actions.</span></div>`;
+  return `<div class="neo-ui-card" data-testid="voice-r10-dialogue-runtime"><span class="neo-card-kicker">Dialogue</span><strong>Dialogue / Multi-speaker</strong><p>One selected backend profile owns the whole Dialogue. Each mapped turn uses the selected voice or an authorized reference clone, then Neo stitches the generated audio with FFmpeg.</p>${badgeRow([caps.ready ? 'Dialogue ready' : 'Dialogue gated', caps.provider_dialogue ? 'Provider supports dialogue' : 'Provider dialogue unsupported', caps.ffmpeg_available ? 'FFmpeg ready' : 'FFmpeg missing', plan ? `${plan.turn_count || 0} turns` : 'Not parsed', plan ? `${plan.speaker_count || 0} speakers` : 'No mapping'])}${reasons.length ? NeoUI.metaList(reasons) : ''}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR10ParseDialogueBtn">Parse Speakers</button><button type="button" class="neo-btn primary" id="voiceR10GenerateDialogueBtn" ${voiceDialogueCanRun() ? '' : 'disabled aria-disabled="true"'}>Generate Dialogue</button></div><p class="neo-muted">Speaker sources can use a provider voice, a saved Voice Profile Asset, or an authorized reference clone. Provider-specific controls remain scoped to the selected backend.</p></div>${notice}${error}<div class="neo-voice-dialogue-speaker-grid">${speakers}</div>`;
+}
+
+function voiceGenerationModeSelectorHtml() {
+  return `<div class="neo-ui-card compact" data-testid="voice-r11-generation-mode"><span class="neo-card-kicker">Generation Mode</span>${optionSelect('voiceGenerationMode', [{id:'tts',label:'Single Voice TTS'}, {id:'dialogue',label:'Dialogue / Multi-speaker'}, {id:'batch',label:'Batch'}], voiceDialogueMode())}<p class="neo-muted">Switching modes never changes the selected Voice backend profile. Batch orchestrates current child runtimes instead of using a provider-native batch API.</p></div>`;
+}
+
+async function pollVoiceDialogueJob(jobId, pollEpoch = voiceDialoguePollEpoch) {
+  if (!jobId || pollEpoch !== voiceDialoguePollEpoch) return;
+  const result = await loadJson(`/api/voice/dialogue-runtime/jobs/${encodeURIComponent(jobId)}`, null);
+  if (pollEpoch !== voiceDialoguePollEpoch || !result) return;
+  state.voiceDialogueDraft.last_job = result;
+  state.voiceLastJob = result;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 20));
+  setWorkspaceProgress(result.message || result.status || 'Voice Dialogue', Number.isFinite(percent) ? percent : 20, { allowBackwards: false });
+  const terminal = ['completed','failed','cancelled','canceled','missing'].includes(String(result.status || '').toLowerCase());
+  recordMemoryEvent(terminal ? 'voice.dialogue.completed' : 'voice.dialogue.polled', 'voice', { phase: 'VO-R10', job_id: result.job_id || jobId, status: result.status || '', progress: result.progress?.percent ?? null });
+  if (terminal) {
+    await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || jobId });
+    state.voiceDialogueDraft.notice = result.status === 'completed' ? 'Dialogue completed and selected in Results.' : '';
+    state.voiceDialogueDraft.error = result.status === 'failed' ? (result.message || result.error || 'Dialogue failed.') : '';
+  }
+  render();
+  if (!terminal) voiceDialoguePollTimer = window.setTimeout(() => pollVoiceDialogueJob(jobId, pollEpoch), 1400);
+}
+
+async function submitVoiceDialogueGeneration() {
+  clearVoiceDialoguePoll();
+  if (!voiceDialogueCapabilitiesReady()) { window.alert((state.voiceDialogueCapabilities?.reasons || ['Dialogue is unavailable for this backend.']).join('\n')); return; }
+  let plan = voiceDialoguePlan();
+  if (!plan) plan = await parseCurrentVoiceDialogueRuntime({ renderAfter: false });
+  if (!plan?.turn_count) { render(); return; }
+  state.voiceDialogueDraft.error = '';
+  setWorkspaceProgress('Validating Dialogue mappings', 5, { allowBackwards: true });
+  const response = await fetch('/api/voice/dialogue-runtime/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      profile_id: voiceBackendProfileId(),
+      common_settings: voiceCommonDraftPayload(),
+      speaker_map: voiceDialogueSpeakerMap(),
+      provider_controls: { tts: voiceProviderControlsDraftPayload('tts'), voice_clone: voiceProviderControlsDraftPayload('voice_clone') },
+    }),
+  });
+  const result = await response.json().catch(() => ({ status: 'failed', message: 'Dialogue generation returned no JSON response.', outputs: [] }));
+  state.voiceDialogueDraft.last_job = result;
+  state.voiceLastJob = result;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 10));
+  setWorkspaceProgress(result.message || result.status || 'Dialogue submitted', Number.isFinite(percent) ? percent : 10, { allowBackwards: true });
+  recordMemoryEvent('voice.dialogue.submitted', 'voice', { phase: 'VO-R10', job_id: result.job_id || '', profile_id: result.profile_id || voiceBackendProfileId(), provider_id: result.provider_id || '', status: result.status || '', turn_count: plan.turn_count || 0, speaker_count: plan.speaker_count || 0 });
+  const terminal = ['completed','failed','cancelled','canceled'].includes(String(result.status || '').toLowerCase());
+  if (terminal) {
+    await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || '' });
+    state.voiceDialogueDraft.notice = result.status === 'completed' ? 'Dialogue completed and selected in Results.' : '';
+    state.voiceDialogueDraft.error = result.status === 'failed' ? (result.message || result.error || 'Dialogue failed.') : '';
+  }
+  render();
+  if (['queued','running'].includes(String(result.status || '').toLowerCase()) && result.job_id) {
+    const pollEpoch = ++voiceDialoguePollEpoch;
+    voiceDialoguePollTimer = window.setTimeout(() => pollVoiceDialogueJob(result.job_id, pollEpoch), 1200);
+  }
+}
+
+
+function voiceResultsItems() {
+  return Array.isArray(state.voiceResults?.items) ? state.voiceResults.items : [];
+}
+
+function voiceSelectedResultRecord() {
+  return state.voiceSelectedResult?.result || null;
+}
+
+async function refreshVoiceResults({ renderAfter = false, selectJobId = '' } = {}) {
+  state.voiceResults = await loadJson('/api/voice/results?limit=50', state.voiceResults || { items: [] });
+  const items = voiceResultsItems();
+  const requested = String(selectJobId || state.voiceSelectedResultId || '').trim();
+  const candidate = items.some((item) => item.job_id === requested) ? requested : (items[0]?.job_id || '');
+  if (candidate) await selectVoiceResult(candidate, { renderAfter: false, recordEvent: false });
+  else { state.voiceSelectedResultId = ''; state.voiceSelectedResult = null; }
+  if (renderAfter) render();
+  return state.voiceResults;
+}
+
+async function selectVoiceResult(jobId, { renderAfter = true, recordEvent = true } = {}) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
+  state.voiceSelectedResultId = id;
+  state.voiceResultError = '';
+  const payload = await loadJson(`/api/voice/results/${encodeURIComponent(id)}`, null);
+  if (!payload?.result) {
+    state.voiceSelectedResult = null;
+    state.voiceResultError = 'Voice result details could not be loaded.';
+  } else {
+    state.voiceSelectedResult = payload;
+    if (recordEvent) recordMemoryEvent('voice.result.selected', 'voice', { phase: 'VO-R6', job_id: id });
+  }
+  if (renderAfter) render();
+  return payload;
+}
+
+async function replayVoiceResultToDraft(jobId) {
+  const id = String(jobId || state.voiceSelectedResultId || '').trim();
+  if (!id) return;
+  const payload = await loadJson(`/api/voice/results/${encodeURIComponent(id)}/replay`, null);
+  const replay = payload?.replay;
+  if (!replay) { state.voiceResultError = 'Replay data could not be loaded.'; render(); return; }
+  const sameProfile = String(replay.source_profile_id || '') === String(voiceBackendProfileId() || '');
+  const common = sameProfile ? (replay.exact_common_settings || {}) : (replay.portable_common_settings || {});
+  state.voiceDraft.script_body = String(common.script ?? state.voiceDraft.script_body ?? '');
+  state.voiceDraft.language = String(common.language ?? state.voiceDraft.language ?? 'en');
+  state.voiceDraft.model_id = String(common.model_id || 'provider_default');
+  state.voiceDraft.voice_id = String(common.voice_id || 'provider_default');
+  state.voiceDraft.speaking_rate = Number(common.speaking_rate ?? 1);
+  state.voiceDraft.output_format = String(common.output_format || 'wav');
+  state.voiceDraft.split_long_text = common.split_long_text !== false;
+  state.voiceDraft.max_chunk_chars = Number(common.max_chunk_chars ?? 650);
+  state.voiceDraft.punctuation_cleanup = common.punctuation_cleanup !== false;
+  state.voiceDraft.profile_asset_id = String(replay.voice_profile_asset_id || '');
+  state.voiceDraft.provider_controls = state.voiceDraft.provider_controls || { tts: {}, voice_clone: {} };
+  if (replay.source_mode === 'voice_dialogue') {
+    const exactControls = sameProfile && replay.exact_provider_controls && typeof replay.exact_provider_controls === 'object' ? replay.exact_provider_controls : {};
+    state.voiceDraft.provider_controls.tts = sameProfile ? (exactControls.tts || {}) : {};
+    state.voiceDraft.provider_controls.voice_clone = sameProfile ? (exactControls.voice_clone || {}) : {};
+  } else {
+    const replayMode = replay.source_mode === 'voice_clone' ? 'voice_clone' : 'tts';
+    state.voiceDraft.provider_controls[replayMode] = sameProfile ? (replay.exact_provider_controls || {}) : {};
+  }
+  state.voicePreviewStale = true;
+  let targetWorkspace = 'generation';
+  if (replay.source_mode === 'voice_dialogue') {
+    state.voiceDialogueDraft = state.voiceDialogueDraft || { mode: 'dialogue', plan: null, speaker_map: {} };
+    state.voiceDialogueDraft.mode = 'dialogue';
+    state.voiceDialogueDraft.plan = replay.dialogue?.plan && typeof replay.dialogue.plan === 'object' ? replay.dialogue.plan : null;
+    const submittedMap = replay.dialogue?.speaker_map && typeof replay.dialogue.speaker_map === 'object' ? replay.dialogue.speaker_map : {};
+    const derivedMap = {};
+    (replay.dialogue?.assignments || []).forEach((assignment) => {
+      if (!assignment || typeof assignment !== 'object') return;
+      const key = String(assignment.speaker_id || assignment.speaker || '');
+      if (!key) return;
+      derivedMap[key] = {
+        source_type: assignment.source_type || (assignment.reference_id ? 'reference_clone' : assignment.profile_asset_id ? 'profile_asset' : 'built_in'),
+        model_id: assignment.common_settings?.model_id || 'provider_default',
+        voice_id: assignment.common_settings?.voice_id || 'provider_default',
+        asset_id: assignment.profile_asset_id || '',
+        reference_id: assignment.reference_id || '',
+      };
+    });
+    state.voiceDialogueDraft.speaker_map = Object.keys(submittedMap).length ? JSON.parse(JSON.stringify(submittedMap)) : derivedMap;
+    state.voiceDialogueDraft.error = '';
+    state.voiceDialogueDraft.notice = sameProfile
+      ? 'Dialogue recipe loaded. Speaker sources will be revalidated against the current backend before generation.'
+      : 'Portable Dialogue settings loaded. Backend was not changed; speaker mappings will be revalidated against the current backend.';
+    targetWorkspace = 'generation';
+  } else if (replay.source_mode === 'voice_clone' && replay.reference_id && voiceCloneRouteSupported()) {
+    await refreshVoiceReferences({ renderAfter: false, selectReferenceId: replay.reference_id });
+    const reference = voiceSelectedReferenceRecord();
+    if (reference?.reference_id === replay.reference_id) {
+      state.voiceDraft.reference_id = replay.reference_id;
+      state.voiceDraft.reference_audio = reference.path || '';
+      state.voiceDraft.reference_qc = reference.qc || null;
+      state.voiceDraft.voice_source_type = 'reference_clone';
+      targetWorkspace = 'reference';
+    }
+  } else if (replay.source_mode === 'voice_clone') {
+    state.voiceDraft.reference_id = '';
+    state.voiceDraft.reference_audio = '';
+    state.voiceDraft.reference_qc = null;
+    state.voiceDraft.voice_source_type = 'built_in';
+  }
+  state.voiceResultNotice = replay.source_mode === 'voice_dialogue'
+    ? state.voiceDialogueDraft.notice
+    : replay.source_mode === 'voice_clone'
+      ? (targetWorkspace === 'reference' ? 'Clone recipe loaded. Backend profile was not changed; the Neo reference asset was reselected.' : 'Common clone settings loaded, but the current backend cannot reuse the reference clone route.')
+      : (sameProfile ? 'Result settings loaded into the Voice draft.' : 'Portable settings loaded. Backend profile was not changed; model and voice reset to Provider Default.');
+  setSurfaceWorkspaceAppId('voice', targetWorkspace);
+  recordMemoryEvent('voice.result.replayed_to_draft', 'voice', { phase: 'VO-R10', job_id: id, source_profile_id: replay.source_profile_id || '', target_profile_id: voiceBackendProfileId() || '', same_profile: sameProfile, source_mode: replay.source_mode || 'tts', reference_id: replay.reference_id || '' });
+  await validateVoiceCommonDraft();
+}
+
+async function openVoiceResultFolder(jobId) {
+  const id = String(jobId || state.voiceSelectedResultId || '').trim();
+  if (!id) return;
+  const response = await fetch(`/api/voice/results/${encodeURIComponent(id)}/open-folder`, { method: 'POST' });
+  const payload = await response.json().catch(() => ({}));
+  state.voiceResultNotice = payload.message || (payload.ok ? 'Voice result folder opened.' : 'Could not open Voice result folder.');
+  recordMemoryEvent('voice.result.open_folder', 'voice', { phase: 'VO-R9', job_id: id, ok: payload.ok === true });
+  render();
+}
+
+function voiceR5ResultLedgerHtml() {
+  const items = voiceResultsItems();
+  if (!items.length) return `<div class="neo-empty-state"><strong>No current Voice results yet</strong><span>Current TTS, reference-clone, Dialogue, Finish, and Batch child jobs appear here. Generate Voice, create a Dialogue, clone a reference, or run Finish to create a result.</span></div>`;
+  return `<div class="neo-voice-result-ledger" data-testid="voice-r5-result-ledger">${items.map((item) => {
+    const selected = item.job_id === state.voiceSelectedResultId;
+    const output = item.output || {};
+    const preview = item.script_preview || 'No script snapshot';
+    const modeLabel = item.mode === 'voice_clone' ? 'Clone' : item.mode === 'voice_dialogue' ? 'Dialogue' : item.mode === 'voice_finish' ? 'Finish' : item.mode === 'voice_finish_split' ? 'Split' : item.mode === 'voice_finish_merge' ? 'Merge' : 'TTS';
+    return `<button type="button" class="neo-voice-result-card ${selected ? 'selected' : ''}" data-voice-result-id="${escapeAttr(item.job_id || '')}"><span class="neo-voice-result-card-head"><strong>${escapeHtml(item.job_id || 'Voice result')}</strong><span>${escapeHtml(item.status || 'unknown')}</span></span><span class="neo-voice-result-card-copy">${escapeHtml(preview)}</span><span class="neo-voice-result-card-meta">${escapeHtml(modeLabel)} · ${escapeHtml(item.provider_id || 'provider')} · ${escapeHtml(item.model_id || 'model')} · ${escapeHtml(item.voice_id || 'voice')}${output.available ? ` · ${escapeHtml(String(output.format || '').toUpperCase())}` : ''}</span></button>`;
+  }).join('')}</div>`;
+}
+
+function voiceR5SelectedInspectorHtml() {
+  const result = voiceSelectedResultRecord();
+  if (!result) return `<div class="neo-empty-state"><strong>Select a Voice result</strong><span>Choose a result from the ledger to inspect playback, recipe, lineage, and replay-safe settings.</span></div>`;
+  const inspector = result.inspector || {};
+  const generation = inspector.generation || {};
+  const script = inspector.script || {};
+  const params = inspector.parameters || {};
+  const output = result.output || inspector.output || {};
+  const lineage = inspector.lineage || {};
+  const profileAsset = inspector.profile_asset || {};
+  const finish = inspector.finish || {};
+  const dialogue = inspector.dialogue || {};
+  const batch = inspector.batch || {};
+  const audio = output.available && output.path ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(output.path)}"></audio>` : '<p class="neo-muted">No playable Neo-owned output is attached to this result.</p>';
+  const download = output.download_endpoint ? `<a class="neo-btn secondary" href="${escapeAttr(output.download_endpoint)}" download>Download Audio</a>` : '';
+  return `<div class="neo-voice-result-inspector" data-testid="voice-r5-result-inspector"><div class="neo-ui-card compact"><span class="neo-card-kicker">Selected Result</span><strong>${escapeHtml(result.job_id || '')}</strong>${audio}${badgeRow([result.status || 'unknown', result.provider_id || 'provider', result.model_id || 'model', result.voice_id || 'voice'])}<div class="neo-ui-toolbar">${download}<button type="button" class="neo-btn secondary" id="voiceResultOpenFolderBtn" ${output.available ? '' : 'disabled'}>Open Folder</button><button type="button" class="neo-btn primary" id="voiceResultReplayBtn">Replay to Draft</button></div></div><div class="neo-ui-card compact"><strong>Generation</strong>${NeoUI.metaList([`Profile: ${generation.profile_id || result.profile_id || 'unknown'}`, `Provider: ${generation.provider_id || result.provider_id || 'unknown'}`, `Model: ${generation.model_id || result.model_id || 'unknown'}`, `Voice: ${generation.voice_id || result.voice_id || 'unknown'}`, `Provider job: ${generation.provider_job_id || lineage.provider_job_id || 'n/a'}`])}</div><div class="neo-ui-card compact"><strong>Script</strong><p>${escapeHtml(script.text || result.script_preview || '')}</p>${badgeRow([`${script.word_count || 0} words`, `${script.char_count || result.script_char_count || 0} chars`, `Language: ${script.language || result.language || 'en'}`])}</div><div class="neo-ui-card compact"><strong>Common Parameters</strong>${NeoUI.metaList([`Speaking rate: ${params.speaking_rate ?? 1}`, `Output format: ${(params.output_format || result.output_format || '').toUpperCase()}`, `Split long text: ${params.split_long_text === false ? 'No' : 'Yes'}`, `Maximum chunk: ${params.max_chunk_chars ?? 650}`, `Punctuation cleanup: ${params.punctuation_cleanup === false ? 'No' : 'Yes'}`])}</div>${inspector.provider_controls && Object.keys(inspector.provider_controls).length ? `<div class="neo-ui-card compact"><strong>Provider Controls</strong>${NeoUI.metaList(Object.entries(inspector.provider_controls).map(([key,value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`))}</div>` : ''}${profileAsset.active ? `<div class="neo-ui-card compact"><strong>Voice Profile Asset Lineage</strong>${NeoUI.metaList([`Asset: ${profileAsset.name || profileAsset.asset_id || 'unknown'}`, `Asset ID: ${profileAsset.asset_id || 'unknown'}`, `Saved backend: ${profileAsset.source_backend_profile_id || 'unknown'}`, `Applied backend: ${profileAsset.applied_backend_profile_id || result.profile_id || 'unknown'}`, `Apply mode: ${profileAsset.application_mode || 'unknown'}`])}</div>` : ''}${inspector.reference?.active ? `<div class="neo-ui-card compact"><strong>Reference Lineage</strong>${NeoUI.metaList([`Reference: ${inspector.reference.reference_id || 'unknown'}`, `Label: ${inspector.reference.label || 'Reference audio'}`, `QC: ${inspector.reference.qc_status || 'unknown'}`, `Authorization: ${inspector.reference.rights_confirmed ? 'confirmed' : 'not confirmed in lineage'}`])}</div>` : ''}${dialogue.active ? `<div class="neo-ui-card compact"><strong>Dialogue Lineage</strong>${NeoUI.metaList([`Speakers: ${dialogue.plan?.speaker_count || 0}`, `Turns: ${dialogue.plan?.turn_count || 0}`, `Child jobs: ${(dialogue.turn_jobs || []).length}`, `Stitch engine: ${dialogue.stitch_engine || 'ffmpeg_concat'}`, `Metadata: ${dialogue.metadata_file || 'pending'}`])}</div>` : ''}${batch.active ? `<div class="neo-ui-card compact"><strong>Batch Lineage</strong>${NeoUI.metaList([`Batch: ${batch.batch_name || batch.batch_id || 'unknown'}`, `Batch ID: ${batch.batch_id || 'unknown'}`, `Item: ${batch.item_title || batch.item_id || 'unknown'}`, `Item index: ${Number.isFinite(Number(batch.item_index)) ? Number(batch.item_index) + 1 : 'unknown'}`, `Attempt: ${batch.attempt || 1}`, `Parent job: ${batch.parent_job_id || 'unknown'}`])}</div>` : ''}${finish.active ? `<div class="neo-ui-card compact"><strong>Finish Lineage</strong>${NeoUI.metaList([`Operation: ${finish.operation || result.result_kind || 'finish'}`, `Engine: ${finish.engine || 'ffmpeg_local'}`, `Source: ${finish.source_job_id || (finish.source_job_ids || [])[0] || 'unknown'}`, `Parents: ${(finish.source_job_ids || []).length || 1}`, `Provider-independent: ${finish.provider_independent ? 'Yes' : 'Unknown'}`])}</div>` : ''}<div class="neo-ui-card compact"><strong>Lineage</strong>${NeoUI.metaList([`Neo job: ${lineage.job_id || result.job_id || ''}`, `Provider job: ${lineage.provider_job_id || 'n/a'}`, `Family: ${lineage.route_snapshot?.family || result.family || 'unknown'}`, `Output: ${output.path || 'No output'}`, `Metadata: ${output.metadata_file || 'No sidecar'}`])}</div></div>`;
+}
+
+function voiceR5ResultsWorkspaceHtml() {
+  const notice = state.voiceResultNotice ? `<div class="neo-ui-card compact"><strong>Result action</strong><p>${escapeHtml(state.voiceResultNotice)}</p></div>` : '';
+  const error = state.voiceResultError ? `<div class="neo-ui-card compact"><strong>Result error</strong><p>${escapeHtml(state.voiceResultError)}</p></div>` : '';
+  return `<div class="neo-ui-card" data-testid="voice-r5-results-runtime"><span class="neo-card-kicker">Results</span><strong>Preview + Results</strong><p>Current Voice results are normalized directly from Neo's shared generation registry. Batch parents remain manifest-only orchestrators; their TTS, Clone, and Dialogue child jobs carry Batch lineage into normal playable Results.</p>${badgeRow([`${voiceResultsItems().length} result(s)`, 'Registry authority', 'Neo-owned audio only', 'Cross-profile replay guarded'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceRefreshResultsBtn">Refresh Results</button></div></div>${notice}${error}${voiceR5ResultLedgerHtml()}${voiceR5SelectedInspectorHtml()}`;
+}
+
+
+function voiceReferenceItems() {
+  return Array.isArray(state.voiceReferenceAssets?.items) ? state.voiceReferenceAssets.items : [];
+}
+
+function voiceSelectedReferenceRecord() {
+  return state.voiceSelectedReference?.reference || voiceReferenceItems().find((item) => item.reference_id === state.voiceSelectedReferenceId) || null;
+}
+
+function voiceCloneRouteSupported() {
+  const caps = state.voiceProviderRouting?.capabilities || {};
+  return caps.voice_clone === true && caps.reference_audio === true;
+}
+
+function voiceCloneCanRun() {
+  const common = voiceCommonDraftPayload();
+  const reference = voiceSelectedReferenceRecord();
+  return voiceRoutingReady()
+    && state.voiceProviderRouting?.health?.reachable === true
+    && voiceCloneRouteSupported()
+    && reference?.clone_ready === true
+    && Boolean(String(common.script || '').trim());
+}
+
+async function refreshVoiceReferences({ renderAfter = false, selectReferenceId = '' } = {}) {
+  state.voiceReferenceAssets = await loadJson('/api/voice/references?limit=100', state.voiceReferenceAssets || { items: [] });
+  const items = voiceReferenceItems();
+  const requested = String(selectReferenceId || state.voiceSelectedReferenceId || state.voiceDraft.reference_id || '').trim();
+  const candidate = items.some((item) => item.reference_id === requested) ? requested : (items[0]?.reference_id || '');
+  if (candidate) await selectVoiceReference(candidate, { renderAfter: false, recordEvent: false });
+  else {
+    state.voiceSelectedReferenceId = '';
+    state.voiceSelectedReference = null;
+  }
+  if (renderAfter) render();
+  return state.voiceReferenceAssets;
+}
+
+async function selectVoiceReference(referenceId, { renderAfter = true, recordEvent = true } = {}) {
+  const id = String(referenceId || '').trim();
+  if (!id) return null;
+  state.voiceReferenceError = '';
+  const payload = await loadJson(`/api/voice/references/${encodeURIComponent(id)}`, null);
+  if (!payload?.reference) {
+    state.voiceSelectedReference = null;
+    state.voiceReferenceError = 'Voice reference details could not be loaded.';
+  } else {
+    const reference = payload.reference;
+    state.voiceSelectedReferenceId = id;
+    state.voiceSelectedReference = payload;
+    state.voiceDraft.reference_id = id;
+    state.voiceDraft.reference_audio = reference.path || '';
+    state.voiceDraft.reference_qc = reference.qc || null;
+    state.voiceDraft.voice_source_type = 'reference_clone';
+    if (recordEvent) recordMemoryEvent('voice.reference.selected', 'voice', { phase: 'VO-R6', reference_id: id, clone_ready: reference.clone_ready === true });
+  }
+  saveUiState();
+  if (renderAfter) render();
+  return payload;
+}
+
+async function uploadCurrentVoiceReference() {
+  const input = document.getElementById('voiceR6ReferenceFile');
+  const file = input?.files?.[0];
+  const rights = document.getElementById('voiceR6RightsConfirmed')?.checked === true;
+  if (!file) { window.alert('Choose a reference audio file first.'); return; }
+  if (!rights) { window.alert('Confirm that you are authorized to use this reference voice for cloning.'); return; }
+  const form = new FormData();
+  form.append('file', file);
+  form.append('label', document.getElementById('voiceR6ReferenceLabel')?.value || file.name || 'Reference voice');
+  form.append('transcript', document.getElementById('voiceR6ReferenceTranscript')?.value || '');
+  form.append('rights_confirmed', 'true');
+  form.append('rights_basis', 'user_confirmation');
+  state.voiceReferenceError = '';
+  const response = await fetch('/api/voice/references/upload', { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false || !payload.reference) {
+    state.voiceReferenceError = payload.detail || payload.message || 'Reference upload failed.';
+    render();
+    return;
+  }
+  state.voiceReferenceNotice = 'Reference uploaded, analyzed, and stored in Neo-owned Voice storage.';
+  await refreshVoiceReferences({ renderAfter: false, selectReferenceId: payload.reference.reference_id || '' });
+  recordMemoryEvent('voice.reference.uploaded', 'voice', { phase: 'VO-R6', reference_id: payload.reference.reference_id || '', clone_ready: payload.reference.clone_ready === true });
+  render();
+}
+
+async function analyzeCurrentVoiceReference() {
+  const reference = voiceSelectedReferenceRecord();
+  if (!reference?.reference_id) return;
+  const transcript = document.getElementById('voiceR6SelectedTranscript')?.value ?? reference.transcript ?? '';
+  const response = await fetch(`/api/voice/references/${encodeURIComponent(reference.reference_id)}/analyze`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    state.voiceReferenceError = payload.detail || payload.message || 'Reference analysis failed.';
+    render(); return;
+  }
+  state.voiceReferenceNotice = 'Reference QC refreshed.';
+  await refreshVoiceReferences({ renderAfter: true, selectReferenceId: reference.reference_id });
+}
+
+async function attestCurrentVoiceReference() {
+  const reference = voiceSelectedReferenceRecord();
+  if (!reference?.reference_id) return;
+  if (document.getElementById('voiceR6ExistingRightsConfirmed')?.checked !== true) {
+    window.alert('Confirm authorization for this reference first.'); return;
+  }
+  const response = await fetch(`/api/voice/references/${encodeURIComponent(reference.reference_id)}/attest`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rights_confirmed: true, rights_basis: 'user_confirmation' }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    state.voiceReferenceError = payload.detail || payload.message || 'Reference authorization could not be saved.';
+    render(); return;
+  }
+  state.voiceReferenceNotice = 'Reference authorization confirmed.';
+  await refreshVoiceReferences({ renderAfter: true, selectReferenceId: reference.reference_id });
+}
+
+async function pollVoiceCloneJob(jobId, pollEpoch = voiceGenerationPollEpoch) {
+  if (!jobId || pollEpoch !== voiceGenerationPollEpoch) return;
+  const result = await loadJson(`/api/voice/clone/jobs/${encodeURIComponent(jobId)}`, null);
+  if (pollEpoch !== voiceGenerationPollEpoch || !result) return;
+  state.voiceLastJob = result;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 20));
+  setWorkspaceProgress(result.message || result.status || 'Voice clone generation', Number.isFinite(percent) ? percent : 20, { allowBackwards: false });
+  const terminal = ['completed','failed','cancelled','canceled','missing'].includes(String(result.status || '').toLowerCase());
+  recordMemoryEvent(terminal ? 'voice.clone.completed_poll' : 'voice.clone.polled', 'voice', { phase: 'VO-R6', job_id: result.job_id || jobId, status: result.status || '', reference_id: result.reference?.reference_id || '' });
+  if (terminal) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || jobId });
+  render();
+  if (!terminal) voiceGenerationPollTimer = window.setTimeout(() => pollVoiceCloneJob(jobId, pollEpoch), 1400);
+}
+
+async function submitVoiceCloneGeneration() {
+  clearVoiceGenerationPoll();
+  const reference = voiceSelectedReferenceRecord();
+  if (!voiceCloneRouteSupported()) { window.alert('The selected Voice backend does not support reference cloning.'); return; }
+  if (state.voiceProviderRouting?.health?.reachable !== true) { window.alert('Connect the selected Voice backend first.'); return; }
+  if (!reference?.clone_ready) { window.alert('Select a clone-ready reference with authorization and usable QC first.'); return; }
+  const common = voiceCommonDraftPayload();
+  if (!String(common.script || '').trim()) { window.alert('Add a script before generating a Voice clone.'); return; }
+  setWorkspaceProgress('Validating Voice clone', 6, { allowBackwards: true });
+  const response = await fetch('/api/voice/clone/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile_id: voiceBackendProfileId(), common_settings: common, provider_controls: voiceProviderControlsDraftPayload('voice_clone'), reference_id: reference.reference_id, voice_profile_asset_id: state.voiceDraft.profile_asset_id || '' }),
+  });
+  const result = await response.json().catch(() => ({ status: 'failed', message: 'Voice clone returned no JSON response.', outputs: [] }));
+  state.voiceLastJob = result;
+  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 12));
+  setWorkspaceProgress(result.message || result.status || 'Voice clone submitted', Number.isFinite(percent) ? percent : 12, { allowBackwards: true });
+  recordMemoryEvent('voice.clone.submitted', 'voice', { phase: 'VO-R6', profile_id: result.profile_id || voiceBackendProfileId(), provider_id: result.provider_id || '', job_id: result.job_id || '', status: result.status || '', reference_id: reference.reference_id });
+  if (['completed','failed','cancelled','canceled'].includes(String(result.status || '').toLowerCase())) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || '' });
+  render();
+  if (['queued','running'].includes(String(result.status || '').toLowerCase()) && result.job_id) {
+    const pollEpoch = ++voiceGenerationPollEpoch;
+    voiceGenerationPollTimer = window.setTimeout(() => pollVoiceCloneJob(result.job_id, pollEpoch), 1200);
+  }
+}
+
+function voiceR6ReferenceLedgerHtml() {
+  const items = voiceReferenceItems();
+  if (!items.length) return `<div class="neo-empty-state"><strong>No reference assets yet</strong><span>Upload a clean single-speaker reference and confirm authorization to create a clone-ready asset.</span></div>`;
+  return `<div class="neo-voice-reference-ledger" data-testid="voice-r6-reference-ledger">${items.map((item) => `<button type="button" class="neo-voice-result-card ${item.reference_id === state.voiceSelectedReferenceId ? 'selected' : ''}" data-voice-reference-id="${escapeAttr(item.reference_id || '')}"><span class="neo-voice-result-card-head"><strong>${escapeHtml(item.label || item.reference_id || 'Reference')}</strong><span>${escapeHtml(item.status || 'unknown')}</span></span><span class="neo-voice-result-card-copy">${escapeHtml(item.original_filename || item.stored_filename || '')}</span><span class="neo-voice-result-card-meta">${escapeHtml((item.qc?.status || 'QC unknown'))} · ${item.rights_attestation?.confirmed ? 'Authorized' : 'Authorization needed'}</span></button>`).join('')}</div>`;
+}
+
+function voiceR6SelectedReferenceHtml() {
+  const reference = voiceSelectedReferenceRecord();
+  if (!reference) return `<div class="neo-empty-state"><strong>Select a reference asset</strong><span>Choose an uploaded reference to inspect QC and use it for clone generation.</span></div>`;
+  const qc = reference.qc || {};
+  const stats = qc.stats || {};
+  const warnings = Array.isArray(qc.warnings) ? qc.warnings : [];
+  const audio = reference.file_available && reference.path ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(reference.path)}"></audio>` : '<p class="neo-muted">Reference file is unavailable.</p>';
+  const rightsAction = reference.rights_attestation?.confirmed ? '<span class="neo-badge">Authorization confirmed</span>' : `<label class="neo-voice-rights-check"><input id="voiceR6ExistingRightsConfirmed" type="checkbox"> I confirm I am authorized to use this voice reference.</label><button type="button" class="neo-btn secondary" id="voiceR6AttestReferenceBtn">Confirm Authorization</button>`;
+  return `<div class="neo-ui-card" data-testid="voice-r6-selected-reference"><span class="neo-card-kicker">Selected Reference</span><strong>${escapeHtml(reference.label || reference.reference_id || '')}</strong>${audio}${badgeRow([reference.clone_ready ? 'Clone ready' : 'Not clone ready', qc.status || 'QC unknown', stats.duration_seconds ? `${stats.duration_seconds}s` : 'Duration unknown', stats.sample_rate ? `${stats.sample_rate} Hz` : 'Sample rate unknown'])}<label>Reference Transcript<textarea id="voiceR6SelectedTranscript" rows="3" placeholder="Optional exact transcript">${escapeHtml(reference.transcript || '')}</textarea></label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6AnalyzeReferenceBtn">Re-run QC</button>${rightsAction}</div>${warnings.length ? NeoUI.metaList(warnings.slice(0, 6)) : '<p class="neo-muted">No major QC warnings detected.</p>'}</div>`;
+}
+
+function voiceR6ReferenceWorkspaceHtml() {
+  const routing = state.voiceProviderRouting || {};
+  const caps = routing.capabilities || {};
+  const reference = voiceSelectedReferenceRecord();
+  const notice = state.voiceReferenceNotice ? `<div class="neo-ui-card compact"><strong>Reference</strong><p>${escapeHtml(state.voiceReferenceNotice)}</p></div>` : '';
+  const error = state.voiceReferenceError ? `<div class="neo-ui-card compact"><strong>Reference error</strong><p>${escapeHtml(state.voiceReferenceError)}</p></div>` : '';
+  return `<div class="neo-ui-card" data-testid="voice-r6-reference-runtime"><span class="neo-card-kicker">Reference</span><strong>Reference / Clone</strong><p>Reference audio is stored as a provider-independent Neo asset. Clone execution is available only when the selected backend advertises both reference audio and voice cloning.</p>${badgeRow([caps.reference_audio ? 'Reference supported' : 'Reference unsupported', caps.voice_clone ? 'Clone supported' : 'Clone unsupported', routing.health?.reachable ? 'Backend reachable' : 'Backend disconnected', reference?.clone_ready ? 'Selected reference ready' : 'Reference not ready'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6RefreshReferencesBtn">Refresh References</button><button type="button" class="neo-btn primary" id="voiceR6GenerateCloneBtn" ${voiceCloneCanRun() ? '' : 'disabled aria-disabled="true"'}>Generate Clone</button></div></div>${notice}${error}<div class="neo-ui-card"><strong>Upload Reference</strong><p>Use a clean single-speaker clip. Neo requires explicit authorization confirmation before the asset can be used for cloning.</p><div class="neo-ui-field-grid two compact"><label>Reference Audio<input id="voiceR6ReferenceFile" type="file" accept="audio/*"></label><label>Label<input id="voiceR6ReferenceLabel" placeholder="Optional voice label"></label></div><label>Optional Transcript<textarea id="voiceR6ReferenceTranscript" rows="2" placeholder="Exact words spoken in the clip, if known"></textarea></label><label class="neo-voice-rights-check"><input id="voiceR6RightsConfirmed" type="checkbox"> I confirm I am authorized to use this voice reference for cloning.</label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6UploadReferenceBtn">Upload + Analyze</button></div></div>${voiceR6ReferenceLedgerHtml()}${voiceR6SelectedReferenceHtml()}`;
+}
+
+function voiceProfileAssetItems() {
+  return Array.isArray(state.voiceProfileAssets?.items) ? state.voiceProfileAssets.items : [];
+}
+
+function voiceSelectedProfileAssetRecord() {
+  return state.voiceSelectedProfileAsset?.asset || voiceProfileAssetItems().find((item) => item.asset_id === state.voiceSelectedProfileAssetId) || null;
+}
+
+async function refreshVoiceProfileAssets({ renderAfter = false, selectAssetId = '' } = {}) {
+  const params = new URLSearchParams({ limit: '100' });
+  const activeProfileId = voiceBackendProfileId();
+  if (activeProfileId) params.set('active_profile_id', activeProfileId);
+  state.voiceProfileAssets = await loadJson(`/api/voice/profile-assets?${params.toString()}`, state.voiceProfileAssets || { items: [] });
+  const items = voiceProfileAssetItems();
+  const requested = String(selectAssetId || state.voiceSelectedProfileAssetId || state.voiceDraft.profile_asset_id || '').trim();
+  const candidate = items.some((item) => item.asset_id === requested) ? requested : (items[0]?.asset_id || '');
+  if (candidate) await selectVoiceProfileAsset(candidate, { renderAfter: false, recordEvent: false });
+  else {
+    state.voiceSelectedProfileAssetId = '';
+    state.voiceSelectedProfileAsset = null;
+  }
+  if (renderAfter) render();
+  return state.voiceProfileAssets;
+}
+
+async function selectVoiceProfileAsset(assetId, { renderAfter = true, recordEvent = true } = {}) {
+  const id = String(assetId || '').trim();
+  if (!id) return null;
+  state.voiceProfileAssetError = '';
+  const params = new URLSearchParams();
+  if (voiceBackendProfileId()) params.set('active_profile_id', voiceBackendProfileId());
+  const payload = await loadJson(`/api/voice/profile-assets/${encodeURIComponent(id)}?${params.toString()}`, null);
+  if (!payload?.asset) {
+    state.voiceSelectedProfileAsset = null;
+    state.voiceProfileAssetError = 'Voice Profile Asset details could not be loaded.';
+  } else {
+    state.voiceSelectedProfileAssetId = id;
+    state.voiceSelectedProfileAsset = payload;
+    if (recordEvent) recordMemoryEvent('voice.profile_asset.selected', 'voice', { phase: 'VO-R7', asset_id: id, application_mode: payload.asset?.compatibility?.application_mode || '' });
+  }
+  if (renderAfter) render();
+  return payload;
+}
+
+function currentVoiceProfileAssetPayload() {
+  const common = voiceCommonDraftPayload();
+  const includeReference = document.getElementById('voiceR7IncludeReference')?.checked === true;
+  const reference = voiceSelectedReferenceRecord();
+  return {
+    name: document.getElementById('voiceR7ProfileName')?.value || voiceSelectedProfileAssetRecord()?.name || 'Voice Profile',
+    description: document.getElementById('voiceR7ProfileDescription')?.value || voiceSelectedProfileAssetRecord()?.description || '',
+    backend_profile_id: voiceBackendProfileId(),
+    common_settings: {
+      language: common.language,
+      model_id: common.model_id,
+      voice_id: common.voice_id,
+      speaking_rate: common.speaking_rate,
+      output_format: common.output_format,
+      split_long_text: common.split_long_text,
+      max_chunk_chars: common.max_chunk_chars,
+      punctuation_cleanup: common.punctuation_cleanup,
+    },
+    reference_id: includeReference && reference?.clone_ready ? reference.reference_id : '',
+  };
+}
+
+async function saveCurrentVoiceProfileAsset({ update = false } = {}) {
+  const current = voiceSelectedProfileAssetRecord();
+  if (update && !current?.asset_id) return;
+  const payload = currentVoiceProfileAssetPayload();
+  state.voiceProfileAssetError = '';
+  const url = update ? `/api/voice/profile-assets/${encodeURIComponent(current.asset_id)}` : '/api/voice/profile-assets';
+  const response = await fetch(url, { method: update ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false || !result.asset) {
+    state.voiceProfileAssetError = result.detail || result.message || 'Voice Profile Asset could not be saved.';
+    render();
+    return;
+  }
+  state.voiceDraft.profile_asset_id = result.asset.asset_id || '';
+  state.voiceProfileAssetNotice = update ? 'Voice Profile Asset updated from the current draft.' : 'Voice Profile Asset saved from the current draft.';
+  await refreshVoiceProfileAssets({ renderAfter: false, selectAssetId: result.asset.asset_id || '' });
+  recordMemoryEvent(update ? 'voice.profile_asset.updated' : 'voice.profile_asset.created', 'voice', { phase: 'VO-R7', asset_id: result.asset.asset_id || '', backend_profile_id: result.asset.backend_profile_id || '' });
+  saveUiState();
+  render();
+}
+
+async function applyCurrentVoiceProfileAsset() {
+  const asset = voiceSelectedProfileAssetRecord();
+  if (!asset?.asset_id) return;
+  state.voiceProfileAssetError = '';
+  const response = await fetch(`/api/voice/profile-assets/${encodeURIComponent(asset.asset_id)}/apply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backend_profile_id: voiceBackendProfileId() }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false || !result.common_settings) {
+    state.voiceProfileAssetError = result.detail || result.message || 'Voice Profile Asset could not be applied.';
+    render();
+    return;
+  }
+  applyVoiceCommonNormalizedSettings({ common_settings: result.common_settings });
+  state.voiceDraft.profile_asset_id = result.asset_id || asset.asset_id;
+  state.voiceDraft.saved_profile_id = '';
+  state.voiceDraft.reference_id = '';
+  state.voiceDraft.reference_audio = '';
+  state.voiceDraft.reference_qc = null;
+  state.voiceDraft.voice_source_type = 'built_in';
+  if (result.reference_id) {
+    await refreshVoiceReferences({ renderAfter: false, selectReferenceId: result.reference_id });
+    const reference = voiceSelectedReferenceRecord();
+    if (reference?.reference_id === result.reference_id) {
+      state.voiceDraft.reference_id = result.reference_id;
+      state.voiceDraft.reference_audio = reference.path || '';
+      state.voiceDraft.reference_qc = reference.qc || null;
+      state.voiceDraft.voice_source_type = 'reference_clone';
+    }
+  }
+  state.voicePreviewStale = true;
+  state.voiceProfileAssetNotice = `${result.asset_name || asset.name || 'Voice Profile'} applied without changing the active backend.${(result.warnings || []).length ? ` ${(result.warnings || []).join(' ')}` : ''}`;
+  setSurfaceWorkspaceAppId('voice', result.target_workspace || 'generation');
+  saveUiState();
+  recordMemoryEvent('voice.profile_asset.applied', 'voice', { phase: 'VO-R7', asset_id: result.asset_id || asset.asset_id, application_mode: result.application_mode || '', active_backend_profile_id: result.active_backend_profile_id || voiceBackendProfileId() });
+  render();
+}
+
+async function deleteCurrentVoiceProfileAsset() {
+  const asset = voiceSelectedProfileAssetRecord();
+  if (!asset?.asset_id) return;
+  if (!window.confirm(`Delete Voice Profile Asset "${asset.name || asset.asset_id}"? Generated audio and reference files will not be deleted.`)) return;
+  const response = await fetch(`/api/voice/profile-assets/${encodeURIComponent(asset.asset_id)}`, { method: 'DELETE' });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false) {
+    state.voiceProfileAssetError = result.detail || result.message || 'Voice Profile Asset could not be deleted.';
+    render();
+    return;
+  }
+  if (state.voiceDraft.profile_asset_id === asset.asset_id) state.voiceDraft.profile_asset_id = '';
+  state.voiceSelectedProfileAssetId = '';
+  state.voiceSelectedProfileAsset = null;
+  state.voiceProfileAssetNotice = 'Voice Profile Asset deleted. Audio results and references were left untouched.';
+  await refreshVoiceProfileAssets({ renderAfter: false });
+  recordMemoryEvent('voice.profile_asset.deleted', 'voice', { phase: 'VO-R7', asset_id: asset.asset_id });
+  saveUiState();
+  render();
+}
+
+function voiceR7ProfileAssetLedgerHtml() {
+  const items = voiceProfileAssetItems();
+  if (!items.length) return `<div class="neo-empty-state"><strong>No current Voice Profile Assets</strong><span>Save the current Voice selections and common delivery settings as a reusable asset.</span></div>`;
+  return `<div class="neo-voice-reference-ledger" data-testid="voice-r7-profile-asset-ledger">${items.map((item) => {
+    const compatibility = item.compatibility || {};
+    return `<button type="button" class="neo-voice-result-card ${item.asset_id === state.voiceSelectedProfileAssetId ? 'selected' : ''}" data-voice-profile-asset-id="${escapeAttr(item.asset_id || '')}"><span class="neo-voice-result-card-head"><strong>${escapeHtml(item.name || item.asset_id || 'Voice Profile')}</strong><span>${escapeHtml(compatibility.application_mode || 'profile asset')}</span></span><span class="neo-voice-result-card-copy">${escapeHtml(item.provider_id || 'provider')} · ${escapeHtml(item.common_settings?.voice_id || 'provider_default')}</span><span class="neo-voice-result-card-meta">${item.reference_id ? 'Reference clone profile' : 'TTS profile'} · ${escapeHtml(item.backend_profile_id || '')}</span></button>`;
+  }).join('')}</div>`;
+}
+
+function voiceR7SelectedProfileAssetHtml() {
+  const asset = voiceSelectedProfileAssetRecord();
+  if (!asset) return `<div class="neo-empty-state"><strong>Select a Voice Profile Asset</strong><span>Inspect compatibility, apply it to the current draft, or update it from current settings.</span></div>`;
+  const common = asset.common_settings || {};
+  const compatibility = asset.compatibility || {};
+  const currentLineage = state.voiceDraft.profile_asset_id === asset.asset_id;
+  return `<div class="neo-ui-card" data-testid="voice-r7-selected-profile-asset"><span class="neo-card-kicker">Selected Profile Asset</span><strong>${escapeHtml(asset.name || asset.asset_id || '')}</strong><p>${escapeHtml(asset.description || 'Reusable provider-scoped Voice configuration.')}</p>${badgeRow([compatibility.application_mode || 'compatibility unknown', currentLineage ? 'Current draft lineage' : 'Not applied', asset.reference_id ? 'Reference attached' : 'No reference', asset.provider_id || 'provider'])}${NeoUI.metaList([`Saved backend: ${asset.backend_profile_id || 'unknown'}`, `Model: ${common.model_id || 'provider_default'}`, `Voice: ${common.voice_id || 'provider_default'}`, `Language: ${common.language || 'en'}`, `Rate: ${common.speaking_rate ?? 1}`, `Output: ${(common.output_format || 'wav').toUpperCase()}`, `Reference: ${asset.reference_id || 'none'}`])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="voiceR7ApplyProfileAssetBtn">Apply to Draft</button><button type="button" class="neo-btn secondary" id="voiceR7UpdateProfileAssetBtn">Update from Draft</button><button type="button" class="neo-btn ghost" id="voiceR7DeleteProfileAssetBtn">Delete</button></div></div>`;
+}
+
+function voiceR7AssetsWorkspaceHtml() {
+  const selected = voiceSelectedProfileAssetRecord();
+  const legacyCount = Number(state.voiceProfileAssets?.legacy_compatibility?.count || 0);
+  const selectedReference = voiceSelectedReferenceRecord();
+  const notice = state.voiceProfileAssetNotice ? `<div class="neo-ui-card compact"><strong>Profile Asset</strong><p>${escapeHtml(state.voiceProfileAssetNotice)}</p></div>` : '';
+  const error = state.voiceProfileAssetError ? `<div class="neo-ui-card compact"><strong>Profile Asset error</strong><p>${escapeHtml(state.voiceProfileAssetError)}</p></div>` : '';
+  return `<div class="neo-ui-card" data-testid="voice-r7-profile-assets-runtime"><span class="neo-card-kicker">Assets</span><strong>Voice Profiles / Assets</strong><p>Save reusable Voice selections and common delivery settings as current profile assets. Assets never switch the active backend automatically, never store the working script, and never store provider-native controls.</p>${badgeRow([`${voiceProfileAssetItems().length} current asset(s)`, `Active backend: ${voiceBackendProfileId() || 'none'}`, legacyCount ? `${legacyCount} older profile(s) available` : 'No legacy profiles', 'Backend switch: never'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR7RefreshProfileAssetsBtn">Refresh Assets</button></div></div>${notice}${error}<div class="neo-ui-card"><strong>Save Current Draft as Profile Asset</strong><div class="neo-ui-field-grid two compact"><label>Name<input id="voiceR7ProfileName" maxlength="120" value="${escapeAttr(selected?.name || '')}" placeholder="Narrator voice"></label><label>Description<input id="voiceR7ProfileDescription" maxlength="1000" value="${escapeAttr(selected?.description || '')}" placeholder="Optional usage note"></label></div><label class="neo-voice-rights-check"><input id="voiceR7IncludeReference" type="checkbox" ${selected?.reference_id ? 'checked' : ''} ${selectedReference?.clone_ready ? '' : 'disabled'}> Include currently selected authorized reference${selectedReference?.clone_ready ? ` (${escapeHtml(selectedReference.label || selectedReference.reference_id)})` : ' — no clone-ready reference selected'}</label><div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="voiceR7CreateProfileAssetBtn" ${voiceRoutingReady() ? '' : 'disabled'}>Save New Profile Asset</button></div></div>${voiceR7ProfileAssetLedgerHtml()}${voiceR7SelectedProfileAssetHtml()}`;
+}
+
 function activeVoiceWorkspaceSummary(subtab = activeSubtab(activeSurface())) {
   const id = subtab?.subtab_id || state.activeSubtabId || 'workspace';
   const map = {
-    workspace: ['Workspace', 'Voice setup, backend readiness, and output folders.'],
-    generation: ['Generation', 'Script, voice source, delivery controls, and preview/render preparation.'],
-    voice_source: ['Voice Source', 'Built-in voices, saved profiles, and reference clone source selection.'],
-    reference: ['Reference', 'Reference audio staging and quality checks for later clone phases.'],
-    finish: ['Finish', 'Normalize, trim, cleanup, and export lanes for completed voice output.'],
-    results: ['Results', 'Voice output history, replay metadata, and Project handoff.'],
+    generation: ['Generation', 'Provider-routed TTS generation using shared Voice settings and the selected backend profile.'],
+    assets: ['Assets', 'Current Voice Profile Assets: save, inspect, safely apply, update, and delete reusable provider-scoped Voice configurations.'],
+    reference: ['Reference', 'Neo-owned reference assets, QC, authorization, and capability-gated clone generation through the current shared Voice runtime.'],
+    finish: ['Finish', 'Provider-independent non-destructive post-processing for completed Neo-owned Voice results; the common generation draft stays available.'],
+    results: ['Results', 'Current Voice result ledger, playback/inspection, profile/reference lineage, and safe replay-to-draft over Neo-owned audio outputs.'],
   };
-  const [workspace_label, workspace_description] = map[id] || map.workspace;
-  const family = VOICE_MODEL_FAMILY_OPTIONS.find((item) => item.id === state.voiceDraft.family)?.label || 'Chatterbox Turbo';
-  const job = VOICE_JOB_TYPE_OPTIONS.find((item) => item.id === state.voiceDraft.job_type)?.label || 'Quick Preview';
-  const source = VOICE_SOURCE_OPTIONS.find((item) => item.id === state.voiceDraft.voice_source_type)?.label || 'Built-in Voice';
-  return { id, workspace_label, workspace_description, family, job, source };
+  const [workspace_label, workspace_description] = map[id] || map.generation;
+  const model = voiceModelOptions().find((item) => item.id === state.voiceDraft.model_id)?.label || 'Provider Default';
+  const voice = voiceVoiceOptions().find((item) => item.id === state.voiceDraft.voice_id)?.label || 'Provider Default';
+  return { id, workspace_label, workspace_description, model, voice };
 }
 
 
 
 function voiceModelOptions() {
   const records = Array.isArray(state.voiceModels?.models) ? state.voiceModels.models : [];
-  const options = records.length ? records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })) : VOICE_MODEL_FAMILY_OPTIONS;
-  return options.length ? options : [{ id: 'chatterbox_turbo', label: 'Chatterbox Turbo' }];
+  const options = records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })).filter((item) => item.id);
+  if (!options.some((item) => item.id === 'provider_default')) options.unshift({ id: 'provider_default', label: 'Provider Default' });
+  return options.length ? options : [{ id: 'provider_default', label: 'Provider Default' }];
 }
 
 function voiceProfileOptions() {
@@ -51221,7 +53768,9 @@ function activeVoiceProfileRecord() {
 
 function voiceVoiceOptions() {
   const records = Array.isArray(state.voiceVoices?.voices) ? state.voiceVoices.voices : [];
-  return records.length ? records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })) : [{ id: 'provider_default', label: 'Provider Default' }];
+  const options = records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })).filter((item) => item.id);
+  if (!options.some((item) => item.id === 'provider_default')) options.unshift({ id: 'provider_default', label: 'Provider Default' });
+  return options.length ? options : [{ id: 'provider_default', label: 'Provider Default' }];
 }
 
 function voiceCapabilityBadges() {
@@ -51276,14 +53825,14 @@ function voiceOutputPathRows() {
 function voiceContractSummaryHtml() {
   const contract = state.voiceSurfaceContract || {};
   const job = VOICE_JOB_TYPE_OPTIONS.find((item) => item.id === state.voiceDraft.job_type)?.label || 'Quick Preview';
-  return `<div class="neo-ui-card" data-testid="voice-contract-summary"><strong>Voice Runtime Workspace</strong><p>Voice now follows the Image/Video runtime layout: top-card actions, backend-owned connection, center script workspace, source controls, preview/results, and grouped parameters.</p>${badgeRow(['Runtime workspace active', `Job: ${job}`, state.voiceBackendHealth?.status || 'backend not checked', 'Output paths ready'])}${NeoUI.metaList([`Schema: ${contract.schema_version || 'neo.voice.surface_contract.v7'}`, 'Backend ladder: Chatterbox → Kokoro → Fish Speech → Custom TTS', 'Voice output storage stays under neo_data/outputs/voice.'])}</div>`;
+  return `<div class="neo-ui-card" data-testid="voice-contract-summary"><strong>Voice Runtime Workspace</strong><p>Voice uses the same structured Neo workspace pattern as Image and Video: backend selection, script controls, sources, preview/results, and grouped parameters.</p>${badgeRow(['Runtime workspace active', `Job: ${job}`, state.voiceBackendHealth?.status || 'backend not checked', 'Output paths ready'])}${NeoUI.metaList(['Voice workspace contract ready', 'Backend selection follows the active Voice profile', 'Voice output storage stays under neo_data/outputs/voice.'])}</div>`;
 }
 
 function voiceHistoryListHtml() {
   const jobs = Array.isArray(state.voiceHistory?.jobs) ? state.voiceHistory.jobs.slice(0, 6) : [];
   if (!jobs.length) return `${badgeRow(['No jobs yet', 'Preview/render history ready'])}<p class="neo-muted">No Voice preview/render adapter jobs have been recorded yet.</p>`;
   const rows = jobs.map((job) => `<li><strong>${escapeHtml(job.job_id || 'voice job')}</strong><small>${escapeHtml(job.status || 'unknown')} · ${escapeHtml(job.job_type || '')}</small></li>`).join('');
-  return `${badgeRow([`${jobs.length} recent job(s)`, state.voiceHistory?.schema_id || 'history'])}<ul class="neo-mini-list">${rows}</ul>`;
+  return `${badgeRow([`${jobs.length} recent job(s)`, 'Voice history'])}<ul class="neo-mini-list">${rows}</ul>`;
 }
 
 function voiceWorkspaceLeftPanelHtml(subtabId) {
@@ -51293,8 +53842,8 @@ function voiceWorkspaceLeftPanelHtml(subtabId) {
   if (subtabId === 'generation') return `${runtimeStack}`;
   if (subtabId === 'voice_source') return `${voiceBuiltInExtensionStackHtml()}<div class="neo-ui-card"><strong>Voice Source</strong><p>Choose a built-in backend voice, saved voice profile, or reference clone source. Saved profiles store reusable source/backend/default parameter snapshots.</p>${badgeRow(['Built-in active', 'Profiles active', 'Reference clone active'])}</div>`;
   if (subtabId === 'reference') return `${voiceBuiltInExtensionStackHtml()}<div class="neo-ui-card"><strong>Reference Prep</strong><p>Reference audio upload and quality checks are active here for zero-shot clone jobs. No training or dataset manager is introduced.</p>${badgeRow(['Upload active', 'QC active', 'Zero-shot clone path'])}</div>`;
-  if (subtabId === 'finish') return `${voiceBuiltInExtensionStackHtml()}<div class="neo-ui-card"><strong>Finish Tools</strong><p>Normalize, trim, cleanup, export, and chunk merge actions are planned as non-destructive child outputs.</p>${badgeRow(['Normalize later', 'Trim later', 'Export later'])}</div>`;
-  if (subtabId === 'results') return `${voiceRuntimeReadinessHtml()}<div class="neo-ui-card"><strong>Results</strong><p>Voice output history is backed by the adapter job ledger. Replay metadata and memory export land after runtime jobs exist.</p>${voiceHistoryListHtml()}</div>`;
+  if (subtabId === 'finish') return `${voiceBuiltInExtensionStackHtml()}<div class="neo-ui-card"><strong>Finish Tools</strong><p>Voice Finish uses available local processors and creates non-destructive child outputs from Neo-owned Voice results.</p>${badgeRow(['Normalize', 'Trim / cleanup', 'WAV / MP3', 'Split / merge'])}</div>`;
+  if (subtabId === 'results') return `${voiceRuntimeReadinessHtml()}<div class="neo-ui-card"><strong>Results</strong><p>Completed Voice outputs appear here with playback, source lineage, and replay actions when available.</p>${voiceHistoryListHtml()}</div>`;
   return `${voiceContractSummaryHtml()}${voiceBuiltInExtensionStackHtml()}`;
 }
 
@@ -51351,7 +53900,7 @@ function voiceSourcePanelHtml() {
   const helper = source === 'reference_clone' ? 'Reference Clone uses uploaded reference audio plus QC metadata for zero-shot clone jobs.' : source === 'saved_profile' ? 'Saved Profile reuses a stored voice source, backend family, language, and default parameter snapshot.' : 'Built-in voices load from the active Voice backend adapter.';
   const sourceState = source === 'reference_clone' ? (state.voiceDraft.reference_id ? 'Reference Ready' : 'Needs Reference') : source === 'saved_profile' ? (profile ? 'Profile Ready' : 'Needs Profile') : 'Ready';
   const sourceControl = source === 'reference_clone' ? `<label>Reference${optionSelect('voiceReferenceId', voiceReferenceOptions(), state.voiceDraft.reference_id || '')}</label>` : source === 'saved_profile' ? `<label>Saved Profile${optionSelect('voiceSavedProfileId', voiceProfileOptions(), state.voiceDraft.saved_profile_id || '')}</label>` : `<label>Voice${optionSelect('voiceSourceId', voiceVoiceOptions(), state.voiceDraft.voice_id || 'provider_default')}</label>`;
-  return `<div class="neo-ui-field-grid three compact"><label>Voice Source${optionSelect('voiceSourceType', VOICE_SOURCE_OPTIONS, source)}</label>${sourceControl}<label>Source State<input readonly value="${escapeAttr(sourceState)}"></label></div><div class="neo-result-placeholder compact">${escapeHtml(helper)}</div>${source === 'reference_clone' ? voiceReferenceUploadPanelHtml() : ''}${voiceSavedProfilePanelHtml()}${badgeRow([source === 'built_in' ? 'Built-in source' : humanize(source), state.voiceProfiles?.schema_id || 'profiles ready', state.voicePreviewStale ? 'Preview needs refresh' : 'Preview current'])}`;
+  return `<div class="neo-ui-field-grid three compact"><label>Voice Source${optionSelect('voiceSourceType', VOICE_SOURCE_OPTIONS, source)}</label>${sourceControl}<label>Source State<input readonly value="${escapeAttr(sourceState)}"></label></div><div class="neo-result-placeholder compact">${escapeHtml(helper)}</div>${source === 'reference_clone' ? voiceReferenceUploadPanelHtml() : ''}${voiceSavedProfilePanelHtml()}${badgeRow([source === 'built_in' ? 'Built-in source' : humanize(source), state.voiceProfiles ? 'Profiles loaded' : 'Profiles pending', state.voicePreviewStale ? 'Preview needs refresh' : 'Preview current'])}`;
 }
 
 
@@ -51495,36 +54044,633 @@ function voiceParameterPanelHtml() {
   return `<div class="neo-param-row"><div><h4>Delivery</h4><div class="neo-ui-field-grid four compact"><label>Speaking Rate<input id="voiceSpeakingRate" type="number" min="0.5" max="2" step="0.05" value="${escapeAttr(state.voiceDraft.speaking_rate ?? 1)}"></label><label>Expression<input id="voiceExpressionStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.voiceDraft.expression_strength ?? 0.5)}" ${canEmotion ? '' : 'disabled'}></label><label>Reference Strength<input id="voiceReferenceStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.voiceDraft.reference_strength ?? 0.7)}" ${canClone ? '' : 'disabled'}></label><label>Seed<input id="voiceSeed" type="number" value="${escapeAttr(state.voiceDraft.seed ?? -1)}"></label></div></div></div><div class="neo-param-row"><div><h4>Script Processing</h4><div class="neo-ui-field-grid three compact"><label>Split Long Text${optionSelect('voiceSplitLongText', [{id:'true',label:'Enabled'}, {id:'false',label:'Disabled'}], String(state.voiceDraft.split_long_text !== false))}</label><label>Punctuation Cleanup${optionSelect('voicePunctuationCleanup', [{id:'true',label:'Enabled'}, {id:'false',label:'Disabled'}], String(state.voiceDraft.punctuation_cleanup !== false))}</label><label>Output Format${optionSelect('voiceOutputFormat', [{id:'wav',label:'WAV'}, {id:'mp3',label:'MP3 later'}], state.voiceDraft.output_format || 'wav')}</label></div></div></div><details class="neo-extension-card neo-voice-advanced-card"><summary><span>Advanced Controls</span><span class="neo-badge muted">Capability-aware</span><span class="neo-chevron">›</span></summary>${badgeRow(voiceCapabilityBadges())}<p class="neo-muted">Extra controls unlock when the selected backend reports support for cloning, multilingual output, emotion, tags, or seed variation.</p></details>`;
 }
 
+
+function voiceCommonContractDefaults() {
+  return state.voiceBaseCommonContract?.defaults || {
+    script: '', language: 'en', model_id: 'provider_default', voice_id: 'provider_default',
+    speaking_rate: 1, output_format: 'wav', split_long_text: true, max_chunk_chars: 650, punctuation_cleanup: true,
+  };
+}
+
+function voiceCommonDraftPayload() {
+  const defaults = voiceCommonContractDefaults();
+  return {
+    script: state.voiceDraft.script_body ?? defaults.script ?? '',
+    language: state.voiceDraft.language || defaults.language || 'en',
+    model_id: state.voiceDraft.model_id || defaults.model_id || 'provider_default',
+    voice_id: state.voiceDraft.voice_id || defaults.voice_id || 'provider_default',
+    speaking_rate: Number(state.voiceDraft.speaking_rate ?? defaults.speaking_rate ?? 1),
+    output_format: state.voiceDraft.output_format || defaults.output_format || 'wav',
+    split_long_text: state.voiceDraft.split_long_text !== false,
+    max_chunk_chars: Number(state.voiceDraft.max_chunk_chars ?? defaults.max_chunk_chars ?? 650),
+    punctuation_cleanup: state.voiceDraft.punctuation_cleanup !== false,
+  };
+}
+
+function applyVoiceCommonNormalizedSettings(payload) {
+  const common = payload?.common_settings || payload || {};
+  if (Object.prototype.hasOwnProperty.call(common, 'script')) state.voiceDraft.script_body = String(common.script || '');
+  if (common.language !== undefined) state.voiceDraft.language = String(common.language || 'en');
+  if (common.model_id !== undefined) state.voiceDraft.model_id = String(common.model_id || 'provider_default');
+  if (common.voice_id !== undefined) state.voiceDraft.voice_id = String(common.voice_id || 'provider_default');
+  if (common.speaking_rate !== undefined) state.voiceDraft.speaking_rate = Number(common.speaking_rate);
+  if (common.output_format !== undefined) state.voiceDraft.output_format = String(common.output_format || 'wav');
+  if (common.split_long_text !== undefined) state.voiceDraft.split_long_text = Boolean(common.split_long_text);
+  if (common.max_chunk_chars !== undefined) state.voiceDraft.max_chunk_chars = Number(common.max_chunk_chars);
+  if (common.punctuation_cleanup !== undefined) state.voiceDraft.punctuation_cleanup = Boolean(common.punctuation_cleanup);
+}
+
+async function validateVoiceCommonDraft() {
+  const response = await fetch('/api/voice/base-contract/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ common_settings: voiceCommonDraftPayload() }),
+  });
+  const result = await response.json().catch(() => ({ status: 'invalid', errors: [{ message: 'Voice common settings validation returned no JSON payload.' }] }));
+  state.voiceCommonValidation = result;
+  if (response.ok && result?.common_settings) applyVoiceCommonNormalizedSettings(result);
+  saveUiState();
+  recordMemoryEvent('voice.common_settings.validated', 'voice', { status: result?.status || 'unknown', warning_count: result?.warnings?.length || 0, phase: 'VO-R2' });
+  render();
+}
+
+function resetVoiceCommonSettings() {
+  const defaults = voiceCommonContractDefaults();
+  applyVoiceCommonNormalizedSettings({ common_settings: defaults });
+  state.voiceCommonValidation = null;
+  state.voicePreviewStale = true;
+  saveUiState();
+  recordMemoryEvent('voice.common_settings.reset', 'voice', { phase: 'VO-R2' });
+  render();
+}
+
+function voiceCommonValidationHtml() {
+  const result = state.voiceCommonValidation;
+  if (!result) return `<p class="neo-muted">Validate checks and normalizes the current Voice settings without starting synthesis.</p>`;
+  const errors = Array.isArray(result.errors) ? result.errors : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const messages = [...errors.map((item) => `Error: ${item.message || item.code || 'Invalid common setting'}`), ...warnings.map((item) => `Adjusted: ${item.message || item.code || 'Common setting normalized'}`)];
+  return `${badgeRow([`Validation: ${result.status || 'unknown'}`, `${warnings.length} adjustment(s)`, `${errors.length} error(s)`])}${messages.length ? NeoUI.metaList(messages) : '<p class="neo-muted">Common settings are normalized and valid.</p>'}`;
+}
+
+
+function clearVoiceBatchPoll() {
+  voiceBatchPollEpoch += 1;
+  if (voiceBatchPollTimer) window.clearTimeout(voiceBatchPollTimer);
+  voiceBatchPollTimer = null;
+}
+
+function voiceBatchCurrent() {
+  return state.voiceBatchDraft?.batch && typeof state.voiceBatchDraft.batch === 'object' ? state.voiceBatchDraft.batch : null;
+}
+
+function voiceBatchTerminal(status) {
+  return ['completed', 'completed_with_failures', 'failed', 'cancelled', 'canceled', 'missing'].includes(String(status || '').toLowerCase());
+}
+
+async function refreshVoiceBatchRuntime({ renderAfter = false, loadHistory = true } = {}) {
+  const profileId = voiceBackendProfileId();
+  const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : '';
+  state.voiceBatchCapabilities = await loadJson(`/api/voice/batch-runtime/capabilities${query}`, state.voiceBatchCapabilities || null);
+  if (loadHistory) state.voiceBatchHistory = await loadJson('/api/voice/batch-runtime/history?limit=50', state.voiceBatchHistory || { items: [] });
+  const batchId = String(state.voiceBatchDraft?.batch_id || '');
+  if (batchId) {
+    const current = await loadJson(`/api/voice/batch-runtime/${encodeURIComponent(batchId)}`, null);
+    if (current?.batch) {
+      state.voiceBatchDraft.batch = current.batch;
+      state.voiceBatchDraft.last_job = current;
+    }
+  }
+  if (renderAfter) render();
+  return state.voiceBatchCapabilities;
+}
+
+function voiceBatchSourceFormat() {
+  const raw = String(state.voiceBatchDraft?.format || 'txt').toLowerCase();
+  return ['txt','md','csv','json','srt'].includes(raw) ? raw : 'txt';
+}
+
+function voiceBatchDefaultReferenceId() {
+  return voiceCloneRouteSupported() && voiceSelectedReferenceRecord()?.clone_ready ? (voiceSelectedReferenceRecord()?.reference_id || '') : '';
+}
+
+async function importVoiceBatchRuntime() {
+  clearVoiceBatchPoll();
+  state.voiceBatchDraft = state.voiceBatchDraft || {};
+  state.voiceBatchDraft.error = '';
+  state.voiceBatchDraft.notice = '';
+  const fileNode = document.getElementById('voiceBatchFile');
+  let filename = String(state.voiceBatchDraft.filename || 'batch.txt');
+  let content = String(document.getElementById('voiceBatchContent')?.value ?? state.voiceBatchDraft.content ?? '');
+  let format = voiceBatchSourceFormat();
+  const file = fileNode?.files?.[0] || null;
+  if (file) {
+    filename = file.name || filename;
+    content = await file.text();
+    const suffix = filename.split('.').pop()?.toLowerCase() || '';
+    if (['txt','md','csv','json','srt'].includes(suffix)) format = suffix;
+  }
+  if (!content.trim()) { state.voiceBatchDraft.error = 'Choose a batch file or paste batch source content first.'; render(); return; }
+  const common = voiceCommonDraftPayload();
+  const payload = {
+    name: String(state.voiceBatchDraft.name || 'Voice Batch').trim() || 'Voice Batch',
+    profile_id: voiceBackendProfileId(),
+    default_mode: String(state.voiceBatchDraft.default_mode || 'tts'),
+    concurrency: Number(state.voiceBatchDraft.concurrency || 1),
+    common_settings: { ...common, script: '' },
+    reference_id: voiceBatchDefaultReferenceId(),
+    voice_profile_asset_id: state.voiceDraft.profile_asset_id || '',
+    default_speaker_map: JSON.parse(JSON.stringify(voiceDialogueSpeakerMap() || {})),
+    provider_controls: { tts: voiceProviderControlsDraftPayload('tts'), voice_clone: voiceProviderControlsDraftPayload('voice_clone') },
+    sources: [{ filename, format, content }],
+  };
+  const response = await fetch('/api/voice/batch-runtime/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false || !result.batch) {
+    state.voiceBatchDraft.error = result.detail || result.message || 'Voice Batch import failed.';
+    render(); return;
+  }
+  state.voiceBatchDraft.filename = filename;
+  state.voiceBatchDraft.format = format;
+  state.voiceBatchDraft.content = content;
+  state.voiceBatchDraft.batch_id = result.batch.batch_id || '';
+  state.voiceBatchDraft.batch = result.batch;
+  state.voiceBatchDraft.last_job = result;
+  state.voiceBatchDraft.notice = `Imported ${(result.batch.items || []).length} item(s). Review the queue, then run the batch.`;
+  state.voiceBatchHistory = await loadJson('/api/voice/batch-runtime/history?limit=50', state.voiceBatchHistory || { items: [] });
+  recordMemoryEvent('voice.batch.imported', 'voice', { phase: 'VO-R11', batch_id: result.batch.batch_id || '', item_count: (result.batch.items || []).length, profile_id: voiceBackendProfileId() });
+  render();
+}
+
+async function pollVoiceBatchRuntime(batchId, pollEpoch = voiceBatchPollEpoch) {
+  if (!batchId || pollEpoch !== voiceBatchPollEpoch) return;
+  const result = await loadJson(`/api/voice/batch-runtime/${encodeURIComponent(batchId)}/poll`, null);
+  if (!result || pollEpoch !== voiceBatchPollEpoch) return;
+  state.voiceBatchDraft.last_job = result;
+  if (result.batch) state.voiceBatchDraft.batch = result.batch;
+  const percent = Number(result.summary?.percent ?? result.progress?.percent ?? (voiceBatchTerminal(result.status) ? 100 : 15));
+  setWorkspaceProgress(result.message || result.status || 'Voice Batch', Number.isFinite(percent) ? percent : 15, { allowBackwards: false });
+  const terminal = voiceBatchTerminal(result.status);
+  if (terminal) {
+    state.voiceBatchDraft.notice = result.status === 'completed' ? 'Voice Batch completed.' : result.status === 'completed_with_failures' ? 'Voice Batch completed with item failures.' : '';
+    state.voiceBatchDraft.error = result.status === 'failed' ? (result.message || 'Voice Batch failed.') : '';
+    state.voiceBatchHistory = await loadJson('/api/voice/batch-runtime/history?limit=50', state.voiceBatchHistory || { items: [] });
+    await refreshVoiceResults({ renderAfter: false });
+  }
+  recordMemoryEvent(terminal ? 'voice.batch.completed' : 'voice.batch.polled', 'voice', { phase: 'VO-R11', batch_id: batchId, status: result.status || '', percent: Number.isFinite(percent) ? percent : null });
+  render();
+  if (!terminal) voiceBatchPollTimer = window.setTimeout(() => pollVoiceBatchRuntime(batchId, pollEpoch), 1400);
+}
+
+async function runVoiceBatchRuntime() {
+  clearVoiceBatchPoll();
+  const batchId = String(state.voiceBatchDraft?.batch_id || '').trim();
+  if (!batchId) { state.voiceBatchDraft.error = 'Import a Voice Batch before running it.'; render(); return; }
+  if (state.voiceBatchCapabilities?.ready !== true) { state.voiceBatchDraft.error = (state.voiceBatchCapabilities?.reasons || ['Voice Batch is not ready for the selected backend.']).join(' '); render(); return; }
+  const response = await fetch(`/api/voice/batch-runtime/${encodeURIComponent(batchId)}/run`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      profile_id: voiceBackendProfileId(),
+      concurrency: Number(state.voiceBatchDraft.concurrency || 1),
+      common_settings: { ...voiceCommonDraftPayload(), script: '' },
+      provider_controls: { tts: voiceProviderControlsDraftPayload('tts'), voice_clone: voiceProviderControlsDraftPayload('voice_clone') },
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  state.voiceBatchDraft.last_job = result;
+  if (result.batch) state.voiceBatchDraft.batch = result.batch;
+  if (!response.ok || result.ok === false) {
+    state.voiceBatchDraft.error = result.detail || result.message || 'Voice Batch could not start.';
+    render(); return;
+  }
+  state.voiceBatchDraft.error = '';
+  state.voiceBatchDraft.notice = `Batch ${result.status || 'running'} · ${result.summary?.completed_count || 0}/${result.summary?.total_count || 0} completed.`;
+  setWorkspaceProgress(result.message || result.status || 'Voice Batch started', Number(result.summary?.percent ?? 10), { allowBackwards: true });
+  recordMemoryEvent('voice.batch.run', 'voice', { phase: 'VO-R11', batch_id: batchId, profile_id: voiceBackendProfileId(), status: result.status || '', concurrency: Number(state.voiceBatchDraft.concurrency || 1) });
+  if (voiceBatchTerminal(result.status)) {
+    state.voiceBatchHistory = await loadJson('/api/voice/batch-runtime/history?limit=50', state.voiceBatchHistory || { items: [] });
+    await refreshVoiceResults({ renderAfter: false });
+  } else {
+    const pollEpoch = ++voiceBatchPollEpoch;
+    voiceBatchPollTimer = window.setTimeout(() => pollVoiceBatchRuntime(batchId, pollEpoch), 1200);
+  }
+  render();
+}
+
+async function retryVoiceBatchRuntimeItem(itemId) {
+  const batchId = String(state.voiceBatchDraft?.batch_id || '').trim();
+  if (!batchId || !itemId) return;
+  const response = await fetch(`/api/voice/batch-runtime/${encodeURIComponent(batchId)}/retry-item`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_id: itemId }) });
+  const result = await response.json().catch(() => ({}));
+  state.voiceBatchDraft.last_job = result;
+  if (result.batch) state.voiceBatchDraft.batch = result.batch;
+  if (!response.ok || result.ok === false) state.voiceBatchDraft.error = result.detail || result.message || 'Batch item retry failed.';
+  else {
+    state.voiceBatchDraft.error = '';
+    state.voiceBatchDraft.notice = `Retry submitted for ${itemId}.`;
+    const pollEpoch = ++voiceBatchPollEpoch;
+    if (!voiceBatchTerminal(result.status)) voiceBatchPollTimer = window.setTimeout(() => pollVoiceBatchRuntime(batchId, pollEpoch), 1000);
+  }
+  recordMemoryEvent('voice.batch.item.retried', 'voice', { phase: 'VO-R11', batch_id: batchId, item_id: itemId, status: result.status || '' });
+  render();
+}
+
+function voiceBatchItemHtml(item) {
+  const status = String(item.status || 'ready');
+  const retryable = ['failed','cancelled','canceled','missing'].includes(status.toLowerCase());
+  return `<div class="neo-ui-card compact"><span class="neo-card-kicker">${escapeHtml(item.item_id || 'Item')}</span><strong>${escapeHtml(item.title || `Item ${(item.index ?? 0) + 1}`)}</strong>${badgeRow([item.mode || 'tts', status, `Attempt ${item.attempt || 0}`, item.child_job_id ? `Child: ${item.child_job_id}` : 'Not submitted'])}<p>${escapeHtml(String(item.script || '').slice(0, 220))}</p>${(item.warnings || []).length ? NeoUI.metaList((item.warnings || []).slice(0,3)) : ''}${retryable ? `<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" data-voice-batch-retry-item="${escapeAttr(item.item_id || '')}">Retry Item</button></div>` : ''}</div>`;
+}
+
+function voiceR11BatchWorkspaceHtml() {
+  const caps = state.voiceBatchCapabilities || {};
+  const batch = voiceBatchCurrent();
+  const items = Array.isArray(batch?.items) ? batch.items : [];
+  const summary = batch?.summary || state.voiceBatchDraft?.last_job?.summary || {};
+  const history = Array.isArray(state.voiceBatchHistory?.items) ? state.voiceBatchHistory.items.slice(0, 6) : [];
+  const notice = state.voiceBatchDraft?.notice ? `<div class="neo-ui-card compact"><strong>Batch</strong><p>${escapeHtml(state.voiceBatchDraft.notice)}</p></div>` : '';
+  const error = state.voiceBatchDraft?.error ? `<div class="neo-ui-card compact"><strong>Batch error</strong><p>${escapeHtml(state.voiceBatchDraft.error)}</p></div>` : '';
+  const historyHtml = history.length ? `<div class="neo-ui-card compact"><strong>Recent Batch Manifests</strong>${NeoUI.metaList(history.map((item) => `${item.name || item.batch_id}: ${item.status || 'imported'} · ${item.completed_count || 0}/${item.item_count || 0} completed`))}</div>` : '';
+  return `<div class="neo-ui-card" data-testid="voice-r11-batch-runtime"><span class="neo-card-kicker">Batch</span><strong>Batch</strong><p>Import TXT, Markdown, CSV, JSON, or SRT. Neo runs TTS, authorized reference clones, or Dialogue items through one selected backend profile with bounded concurrency.</p>${badgeRow([caps.ready ? 'Batch ready' : 'Batch gated', caps.profile_id ? `Profile: ${caps.profile_id}` : 'No profile', `Concurrency 1–${caps.max_concurrency || 4}`, `${summary.completed_count || 0}/${summary.total_count || items.length || 0} completed`, summary.failed_count ? `${summary.failed_count} failed` : 'No item failures'])}<div class="neo-ui-field-grid three compact"><label>Batch Name<input id="voiceBatchName" maxlength="120" value="${escapeAttr(state.voiceBatchDraft?.name || 'Voice Batch')}"></label><label>Default Item Mode${optionSelect('voiceBatchDefaultMode', [{id:'tts',label:'TTS'}, {id:'voice_clone',label:'Reference Clone'}, {id:'voice_dialogue',label:'Dialogue'}], state.voiceBatchDraft?.default_mode || 'tts')}</label><label>Concurrency<input id="voiceBatchConcurrency" type="number" min="1" max="4" step="1" value="${escapeAttr(state.voiceBatchDraft?.concurrency || 1)}"></label></div><div class="neo-ui-field-grid two compact"><label>Batch File<input id="voiceBatchFile" type="file" accept=".txt,.md,.csv,.json,.srt,text/plain,text/csv,application/json"></label><label>Format${optionSelect('voiceBatchFormat', [{id:'txt',label:'TXT'}, {id:'md',label:'Markdown'}, {id:'csv',label:'CSV'}, {id:'json',label:'JSON'}, {id:'srt',label:'SRT'}], voiceBatchSourceFormat())}</label></div><label>Paste / Edit Batch Source<textarea id="voiceBatchContent" rows="7" maxlength="1000000" placeholder="Paste TXT/CSV/JSON/SRT content, or choose a file above.">${escapeHtml(state.voiceBatchDraft?.content || '')}</textarea></label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceBatchImportBtn">Import Batch</button><button type="button" class="neo-btn primary" id="voiceBatchRunBtn" ${batch && caps.ready && !voiceBatchTerminal(batch.status) ? '' : 'disabled aria-disabled="true"'}>Run Batch</button><button type="button" class="neo-btn ghost" id="voiceBatchRefreshBtn">Refresh</button></div></div>${notice}${error}${items.length ? `<div class="neo-parameter-stack" data-testid="voice-r11-batch-items">${items.map(voiceBatchItemHtml).join('')}</div>` : `<div class="neo-empty-state"><strong>No current Batch manifest</strong><span>Import a supported script source. Per-item backend/provider overrides and imported provider-native controls are ignored by design.</span></div>`}${historyHtml}`;
+}
+
+function voiceCommonContractSummaryHtml() {
+  const contract = state.voiceBaseCommonContract || {};
+  const routing = state.voiceProviderRouting || {};
+  const common = voiceCommonDraftPayload();
+  const scriptChars = String(common.script || '').length;
+  const profile = routing.profile || {};
+  const canRun = voiceGenerationCanRun();
+  const backendReady = routing.health?.reachable === true;
+  const singleVoice = `<div class="neo-ui-card" data-testid="voice-r4-generation-runtime"><span class="neo-card-kicker">TTS</span><strong>Single Voice TTS</strong><p>The shared Voice settings are combined with the selected backend profile and submitted for synthesis. Neo marks completion only after real provider audio is stored in Neo-owned Voice output storage.</p>${badgeRow(['Shared Voice settings', `${(contract.common_field_ids || []).length || 9} common fields`, scriptChars ? 'Script present' : 'Script needed', routing.routing_ready ? 'Profile routing ready' : 'Profile routing blocked', backendReady ? 'Backend reachable' : 'Backend disconnected', `Runtime: ${voiceGenerationStatusLabel()}`])}${NeoUI.metaList([`Selected profile: ${profile.display_name || profile.profile_id || 'none'}.`, `Provider: ${profile.provider_id || 'unresolved'} · Family: ${profile.family || 'unresolved'}.`, 'Single Voice TTS uses the shared settings plus controls from the selected provider. Reference / Clone, Dialogue, and Batch remain separate workflows.', 'Neo does not create placeholder audio when a provider run fails.'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="voiceGenerateBtn" ${canRun ? '' : 'disabled aria-disabled="true"'}>Generate Voice</button><button type="button" class="neo-btn secondary" id="voiceValidateCommonSettingsBtn">Validate Draft</button><button type="button" class="neo-btn ghost" id="voiceResetCommonSettingsBtn">Reset Common Settings</button></div>${voiceCommonValidationHtml()}</div>`;
+  const mode = voiceDialogueMode();
+  return `${voiceGenerationModeSelectorHtml()}${mode === 'dialogue' ? voiceR10DialogueWorkspaceHtml() : mode === 'batch' ? voiceR11BatchWorkspaceHtml() : singleVoice}`;
+}
+
+function voiceCommonScriptPanelHtml() {
+  const common = voiceCommonDraftPayload();
+  const script = String(common.script || '');
+  const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
+  const charCount = script.length;
+  const approxSeconds = wordCount ? Math.max(1, Math.round((wordCount / 145) * 60)) : 0;
+  const languageControl = voiceCommonControlState('language');
+  const modelControl = voiceCommonControlState('model_id');
+  const voiceControl = voiceCommonControlState('voice_id');
+  const languageValue = languageControl.mode === 'fixed' && languageControl.fixed_value ? languageControl.fixed_value : (common.language || 'en');
+  const languageHint = languageControl.mode === 'fixed' ? `Fixed by selected profile: ${languageValue}` : 'Provider-routed locale';
+  return `<div class="neo-voice-common-script" data-testid="voice-r4-script-panel"><label>Script<textarea id="voiceScriptBody" rows="10" maxlength="100000" placeholder="Paste narration or voiceover text here.">${escapeHtml(script)}</textarea></label><div class="neo-ui-field-grid three compact"><label>Language / Locale <span class="neo-field-hint">${escapeHtml(languageHint)}</span><input id="voiceLanguage" maxlength="32" value="${escapeAttr(languageValue)}" placeholder="en" ${languageControl.enabled === false ? 'disabled aria-disabled="true"' : ''}></label><label>Model <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceModelId', voiceModelOptions(), common.model_id || 'provider_default', modelControl.enabled !== false && voiceRoutingReady())}</label><label>Voice / Speaker <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceSourceId', voiceVoiceOptions(), common.voice_id || 'provider_default', voiceControl.enabled !== false && voiceRoutingReady())}</label></div>${badgeRow([`${wordCount} words`, `${charCount} chars`, approxSeconds ? `~${approxSeconds}s read` : 'No script yet', voiceRoutingReady() ? 'Provider mapping: active' : 'Provider mapping: unavailable'])}</div>`;
+}
+
+function voiceCommonAudioPreviewPanelHtml() {
+  const selected = voiceSelectedResultRecord();
+  const last = state.voiceLastJob || null;
+  const selectedOutput = selected?.output || {};
+  const path = selectedOutput.available ? selectedOutput.path : (last?.output_file || last?.outputs?.[0]?.path || last?.outputs?.files?.[0]?.path || '');
+  const status = selected?.status || last?.status || 'idle';
+  const progress = Number(selected?.progress?.percent ?? last?.progress?.percent ?? 0);
+  const sourceLabel = selected ? `Selected result: ${selected.job_id || ''}` : (path ? 'Latest generated result' : 'No selected result');
+  const playback = path
+    ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(path)}"></audio><p class="neo-muted">${escapeHtml(sourceLabel)} · Neo-owned Voice output.</p>`
+    : `<div class="neo-empty-state"><strong>${escapeHtml(status === 'idle' ? 'No generated audio yet' : `Voice job: ${status}`)}</strong><span>${escapeHtml(last?.message || (voiceGenerationCanRun() ? 'Generate Voice to create the first current runtime output.' : 'Add a script and connect the selected Voice backend.'))}</span></div>`;
+  return `<div data-testid="voice-r5-audio-preview">${playback}${badgeRow([selected ? 'Selected result playback' : 'Latest runtime playback', voiceRoutingReady() ? 'Provider routed' : 'Provider unresolved', `Status: ${status}`, progress ? `${Math.round(progress)}%` : 'Neo-owned playback'])}</div>`;
+}
+
+
+function voiceFinishSourceItems() {
+  const allowed = new Set(['tts', 'voice_clone', 'voice_dialogue', 'voice_finish', 'voice_finish_merge']);
+  return voiceResultsItems().filter((item) => item?.playable && allowed.has(String(item.mode || '').toLowerCase()) && item?.output?.available);
+}
+
+function voiceFinishSourceJobId() {
+  const candidates = voiceFinishSourceItems();
+  const preferred = String(state.voiceFinishSourceJobId || '').trim();
+  if (preferred && candidates.some((item) => item.job_id === preferred)) return preferred;
+  if (state.voiceSelectedResultId && candidates.some((item) => item.job_id === state.voiceSelectedResultId)) return state.voiceSelectedResultId;
+  return candidates[0]?.job_id || '';
+}
+
+function voiceFinishCapabilitiesReady() {
+  return state.voiceFinishCapabilities?.ready === true;
+}
+
+function voiceFinishOperationAvailable(operationId) {
+  return state.voiceFinishCapabilities?.operations?.[operationId]?.available === true;
+}
+
+function voiceFinishHistoryItems() {
+  return Array.isArray(state.voiceFinishHistory?.items) ? state.voiceFinishHistory.items : [];
+}
+
+async function refreshVoiceFinishRuntime({ renderAfter = false } = {}) {
+  const [capabilities, history] = await Promise.all([
+    loadJson('/api/voice/finish-runtime/capabilities', state.voiceFinishCapabilities),
+    loadJson('/api/voice/finish-runtime/history?limit=50', state.voiceFinishHistory),
+  ]);
+  state.voiceFinishCapabilities = capabilities;
+  state.voiceFinishHistory = history;
+  const current = voiceFinishSourceJobId();
+  if (current) state.voiceFinishSourceJobId = current;
+  if (renderAfter) render();
+  return { capabilities, history };
+}
+
+function voiceFinishSourceOptionsHtml() {
+  const selected = voiceFinishSourceJobId();
+  const items = voiceFinishSourceItems();
+  if (!items.length) return '<option value="">No completed Voice result</option>';
+  return items.map((item) => {
+    const kind = item.mode === 'voice_clone' ? 'Clone' : item.mode === 'voice_finish' ? 'Finish' : item.mode === 'voice_finish_merge' ? 'Merge' : 'TTS';
+    return `<option value="${escapeAttr(item.job_id || '')}" ${item.job_id === selected ? 'selected' : ''}>${escapeHtml(`${kind} · ${item.job_id || 'Voice result'} · ${(item.output?.format || '').toUpperCase()}`)}</option>`;
+  }).join('');
+}
+
+function voiceR9FinishHistoryHtml() {
+  const items = voiceFinishHistoryItems();
+  if (!items.length) return '<div class="neo-empty-state"><strong>No Finish jobs yet</strong><span>Run a non-destructive Finish action to create a new child output.</span></div>';
+  return `<div class="neo-output-stack neo-voice-finish-history" data-testid="voice-r9-finish-history">${items.map((item) => {
+    const first = Array.isArray(item.outputs) ? item.outputs[0] : null;
+    const audio = first?.path ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(first.path)}"></audio>` : '';
+    const sourceLabel = item.source_job_ids?.length > 1 ? `${item.source_job_ids.length} sources` : (item.source_job_id || 'source');
+    return `<div class="neo-ui-card compact"><span class="neo-card-kicker">${escapeHtml(item.operation || item.mode || 'Finish')}</span><strong>${escapeHtml(item.job_id || '')}</strong>${badgeRow([item.status || 'unknown', sourceLabel, `${item.output_count || 0} output(s)`])}${audio}<p class="neo-muted">${escapeHtml(item.message || '')}</p>${first?.path ? `<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" data-voice-finish-use-source="${escapeAttr(item.job_id || '')}">Use as Finish Source</button></div>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+
+function voiceR9FinishMergeSourcesHtml() {
+  const selected = new Set(Array.isArray(state.voiceFinishMergeSourceIds) ? state.voiceFinishMergeSourceIds : []);
+  const items = voiceFinishSourceItems();
+  if (items.length < 2) return '<div class="neo-empty-state"><strong>Need at least two completed outputs</strong><span>Generate or Finish more Voice outputs before using Merge.</span></div>';
+  return `<div class="neo-voice-finish-merge-grid">${items.map((item) => `<label class="neo-voice-finish-merge-source"><input type="checkbox" data-voice-finish-merge-source="${escapeAttr(item.job_id || '')}" ${selected.has(item.job_id) ? 'checked' : ''}> <span>${escapeHtml(item.job_id || '')}</span><small>${escapeHtml(`${item.mode || 'voice'} · ${(item.output?.format || '').toUpperCase()}`)}</small></label>`).join('')}</div>`;
+}
+
+function voiceR9FinishWorkspaceHtml() {
+  const caps = state.voiceFinishCapabilities || {};
+  const ready = caps.ready === true;
+  const sourceId = voiceFinishSourceJobId();
+  const source = voiceFinishSourceItems().find((item) => item.job_id === sourceId) || null;
+  const draft = state.voiceFinishDraft || {};
+  const loudnessAvailable = voiceFinishOperationAvailable('loudness_target');
+  const splitAvailable = voiceFinishOperationAvailable('split');
+  const mergeAvailable = voiceFinishOperationAvailable('merge');
+  const processorLabel = ready ? 'FFmpeg ready' : 'FFmpeg missing';
+  const notice = state.voiceFinishNotice ? `<div class="neo-ui-card compact"><strong>Finish action</strong><p>${escapeHtml(state.voiceFinishNotice)}</p></div>` : '';
+  const error = state.voiceFinishError ? `<div class="neo-ui-card compact"><strong>Finish error</strong><p>${escapeHtml(state.voiceFinishError)}</p></div>` : '';
+  return `<div class="neo-ui-card" data-testid="voice-r9-finish-runtime"><span class="neo-card-kicker">Finish</span><strong>Voice Finish</strong><p>Finish is provider-independent. It processes completed Neo-owned Voice outputs and creates non-destructive child results in the shared Results registry.</p>${badgeRow([processorLabel, 'Neo-owned sources only', 'Shared result registry', 'No placeholder audio'])}${!ready ? '<p class="neo-warn">Install FFmpeg and make it available on PATH to enable current Voice Finish processing.</p>' : ''}</div>${notice}${error}<div class="neo-ui-card"><strong>Source Output</strong><label>Completed Voice result<select id="voiceFinishSourceJobId">${voiceFinishSourceOptionsHtml()}</select></label>${source?.output?.path ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(source.output.path)}"></audio>` : '<p class="neo-muted">Choose a completed TTS, clone, or previous Finish result.</p>'}</div><div class="neo-ui-card"><strong>Process / Export</strong><div class="neo-ui-field-grid three compact"><label>Normalize${optionSelect('voiceFinishNormalize', [{id:'false',label:'Off'},{id:'true',label:'On'}], String(Boolean(draft.normalize)))}</label><label>Trim Edge Silence${optionSelect('voiceFinishSilenceTrim', [{id:'false',label:'Off'},{id:'true',label:'On'}], String(Boolean(draft.silence_trim)))}</label><label>Noise Cleanup${optionSelect('voiceFinishNoiseCleanup', [{id:'false',label:'Off'},{id:'true',label:'On'}], String(Boolean(draft.noise_cleanup)))}</label><label>Loudness Target${optionSelect('voiceFinishLoudnessEnabled', [{id:'false',label:'Off'},{id:'true',label:'On'}], String(Boolean(draft.loudness_enabled)))}</label><label>Target LUFS<input id="voiceFinishLoudnessTarget" type="number" min="-30" max="-5" step="0.5" value="${escapeAttr(draft.loudness_target ?? -16)}" ${draft.loudness_enabled && loudnessAvailable ? '' : 'disabled'}></label><label>Output Format${optionSelect('voiceFinishOutputFormat', [{id:'wav',label:'WAV'},{id:'mp3',label:'MP3'}], draft.output_format || 'wav')}</label></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="voiceFinishRunBtn" ${ready && sourceId ? '' : 'disabled'}>Run Finish</button><button type="button" class="neo-btn secondary" id="voiceFinishRefreshBtn">Refresh Finish</button></div></div><div class="neo-ui-card"><strong>Split</strong><p>Create real waveform child files from the selected source.</p><div class="neo-ui-field-grid two compact"><label>Parts<input id="voiceFinishSplitParts" type="number" min="2" max="50" step="1" value="${escapeAttr(draft.split_parts ?? 2)}"></label><label>Format${optionSelect('voiceFinishSplitFormat', [{id:'wav',label:'WAV'},{id:'mp3',label:'MP3'}], draft.output_format || 'wav')}</label></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceFinishSplitBtn" ${ready && splitAvailable && sourceId ? '' : 'disabled'}>Split Source</button></div></div><div class="neo-ui-card"><strong>Merge</strong><p>Select two or more completed Voice outputs. Neo creates one new child output while preserving its source lineage.</p>${voiceR9FinishMergeSourcesHtml()}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceFinishMergeBtn" ${ready && mergeAvailable ? '' : 'disabled'}>Merge Selected</button></div></div><div class="neo-ui-card"><strong>Finish History</strong>${voiceR9FinishHistoryHtml()}</div>`;
+}
+
+async function runVoiceFinishProcess() {
+  const sourceJobId = voiceFinishSourceJobId();
+  if (!sourceJobId) return;
+  state.voiceFinishError = '';
+  state.voiceFinishNotice = 'Running Voice Finish…';
+  render();
+  const draft = state.voiceFinishDraft || {};
+  const response = await fetch('/api/voice/finish-runtime/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_job_id: sourceJobId, normalize: Boolean(draft.normalize), silence_trim: Boolean(draft.silence_trim), noise_cleanup: Boolean(draft.noise_cleanup), loudness_target: draft.loudness_enabled ? Number(draft.loudness_target ?? -16) : null, output_format: draft.output_format || 'wav' }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!payload.ok || payload.status === 'failed') {
+    state.voiceFinishError = payload.message || 'Voice Finish failed.';
+    state.voiceFinishNotice = '';
+  } else {
+    state.voiceFinishNotice = payload.message || 'Voice Finish completed.';
+    state.voiceFinishSourceJobId = payload.job_id || sourceJobId;
+    await refreshVoiceResults({ renderAfter: false });
+    if (payload.job_id) await selectVoiceResult(payload.job_id, { renderAfter: false, recordEvent: false });
+    await refreshVoiceFinishRuntime({ renderAfter: false });
+    recordMemoryEvent('voice.finish.completed', 'voice', { phase: 'VO-R9', job_id: payload.job_id || '', source_job_id: sourceJobId });
+  }
+  render();
+}
+
+async function runVoiceFinishSplit() {
+  const sourceJobId = voiceFinishSourceJobId();
+  if (!sourceJobId) return;
+  const draft = state.voiceFinishDraft || {};
+  state.voiceFinishError = '';
+  state.voiceFinishNotice = 'Splitting Voice output…';
+  render();
+  const response = await fetch('/api/voice/finish-runtime/split', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_job_id: sourceJobId, parts: Number(draft.split_parts || 2), output_format: draft.output_format || 'wav' }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!payload.ok || payload.status === 'failed') {
+    state.voiceFinishError = payload.message || 'Voice split failed.';
+    state.voiceFinishNotice = '';
+  } else {
+    state.voiceFinishNotice = payload.message || 'Voice split completed.';
+    await refreshVoiceResults({ renderAfter: false });
+    if (payload.job_id) await selectVoiceResult(payload.job_id, { renderAfter: false, recordEvent: false });
+    await refreshVoiceFinishRuntime({ renderAfter: false });
+    recordMemoryEvent('voice.finish.split.completed', 'voice', { phase: 'VO-R9', job_id: payload.job_id || '', source_job_id: sourceJobId });
+  }
+  render();
+}
+
+async function runVoiceFinishMerge() {
+  const ids = Array.isArray(state.voiceFinishMergeSourceIds) ? state.voiceFinishMergeSourceIds.filter(Boolean) : [];
+  if (ids.length < 2) { window.alert('Select at least two Voice outputs to merge.'); return; }
+  const draft = state.voiceFinishDraft || {};
+  state.voiceFinishError = '';
+  state.voiceFinishNotice = 'Merging Voice outputs…';
+  render();
+  const response = await fetch('/api/voice/finish-runtime/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_job_ids: ids, output_format: draft.output_format || 'wav' }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!payload.ok || payload.status === 'failed') {
+    state.voiceFinishError = payload.message || 'Voice merge failed.';
+    state.voiceFinishNotice = '';
+  } else {
+    state.voiceFinishNotice = payload.message || 'Voice merge completed.';
+    state.voiceFinishSourceJobId = payload.job_id || state.voiceFinishSourceJobId;
+    state.voiceFinishMergeSourceIds = [];
+    await refreshVoiceResults({ renderAfter: false });
+    if (payload.job_id) await selectVoiceResult(payload.job_id, { renderAfter: false, recordEvent: false });
+    await refreshVoiceFinishRuntime({ renderAfter: false });
+    recordMemoryEvent('voice.finish.merge.completed', 'voice', { phase: 'VO-R9', job_id: payload.job_id || '', source_job_ids: ids });
+  }
+  render();
+}
+
+function voiceCommonParameterPanelHtml() {
+  const common = voiceCommonDraftPayload();
+  const formats = Array.isArray(state.voiceBaseCommonContract?.output_formats) && state.voiceBaseCommonContract.output_formats.length
+    ? state.voiceBaseCommonContract.output_formats.map((id) => ({ id, label: String(id).toUpperCase() }))
+    : [{ id: 'wav', label: 'WAV' }, { id: 'mp3', label: 'MP3' }];
+  const splitEnabled = common.split_long_text !== false;
+  const speakingRateControl = voiceCommonControlState('speaking_rate');
+  const outputFormatControl = voiceCommonControlState('output_format');
+  return `<div class="neo-parameter-stack neo-voice-common-parameter-stack" data-testid="voice-r4-common-parameters"><section class="neo-param-row"><div><h4>Delivery</h4><div class="neo-ui-field-grid two compact"><label>Speaking Rate <span class="neo-field-hint">0.5–2.0</span><input id="voiceSpeakingRate" type="number" min="0.5" max="2" step="0.05" value="${escapeAttr(common.speaking_rate ?? 1)}" ${speakingRateControl.enabled === false ? 'disabled aria-disabled="true"' : ''}></label><label>Output Format${voiceOptionSelect('voiceOutputFormat', formats, common.output_format || 'wav', outputFormatControl.enabled !== false)}</label></div></div></section><section class="neo-param-row"><div><h4>Script Processing</h4><div class="neo-ui-field-grid three compact"><label>Split Long Text${optionSelect('voiceSplitLongText', [{id:'true',label:'Enabled'}, {id:'false',label:'Disabled'}], String(splitEnabled))}</label><label>Maximum Chunk Size <span class="neo-field-hint">160–2400 chars</span><input id="voiceMaxChunkChars" type="number" min="160" max="2400" step="10" value="${escapeAttr(common.max_chunk_chars ?? 650)}" ${splitEnabled ? '' : 'disabled'}></label><label>Punctuation Cleanup${optionSelect('voicePunctuationCleanup', [{id:'true',label:'Enabled'}, {id:'false',label:'Disabled'}], String(common.punctuation_cleanup !== false))}</label></div></div></section><div class="neo-ui-card compact" data-testid="voice-r4-runtime-boundary"><strong>Voice runtime</strong><p>Common settings generate TTS through the selected provider. Provider-specific synthesis controls are shown separately and remain scoped to the current profile and mode.</p>${badgeRow(voiceProviderRoutingBadges())}</div></div>`;
+}
+
+function voiceR4WorkspaceBodyHtml(workspaceId) {
+  if (workspaceId === 'generation') return voiceCommonContractSummaryHtml();
+  if (workspaceId === 'assets') return voiceR7AssetsWorkspaceHtml();
+  if (workspaceId === 'reference') return voiceR6ReferenceWorkspaceHtml();
+  if (workspaceId === 'finish') return voiceR9FinishWorkspaceHtml();
+  if (workspaceId === 'results') return voiceR5ResultsWorkspaceHtml();
+  return '';
+}
+
+function appendVoicePersistentCommonRail(right) {
+  right.classList.add('neo-voice-generation-rail');
+  right.setAttribute('data-testid', 'voice-script-preview-parameters-rail');
+  right.setAttribute('data-voice-rail-role', 'script-preview-common-parameters');
+  const scriptPreviewRow = document.createElement('section');
+  scriptPreviewRow.className = 'neo-prompt-preview-row neo-voice-script-preview-row';
+  scriptPreviewRow.appendChild(fixedPanel('Script', voiceCommonScriptPanelHtml(), 'script'));
+  scriptPreviewRow.appendChild(fixedPanel('Audio Preview', voiceCommonAudioPreviewPanelHtml(), 'preview'));
+  right.appendChild(scriptPreviewRow);
+  right.appendChild(panel('Common Parameters', voiceCommonParameterPanelHtml(), false, 'params'));
+  right.appendChild(panel('Provider Controls', voiceProviderControlsPanelHtml(), false, 'provider-controls'));
+  right.appendChild(panel('Runtime Status', `<div class="neo-ui-card compact"><strong>Current runtime boundary</strong>${badgeRow(['TTS: active', voiceDialogueCapabilitiesReady() ? 'Dialogue: ready' : 'Dialogue: gated', state.voiceBatchCapabilities?.ready ? 'Batch: ready' : 'Batch: gated', 'Preview + Results: active', voiceCloneRouteSupported() ? 'Reference / Clone: available' : 'Reference / Clone: gated', voiceFinishCapabilitiesReady() ? 'Finish: ready' : 'Finish: processor gated'])}<p>Batch orchestration uses bounded concurrency and preserves retry/history information while keeping TTS, Clone, and Dialogue outputs in the shared Results registry.</p></div>`, false, 'guarded'));
+}
+
+function voiceR1ResultsHtml() {
+  const jobs = Array.isArray(state.voiceHistory?.jobs) ? state.voiceHistory.jobs.slice(0, 12) : [];
+  if (!jobs.length) return `<div class="neo-empty-state"><strong>No Voice results yet</strong><span>Existing Neo Voice jobs will appear here.</span></div>`;
+  return `<div class="neo-output-stack">${jobs.map((job) => {
+    const path = job?.output_file || job?.final_output || job?.outputs?.files?.[0]?.path || '';
+    const audio = path ? `<audio controls preload="metadata" src="/api/voice/output-file?path=${encodeURIComponent(path)}"></audio>` : '<span class="neo-muted">No playable output attached</span>';
+    return `<div class="neo-ui-card compact"><strong>${escapeHtml(job.job_id || 'Voice job')}</strong>${badgeRow([job.status || 'unknown', job.job_type || 'voice'])}${audio}</div>`;
+  }).join('')}</div>`;
+}
+
+function voiceR1WorkspaceBodyHtml(workspaceId) {
+  if (workspaceId === 'generation') return `<div class="neo-ui-card"><span class="neo-card-kicker">Voice</span><strong>Generation</strong><p>Create speech with the selected Voice backend using script, language, model, voice, delivery, and chunking controls.</p>${badgeRow(['Surface active', 'Common settings staged', 'No legacy Generate action mounted'])}</div>`;
+  if (workspaceId === 'assets') return `<div class="neo-ui-card"><span class="neo-card-kicker">Voice Assets</span><strong>Assets workspace ready</strong><p>This lane is reserved for reusable voices, saved profiles, and audio assets. Use this workspace for reusable voices, saved profiles, and audio assets.</p>${badgeRow(['Workspace active', 'Actions staged', 'No destructive changes'])}</div>`;
+  if (workspaceId === 'reference') return `<div class="neo-ui-card"><span class="neo-card-kicker">Reference</span><strong>Reference workspace ready</strong><p>Reference audio is capability-gated by the selected provider. Upload, quality checks, and cloning controls appear only when the backend supports them.</p>${badgeRow(['Workspace active', 'Clone gated', 'QC staged'])}</div>`;
+  if (workspaceId === 'finish') return `<div class="neo-ui-card"><span class="neo-card-kicker">Finish</span><strong>Finish workspace ready</strong><p>Normalize, trim, clean up, adjust loudness, split, merge, and export completed Voice outputs when the required local tools are available.</p>${badgeRow(['Workspace active', 'Tools staged', 'Neo-owned outputs only'])}</div>`;
+  if (workspaceId === 'results') return `<div class="neo-ui-card"><span class="neo-card-kicker">Results</span><strong>Existing Voice history</strong><p>Existing Voice jobs can be reviewed from the Results workspace.</p></div>${voiceR1ResultsHtml()}`;
+  return '';
+}
+
 function renderVoicePanels(surface, subtab) {
   el.surfacePanels.innerHTML = '';
-  el.surfacePanels.className = 'neo-workspace-split voice-workspace';
-  const activeId = subtab?.subtab_id || state.activeSubtabId || 'workspace';
-  const summary = activeVoiceWorkspaceSummary(subtab);
+  el.surfacePanels.className = 'neo-workspace-split voice-workspace neo-voice-r7-workspace neo-voice-r8-workspace neo-voice-r9-workspace neo-voice-r10-workspace neo-voice-r12a-workspace neo-voice-r12b-workspace';
+  const workspaceId = getSurfaceWorkspaceAppId('voice');
   const left = document.createElement('section');
   left.className = 'neo-workspace-column neo-workspace-left neo-voice-workspace-left';
+  left.setAttribute('data-testid', 'voice-active-workspace-rail');
+  left.setAttribute('data-voice-rail-role', 'active-workspace');
   const right = document.createElement('section');
   right.className = 'neo-workspace-column neo-workspace-right neo-voice-workspace-right';
-  left.appendChild(fixedPanel(`${summary.workspace_label} Workspace`, `<div class="neo-image-workspace-explainer neo-voice-workspace-explainer" data-testid="voice-workspace-explainer"><div><span class="neo-card-kicker">Workspace</span><strong>${escapeHtml(summary.workspace_label)}</strong><p>${escapeHtml(summary.workspace_description)}</p></div><div><span class="neo-card-kicker">Job Type</span><strong>${escapeHtml(summary.job)}</strong><p>Use the top Voice Generate card for Preview, Render, backend probe, and history refresh.</p></div></div>${badgeRow([`Workspace: ${summary.workspace_label}`, `Family: ${summary.family}`, `Job: ${summary.job}`, `Source: ${summary.source}`])}`, 'voice-workspace-summary'));
-  left.appendChild(panel('Voice Setup', voiceWorkspaceLeftPanelHtml(activeId), false, activeId));
-  const topRow = document.createElement('section');
-  topRow.className = 'neo-prompt-preview-row neo-voice-script-preview-row';
-  topRow.appendChild(fixedPanel('Script', voiceScriptPanelHtml(), 'script'));
-  topRow.appendChild(fixedPanel('Preview / Queue / Outputs', voicePreviewPanelHtml(), 'preview'));
-  right.appendChild(topRow);
-  right.appendChild(panel('Voice Source', voiceSourcePanelHtml(), false, 'voice-source'));
-  right.appendChild(panel('Parameters', voiceParameterPanelHtml(), false, 'params'));
-  right.appendChild(panel('Run Status', `${badgeRow(['Runtime workspace active', state.voiceBackendHealth?.status || 'backend not checked', state.voiceCapabilities?.status || 'capabilities ready', state.voicePreviewStale ? 'preview stale' : 'preview current'])}<p>Voice Quick Preview and Full Render are active. Render creates a chunk plan, per-chunk output records, final WAV handoff, and metadata sidecar; audio quality remains backend-dependent.</p>`, false, 'status'));
+
+  left.insertAdjacentHTML('beforeend', voiceR4WorkspaceBodyHtml(workspaceId));
+
+  appendVoicePersistentCommonRail(right);
   el.surfacePanels.appendChild(left);
   el.surfacePanels.appendChild(right);
-  document.getElementById('voiceEnsureOutputPathsBtn')?.addEventListener('click', async () => {
-    const payload = await loadJson('/api/voice/output-paths?create=true', null);
-    state.voiceOutputPaths = payload || state.voiceOutputPaths;
-    recordMemoryEvent('voice.output_paths.checked', 'voice', { root: payload?.root || '', categories: Object.keys(payload?.categories || {}) });
-    window.alert(`Voice output folders ready:\n${payload?.root || 'neo_data/outputs/voice'}`);
+
+  bindVoiceDraftInputs();
+  document.getElementById('voiceWorkspaceAppSelect')?.addEventListener('change', async (event) => {
+    const requested = String(event.target.value || 'generation');
+    setSurfaceWorkspaceAppId('voice', requested);
+    saveUiState();
+    recordMemoryEvent('voice.workspace_app.opened', 'voice', { workspace_app: requested });
     render();
   });
-  bindVoiceDraftInputs();
-  document.querySelectorAll('[data-voice-retry-chunk]').forEach((button) => button.addEventListener('click', async () => { await retryVoiceChunk(button.dataset.voiceJobId || '', button.dataset.voiceRetryChunk || ''); }));
+  document.getElementById('voiceWorkspaceGenerationMode')?.addEventListener('change', async (event) => {
+    await setVoiceGenerationModeRuntime(String(event.target.value || 'tts'));
+    render();
+  });
+  document.getElementById('voiceWorkspaceValidateBtn')?.addEventListener('click', validateVoiceCommonDraft);
+  document.getElementById('voiceWorkspaceGenerateBtn')?.addEventListener('click', runActiveVoiceGenerationMode);
+  document.getElementById('voiceGenerateBtn')?.addEventListener('click', submitVoiceGeneration);
+  document.getElementById('voiceGenerationMode')?.addEventListener('change', async (event) => {
+    await setVoiceGenerationModeRuntime(String(event.target.value || 'tts'));
+    render();
+  });
+  document.getElementById('voiceR10ParseDialogueBtn')?.addEventListener('click', parseCurrentVoiceDialogue);
+  document.getElementById('voiceR10GenerateDialogueBtn')?.addEventListener('click', submitVoiceDialogueGeneration);
+  document.getElementById('voiceBatchImportBtn')?.addEventListener('click', importVoiceBatchRuntime);
+  document.getElementById('voiceBatchRunBtn')?.addEventListener('click', runVoiceBatchRuntime);
+  document.getElementById('voiceBatchRefreshBtn')?.addEventListener('click', () => refreshVoiceBatchRuntime({ renderAfter: true }));
+  document.querySelectorAll('[data-voice-batch-retry-item]').forEach((node) => node.addEventListener('click', () => retryVoiceBatchRuntimeItem(node.dataset.voiceBatchRetryItem || '')));
+  [['voiceBatchName','name','text'], ['voiceBatchDefaultMode','default_mode','text'], ['voiceBatchConcurrency','concurrency','number'], ['voiceBatchFormat','format','text'], ['voiceBatchContent','content','text']].forEach(([id,key,type]) => {
+    const eventName = id === 'voiceBatchContent' || id === 'voiceBatchName' ? 'input' : 'change';
+    document.getElementById(id)?.addEventListener(eventName, (event) => {
+      let value = event.target.value;
+      if (type === 'number') value = Math.max(1, Math.min(4, Number(value || 1)));
+      state.voiceBatchDraft = { ...(state.voiceBatchDraft || {}), [key]: value };
+    });
+  });
+  document.querySelectorAll('[data-voice-dialogue-speaker]').forEach((card) => {
+    const key = String(card.dataset.voiceDialogueSpeaker || '');
+    const source = document.getElementById(`voiceDialogueSource_${key}`);
+    source?.addEventListener('change', (event) => {
+      const current = voiceDialogueSpeakerMap()[key] || voiceDialogueDefaultMapping();
+      voiceDialogueSpeakerMap()[key] = { ...current, source_type: event.target.value || 'built_in' };
+      state.voiceDialogueDraft.error = '';
+      recordMemoryEvent('voice.dialogue.mapping.changed', 'voice', { phase: 'VO-R10', speaker_id: key, source_type: event.target.value || 'built_in' });
+      render();
+    });
+    [['Asset','asset_id'], ['Reference','reference_id'], ['Model','model_id'], ['Voice','voice_id']].forEach(([suffix, field]) => {
+      document.getElementById(`voiceDialogue${suffix}_${key}`)?.addEventListener('change', (event) => {
+        const current = voiceDialogueSpeakerMap()[key] || voiceDialogueDefaultMapping();
+        voiceDialogueSpeakerMap()[key] = { ...current, [field]: event.target.value || (field === 'model_id' || field === 'voice_id' ? 'provider_default' : '') };
+        state.voiceDialogueDraft.error = '';
+        recordMemoryEvent('voice.dialogue.mapping.changed', 'voice', { phase: 'VO-R10', speaker_id: key, field });
+      });
+    });
+  });
+  document.getElementById('voiceValidateCommonSettingsBtn')?.addEventListener('click', validateVoiceCommonDraft);
+  document.getElementById('voiceResetCommonSettingsBtn')?.addEventListener('click', resetVoiceCommonSettings);
+  document.getElementById('voiceRefreshResultsBtn')?.addEventListener('click', () => refreshVoiceResults({ renderAfter: true }));
+  document.querySelectorAll('[data-voice-result-id]').forEach((node) => node.addEventListener('click', () => selectVoiceResult(node.dataset.voiceResultId || '')));
+  document.getElementById('voiceResultReplayBtn')?.addEventListener('click', () => replayVoiceResultToDraft(state.voiceSelectedResultId));
+  document.getElementById('voiceResultOpenFolderBtn')?.addEventListener('click', () => openVoiceResultFolder(state.voiceSelectedResultId));
+  document.getElementById('voiceR6RefreshReferencesBtn')?.addEventListener('click', () => refreshVoiceReferences({ renderAfter: true }));
+  document.getElementById('voiceR6UploadReferenceBtn')?.addEventListener('click', uploadCurrentVoiceReference);
+  document.getElementById('voiceR6AnalyzeReferenceBtn')?.addEventListener('click', analyzeCurrentVoiceReference);
+  document.getElementById('voiceR6AttestReferenceBtn')?.addEventListener('click', attestCurrentVoiceReference);
+  document.getElementById('voiceR6GenerateCloneBtn')?.addEventListener('click', submitVoiceCloneGeneration);
+  document.querySelectorAll('[data-voice-reference-id]').forEach((node) => node.addEventListener('click', () => selectVoiceReference(node.dataset.voiceReferenceId || '')));
+  document.getElementById('voiceR7RefreshProfileAssetsBtn')?.addEventListener('click', () => refreshVoiceProfileAssets({ renderAfter: true }));
+  document.getElementById('voiceR7CreateProfileAssetBtn')?.addEventListener('click', () => saveCurrentVoiceProfileAsset({ update: false }));
+  document.getElementById('voiceR7ApplyProfileAssetBtn')?.addEventListener('click', applyCurrentVoiceProfileAsset);
+  document.getElementById('voiceR7UpdateProfileAssetBtn')?.addEventListener('click', () => saveCurrentVoiceProfileAsset({ update: true }));
+  document.getElementById('voiceR7DeleteProfileAssetBtn')?.addEventListener('click', deleteCurrentVoiceProfileAsset);
+  document.querySelectorAll('[data-voice-profile-asset-id]').forEach((node) => node.addEventListener('click', () => selectVoiceProfileAsset(node.dataset.voiceProfileAssetId || '')));
+  document.getElementById('voiceFinishRefreshBtn')?.addEventListener('click', () => refreshVoiceFinishRuntime({ renderAfter: true }));
+  document.getElementById('voiceFinishRunBtn')?.addEventListener('click', runVoiceFinishProcess);
+  document.getElementById('voiceFinishSplitBtn')?.addEventListener('click', runVoiceFinishSplit);
+  document.getElementById('voiceFinishMergeBtn')?.addEventListener('click', runVoiceFinishMerge);
+  document.getElementById('voiceFinishSourceJobId')?.addEventListener('change', (event) => {
+    state.voiceFinishSourceJobId = String(event.target.value || '');
+    state.voiceFinishNotice = '';
+    state.voiceFinishError = '';
+    recordMemoryEvent('voice.finish.source.selected', 'voice', { phase: 'VO-R9', source_job_id: state.voiceFinishSourceJobId });
+    render();
+  });
+  [['voiceFinishNormalize','normalize','boolean'], ['voiceFinishSilenceTrim','silence_trim','boolean'], ['voiceFinishNoiseCleanup','noise_cleanup','boolean'], ['voiceFinishLoudnessEnabled','loudness_enabled','boolean'], ['voiceFinishLoudnessTarget','loudness_target','number'], ['voiceFinishOutputFormat','output_format','text'], ['voiceFinishSplitParts','split_parts','number'], ['voiceFinishSplitFormat','output_format','text']].forEach(([id,key,type]) => {
+    document.getElementById(id)?.addEventListener('change', (event) => {
+      let value = event.target.value;
+      if (type === 'boolean') value = value === 'true';
+      if (type === 'number') value = Number(value);
+      state.voiceFinishDraft = { ...(state.voiceFinishDraft || {}), [key]: value };
+      render();
+    });
+  });
+  document.querySelectorAll('[data-voice-finish-merge-source]').forEach((node) => node.addEventListener('change', (event) => {
+    const id = String(event.target.dataset.voiceFinishMergeSource || '');
+    const selected = new Set(Array.isArray(state.voiceFinishMergeSourceIds) ? state.voiceFinishMergeSourceIds : []);
+    if (event.target.checked) selected.add(id); else selected.delete(id);
+    state.voiceFinishMergeSourceIds = [...selected].filter(Boolean);
+  }));
+  document.querySelectorAll('[data-voice-finish-use-source]').forEach((node) => node.addEventListener('click', () => {
+    state.voiceFinishSourceJobId = String(node.dataset.voiceFinishUseSource || '');
+    state.voiceFinishNotice = 'Finish child selected as the next non-destructive source.';
+    render();
+  }));
+  document.querySelectorAll('[data-voice-provider-control]').forEach((node) => node.addEventListener('change', (event) => {
+    const mode = event.target.dataset.voiceProviderMode || 'tts';
+    const key = event.target.dataset.voiceProviderControl || '';
+    const contract = voiceProviderControlContract(mode);
+    const def = (contract.controls || []).find((item) => item.id === key) || {};
+    let value = event.target.value;
+    if (def.type === 'number' || def.type === 'integer') value = Number(value);
+    else if (def.type === 'boolean') value = value === 'true';
+    else if (def.type === 'tags') value = String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+    else if (def.type === 'json') { try { value = JSON.parse(String(value || '{}')); } catch { window.alert(`${def.label || key} must be valid JSON.`); render(); return; } }
+    state.voiceDraft.provider_controls = state.voiceDraft.provider_controls || { tts: {}, voice_clone: {} };
+    state.voiceDraft.provider_controls[mode] = { ...(state.voiceDraft.provider_controls[mode] || {}), [key]: value };
+    state.voicePreviewStale = true; saveUiState();
+    recordMemoryEvent('voice.provider_control.changed', 'voice', { phase: 'VO-R8', profile_id: voiceBackendProfileId(), mode, field: key });
+  }));
 }
 
 function bindVoiceDraftInputs() {
@@ -51558,10 +54704,12 @@ function bindVoiceDraftInputs() {
       if (type === 'number') value = Number(value);
       if (type === 'boolean') value = value === 'true';
       state.voiceDraft[key] = value;
+      if (key === 'script_body' && state.voiceDialogueDraft) { state.voiceDialogueDraft.plan = null; state.voiceDialogueDraft.parse_error = ''; state.voiceDialogueDraft.notice = ''; }
       if (['script_title','script_body','delivery_notes','language','voice_source_type','voice_id','reference_id','reference_label','reference_transcript','speaking_rate','expression_strength','reference_strength','seed','model_id','max_chunk_chars'].includes(key)) state.voicePreviewStale = true;
       saveUiState();
-      recordMemoryEvent('voice.runtime_field.changed', 'voice', { field: key });
-      if (['voiceSourceType','voiceOutputFormat','voiceModelId','voiceReferenceId','voiceSavedProfileId'].includes(id)) { if (id === 'voiceSourceType' && value === 'reference_clone') state.voiceDraft.job_type = 'clone_voice'; if (id === 'voiceSourceType' && value === 'saved_profile') state.voiceDraft.job_type = 'generate_speech'; if (id === 'voiceSavedProfileId') applyVoiceProfileDraft(value, false); render(); }
+      const commonFields = new Set(['script_body','language','model_id','voice_id','speaking_rate','output_format','split_long_text','max_chunk_chars','punctuation_cleanup']);
+      recordMemoryEvent(commonFields.has(key) ? 'voice.common_settings.changed' : 'voice.runtime_field.changed', 'voice', { field: key, phase: commonFields.has(key) ? 'VO-R2' : 'legacy_compatibility' });
+      if (['voiceSourceType','voiceOutputFormat','voiceModelId','voiceSplitLongText','voiceReferenceId','voiceSavedProfileId'].includes(id)) { if (id === 'voiceSourceType' && value === 'reference_clone') state.voiceDraft.job_type = 'clone_voice'; if (id === 'voiceSourceType' && value === 'saved_profile') state.voiceDraft.job_type = 'generate_speech'; if (id === 'voiceSavedProfileId') applyVoiceProfileDraft(value, false); render(); }
     });
   });
   document.getElementById('voiceUploadReferenceBtn')?.addEventListener('click', uploadVoiceReferenceFile);
@@ -51786,15 +54934,18 @@ function renderVideoPanels(surface, subtab) {
   document.getElementById('videoRepairCpuOffload')?.addEventListener('change', (event) => { state.videoDraft.repair_cpu_offload = event.target.value !== 'false'; saveUiState(); render(); });
 
   document.getElementById('videoCloudModel')?.addEventListener('change', (event) => {
-    state.videoDraft.cloud_model = String(event.target.value || videoCloudDefault('model', 'grok-imagine-video'));
-    if (!(state.videoDraft.mode === 'img2vid' && state.videoDraft.cloud_model === 'grok-imagine-video-1.5') && state.videoDraft.cloud_resolution === '1080p') {
-      state.videoDraft.cloud_resolution = '720p';
-    }
+    state.videoDraft.cloud_model = String(event.target.value || 'grok-imagine-video');
+    const allowedResolutions = videoCloudAllowedResolutions(state.videoDraft.cloud_model, ensureCloudVideoMode());
+    if (allowedResolutions.length && !allowedResolutions.includes(state.videoDraft.cloud_resolution)) state.videoDraft.cloud_resolution = allowedResolutions.includes('720p') ? '720p' : allowedResolutions[0];
     saveUiState();
     render();
   });
   document.getElementById('videoCloudDuration')?.addEventListener('change', (event) => {
-    state.videoDraft.cloud_duration_seconds = Math.max(1, Math.min(15, Number(event.target.value || videoCloudDefault('duration_seconds', 4))));
+    const mode = ensureCloudVideoMode();
+    const bounds = videoCloudDurationBounds(videoCloudModel(), mode, videoActiveBackendProfile());
+    const min = bounds.min;
+    const max = bounds.max;
+    state.videoDraft.cloud_duration_seconds = Math.max(min, Math.min(max, Number(event.target.value || videoCloudDefault('duration_seconds', mode === 'extend' ? 6 : 4))));
     saveUiState();
     render();
   });
@@ -51805,9 +54956,25 @@ function renderVideoPanels(surface, subtab) {
   });
   document.getElementById('videoCloudResolution')?.addEventListener('change', (event) => {
     const requested = String(event.target.value || videoCloudDefault('resolution', '720p'));
-    state.videoDraft.cloud_resolution = requested === '1080p' && !(state.videoDraft.mode === 'img2vid' && videoCloudModel() === 'grok-imagine-video-1.5') ? '720p' : requested;
+    const allowed = videoCloudAllowedResolutions(videoCloudModel(), ensureCloudVideoMode());
+    state.videoDraft.cloud_resolution = allowed.includes(requested) ? requested : (allowed.includes('720p') ? '720p' : allowed[0]);
     saveUiState();
     render();
+  });
+  document.querySelectorAll('[data-video-reference-upload]').forEach((node) => node.addEventListener('change', async (event) => {
+    try { await uploadVideoReferenceFile(event.target.files?.[0], event.target.dataset.videoReferenceUpload || 'image'); }
+    catch (error) { window.alert(error.message || 'Reference upload failed'); }
+  }));
+  document.querySelectorAll('[data-video-reference-remove]').forEach((node) => node.addEventListener('click', () => {
+    const [kind, index] = String(node.dataset.videoReferenceRemove || 'image:0').split(':');
+    removeVideoReferenceItem(kind, Number(index || 0));
+  }));
+  document.getElementById('videoCloudSourceVideoUpload')?.addEventListener('change', async (event) => {
+    try { await uploadVideoCloudSourceVideo(event.target.files?.[0]); } catch (error) { window.alert(error.message || 'Source video upload failed'); }
+  });
+  document.getElementById('videoCloudUseSelectedResultBtn')?.addEventListener('click', () => useSelectedResultAsCloudSourceVideo());
+  document.getElementById('videoCloudClearSourceVideoBtn')?.addEventListener('click', () => {
+    state.videoDraft.cloud_source_video = ''; state.videoDraft.cloud_source_video_name = ''; state.videoDraft.cloud_source_result_id = ''; saveUiState(); render();
   });
 
   document.getElementById('videoRapidAioFrameMode')?.addEventListener('change', (event) => {
@@ -52139,6 +55306,7 @@ async function uploadImageSourceLaneFile(lane, file) {
   state.imageDraft[`source_image_${numericLane}_name`] = payload.filename || payload.stored_filename || file.name;
   state.imageDraft.qwen_source_slot_count = Math.max(qwenVisibleSourceSlotCount(), numericLane);
   if (numericLane === 3) state.imageDraft.qwen_composition_source_mode = 'composition_image';
+  if (numericLane === 2) syncKrea2IdentityReferenceRoles();
   saveUiState();
   render();
 }
@@ -52181,12 +55349,14 @@ function clearQwenReferenceSource(lane, options = {}) {
     const higherLaneHasImage = numericLane === 2 && Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
     if (!higherLaneHasImage) state.imageDraft.qwen_source_slot_count = Math.max(1, numericLane - 1);
   }
+  if (numericLane === 2) syncKrea2IdentityReferenceRoles();
   saveUiState();
   render();
 }
 
 function addQwenSourceImageSlot() {
   state.imageDraft.qwen_source_slot_count = Math.min(imageMultiReferenceSlotLimit(), qwenVisibleSourceSlotCount() + 1);
+  syncKrea2IdentityReferenceRoles();
   saveUiState();
   render();
 }
@@ -52767,6 +55937,8 @@ function updatePromptCaptioningBatchDisplay(data = {}) {
   if (Array.isArray(data.records)) pc.library.captionBatchResults = data.records;
   if (Array.isArray(data.categories)) pc.library.categories = data.categories;
   if (data.batch && data.batch.batch_id) batch.currentJobId = data.batch.batch_id;
+  if (data.batch_session && typeof data.batch_session === 'object') batch.batchSession = data.batch_session;
+  if (data.cancel_requested !== undefined) batch.cancelRequested = Boolean(data.cancel_requested);
   const incomingLog = data.log;
   if (Array.isArray(incomingLog)) batch.log = incomingLog;
   else if (incomingLog) batch.log = [String(incomingLog)];
@@ -52791,7 +55963,7 @@ async function pollPromptCaptioningBatchStatus(jobId) {
     batch.lastBatchStatusResponse = data;
     updatePromptCaptioningBatchDisplay(data);
     const status = String(data.status || data.job?.status || '').toLowerCase();
-    if (['completed', 'failed', 'cancelled', 'interrupted', 'idle'].includes(status)) stopPromptCaptioningBatchPolling();
+    if (['completed', 'completed_with_errors', 'failed', 'cancelled', 'interrupted', 'idle'].includes(status)) stopPromptCaptioningBatchPolling();
     render();
   } catch (error) {
     batch.status = `Batch status error: ${error.message}`;
@@ -52886,6 +56058,34 @@ async function runPromptCaptioningBatchCaptioning() {
   }
 }
 
+async function cancelPromptCaptioningBatchCaptioning() {
+  const pc = promptCaptioningState();
+  const cap = pc.captioning || (pc.captioning = {});
+  const batch = cap.batch || (cap.batch = {});
+  const jobId = batch.currentJobId || '';
+  if (!jobId) {
+    batch.status = 'No active batch job to cancel.';
+    render();
+    return;
+  }
+  try {
+    batch.status = 'Requesting batch cancellation...';
+    render();
+    const data = await promptCaptioningFetchJson('/api/prompt-captioning/caption-batch-cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId }),
+    });
+    updatePromptCaptioningBatchDisplay(data);
+    batch.lastAction = 'Cancel requested';
+    startPromptCaptioningBatchPolling(jobId);
+    render();
+  } catch (error) {
+    batch.status = `Batch cancel failed: ${error.message || error}`;
+    render();
+  }
+}
+
 function bindPromptCaptioningBatchControls() {
     ensurePromptCaptioningBatchDelegatedBinding();
   ensurePromptCaptioningLeftSubtabsDelegatedBinding();
@@ -52900,6 +56100,14 @@ function bindPromptCaptioningBatchControls() {
       event.__pcBatchRunHandled = true;
       event.preventDefault();
       runPromptCaptioningBatchCaptioning();
+    });
+  }
+  const cancelBatch = document.querySelector('[data-pc-batch-cancel="true"]') || document.getElementById('promptCaptioningCancelBatchCaptioning');
+  if (cancelBatch && cancelBatch.dataset.pcBound !== 'true') {
+    cancelBatch.dataset.pcBound = 'true';
+    cancelBatch.addEventListener('click', (event) => {
+      event.preventDefault();
+      cancelPromptCaptioningBatchCaptioning();
     });
   }
   updatePromptCaptioningBatchRunGateDom();
@@ -52930,6 +56138,7 @@ function bindPromptCaptioningControls() {
   const pb = pc.promptBuilder;
   const cap = pc.captioning || (pc.captioning = {});
   const batch = cap.batch || (cap.batch = {});
+  bindPromptCaptioningComfySettingsPanels();
   document.querySelectorAll('[data-pc-prompt-preset]').forEach((button) => {
     button.addEventListener('click', () => applyPromptCaptioningQuickPromptPreset(button.getAttribute('data-pc-prompt-preset') || ''));
   });
@@ -56614,6 +59823,7 @@ function bindImageDraftInputs() {
     ['imageNegativePrompt', 'negative_prompt', 'value'],
     ['imageModel', 'model', 'value'],
     ['imageVae', 'vae', 'value'],
+    ['imageVaeDecodeMode', 'vae_decode_mode', 'value'],
     ['imageSamplerBackend', 'sampler_backend', 'value'],
     ['imageSampler', 'sampler', 'value'],
     ['imageScheduler', 'scheduler', 'value'],
@@ -56635,7 +59845,7 @@ function bindImageDraftInputs() {
     node.addEventListener('change', (event) => {
       updateDraftValue(key, event.target.value);
       if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, event.target.value);
-      if (key === 'inpaint_engine' || key === 'sampler_backend') render();
+      if (key === 'inpaint_engine' || key === 'sampler_backend' || key === 'vae') render();
     });
   });
 
@@ -56903,16 +60113,15 @@ function bindImageDraftInputs() {
       if (fieldId === 'krea2_edit_engine') {
         if (raw === 'identity_edit') {
           updateDraftValue('inpaint_engine', 'native');
-          updateDraftValue('source_image_1_role', 'scene_reference');
-          updateDraftValue('source_image_2_role', 'main_subject');
           state.imageDraft.qwen_source_slot_count = Math.min(2, qwenVisibleSourceSlotCount());
+          syncKrea2IdentityReferenceRoles();
         }
         saveUiState();
         render();
         return;
       }
       refreshGgufBundleCheck();
-      if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant', 'diffusion_model', 'gguf_model'].includes(fieldId)) render();
+      if (['gguf_clip_mode', 'gguf_clip_type', 'flux_variant', 'diffusion_model', 'gguf_model'].includes(fieldId) || (fieldId === 'vae' && event.type === 'change')) render();
     };
     node.addEventListener('input', sync);
     node.addEventListener('change', sync);
@@ -57726,6 +60935,7 @@ function buildImageJobPayload() {
     ...parameterProfileParams(),
     model: activeImagePrimaryModelValue(),
     vae: draft.vae || valueOf('imageVae') || 'automatic',
+    vae_decode_mode: imageCurrentVaeDecodeMode(),
     sampler: draft.sampler || valueOf('imageSampler') || 'provider_default',
     sampler_backend: imageSamplerBackendValue(draft),
     res4lyf_eta: Number(draft.res4lyf_eta ?? 0.5),
@@ -57848,13 +61058,15 @@ function buildImageJobPayload() {
       };
     }
     if (imageMultiReferenceActive(profile)) {
+      const kreaIdentityPayload = krea2IdentityEditActive();
+      const kreaIdentityTwoReference = kreaIdentityPayload && Boolean(draft.source_image_2 || draft.source_image_2_url);
       Object.assign(params, {
-        source_image_1_role: draft.source_image_1_role || 'main_subject',
+        source_image_1_role: kreaIdentityPayload ? (kreaIdentityTwoReference ? 'scene_reference' : 'main_subject') : (draft.source_image_1_role || 'main_subject'),
         source_image_2: draft.source_image_2 || draft.source_image_2_url || '',
         source_image_2_path: draft.source_image_2 || '',
         source_image_2_url: draft.source_image_2_url || '',
         source_image_2_name: draft.source_image_2_name || '',
-        source_image_2_role: draft.source_image_2_role || 'secondary_subject',
+        source_image_2_role: kreaIdentityPayload ? 'main_subject' : (draft.source_image_2_role || 'secondary_subject'),
         source_image__2_name: draft.source_image_2_name || '',
         reference_image_2_name: draft.source_image_2_name || '',
         source_image_3: draft.source_image_3 || draft.source_image_3_url || '',
@@ -57879,7 +61091,7 @@ function buildImageJobPayload() {
       mask_brush_size: Number(draft.mask_brush_size || 26),
     });
   }
-  if (usesField('inpaint_selection_target')) params.inpaint_selection_target = draft.inpaint_selection_target || valueOf('imageParam_inpaint_selection_target') || 'masked_area';
+  if (imageSupportsInpaintTargetField() || usesField('inpaint_selection_target')) params.inpaint_selection_target = draft.inpaint_selection_target || valueOf('imageParam_inpaint_selection_target') || 'masked_area';
   if (usesField('inpaint_context_mode')) params.inpaint_context_mode = draft.inpaint_context_mode || valueOf('imageParam_inpaint_context_mode') || 'masked_region_focus';
   params.context_latent_enabled = Boolean(draft.context_latent_enabled);
   params.context_latent_source = 'source_image';
@@ -58047,7 +61259,9 @@ function buildImageJobPayload() {
   params._neo_ui_route_snapshot = imageRouteUiSnapshot(params);
   const sceneDirectorCanonicalSubmit = sceneDirectorCanonicalSubmitSnapshot();
   const extensionSubmitState = imageExtensionSubmitStateSnapshot(sceneDirectorCanonicalSubmit);
+  const extensionMetadata = activeWorkflowExtensionMetadata(sceneDirectorCanonicalSubmit, extensionSubmitState);
   params._neo_extension_state = extensionSubmitState;
+  params._neo_scene_director_submit_authority = sceneDirectorSubmitAuthoritySnapshot(sceneDirectorCanonicalSubmit, extensionMetadata);
   return {
     profile_id: profile?.profile_id,
     job: {
@@ -58061,7 +61275,7 @@ function buildImageJobPayload() {
       prompt: draft.positive_prompt || valueOf('imagePositivePrompt'),
       negative_prompt: draft.negative_prompt || valueOf('imageNegativePrompt'),
       params,
-      extensions: activeWorkflowExtensionMetadata(sceneDirectorCanonicalSubmit, extensionSubmitState),
+      extensions: extensionMetadata,
     },
   };
 }
@@ -58672,7 +61886,18 @@ async function runWildcardVariantQueue(basePayload, profile, plan) {
   recordMemoryEvent('image.generation.wildcard_queue.completed', 'image', { profile_id: profile.profile_id, variants: count, outputs: allOutputs.length, seed: baseSeed });
 }
 
+async function maybeRunImageFinishPrimaryAction() {
+  if (getSurfaceWorkspaceAppId('image') !== 'finish') return false;
+  const settings = imageUpscaleSettings();
+  if (settings.enabled === false) return false;
+  const route = imageUpscaleActiveRoute(null);
+  if (!IMAGE_UPSCALE_ACTIVE_ROUTE_STATES.includes(route.route_state)) throw new Error(route.reason || 'Image Upscale is gated for this provider.');
+  await imageUpscaleQueueSelectedResult();
+  return true;
+}
+
 async function runImageGeneration() {
+  if (await maybeRunImageFinishPrimaryAction()) return;
   const profile = activeImageProfile();
   const generateBtn = document.getElementById('imageGenerateBtn');
   const readiness = buildImageGenerationReadiness(profile);
@@ -58841,6 +62066,11 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     imageFinalizeActionLifecycle('generation_completed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     state.activeImageJob = null;
     updateImageGenerationControls();
+    // Generation itself passes the selected-profile task connection gate.
+    // Refresh provider-owned preview/Finish availability immediately so a
+    // toolbar evaluation captured before that live connection cannot remain
+    // stale and keep High-Res/ADetailer/Upscale disabled.
+    await refreshImagePreviewActionEvaluation(profileId).catch(() => null);
     render();
     recordMemoryEvent('image.generation.completed', 'image', { profile_id: profileId, job_id: jobId, outputs: state.imageResults.length, status: result.status });
     return result;
@@ -58858,6 +62088,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     imageFinalizeActionLifecycle('generation_detached_for_recovery', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     state.activeImageJob = null;
     updateImageGenerationControls();
+    await refreshImagePreviewActionEvaluation(profileId).catch(() => null);
     render();
     recordMemoryEvent('image.generation.output_import_failed', 'image', { profile_id: profileId, job_id: jobId, outputs: state.imageResults.length, status: result.status });
     return result;
@@ -58912,6 +62143,8 @@ function render() {
   ensureSurfaceRuntime(surface.surface_id);
   if (surface.surface_id === 'video') {
     setSurfaceWorkspaceAppId('video', getSurfaceWorkspaceAppId('video'));
+  } else if (surface.surface_id === 'voice') {
+    setSurfaceWorkspaceAppId('voice', getSurfaceWorkspaceAppId('voice'));
   } else if (surface.surface_id === 'image') {
     const normalizedMode = normalizeImageWorkflowMode(getImageWorkflowMode());
     if (getImageWorkflowMode() !== normalizedMode) setImageWorkflowMode(normalizedMode);
@@ -59018,6 +62251,162 @@ window.neoRetryBoot = async function neoRetryBoot() {
   await boot();
 };
 
+async function loadBootMap(loaders = {}, concurrency = 6) {
+  const entries = Object.entries(loaders || {});
+  if (!entries.length) return {};
+  const results = {};
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(Number(concurrency || 6), entries.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < entries.length) {
+      const current = cursor;
+      cursor += 1;
+      const [key, loader] = entries[current];
+      try { results[key] = await loader(); }
+      catch (error) { console.warn(`Deferred startup load skipped: ${key}`, error); results[key] = null; }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function loadDeferredBootData() {
+  const deferred = await loadBootMap({
+    admin: () => loadJson('/api/admin', {}),
+    videoRouteMatrix: () => loadJson(VIDEO_ROUTE_MATRIX_ENDPOINT, null),
+    adminEngine: () => loadJson('/api/admin/engine/state', null),
+    adminChroma: () => loadJson('/api/admin/engine/chroma/state', null),
+    adminIndexJobs: () => loadJson('/api/admin/engine/index-jobs', null),
+    memory: () => loadJson('/api/memory/status', null),
+    memoryDiagnostics: () => loadJson('/api/memory/diagnostics', null),
+    operatorStatus: () => loadJson('/api/operator/status', null),
+    voiceInputStatus: () => loadJson('/api/voice/input/status', null),
+    voiceSurfaceContract: () => loadJson('/api/voice/surface-contract', null),
+    voiceBaseCommonContract: () => loadJson('/api/voice/base-contract', null),
+    voiceOutputPaths: () => loadJson('/api/voice/output-paths', null),
+    voiceProviderRouting: () => loadJson(`/api/voice/provider-routing${voiceAdapterQuery()}`, null),
+    voiceResults: () => loadJson('/api/voice/results?limit=50', null),
+    voiceHistory: () => loadJson('/api/voice/history', null),
+    voiceProfiles: () => loadJson('/api/voice/profiles', null),
+    voiceReferenceHistory: () => loadJson('/api/voice/reference/history', null),
+    voiceReferenceAssets: () => loadJson('/api/voice/references?limit=100', null),
+    voiceProfileAssets: () => loadJson(`/api/voice/profile-assets?limit=100&active_profile_id=${encodeURIComponent(voiceBackendProfileId() || '')}`, null),
+    voiceFinishCapabilities: () => loadJson('/api/voice/finish-runtime/capabilities', null),
+    voiceFinishHistory: () => loadJson('/api/voice/finish-runtime/history?limit=50', null),
+    internetAccessStatus: () => loadJson('/api/internet/access/status', null),
+    toolRegistry: () => loadJson('/api/tools/registry', null),
+    toolProfiles: () => loadJson('/api/tools/permission-profiles', null),
+    projectWorkspaceStatus: () => loadJson('/api/projects/workspace/status', null),
+    projectWorkspaceList: () => loadJson('/api/projects/workspace/list', null),
+    projectWorkspaceActive: () => loadJson('/api/projects/workspace/active', null),
+    projectWorkspaceAssetTray: () => loadJson('/api/projects/workspace/asset-tray', null),
+    projectWorkspaceContext: () => loadJson('/api/projects/workspace/context', null),
+    roleplayBase: () => loadJson('/api/roleplay/base', null),
+    roleplayFoundation: () => loadJson('/api/roleplay/foundation', null),
+    roleplayForge: () => loadJson('/api/roleplay/forge/state', null),
+    roleplayTextBackend: () => loadJson('/api/roleplay/text-backend/state', null),
+    roleplayScene: () => loadJson('/api/roleplay/scene/state', null),
+    roleplayStudio: () => loadJson('/api/roleplay/studio/state', null),
+    roleplayStories: () => loadJson('/api/roleplay/stories/state', null),
+    roleplayProjectLinks: () => loadJson('/api/roleplay/project-links?limit=80', null),
+    roleplayEngineBridge: () => loadJson('/api/roleplay/engine-bridge/state', null),
+    roleplayStoryRestore: () => loadJson('/api/roleplay/story-checkpoint-restore/state', state.roleplayStoryRestore || null),
+    roleplayMemory: () => loadJson('/api/roleplay/memory/state', null),
+    roleplayRetrieval: () => loadJson('/api/roleplay/retrieval/state', null),
+    roleplayContradictions: () => loadJson('/api/roleplay/contradictions/state', null),
+    roleplayProvenance: () => loadJson('/api/roleplay/provenance/state', null),
+    roleplayProvenanceGraph: () => loadJson('/api/roleplay/provenance/graph?limit=160', null),
+    roleplayProvenanceDebug: () => loadJson('/api/roleplay/provenance-debug/state', state.roleplayProvenanceDebug || null),
+    roleplayCollaboration: () => loadJson('/api/roleplay/collaboration/state', null),
+    roleplayCloudSync: () => loadJson('/api/roleplay/cloud-sync/state', null),
+    roleplayRuntime: () => loadJson('/api/roleplay/runtime/bundles', null),
+    assistantBootstrap: () => loadJson('/api/assistant/bootstrap', null),
+  }, 5);
+
+  state.admin = deferred.admin || state.admin || {};
+  state.videoRouteMatrix = deferred.videoRouteMatrix || state.videoRouteMatrix;
+  ensureVideoRouteSelectable();
+  state.adminEngine = deferred.adminEngine;
+  state.adminChroma = deferred.adminChroma;
+  state.adminIndexJobs = deferred.adminIndexJobs;
+  state.memory = deferred.memory;
+  state.memoryDiagnostics = deferred.memoryDiagnostics;
+  state.operator.status = deferred.operatorStatus;
+  state.voiceInput.status = deferred.voiceInputStatus;
+  state.voiceSurfaceContract = deferred.voiceSurfaceContract;
+  state.voiceBaseCommonContract = deferred.voiceBaseCommonContract;
+  state.voiceOutputPaths = deferred.voiceOutputPaths;
+  state.voiceProviderRouting = deferred.voiceProviderRouting;
+  applyVoiceProviderRoutingPayload(state.voiceProviderRouting);
+  state.voiceResults = deferred.voiceResults;
+  state.voiceHistory = deferred.voiceHistory;
+  state.voiceProfiles = deferred.voiceProfiles;
+  state.voiceReferenceHistory = deferred.voiceReferenceHistory;
+  state.voiceReferenceAssets = deferred.voiceReferenceAssets;
+  state.voiceProfileAssets = deferred.voiceProfileAssets;
+  state.voiceFinishCapabilities = deferred.voiceFinishCapabilities;
+  state.voiceFinishHistory = deferred.voiceFinishHistory;
+  state.voiceFinishSourceJobId = voiceFinishSourceJobId();
+  state.internetAccess.status = deferred.internetAccessStatus;
+  state.toolRegistry.registry = deferred.toolRegistry;
+  state.toolRegistry.profiles = deferred.toolProfiles;
+  state.projectWorkspace.status = deferred.projectWorkspaceStatus;
+  state.projectWorkspace.list = deferred.projectWorkspaceList;
+  state.projectWorkspace.active = deferred.projectWorkspaceActive;
+  state.projectWorkspace.assetTray = deferred.projectWorkspaceAssetTray;
+  state.projectWorkspace.context = deferred.projectWorkspaceContext;
+  state.roleplayBase = deferred.roleplayBase;
+  state.roleplayFoundation = deferred.roleplayFoundation;
+  state.roleplayForge = deferred.roleplayForge;
+  state.roleplayTextBackend = deferred.roleplayTextBackend;
+  state.roleplayScene = deferred.roleplayScene;
+  state.roleplayStudio = deferred.roleplayStudio;
+  state.roleplayStories = deferred.roleplayStories;
+  state.roleplayProjectLinks = deferred.roleplayProjectLinks;
+  state.roleplayEngineBridge = deferred.roleplayEngineBridge;
+  state.roleplayStoryRestore = deferred.roleplayStoryRestore;
+  state.roleplayMemory = deferred.roleplayMemory;
+  state.roleplayRetrieval = deferred.roleplayRetrieval;
+  state.roleplayContradictions = deferred.roleplayContradictions;
+  state.roleplayProvenance = deferred.roleplayProvenance;
+  state.roleplayProvenanceGraph = deferred.roleplayProvenanceGraph;
+  state.roleplayProvenanceDebug = deferred.roleplayProvenanceDebug;
+  state.roleplayCollaboration = deferred.roleplayCollaboration;
+  state.roleplayCloudSync = deferred.roleplayCloudSync;
+  state.roleplayRuntime = deferred.roleplayRuntime;
+  state.assistantBootstrap = deferred.assistantBootstrap;
+
+  if (state.assistantBootstrap?.ok) {
+    state.assistant.profile = state.assistantBootstrap.profile || null;
+    state.assistant.projects = state.assistantBootstrap.projects || [];
+    state.assistant.sessions = state.assistantBootstrap.sessions || [];
+    state.assistant.activeSession = state.assistantBootstrap.active_session || null;
+    state.assistant.memoryCaptures = state.assistantBootstrap.memory_captures || [];
+    state.assistant.storage = state.assistantBootstrap.storage || {};
+    state.assistant.capabilities = state.assistantBootstrap.capabilities || {};
+    state.assistant.deferred = state.assistantBootstrap.deferred_to_wave3 || state.assistantBootstrap.deferred_to_wave2 || [];
+    state.assistant.thinkingLayer = state.assistantBootstrap.thinking_layer || {};
+    state.assistant.selectedProjectId = state.assistant.activeSession?.project_id || state.assistant.profile?.default_project_id || 'general';
+  }
+
+  await Promise.all([
+    refreshVideoParameterProfile({ applyDefaults: true, force: false }),
+    refreshVoiceProviderControls({ renderAfter: false }),
+    refreshVoiceDialogueCapabilities({ renderAfter: false }),
+    refreshVoiceBatchRuntime({ renderAfter: false }),
+  ]);
+
+  const voiceSelections = [];
+  if (state.voiceResults?.items?.[0]?.job_id) voiceSelections.push(selectVoiceResult(state.voiceResults.items[0].job_id, { renderAfter: false, recordEvent: false }));
+  if (state.voiceReferenceAssets?.items?.[0]?.reference_id) voiceSelections.push(selectVoiceReference(state.voiceReferenceAssets.items[0].reference_id, { renderAfter: false, recordEvent: false }));
+  if (state.voiceProfileAssets?.items?.[0]?.asset_id) voiceSelections.push(selectVoiceProfileAsset(state.voiceProfileAssets.items[0].asset_id, { renderAfter: false, recordEvent: false }));
+  if (voiceSelections.length) await Promise.all(voiceSelections);
+
+  const deferredSurfaces = state.surfaces.filter((surface) => surface.surface_id !== 'image');
+  await Promise.all(deferredSurfaces.map((surface) => loadUiPresets(surface.surface_id)));
+  if (state.activeSurfaceId !== 'image') render();
+}
+
 async function boot() {
   let surfacesPayload = null;
   try {
@@ -59032,87 +62421,44 @@ async function boot() {
     renderStartupFailure(new Error('No workspaces were returned by /api/surfaces.'));
     return;
   }
-  state.admin = await loadJson('/api/admin', {});
-  state.providers = await loadJson('/api/providers', { providers: [] });
-  state.backendProviderOptions = await loadJson('/api/backend-providers', { providers: [], surfaces: [] });
-  state.backendProfiles = await loadJson('/api/backend-profiles', { profiles: [], defaults: {} });
-  applyBackendProfileSelectionPayload(await loadJson('/api/backend-profiles/selection', { selection: { activeBackendProfileIdsBySurface: {} } }));
-  state.videoRouteMatrix = await loadJson(VIDEO_ROUTE_MATRIX_ENDPOINT, null);
-  ensureVideoRouteSelectable();
-  await refreshVideoParameterProfile({ applyDefaults: true, force: false });
-  state.extensions = await loadJson('/api/extensions', { extensions: [] });
-  state.imageNodeManager = await loadJson('/api/admin/image/node-manager/state', { nodes: [], settings: {}, summary: {} });
-  state.adminEngine = await loadJson('/api/admin/engine/state', null);
-  state.adminChroma = await loadJson('/api/admin/engine/chroma/state', null);
-  state.adminIndexJobs = await loadJson('/api/admin/engine/index-jobs', null);
-  state.memory = await loadJson('/api/memory/status', null);
-  state.memoryDiagnostics = await loadJson('/api/memory/diagnostics', null);
-  state.operator.status = await loadJson('/api/operator/status', null);
-  state.voiceInput.status = await loadJson('/api/voice/input/status', null);
-  state.voiceSurfaceContract = await loadJson('/api/voice/surface-contract', null);
-  state.voiceOutputPaths = await loadJson('/api/voice/output-paths', null);
-  state.voiceBackendHealth = await loadJson('/api/voice/health', null);
-  state.voiceCapabilities = await loadJson('/api/voice/capabilities', null);
-  state.voiceModels = await loadJson('/api/voice/models', null);
-  state.voiceVoices = await loadJson('/api/voice/voices', null);
-  state.voiceHistory = await loadJson('/api/voice/history', null);
-  state.voiceProfiles = await loadJson('/api/voice/profiles', null);
-  state.voiceReferenceHistory = await loadJson('/api/voice/reference/history', null);
-  state.internetAccess.status = await loadJson('/api/internet/access/status', null);
-  state.toolRegistry.registry = await loadJson('/api/tools/registry', null);
-  state.toolRegistry.profiles = await loadJson('/api/tools/permission-profiles', null);
-  state.projectWorkspace.status = await loadJson('/api/projects/workspace/status', null);
-  state.projectWorkspace.list = await loadJson('/api/projects/workspace/list', null);
-  state.projectWorkspace.active = await loadJson('/api/projects/workspace/active', null);
-  state.projectWorkspace.assetTray = await loadJson('/api/projects/workspace/asset-tray', null);
-  state.projectWorkspace.context = await loadJson('/api/projects/workspace/context', null);
-  state.modelFamilies = await loadJson('/api/model-families?surface=image', null);
-  state.parameterProfiles = await loadJson('/api/model-families/parameter-profiles', { parameter_profiles: [] });
-  state.imageBase = await loadJson('/api/image/base', null);
-  state.imagePreviewActionRegistry = await loadJson('/api/image/preview-actions/registry', {
-    schema_id: 'neo.image.preview_action_registry_definition.v1',
-    schema_version: 1,
-    groups: [],
-    actions: [],
-    valid: false,
-    validation_errors: ['Preview action registry could not be loaded.'],
-  });
-  await loadImagePromptLibrary().catch((error) => { state.imagePromptLibrary.status = `Could not load prompt library: ${error.message}`; });
-  state.roleplayBase = await loadJson('/api/roleplay/base', null);
-  state.roleplayFoundation = await loadJson('/api/roleplay/foundation', null);
-  state.roleplayForge = await loadJson('/api/roleplay/forge/state', null);
-  state.roleplayTextBackend = await loadJson('/api/roleplay/text-backend/state', null);
-  state.roleplayScene = await loadJson('/api/roleplay/scene/state', null);
-  state.roleplayStudio = await loadJson('/api/roleplay/studio/state', null);
-  state.roleplayStories = await loadJson('/api/roleplay/stories/state', null);
-  state.roleplayProjectLinks = await loadJson('/api/roleplay/project-links?limit=80', null);
-  state.roleplayEngineBridge = await loadJson('/api/roleplay/engine-bridge/state', null);
-  state.roleplayStoryRestore = await loadJson('/api/roleplay/story-checkpoint-restore/state', state.roleplayStoryRestore || null);
-  state.roleplayMemory = await loadJson('/api/roleplay/memory/state', null);
-  state.roleplayRetrieval = await loadJson('/api/roleplay/retrieval/state', null);
-  state.roleplayContradictions = await loadJson('/api/roleplay/contradictions/state', null);
-  state.roleplayProvenance = await loadJson('/api/roleplay/provenance/state', null);
-  state.roleplayProvenanceGraph = await loadJson('/api/roleplay/provenance/graph?limit=160', null);
-  state.roleplayProvenanceDebug = await loadJson('/api/roleplay/provenance-debug/state', state.roleplayProvenanceDebug || null);
-  state.roleplayCollaboration = await loadJson('/api/roleplay/collaboration/state', null);
-  state.roleplayCloudSync = await loadJson('/api/roleplay/cloud-sync/state', null);
-  state.roleplayRuntime = await loadJson('/api/roleplay/runtime/bundles', null);
-  state.assistantBootstrap = await loadJson('/api/assistant/bootstrap', null);
-  if (state.assistantBootstrap?.ok) {
-    state.assistant.profile = state.assistantBootstrap.profile || null;
-    state.assistant.projects = state.assistantBootstrap.projects || [];
-    state.assistant.sessions = state.assistantBootstrap.sessions || [];
-    state.assistant.activeSession = state.assistantBootstrap.active_session || null;
-    state.assistant.memoryCaptures = state.assistantBootstrap.memory_captures || [];
-    state.assistant.storage = state.assistantBootstrap.storage || {};
-    state.assistant.capabilities = state.assistantBootstrap.capabilities || {};
-    state.assistant.deferred = state.assistantBootstrap.deferred_to_wave3 || state.assistantBootstrap.deferred_to_wave2 || [];
-    state.assistant.thinkingLayer = state.assistantBootstrap.thinking_layer || {};
-    state.assistant.selectedProjectId = state.assistant.activeSession?.project_id || state.assistant.profile?.default_project_id || 'general';
-  }
-  state.roleplayCollaboration = await loadJson('/api/roleplay/collaboration/state', null);
-  for (const surface of state.surfaces) await loadUiPresets(surface.surface_id);
-  await loadDefaultUiPreset(state.activeSurfaceId || 'image');
+
+  const essential = await loadBootMap({
+    providers: () => loadJson('/api/providers', { providers: [] }),
+    backendProviderOptions: () => loadJson('/api/backend-providers', { providers: [], surfaces: [] }),
+    backendProfiles: () => loadJson('/api/backend-profiles', { profiles: [], defaults: {} }),
+    backendProfileSelection: () => loadJson('/api/backend-profiles/selection', { selection: { activeBackendProfileIdsBySurface: {} } }),
+    extensions: () => loadJson('/api/extensions', { extensions: [] }),
+    imageNodeManager: () => loadJson('/api/admin/image/node-manager/state', { nodes: [], settings: {}, summary: {} }),
+    modelFamilies: () => loadJson('/api/model-families?surface=image', null),
+    parameterProfiles: () => loadJson('/api/model-families/parameter-profiles', { parameter_profiles: [] }),
+    imageBase: () => loadJson('/api/image/base', null),
+    imagePreviewActionRegistry: () => loadJson('/api/image/preview-actions/registry', {
+      schema_id: 'neo.image.preview_action_registry_definition.v1',
+      schema_version: 1,
+      groups: [],
+      actions: [],
+      valid: false,
+      validation_errors: ['Preview action registry could not be loaded.'],
+    }),
+    imagePromptLibrary: () => loadImagePromptLibrary().then(() => true).catch((error) => { state.imagePromptLibrary.status = `Could not load prompt library: ${error.message}`; return false; }),
+  }, 6);
+
+  state.providers = essential.providers || { providers: [] };
+  state.backendProviderOptions = essential.backendProviderOptions || { providers: [], surfaces: [] };
+  state.backendProfiles = essential.backendProfiles || { profiles: [], defaults: {} };
+  applyBackendProfileSelectionPayload(essential.backendProfileSelection || { selection: { activeBackendProfileIdsBySurface: {} } });
+  state.extensions = essential.extensions || { extensions: [] };
+  state.imageNodeManager = essential.imageNodeManager || { nodes: [], settings: {}, summary: {} };
+  state.modelFamilies = essential.modelFamilies;
+  state.parameterProfiles = essential.parameterProfiles || { parameter_profiles: [] };
+  state.imageBase = essential.imageBase;
+  state.imagePreviewActionRegistry = essential.imagePreviewActionRegistry || {
+    schema_id: 'neo.image.preview_action_registry_definition.v1', schema_version: 1, groups: [], actions: [], valid: false, validation_errors: ['Preview action registry could not be loaded.'],
+  };
+
+  await loadUiPresets('image');
+  await loadDefaultUiPreset('image');
+  await loadImageCustomSizePresets();
   const active = activeSurface();
   if (active?.surface_id) ensureSurfaceRuntime(active.surface_id);
   if (active?.surface_id && !selectedBackendProfileIdForSurface(active.surface_id)) {
@@ -59124,6 +62470,11 @@ async function boot() {
   el.detailMode.value = state.detailMode;
   el.detailMode.addEventListener('change', (event) => { state.detailMode = event.target.value; scheduleImagePreviewActionEvaluationRefresh(0); render(); });
   render();
+  settleComfyLlamaCppStartupValidation().catch((error) => console.warn('Comfy LLM/VLM startup validation refresh failed', error));
+
+  window.setTimeout(() => {
+    loadDeferredBootData().catch((error) => console.warn('Neo deferred startup load failed', error));
+  }, 50);
 }
 
 boot();

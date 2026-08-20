@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from .provider_routing import provider_execution_gate
+
 SupportState = Literal[
     "available",
     "experimental_available",
@@ -76,10 +78,23 @@ def _profile_flags(profile: dict[str, Any] | None) -> dict[str, bool]:
     runtime_caps = (profile or {}).get("runtime", {}).get("capabilities") or {}
     runtime_supports_vision = _as_bool(runtime_caps.get("runtime_supports_vision", runtime_caps.get("supports_vision")), False)
     runtime_supports_captioning = _as_bool(runtime_caps.get("runtime_supports_captioning", runtime_caps.get("supports_captioning")), False)
-    effective_supports_vision = _as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
-    effective_supports_captioning = _as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
+    is_comfy_llamacpp = str((profile or {}).get("provider_id") or "") == "comfy_llamacpp"
+    if is_comfy_llamacpp:
+        readiness = (profile or {}).get("runtime", {}).get("readiness") or {}
+        if isinstance(readiness, dict) and readiness:
+            effective_supports_text = _as_bool(readiness.get("prompt_ready"), False)
+            effective_supports_vision = _as_bool(readiness.get("caption_ready"), False)
+            effective_supports_captioning = _as_bool(readiness.get("caption_ready"), False)
+        else:
+            effective_supports_text = _as_bool(runtime_caps.get("text_execution_ready", runtime_caps.get("text_ready", runtime_caps.get("supports_text"))), False)
+            effective_supports_vision = _as_bool(runtime_caps.get("vision_ready", runtime_supports_vision), False)
+            effective_supports_captioning = _as_bool(runtime_caps.get("caption_execution_ready", runtime_caps.get("caption_ready", runtime_supports_captioning)), False)
+    else:
+        effective_supports_text = _as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True)
+        effective_supports_vision = _as_bool(flags.get("supports_vision"), False) or runtime_supports_vision
+        effective_supports_captioning = _as_bool(flags.get("supports_captioning"), False) or runtime_supports_captioning or runtime_supports_vision
     return {
-        "supports_text": _as_bool(flags.get("supports_text", runtime_caps.get("supports_text")), True),
+        "supports_text": effective_supports_text,
         "supports_vision": effective_supports_vision,
         "supports_captioning": effective_supports_captioning,
         "streaming_enabled": _as_bool(runtime_caps.get("streaming_enabled", flags.get("streaming_enabled")), False),
@@ -117,11 +132,20 @@ def _provider_reason(profile: dict[str, Any] | None, required: str) -> tuple[Sup
         return "provider_gated", "No Text Backend Profile is configured for Prompt & Captioning."
     if profile.get("enabled") is False:
         return "provider_gated", f"Backend profile '{profile.get('profile_id')}' is disabled."
+    execution_ready, execution_reason = provider_execution_gate(profile)
+    if not execution_ready:
+        return "provider_gated", execution_reason
     flags = _profile_flags(profile)
     if required == "text" and not flags["supports_text"]:
         return "provider_gated", f"Backend profile '{profile.get('profile_id')}' does not declare text support."
     if required == "caption" and not (flags["supports_vision"] and flags["supports_captioning"]):
-        return "provider_gated", "Selected backend profile has no detected vision/caption support. Load a KoboldCpp vision model/mmproj or enable Vision + Caption flags."
+        readiness = (profile or {}).get("runtime", {}).get("readiness") or {}
+        blocker = readiness.get("caption_blocker") if isinstance(readiness, dict) and isinstance(readiness.get("caption_blocker"), dict) else {}
+        if blocker:
+            detail = str(blocker.get("detail") or "Caption readiness is incomplete.")
+            action = str(blocker.get("next_action") or "Review the Comfy LLM/VLM readiness panel.")
+            return "provider_gated", f"{detail} Next: {action}"
+        return "provider_gated", "Selected backend profile has no detected vision/caption support. Load/configure a compatible vision model/projector on the selected backend, then reconnect/test it."
     status = _profile_status(profile)
     if status in {"offline", "missing_config", "error"}:
         return "provider_gated", f"Backend profile '{profile.get('profile_id')}' is {status}."
@@ -148,8 +172,8 @@ def get_support_matrix(backend_payload: dict[str, Any] | None = None) -> dict[st
     """Return route-aware support for Prompt & Captioning.
 
     This matrix is capability-based. It does not execute tools, but it can use
-    backend runtime capability detection to unlock Caption Studio when KoboldCpp
-    reports a loaded vision/mmproj route.
+    backend runtime capability detection to unlock Caption Studio when the selected
+    provider reports a compatible loaded vision/projector route.
     """
     backend_payload = backend_payload or {"profiles": [], "defaults": {}}
     text_profile = _default_profile(backend_payload, vision=False)
@@ -183,7 +207,8 @@ def get_support_matrix(backend_payload: dict[str, Any] | None = None) -> dict[st
         "summary": by_state,
         "rules": [
             "Text-only providers may run prompt tools only.",
-            "Image captioning requires explicit Vision + Caption flags or detected KoboldCpp runtime vision support.",
+            "Image captioning requires supports_vision and supports_captioning.",
+            "Vision/caption readiness may come from explicit profile capability flags or provider-specific runtime discovery.",
             "Disabled/offline/missing providers are provider_gated.",
             "Prompt/Captioning metadata records are replay-ready but do not enable Assistant memory behavior.",
         ],

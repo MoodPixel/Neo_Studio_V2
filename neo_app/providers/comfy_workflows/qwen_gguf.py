@@ -15,6 +15,12 @@ from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResu
 from neo_app.providers.comfy_workflows.qwen_stitch_route import apply_qwen_stitch_route
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload, qwen_stitch_has_ready_group
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_app.providers.comfy_workflows.vae_decode_utils import (
+    build_vae_decode_node,
+    build_vae_loader_node,
+    resolve_vae_decode_strategy,
+    vae_decode_profile_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -614,6 +620,14 @@ def compile_qwen_gguf_txt2img(
     mmproj = _param(params, "qwen_mmproj", "gguf_mmproj", "mmproj", "mmproj_name", "gguf_mmproj_name", default="")
     vae = _param(params, "vae", "qwen_vae", "vae_or_ae", "ae", default="qwen_image_vae.safetensors")
     vae_loader = str(_param(params, "vae_loader", "gguf_vae_loader", default=_vae_loader_for(str(vae))))
+    vae_decode_strategy = resolve_vae_decode_strategy(
+        params=params,
+        family=job.family or "qwen_image",
+        loader="gguf",
+        mode=mode,
+        backend_capabilities=backend_capabilities,
+        validation=validation,
+    )
     sampler = str(_param(params, "sampler", default=defaults.sampler))
     scheduler = str(_param(params, "scheduler", default=defaults.scheduler))
     steps_default = QWEN_GGUF_INPAINT_DEFAULT_STEPS if mode == "inpaint" else defaults.steps
@@ -657,7 +671,7 @@ def compile_qwen_gguf_txt2img(
             "enabled_modes": ["txt2img", "img2img", "edit", "inpaint", "outpaint"],
             "mmproj_required_for": ["img2img", "inpaint", "outpaint", "edit"],
             "source_policy": "Qwen Rapid AIO and Qwen Image Edit 2509 GGUF img2img/edit may consume Image 1 plus optional Image 2/Image 3; inpaint/outpaint stay single-source mask/canvas.",
-            "provider_nodes": {"gguf_unet_loader": unet_loader, "gguf_clip_single_loader": clip_loader, "vae_loader": vae_loader},
+            "provider_nodes": {"gguf_unet_loader": unet_loader, "gguf_clip_single_loader": clip_loader, "vae_loader": vae_decode_strategy["loader_node_class"] if vae_decode_strategy["enabled"] else vae_loader, "vae_decode": vae_decode_strategy["decode_node_class"]},
             "sampler_cfg_policy": "use_route_cfg_for_qwen_gguf",
             "mmproj_policy": "optional_for_txt2img_required_for_image_routes",
         },
@@ -671,6 +685,8 @@ def compile_qwen_gguf_txt2img(
         "gguf_clip_mode": "single",
         "gguf_clip_type": "qwen_image",
         "vae": vae,
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "denoise": denoise,
         "requested_cfg": requested_cfg,
         "sampler_cfg_effective": cfg,
@@ -686,7 +702,7 @@ def compile_qwen_gguf_txt2img(
     workflow: dict[str, Any] = {
         "1": {"class_type": unet_loader, "inputs": _gguf_unet_inputs(unet_loader, str(gguf_unet))},
         "2": clip_node,
-        "3": {"class_type": vae_loader, "inputs": {"vae_name": vae}},
+        "3": build_vae_loader_node(str(vae), vae_decode_strategy) if vae_decode_strategy["enabled"] else {"class_type": vae_loader, "inputs": {"vae_name": vae}},
     }
 
     if mode == "txt2img":
@@ -709,7 +725,7 @@ def compile_qwen_gguf_txt2img(
                     "latent_image": ["6", 0],
                 },
             },
-            "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
+            "8": build_vae_decode_node(["7", 0], ["3", 0], vae_decode_strategy),
             "9": {"class_type": "PreviewImage", "inputs": {"images": ["8", 0]}},
         })
         actual_params["qwen_gguf_profile"]["mmproj_policy"] = "optional_for_txt2img"
@@ -773,6 +789,7 @@ def compile_qwen_gguf_txt2img(
                     "Qwen GGUF txt2img uses GGUF UNet + single CLIPLoaderGGUF(type=qwen_image) + AE/VAE.",
                     "Qwen mmproj is optional and recorded for txt2img; Phase 12.13 image routes require it.",
                     "Qwen GGUF keeps single-encoder routing, uses the route CFG value, does not use LanPaint, and must not fall back to Flux GGUF.",
+                    f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                     f"Prompt conditioning mode: {conditioning_mode}.",
                 ],
                 "prompt_conditioning": conditioning,
@@ -860,7 +877,7 @@ def compile_qwen_gguf_txt2img(
             "latent_image": sampler_latent_ref,
         },
     }
-    workflow[decode_id] = {"class_type": "VAEDecode", "inputs": {"samples": [sampler_id, 0], "vae": ["3", 0]}}
+    workflow[decode_id] = build_vae_decode_node([sampler_id, 0], ["3", 0], vae_decode_strategy)
 
     notes = list(qwen_route_meta.pop("notes", [])) if isinstance(qwen_route_meta, dict) else []
     inpaint_source_ref = qwen_route_meta.pop("_neo_qwen_inpaint_source_ref", None) if isinstance(qwen_route_meta, dict) else None
@@ -974,6 +991,7 @@ def compile_qwen_gguf_txt2img(
                 "Qwen inpaint uses source VAEEncode + normalized SetLatentNoiseMask + DifferentialDiffusion + normal KSampler + feathered final ImageCompositeMasked guard.",
                 "Qwen outpaint uses ImagePadForOutpaint and an effective padded latent canvas.",
                 "Qwen GGUF keeps single-encoder routing, uses the route CFG value, does not use LanPaint, and must not fall back to Flux GGUF.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 *notes,
                 f"Prompt conditioning mode: {conditioning_mode}.",
             ],

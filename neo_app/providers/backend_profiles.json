@@ -6,7 +6,7 @@
     "prompt_captioning": "local_koboldcpp_text",
     "assistant": "local_koboldcpp_text",
     "video": "video.comfyui_portable",
-    "voice": "voice.chatterbox",
+    "voice": "voice.neo_engine",
     "audio": "audio.ace_step"
   },
   "profiles": [
@@ -1061,6 +1061,92 @@
       "profile_status": "enabled"
     },
     {
+      "profile_id": "prompt_captioning.comfy_llamacpp",
+      "display_name": "ComfyUI LLM / VLM",
+      "provider_id": "comfy_llamacpp",
+      "provider_label": "ComfyUI LLM / VLM",
+      "surface": "prompt_captioning",
+      "profile_role": "prompt_captioning_backend",
+      "enabled": true,
+      "is_default": false,
+      "seeded_profile": true,
+      "profile_source": "prompt_captioning_comfy_llamacpp_phase10",
+      "connection_type": "local_http",
+      "connection": {
+        "base_url": "http://127.0.0.1:8188",
+        "timeout_seconds": 15,
+        "healthcheck_path": "/system_stats",
+        "object_info_path": "/object_info",
+        "auth_mode": "none",
+        "kind": "local_http",
+        "api_key_mode": "none",
+        "api_key_env": "",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "generation_timeout_seconds": 600,
+        "poll_interval_seconds": 0.5
+      },
+      "capability_flags": {
+        "supports_text": true,
+        "supports_vision": false,
+        "supports_captioning": false,
+        "streaming_enabled": false
+      },
+      "generation_defaults": {
+        "max_tokens": 512,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 40,
+        "stop_sequences": []
+      },
+      "model": {
+        "default_model": "",
+        "available_models": []
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": false,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "notes": "Optional shared-Comfy Prompt & Captioning backend. Phase 10 presents the Phase 1–9 execution/readiness/recovery contract as one concise route-aware UI while preserving startup revalidation, shared-GPU, batch-session, and fail-closed behavior.",
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8188",
+        "message": "ComfyUI LLM/VLM saved settings will be restored on startup, then Neo will validate the current Comfy node/model catalog before enabling Prompt or Caption execution.",
+        "models": {}
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "Seeded optional Prompt & Captioning backend; Phase 10 UI summarizes live Prompt/Caption readiness without replacing KoboldCpp as the default."
+      },
+      "provider_settings": {
+        "comfy_llamacpp": {
+          "n_ctx": 8192,
+          "vram_limit": -1,
+          "image_min_tokens": 0,
+          "image_max_tokens": 0,
+          "max_size": 512,
+          "max_frames": 24,
+          "seed": 0,
+          "force_offload": true,
+          "save_states": false,
+          "load_mtp": false,
+          "comfy_llamacpp_model": "",
+          "comfy_llamacpp_mmproj": "",
+          "comfy_llamacpp_chat_handler": ""
+        }
+      }
+    },
+    {
       "profile_id": "video.comfyui",
       "display_name": "Video · ComfyUI Local",
       "provider_id": "comfyui",
@@ -1433,15 +1519,15 @@
       "profile_status": "enabled"
     },
     {
-      "profile_id": "voice.chatterbox",
-      "display_name": "Voice · Chatterbox",
-      "provider_id": "chatterbox",
+      "profile_id": "voice.neo_engine",
+      "display_name": "Voice · Neo Voice Engine",
+      "provider_id": "neo_voice_engine",
       "surface": "voice",
       "enabled": true,
       "is_default": true,
       "connection": {
         "kind": "local_http",
-        "base_url": "",
+        "base_url": "http://127.0.0.1:8790",
         "auto_connect": false,
         "auto_start": false,
         "portable_path": "",
@@ -1457,7 +1543,7 @@
         "api_key_source": "none",
         "api_key_status_message": "No API key required for this profile."
       },
-      "notes": "Primary future Voice backend profile. Chatterbox is the first planned real TTS adapter for low/mid VRAM voice preview/render.",
+      "notes": "VO-E5A unified Voice gateway profile with external runtime-root isolation. Neo connects to 127.0.0.1:8790; Neo Voice Engine routes the selected public model to isolated workers such as Chatterbox on 8791.",
       "capability_flags": {
         "tts": true,
         "preview": true,
@@ -1480,15 +1566,311 @@
         "job_lane": "finish_tools_ready",
         "language": "auto",
         "preview_seconds": 12,
-        "model_family": "chatterbox",
+        "model_family": "chatterbox_turbo",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "runtime": {
         "status": "not_checked",
         "reachable": false,
-        "base_url": "",
-        "message": "Backend has not been checked yet. Start the backend, then click Connect/Test.",
+        "base_url": "http://127.0.0.1:8790",
+        "message": "Start run_neo_voice_engine.bat, then click Connect/Test. The gateway supervises registered Voice workers and models.",
+        "models": {
+          "models": [],
+          "diffusion_models": [],
+          "text_encoders": [],
+          "qwen_text_encoders": [],
+          "vaes": [],
+          "samplers": [],
+          "schedulers": [],
+          "gguf_models": [],
+          "gguf_text_encoders": [],
+          "gguf_text_encoder_primary": [],
+          "gguf_text_encoder_secondary": [],
+          "gguf_vaes": [],
+          "mmproj": [],
+          "loras": [],
+          "embeddings": [],
+          "ip_adapter_models": [],
+          "clip_vision_models": [],
+          "ip_adapter_faceid_models": [],
+          "upscalers": [],
+          "text_models": [],
+          "vision_models": []
+        }
+      },
+      "provider_label": "Neo Voice Engine",
+      "profile_role": "voice_backend",
+      "connection_type": "local_http",
+      "capabilities": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true,
+        "emotion": true,
+        "seed": true
+      },
+      "defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "chatterbox_turbo",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
+      },
+      "model": {
+        "default_model": "chatterbox_turbo",
+        "available_models": [
+          {
+            "id": "chatterbox_turbo",
+            "label": "Chatterbox Turbo",
+            "source": "profile_contract"
+          },
+          {
+            "id": "chatterbox_multilingual",
+            "label": "Chatterbox Multilingual V3",
+            "source": "profile_contract"
+          }
+        ]
+      },
+      "ui": {
+        "show_local_launch_fields": false,
+        "show_local_http_fields": true,
+        "show_api_auth_fields": false,
+        "show_model_fields": true,
+        "show_sd_generation_fields": false,
+        "show_cloud_generation_fields": false,
+        "show_text_generation_fields": false
+      },
+      "metadata": {
+        "schema_version": "0.2.0-unified-backend-profile-schema",
+        "created_at": "",
+        "updated_at": "",
+        "notes": "VO-E5A unified gateway profile with external runtime-root isolation. Neo remains output/authorization authority while Neo Voice Engine owns model routing, scheduling, worker lifecycle, and temporary provider handoff.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile",
+        "voice_generation_runtime": "VO-R4",
+        "generation_contract": "neo.voice.generation_runtime.v1",
+        "output_completion_policy": "neo_owned_audio_required_no_placeholder",
+        "voice_physical_backend_phase": "VO-R13",
+        "physical_adapter": "neo_voice_engine",
+        "adapter_default_url": "http://127.0.0.1:8790",
+        "adapter_environment": "voice_runtime://envs/gateway",
+        "voice_engine_migration": "unified_gateway_default_vo_e5",
+        "voice_engine_contract": "neo.voice_engine.protocol.v1",
+        "voice_engine_phase": "VO-E5A",
+        "gateway_default_url": "http://127.0.0.1:8790",
+        "worker_registry": "neo_voice_engine/manifests",
+        "chatterbox_worker_manifest": "neo_voice_engine/manifests/chatterbox.json",
+        "legacy_direct_profile": "voice.chatterbox",
+        "runtime_root_policy": "external_voice_runtime_vo_e5a",
+        "runtime_environment": "voice_runtime://envs/gateway",
+        "chatterbox_worker_environment": "voice_runtime://envs/chatterbox"
+      },
+      "runtime_status": "not_checked",
+      "provider_capabilities": [
+        {
+          "capability_id": "chatterbox_voice",
+          "display_name": "Voice Generation",
+          "surface": "voice",
+          "modes": [
+            "tts",
+            "voice_preview",
+            "voice_render"
+          ],
+          "families": [
+            "tts",
+            "voice_clone",
+            "multilingual",
+            "other"
+          ],
+          "loaders": [
+            "local_model",
+            "adapter_api"
+          ]
+        }
+      ],
+      "feature_capabilities": {
+        "progress": true,
+        "live_preview": false,
+        "cancel": true,
+        "pause": false,
+        "resume": false,
+        "clip_skip": false,
+        "prompt_conditioning": false,
+        "node_manager": false,
+        "output_handoff": "neo_owned_audio_import",
+        "progress_source": "neo_voice_engine_provider_polling",
+        "live_preview_source": "none"
+      },
+      "models": {
+        "models": [],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "qwen_text_encoders": [],
+        "vaes": [],
+        "samplers": [],
+        "schedulers": [],
+        "gguf_models": [],
+        "gguf_text_encoders": [],
+        "gguf_text_encoder_primary": [],
+        "gguf_text_encoder_secondary": [],
+        "gguf_vaes": [],
+        "mmproj": [],
+        "loras": [],
+        "embeddings": [],
+        "ip_adapter_models": [],
+        "clip_vision_models": [],
+        "ip_adapter_faceid_models": [],
+        "upscalers": [],
+        "text_models": [],
+        "vision_models": []
+      },
+      "profile_status": "enabled",
+      "voice_runtime": {
+        "contract": "neo.voice.generation_runtime.v1",
+        "phase": "VO-R4",
+        "generate_path": "/api/voice/render",
+        "poll_path_template": "/api/voice/jobs/{provider_job_id}",
+        "completion_policy": "neo_owned_audio_required_no_placeholder",
+        "reference_clone": {
+          "phase": "VO-R6",
+          "contract": "neo.voice.reference_clone_runtime.v1",
+          "clone_path": "/api/voice/render",
+          "reference_transport": "neo_owned_local_path",
+          "completion_policy": "neo_owned_audio_required_no_placeholder"
+        },
+        "physical_backend_phase": "VO-E5A",
+        "provider_job_mode": "async_poll",
+        "adapter_root": "neo_voice_engine",
+        "worker_engine_id": "chatterbox"
+      },
+      "provider_controls": [
+        {
+          "id": "expression_strength",
+          "label": "Expression Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.5,
+          "requires_capability": "emotion",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "delivery"
+        },
+        {
+          "id": "reference_strength",
+          "label": "Reference Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.7,
+          "requires_capability": "voice_clone",
+          "modes": [
+            "voice_clone"
+          ],
+          "group": "reference"
+        },
+        {
+          "id": "seed",
+          "label": "Seed / Variation",
+          "type": "integer",
+          "min": -1,
+          "max": 2147483647,
+          "step": 1,
+          "default": -1,
+          "requires_capability": "seed",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "sampling"
+        }
+      ],
+      "seeded_profile": true
+    },
+    {
+      "profile_id": "voice.chatterbox",
+      "display_name": "Voice · Chatterbox (Legacy Direct)",
+      "provider_id": "chatterbox",
+      "surface": "voice",
+      "enabled": true,
+      "is_default": false,
+      "connection": {
+        "kind": "local_http",
+        "base_url": "http://127.0.0.1:8791",
+        "auto_connect": false,
+        "auto_start": false,
+        "portable_path": "",
+        "launch_command": "",
+        "healthcheck_path": "/api/voice/health",
+        "timeout_seconds": 30,
+        "connection_type": "local_http",
+        "api_key_mode": "none",
+        "auth_mode": "none",
+        "api_key_env": "",
+        "api_key_is_configured": true,
+        "api_key_status": "not_required",
+        "api_key_source": "none",
+        "api_key_status_message": "No API key required for this profile."
+      },
+      "notes": "VO-E5 legacy direct fallback. Prefer Voice · Neo Voice Engine at 127.0.0.1:8790; this profile keeps direct 8791 access available for recovery/diagnostics.",
+      "capability_flags": {
+        "tts": true,
+        "preview": true,
+        "render": true,
+        "voice_clone": true,
+        "reference_audio": true,
+        "multilingual": true,
+        "saved_voice_profiles": true,
+        "batch": true,
+        "multi_speaker_later": false,
+        "dialogue": true,
+        "speaker_mapping": true,
+        "finish_tools": true,
+        "audio_convert": true,
+        "split_merge": true,
+        "normalize": true,
+        "silence_trim": true
+      },
+      "generation_defaults": {
+        "job_lane": "finish_tools_ready",
+        "language": "auto",
+        "preview_seconds": 12,
+        "model_family": "chatterbox_turbo",
+        "speaking_rate": 1.0,
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
+      },
+      "runtime": {
+        "status": "not_checked",
+        "reachable": false,
+        "base_url": "http://127.0.0.1:8791",
+        "message": "Start run_chatterbox_backend.bat, then click Connect/Test. Model weights load lazily on first generation.",
         "models": {
           "models": [],
           "diffusion_models": [],
@@ -1532,19 +1914,35 @@
         "audio_convert": true,
         "split_merge": true,
         "normalize": true,
-        "silence_trim": true
+        "silence_trim": true,
+        "emotion": true,
+        "seed": true
       },
       "defaults": {
         "job_lane": "finish_tools_ready",
         "language": "auto",
         "preview_seconds": 12,
-        "model_family": "chatterbox",
+        "model_family": "chatterbox_turbo",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "model": {
-        "default_model": "",
-        "available_models": []
+        "default_model": "chatterbox_turbo",
+        "available_models": [
+          {
+            "id": "chatterbox_turbo",
+            "label": "Chatterbox Turbo",
+            "source": "profile_contract"
+          },
+          {
+            "id": "chatterbox_multilingual",
+            "label": "Chatterbox Multilingual V3",
+            "source": "profile_contract"
+          }
+        ]
       },
       "ui": {
         "show_local_launch_fields": false,
@@ -1559,7 +1957,17 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "Primary future Voice backend profile. Chatterbox is the first planned real TTS adapter for low/mid VRAM voice preview/render."
+        "notes": "VO-R4 current Chatterbox Voice adapter profile. TTS runs through the configured local HTTP adapter; generation is blocked until the selected backend is reachable.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile",
+        "voice_generation_runtime": "VO-R4",
+        "generation_contract": "neo.voice.generation_runtime.v1",
+        "output_completion_policy": "neo_owned_audio_required_no_placeholder",
+        "voice_physical_backend_phase": "VO-R13",
+        "physical_adapter": "neo_integrations/chatterbox_adapter",
+        "adapter_default_url": "http://127.0.0.1:8791",
+        "adapter_environment": ".venv-chatterbox",
+        "voice_engine_migration": "legacy_direct_fallback_vo_e5"
       },
       "runtime_status": "not_checked",
       "provider_capabilities": [
@@ -1585,7 +1993,7 @@
         }
       ],
       "feature_capabilities": {
-        "progress": false,
+        "progress": true,
         "live_preview": false,
         "cancel": false,
         "pause": false,
@@ -1593,8 +2001,8 @@
         "clip_skip": false,
         "prompt_conditioning": false,
         "node_manager": false,
-        "output_handoff": "provider_native",
-        "progress_source": "polling",
+        "output_handoff": "neo_owned_audio_import",
+        "progress_source": "provider_polling_or_runtime_status",
         "live_preview_source": "none"
       },
       "models": {
@@ -1620,7 +2028,70 @@
         "text_models": [],
         "vision_models": []
       },
-      "profile_status": "enabled"
+      "profile_status": "enabled",
+      "voice_runtime": {
+        "contract": "neo.voice.generation_runtime.v1",
+        "phase": "VO-R4",
+        "generate_path": "/api/voice/render",
+        "poll_path_template": "/api/voice/jobs/{provider_job_id}",
+        "completion_policy": "neo_owned_audio_required_no_placeholder",
+        "reference_clone": {
+          "phase": "VO-R6",
+          "contract": "neo.voice.reference_clone_runtime.v1",
+          "clone_path": "/api/voice/render",
+          "reference_transport": "neo_owned_local_path",
+          "completion_policy": "neo_owned_audio_required_no_placeholder"
+        },
+        "physical_backend_phase": "VO-R13",
+        "provider_job_mode": "async_poll",
+        "adapter_root": "neo_integrations/chatterbox_adapter"
+      },
+      "provider_controls": [
+        {
+          "id": "expression_strength",
+          "label": "Expression Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.5,
+          "requires_capability": "emotion",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "delivery"
+        },
+        {
+          "id": "reference_strength",
+          "label": "Reference Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.7,
+          "requires_capability": "voice_clone",
+          "modes": [
+            "voice_clone"
+          ],
+          "group": "reference"
+        },
+        {
+          "id": "seed",
+          "label": "Seed / Variation",
+          "type": "integer",
+          "min": -1,
+          "max": 2147483647,
+          "step": 1,
+          "default": -1,
+          "requires_capability": "seed",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "sampling"
+        }
+      ]
     },
     {
       "profile_id": "voice.kokoro",
@@ -1647,7 +2118,7 @@
         "api_key_source": "none",
         "api_key_status_message": "No API key required for this profile."
       },
-      "notes": "VO-V10 active low-end lightweight TTS fallback profile. Preview/render only; clone/reference/dialogue controls are intentionally hidden.",
+      "notes": "VO-R6 current low-VRAM Kokoro Voice adapter profile. TTS is active through the configured local HTTP adapter; reference/clone remains explicitly unsupported and fail-closed.",
       "capability_flags": {
         "tts": true,
         "preview": true,
@@ -1673,7 +2144,23 @@
         "preview_seconds": 12,
         "model_family": "kokoro_preview",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "kokoro_default",
+        "available_voices": [
+          {
+            "id": "kokoro_default",
+            "label": "Kokoro Default",
+            "source": "profile_contract",
+            "tier": "low_vram"
+          },
+          {
+            "id": "kokoro_narrator",
+            "label": "Kokoro Narrator",
+            "source": "profile_contract",
+            "tier": "low_vram"
+          }
+        ],
+        "output_format": "wav"
       },
       "runtime": {
         "status": "not_checked",
@@ -1732,11 +2219,34 @@
         "preview_seconds": 12,
         "model_family": "kokoro_preview",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "kokoro_default",
+        "available_voices": [
+          {
+            "id": "kokoro_default",
+            "label": "Kokoro Default",
+            "source": "profile_contract",
+            "tier": "low_vram"
+          },
+          {
+            "id": "kokoro_narrator",
+            "label": "Kokoro Narrator",
+            "source": "profile_contract",
+            "tier": "low_vram"
+          }
+        ],
+        "output_format": "wav"
       },
       "model": {
-        "default_model": "",
-        "available_models": []
+        "default_model": "kokoro_preview",
+        "available_models": [
+          {
+            "id": "kokoro_preview",
+            "label": "Kokoro Preview",
+            "source": "profile_contract",
+            "tier": "low_vram"
+          }
+        ]
       },
       "ui": {
         "show_local_launch_fields": false,
@@ -1751,7 +2261,12 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "VO-V10 active low-end lightweight TTS fallback profile. Preview/render only; clone/reference/dialogue controls are intentionally hidden."
+        "notes": "VO-R4 current low-VRAM Kokoro Voice adapter profile. TTS runs through the configured local HTTP adapter; clone/reference/dialogue remain capability-gated and unmounted.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile",
+        "voice_generation_runtime": "VO-R4",
+        "generation_contract": "neo.voice.generation_runtime.v1",
+        "output_completion_policy": "neo_owned_audio_required_no_placeholder"
       },
       "runtime_status": "not_checked",
       "provider_capabilities": [
@@ -1777,7 +2292,7 @@
         }
       ],
       "feature_capabilities": {
-        "progress": false,
+        "progress": true,
         "live_preview": false,
         "cancel": false,
         "pause": false,
@@ -1785,8 +2300,8 @@
         "clip_skip": false,
         "prompt_conditioning": false,
         "node_manager": false,
-        "output_handoff": "provider_native",
-        "progress_source": "polling",
+        "output_handoff": "neo_owned_audio_import",
+        "progress_source": "provider_polling_or_runtime_status",
         "live_preview_source": "none"
       },
       "models": {
@@ -1812,7 +2327,35 @@
         "text_models": [],
         "vision_models": []
       },
-      "profile_status": "enabled"
+      "profile_status": "enabled",
+      "voice_runtime": {
+        "contract": "neo.voice.generation_runtime.v1",
+        "phase": "VO-R4",
+        "generate_path": "/api/voice/render",
+        "poll_path_template": "/api/voice/jobs/{provider_job_id}",
+        "completion_policy": "neo_owned_audio_required_no_placeholder",
+        "reference_clone": {
+          "phase": "VO-R6",
+          "supported": false,
+          "policy": "fail_closed_capability_gated"
+        }
+      },
+      "provider_controls": [
+        {
+          "id": "seed",
+          "label": "Seed / Variation",
+          "type": "integer",
+          "min": -1,
+          "max": 2147483647,
+          "step": 1,
+          "default": -1,
+          "requires_capability": "seed",
+          "modes": [
+            "tts"
+          ],
+          "group": "sampling"
+        }
+      ]
     },
     {
       "profile_id": "voice.fish_speech",
@@ -1839,7 +2382,7 @@
         "api_key_source": "none",
         "api_key_status_message": "No API key required for this profile."
       },
-      "notes": "VO-V11 active HQ/advanced Voice backend profile. Richer clone, multilingual, prosody, tag, and backend-native controls are capability-visible; VO-V12 dialogue/multi-speaker lane and VO-V13 batch/script import lane are active through Neo manifests.",
+      "notes": "VO-R6 current Fish Speech HQ Voice adapter profile. TTS and reference clone generation use the configured local HTTP adapter; provider-native prosody/dialogue controls remain outside the current common UI.",
       "capability_flags": {
         "tts": true,
         "preview": true,
@@ -1874,7 +2417,24 @@
         "expression_strength": 0.65,
         "reference_strength": 0.75,
         "tag_blocks": [],
-        "prosody": "balanced_hq"
+        "prosody": "balanced_hq",
+        "default_voice": "fish_narrator_hq",
+        "available_voices": [
+          {
+            "id": "fish_narrator_hq",
+            "label": "Fish Narrator HQ",
+            "source": "profile_contract",
+            "tier": "high_vram_hq"
+          },
+          {
+            "id": "fish_clone_reference",
+            "label": "Fish Reference Clone",
+            "source": "profile_contract",
+            "tier": "high_vram_hq",
+            "supports_clone": true
+          }
+        ],
+        "output_format": "wav"
       },
       "runtime": {
         "status": "not_checked",
@@ -1942,11 +2502,41 @@
         "expression_strength": 0.65,
         "reference_strength": 0.75,
         "tag_blocks": [],
-        "prosody": "balanced_hq"
+        "prosody": "balanced_hq",
+        "default_voice": "fish_narrator_hq",
+        "available_voices": [
+          {
+            "id": "fish_narrator_hq",
+            "label": "Fish Narrator HQ",
+            "source": "profile_contract",
+            "tier": "high_vram_hq"
+          },
+          {
+            "id": "fish_clone_reference",
+            "label": "Fish Reference Clone",
+            "source": "profile_contract",
+            "tier": "high_vram_hq",
+            "supports_clone": true
+          }
+        ],
+        "output_format": "wav"
       },
       "model": {
-        "default_model": "",
-        "available_models": []
+        "default_model": "fish_hq",
+        "available_models": [
+          {
+            "id": "fish_hq",
+            "label": "Fish Speech HQ",
+            "source": "profile_contract",
+            "tier": "high_vram_hq"
+          },
+          {
+            "id": "fish_hq_clone",
+            "label": "Fish Speech HQ Clone",
+            "source": "profile_contract",
+            "tier": "high_vram_hq"
+          }
+        ]
       },
       "ui": {
         "show_local_launch_fields": false,
@@ -1961,7 +2551,12 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "VO-V11 active HQ/advanced Voice backend profile. Richer clone, multilingual, prosody, tag, and backend-native controls are capability-visible; VO-V12 dialogue/multi-speaker lane and VO-V13 batch/script import lane are active through Neo manifests."
+        "notes": "VO-R4 current Fish Speech HQ Voice adapter profile. TTS runs through the configured local HTTP adapter; advanced clone/prosody/dialogue controls remain outside the current common generation UI.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile",
+        "voice_generation_runtime": "VO-R4",
+        "generation_contract": "neo.voice.generation_runtime.v1",
+        "output_completion_policy": "neo_owned_audio_required_no_placeholder"
       },
       "runtime_status": "not_checked",
       "provider_capabilities": [
@@ -1987,7 +2582,7 @@
         }
       ],
       "feature_capabilities": {
-        "progress": false,
+        "progress": true,
         "live_preview": false,
         "cancel": false,
         "pause": false,
@@ -1995,8 +2590,8 @@
         "clip_skip": false,
         "prompt_conditioning": false,
         "node_manager": false,
-        "output_handoff": "provider_native",
-        "progress_source": "polling",
+        "output_handoff": "neo_owned_audio_import",
+        "progress_source": "provider_polling_or_runtime_status",
         "live_preview_source": "none"
       },
       "models": {
@@ -2022,7 +2617,129 @@
         "text_models": [],
         "vision_models": []
       },
-      "profile_status": "enabled"
+      "profile_status": "enabled",
+      "voice_runtime": {
+        "contract": "neo.voice.generation_runtime.v1",
+        "phase": "VO-R4",
+        "generate_path": "/api/voice/render",
+        "poll_path_template": "/api/voice/jobs/{provider_job_id}",
+        "completion_policy": "neo_owned_audio_required_no_placeholder",
+        "reference_clone": {
+          "phase": "VO-R6",
+          "contract": "neo.voice.reference_clone_runtime.v1",
+          "clone_path": "/api/voice/render",
+          "reference_transport": "neo_owned_local_path",
+          "completion_policy": "neo_owned_audio_required_no_placeholder"
+        }
+      },
+      "provider_controls": [
+        {
+          "id": "expression_strength",
+          "label": "Expression Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.65,
+          "requires_capability": "emotion",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "delivery"
+        },
+        {
+          "id": "reference_strength",
+          "label": "Reference Strength",
+          "type": "number",
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05,
+          "default": 0.75,
+          "requires_capability": "voice_clone",
+          "modes": [
+            "voice_clone"
+          ],
+          "group": "reference"
+        },
+        {
+          "id": "seed",
+          "label": "Seed / Variation",
+          "type": "integer",
+          "min": -1,
+          "max": 2147483647,
+          "step": 1,
+          "default": -1,
+          "requires_capability": "seed",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "sampling"
+        },
+        {
+          "id": "pause_handling",
+          "label": "Pause Handling",
+          "type": "text",
+          "max_length": 120,
+          "default": "",
+          "requires_capability": "pause_handling",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "delivery"
+        },
+        {
+          "id": "artifact_cleanup",
+          "label": "Artifact Cleanup",
+          "type": "boolean",
+          "default": false,
+          "requires_capability": "artifact_cleanup",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "quality"
+        },
+        {
+          "id": "tag_blocks",
+          "label": "Tag Blocks",
+          "type": "tags",
+          "default": [],
+          "requires_capability": "tags",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "conditioning"
+        },
+        {
+          "id": "prosody",
+          "label": "Prosody",
+          "type": "text",
+          "max_length": 240,
+          "default": "balanced_hq",
+          "requires_capability": "prosody",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "conditioning"
+        },
+        {
+          "id": "backend_native",
+          "label": "Backend-native Extras",
+          "type": "json",
+          "default": {},
+          "requires_capability": "backend_native_extras",
+          "modes": [
+            "tts",
+            "voice_clone"
+          ],
+          "group": "backend_native"
+        }
+      ]
     },
     {
       "profile_id": "voice.zonos",
@@ -2072,7 +2789,10 @@
         "preview_seconds": 12,
         "model_family": "zonos",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "runtime": {
         "status": "disabled",
@@ -2128,11 +2848,20 @@
         "preview_seconds": 12,
         "model_family": "zonos",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "model": {
-        "default_model": "",
-        "available_models": []
+        "default_model": "zonos",
+        "available_models": [
+          {
+            "id": "zonos",
+            "label": "Zonos",
+            "source": "profile_contract"
+          }
+        ]
       },
       "ui": {
         "show_local_launch_fields": false,
@@ -2147,7 +2876,9 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "Optional/experimental Voice backend profile kept for compatibility with earlier admin backend planning."
+        "notes": "Optional/experimental Voice backend profile kept for compatibility with earlier admin backend planning.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile"
       },
       "runtime_status": "disabled",
       "provider_capabilities": [
@@ -2258,7 +2989,10 @@
         "preview_seconds": 12,
         "model_family": "custom_tts",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "runtime": {
         "status": "disabled",
@@ -2314,10 +3048,13 @@
         "preview_seconds": 12,
         "model_family": "custom_tts",
         "speaking_rate": 1.0,
-        "expression_strength": 0.5
+        "expression_strength": 0.5,
+        "default_voice": "provider_default",
+        "available_voices": [],
+        "output_format": "wav"
       },
       "model": {
-        "default_model": "",
+        "default_model": "provider_default",
         "available_models": []
       },
       "ui": {
@@ -2333,7 +3070,9 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "Custom TTS adapter slot for power users."
+        "notes": "Custom TTS adapter slot for power users.",
+        "voice_routing_contract": "VO-R3",
+        "catalog_authority": "selected_backend_profile"
       },
       "runtime_status": "disabled",
       "provider_capabilities": [
@@ -3288,9 +4027,9 @@
         "img2video": true,
         "text_to_video": true,
         "image_to_video": true,
-        "video_extend": false,
-        "video_edit": false,
-        "reference_to_video": false,
+        "video_extend": true,
+        "video_edit": true,
+        "reference_to_video": true,
         "negative_prompt": false,
         "async_jobs": true,
         "provider_polling": true
@@ -3301,6 +4040,8 @@
         "aspect_ratio": "16:9",
         "duration_seconds": 4,
         "generation_path": "/videos/generations",
+        "edit_path": "/videos/edits",
+        "extension_path": "/videos/extensions",
         "poll_path": "/videos/{request_id}",
         "poll_interval_seconds": 5
       },
@@ -3309,7 +4050,61 @@
         "available_models": [
           "grok-imagine-video",
           "grok-imagine-video-1.5"
-        ]
+        ],
+        "capabilities_by_model": {
+          "grok-imagine-video": {
+            "modes": [
+              "txt2vid",
+              "img2vid",
+              "reference_to_video",
+              "vid2vid",
+              "extend"
+            ],
+            "resolutions": [
+              "480p",
+              "720p"
+            ],
+            "resolutions_by_mode": {
+              "txt2vid": [
+                "480p",
+                "720p"
+              ],
+              "img2vid": [
+                "480p",
+                "720p"
+              ],
+              "reference_to_video": [
+                "480p",
+                "720p"
+              ]
+            },
+            "duration_max_by_mode": {
+              "txt2vid": 15,
+              "img2vid": 15,
+              "reference_to_video": 10
+            }
+          },
+          "grok-imagine-video-1.5": {
+            "modes": [
+              "img2vid"
+            ],
+            "resolutions": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "resolutions_by_mode": {
+              "img2vid": [
+                "480p",
+                "720p",
+                "1080p"
+              ]
+            },
+            "duration_max_by_mode": {
+              "img2vid": 15
+            }
+          }
+        }
       },
       "ui": {
         "show_local_launch_fields": false,
@@ -3319,7 +4114,7 @@
         "show_comfy_video_fields": false,
         "show_cloud_video_generation_fields": true
       },
-      "notes": "P3 linked Video surface profile. Reuses the existing Video workspace and shares xAI credentials with image.xai_grok_imagine when a manual key is stored there.",
+      "notes": "Linked Grok Video profile using the existing Video workspace for all current supported xAI video workflows, with model-aware gating and shared reference inputs.",
       "profile_id": "video.xai_grok_imagine",
       "display_name": "Grok Imagine Video",
       "enabled": true,
@@ -3330,16 +4125,16 @@
         "schema_version": "0.2.0-unified-backend-profile-schema",
         "created_at": "",
         "updated_at": "",
-        "notes": "Surface binding only; no duplicate Grok workspace. Credentials link to image.xai_grok_imagine."
+        "notes": "Surface binding only; no duplicate Grok workspace. Credentials link to image.xai_grok_imagine; Video capabilities are provider/model aware."
       },
       "capability_flags": {
         "txt2video": true,
         "img2video": true,
         "text_to_video": true,
         "image_to_video": true,
-        "video_extend": false,
-        "video_edit": false,
-        "reference_to_video": false,
+        "video_extend": true,
+        "video_edit": true,
+        "reference_to_video": true,
         "negative_prompt": false,
         "async_jobs": true,
         "provider_polling": true
@@ -3350,8 +4145,58 @@
         "aspect_ratio": "16:9",
         "duration_seconds": 4,
         "generation_path": "/videos/generations",
+        "edit_path": "/videos/edits",
+        "extension_path": "/videos/extensions",
         "poll_path": "/videos/{request_id}",
         "poll_interval_seconds": 5
+      },
+      "reference_input": {
+        "schema_version": "neo.video.reference_input_contract.v1",
+        "supported": true,
+        "generation_type": "reference_to_video",
+        "media_types": [
+          "image"
+        ],
+        "max_images": 7,
+        "max_videos": 0,
+        "max_audios": 0,
+        "max_total": 7,
+        "min_total": 1,
+        "prompt_reference_style": "<IMAGE_1> ... <IMAGE_7>"
+      },
+      "mode_constraints": {
+        "txt2vid": {
+          "duration_min": 1,
+          "duration_max": 15,
+          "geometry": "user_selected"
+        },
+        "img2vid": {
+          "duration_min": 1,
+          "duration_max": 15,
+          "geometry": "user_selected",
+          "source_image_required": true
+        },
+        "reference_to_video": {
+          "duration_min": 1,
+          "duration_max": 10,
+          "geometry": "user_selected",
+          "reference_images_min": 1,
+          "reference_images_max": 7,
+          "resolution_max": "720p"
+        },
+        "vid2vid": {
+          "source_video_required": true,
+          "source_video_max_seconds": 8.7,
+          "geometry": "inherit_source_720p_cap"
+        },
+        "extend": {
+          "source_video_required": true,
+          "source_video_min_seconds": 2,
+          "source_video_max_seconds": 15,
+          "duration_min": 2,
+          "duration_max": 10,
+          "geometry": "inherit_source_720p_cap"
+        }
       }
     },
     {

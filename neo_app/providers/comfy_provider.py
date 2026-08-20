@@ -101,6 +101,7 @@ from neo_app.image.lanpaint_replay import refresh_lanpaint_replay_contract
 from neo_extensions.built_in.adetailer.backend.route_contract import build_adetailer_route_contract
 from neo_extensions.built_in.adetailer.backend.support_matrix import support_for_route as adetailer_support_for_route
 from neo_extensions.built_in.high_res_lab.backend.support_matrix import is_route_active as high_res_lab_route_active
+from neo_extensions.built_in.scene_director.backend.support_matrix import get_scene_director_support
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
 from neo_extensions.built_in.background_removal.backend.context_latent import (
     build_context_latent_catalog,
@@ -109,6 +110,8 @@ from neo_extensions.built_in.background_removal.backend.context_latent import (
 )
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderFeatureCapabilities, ProviderRunResult, ProviderValidationResult
 from neo_app.runtime.job_registry import GenerationJobRegistry, get_generation_job_registry
+from neo_app.services.comfy_gpu_lifecycle import ComfyGpuBusyError, get_comfy_gpu_lifecycle_manager
+from neo_app.services.comfy_runtime_recovery import classify_comfy_runtime_error
 from neo_app.services.runtime_debug_logs import (
     log_image_event,
     record_compiled_workflow,
@@ -421,6 +424,47 @@ class ComfyProvider(BaseProvider):
         }
 
     @staticmethod
+    def _comfy_http_validation_summary(http_error: dict[str, Any] | None) -> dict[str, Any]:
+        """Extract the first actionable Comfy prompt-validation failure.
+
+        Keep the raw HTTP body in the durable error log, but expose a compact
+        node/input summary to the client so a 400 does not degrade into only
+        ``HTTP Error 400: Bad Request``.
+        """
+        if not isinstance(http_error, dict):
+            return {}
+        body = http_error.get("body")
+        if not isinstance(body, dict):
+            return {}
+        error_block = body.get("error") if isinstance(body.get("error"), dict) else {}
+        node_errors = body.get("node_errors") if isinstance(body.get("node_errors"), dict) else {}
+        summary: dict[str, Any] = {
+            "schema": "neo.comfy.prompt_validation_summary.v1",
+            "status_code": http_error.get("status_code"),
+            "reason": http_error.get("reason"),
+            "error_type": str(error_block.get("type") or ""),
+            "error_message": str(error_block.get("message") or "").strip(),
+        }
+        if not node_errors:
+            return summary if summary.get("error_message") else {}
+
+        node_id, node_block = next(iter(node_errors.items()))
+        node_block = node_block if isinstance(node_block, dict) else {}
+        errors = node_block.get("errors") if isinstance(node_block.get("errors"), list) else []
+        first_error = errors[0] if errors and isinstance(errors[0], dict) else {}
+        extra = first_error.get("extra_info") if isinstance(first_error.get("extra_info"), dict) else {}
+        summary.update({
+            "node_id": str(node_id),
+            "class_type": str(node_block.get("class_type") or ""),
+            "node_error_type": str(first_error.get("type") or ""),
+            "node_error_message": str(first_error.get("message") or "").strip(),
+            "details": str(first_error.get("details") or "").strip(),
+            "input_name": str(extra.get("input_name") or ""),
+            "received_value": extra.get("received_value"),
+        })
+        return summary
+
+    @staticmethod
     def _extract_comfy_choices(value: Any) -> list[str]:
         if not isinstance(value, (list, tuple)) or not value:
             return []
@@ -602,6 +646,7 @@ class ComfyProvider(BaseProvider):
             base_node_classes=LANPAINT_BASE_OBJECT_INFO_NODE_CLASSES,
         )
         object_info_scope = tuple(discovery_contract["required_node_classes"])
+        vae_utils_decode_nodes = ("VAEUtils_CustomVAELoader", "VAEUtils_VAEDecodeTiled")
 
         def evaluate_route(capabilities: dict[str, Any], family: str, loader: str, mode: str = "inpaint") -> dict[str, Any]:
             return evaluate_lanpaint_route_capabilities(
@@ -649,6 +694,26 @@ class ComfyProvider(BaseProvider):
                 "native_core_nodes": ["InpaintModelConditioning", "DifferentialDiffusion", "ImagePadForOutpaint"],
             }
             payload["res4lyf_sampler_diagnostics"] = inspect_res4lyf_sampler({})
+            payload["vae_utils_decode_diagnostics"] = {
+                "available": False,
+                "available_nodes": [],
+                "missing_nodes": list(vae_utils_decode_nodes),
+                "required_nodes": list(vae_utils_decode_nodes),
+                "node_repo": "spacepxl/ComfyUI-VAE-Utils",
+                "reason": "ComfyUI /object_info unavailable.",
+            }
+            payload["scene_director_runtime_diagnostics"] = {
+                "classic_node_available": False,
+                "regional_lora_node_available": False,
+                "krea2_regional_available": False,
+                "available_nodes": [],
+                "missing_nodes": ["NeoSceneDirectorV054", "NeoRegionalLoRADelta", "Krea2RegionalBuilder", "Krea2ApplyRegional"],
+                "required_for_krea2_regional": ["Krea2RegionalBuilder", "Krea2ApplyRegional"],
+                "required_for_other_modern_regional_lora": "NeoRegionalLoRADelta",
+                "krea2_regional_node_repo": "januspluto/ComfyUI-Krea2-Regional",
+                "bundled_node_folder": "neo_scene_director",
+                "reason": "ComfyUI /object_info unavailable; Scene Director runtime readiness cannot be verified.",
+            }
             payload["image_family_compatibility"] = build_image_family_compatibility_matrix(
                 provider_id=self.manifest.provider_id,
                 object_info={},
@@ -700,6 +765,10 @@ class ComfyProvider(BaseProvider):
             "ImagePadForOutpaint",
         ]
         res4lyf_sampler_nodes = list(CLOWNSHARK_NODE_CANDIDATES)
+        scene_director_runtime_nodes = [
+            "NeoSceneDirectorV054", "NeoRegionalLoRADelta",
+            "Krea2RegionalBuilder", "Krea2ApplyRegional",
+        ]
         payload["object_info_node_inputs"] = {
             node_name: self._node_input_names(info, node_name)
             for node_name in [
@@ -708,9 +777,36 @@ class ComfyProvider(BaseProvider):
                 *context_latent_nodes,
                 *masked_edit_optional_nodes,
                 *res4lyf_sampler_nodes,
+                *vae_utils_decode_nodes,
+                *scene_director_runtime_nodes,
                 *object_info_scope,
             ]
             if isinstance(info.get(node_name), dict)
+        }
+        payload["vae_utils_decode_diagnostics"] = {
+            "available": all(node_name in payload["object_info_node_inputs"] for node_name in vae_utils_decode_nodes),
+            "available_nodes": [node_name for node_name in vae_utils_decode_nodes if node_name in payload["object_info_node_inputs"]],
+            "missing_nodes": [node_name for node_name in vae_utils_decode_nodes if node_name not in payload["object_info_node_inputs"]],
+            "required_nodes": list(vae_utils_decode_nodes),
+            "node_repo": "spacepxl/ComfyUI-VAE-Utils",
+            "reason": "Ready" if all(node_name in payload["object_info_node_inputs"] for node_name in vae_utils_decode_nodes) else "Install/update ComfyUI-VAE-Utils and restart ComfyUI.",
+        }
+        krea2_regional_required = ["Krea2RegionalBuilder", "Krea2ApplyRegional"]
+        krea2_regional_ready = all(node_name in payload["object_info_node_inputs"] for node_name in krea2_regional_required)
+        payload["scene_director_runtime_diagnostics"] = {
+            "classic_node_available": "NeoSceneDirectorV054" in payload["object_info_node_inputs"],
+            "regional_lora_node_available": "NeoRegionalLoRADelta" in payload["object_info_node_inputs"],
+            "krea2_regional_available": krea2_regional_ready,
+            "available_nodes": [node_name for node_name in scene_director_runtime_nodes if node_name in payload["object_info_node_inputs"]],
+            "missing_nodes": [node_name for node_name in scene_director_runtime_nodes if node_name not in payload["object_info_node_inputs"]],
+            "required_for_krea2_regional": list(krea2_regional_required),
+            "required_for_other_modern_regional_lora": "NeoRegionalLoRADelta",
+            "krea2_regional_node_repo": "januspluto/ComfyUI-Krea2-Regional",
+            "bundled_node_folder": "neo_scene_director",
+            "reason": (
+                "Krea2 Regional ready" if krea2_regional_ready
+                else "Install/update januspluto/ComfyUI-Krea2-Regional and restart ComfyUI for Krea 2 Scene Director regional LoRA isolation."
+            ),
         }
         payload["lanpaint_family_expansion"] = deepcopy(expansion_summary)
         payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
@@ -1301,10 +1397,12 @@ class ComfyProvider(BaseProvider):
     def _non_checkpoint_allowed_extension_ids(route_payload: dict[str, Any]) -> tuple[str, ...]:
         """Resolve provider-owned extension patches from exact route support.
 
-        LoRA Stack and ControlNet remain the established non-checkpoint owners.
-        Krea 2 may additionally receive High-Res Lab when its exact route profile
-        is active, followed by ADetailer when its Finish support row is active.
-        Unsupported routes never receive a submitted extension block by accident.
+        LoRA Stack and ControlNet remain established non-checkpoint owners.
+        Scene Director is admitted only from its canonical generation/reference
+        support matrix, while High-Res Lab and ADetailer keep their Finish-owned
+        route checks. This prevents provider-side family allowlists from silently
+        stripping a supported modern regional workflow. Unsupported routes never
+        receive a submitted extension block by accident.
         """
         normalized_route = {
             **dict(route_payload or {}),
@@ -1313,13 +1411,394 @@ class ComfyProvider(BaseProvider):
             "subtab": "finish",
         }
         allowed = ["lora_stack", "image.controlnet"]
-        family = str(normalized_route.get("family") or "").strip()
-        if family in {"krea2", "krea2_turbo"} and high_res_lab_route_active(normalized_route):
+        scene_mode = str(route_payload.get("workflow_mode") or route_payload.get("mode") or "txt2img").strip().lower()
+        scene_workspace_app = "reference" if scene_mode in {"img2img", "edit", "inpaint", "outpaint"} else "generations"
+        scene_route = {
+            **dict(route_payload or {}),
+            "workspace": "image",
+            "workspace_app": scene_workspace_app,
+            "subtab": scene_workspace_app,
+        }
+        scene_support = get_scene_director_support(scene_route, require_node=False)
+        if bool(scene_support.get("workflow_patch_allowed")):
+            allowed.append("image.scene_director")
+        if high_res_lab_route_active(normalized_route):
             allowed.append("image.high_res_lab")
         support = adetailer_support_for_route(normalized_route)
         if bool(support.get("workflow_patch_allowed")):
             allowed.append("image.adetailer")
         return tuple(allowed)
+
+    @classmethod
+    def _enforce_scene_director_execution(
+        cls,
+        *,
+        extensions: object,
+        route_payload: dict[str, Any],
+        workflow: dict[str, Any],
+        extension_metadata: dict[str, Any] | None,
+        validation_payload: dict[str, Any],
+        actual_params: dict[str, Any],
+        compile_status: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Fail closed when Scene Director was explicitly submitted but did not mutate the graph.
+
+        IMG-SD1 separates submit intent from execution truth.  The browser owns
+        the editor state, but only the provider can prove that the final Comfy
+        workflow contains the regional conditioning/model-delta patch.  Modern
+        routes must never silently fall back to a plain generation graph or a
+        global LoRA loader.
+        """
+        block = cls._extension_block_from_job_extensions(extensions, "image.scene_director")
+        requested = bool(isinstance(block, dict) and block.get("enabled") is True)
+        support = get_scene_director_support(route_payload, require_node=False)
+        route_active = bool(support.get("workflow_patch_allowed"))
+        executable_request = bool(requested and route_active)
+        metadata = extension_metadata if isinstance(extension_metadata, dict) else {}
+        workflow_patches = metadata.get("workflow_patches") if isinstance(metadata.get("workflow_patches"), list) else []
+        scene_patch = next(
+            (
+                item for item in workflow_patches
+                if isinstance(item, dict) and str(item.get("extension_id") or "") == "image.scene_director"
+            ),
+            None,
+        )
+        patch_applied = bool(isinstance(scene_patch, dict) and scene_patch.get("applied"))
+        patch_for_verification = scene_patch if isinstance(scene_patch, dict) else {}
+        runtime_for_verification = (
+            patch_for_verification.get("scene_director_lightweight_runtime_proof")
+            if isinstance(patch_for_verification.get("scene_director_lightweight_runtime_proof"), dict)
+            else {}
+        )
+        regional_lora_route_count = int(runtime_for_verification.get("regional_lora_route_count") or 0)
+        regional_lora_nodes_added = int(runtime_for_verification.get("regional_lora_nodes_added") or 0)
+        regional_lora_compile_status = str(runtime_for_verification.get("regional_lora_compile_status") or "")
+        verification_nodes_added = [str(item) for item in (patch_for_verification.get("nodes_added") or [])]
+        verification_node_classes = [
+            str((workflow.get(node_id) or {}).get("class_type") or "")
+            for node_id in verification_nodes_added
+            if isinstance(workflow.get(node_id), dict)
+        ]
+        runtime_engine = str(runtime_for_verification.get("engine") or patch_for_verification.get("scene_director_engine") or "")
+        krea2_external_runtime = runtime_engine == "krea2_regional_external"
+        krea2_external_graph_verified = bool(
+            verification_node_classes.count("Krea2RegionalBuilder") == 1
+            and verification_node_classes.count("Krea2ApplyRegional") == 1
+        ) if krea2_external_runtime else False
+        submit_authority = actual_params.get("_neo_scene_director_submit_authority") if isinstance(actual_params.get("_neo_scene_director_submit_authority"), dict) else {}
+        expected_regional_lora_row_ids = [
+            str(item) for item in (submit_authority.get("regional_lora_row_ids") or []) if str(item or "").strip()
+        ]
+        expected_regional_lora_count = len(expected_regional_lora_row_ids)
+        regional_lora_request_preserved = bool(
+            expected_regional_lora_count <= 0
+            or regional_lora_route_count == expected_regional_lora_count
+        )
+        regional_lora_verified = bool(
+            regional_lora_request_preserved
+            and (
+                regional_lora_route_count <= 0
+                or (
+                    krea2_external_runtime
+                    and krea2_external_graph_verified
+                    and regional_lora_compile_status == "external_runtime_armed"
+                )
+                or (
+                    not krea2_external_runtime
+                    and regional_lora_nodes_added == 1
+                    and regional_lora_compile_status == "armed_not_gpu_proven"
+                )
+            )
+        )
+        applied = bool(
+            patch_applied
+            and runtime_for_verification.get("contract_ok", True) is not False
+            and regional_lora_verified
+        )
+
+        submit_state = actual_params.get("_neo_extension_state") if isinstance(actual_params.get("_neo_extension_state"), dict) else None
+        if isinstance(submit_state, dict):
+            submit_extensions = submit_state.get("extensions") if isinstance(submit_state.get("extensions"), dict) else None
+            scene_state = submit_extensions.get("image.scene_director") if isinstance(submit_extensions, dict) and isinstance(submit_extensions.get("image.scene_director"), dict) else None
+            if isinstance(scene_state, dict):
+                scene_state["workflow_requested"] = requested
+                scene_state["workflow_applied"] = applied
+                scene_state["workflow_status"] = "applied" if applied else ("blocked" if executable_request else "inactive")
+
+        if not executable_request:
+            actual_params["_neo_scene_director_execution"] = "inactive"
+            actual_params.pop("_neo_scene_director_execution_proof", None)
+            actual_params.pop("_neo_scene_director_blocker", None)
+            return compile_status, None
+
+        patch = scene_patch if isinstance(scene_patch, dict) else {}
+        nodes_added = [str(item) for item in (patch.get("nodes_added") or patch.get("node_ids") or [])]
+        runtime_proof = patch.get("scene_director_lightweight_runtime_proof") if isinstance(patch.get("scene_director_lightweight_runtime_proof"), dict) else {}
+        lora_contract = patch.get("scene_director_regional_lora_contract") if isinstance(patch.get("scene_director_regional_lora_contract"), dict) else {}
+        lora_routes = lora_contract.get("routes") if isinstance(lora_contract.get("routes"), list) else []
+        conditioning_mask_nodes = [
+            node_id for node_id in nodes_added
+            if isinstance(workflow.get(node_id), dict)
+            and str((workflow.get(node_id) or {}).get("class_type") or "") == "ConditioningSetMask"
+        ]
+        combine_nodes = [
+            node_id for node_id in nodes_added
+            if isinstance(workflow.get(node_id), dict)
+            and str((workflow.get(node_id) or {}).get("class_type") or "") == "ConditioningCombine"
+        ]
+        regional_lora_nodes = [
+            node_id for node_id in nodes_added
+            if isinstance(workflow.get(node_id), dict)
+            and str((workflow.get(node_id) or {}).get("class_type") or "") == "NeoRegionalLoRADelta"
+        ]
+        krea2_regional_builder_nodes = [
+            node_id for node_id in nodes_added
+            if isinstance(workflow.get(node_id), dict)
+            and str((workflow.get(node_id) or {}).get("class_type") or "") == "Krea2RegionalBuilder"
+        ]
+        krea2_regional_apply_nodes = [
+            node_id for node_id in nodes_added
+            if isinstance(workflow.get(node_id), dict)
+            and str((workflow.get(node_id) or {}).get("class_type") or "") == "Krea2ApplyRegional"
+        ]
+        proof = {
+            "schema_version": "neo.image.scene_director.execution_proof.img_sd3.v5",
+            "execution_state": "applied" if applied else "blocked_unapplied_explicit_request",
+            "requested": True,
+            "applied": applied,
+            "provider_id": str(route_payload.get("provider_id") or route_payload.get("backend") or "comfyui"),
+            "route": deepcopy(route_payload),
+            "engine": str(patch.get("scene_director_engine") or (patch.get("scene_director_execution_strategy") or {}).get("engine") or support.get("execution_engine") or ""),
+            "patch_type": str(patch.get("patch_type") or ""),
+            "sampler_node_id": str(patch.get("sampler_node_id") or ""),
+            "region_count": int(patch.get("regions") or 0),
+            "nodes_added": nodes_added,
+            "conditioning_set_mask_node_ids": conditioning_mask_nodes,
+            "conditioning_combine_node_ids": combine_nodes,
+            "regional_lora_node_ids": regional_lora_nodes,
+            "krea2_regional_builder_node_ids": krea2_regional_builder_nodes,
+            "krea2_regional_apply_node_ids": krea2_regional_apply_nodes,
+            "krea2_regional_external_graph_verified": bool(krea2_external_graph_verified),
+            "external_runtime_repo": str(runtime_proof.get("external_runtime_repo") or lora_contract.get("external_runtime_repo") or ""),
+            "adaptive_masks": runtime_proof.get("adaptive_masks"),
+            "exclusive_masks": runtime_proof.get("exclusive_masks"),
+            "restrict_img_attn": runtime_proof.get("restrict_img_attn"),
+            "layout_in_base": runtime_proof.get("layout_in_base"),
+            "region_lock_strength": runtime_proof.get("region_lock_strength"),
+            "regional_prompt_lane_count": int(runtime_proof.get("regional_prompt_lane_count") or 0),
+            "subject_authority_applied": bool(runtime_proof.get("subject_authority_applied")),
+            "subject_authority_merge_mode": str(runtime_proof.get("subject_authority_merge_mode") or "inactive"),
+            "subject_authority_bridge_ref": deepcopy(runtime_proof.get("subject_authority_bridge_ref")),
+            "subject_authority_node_ids": [str(item) for item in (runtime_proof.get("subject_authority_node_ids") or [])],
+            "subject_authority_source_text_node_id": str(runtime_proof.get("subject_authority_source_text_node_id") or ""),
+            "subject_authority_negative_source_text_node_id": str(runtime_proof.get("subject_authority_negative_source_text_node_id") or ""),
+            "subject_authority_merge": deepcopy(runtime_proof.get("subject_authority_merge") or {}),
+            "subject_authority_negative_merge": deepcopy(runtime_proof.get("subject_authority_negative_merge") or {}),
+            "subject_authority": deepcopy(runtime_proof.get("subject_authority") or {}),
+            "conditioning_rewire_location": str(runtime_proof.get("conditioning_rewire_location") or ""),
+            "sampler_conditioning_rewired": bool(runtime_proof.get("sampler_conditioning_rewired")),
+            "conditioning_wrapper_rewired": bool(runtime_proof.get("conditioning_wrapper_rewired")),
+            "inpaint_conditioning_wrapper_node_id": str(runtime_proof.get("inpaint_conditioning_wrapper_node_id") or ""),
+            "inpaint_conditioning_wrapper_preserved": runtime_proof.get("inpaint_conditioning_wrapper_preserved"),
+            "inpaint_conditioning_anchor_positive_ref": deepcopy(runtime_proof.get("inpaint_conditioning_anchor_positive_ref")),
+            "inpaint_conditioning_anchor_negative_ref": deepcopy(runtime_proof.get("inpaint_conditioning_anchor_negative_ref")),
+            "prompt_conflict_count": int(runtime_proof.get("prompt_conflict_count") or 0),
+            "prompt_conflicts": deepcopy((runtime_proof.get("subject_authority") or {}).get("directional_conflicts") or []),
+            "regional_lora_route_count": int(runtime_proof.get("regional_lora_route_count") or lora_contract.get("route_count") or 0),
+            "regional_lora_expected_row_ids": expected_regional_lora_row_ids,
+            "regional_lora_expected_count": expected_regional_lora_count,
+            "regional_lora_request_preserved": regional_lora_request_preserved,
+            "regional_lora_compile_status": str(runtime_proof.get("regional_lora_compile_status") or ""),
+            "regional_lora_graph_verified": regional_lora_verified,
+            "modern_scene_director_core": deepcopy(runtime_proof.get("modern_scene_director_core") or patch.get("scene_director_modern_core") or {}),
+            "regional_lora_isolation_goal": str(lora_contract.get("isolation_goal") or ""),
+            "regional_lora_isolation_profile": str(lora_contract.get("isolation_profile") or ""),
+            "regional_lora_overlap_diagnostics": deepcopy(lora_contract.get("isolation_overlap_diagnostics") or {}),
+            "regional_lora_hard_isolation_claimed": bool(lora_contract.get("hard_region_isolation_claimed")),
+            "regional_lora_clip_delta_execution": str(lora_contract.get("clip_delta_execution") or ""),
+            "regional_lora_bindings": [
+                {
+                    "row_id": str(item.get("row_id") or item.get("lora_row_id") or ""),
+                    "region_id": str(item.get("region_id") or ""),
+                    "lora_name": str(item.get("lora_name") or item.get("name") or ""),
+                    "strength": item.get("strength"),
+                }
+                for item in lora_routes if isinstance(item, dict)
+            ],
+            "single_sampler_preserved": runtime_proof.get("single_sampler_preserved"),
+            "contract_ok": runtime_proof.get("contract_ok", True if applied else False),
+            "fallback_policy": str(patch.get("fallback_policy") or "never_fallback_to_classic_v054_or_global_lora"),
+            "reason": str(patch.get("reason") or ""),
+        }
+        actual_params["_neo_scene_director_execution_proof"] = proof
+
+        if applied:
+            actual_params["_neo_scene_director_execution"] = "applied"
+            actual_params.pop("_neo_scene_director_blocker", None)
+            return compile_status, proof
+
+        patch_reason = str(patch.get("reason") or "")
+        route_family = str(route_payload.get("family") or route_payload.get("model_family") or "").strip().lower().replace("-", "_")
+        krea_dependency_missing = bool(
+            route_family in {"krea2", "krea2_turbo", "krea_2", "krea_2_turbo"}
+            and (
+                regional_lora_compile_status == "missing_external_runtime"
+                or "ComfyUI-Krea2-Regional" in patch_reason
+                or "Krea2RegionalBuilder" in patch_reason
+                or "Krea2ApplyRegional" in patch_reason
+            )
+        )
+        reason = str(
+            (
+                "Krea 2 Scene Director regional LoRA isolation requires januspluto/ComfyUI-Krea2-Regional "
+                "(Krea2RegionalBuilder + Krea2ApplyRegional). Install/update that custom-node pack, restart ComfyUI, "
+                "then reconnect Neo. Neo will not fall back to NeoRegionalLoRADelta or global LoRA loading."
+                if krea_dependency_missing
+                else (
+                    (
+                        f"Scene Director requested {expected_regional_lora_count} regional LoRA row(s), but only "
+                        f"{regional_lora_route_count} survived compatibility/routing validation. Neo blocked the job "
+                        "instead of silently dropping a region-assigned LoRA."
+                        if expected_regional_lora_count > 0 and not regional_lora_request_preserved
+                        else (
+                            f"Scene Director regional LoRA routing was requested for {regional_lora_route_count} row(s), "
+                            f"but the regional runtime was not armed ({regional_lora_compile_status or 'unknown'}). "
+                            + (
+                                "Sync Neo's bundled neo_scene_director custom node into ComfyUI/custom_nodes and restart ComfyUI."
+                                if regional_lora_compile_status == "missing_runtime_node"
+                                else ""
+                            )
+                        ).strip()
+                    )
+                    if (expected_regional_lora_count > 0 or regional_lora_route_count > 0) and not regional_lora_verified
+                    else ""
+                )
+            )
+            or patch_reason
+            or "Scene Director was enabled on an executable route but the provider could not attach a verified regional workflow patch before queueing."
+        )
+        errors = list(validation_payload.get("errors") or [])
+        if reason not in errors:
+            errors.append(reason)
+        validation_payload["errors"] = errors
+        validation_payload["ok"] = False
+        actual_params["_neo_scene_director_execution"] = "blocked_before_queue"
+        actual_params["_neo_scene_director_blocker"] = reason
+        proof["execution_state"] = "blocked_before_queue"
+        proof["reason"] = reason
+        return "mock_compiled", proof
+
+    @classmethod
+    def _enforce_high_res_execution(
+        cls,
+        *,
+        extensions: object,
+        route_payload: dict[str, Any],
+        workflow: dict[str, Any],
+        extension_metadata: dict[str, Any] | None,
+        validation_payload: dict[str, Any],
+        actual_params: dict[str, Any],
+        compile_status: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Fail closed when an active High-Res request has no graph mutation proof.
+
+        The frontend submit-state snapshot represents user intent, not provider
+        execution.  This provider-owned proof is created only after the final
+        extension graph has been patched, so Neo cannot claim High-Res Lab ran
+        merely because its toggle was enabled.
+        """
+
+        block = cls._extension_block_from_job_extensions(extensions, "image.high_res_lab")
+        requested = bool(isinstance(block, dict) and block.get("enabled") is True)
+        route_active = bool(high_res_lab_route_active(route_payload))
+        executable_request = bool(requested and route_active)
+        metadata = extension_metadata if isinstance(extension_metadata, dict) else {}
+        workflow_patches = metadata.get("workflow_patches") if isinstance(metadata.get("workflow_patches"), list) else []
+        high_res_patch = next(
+            (
+                item
+                for item in workflow_patches
+                if isinstance(item, dict) and str(item.get("extension_id") or "") == "image.high_res_lab"
+            ),
+            None,
+        )
+        applied = bool(isinstance(high_res_patch, dict) and high_res_patch.get("applied"))
+
+        submit_state = actual_params.get("_neo_extension_state") if isinstance(actual_params.get("_neo_extension_state"), dict) else None
+        if isinstance(submit_state, dict):
+            submit_extensions = submit_state.get("extensions") if isinstance(submit_state.get("extensions"), dict) else None
+            high_res_state = submit_extensions.get("image.high_res_lab") if isinstance(submit_extensions, dict) and isinstance(submit_extensions.get("image.high_res_lab"), dict) else None
+            if isinstance(high_res_state, dict):
+                high_res_state["workflow_requested"] = requested
+                high_res_state["workflow_applied"] = applied
+                high_res_state["workflow_status"] = "applied" if applied else ("blocked" if executable_request else "inactive")
+
+        if not executable_request:
+            actual_params["_neo_high_res_execution"] = "inactive"
+            actual_params.pop("_neo_high_res_execution_proof", None)
+            actual_params.pop("_neo_high_res_blocker", None)
+            return compile_status, None
+
+        patch = high_res_patch if isinstance(high_res_patch, dict) else {}
+        node_ids = [str(item) for item in (patch.get("node_ids") or [])]
+
+        def nodes_of_class(*class_names: str) -> list[str]:
+            wanted = set(class_names)
+            return [
+                node_id
+                for node_id in node_ids
+                if isinstance(workflow.get(node_id), dict)
+                and str((workflow.get(node_id) or {}).get("class_type") or "") in wanted
+            ]
+
+        profile = patch.get("route_profile") if isinstance(patch.get("route_profile"), dict) else {}
+        refine_samplers = nodes_of_class("KSampler")
+        upscale_nodes = nodes_of_class("ImageUpscaleWithModel", "ImageScaleBy", "ImageScale", "LatentUpscale", "UltimateSDUpscale")
+        encode_nodes = nodes_of_class("VAEEncode")
+        decode_nodes = nodes_of_class("VAEDecode", "VAEDecodeTiled", "VAEUtils_VAEDecodeTiled")
+        proof = {
+            "schema_version": "neo.image.high_res_lab.execution_proof.v1",
+            "execution_state": "applied" if applied else "blocked_unapplied_explicit_request",
+            "requested": True,
+            "applied": applied,
+            "provider_id": str(route_payload.get("provider_id") or route_payload.get("backend") or "comfyui"),
+            "route": deepcopy(route_payload),
+            "profile_id": str(patch.get("profile_id") or profile.get("profile_id") or ""),
+            "base_sampler_node_id": str(patch.get("sampler_node_id") or ""),
+            "upscale_node_ids": upscale_nodes,
+            "vae_encode_node_ids": encode_nodes,
+            "refine_sampler_node_id": refine_samplers[-1] if refine_samplers else "",
+            "final_decode_node_id": decode_nodes[-1] if decode_nodes else "",
+            "node_ids": node_ids,
+            "source_width": actual_params.get("width"),
+            "source_height": actual_params.get("height"),
+            "target_width": patch.get("target_width"),
+            "target_height": patch.get("target_height"),
+            "target_size_source": patch.get("target_size_source"),
+            "patched_output_ref": deepcopy(patch.get("patched_output_ref") or []),
+            "reason": str(patch.get("reason") or ""),
+        }
+        actual_params["_neo_high_res_execution_proof"] = proof
+
+        if applied:
+            actual_params["_neo_high_res_execution"] = "applied"
+            actual_params.pop("_neo_high_res_blocker", None)
+            return compile_status, proof
+
+        reason = str(
+            patch.get("reason")
+            or "High-Res Lab was enabled on an active route but the provider could not attach a verified High-Res graph before queueing."
+        )
+        errors = list(validation_payload.get("errors") or [])
+        if reason not in errors:
+            errors.append(reason)
+        validation_payload["errors"] = errors
+        validation_payload["ok"] = False
+        actual_params["_neo_high_res_execution"] = "blocked_before_queue"
+        actual_params["_neo_high_res_blocker"] = reason
+        proof["execution_state"] = "blocked_before_queue"
+        proof["reason"] = reason
+        return "mock_compiled", proof
 
     @staticmethod
     def _find_final_latent_source(workflow: dict[str, Any]) -> list[Any] | None:
@@ -2275,6 +2754,14 @@ class ComfyProvider(BaseProvider):
         if name:
             candidates.append(self._neo_source_image_dir() / name)
             candidates.append(self._neo_mask_image_dir() / name)
+            # ControlNet Build Map persists a durable Neo-owned copy here even
+            # when its eager Comfy input upload is unavailable. Pre-queue
+            # materialization can therefore recover a bare generated-map name or
+            # the dedicated map-file API URL without treating unrelated API
+            # image URLs as ControlNet assets.
+            is_controlnet_map_url = bool(parsed and parsed.path.startswith("/api/extensions/controlnet/maps/file/"))
+            if not parsed or is_controlnet_map_url:
+                candidates.append(Path.cwd() / "neo_data" / "controlnet_maps" / name)
         for candidate in candidates:
             try:
                 if candidate.exists() and candidate.is_file():
@@ -2374,17 +2861,40 @@ class ComfyProvider(BaseProvider):
             log_image_event("layerdiffuse_image_normalization_skipped", run_id=run_id, payload=metadata)
             return path, metadata
 
+    @staticmethod
+    def _split_comfy_input_image_name(image_name: str) -> tuple[str, str]:
+        """Split a Comfy LoadImage input into filename + provider subfolder.
+
+        Comfy's upload endpoint may return names such as
+        ``neo_studio_controlnet/map.png``. LoadImage keeps that relative
+        subfolder, and ``/view`` expects it as a separate ``subfolder`` query
+        value. Do not collapse the name to its basename or a valid nested input
+        will be reported as missing before queueing.
+        """
+        raw = str(image_name or "").strip().replace("\\", "/")
+        if not raw or raw.startswith(("http://", "https://", "/api/")):
+            return "", ""
+        if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
+            return "", ""
+        parts = [part for part in raw.split("/") if part not in {"", "."}]
+        if not parts or any(part == ".." for part in parts):
+            return "", ""
+        return parts[-1], "/".join(parts[:-1])
+
     def _verify_comfy_input_image_name(self, image_name: str) -> bool:
         """Best-effort Comfy input validation for LoadImage filenames.
 
-        Comfy validates LoadImage at /prompt time. For LayerDiffuse we want to
-        fail earlier when the source handoff did not really land in Comfy input.
-        /view works for Comfy input files without executing a graph.
+        Comfy validates LoadImage at /prompt time. Neo preflights every LoadImage
+        so broken source handoffs fail cleanly before queueing. Nested Comfy
+        input names must preserve their relative subfolder during this probe.
         """
-        name = Path(str(image_name or "")).name
+        name, subfolder = self._split_comfy_input_image_name(image_name)
         if not name:
             return False
-        query = parse.urlencode({"filename": name, "type": "input"})
+        query_values = {"filename": name, "type": "input"}
+        if subfolder:
+            query_values["subfolder"] = subfolder
+        query = parse.urlencode(query_values)
         req = request.Request(self._url(f"/view?{query}"), method="GET")
         try:
             with request.urlopen(req, timeout=max(self.timeout, 5)) as response:
@@ -2817,16 +3327,21 @@ class ComfyProvider(BaseProvider):
             return ""
         if source_image.startswith(("http://", "https://")):
             if require_verified:
-                raise FileNotFoundError(f"LayerDiffuse cannot upload external URL directly to Comfy input: {source_image}")
+                raise FileNotFoundError(f"Comfy source image cannot be uploaded from an external URL directly: {source_image}")
             return Path(parse.urlparse(source_image).path).name
 
         path = upload_path or self._resolve_neo_image_ref_path(source_image)
         if path is None:
+            # A Comfy-owned input may already be valid, including a nested input
+            # such as neo_studio_controlnet/map.png. Preserve that relative name
+            # instead of reducing it to a basename and probing the wrong folder.
+            if self._verify_comfy_input_image_name(source_image):
+                return source_image.replace("\\", "/")
             existing_name = Path(parse.urlparse(source_image).path).name
             if existing_name and self._verify_comfy_input_image_name(existing_name):
                 return existing_name
             if require_verified:
-                raise FileNotFoundError(f"LayerDiffuse source image is not available as a Neo file or Comfy input file: {source_image}")
+                raise FileNotFoundError(f"Comfy source image is not available as a Neo file or Comfy input file: {source_image}")
             return existing_name
 
         boundary = f"----NeoStudioBoundary{uuid4().hex}"
@@ -2857,7 +3372,7 @@ class ComfyProvider(BaseProvider):
                 except json.JSONDecodeError:
                     uploaded_name = filename
         if require_verified and not self._verify_comfy_input_image_name(uploaded_name):
-            raise FileNotFoundError(f"LayerDiffuse uploaded image was not verified in Comfy input: {uploaded_name}")
+            raise FileNotFoundError(f"Uploaded source image was not verified in Comfy input: {uploaded_name}")
         return uploaded_name
 
     def _ip_adapter_extension_block(self, extensions: object) -> dict[str, Any] | None:
@@ -3176,7 +3691,7 @@ class ComfyProvider(BaseProvider):
         }
         # Do not run every shared extension hook here. Each extension enters this
         # provider-owned path only when its exact family/loader/mode contract is
-        # active. Krea 2 High-Res Lab runs before ADetailer so the detail pass can
+        # active. High-Res Lab runs before ADetailer so the detail pass can
         # consume the refined image without borrowing another family compiler.
         if allowed_extension_ids is None:
             allowed_extension_ids = self._non_checkpoint_allowed_extension_ids(route_payload)
@@ -3281,6 +3796,38 @@ class ComfyProvider(BaseProvider):
                     compile_status=compile_status,
                 )
                 backend_payload["validation"] = validation_payload
+
+            validation_payload = dict(backend_payload.get("validation") or {})
+            compile_status, scene_director_proof = self._enforce_scene_director_execution(
+                extensions=job.extensions,
+                route_payload=route_payload,
+                workflow=backend_payload.get("prompt") if isinstance(backend_payload.get("prompt"), dict) else {},
+                extension_metadata=extension_metadata,
+                validation_payload=validation_payload,
+                actual_params=actual_params,
+                compile_status=compile_status,
+            )
+            backend_payload["validation"] = validation_payload
+            if isinstance(scene_director_proof, dict):
+                backend_payload["scene_director_execution_proof"] = deepcopy(scene_director_proof)
+            else:
+                backend_payload.pop("scene_director_execution_proof", None)
+
+            validation_payload = dict(backend_payload.get("validation") or {})
+            compile_status, high_res_proof = self._enforce_high_res_execution(
+                extensions=job.extensions,
+                route_payload=route_payload,
+                workflow=backend_payload.get("prompt") if isinstance(backend_payload.get("prompt"), dict) else {},
+                extension_metadata=extension_metadata,
+                validation_payload=validation_payload,
+                actual_params=actual_params,
+                compile_status=compile_status,
+            )
+            backend_payload["validation"] = validation_payload
+            if isinstance(high_res_proof, dict):
+                backend_payload["high_res_execution_proof"] = deepcopy(high_res_proof)
+            else:
+                backend_payload.pop("high_res_execution_proof", None)
             backend_payload["actual_params"] = actual_params
         return compiled.model_copy(update={"compile_status": compile_status, "backend_payload": backend_payload})
 
@@ -3541,6 +4088,7 @@ class ComfyProvider(BaseProvider):
                 validation=validation,
                 route=route,
                 capabilities=self.feature_capability_payload(),
+                backend_capabilities=self.discover_backend_capabilities(),
             )
             return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
 
@@ -4365,8 +4913,8 @@ class ComfyProvider(BaseProvider):
                 blockers = route_payload.get("blockers") or []
                 route_label = "+".join(str(route_payload.get(key) or "") for key in ("family", "loader", "mode")).strip("+")
                 latent_validation = compiled.backend_payload.get("latent_branch_resume_validation") if isinstance(compiled.backend_payload.get("latent_branch_resume_validation"), dict) else {}
-                actual_params_for_gate = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
-                latent_reason = str(latent_validation.get("message") or actual_params_for_gate.get("_neo_branch_restore_provider_hook_reason") or "").strip()
+                route_actual_params = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+                latent_reason = str(latent_validation.get("message") or route_actual_params.get("_neo_branch_restore_provider_hook_reason") or "").strip()
                 message = latent_reason or "; ".join(blockers) or f"Route is not enabled for Comfy queue: {route_label or runtime_job.mode}."
                 record_generation_error(
                     run_id=run_id,
@@ -4384,26 +4932,6 @@ class ComfyProvider(BaseProvider):
                 "prompt": prompt_graph,
                 "client_id": client_id,
             }
-            # R10D: LayerDiffuse can leave Comfy-side cached model objects in an
-            # 8-channel patched state after a workflow-replacement run. For any
-            # non-LayerDiffuse compile with a clean 4-channel graph, proactively
-            # ask Comfy to unload cached models before queueing. Failure to free
-            # is non-fatal; the diagnostic report still records the graph state.
-            actual_params_for_cache_guard = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
-            extension_meta_for_cache_guard = compiled.backend_payload.get("extensions") if isinstance(compiled.backend_payload.get("extensions"), dict) else {}
-            contamination_reports = extension_meta_for_cache_guard.get("contamination_reports") if isinstance(extension_meta_for_cache_guard.get("contamination_reports"), dict) else {}
-            layer_report = contamination_reports.get("image.layerdiffuse") if isinstance(contamination_reports.get("image.layerdiffuse"), dict) else {}
-            if (
-                actual_params_for_cache_guard.get("_neo_layerdiffuse_cache_guard", True) is not False
-                and layer_report
-                and layer_report.get("layerdiffuse_requested") is False
-                and layer_report.get("model_channel_risk") == "normal_4ch"
-            ):
-                try:
-                    free_response = self._post_json("/free", {"unload_models": True, "free_memory": True}, allow_empty=True)
-                    log_image_event("layerdiffuse_cache_guard_free", run_id=run_id, payload={"response": free_response, "reason": "non_layerdiffuse_4ch_compile"})
-                except Exception as exc:  # noqa: BLE001
-                    log_image_event("layerdiffuse_cache_guard_free_failed", run_id=run_id, level="WARNING", payload={"error": str(exc), "reason": "non_layerdiffuse_4ch_compile"})
             queue_payload_for_error = payload
             invalid_load_images = self._validate_prompt_load_images(prompt_graph, run_id=run_id)
             invalid_load_latents = self._validate_prompt_load_latents(prompt_graph, run_id=run_id)
@@ -4466,9 +4994,90 @@ class ComfyProvider(BaseProvider):
                     provider_meta["preflight_state"] = "provider_artifact_available"
                     actual_params_for_handoff["_neo_branch_restore_provider"] = provider_meta
                 compiled.backend_payload["actual_params"] = actual_params_for_handoff
+            # Phase 10.2: the shared Comfy GPU gate must be fed from the final
+            # normalized provider payload on every successful compile path.  A
+            # previous Phase-5 insertion only assigned this name inside the
+            # *failed compile* branch, so normal image jobs could raise
+            # UnboundLocalError before /prompt was ever queued.
+            gate_payload = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload, dict) else None
+            if isinstance(gate_payload, dict):
+                actual_params_for_gate = dict(gate_payload)
+                gpu_gate_param_source = "compiled.actual_params"
+            elif isinstance(runtime_job.params, dict):
+                actual_params_for_gate = dict(runtime_job.params)
+                gpu_gate_param_source = "runtime_job.params"
+            else:
+                actual_params_for_gate = {}
+                gpu_gate_param_source = "safe_defaults"
+            try:
+                gpu_wait_timeout = float(actual_params_for_gate.get("gpu_wait_timeout_seconds") or 900.0)
+            except (TypeError, ValueError):
+                gpu_wait_timeout = 900.0
+            if gpu_wait_timeout <= 0:
+                gpu_wait_timeout = 900.0
+            gpu_gate_profile_id = str(actual_params_for_gate.get("backend_profile_id") or actual_params_for_gate.get("profile_id") or "")
+            compiled.backend_payload["gpu_lifecycle_gate"] = {
+                "schema": "neo.image.comfy_gpu_lifecycle_gate.v1",
+                "state": "ready",
+                "parameter_source": gpu_gate_param_source,
+                "wait_timeout_seconds": gpu_wait_timeout,
+                "profile_id": gpu_gate_profile_id,
+            }
+            gpu_manager = get_comfy_gpu_lifecycle_manager()
+            try:
+                gpu_lease = gpu_manager.acquire(
+                    base_url=self.base_url,
+                    owner_kind="image",
+                    owner_label=f"Image generation · {runtime_job.family or runtime_job.model or 'ComfyUI'}",
+                    profile_id=gpu_gate_profile_id,
+                    wait_timeout_seconds=gpu_wait_timeout,
+                    metadata={"run_id": run_id, "family": runtime_job.family or "", "mode": runtime_job.mode or ""},
+                )
+            except ComfyGpuBusyError as exc:
+                return ProviderRunResult(
+                    job_id=run_id,
+                    provider_id=self.manifest.provider_id,
+                    status="failed",
+                    message=str(exc),
+                    runtime={"debug_logs": {"run_id": run_id}, "gpu_lifecycle": exc.status, "recoverable": True},
+                )
+            gpu_lease_token = str(gpu_lease.get("token") or "")
+            # R10D: LayerDiffuse can leave Comfy-side cached model objects in an
+            # 8-channel patched state after a workflow-replacement run. For any
+            # non-LayerDiffuse compile with a clean 4-channel graph, proactively
+            # ask Comfy to unload cached models before queueing. Failure to free
+            # is non-fatal; the diagnostic report still records the graph state.
+            actual_params_for_cache_guard = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
+            extension_meta_for_cache_guard = compiled.backend_payload.get("extensions") if isinstance(compiled.backend_payload.get("extensions"), dict) else {}
+            contamination_reports = extension_meta_for_cache_guard.get("contamination_reports") if isinstance(extension_meta_for_cache_guard.get("contamination_reports"), dict) else {}
+            layer_report = contamination_reports.get("image.layerdiffuse") if isinstance(contamination_reports.get("image.layerdiffuse"), dict) else {}
+            if (
+                actual_params_for_cache_guard.get("_neo_layerdiffuse_cache_guard", True) is not False
+                and layer_report
+                and layer_report.get("layerdiffuse_requested") is False
+                and layer_report.get("model_channel_risk") == "normal_4ch"
+            ):
+                try:
+                    free_response = self._post_json("/free", {"unload_models": True, "free_memory": True}, allow_empty=True)
+                    log_image_event("layerdiffuse_cache_guard_free", run_id=run_id, payload={"response": free_response, "reason": "non_layerdiffuse_4ch_compile"})
+                except Exception as exc:  # noqa: BLE001
+                    log_image_event("layerdiffuse_cache_guard_free_failed", run_id=run_id, level="WARNING", payload={"error": str(exc), "reason": "non_layerdiffuse_4ch_compile"})
             record_queue_payload(run_id=run_id, request_payload=payload)
-            response_payload = self._post_json("/prompt", payload)
+            try:
+                response_payload = self._post_json("/prompt", payload)
+            except Exception as exc:  # noqa: BLE001
+                failure = classify_comfy_runtime_error(exc, phase="queue")
+                if bool(failure.get("gpu_state_uncertain")):
+                    gpu_manager.guard_unbound_after_queue_uncertainty(
+                        gpu_lease_token,
+                        cleanup_after=False,
+                        reason=str(failure.get("message") or exc),
+                    )
+                else:
+                    gpu_manager.release(gpu_lease_token, state="queue_failed")
+                raise
             prompt_id = response_payload.get("prompt_id") or run_id or f"comfy-{uuid4().hex[:8]}"
+            gpu_manager.bind_prompt(gpu_lease_token, prompt_id=prompt_id, cleanup_after=False, watch=True)
             record_compiled_workflow(run_id=prompt_id, provider_id=self.manifest.provider_id, backend_payload=compiled.backend_payload)
             record_queue_payload(run_id=prompt_id, request_payload=payload, response_payload=response_payload)
             if prompt_id != run_id:
@@ -4526,6 +5135,7 @@ class ComfyProvider(BaseProvider):
                 "route_snapshot": route_snapshot,
                 "extensions": runtime_extensions,
                 "latent_branch_resume_validation": latent_preflight_report,
+                "gpu_lifecycle": gpu_manager.status(group=gpu_lease.get("resource_group")),
             }
             registry_record = {}
             try:
@@ -4560,7 +5170,7 @@ class ComfyProvider(BaseProvider):
                 message="Queued in ComfyUI.",
                 outputs=[],
                 client_id=compiled.backend_payload.get("client_id"),
-                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "parameter_integrity": actual_params.get("_neo_parameter_integrity") if isinstance(actual_params, dict) else None, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary},
+                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "parameter_integrity": actual_params.get("_neo_parameter_integrity") if isinstance(actual_params, dict) else None, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary, "gpu_lifecycle": gpu_manager.status(group=gpu_lease.get("resource_group"))},
             )
         except Exception as exc:  # noqa: BLE001
             error_payload: dict[str, Any] = {"job": model_to_dict(runtime_job)}
@@ -4569,8 +5179,11 @@ class ComfyProvider(BaseProvider):
             if queue_payload_for_error is not None:
                 error_payload["queue_payload"] = queue_payload_for_error
             http_error = self._http_error_details(exc)
+            comfy_validation = self._comfy_http_validation_summary(http_error)
             if http_error:
                 error_payload["http_error"] = http_error
+            if comfy_validation:
+                error_payload["comfy_validation"] = comfy_validation
             raw_error = str(exc or "")
             http_error_text = ""
             if http_error:
@@ -4603,13 +5216,27 @@ class ComfyProvider(BaseProvider):
                     message=message,
                     runtime={"debug_logs": {"run_id": run_id}, "qwen_edit_node_compatibility": qwen_diag},
                 )
-            record_generation_error(run_id=run_id, message="Failed to queue ComfyUI job.", exc=exc, payload=error_payload)
+            queue_message = f"Failed to queue ComfyUI job: {exc}"
+            if comfy_validation:
+                node_label = str(comfy_validation.get("class_type") or "Comfy node")
+                node_id = str(comfy_validation.get("node_id") or "")
+                node_error = str(comfy_validation.get("node_error_message") or comfy_validation.get("error_message") or "Prompt validation failed").strip()
+                details = str(comfy_validation.get("details") or "").strip()
+                node_suffix = f" {node_id}" if node_id else ""
+                queue_message = f"ComfyUI rejected {node_label}{node_suffix}: {node_error}"
+                if details:
+                    queue_message += f" — {details}"
+            record_generation_error(run_id=run_id, message=queue_message, exc=exc, payload=error_payload)
             return ProviderRunResult(
                 job_id=run_id,
                 provider_id=self.manifest.provider_id,
                 status="failed",
-                message=f"Failed to queue ComfyUI job: {exc}",
-                runtime={"debug_logs": {"run_id": run_id}},
+                message=queue_message,
+                runtime={
+                    "debug_logs": {"run_id": run_id},
+                    "http_error": http_error or None,
+                    "comfy_validation": comfy_validation or None,
+                },
             )
 
     def poll_job(self, job_id: str) -> ProviderRunResult:
@@ -4672,6 +5299,7 @@ class ComfyProvider(BaseProvider):
                     message=message,
                     payload={"job_id": job_id, "backend_error": backend_failure, "job_registry": self._registry_summary(job_id)},
                 )
+                get_comfy_gpu_lifecycle_manager().complete_prompt(base_url=self.base_url, prompt_id=job_id, state="failed", cleanup_after=False)
                 return ProviderRunResult(
                     job_id=job_id,
                     provider_id=self.manifest.provider_id,
@@ -4714,6 +5342,7 @@ class ComfyProvider(BaseProvider):
                 except Exception as exc:  # noqa: BLE001
                     log_image_event("job_registry_no_outputs_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
                 log_image_event("poll_completed_no_outputs", run_id=job_id, payload={"run_timing": run_timing, "job_registry": self._registry_summary(job_id)})
+                get_comfy_gpu_lifecycle_manager().complete_prompt(base_url=self.base_url, prompt_id=job_id, state="completed_no_outputs", cleanup_after=False)
                 return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="completed_no_outputs_recoverable", message="ComfyUI completed, but Neo found no image outputs in history.", outputs=[], runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
             progress = {"source": "comfyui.history", "percent": 100, "label": "Completed", "batch_total": int(runtime.get("batch_total") or len(outputs) or 1), "batch_done": len(outputs)}
             runtime["progress"] = progress
@@ -4723,6 +5352,7 @@ class ComfyProvider(BaseProvider):
             except Exception as exc:  # noqa: BLE001
                 log_image_event("job_registry_completed_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
             log_image_event("poll_completed", run_id=job_id, payload={"output_count": len(outputs), "output_nodes": [item.get("node_id") for item in outputs], "run_timing": run_timing, "job_registry": self._registry_summary(job_id)})
+            get_comfy_gpu_lifecycle_manager().complete_prompt(base_url=self.base_url, prompt_id=job_id, state="completed", cleanup_after=False)
             return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="completed", message="ComfyUI job completed.", outputs=outputs, runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
         except Exception as exc:  # noqa: BLE001
             runtime = self._load_registered_runtime(job_id)

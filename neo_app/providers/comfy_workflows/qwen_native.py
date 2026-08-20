@@ -12,6 +12,12 @@ from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_app.providers.comfy_workflows.vae_decode_utils import (
+    build_vae_decode_node,
+    build_vae_loader_node,
+    resolve_vae_decode_strategy,
+    vae_decode_profile_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,7 @@ def compile_qwen_native_txt2img(
     validation: ProviderValidationResult,
     route: CompileRoute,
     capabilities: dict[str, Any],
+    backend_capabilities: dict[str, Any] | None = None,
 ) -> CompiledJob:
     """Compile the Qwen Image native txt2img graph.
 
@@ -102,6 +109,14 @@ def compile_qwen_native_txt2img(
     aura_shift = float(_param(params, "qwen_aura_shift", "aura_shift", "shift", default=defaults.aura_shift))
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
+    vae_decode_strategy = resolve_vae_decode_strategy(
+        params=params,
+        family=job.family or "qwen_image",
+        loader=route.loader or job.loader or "diffusion_model",
+        mode="txt2img",
+        backend_capabilities=backend_capabilities,
+        validation=validation,
+    )
 
     actual_params = {
         **params,
@@ -136,9 +151,12 @@ def compile_qwen_native_txt2img(
                 "diffusion_model_loader": "UNETLoader",
                 "text_encoder_loader": "CLIPLoader",
                 "sampling_patch": defaults.sampling_node,
-                "vae_loader": "VAELoader",
+                "vae_loader": vae_decode_strategy["loader_node_class"],
+                "vae_decode": vae_decode_strategy["decode_node_class"],
             },
         },
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": diffusion_model,
         "qwen_text_encoder": text_encoder,
         "text_encoder_1": text_encoder,
@@ -164,10 +182,7 @@ def compile_qwen_native_txt2img(
                 "device": clip_device,
             },
         },
-        "3": {
-            "class_type": "VAELoader",
-            "inputs": {"vae_name": vae},
-        },
+        "3": build_vae_loader_node(vae, vae_decode_strategy),
         "4": {
             "class_type": "CLIPTextEncode",
             "inputs": {"text": effective_prompt, "clip": ["2", 0]},
@@ -199,10 +214,7 @@ def compile_qwen_native_txt2img(
                 "latent_image": ["6", 0],
             },
         },
-        "9": {
-            "class_type": "VAEDecode",
-            "inputs": {"samples": ["8", 0], "vae": ["3", 0]},
-        },
+        "9": build_vae_decode_node(["8", 0], ["3", 0], vae_decode_strategy),
         "10": {
             "class_type": "PreviewImage",
             "inputs": {"images": ["9", 0]},
@@ -258,10 +270,12 @@ def compile_qwen_native_txt2img(
             "runtime_progress_source": "comfyui.websocket_and_history",
             "compile_route": route.as_dict(),
             "capabilities": capabilities,
+            "backend_capabilities": backend_capabilities or {},
             "phase_notes": [
                 "V25.9.20 P3 promotes Qwen component routes out of gate-first wording; txt2img uses the Qwen native compiler.",
                 "Qwen native uses UNETLoader + CLIPLoader(type=qwen_image) + ModelSamplingAuraFlow + AE/VAE.",
                 "Qwen img2img, edit, inpaint, and outpaint compile through comfy.qwen_native_edit when an image-conditioned route is selected.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 "Comfy node names are provider-local diagnostics; Image surface contracts stay family+loader+mode.",
                 f"Prompt conditioning mode: {conditioning_mode}.",
             ],

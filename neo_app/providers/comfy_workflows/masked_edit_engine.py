@@ -195,7 +195,8 @@ def _crop_inputs(params: Mapping[str, Any], image_ref: list[Any], mask_ref: list
     }
 
 
-def _rewire_image_outputs(workflow: dict[str, Any], old_ref: list[Any], new_ref: list[Any]) -> None:
+def _rewire_image_outputs(workflow: dict[str, Any], old_ref: list[Any], new_ref: list[Any]) -> int:
+    rewired = 0
     for node in workflow.values():
         if not isinstance(node, dict):
             continue
@@ -203,6 +204,59 @@ def _rewire_image_outputs(workflow: dict[str, Any], old_ref: list[Any], new_ref:
         for key in ("images", "image"):
             if _node_ref(inputs.get(key)) == old_ref and str(node.get("class_type") or "") in {"PreviewImage", "SaveImage", "ImageSave"}:
                 inputs[key] = list(new_ref)
+                rewired += 1
+    return rewired
+
+
+def _output_image_refs(workflow: Mapping[str, Any]) -> list[list[Any]]:
+    refs: list[list[Any]] = []
+    for node in workflow.values():
+        if not isinstance(node, Mapping):
+            continue
+        if str(node.get("class_type") or "") not in {"PreviewImage", "SaveImage", "ImageSave"}:
+            continue
+        inputs = _mapping(node.get("inputs"))
+        for key in ("images", "image"):
+            ref = _node_ref(inputs.get(key))
+            if ref:
+                refs.append(ref)
+                break
+    return refs
+
+
+def _primary_output_image_ref(workflow: Mapping[str, Any], fallback: list[Any] | None = None) -> list[Any] | None:
+    refs = _output_image_refs(workflow)
+    if not refs:
+        return list(fallback) if fallback else None
+    unique: list[list[Any]] = []
+    for ref in refs:
+        if ref not in unique:
+            unique.append(ref)
+    if len(unique) == 1:
+        return list(unique[0])
+    return list(unique[-1])
+
+
+def _rewrite_workflow_input_refs(
+    workflow: dict[str, Any],
+    old_ref: list[Any],
+    new_ref: list[Any],
+    *,
+    exclude_node_ids: set[str] | None = None,
+) -> int:
+    replaced = 0
+    blocked = {str(node_id) for node_id in (exclude_node_ids or set())}
+    for node_id, node in workflow.items():
+        if str(node_id) in blocked or not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else None
+        if not isinstance(inputs, dict):
+            continue
+        next_inputs = _replace_ref(deepcopy(inputs), old_ref, new_ref)
+        if next_inputs != inputs:
+            node["inputs"] = next_inputs
+            replaced += 1
+    return replaced
 
 
 def _update_finish_image_refs(actual: dict[str, Any], old_ref: list[Any], new_ref: list[Any]) -> None:
@@ -339,14 +393,44 @@ def patch_native_masked_workflow(
     sampler["inputs"] = sampler_inputs
 
     decode_ref = [decode_id, 0]
+    existing_output_ref = _primary_output_image_ref(workflow, decode_ref) or list(decode_ref)
     final_ref = list(decode_ref)
     stitch_id = ""
+    output_rewire_count = 0
+    workflow_rewire_count = 0
     if use_crop and stitcher_ref:
         stitch_id = str(next_id)
         workflow[stitch_id] = {"class_type": STITCH_NODE, "inputs": {"stitcher": list(stitcher_ref), "inpainted_image": list(decode_ref)}}
         final_ref = [stitch_id, 0]
-        _rewire_image_outputs(workflow, decode_ref, final_ref)
+        if existing_output_ref == decode_ref:
+            output_rewire_count = _rewire_image_outputs(workflow, decode_ref, final_ref)
+        else:
+            workflow_rewire_count = _rewrite_workflow_input_refs(workflow, existing_output_ref, final_ref, exclude_node_ids={stitch_id})
         _update_finish_image_refs(actual, decode_ref, final_ref)
+        if existing_output_ref != decode_ref:
+            _update_finish_image_refs(actual, existing_output_ref, final_ref)
+        output_refs_after = _output_image_refs(workflow)
+        if final_ref not in output_refs_after:
+            validation = _mapping(backend_payload.get("validation"))
+            errors = list(validation.get("errors") or [])
+            errors.append(
+                "Native Crop & Stitch could not claim final image ownership; the stitched output is not wired to Preview/Save outputs."
+            )
+            validation["errors"] = errors
+            validation["ok"] = False
+            backend_payload["validation"] = validation
+            actual.update({
+                "masked_edit_engine": NATIVE_ENGINE,
+                "crop_stitch_enabled": True,
+                "crop_stitch_state": "blocked_output_handoff_unreachable",
+                "crop_stitch_required_pack": CROP_STITCH_PACK,
+                "crop_stitch_required_nodes": [CROP_NODE, STITCH_NODE],
+                "_neo_masked_edit_previous_output_ref": existing_output_ref,
+                "_neo_masked_edit_output_ref": final_ref,
+            })
+            backend_payload["prompt"] = workflow
+            backend_payload["actual_params"] = actual
+            return compiled.model_copy(update={"compile_status": "mock_compiled", "backend_payload": backend_payload})
 
     actual.update({
         "masked_edit_engine": NATIVE_ENGINE,
@@ -355,9 +439,17 @@ def patch_native_masked_workflow(
         "masked_edit_engine_state": "comfy_base_inpaint_model_conditioning",
         "crop_stitch_enabled": bool(use_crop),
         "crop_stitch_provider": CROP_STITCH_PACK if use_crop else "disabled",
+        "crop_stitch_state": (
+            "active_output_owner_replaced_direct_decode"
+            if use_crop and existing_output_ref == decode_ref
+            else ("active_output_owner_replaced_family_terminal" if use_crop else "disabled")
+        ),
         "crop_stitch_nodes": ([crop_id, stitch_id] if use_crop else []),
         "_neo_masked_edit_conditioner_node_id": conditioner_id,
+        "_neo_masked_edit_previous_output_ref": existing_output_ref,
         "_neo_masked_edit_output_ref": final_ref,
+        "_neo_masked_edit_output_rewire_count": output_rewire_count,
+        "_neo_masked_edit_workflow_rewire_count": workflow_rewire_count,
     })
     backend_payload["prompt"] = workflow
     backend_payload["actual_params"] = actual

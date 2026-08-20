@@ -51,6 +51,42 @@ def normalize_prompt_captioning_provider_error(
     op_label = _operation_label(operation)
     profile_name = _profile_label(profile)
 
+    runtime_failure = result.get("runtime_failure") if isinstance(result, dict) and isinstance(result.get("runtime_failure"), dict) else {}
+    if runtime_failure:
+        code = str(runtime_failure.get("code") or raw_type or "comfy_runtime_failed")
+        category = str(runtime_failure.get("category") or "runtime")
+        title = {
+            "resource": "ComfyUI ran out of GPU memory.",
+            "connection": "ComfyUI connection was lost.",
+            "timeout": "ComfyUI did not reach a terminal state in time.",
+            "configuration": "ComfyUI model configuration needs attention.",
+            "dependency": "A required ComfyUI node is missing.",
+            "validation": "ComfyUI rejected the compiled workflow.",
+            "cleanup": "ComfyUI cleanup needs attention.",
+            "recovery": "Neo recovered a stale ComfyUI runtime state.",
+            "cancelled": "ComfyUI stopped the request.",
+        }.get(category, f"{op_label} ComfyUI backend failed.")
+        message = str(runtime_failure.get("message") or "ComfyUI could not complete the request.")
+        detail = str(runtime_failure.get("detail") or runtime_failure.get("raw_detail") or text)
+        action = str(runtime_failure.get("next_action") or "Review the ComfyUI console and retry.")
+        return {
+            "schema": PROMPT_CAPTIONING_PROVIDER_ERROR_SCHEMA,
+            "error_code": code,
+            "title": title,
+            "message": message,
+            "detail": _compact(detail),
+            "raw_detail": _compact(runtime_failure.get("raw_detail") or text, 1400),
+            "operation": operation,
+            "profile_id": str((profile or {}).get("profile_id") or ""),
+            "provider_id": str((profile or {}).get("provider_id") or ""),
+            "profile_label": profile_name,
+            "recoverable": bool(runtime_failure.get("recoverable") or recoverable),
+            "partial_text": partial_text,
+            "finish_reason": finish_reason,
+            "recovery_actions": [action] if action else [],
+            "runtime_failure": runtime_failure,
+        }
+
     if partial_text and recoverable:
         code = "prompt_captioning_provider_recovered"
         title = f"{op_label} recovered partial output."

@@ -194,7 +194,14 @@ def check_krea2_compatibility(
     if vae_kind == "missing":
         return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 requires the Qwen Image VAE (qwen_image_vae.safetensors or a compatible equivalent).")
     if vae_kind in {"foreign_flux_ae", "foreign_sd_vae"}:
-        return Krea2Compatibility(False, variant, encoder_kind, vae_kind, loader_id, "Krea 2 uses the Qwen Image VAE; the selected VAE/AE appears to belong to another architecture.")
+        return Krea2Compatibility(
+            None,
+            variant,
+            encoder_kind,
+            vae_kind,
+            loader_id,
+            "Experimental VAE override: Krea 2 normally uses the Qwen Image VAE, but Neo will allow the selected custom VAE/AE and let ComfyUI validate runtime compatibility.",
+        )
 
     if encoder_kind == "qwen3vl_4b_native" and vae_kind == "qwen_image_vae":
         return Krea2Compatibility(True, variant, encoder_kind, vae_kind, loader_id, "Krea 2 model, Qwen3-VL-4B encoder, and Qwen Image VAE are compatible.")

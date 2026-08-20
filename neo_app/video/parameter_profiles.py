@@ -65,8 +65,8 @@ VIDEO_VRAM_PROFILES: Final[dict[str, dict[str, Any]]] = {
 BASE_FIELDS: Final[tuple[VideoParameterField, ...]] = (
     VideoParameterField("vram_profile", "VRAM Profile", "profile", "select", "balanced", description="Safe performance profile that suggests defaults and risk notes. User-entered generation values stay editable and are guarded at queue time."),
     VideoParameterField("performance_profile", "Performance Profile", "performance", "select", "safe_12gb", description="Shared Video optimizer profile for WAN/LTX low-VRAM strategy."),
-    VideoParameterField("enable_sage_attention", "Sage Attention", "performance", "boolean", False, route_scope=("wan22", "ltx23"), description="Enable the V-G11 Sage Attention model patch where the selected route supports it."),
-    VideoParameterField("sage_attention_mode", "Sage Mode", "performance", "select", "auto", route_scope=("wan22", "ltx23"), description="Sage Attention mode from live Comfy/KJNodes /object_info discovery."),
+    VideoParameterField("enable_sage_attention", "Sage Attention", "performance", "boolean", False, route_scope=("wan22", "ltx23", "minimax_h3"), description="Enable the V-G11 Sage Attention model patch where the selected route supports it."),
+    VideoParameterField("sage_attention_mode", "Sage Mode", "performance", "select", "auto", route_scope=("wan22", "ltx23", "minimax_h3"), description="Sage Attention mode from live Comfy/KJNodes /object_info discovery."),
     VideoParameterField("sage_attention_target", "Sage Target", "performance", "select", "both", route_scope=("wan22.gguf.img2vid_14b_dual_noise",), description="Apply Sage Attention to the high-noise branch, low-noise branch, or both."),
     VideoParameterField("enable_teacache", "TeaCache", "performance", "boolean", False, route_scope=("wan22", "ltx23"), description="Enable the V-G12 TeaCache model cache patch where the selected route supports it."),
     VideoParameterField("teacache_profile", "TeaCache Profile", "performance", "select", "conservative", route_scope=("wan22", "ltx23"), description="Conservative, balanced, or aggressive cache profile for the active V-G12 TeaCache adapter."),
@@ -116,6 +116,23 @@ IMG2VID_FIELDS: Final[tuple[VideoParameterField, ...]] = (
     VideoParameterField("resize_mode", "Resize Mode", "source", "select", "fit_crop", route_scope=("img2vid",), description="How Neo will adapt source images to route dimensions."),
 )
 
+H3_FIELDS: Final[tuple[VideoParameterField, ...]] = (
+    VideoParameterField("model_name", "H3 Diffusion Model", "models", "backend_select", "", route_scope=("minimax_h3",), description="FL2VA or Ref2VA H3 model from the live ComfyUI loader catalog."),
+    VideoParameterField("clip_name", "H3 Text Encoder", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 Qwen3-VL text encoder from the live ComfyUI catalog."),
+    VideoParameterField("vae_name", "H3 Video VAE", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 video VAE from the live ComfyUI VAE catalog."),
+    VideoParameterField("audio_vae_name", "H3 Audio VAE", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 audio VAE used to decode native stereo audio."),
+    VideoParameterField("h3_shift_video", "Video Sigma Shift", "h3", "float", 12.0, 0.01, 100, 0.01, route_scope=("minimax_h3",), description="Native MiniMax H3 video flow shift."),
+    VideoParameterField("h3_shift_audio", "Audio Sigma Shift", "h3", "float", 3.0, 0.01, 100, 0.01, route_scope=("minimax_h3",), description="Native MiniMax H3 audio flow shift."),
+    VideoParameterField("h3_keyframe_role", "Single Keyframe Role", "h3", "select", "first", route_scope=("minimax_h3.unet.img2vid", "minimax_h3.gguf.img2vid"), description="Treat the one Img2Vid image as the first frame (I2VA) or last frame (L2VA)."),
+    VideoParameterField("h3_ref_image_size", "Reference Image Size", "h3", "select", "match", route_scope=("minimax_h3.unet.reference_to_video", "minimax_h3.gguf.reference_to_video"), description="match is faster/lower memory; max keeps larger reference tokens for identity fidelity."),
+    VideoParameterField("h3_turbo_enabled", "H3 Turbo LoRA", "lora", "boolean", False, route_scope=("minimax_h3",), description="Optional few-step MiniMax H3 Turbo/LightX2V LoRA. Speed-first and quality-sensitive."),
+    VideoParameterField("h3_turbo_lora", "Turbo LoRA Model", "lora", "backend_select", "", route_scope=("minimax_h3",), description="Turbo LoRA from the live ComfyUI LoRA catalog."),
+    VideoParameterField("h3_turbo_strength", "Turbo Strength", "lora", "float", 1.0, -2, 2, 0.05, route_scope=("minimax_h3",), description="Model strength for the selected H3 Turbo LoRA."),
+    VideoParameterField("h3_acceleration_mode", "H3 Accelerator", "performance", "select", "off", route_scope=("minimax_h3",), description="Off, Spectrum forecast, or T8 BlockCache. Approximate accelerators are mutually exclusive."),
+    VideoParameterField("h3_spectrum_blend", "Spectrum Video Blend", "performance", "float", 0.5, 0, 1, 0.01, route_scope=("minimax_h3",), description="Spectrum video blend upper bound. Audio blend remains 0 for the safe default path."),
+    VideoParameterField("h3_block_cache_threshold", "BlockCache Threshold", "performance", "float", 0.12, 0, 1, 0.01, route_scope=("minimax_h3",), description="T8 BlockCache residual threshold. Higher may hit more often but can change results more."),
+)
+
 LTX_FIELDS: Final[tuple[VideoParameterField, ...]] = (
     VideoParameterField("fps_sync", "LTX FPS Sync", "ltx", "boolean", True, route_scope=("ltx23",), description="One UI FPS value patches both int and float LTX frame-rate nodes."),
     VideoParameterField("audio_latent", "Audio Latent", "ltx", "boolean", False, route_scope=("ltx23",), description="Reserved for LTX audio-capable workflows; silent video remains first."),
@@ -124,7 +141,7 @@ LTX_FIELDS: Final[tuple[VideoParameterField, ...]] = (
     VideoParameterField("tiled_vae_decode", "Tiled VAE Decode", "ltx", "boolean", True, route_scope=("ltx23",), description="Keeps LTX decode safer on mid/low VRAM."),
 )
 
-FIELD_ORDER: Final[tuple[str, ...]] = ("profile", "performance", "models", "lora", "size", "timing", "sampling", "source", "decode", "ltx", "output")
+FIELD_ORDER: Final[tuple[str, ...]] = ("profile", "performance", "models", "lora", "size", "timing", "sampling", "source", "decode", "h3", "ltx", "output")
 
 # Phase 10y: Rapid AIO uses the same production speed/VRAM controls as the working WAN route.
 # Hide only true dual-branch controls: high/low model selection, branch targets, split-step,
@@ -152,6 +169,13 @@ RAPID_AIO_ROUTE_IDS: Final[frozenset[str]] = frozenset({
     "wan22.rapid_aio_gguf.txt2vid",
     "wan22.rapid_aio_gguf.img2vid",
 })
+
+H3_VRAM_OVERRIDES: Final[dict[str, dict[str, Any]]] = {
+    "low": {"width": 768, "height": 432, "frames": 56, "fps": 24, "steps": 8, "batch_count": 1, "decode_mode": "standard"},
+    "balanced": {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "batch_count": 1, "decode_mode": "standard"},
+    "quality": {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "batch_count": 1, "decode_mode": "standard"},
+    "manual": {"batch_count": 1},
+}
 
 VRAM_OVERRIDES: Final[dict[str, dict[str, Any]]] = {
     "low": {"width": 832, "height": 480, "frames": 41, "fps": 12, "steps": 16, "batch_count": 1, "decode_mode": "tiled", "tile_size": 384, "temporal_tile_size": 4096},
@@ -207,7 +231,10 @@ def video_parameter_profile_payload(family: str | None = None, loader: str | Non
     perf_id = normalize_video_performance_profile(defaults.get("performance_profile"))
     perf_defaults = dict(PERFORMANCE_PROFILES[perf_id].defaults)
     defaults.update(perf_defaults)
-    defaults.update(VRAM_OVERRIDES.get(vp_id, {}))
+    if nf == "minimax_h3":
+        defaults.update(H3_VRAM_OVERRIDES.get(vp_id, {}))
+    else:
+        defaults.update(VRAM_OVERRIDES.get(vp_id, {}))
     defaults["performance_profile"] = perf_id
     # WAN 2.2 14B GGUF is registered for 12GB testing; keep its route-specific draft
     # budget below the generic WAN low-VRAM ceiling until the native compiler lands.
@@ -215,9 +242,10 @@ def video_parameter_profile_payload(family: str | None = None, loader: str | Non
         defaults.update(route_parameter_profile(route_id))
     defaults["vram_profile"] = vp_id
     defaults["output_format"] = "webm"
-    defaults = _clamp(defaults, profile)
+    if nf != "minimax_h3":
+        defaults = _clamp(defaults, profile)
 
-    fields = [field.payload() for field in (*BASE_FIELDS, *IMG2VID_FIELDS, *LTX_FIELDS) if _field_in_scope(field, nf, nt, route_id)]
+    fields = [field.payload() for field in (*BASE_FIELDS, *IMG2VID_FIELDS, *H3_FIELDS, *LTX_FIELDS) if _field_in_scope(field, nf, nt, route_id)]
     for field in fields:
         fid = field["field_id"]
         if fid in defaults:
@@ -259,6 +287,12 @@ def video_parameter_profile_payload(family: str | None = None, loader: str | Non
         warnings.append("Audio-Video requires at least one audio prompt, dialogue prompt, or soundscape prompt and is active for LTX 2.3 routes in V21.")
     if nf == "ltx23":
         warnings.append("LTX routes mirror FPS into int/float backend frame-rate nodes and default to tiled decode.")
+    if nf == "minimax_h3":
+        warnings.append("MiniMax H3 runs at 24 FPS with native stereo audio. Neo snaps frame counts to the H3 17k+5 temporal grid during compile.")
+        if vp_id == "low":
+            warnings.append("H3 Low VRAM is a smoke-test concession below the model's normal 4-15 second / 768-short-edge operating target; use Balanced or Quality for serious output.")
+        if nt == "reference_to_video":
+            warnings.append("H3 Omni Reference supports semantic image/video/audio references and expects <Picture i>, <Video i>, and <Audio i> tags in the prompt when referring to them explicitly.")
     if vp_id == "manual":
         warnings.append("Manual profile is for expert testing only; compiler phases should still preflight VRAM risk.")
 
