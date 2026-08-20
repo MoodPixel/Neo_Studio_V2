@@ -98,20 +98,6 @@ Restored provider-specific extensions show **Revalidation required** and remain 
 
 Output Inspector renders the durable lineage contract as a parent-to-current chain. Guided mode summarizes parent/root/depth. Expert mode additionally exposes source, action, dispatch, provider/profile, and job identifiers.
 
-## Phase 13 regression hardening
-
-The Phase 13 matrix found and fixed a lineage-depth double increment. `build_derived_action_contract()` already stores the depth of the derived output being created, so `build_output_lineage_metadata()` must not add another level when that contract depth is present.
-
-The exact chain is now locked:
-
-```text
-Base A      depth 0
-Hires B     depth 1, parent A
-ADetailer C depth 2, parent B, root A
-Upscale D   depth 3, parent C, root A
-```
-
-The same matrix also verifies that a failed polling terminal state closes live preview, clears the watchdog, clears `activeImageJob`, finalizes transient action state, and restores generation controls.
 ## Phase 9 ADetailer recipe lock
 
 ADetailer replay now carries `neo.image.adetailer.execution_recipe.v1` and `neo.image.adetailer.replay_contract.v1`. The recipe freezes the route and exact effective sampling values that reached the repair graph. Automatic family-preset results are restored as manual values so later preset revisions cannot alter the saved execution.
@@ -119,4 +105,3 @@ ADetailer replay now carries `neo.image.adetailer.execution_recipe.v1` and `neo.
 Replay restoration is deliberately disabled and pending live revalidation. It never restores provider uploads, never auto-enables ADetailer, and never treats a historical successful run as permission for the current backend. Neo verifies the SHA-256 recipe fingerprint, backend/family/loader/mode binding, normalized parameter equality, nodes, assets, LoRA catalog bindings, identity policy, sampling lineage, and output ownership.
 
 Saved warning codes remain visible and require review/reconfirmation. A tampered fingerprint, route mismatch, or parameter drift fails closed before graph submission.
-

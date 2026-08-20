@@ -34,8 +34,8 @@ tags:
   - route aware
   - loader aware
 priority: 115
-version: 6
-updated: 2026-08-07
+version: 7
+updated: 2026-08-14
 ---
 
 # LoRA Stack and LoRA Library
@@ -66,7 +66,7 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | **Clean Empty/Disabled** | Removes rows that are empty or disabled. | Use this before saving/replaying a clean setup. |
 | **Use** | Enables/disables a row without deleting it. | Good for A/B testing. |
 | **LoRA** | Chooses the provider-neutral catalog name stored in the stack. | The dropdown is rebuilt from the selected provider. Missing entries are shown honestly and are never borrowed from another profile. |
-| **Strength** | Controls LoRA influence. Values are clamped roughly from `-4` to `4`. | Start around `0.6–0.9` for style/character LoRAs. Lower if it overpowers the base model. |
+| **Strength** | Controls LoRA influence. Neo now accepts any numeric strength that the selected LoRA/provider route can handle. | Start around `0.6–0.9` for style/character LoRAs. Increase or decrease only when the specific LoRA documentation calls for it. |
 | **Pass** | Chooses **Both passes**, **Base only**, or **Finish / redraw only**. | Both is normal. Finish-only is for later finishing/redraw paths and may be preserved without direct graph execution on gated routes. |
 | **Target** | Shows global or Scene Director regional target. | LoRA Stack defaults to global. Regional assignment is owned by Scene Director → Advanced Region Control → Extension Routing. |
 | **Focus** | Marks/selects the active row for library/details interaction. | Use this to inspect or edit the selected row metadata. |
@@ -234,3 +234,17 @@ Live provider catalog
   → provider catalog is refreshed/reconciled
   → same LoRA remains visible and selectable
 ```
+
+
+## IMG-R17A open strength range hotfix — 2026-08-14
+
+LoRA Stack strength is no longer hard-capped in the browser or backend serialization path.
+
+What changed:
+
+- row strength inputs and picker strength inputs no longer clamp to `-4…4`;
+- saved library metadata keeps its declared `default_strength`, `min_strength`, and `max_strength` values instead of forcing them into `-4…4`;
+- Forge prompt-tag preview and provider serialization preserve the requested numeric value;
+- queue payload normalization still keeps the value numeric and rounded, but it no longer forcibly shrinks a request like `5`.
+
+This matters for LoRAs that document unusual guidance such as `1.4`, `2.5`, or `5.0`. Neo now preserves that intent instead of silently flattening it.

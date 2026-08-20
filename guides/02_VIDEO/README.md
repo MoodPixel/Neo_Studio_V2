@@ -10,8 +10,8 @@ applies_to:
   - video_finish
   - video_results
 priority: 100
-version: 2
-updated: 2026-08-09
+version: 5
+updated: 2026-08-17
 ---
 
 # Video Guides — Current Architecture
@@ -41,8 +41,9 @@ Video provider/profile
 | Concern | Current authority |
 |---|---|
 | Video workspace apps and mount slots | `neo_app/surfaces/surface_manifest.json` |
-| Local WAN/LTX family/loader/mode routes and route defaults | `neo_app/video/route_matrix.py` |
+| Local WAN/LTX/MiniMax H3 family/loader/mode routes and route defaults | `neo_app/video/route_matrix.py` |
 | Active route + VRAM parameter contract | `GET /api/video/parameter-profile` |
+| Cloud Video model/resolution compatibility | active backend profile `model.capabilities_by_model` |
 | Surface-aware extension compatibility | `neo_app/extensions/runtime.py` + `registry.py` + extension manifests |
 | Video workspace composition | `neo_app/static/js/neo.js` |
 | Video surface diagnostics/endpoints | `neo_app/static/js/surfaces/video.js` |
@@ -50,7 +51,7 @@ Video provider/profile
 | Inspector view model | `neo_app/video/output_inspector.py` |
 | Inspector API | `GET /api/video/results/{result_id}/inspector` |
 
-The browser must not recreate local Video route/default tables, and Video extension routing must not read Image route state.
+The browser must not recreate local Video route/default tables, and Video extension routing must not read Image route state. Cloud Video model/resolution choices must likewise come from backend-profile capability metadata rather than provider-specific frontend conditionals.
 
 ## Guides
 
@@ -59,20 +60,7 @@ The browser must not recreate local Video route/default tables, and Video extens
 3. [`video_generation_extensions.md`](video_generation_extensions.md) — Video-owned extension context, route scopes, Built-in vs External rules.
 4. [`video_workspace_layout.md`](video_workspace_layout.md) — ownership of Generation, Assets, Reference, Finish, and Results bodies.
 5. [`video_output_inspector.md`](video_output_inspector.md) — saved-output inspection, lineage, and safe replay.
-6. [`xai_grok_imagine_video.md`](xai_grok_imagine_video.md) — Grok Imagine Video provider-specific behavior.
-
-## Non-negotiable regression locks
-
-- Never restore `Workspace` as a selectable Video subtab or `video.workspace.*` mount namespace.
-- Never maintain a second frontend family/loader/generation route matrix.
-- `enabled` and `experimental` local routes are runnable; `planned` routes are non-runnable.
-- Image `generations` and Video `generation` remain different canonical workspace ids.
-- Finish/Results workspace-scoped extensions are not gated by the active WAN/LTX family unless their own manifest says so.
-- Every built-in Video extension mount slot must be declared by the Video surface manifest.
-- Workspace switching replaces only the Video left rail; the right rail remains Prompt + Preview + Parameters across all five workspaces.
-- Route Status and route-specific tools remain workspace-owned on the left; the persistent right rail does not absorb workspace tools.
-- Results keeps history + Output Inspector in the left rail while the right rail remains the live generation recipe.
-- Replay stages a validated recipe only. It never auto-runs and never silently substitutes an unknown/retired route.
-- Inspector extension reporting comes from persisted result metadata, not current installation state.
-
-For architecture history and supersession notes, start with `neo_system_records/06_SURFACES/video/README.md`.
+6. [`video_reference_inputs.md`](video_reference_inputs.md) — shared provider-aware reference images/video/audio and route limits.
+7. [`minimax_h3_local_support.md`](minimax_h3_local_support.md) — using MiniMax H3 native audio-video, keyframes, Ref2VA references, and speed controls.
+8. [`xai_grok_imagine_video.md`](xai_grok_imagine_video.md) — using Grok Text/Image/Reference generation, Video Editing, and Video Extension.
+9. [`seedvr2_upscale.md`](seedvr2_upscale.md) — using SeedVR2 Finish Upscale, model selection, custom sizing, and memory controls.

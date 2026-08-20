@@ -161,21 +161,3 @@ FeatherMask
 FLUX.2 Klein additionally requires `FluxGuidance`.
 
 The modern path does **not** require `NeoSceneDirectorV054`; that node remains required for classic SDXL/SD1.5.
-
-## Regression locks
-
-SD-28.2 must keep these invariants:
-
-1. `NeoSceneDirectorV054` remains the only exported Scene Director custom node.
-2. Classic SDXL and SD1.5 dispatch to the untouched V054 workflow patcher.
-3. Modern families never fallback to V054.
-4. Lightweight regional prompting changes only sampler positive/negative conditioning references.
-5. Sampler model input, latent input, steps, CFG, sampler, scheduler, denoise and seed remain unchanged.
-6. No additional `KSampler` / `KSamplerAdvanced` is created.
-7. No Character Lock, latent repair, end refinement, background repaint or regional-LoRA pass is added.
-8. Three or more prompt regions are allowed; the old regional-LoRA two-route constant is irrelevant to prompt routing.
-9. Outpaint remains gated.
-10. Live GPU validation is required before removing the experimental label.
-
-
-> **SD-28.3 supersession note:** The lightweight regional prompt engine in this guide remains current. Regional LoRA is no longer universally gated: Krea 2 RAW/Turbo now have the experimental `NeoRegionalLoRADelta` model-side foundation from SD-28.3, while FLUX.2 Klein and Z-Image variants remain adapter-gated. See `scene_director_sd28_3.md`.

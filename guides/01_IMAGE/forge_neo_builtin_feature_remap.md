@@ -153,10 +153,6 @@ Phase E1 does not add new Neo extension surfaces for:
 
 Those require separate provider mappings or later extension-bridge work.
 
-## Validation boundary
-
-E1 adds deterministic contract tests for capability discovery, script-schema drift, ImageStitch payloads, Forge Extras payloads, strict UI gating, durable Bridge endpoint support and public-path safety. Physical Forge/GPU validation is still required before claiming a feature works on a particular Forge revision/model/hardware combination.
-
 ## E1.1 follow-on — IP-Adapter
 
 The E1 ownership model now also applies to `image.ip_adapter`. Forge's built-in IP-Adapter implementation registers inside Integrated ControlNet, so Neo preserves its existing IP-Adapter card and compiles standard SD 1.5/SDXL units into the same Forge ControlNet argument array as ordinary ControlNet units. See `forge_neo_ip_adapter.md` for the narrower E1.1 support and validation boundary.

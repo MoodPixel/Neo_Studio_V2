@@ -1,6 +1,6 @@
 ---
 guide_id: image.provider_action_release_integration
-title: Provider-Aware Image Actions — Release and Integration Guide
+title: Upgrading Provider-Aware Image Integrations
 surface: image
 scope: built_in
 applies_to:
@@ -9,247 +9,103 @@ applies_to:
   - provider_routing
   - forge_neo
   - comfyui
-  - release_validation
   - migration
   - rollback
 tags:
   - image
   - provider
-  - release
+  - upgrade
   - integration
   - forge
   - comfyui
   - bridge
   - migration
-  - smoke-test
 priority: 120
-version: 1
-updated: 2026-08-03
+version: 2
+updated: 2026-08-16
 ---
 
-# Provider-Aware Image Actions — Release and Integration Guide
+# Upgrading Provider-Aware Image Integrations
 
-This guide is the release-facing contract for the provider-aware Preview and Output Inspector action system completed in Phases 1–13.
+Provider-aware Preview and Output Inspector actions always use the **currently selected Image profile**. When Neo, Forge, ComfyUI, or a provider-side extension changes, refresh the affected profile before relying on old action availability.
 
-The core rule is unchanged:
+## Before an upgrade
 
-> The selected Image profile owns every Source, Reference, and Finish action. Neo does not silently switch Forge work to ComfyUI or borrow another profile's capabilities.
+Keep a backup of the local state you care about, especially:
 
-## Release prerequisites
+- your current Neo Studio installation/source snapshot;
+- `neo_data/` if you want to preserve Neo settings, project/runtime metadata, and local history;
+- custom backend launch files or environment variables;
+- the current Forge Bridge extension folder when you use the Bridge.
 
-Before upgrading, keep copies of:
-
-- the current Neo Studio source folder or release archive;
-- the current Forge Bridge extension folder, when installed;
-- local `neo_data/` runtime state using the user's normal backup method;
-- any custom backend launch scripts or environment variables.
-
-Do not copy `neo_data/` into a public source archive. It is runtime state, not release content.
-
-## Upgrade order
-
-Use this order so Neo never evaluates a new provider contract against an old Bridge installation.
+## Recommended upgrade order
 
 1. Stop Neo Studio.
 2. Stop Forge Neo and ComfyUI.
-3. Replace or update the Neo Studio source files.
-4. Update the Forge Bridge from the Neo repository root:
+3. Update Neo Studio.
+4. If you use the bundled Forge Bridge, reinstall/update it from the Neo repository root:
 
 ```text
 python neo_integrations/forge_neo_bridge/install_bridge.py --forge-root <FORGE_ROOT> --replace
 ```
 
-5. Restart Forge Neo with API access enabled:
-
-```text
---api
-```
-
-6. Start ComfyUI when its routes are needed.
+5. Restart Forge with API access enabled (`--api`).
+6. Start ComfyUI when you need ComfyUI routes.
 7. Start Neo Studio.
 8. Open **Admin → Backends → Image**.
-9. Select the intended Forge or ComfyUI profile and run its connection/refresh action.
-10. Return to Image and confirm the provider/profile badge beside Preview actions.
+9. Refresh/Test the Forge and/or ComfyUI profiles you actually use.
+10. Return to Image and review any route or action that Neo marks unavailable or in need of revalidation.
 
-## Required Forge Bridge contract
+## Forge Bridge notes
 
-Forge generation can use standard SDAPI without the Bridge, depending on the profile's `bridge_mode`. Native selected-output High-Res Fix requires the updated Bridge contract.
+Standard Forge generation can work without the Bridge depending on the profile mode. Some native Forge operations, including selected-output native post-Hires support, require a compatible Bridge.
 
-Required release values:
+After updating the Bridge:
 
-```text
-Bridge version: 1.2.1 or newer compatible version
-native_post_hires: true
-native_operations includes native_txt2img_upscale
-native_post_hires_size_contract: true
-```
+1. restart Forge fully;
+2. refresh the Forge profile in Neo Admin;
+3. confirm the profile reports the Bridge as connected/selected when expected;
+4. check that the action is enabled in Preview or Output Inspector.
 
-All three capability values are required. A legacy Bridge or any incomplete native-Hires capability set fails closed.
+Do not judge compatibility from a copied Bridge version string alone; Neo uses the capabilities actually reported by the running Forge profile.
 
-After installing or replacing the Bridge:
+## ComfyUI updates
 
-1. Restart Forge Neo.
-2. Run **Refresh Forge Admin**.
-3. Confirm the selected profile reports the Bridge as selected and compatible.
-4. Confirm **High-Res Fix** reports the native Forge route in Expert diagnostics.
+After updating ComfyUI or custom nodes:
 
-## Complete action-routing reference
+1. restart ComfyUI;
+2. refresh/Test the selected ComfyUI profile;
+3. allow Neo to rebuild its live node/capability view;
+4. revisit the Image workflow and reselect any route that became unavailable.
 
-| Group | Action ID | Forge Neo route | ComfyUI route | Auto-run |
-|---|---|---|---|---:|
-| Source | `core.img2img` | Selected-profile Img2Img source staging | Selected-profile Img2Img source staging | No |
-| Source | `core.inpaint` | Forge source staging + fresh mask editor | Comfy source staging + fresh mask editor | No |
-| Source | `core.outpaint` | Forge source staging + Neo outpaint canvas | Comfy source staging + outpaint workspace | No |
-| Reference | `extension.controlnet` | Forge Integrated ControlNet, first empty unit | Comfy ControlNet workflow, first empty unit | No |
-| Reference | `extension.ip_adapter` | Forge Integrated ControlNet IP Adapter, shared unit pool | Comfy IP Adapter workflow | No |
-| LayerDiffuse | `extension.layerdiffuse.source` | Unsupported and hidden | Named Source slot | No |
-| LayerDiffuse | `extension.layerdiffuse.background` | Unsupported and hidden | Named Background slot | No |
-| LayerDiffuse | `extension.layerdiffuse.foreground` | Unsupported and hidden | Named Foreground slot | No |
-| LayerDiffuse | `extension.layerdiffuse.replace_target` | Unsupported and hidden | Named replace-target slot | No |
-| Finish | `extension.high_res_lab` | Bridge `native_txt2img_upscale` diffusion pass | Comfy High-Res Lab workflow | Yes, after explicit click |
-| Finish | `extension.adetailer` | Forge Img2Img + live ADetailer script | Comfy ADetailer workflow | Yes, after explicit click |
-| Finish | `extension.identity_rescue` | Forge Img2Img + Integrated ControlNet FaceID | Comfy FaceID workflow | Yes, after explicit click |
-| Finish | `extension.image_upscale` | Forge Extras `/sdapi/v1/extra-single-image` | Comfy model-upscale/SeedVR2 route | Yes, after explicit click |
+A missing custom node should disable only the dependent workflow rather than forcing Neo to invent a fallback.
 
-Source and Reference actions only stage state. Finish actions execute only after the user explicitly clicks the corresponding action.
+## If an action worked before the upgrade but is now unavailable
 
-## Selected-profile diagnostics
+Check:
 
-The action toolbar shows the active provider and profile. Guided mode explains the route in plain language; Expert mode exposes dispatch, execution mode, requirements, and blocker checks.
+- selected provider/profile;
+- backend connection state;
+- model/module availability;
+- Forge Bridge status for Bridge-owned operations;
+- required Forge scripts or ComfyUI custom nodes;
+- Output Inspector/tooltip disabled reason;
+- whether the original result references a profile or model that was renamed or removed.
 
-Common blocker meanings:
+## Rollback
 
-| Diagnostic | Meaning | Corrective action |
-|---|---|---|
-| Profile missing/disabled | No eligible selected Image profile owns the action. | Select, enable, save, and test the intended profile. |
-| Runtime offline | The selected backend cannot be reached. | Start the backend and verify host, port, auth, and API flags. |
-| Bridge missing/incompatible | Native Forge Hires cannot use the selected Bridge. | Reinstall with `--replace`, restart Forge, and refresh Admin. |
-| Route unavailable | The current family/loader/workflow is not mapped for this provider. | Select a supported route or use the backend's native UI. |
-| Capability missing | Required script, model, preprocessor, detector, upscaler, or node is unavailable. | Install/configure it in the selected backend, then refresh. |
-| Revalidation required | Replay restored canonical settings but disabled provider-specific execution. | Refresh the selected provider and review the extension before enabling it. |
-| Explicit local profile required | A cloud output has no automatic local Finish owner. | Explicitly select a compatible local profile; Neo will not choose one. |
+When rolling back a Neo release that also changed the Forge Bridge, restore Neo and the Bridge as a compatible pair:
 
-## Migration notes
+1. stop Neo and Forge;
+2. restore the earlier Neo version;
+3. restore or reinstall the Bridge version bundled with that version when applicable;
+4. restart Forge with `--api`;
+5. start Neo and refresh the Forge profile;
+6. leave Bridge-owned actions disabled if the restored profile does not report the required capability.
 
-### Forge Bridge 1.1 or older
+Do not delete `neo_data/` as a rollback shortcut. Restore or migrate local state deliberately.
 
-Legacy Bridge installations remain usable only for operations they actually report. Native selected-output High-Res Fix stays disabled until Bridge 1.2.1 is installed, Forge is restarted, and Admin capabilities are refreshed.
-
-### Older saved drafts and results
-
-Replay sanitizes old temporary provider fields. It does not reactivate stale upload aliases, masks, Finish contracts, or Reference handoffs.
-
-Provider-specific extension settings are restored as canonical settings but remain disabled pending selected-provider revalidation.
-
-### Older LoRA rows
-
-Legacy names, paths, file extensions, and prompt tags are normalized into provider-neutral LoRA identities. Forge compiles `<lora:name:strength>` at submission time; ComfyUI keeps workflow loader nodes.
-
-### Older Embeddings/TI items
-
-Legacy `embedding:` prefixes, weighted wrappers, extensions, and path variants are normalized into a plain canonical trigger. Forge uses plain trigger syntax; ComfyUI adds `embedding:` during workflow compilation.
-
-### Legacy Comfy-only Finish bridge
-
-The old automatic Comfy Finish profile switch is removed. Cloud and unsupported-provider outputs require an explicit visible local-profile decision.
-
-## Physical Forge smoke-test checklist
-
-Run this checklist on a real Forge installation after deterministic validation passes.
-
-- [ ] Forge starts with `--api` and the selected profile reports Connected.
-- [ ] Bridge reports version 1.2.1 and the complete native Hires capability/operation/size contract.
-- [ ] Generate one SD 1.5 or SDXL output.
-- [ ] Send it to Img2Img; verify Forge remains selected and generation does not start automatically.
-- [ ] Send it to Inpaint; verify the previous mask is cleared.
-- [ ] Send it to Outpaint; verify old canvas/padding state is cleared.
-- [ ] Stage ControlNet into the first empty Forge unit.
-- [ ] Stage IP Adapter without overwriting an occupied unit.
-- [ ] Run native High-Res Fix and verify a derived output with parent/root lineage.
-- [ ] Run ADetailer with a live detector and inspect the resulting detail repair.
-- [ ] Run Identity Rescue with a compatible FaceID model/preprocessor and reference.
-- [ ] Run Image Upscale through Forge Extras and verify the selected upscaler and dimensions.
-- [ ] Cancel one running job and verify the UI returns to an idle state.
-- [ ] Force one backend error and verify active-job/action state is cleared.
-- [ ] Replay a derived result and verify the recorded profile binding and revalidation warnings.
-
-Record GPU model, VRAM, Forge build, Bridge version, model names, route, duration, output dimensions, errors, and visual observations.
-
-## Physical ComfyUI smoke-test checklist
-
-- [ ] The selected ComfyUI profile reports Connected and object-info/workflow discovery is current.
-- [ ] Source actions preserve the selected ComfyUI profile and do not auto-run.
-- [ ] ControlNet and IP Adapter stage into valid workflow units/nodes.
-- [ ] LayerDiffuse slot actions appear only where the workflow supports them.
-- [ ] High-Res Lab executes through the Comfy-derived route.
-- [ ] ADetailer and Identity Rescue execute through their Comfy workflows.
-- [ ] Image Upscale preserves existing model-upscale and SeedVR2 behavior.
-- [ ] Repeated Finish passes preserve immediate parent, root, ancestors, and exact depth.
-- [ ] Cancellation, failure, replay, and provider changes clear temporary upload/action state.
-
-## Deterministic release gates
-
-Run from the repository root:
-
-```text
-python scripts/validate_forge_neo_phase6.py
-python scripts/validate_provider_actions_phase13.py
-python scripts/audit_provider_action_release_phase14.py
-```
-
-To save the Phase 14 machine-readable report:
-
-```text
-python scripts/audit_provider_action_release_phase14.py --json-out <OUTPUT_PATH>/provider_action_release_audit.json
-```
-
-The Phase 14 audit also builds and inspects a temporary clean public archive. It verifies package exclusions, release-facing documentation, Bridge integration, action inventory, no-fallback locks, obvious credential leaks, and portable path hygiene.
-
-## Public repository and package hygiene
-
-Public runtime archives must exclude:
-
-- `neo_data/`;
-- runtime databases, logs, generated outputs, and caches;
-- `.env` and credentials;
-- `.git`, bytecode, and test caches;
-- local installed-extension workspaces;
-- internal `neo_system_records/`, `scripts/`, and `tests/` from the public runtime export.
-
-Use:
-
-```text
-python scripts/build_clean_release.py --output <OUTPUT_PATH>/Neo_Studio_V2_clean_release.zip
-```
-
-Absolute backend/model paths may exist only as clearly synthetic redaction fixtures in internal validation code. User-facing guides, defaults, browser payloads, release manifests, and runtime archives must use portable placeholders or redacted names.
-
-## Known limitations
-
-- Deterministic matrices do not prove GPU execution, image quality, VRAM stability, or third-party extension compatibility.
-- Forge's standard API does not expose every native UI control.
-- Forge LayerDiffuse Preview actions remain unsupported.
-- Forge FaceID is limited to live-verified model/preprocessor pairs and supported SD 1.5/SDXL routes.
-- Forge ADetailer requires a live script schema and detector coverage.
-- Native Forge High-Res Fix requires the compatible Bridge; there is no Comfy fallback.
-- Cloud outputs require an explicit local Finish profile decision.
-- Replay cannot use a recorded profile that no longer exists until the user explicitly migrates the workflow.
-
-## Rollback procedure
-
-Rollback Neo and the Forge Bridge as one compatibility set.
-
-1. Stop Neo Studio and Forge.
-2. Restore the previous Neo source/release archive.
-3. Restore or reinstall the Bridge version that belonged to that Neo release.
-4. Restart Forge with `--api`.
-5. Start Neo Studio and refresh the selected Forge Admin profile.
-6. Keep native High-Res Fix disabled when the restored Bridge does not advertise the paired capability contract.
-7. Run the validation scripts available in the restored release.
-
-Do not delete `neo_data/` as a rollback shortcut. Preserve user state, and migrate or restore it using a backup when schema compatibility requires it.
-
-## Related guides
+## Related user guides
 
 - `forge_neo_complete_support.md`
 - `forge_neo_optional_bridge.md`

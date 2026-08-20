@@ -95,13 +95,13 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Width / Height** | Output dimensions. | Larger dimensions cost more VRAM/time. Use presets first, then customize. |
 | **Swap size** | Swaps width and height. | Useful for changing portrait to landscape without retyping. |
 | **Aspect scale slider** | Scales width/height together while preserving the current ratio. | Good for quick size testing without changing composition ratio. |
-| **Size Preset** | Applies common sizes such as square, portrait, landscape, reel/shorts, 4:5 feed, or YouTube thumbnail. | Choose a preset for the target platform, then adjust manually if needed. |
-| **Save size preset** | Saves the current width/height as a custom preset. | Custom presets are runtime/user data and should stay in `neo_data`. |
+| **Size Preset** | Applies common sizes such as square, portrait, landscape, reel/shorts, 4:5 feed, or YouTube thumbnail, plus any saved custom size presets. | Choose a preset for the target platform, then adjust manually if needed. Saved custom presets appear by name in the same dropdown. |
+| **Save size preset** | Saves the current width/height as a named custom preset. | Neo prompts for a preset name, then stores the preset in `neo_data/ui_state/ui_state.json` so it still appears after reopening Neo. |
 | **Steps** | Number of denoising/sampling steps. | The entered value is compiled as-is. Family recommendations are starting points only; Turbo/Base labels do not silently replace a manual value. |
 | **CFG** | Sampler CFG / prompt guidance value used by the selected workflow. | Explicit CFG is preserved wherever the route exposes it. Modern families may also expose a separate model-guidance field. |
 | **Flux Guidance** | Flux-family model-guidance control. | It is independent from sampler CFG. If both controls are exposed, Neo preserves both explicit values instead of forcing CFG to a family default. |
 | **Krea 2 Qwen3-VL-4B Text Encoder** | Selects Krea 2's single Qwen3-VL-4B conditioning model. | Krea 2 requires the specialized `CLIPLoader(type=krea2)` path. For Krea 2 GGUF, keep this encoder as native/safetensors in M16. |
-| **Krea 2 VAE** | Selects the Qwen Image VAE used by Krea 2. | Use `qwen_image_vae.safetensors` or a compatible Qwen Image VAE. FLUX `ae.safetensors` is not the Krea 2 VAE contract. |
+| **Krea 2 VAE** | Selects the VAE/AE used by Krea 2. | `qwen_image_vae.safetensors` remains the recommended/default architecture match. A different VAE/AE is treated as an **experimental override**: Neo shows an inline warning but does not block generation, and ComfyUI owns runtime compatibility validation. |
 | **Krea 2 Edit Engine** | Chooses the existing Neo source/mask/canvas adapter or the opt-in Krea 2 Identity Edit v1.2 graph in image modes. | Keep **Neo Native Adapter** for existing behavior. Identity Edit requires the current `comfyui-krea2edit` nodes and a selected Identity Edit LoRA. |
 | **Identity Edit LoRA / Strength** | Selects and weights the dedicated model-only Krea 2 editing LoRA. | Required only when Identity Edit is enabled. The recommended v1.2 weight starts around strength `1.0`. |
 | **Reference Fit / Reference Boost / Grounding Resolution** | Controls v1.2 source geometry, reference-fidelity attention, and Qwen3-VL image grounding. | Start with Fit, identity boost `4.0`, scene boost `1.0`, grounding `768`, then tune per edit. |
@@ -127,6 +127,8 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 ## Krea 2 RAW / Turbo parameter behavior
 
 Krea 2 is a separate image architecture, not FLUX.1 Krea. Both **Krea 2 RAW** and **Krea 2 Turbo** use one Qwen3-VL-4B text encoder through `CLIPLoader(type=krea2)` plus the Qwen Image VAE. Neo preflights that Krea 2 CLIP type through backend capability discovery; an older ComfyUI build that exposes `CLIPLoader` but not `type=krea2` is blocked before queue submission.
+
+Custom Krea 2 VAE/AE selection is intentionally **warning-only**. Neo does not expose a separate “experimental VAE override” toggle: selecting a concrete non-Qwen-Image VAE is itself the opt-in action. The Parameters surface displays a warning directly below the VAE field and submits the selected asset unchanged so ComfyUI/custom nodes can validate the combination at runtime. Encoder/model architecture mismatches remain hard blockers.
 
 - **Krea 2 RAW:** full/base model. Neo defaults to 52 steps and CFG 3.5. A normal negative prompt remains available.
 - **Krea 2 Turbo:** distilled fast model. Neo uses 8 steps / CFG 1 only as defaults when those fields are missing. Manual Steps and CFG remain authoritative. Turbo still uses its family-specific negative-conditioning graph semantics.

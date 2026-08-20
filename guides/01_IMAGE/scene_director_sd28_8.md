@@ -38,7 +38,3 @@ When reading the repository:
 4. earlier historical phase guide.
 
 A historical statement such as “Klein LoRA is gated” from SD-28.3 is correct history but is not the current support state after SD-28.5.
-
-## Regression requirement
-
-Because this is documentation-only, the acceptance condition is stricter than a normal feature phase: the complete SD-28.7 runtime test suite must pass unchanged. A documentation change must not become an excuse to alter runtime behavior or weaken a regression.

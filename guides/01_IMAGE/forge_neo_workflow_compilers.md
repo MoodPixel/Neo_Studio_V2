@@ -122,12 +122,7 @@ Compiler contracts contain portable model/module names only. They do not seriali
 
 Phase 4 compiler registration does not by itself place a route in the UI. Phase 5 intersects compiler-ready routes with the selected Forge profile and publishes only executable tuples through `neo.provider.forge_ux_gating.v1`. Route-owned field/control policy prevents unsupported controls from leaking across compiler families. The provider compiler remains the final authority at submission time.
 
-## Phase 6 regression validation
+## If a compiled route is unavailable
 
-Compiler routes are protected by `neo.provider.forge_validation.v1` and the offline matrix runner:
+Neo exposes only workflow combinations that the selected Forge profile currently reports as executable. If a family/loader/workflow combination disappears after a Forge change, refresh the profile in **Admin → Backends → Image** and check `forge_neo_validation_and_regression.md` for user troubleshooting steps.
 
-```bash
-python scripts/validate_forge_neo_phase6.py
-```
-
-The matrix verifies that route authority, live assets, loader translation, compiler ID, endpoint, UX policy, and redacted diagnostics agree. It also locks unsupported route failures. Passing this matrix is required but is not physical GPU/backend validation. See `guides/01_IMAGE/forge_neo_validation_and_regression.md`.

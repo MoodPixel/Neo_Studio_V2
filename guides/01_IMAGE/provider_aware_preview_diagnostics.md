@@ -20,8 +20,8 @@ tags:
   - replay
   - lineage
 priority: 118
-version: 2
-updated: 2026-08-03
+version: 3
+updated: 2026-08-15
 ---
 
 # Provider-Aware Preview Actions and Diagnostics
@@ -117,3 +117,20 @@ The compact Preview toolbar resolves the High-Res Fix action from the canonical 
 ## Hotfix 02 — Finish actions stay on one row
 
 The compact overlay reserves one dedicated row for the four canonical Finish actions: High-Res Fix, ADetailer, Identity Rescue, and Image Upscale. The row uses four fixed compact icon tracks and does not wrap. Source, Reference, and LayerDiffuse icons may continue to wrap normally above it. This is a presentation-only rule; action order, visibility, provider evaluation, tooltips, and dispatch behavior are unchanged.
+
+## IMG-PF1 — Selected-profile runtime parity for Post-Fix actions
+
+Local Comfy profiles with `auto_connect` disabled intentionally keep the normal backend-profile registry passive. The Preview/Post-Fix evaluator must therefore not treat that passive registry snapshot as runtime truth after the selected profile has already passed Neo's explicit current-session Connect/Test or generation task gate.
+
+For `comfyui` and `comfyui_portable` only, `GET /api/image/preview-actions/evaluate` now promotes the **same selected profile** to its live task-facing profile when `is_backend_profile_connected_for_task(profile_id)` is true. It does not probe another profile, select a fallback backend, or auto-connect from this read-only evaluation route.
+
+This fixes the shared failure mode where all runtime-required Finish actions appeared disabled at once even though generation on that same selected Comfy profile was working:
+
+- High-Res Fix;
+- ADetailer;
+- Identity Rescue / FaceID;
+- Image Upscale.
+
+The browser also refreshes the selected-profile preview-action evaluation immediately after a completed (or recoverably completed) Image generation. A stale pre-generation `runtime_offline` evaluation must not survive after generation proves the selected backend task route is live.
+
+If the explicit task gate has **not** been satisfied, the evaluator remains passive and runtime-required Finish actions correctly stay disabled. This preserves the no-auto-connect / selected-profile-only contract.

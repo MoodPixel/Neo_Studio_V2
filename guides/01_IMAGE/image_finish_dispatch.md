@@ -22,8 +22,8 @@ tags:
   - forge
   - comfyui
 priority: 113
-version: 1
-updated: 2026-08-02
+version: 2
+updated: 2026-08-15
 ---
 
 # Provider-Owned Finish Dispatch
@@ -202,3 +202,9 @@ A disabled action displays the selected-profile reason. Neo does not recommend o
 The Forge native Hires dispatcher now carries `neo.image.native_hires_size.v1` from the selected output into the compiler. The compiler keeps scale mode free of stale `hr_resize_x` / `hr_resize_y` values and records the expected target. Bridge 1.2.1 resolves the authoritative source dimensions from the decoded image, forces the exact target into `StableDiffusionProcessingTxt2Img`, and verifies the returned primary image size before completing the durable job.
 
 A same-resolution result is treated as a failed native Hires job rather than being appended as a successful derived output.
+
+## IMG-PF1 — Finish availability uses selected-profile live task truth
+
+Provider-owned Finish dispatch remains selected-profile only. For local Comfy profiles, availability evaluation now uses the live task-facing version of that same profile **only after** the explicit session task gate has passed. This keeps Finish readiness aligned with generation and capability-overlay readiness without probing or borrowing any other provider.
+
+A successful Image generation triggers an immediate refresh of the Preview/Post-Fix provider evaluation. This prevents a cached `runtime_offline` result captured before generation from leaving the entire Finish toolbar disabled after the backend has already been proven live.

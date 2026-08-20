@@ -127,20 +127,6 @@ Normal/Guided detail should prioritize readable recipe and provenance informatio
 
 Do not make users parse the original output-record schema merely to discover prompt, source, route, or lineage information. The backend Inspector adapter exists specifically to keep storage schema and UI view model separate.
 
-## Regression locks
-
-1. The Results **left rail** remains history + Inspector; it must not duplicate live Prompt/Parameters/Route Status inside Results. The persistent right generation rail remains visible beside it.
-2. Selecting a history result refreshes the normalized Inspector for that result.
-3. Playback represents the selected output, including finish children.
-4. Finish children use a real generation ancestor for replay when one exists.
-5. Unknown/retired local routes are gated, never silently rewritten.
-6. Load Recipe stages only and never starts generation automatically.
-7. Extension reporting is based on persisted result metadata, not current installation state.
-8. Lineage is root-to-selected and surfaces missing references truthfully.
-9. Expert raw metadata remains behind Expert detail mode.
-10. The Inspector adapter remains separate from the persisted output-record schema so older/newer records can be normalized without forcing the UI to understand every historical shape.
-
-
 ## 2026-08-09 — Results parity with Image
 
 - Video Results now mirrors the Image results flow more closely: **Results & Save Details → Saved Outputs → Output Inspector**.

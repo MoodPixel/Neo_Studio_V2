@@ -216,12 +216,6 @@ The node keeps a mutable runtime attachment with these proof fields:
 
 A future inspector phase can expose the attachment directly in Neo's Output Inspector.
 
-## Current validation level
-
-SD-28.3 includes static graph tests and tensor-level wrapper/hook tests. These prove graph placement, failure behavior, hook cleanup, masking mechanics, route count behavior, and runtime-proof transitions on a synthetic torch module.
-
-They are **not** a substitute for a real Krea 2 ComfyUI generation. Before promotion from experimental status, run fixed-seed GPU tests with real Krea 2 RAW and Turbo LoRAs, including outside-region difference measurements and 3+ regional LoRA scenes.
-
 ## Source / compatibility notes
 
 The adapter is aligned with current upstream behavior as of 2026-07-27:

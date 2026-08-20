@@ -17,8 +17,8 @@ tags:
   - external
   - compatibility
 priority: 76
-version: 4
-updated: 2026-08-09
+version: 5
+updated: 2026-08-14
 ---
 
 # Video Extensions and Route Compatibility
@@ -41,7 +41,7 @@ workspace app
 extension manifest
 ```
 
-For cloud Video profiles, the context is provider-capability-driven and uses `backend = cloud_api`; the local WAN/LTX route matrix is not used to invent cloud support.
+For cloud Video profiles, the context is provider-capability-driven and uses `backend = cloud_api`; the local WAN/LTX/H3 route matrix is not used to invent cloud support.
 
 ## Workspace normalization
 
@@ -54,7 +54,7 @@ Video: generation
 
 The shared runtime normalizes workspace ids per surface. Legacy Video `workspace` or `generations` state may migrate to `generation`, but current Video extension records must not be rewritten to Image `generations`.
 
-Video subtabs such as `finish` and `results` are workspace locations. They are **not** generation modes. Video generation modes remain values such as `txt2vid`, `img2vid`, `depth_motion`, `prompt_schedule`, and `audio_video`.
+Video subtabs such as `finish` and `results` are workspace locations. They are **not** generation modes. Video generation modes remain values such as `txt2vid`, `img2vid`, `first_last_frame`, `reference_to_video`, `depth_motion`, `prompt_schedule`, and `audio_video`.
 
 ## Route states
 
@@ -115,6 +115,17 @@ Rapid AIO is explicitly supported by route-agnostic generation utilities that ca
 - `video.vram_profile_advisor`
 
 Rapid AIO does **not** imply support for LTX-only generation extensions.
+
+### MiniMax H3 external/runtime helpers
+
+MiniMax H3 itself is a built-in local family backed by ComfyUI core H3 nodes. Optional community packs are compatibility helpers, not alternative routing authorities:
+
+- `comfyui_gguf` enables experimental H3 GGUF loader lanes.
+- `minimax_h3_spectrum` is an experimental approximate H3 accelerator.
+- `minimax_h3_blockcache_t8` is an experimental approximate H3 block cache.
+- `kjnodes_h3` provides optional H3/Sage-oriented helpers where the active object-info contract supports them.
+
+Spectrum and T8 BlockCache are mutually exclusive in Neo's canonical H3 compiler. Turbo LoRA is an explicit H3 speed option and may alter fidelity. These helpers never change a route's generation semantics from keyframe mode to semantic reference mode.
 
 ### LTX-only extensions
 

@@ -13,13 +13,34 @@ tags:
   - captioning
   - keywords
 priority: 70
-version: 9
-updated: 2026-08-09
+version: 12
+updated: 2026-08-18
 ---
 
 # Prompt + Captioning Overview
 
 Prompt + Captioning stores reusable prompt outputs, captions, keywords, and source notes. The Assistant can index saved records so users can search and reuse previous prompt/caption work.
+
+
+## Prompt & Captioning backends
+
+Prompt Studio and Caption Studio use the same existing backend-profile selector. **KoboldCpp Local** remains the default local text backend. Neo also includes an optional **ComfyUI LLM / VLM** backend profile that points at a normal ComfyUI server, usually `http://127.0.0.1:8188`.
+
+Neo uses **Connect/Test** to inspect the connected Comfy server and report whether the llama.cpp model loader, instruct node, optional parameter/unload helpers, main models, `mmproj` projectors, chat handlers, and Neo's bundled Prompt/Caption bridge nodes are available.
+
+**Prompt Studio and Caption Studio can now execute through ComfyUI LLM / VLM.** Prompt text is returned through Neo's stable `NeoPromptCaptionTextOutput` history handoff. Caption images enter the Comfy workflow through `NeoPromptCaptionImageInput`, then pass to the detected llama.cpp VLM route. By default the VLM request uses `force_offload` so the model is released after inference.
+
+A reachable ComfyUI server by itself is not enough. Prompt execution requires the llama.cpp loader + instruct nodes, at least one main model, and Neo's Text Output bridge. Caption execution additionally requires an image-capable instruct input, an `mmproj` projector, a usable chat handler, and Neo's Image Input bridge. See `comfy_llamacpp_backend.md` for setup and normal use.
+
+Backend-specific model, projector, chat-handler, context, and VRAM controls appear only when the ComfyUI LLM/VLM backend is selected; the normal Prompt/Captioning controls remain shared across providers. When that backend shares the local GPU with Image or Video, Neo now serializes the Comfy GPU handoff so Prompt/Caption, Image, local Video, and Finish/SeedVR2 do not compete for the same local GPU slot.
+
+For **Batch Captioning**, the ComfyUI LLM/VLM backend now uses a retained batch session: Neo holds the shared GPU lease once, keeps the VLM loaded between sequential images, and performs the configured unload/memory cleanup once when the batch ends. Single-image caption runs still use the normal per-request unload behavior.
+
+**Backend readiness is now route-specific.** After Connect/Test, Neo reports Prompt Ready and Caption Ready separately, validates the required llama.cpp/Neo bridge nodes, checks the live model/mmproj/handler catalogs, and flags saved selections that no longer exist. Missing Prompt requirements block Prompt and Caption; missing VLM-only requirements can leave Prompt Ready while Caption remains gated.
+
+**Startup/reconnect validation keeps that readiness current.** Saved Comfy LLM/VLM settings are restored when Neo starts, but an old saved Connected state is not trusted. Neo refreshes the current Comfy catalog in the background, rechecks saved selections, records the last successful validation time, and revalidates again before a real Prompt/Caption task is queued. If Comfy is restarted or comes back online later, the current live catalog replaces the stale session snapshot. Manual **Disconnect** pauses that automatic validation until Connect/Test is used again.
+
+**Runtime recovery is also shared-GPU aware.** If Comfy disconnects, times out, restarts, loses history, rejects a workflow, runs out of VRAM, or fails an explicit memory cleanup, Neo returns an actionable error and keeps/reconciles the GPU guard according to what is actually known about the Comfy queue. A missing queue response is not treated as proof that nothing ran. Existing Comfy work discovered after a Neo restart is guarded until the backend queue clears.
 
 ## P23 profile engine
 
@@ -103,3 +124,20 @@ Prompt Studio **Negative** is a specialized compact exclusion task, not a normal
 The sanitizer does **not** invent replacement negative tags. It only cleans the provider output. If cleanup or truncation occurs, the normal Prompt Studio warning field records that Neo normalized the result.
 
 This guard is intentionally scoped to `negative_prompt`; Generate, Enhance, Rewrite, Cleanup, and text-transform outputs keep their existing output guards and sampling behavior.
+
+## ComfyUI LLM / VLM backend settings
+
+When **ComfyUI LLM / VLM** is the selected Prompt or Caption backend, Neo shows provider-only controls for the live-discovered llama.cpp model, chat handler, context length, VRAM budget, and unload policy. Caption Studio also exposes the VLM projector and an advanced image-analysis/token section. These controls are hidden for other backends and save into the selected backend profile.
+
+
+## ComfyUI LLM / VLM final status presentation
+
+When **ComfyUI LLM / VLM** is selected, Prompt Studio and Caption Studio now show only the readiness for the active route instead of repeating the complete backend installation checklist. The route card shows the selected model components, whether the current live catalog is verified, and the shared-GPU policy.
+
+Use **Admin → Backends → ComfyUI LLM / VLM** for the full grouped backend view. It summarizes Connection, Core nodes, Neo bridge, Prompt route, Caption route, and GPU policy, with detailed catalogs/timestamps collapsed under **Catalog & validation details**. Neo uses the concise states **Ready**, **Prompt only**, **Caption only**, **Needs setup**, **Offline**, **Validating**, and **Recovering** and presents one primary corrective action when setup is incomplete.
+## Comfy VLM handler compatibility
+
+When **ComfyUI LLM / VLM** is used for Caption Studio, Neo resolves the selected VLM to a compatible vision route. **Auto** prefers a known dedicated handler; when no dedicated handler fits and the updated Neo Comfy bridge supports Generic MTMD, the route can display **Auto → Generic MTMD**. This avoids treating an unrelated installed vision handler as compatible merely because it exists.
+
+Generic MTMD still requires a matching `mmproj` and a model/chat-template combination supported by the llama.cpp build running inside ComfyUI. If no safe route is available, Caption Studio stays blocked and Admin shows the setup reason.
+

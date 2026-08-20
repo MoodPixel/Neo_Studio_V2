@@ -1,6 +1,6 @@
 ---
 guide_id: image.provider_action_regression_matrix
-title: Provider Action Regression Matrix
+title: Provider-Aware Image Actions
 surface: image
 scope: built_in
 applies_to:
@@ -15,83 +15,80 @@ applies_to:
 tags:
   - image
   - provider
-  - regression
+  - preview
+  - output-inspector
   - forge
   - comfyui
   - replay
   - lineage
 priority: 119
-version: 2
-updated: 2026-08-03
+version: 3
+updated: 2026-08-16
 ---
 
-# Provider Action Regression Matrix
+# Provider-Aware Image Actions
 
-Neo includes a deterministic regression runner for the complete Preview and Output Inspector action system:
+Image Preview and Output Inspector expose actions that reuse an existing result. The **currently selected Image profile owns the action**. Neo does not silently send a Forge result to ComfyUI, or a ComfyUI result to Forge, just because another connected backend could perform the operation.
 
-```text
-python scripts/validate_provider_actions_phase13.py
-```
+For the detailed Guided/Expert display behavior, see `provider_aware_preview_diagnostics.md`.
 
-To save a machine-readable report:
+## Three action types
 
-```text
-python scripts/validate_provider_actions_phase13.py --json-out <OUTPUT_PATH>/provider_action_matrix.json
-```
+### Source actions
 
-The runner does not require a live GPU backend. It validates the contracts and route decisions that must be true before a request reaches Forge Neo or ComfyUI.
+Use an output as the source for another generation workflow:
 
-## Coverage
+- Img2Img
+- Inpaint
+- Outpaint
 
-The matrix covers:
+These actions stage the image into the selected provider workflow and wait for you to review settings and press **Generate**.
 
-- the 13-action canonical registry;
-- Forge and Comfy selected-profile action evaluation;
-- unsupported cloud/local-finish behavior;
-- Forge Bridge native post-Hires capability pairing;
-- Source handoffs for Img2Img, Inpaint, and Outpaint;
-- Reference handoffs for ControlNet and IP Adapter;
-- Finish dispatch for High-Res Fix, ADetailer, Identity Rescue, and Image Upscale;
-- replay sanitization and provider-cache cleanup;
-- repeated Finish lineage parent/root/depth behavior;
-- Preview and Output Inspector renderer/dispatcher parity;
-- success, cancellation, failure, and recovery cleanup locks;
-- strict prohibition of automatic provider fallback.
+### Reference actions
 
-## Result contract
+Use an output as a reference without replacing the main source:
 
-The report schema is:
+- ControlNet
+- IP Adapter / FaceID where supported
 
-```text
-neo.image.provider_action_regression_matrix.v1
-```
+Neo places the result into a compatible reference slot for the selected profile. It does not overwrite an occupied unit silently.
 
-Each case uses:
+### Finish actions
 
-```text
-neo.image.provider_action_regression_case.v1
-```
+Run a derived operation on the selected result when the provider supports it, for example:
 
-A release-ready report must contain:
+- High-Res Fix / High-Res Lab;
+- ADetailer;
+- Identity Rescue / FaceID repair;
+- Image Upscale.
 
-```text
-status: passed
-failed: 0
-selected_profile_only: true
-automatic_provider_fallback: false
-```
+Finish actions produce a new result linked to the original output so repeated finishing can preserve parent/root lineage.
 
-## Physical runtime limitation
+## Why an action may be dimmed or hidden
 
-This runner validates deterministic routing, payload boundaries, cleanup, and lineage. It does not replace a physical Forge/Comfy GPU smoke test for image quality, model compatibility, VRAM behavior, or third-party extension runtime behavior.
+Availability depends on the selected profile and the saved output context. A control can be unavailable because:
 
+- the selected backend does not support that action class;
+- a required model, detector, preprocessor, upscaler, custom node, Forge script, or Bridge capability is missing;
+- the current result is incompatible with the requested route;
+- the output was created with a profile that no longer exists or needs revalidation;
+- a backend refresh is still in progress.
 
-## Release integration audit
+Guided mode keeps the message concise. Expert mode exposes more exact requirement and route information.
 
-Phase 13 proves routing contracts. Phase 14 adds the release-facing integration gate:
+## Safe workflow when changing providers
 
-```text
-python scripts/audit_provider_action_release_phase14.py
-```
+If you intentionally want to finish an image with a different backend:
 
-That audit reruns this matrix, checks Bridge 1.2.1 capability pairing, verifies the release guide/action inventory, builds and audits a temporary public runtime archive, scans release-facing text for non-portable paths and obvious live credential formats, and confirms release-lock records. See `provider_action_release_integration.md`.
+1. select that Image profile yourself;
+2. let Neo refresh/revalidate the action state;
+3. review any disabled or migration warning;
+4. run the action only after the intended profile is shown as the owner.
+
+This prevents accidental cross-provider fallback.
+
+## Replay and derived results
+
+Replay restores recorded generation intent, but Neo revalidates it against the current backend. If models, profiles, or extensions changed since the original image was created, Neo can ask you to review or replace unavailable selections rather than pretending the old route is still executable.
+
+Each successful Finish pass creates a derived result. Output Inspector can use that lineage to show where the image came from and which operation produced the current version.

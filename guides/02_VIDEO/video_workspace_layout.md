@@ -169,21 +169,6 @@ Video route/workspace context
 
 Do not mix both origins back into one generic extension stack. Do not add per-panel family/loader compatibility tables; the shared extension runtime remains authoritative.
 
-## Regression locks
-
-1. Workspace switching changes only the active-workspace **left rail** on desktop.
-2. The right rail is reserved for **Prompt + Preview + Parameters** and is rendered for Generation, Assets, Reference, Finish, and Results.
-3. Route-required source/reference controls and generation-mode-specific tools stay in the Generation left rail.
-4. Finish tools, source pickers, and finish notes stay in the Finish left rail.
-5. Results history and the Video Output Inspector stay in the Results left rail.
-6. Native finish/source picker behavior remains intact.
-7. External extensions are rendered only from the compatible external partition.
-8. Built-in/native tools remain visually and structurally separate from external packages.
-9. Workspace changes never change the selected Video generation type or live Prompt/Parameters draft.
-10. Results replay stages a validated recipe only and never auto-runs.
-11. Finish-result replay uses a real generation ancestor rather than treating `family=finish` as a generation route.
-
-
 ## 2026-08-09 — Workspace card flattening
 
 - Video workspaces no longer wrap left-rail content inside extra shell cards like **Generation Tools**, **Assets**, **Reference**, or **Finish Setup**.

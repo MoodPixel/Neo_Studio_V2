@@ -149,7 +149,3 @@ A future phase may introduce tested intent-specific sampling differences, but th
 ## IP-7 selector status
 
 IP-7 activates the visible Output Intent selector beside Sampling Preset. The semantic phase remains IP-6: None / Realistic / Anime-Illustration are still metadata-only, never captured into user sampling presets, and cannot mutate prompt/style/LoRA/extension or sampling values.
-
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.

@@ -141,7 +141,3 @@ IP-2 consumes this registry and implements the Negative Prompt Eligibility Engin
 ## IP-3 preset-foundation note
 
 IP-3 now owns preset resolution/application mechanics through `neo_app/image/sampling_presets.py`. IP-1 remains the semantic source used to derive Clean Slate requirements. Family numeric defaults are still not stored in this registry; those remain IP-4/IP-5 scope.
-
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.

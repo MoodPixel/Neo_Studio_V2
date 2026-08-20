@@ -13,8 +13,8 @@ tags:
   - source assets
   - backend profiles
 priority: 70
-version: 9
-updated: 2026-08-09
+version: 10
+updated: 2026-08-14
 ---
 
 # Video Tab Overview
@@ -27,7 +27,7 @@ The Video tab is one provider-aware workspace for video generation, source frame
 
 - Generation — default workspace for route setup, backend readiness, prompt/source controls, parameters, extensions, compile/generate actions, and output-path safety.
 - Assets — reusable source videos, source images, frames, and related inputs.
-- Reference — motion, depth, prompt, and image-reference controls.
+- Reference — route-aware keyframe, multimodal H3 Ref2VA, motion, depth, prompt, and image-reference controls.
 - Finish — interpolation, upscale, repair/cleanup, and export-oriented tools.
 - Results — output history, preview, metadata, replay, and reuse.
 
@@ -54,6 +54,8 @@ Route status has product meaning:
 
 WAN 2.2 currently exposes UNET, GGUF, Rapid AIO GGUF, and planned Native Workflow lanes according to the live route catalog. Rapid AIO Txt2Vid/Img2Vid are experimental routes. LTX 2.3 exposes its enabled UNET/GGUF generation lanes and planned Native Workflow entries from the same catalog.
 
+MiniMax H3 now exposes enabled native UNET routes for Txt2Vid, one-keyframe Img2Vid with explicit first/last role, First/Last Frame, and Omni Reference / Ref2VA. Equivalent H3 GGUF routes are experimental. H3 generation includes native stereo audio and uses a dedicated H3 compiler so its packed AV latent, dual VAEs, sigma shifts, reference tagging, and accelerator policy do not leak into WAN/LTX compilers.
+
 The frontend must not reintroduce hardcoded copies such as `VIDEO_ROUTE_MATRIX`, model-family arrays, loader arrays, generation-type arrays, or route-specific parameter-default tables.
 
 ## Workspace body composition
@@ -63,7 +65,7 @@ The five Video workspace applications now use a **stable two-rail body**. The fa
 - **Generation left rail** — route-required Source/Reference, backend/VRAM readiness, built-in generation tools, External Extensions, generation-mode-specific panels, and Route Status.
 - **Assets left rail** — staged source inventory, compatible Assets tools/extensions, and source-input controls.
 - **Reference left rail** — route-aware image/video/depth/motion reference controls plus compatible Reference extensions.
-- **Finish left rail** — finish presets, Frame Interpolation, SeedVR2 Upscale, Repair/Cleanup, and compatible Finish extensions. Finish tools use workspace-scoped compatibility and do not become unavailable merely because WAN/LTX selection changes.
+- **Finish left rail** — finish presets, Frame Interpolation, SeedVR2 Upscale, Repair/Cleanup, and compatible Finish extensions. Finish tools use workspace-scoped compatibility and do not become unavailable merely because WAN/LTX/H3 selection changes.
 - **Results left rail** — Generation History plus the Video Output Inspector. The Inspector owns selected-output playback, saved Generation Setup, saved prompts/parameters/sources, executed extensions, lineage, replay, and Expert metadata.
 - **Persistent right rail** — live Prompt + Preview + Parameters for the selected Video generation route, visible across Generation, Assets, Reference, Finish, and Results.
 

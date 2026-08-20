@@ -61,15 +61,3 @@ Merge the BCR-1 patch folders into the Neo Studio project root and overwrite the
 4. Drop a PNG/JPG/WEBP/BMP source onto each source area, then change mode or reconnect and repeat.
 5. Open Scene Director and confirm its library content loads once. Manual **Refresh Libraries** should still perform a deliberate refresh.
 6. Confirm LanPaint capability diagnostics and stale-snapshot remediation still appear for the selected route.
-
-## Validation evidence
-
-Using the same local mock Comfy endpoint:
-
-- pre-fix Connect: 18.74 seconds, two `/system_stats` probes, and two complete `/object_info` probes;
-- BCR-1 Connect: 0.44 seconds, one `/system_stats` probe, and one complete `/object_info` probe;
-- 28-route LanPaint capability construction: approximately 9.09 seconds before shared registry context and 0.33 seconds afterward;
-- focused Chromium test: a source file dropped successfully onto a dropzone created after delegation was bound;
-- focused Chromium test: three concurrent Scene Director refresh calls produced four network requests total, not twelve.
-
-These timings are diagnostic mock-backend measurements, not a promise for every machine or physical Comfy installation. Physical model loading and generation were not run in the packaging environment.

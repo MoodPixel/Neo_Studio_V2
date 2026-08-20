@@ -1,6 +1,6 @@
 ---
 guide_id: global.public_path_hygiene
-title: Public Path Hygiene
+title: Local Paths, Privacy, and Portable Setup
 surface: global
 scope: built_in
 applies_to:
@@ -12,87 +12,68 @@ applies_to:
 tags:
   - privacy
   - paths
-  - public repository
+  - local setup
   - runtime data
 priority: 92
-version: 3
-updated: 2026-08-03
+version: 4
+updated: 2026-08-16
 ---
 
-# Public Path Hygiene
+# Local Paths, Privacy, and Portable Setup
 
-Neo Studio is local-first, so users must be able to select real folders on their own machines. Those values are runtime configuration, not source-code defaults.
+Neo Studio is local-first. Backend folders, model locations, runtime settings, generated media, logs, and personal project data belong to the local Neo runtime, not to the public application source.
 
-## Ownership boundary
+## What you can configure locally
 
-| Data | Owner | Public-repo rule |
-|---|---|---|
-| Backend, model, embedding, and reranker paths | `neo_data/` runtime settings | Never copy into tracked JSON or documentation |
-| Image Node Manager paths and installed-node records | `neo_data/admin/image/node_manager/` | Local only and ignored by Git |
-| Admin Engine profiles | `neo_data/admin/engine/` | Local only and ignored by Git |
-| Detector/SAM discovery roots | Server runtime | Do not return absolute roots to the browser |
-| README, guides, UI placeholders | Public source | Use role labels such as `<ComfyUI-root>` or selection instructions |
-| Tracked Node Manager/model-profile JSON files | Public template | Keep path fields empty, Node Manager records empty, and related timestamps null |
+Depending on the feature, Neo may ask you to choose or configure locations for:
 
-The tracked Node Manager files and Engine model-profile files under `neo_app/admin/` are sanitized templates. Neo's active Node Manager and Engine modules resolve their writable files under `neo_data/`, so source updates do not replace an existing user's saved paths.
+- ComfyUI or ComfyUI Portable;
+- Forge / Forge Neo;
+- model folders and extra model paths;
+- local voice or language-model runtimes;
+- extension or custom-node folders;
+- local output and project data.
 
-## Safe examples
+Use the relevant **Admin** page or feature setup screen rather than editing tracked source files with machine-specific paths.
 
-Use portable roles:
+## Runtime data
+
+Neo keeps user/runtime state under `neo_data/`. This can include saved backend profiles, generated-output metadata, Assistant/Project Brain data, logs, indexes, local settings, and other machine-specific state.
+
+When updating Neo Studio, preserve `neo_data/` unless an upgrade note explicitly says that a migration is required. Do not delete it as a normal troubleshooting step.
+
+## Portable path examples
+
+Documentation uses role-based paths such as:
 
 ```text
 <ComfyUI-root>/models
-<ComfyUI-root>/ComfyUI/custom_nodes
-<backend-root>/KoboldCPP
+<ComfyUI-root>/custom_nodes
+<Forge-root>
+<backend-root>
 ```
 
-Do not publish a contributor's drive letter, home directory, username, personal image name, private model folder, or captured installed-node inventory.
+Replace those placeholders with the real locations on your own machine.
 
-## Public runtime export boundary
+## Privacy notes
 
-Neo maintains a larger internal source-of-truth tree than the first public runtime repository/export. A clean public export must omit:
+Avoid sharing screenshots, logs, configuration exports, or bug reports that expose:
 
-- `neo_data/` and all user/runtime state;
-- Python caches, test caches, logs, temporary files, and local databases;
-- `neo_system_records/`, `scripts/`, and `tests/`;
-- `neo_extensions/installed/` and extension cache folders;
-- nested source/extension test trees and extension implementation docs;
-- internal release tooling that normal users do not need.
+- usernames or home-folder names;
+- personal filenames or project names;
+- API keys, tokens, cookies, or authorization headers;
+- private backend URLs;
+- full local model-library paths when they are not needed.
 
-Use `scripts/build_clean_release.py` from the internal source tree to build the public archive. The archive audit is the final gate. Generated manifests must identify the repository root as `.` and the output by filename only; they must not store a developer machine path.
+When asking for help, the most useful details are usually the backend type, Neo feature, selected model family/loader, visible error message, and a redacted screenshot of the relevant Admin or workspace panel.
 
-## Patch-only delivery rule
+## Moving Neo to another folder or computer
 
-Implementation delivery ZIPs contain only changed and newly added files, preserving repository-relative paths. They must not contain cache folders, compiled Python files, databases, runtime data, generated media, or a copied full repository snapshot. Any required deletion is listed in the associated validation record.
+1. Close Neo Studio and connected local backends.
+2. Move or reinstall the Neo source/application files.
+3. Restore your intended `neo_data/` backup if you want to keep local Neo state.
+4. Re-check backend paths in **Admin** because drive letters and installation folders may differ.
+5. Start each backend and use Neo's normal connection/refresh controls.
+6. Re-select any model or extension whose path changed.
 
-## Release check
-
-Before publishing source:
-
-1. Confirm `neo_data/` remains ignored.
-2. Confirm tracked Admin template path fields are empty.
-3. Confirm tracked node records are empty.
-4. Scan public source/docs for absolute Windows drive paths and named macOS/Linux home folders.
-5. Confirm API payloads expose portable role paths, model values, counts, and safe error codes only.
-6. Package only intentional changed files; never include local runtime data.
-
-Developer-only tests may use synthetic absolute paths when the path parser itself is under test. Those fixtures must be obviously fictional and must never be loaded as defaults or returned to users.
-
-
-## Provider-action Phase 14 audit
-
-The provider-action release audit builds a temporary public archive through the canonical release builder and then checks:
-
-- excluded runtime/developer entries;
-- non-allowlisted absolute user/backend paths in release-facing text;
-- obvious private-key and live credential formats;
-- Bridge release compatibility;
-- release documentation and action-table completeness.
-
-Run:
-
-```text
-python scripts/audit_provider_action_release_phase14.py
-```
-
-A clearly synthetic path fixture inside dedicated redaction validation code may be allowlisted. User-facing guides, templates, manifests, browser payloads, and normal runtime code are not exempt.
+A backend showing **Disconnected**, **Refresh required**, or a missing-model warning after a move usually means its local path or live capability snapshot needs to be updated rather than the project itself being damaged.

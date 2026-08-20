@@ -1,6 +1,6 @@
 # Forge Neo extra features E2
 
-Status: **implemented offline / physical validation required**  
+Status: **experimental; availability depends on the selected live Forge profile**  
 Date: **2026-07-31**
 
 E2 adds three Forge-native capabilities as **Neo Studio built-in Image extensions**. Neo owns the UI and validation; Forge Neo owns execution through its live built-in always-on scripts.
@@ -45,7 +45,7 @@ Neo verifies the six-argument img2img-only script and exposes:
 - Tile overlap
 - Tile batch size
 
-E2 intentionally enables execution only for SD 1.5 and SDXL on `img2img`, `inpaint`, and `outpaint`. Modern-family support remains gated until physical model tests prove it safe.
+E2 intentionally enables execution only for SD 1.5 and SDXL on `img2img`, `inpaint`, and `outpaint`. Modern-family support remains gated until Neo has a dedicated compatible route for those families.
 
 ## Live discovery and schema drift
 
@@ -55,7 +55,6 @@ Extension presence alone is never permission. Neo requires the selected Forge pr
 
 - It does not install/update/remove Forge extensions.
 - It does not support arbitrary third-party Forge scripts.
-- It does not claim physical GPU/model validation.
 - It does not widen MultiDiffusion to modern families.
 - It does not bypass Phase 5 strict route/profile gating.
 

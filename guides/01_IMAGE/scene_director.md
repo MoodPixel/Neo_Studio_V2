@@ -38,11 +38,13 @@ tags:
   - route aware
   - loader aware
 priority: 126
-version: 3
-updated: 2026-08-01
+version: 5
+updated: 2026-08-16
 ---
 
 # Scene Director
+
+> **Current architecture note (IMG-SD3):** modern Scene Director remains Basic-only and regional-LoRA-isolation-first. Krea 2 RAW/Turbo now use the external `januspluto/ComfyUI-Krea2-Regional` engine (`Krea2RegionalBuilder` → `Krea2ApplyRegional`) while Neo keeps its native/GGUF loader, sampler, latent and decode path. FLUX.2 Klein/Z-Image continue on the Neo-owned IMG-SD2 lightweight runtime. Krea does not fall back to `NeoRegionalLoRADelta` when the external runtime is missing. SDXL/SD1.5 retain the full Classic V054 Advanced engine. For current route truth, `scene_director_current.md` wins over older V054 history below.
 
 **Scene Director** is Neo Studio's built-in regional scene planner for the **Image → Generation** workspace. It lets the user divide an image into regions, assign each region a role and prompt, preserve character/body traits, route global prompt context into regions, and coordinate region-aware extension intent.
 

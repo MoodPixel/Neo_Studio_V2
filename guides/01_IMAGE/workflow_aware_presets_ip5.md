@@ -116,7 +116,3 @@ IP-5 itself adds no preset UI, user preset CRUD, Quality preset, or Fast preset.
 ## IP-7 UI + user authoring
 
 IP-7 exposes the workflow-aware resolver through the Image Parameters preset UI and recalculates availability when family, variant/model, loader, or workflow changes. My Presets are route-scoped by the same family + variant + loader + workflow identity and never inherit Output Intent. The IP-5 inheritance/Fill/GGUF semantics are unchanged.
-
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.

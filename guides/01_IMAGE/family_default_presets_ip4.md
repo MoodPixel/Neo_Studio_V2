@@ -71,7 +71,3 @@ Therefore Qwen Balanced True CFG 4 activates its negative lane, while FLUX/Klein
 ## IP-7 UI status
 
 IP-7 now exposes the IP-4 family `Default · Balanced` rows in the Image Parameters preset selector when the active family / variant / loader / workflow can resolve them. Built-in family values remain read-only; Duplicate creates a separate My Preset instead of editing the built-in registry.
-
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.

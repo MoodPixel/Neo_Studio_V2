@@ -24,8 +24,8 @@ tags:
   - safetensors
   - qwen3-vl
 priority: 117
-version: 2
-updated: 2026-08-08
+version: 3
+updated: 2026-08-12
 ---
 
 # Krea 2 Identity Edit
@@ -136,9 +136,10 @@ The engine card is mounted in **Parameters** only for `img2img`, `inpaint`, and 
 | **Identity Edit LoRA** | Dedicated model-only edit LoRA. Required when the engine is enabled. | `krea2_identity_edit_v1_2.safetensors` |
 | **Identity Edit LoRA Strength** | LoRA model strength. | `1.0` |
 | **Reference Fit** | Source-to-target geometry. | `fit` |
-| **Identity Reference Boost** | Pull toward the final/subject reference appearance. | `4.0` for strong likeness, then tune |
-| **Scene Reference Boost** | First-reference boost in two-image edits. | `1.0` |
-| **Grounding Resolution** | Resolution shown to Qwen3-VL for semantic grounding. | `768`; v1.2 trained range is roughly 384–768 |
+| **Identity Reference Boost** | Reference-fidelity boost for the last reference block. In single-reference mode this is Image 1; in two-reference mode this is Image 2 / subject identity. | `4.0` for strong likeness, then tune |
+| **Scene Reference Boost (Image 1)** | First-reference boost in the two-image scene + subject workflow. It is hidden until Image 2 is actually populated because upstream `ref_boost_a` has no effect in single-reference mode. | `1.0` |
+| **Grounding Resolution** | Longest-side cap shown to Qwen3-VL for semantic grounding. Available in normal Guided UI after IMG-K2E1. | `768`; upstream socket range is `0–4096`, step `64`; `0` means native resolution |
+| **Grounding System Prompt** | Expert-only override for `Krea2EditGroundedEncode.system_prompt`. Empty uses the upstream training default. | Leave blank unless you intentionally need to steer visual attention |
 
 `target_latent` is always wired to the same `EmptySD3LatentImage` used by KSampler. This lets the node pre-encode the pixel-fit source before sampling and avoids the known VRAM/offload slowdown that can occur when source VAE encoding starts mid-sampler.
 
@@ -147,8 +148,10 @@ The engine card is mounted in **Parameters** only for `img2img`, `inpaint`, and 
 Single-reference edit:
 
 ```text
-Image 1 = image being edited / appearance reference
+Image 1 = primary edit / identity / appearance reference
 ```
+
+In this mode Neo labels Image 1 as the primary/identity reference and **Identity Reference Boost** controls that only reference. This is the correct mode when a character sheet is the only source image.
 
 Two-reference edit uses the training order:
 
@@ -157,7 +160,7 @@ Image 1 = scene / composition / main edit canvas
 Image 2 = subject / identity reference
 ```
 
-Image 2 is connected to `source_latent_b`, `source_image_b`, and grounded `image_b`. Neo intentionally caps this engine at two source images. Image 3 is not routed into Krea 2 Identity Edit.
+Image 2 is connected to `source_latent_b`, `source_image_b`, and grounded `image_b`. Once Image 2 is populated, Neo relabels Image 1 as scene/context and Image 2 as subject/identity, then reveals **Scene Reference Boost (Image 1)**. Clearing Image 2 returns the UI to single-reference semantics. Neo intentionally caps this engine at two source images. Image 3 is not routed into Krea 2 Identity Edit.
 
 ## Inpaint behavior
 
@@ -215,3 +218,18 @@ The Qwen3-VL CLIP branch remains unpatched by Krea model-only LoRAs.
 ## Validation status
 
 Neo's local validation proves graph construction, route ownership, current-node socket checks, model/LoRA wiring, two-reference ordering, and legacy Krea regression compatibility. It does **not** prove visual quality or physical GPU behavior. Run real Krea 2 images on the target Comfy/RunPod environment before treating the route as physically validated.
+
+## IMG-K2E1 UI / backend parity repair — 2026-08-12
+
+The Krea compiler already routed `ref_boost_a`, `grounding_px`, and `system_prompt` into the current upstream node sockets, but the normal Guided UI exposed only the first four identity controls because Scene Reference Boost and Grounding Resolution were marked `advanced`, while Grounding System Prompt was not declared in the parameter profile at all.
+
+IMG-K2E1 repairs that mismatch without changing the Identity Edit graph:
+
+- **Grounding Resolution** is now a normal Guided control.
+- **Scene Reference Boost (Image 1)** is a normal Guided control, but appears only when Image 2 contains a real second reference.
+- **Grounding System Prompt** is now declared and remains Expert-only.
+- Reference roles are contextual instead of misleading: single-reference Image 1 is primary/identity; two-reference mode becomes Image 1 scene/context + Image 2 subject/identity.
+- Browser numeric inputs mirror upstream limits for `ref_boost` / `ref_boost_a` (`0–1000`, step `0.01`) and `grounding_px` (`0–4096`, step `64`). Provider compile fails closed for out-of-range values instead of letting Comfy reject them later.
+- Upstream `ref_boost_mask` remains intentionally unimplemented because it requires a dedicated reference-mask asset/UI workflow; IMG-K2E1 does not pretend that capability exists.
+
+The source-of-truth graph remains the M17 dual-conditioning architecture; this phase repairs UI visibility, request truth, role semantics, and range validation only.

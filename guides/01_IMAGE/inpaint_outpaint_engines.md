@@ -29,7 +29,9 @@ Neo wraps the Native graph with the external **ComfyUI-Inpaint-CropAndStitch** n
 
 The cropped image and mask are passed to `InpaintModelConditioning`; the decoded result is then stitched back into the original/padded canvas. Neo does not use the plugin's separate outpaint-extension behavior. Outpaint padding remains owned by Neo/Comfy core through `ImagePadForOutpaint`, so padding cannot be applied twice.
 
-If the checkbox is enabled and either custom node is missing, Neo blocks compilation instead of silently running a full-frame workflow.
+When a family graph already ends in its own composite or post-decode image node, Neo reassigns final output ownership to the stitched result instead of leaving Preview/Save connected to the pre-stitch family node. That keeps the live/final output consistent with the actual stitched image.
+
+If the checkbox is enabled and either custom node is missing, Neo blocks compilation instead of silently running a full-frame workflow. If the stitched result cannot become the final output owner, Neo also fails closed instead of saving the wrong image.
 
 ### LanPaint + Crop & Stitch ON
 
@@ -54,6 +56,14 @@ Outpaint is a real masked-edit route, not an Img2Img alias.
 For both Native and LanPaint, Neo owns the requested left/top/right/bottom padding and feathering through the core `ImagePadForOutpaint` node. The resulting padded IMAGE and MASK become the engine inputs.
 
 For LanPaint, the same family-aware LanPaint graph used for inpainting receives this generated outpaint mask. This is intentional: upstream LanPaint supports arbitrary masks and publishes image outpainting workflows.
+
+## Scene Director parity on modern Native inpaint (IMG-SD1D)
+
+When modern `lightweight_regional` Scene Director is enabled on a supported Native inpaint route, regional conditioning is combined **before** `InpaintModelConditioning`. The provider KSampler stays connected to `InpaintModelConditioning` outputs 0/1/2 so source-image/mask conditioning metadata and the masked latent remain authoritative.
+
+The compact Scene Director subject-count bridge is merged into the provider global text upstream of that wrapper. It is not encoded as a separate full-canvas conditioning entry. Krea 2 Turbo zero-negative validation traces through `InpaintModelConditioning` and confirms the upstream negative source is still `ConditioningZeroOut`.
+
+This rule applies only when Scene Director is active. Normal Native and LanPaint masked workflows retain their existing compiler topology.
 
 ## User parameter authority
 

@@ -95,12 +95,9 @@ Connecting Forge is not enough. The selected profile must contain a supported pr
 
 The UX policy contains portable model names and sanitized route metadata only. It must not serialize absolute model paths, source-image paths, credentials, headers, runtime databases, or base64 images. GitHub is reference-only for this implementation and is not modified.
 
-## Phase 6 regression protection
+## When a selector option disappears
 
-The executable-only selector contract is covered by `neo.provider.forge_validation.v1`. For every sanitized profile scenario, the validator requires the UX route-key set to exactly equal the live selectable route-key set. Diagnostic, missing-requirement, setting-disabled, provider-gated, planned, and unsupported rows must remain absent from normal selectors.
-
-Run `python scripts/validate_forge_neo_phase6.py`; treat its result as offline contract evidence only, not physical GPU validation.
-
+A missing option normally means the selected Forge profile no longer reports every requirement for that route. Refresh/Test the Forge profile after model, module, setting, script, or extension changes. Neo keeps unsupported combinations out of normal selectors instead of offering a route that would fail later.
 
 ## E1 ImageStitch refinement
 

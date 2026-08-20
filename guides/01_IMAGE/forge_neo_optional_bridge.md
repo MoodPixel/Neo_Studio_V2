@@ -138,13 +138,13 @@ The capability response must advertise all three values:
 A Bridge job submission must provide exactly one of `endpoint` or `operation`. Native post-Hires requires `operation`; it cannot be submitted to standard SDAPI or auto-routed to another provider. Reinstall with `--replace`, restart Forge, and refresh the Forge Admin profile after upgrading the bundled Bridge.
 
 
-## Release verification and rollback
+## After upgrading the Bridge
 
-Run the deterministic release gates after upgrading:
+1. Fully restart Forge.
+2. Open **Admin → Backends → Image** in Neo.
+3. Refresh/Test the Forge profile.
+4. Confirm the Bridge is shown as connected/selected when the profile expects it.
+5. Return to Image and verify that Bridge-owned actions are enabled only when their required capability is reported.
 
-```text
-python scripts/validate_provider_actions_phase13.py
-python scripts/audit_provider_action_release_phase14.py
-```
+If an operation disappears after an upgrade, do not force it through standard SDAPI or another provider. Restore Neo and the Bridge as a compatible pair when rolling back. See `provider_action_release_integration.md` for the user upgrade/rollback flow.
 
-Bridge version text alone is not sufficient; the selected profile must report the complete capability, operation, and size contract after Forge restarts. Roll back Neo and the Bridge as one compatibility set. See `provider_action_release_integration.md` for the full operator, smoke-test, migration, limitation, package-hygiene, and rollback procedure.

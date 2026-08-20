@@ -107,12 +107,6 @@ SD-28.4 never falls back from a failed regional LoRA route to a global `LoraLoad
 - regional CLIP LoRA hard-isolation claims
 - non-standard LoRA formats that do not resolve through the supported Krea layer contract
 
-## Validation status
-
-Static graph/tensor tests cover support-state promotion, RAW/Turbo sampler integrity, RAW↔Turbo metadata compatibility, incompatible-family rejection, 3+ regional LoRAs, GGUF loader propagation, spatial token masks, no global LoRA fallback, and one-sampler preservation.
-
-A real GPU generation/leakage comparison remains required to convert per-run runtime proof from pending to verified.
-
 ## Superseded Klein status — SD-28.5
 
 SD-28.5 promotes FLUX.2 Klein beyond the adapter-gated status recorded in this phase. Klein now uses `flux2_klein_activation_delta_v1` for 4B/9B native/components and GGUF Generate/Img2Img/Inpaint routes with family-specific double-stream/single-stream spatial filtering, FluxGuidance profile preservation, 4B/9B compatibility checks, Comfy partial-QKV mapping support, and per-run runtime proof. Z-Image regional LoRA remains adapter-gated.

@@ -65,15 +65,5 @@ The Inspector remains contract proof only. It does not claim GPU visual-quality 
 ## Output Intent
 IR-3 carries `output_intent` through the real payload but does not add another UI control. Current Image authoring defaults it to `none`. Realistic / Anime intent selection remains deferred until a compact UI placement is deliberately designed.
 
-## Regression lock
-IR-3 tests verify:
-
-- Krea 2 Balanced browser authority becomes 52 steps / CFG 3.5 in the authoritative NeoJob;
-- Manual/User submissions carry no hidden built-in preset id;
-- Provider Defaults strips stale managed values at the NeoJob boundary;
-- incomplete Clean Slate remains blocked;
-- the generation response Inspector agrees with the prepared NeoJob;
-- one prepared NeoJob is reused for provider execution and saved runtime bookkeeping.
-
 ## Next phase
 IR-4 repairs the live CFG and Negative Prompt UI semantics using the actual Image DOM ids from the uploaded source-of-truth build.

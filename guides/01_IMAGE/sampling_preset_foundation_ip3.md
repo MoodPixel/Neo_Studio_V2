@@ -112,7 +112,3 @@ Default · Balanced family txt2img values are implemented by IP-4, workflow-awar
 ## IP-7 authoring status
 
 IP-7 activates the visible Sampling Preset UI and portable user authoring. The IP-3 special presets remain unchanged: `Provider Defaults` delegates provider ownership and `Empty · Clean Slate` remains a no-fallback authoring template. Repository built-ins stay immutable; user records live separately under `neo_data/image/sampling_presets`.
-
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.

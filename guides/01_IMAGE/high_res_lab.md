@@ -156,3 +156,25 @@ native_post_hires_size_contract: true
 ```
 
 An older or incomplete Bridge fails closed. Replace the bundled Bridge files, restart Forge Neo, and refresh the selected Forge profile in Admin.
+
+## Provider dispatch and execution truth — IMG-HR2
+
+High-Res Lab support for provider-owned Comfy workflows is decided by the canonical High-Res route matrix. The provider dispatcher must not maintain a second family-only allowlist.
+
+For an active non-checkpoint route such as `qwen_rapid_aio + gguf + img2img`, an enabled High-Res Lab payload is passed into the shared workflow extension patcher. The expected inline refine chain is:
+
+```text
+base sampler
+→ base decode
+→ image/latent upscale
+→ VAE encode when required
+→ High-Res refine sampler
+→ final VAE decode
+→ PreviewImage / SaveImage
+```
+
+The frontend submit snapshot records user intent as `workflow_requested`; it does not claim provider execution before compilation. After the provider graph is patched, Neo writes `_neo_high_res_execution_proof` into `actual_params` and mirrors the proof at `backend_payload.high_res_execution_proof`.
+
+The proof includes the active route/profile, base sampler, added upscale/encode/refine/decode nodes, source dimensions, target dimensions, and final patched output reference.
+
+If High-Res Lab is explicitly enabled on an active route but no applied High-Res workflow patch exists after compilation, Neo fails closed before `/prompt` instead of silently queueing the base-resolution graph.

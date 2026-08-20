@@ -1,86 +1,78 @@
-# IP-8 — Sampling Preset Regression, Inspector + Documentation Lock
+---
+guide_id: image.sampling_preset_inspector
+title: Sampling Preset Inspector and Recovery
+surface: image
+scope: built_in
+applies_to:
+  - image
+  - parameters
+  - sampling_presets
+  - output_inspector
+tags:
+  - sampling
+  - presets
+  - parameters
+  - inspector
+  - troubleshooting
+priority: 101
+version: 2
+updated: 2026-08-16
+---
 
-## Status
+# Sampling Preset Inspector and Recovery
 
-**Locked.** IP-8 is the final release contract for the Image sampling-preset program introduced in IP-1 through IP-7. The 2026-08-07 Parameter Truth update supersedes the old assumption that Provider Defaults must strip explicit queue-time values.
+Sampling presets help populate compatible sampling values for the selected Image family, loader, variant, and workflow. Your explicit Parameters remain authoritative where the route allows them.
 
-## Runtime order
+## Preset choices
 
-1. **IP-6 Output Intent normalization** — metadata only.
-2. **IP-3/IP-4/IP-5/IP-7 Sampling Preset resolution** — built-in or user preset.
-3. **IP-2 Negative Prompt Eligibility** — derives the executable negative branch from the effective guidance state.
-4. **IP-8 Sampling Preset Release Lock** — checks invariants and records `locked` or `blocked` before provider compile/run.
-5. **IP-8 Inspector** — observational snapshot of the final contract state.
-6. Provider validation/compiler/runtime.
+Neo can expose built-in presets, user presets, Provider Defaults, or Clean Slate depending on the current route.
 
-The release lock is intentionally inspectable at `NeoJob` construction. A blocked preset does not make the job object impossible to inspect; the provider validation boundary refuses execution before compile/run.
+- **Built-in preset** — applies a known set of values for the matching route.
+- **User preset** — applies a saved user-authored preset for its compatible route.
+- **Provider Defaults** — keeps the provider's normal behavior while preserving explicit values you set in Neo.
+- **Clean Slate** — avoids silently inheriting a previous preset's values.
 
-## Regression matrix
+## Workflow-aware behavior
 
-`build_sampling_preset_regression_matrix()` expands every concrete immutable `Default · Balanced` registry selector into family × variant × loader × workflow contexts. It verifies:
+A preset is resolved against the current family, model variant, loader, and workflow. Switching from Generate to Img2Img/Edit/Inpaint/Outpaint can change which preset values are applicable.
 
-- every concrete Balanced row resolves uniquely;
-- Img2Img/Edit/Inpaint/Outpaint effective presets do not carry Txt2Img `width`/`height`;
-- FLUX.2 Klein Base remains 50 steps / Guidance 4 and Distilled remains 4 steps / Guidance 1 for explicit 4B/9B variants;
-- FLUX.1 Components Inpaint/Outpaint remains the internal Fill recipe while GGUF masked routes retain normal FLUX guidance;
-- FLUX/Klein negative prompting stays `DISABLED_ROUTE` under the current compiler contract;
-- Krea 2 Turbo and Z-Image Turbo negative prompting stays `DISABLED_FAMILY`.
+Neo should not carry Txt2Img-only dimensions into a masked/source-image workflow just because the same preset name was used earlier.
 
-The matrix is generated from the registry rather than maintained as a second numeric preset table.
+## Negative prompt availability
 
-## Release-lock states
+Negative Prompt availability can change with the effective family/guidance route. If Neo disables Negative Prompt for the selected route, a preset does not override that restriction.
 
-- `locked` — selected preset state satisfies all IP-8 invariants.
-- `blocked` — provider validation must refuse execution.
-- `not_applicable` — no sampling preset was selected, or the job is not Image. Legacy/manual Image jobs remain compatible.
+## Output Inspector
 
-Fail-closed checks include:
+Output Inspector can show the effective sampling setup used for a generated result, including:
 
-- unavailable/incomplete selected preset;
-- Provider Defaults losing or contradicting explicit user sampling values;
-- Clean Slate receiving hidden preset values;
-- Output Intent mutating sampling/creative fields;
-- effective negative text contradicting IP-2 eligibility;
-- image-workflow Balanced presets carrying Txt2Img dimensions.
+- route/family context;
+- selected preset;
+- inherited versus explicit sampling values;
+- output-intent layer;
+- negative-prompt eligibility;
+- any preset warning or blocked state.
 
-## Inspector
+This is useful when a reopened or replayed result does not look like the current Parameters panel.
 
-The Inspector exposes seven panels:
+## User preset storage
 
-1. Route
-2. Preset
-3. Inheritance
-4. Sampling semantics
-5. Output Intent
-6. Negative prompt eligibility
-7. Release lock
+User sampling presets are stored under:
 
-The backend Inspector is authoritative for prepared job metadata. The browser panel is explicitly an **authoring preflight** and does not claim runtime/GPU proof.
+```text
+neo_data/image/sampling_presets
+```
 
-For privacy and provenance, the Inspector never copies negative-prompt text. It reports only whether user/effective negative text is present.
+They are local runtime data and should be preserved when moving or upgrading Neo if you want to keep your custom presets.
 
-## User presets
+## If a preset becomes unavailable
 
-User sampling presets remain portable JSON under:
+Check:
 
-`neo_data/image/sampling_presets`
+1. current family and model variant;
+2. loader type;
+3. workflow mode;
+4. whether the selected backend/profile changed;
+5. whether the saved user preset was created for a different route.
 
-They remain route-scoped to family + variant + loader + workflow. Output Intent stays separate and is never captured into a user sampling preset.
-
-## Runtime proof boundary
-
-IP-8 validates contracts, payload transformations, route isolation, and release invariants. It does **not** claim visual quality, LoRA leakage, image fidelity, or GPU runtime correctness without a real backend generation.
-
-## Ownership lock
-
-| Concern | Owner |
-|---|---|
-| Sampling/guidance capability semantics | IP-1 `sampling_guidance_registry.py` |
-| Negative prompt execution eligibility | IP-2 `negative_prompt_eligibility.py` |
-| Preset resolver / Clean Slate / Provider Defaults | IP-3 `sampling_presets.py` |
-| Family Balanced defaults | IP-4 built-in preset registry |
-| Workflow inheritance / Fill-vs-GGUF behavior | IP-5 built-in preset registry + resolver |
-| Output Intent | IP-6 `output_intents.py` |
-| User authoring + browser UI | IP-7 `user_sampling_presets.py` + `image_sampling_presets.js` |
-| Regression matrix + release gate | IP-8 `sampling_preset_release_lock.py` |
-| Final prepared-job Inspector | IP-8 `sampling_preset_inspector.py` |
+Choose a compatible preset or edit/save a new user preset for the current route. Neo should not force an incompatible preset onto the workflow.

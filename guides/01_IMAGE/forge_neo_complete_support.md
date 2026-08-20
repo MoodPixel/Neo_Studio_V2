@@ -8,7 +8,6 @@ applies_to:
   - providers
   - admin
   - models
-  - validation
 tags:
   - forge
   - forge-neo
@@ -71,11 +70,7 @@ The UI does not guess support from filenames alone and does not borrow ComfyUI l
 
 Preview/Output Inspector actions are evaluated against the selected Image profile only. Source and Reference actions stage provider-bound contracts without auto-running. Finish actions use `neo.image.derived_action.v2`; a Forge Finish action cannot switch to Comfy automatically. Native Forge post-Hires, Forge ADetailer/FaceID, and Forge Extras are enabled only when their dedicated Neo executor phase and live capability checks are complete.
 
-The release installation, Bridge upgrade, complete action table, migration, physical Forge/Comfy smoke tests, package audit, known limitations, and rollback procedure are centralized in:
-
-```text
-guides/01_IMAGE/provider_action_release_integration.md
-```
+For upgrade order, Bridge refresh, rollback, and provider-action recovery, see `provider_action_release_integration.md`.
 
 ## Current workflow support
 
@@ -154,7 +149,7 @@ This is **optional verified Forge ImageStitch references**, not a generic multi-
 
 ### Experimental routes
 
-Experimental routes are executable but require extra caution. They remain subject to model-specific Forge behaviour and physical validation. Neo still validates the exact family, loader, model, modules, setting prerequisites, and workflow before submission.
+Experimental routes are executable but require extra caution. They remain subject to model-specific Forge behavior and the capabilities of the user's installed Forge build. Neo still validates the exact family, loader, model, modules, setting prerequisites, and workflow before submission.
 
 ## Strict UX behaviour
 
@@ -248,19 +243,11 @@ Open Admin diagnostics. Failures in optional endpoints such as command flags or 
 
 Enable previews in Forge and set `show_progress_every_n_steps > 0`. Final generation may still complete correctly when preview frames are absent.
 
-## Validation status
+## If a route is missing or becomes unavailable
 
-Neo provides deterministic offline regression validation:
+Refresh the selected Forge profile after changing models, modules, Forge settings, extensions, or the Forge Bridge. Neo intentionally hides routes that the running profile can no longer prove ready.
 
-```text
-python scripts/validate_forge_neo_phase6.py
-python scripts/validate_provider_actions_phase13.py
-python scripts/audit_provider_action_release_phase14.py
-```
-
-Offline validation is not physical GPU validation. The locked matrix currently covers 110 checks across 11 sanitized Forge profile scenarios. This proves route, classification, translation, compiler, UX, redaction, and fail-closed contracts—not real GPU execution.
-
-Physical signoff still requires a running Forge installation, representative models/modules, generated outputs, logs, hardware details, and VRAM/quality observations.
+For a step-by-step readiness checklist, see `forge_neo_validation_and_regression.md` (Forge Neo Readiness and Troubleshooting).
 
 ## Detailed guides
 
@@ -288,7 +275,7 @@ Neo stores runtime discovery under `neo_data/`, which is excluded from public so
 
 ## Post-closeout E2 — Forge extra features
 
-After the Phase 1–7 closeout and E1 feature remap, Neo adds three Forge-only built-in Image extensions: PiD Integrated, Spectrum, and MultiDiffusion. They are not mirrored Forge UI panels; Neo renders its own controls and emits the verified Forge always-on script contracts. PiD is incompatible with High-Res/Hires Fix, Spectrum is gated by Forge negative-prompt skip optimizations, and MultiDiffusion is conservatively limited to SD 1.5/SDXL img2img-family routes until physical validation widens support. See `forge_neo_extra_features_e2.md`.
+After the Phase 1–7 closeout and E1 feature remap, Neo adds three Forge-only built-in Image extensions: PiD Integrated, Spectrum, and MultiDiffusion. They are not mirrored Forge UI panels; Neo renders its own controls and emits the verified Forge always-on script contracts. PiD is incompatible with High-Res/Hires Fix, Spectrum is gated by Forge negative-prompt skip optimizations, and MultiDiffusion is conservatively limited to SD 1.5/SDXL img2img-family routes until Neo has a dedicated compatible route for additional families. See `forge_neo_extra_features_e2.md`.
 
 ## Post-closeout E3 — generic Forge extension discovery/bridge
 

@@ -18,3 +18,7 @@ The editor exposes a canonical extension block through `window.NeoSceneDirectorE
 ## No fallback
 
 Modern routes never fall back to classic V054. Missing requirements are displayed as capability readiness states instead of hiding the editor.
+
+## IMG-SD1 supersession note — 2026-08-15
+
+IMG-SD1 supersedes the modern editor-routing and submit-authority details in this historical phase guide. Modern `lightweight_regional` routes now use Basic-only region cards with Extension Routing in the normal region flow, and regional LoRA selection stores LoRA Stack row UIDs instead of free-text LoRA sources. Provider execution is now fail-closed when an explicitly requested regional contract does not reach the final graph. Classic V054 behavior remains unchanged.

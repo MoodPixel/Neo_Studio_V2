@@ -14,8 +14,8 @@ tags:
   - routing
   - parameter profiles
 priority: 75
-version: 3
-updated: 2026-08-09
+version: 4
+updated: 2026-08-14
 ---
 
 # Video Model Families and Canonical Routing
@@ -62,6 +62,14 @@ WAN routing is resolved from the live catalog rather than a UI whitelist. Curren
 - WAN Rapid AIO GGUF — experimental Txt2Vid and Img2Vid routes using dynamic Comfy model catalogs.
 - Native Workflow — planned routes, visible but not selectable.
 
+## MiniMax H3
+
+MiniMax H3 is a first-class local audio-video family. Native UNET / Diffusion routes are enabled for Txt2Vid, one-keyframe Img2Vid (first **or** last), First/Last Frame, and `reference_to_video` / Ref2VA. GGUF variants expose the same four generation contracts as `experimental` routes because they depend on external GGUF loaders and community model variants.
+
+H3 route defaults carry H3-specific fields such as video/audio sigma shifts, keyframe role, reference-image sizing, optional Turbo LoRA, and a single approximate-accelerator selection. The compiler treats native video + stereo audio as one output contract rather than bolting audio on after video generation.
+
+Ref2VA is its own generation type because semantic picture/video/audio references are not interchangeable with hard first/last temporal keyframes. See `guides/02_VIDEO/minimax_h3_local_support.md`.
+
 ## LTX 2.3
 
 LTX 2.3 exposes its enabled UNET/GGUF routes from the same catalog, including advanced modes already represented in the backend route matrix such as First/Last Frame, MultiScene, Extend, Video-to-Video, Depth/Motion, Prompt/Motion Schedule, and Audio-Video where the exact route is enabled. Native Workflow entries remain planned until promoted.
@@ -79,7 +87,7 @@ A frontend fallback may render values already present in the route-matrix payloa
 
 ## Cloud provider boundary
 
-This family matrix governs local ComfyUI-style Video routes. Cloud Video profiles remain provider-capability-driven. They may use the same Video workspace and result storage, but the local WAN/LTX route matrix must not be used to invent cloud capabilities.
+This family matrix governs local ComfyUI-style Video routes. Cloud Video profiles remain provider-capability-driven. They may use the same Video workspace and result storage, but the local WAN/LTX/H3 route matrix must not be used to invent cloud capabilities.
 
 ## Extension compatibility boundary
 
@@ -88,25 +96,6 @@ The canonical Video route is also the input to extension compatibility, but rout
 For example, experimental WAN Rapid AIO routes may use route-agnostic helpers such as Size / Timing Presets and VRAM Profile Advisor, while LTX-only Audio-Video, Depth/Motion, and Prompt/Motion extensions remain unavailable. Finish tools can declare `route_context_scope: workspace` so their compatibility follows the Finish backend/source lane instead of the currently selected generation family.
 
 See `guides/02_VIDEO/video_generation_extensions.md`.
-
-## Maintenance rules
-
-When adding or promoting a Video route:
-
-1. Update `neo_app/video/route_matrix.py`.
-2. Define or update its canonical route parameter profile there.
-3. Validate the API route catalog and parameter profile.
-4. Let the frontend derive selectors from the API; do not add route arrays to `neo.js`.
-5. Update extension compatibility separately through the extension architecture rather than baking extension behavior into the route selector.
-6. Update Guides/System Records and regression tests.
-
-## Related files
-
-- `neo_app/video/route_matrix.py`
-- `neo_app/video/parameter_profiles.py`
-- `neo_app/static/js/neo.js`
-- `neo_app/static/js/surfaces/video.js`
-- `guides/02_VIDEO/video_tab_overview.md`
 
 
 See `guides/02_VIDEO/README.md` for the consolidated current Video authority map.

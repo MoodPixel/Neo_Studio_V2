@@ -122,9 +122,6 @@ The existing IP-Adapter card remains the only product surface. On Forge:
 
 Switching back to ComfyUI retains the existing Comfy node-based behavior.
 
-## Validation boundary
-
-Automated E1.1 tests validate discovery, classification, UI/backend support state, ControlNet aggregation, slot limits, High-Res coexistence, and diagnostic image redaction. They do not prove physical Forge/GPU behavior. Real SD 1.5/SDXL generations remain required before marking the route physically validated.
 ## Forge command-flag diagnostic fallback
 
 When Forge cannot serialize `forge_ref_comfy_yaml` through `/sdapi/v1/cmd-flags`, Neo skips that diagnostic endpoint and uses the configured Admin shared-model authority. This only replaces command-line path verification; it does not replace the live Integrated ControlNet script or compatible IP-Adapter preprocessor checks.
@@ -158,4 +155,3 @@ On a verified profile:
 - provider/profile/model/preprocessor/source mismatches fail before queueing.
 
 A saved FaceID draft remains recoverable on profiles without the required pair: the unit stays visible, but execution is disabled until the user changes mode, disables it, or refreshes a compatible Forge profile.
-

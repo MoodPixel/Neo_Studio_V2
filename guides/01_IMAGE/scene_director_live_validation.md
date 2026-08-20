@@ -1,155 +1,124 @@
-# Scene Director — Live GPU Validation Checklist
+---
+guide_id: image.scene_director_runtime_readiness
+title: Scene Director Runtime Readiness and Troubleshooting
+surface: image
+scope: built_in
+applies_to:
+  - image
+  - scene_director
+  - comfyui
+  - regional_prompting
+  - regional_lora
+tags:
+  - scene-director
+  - troubleshooting
+  - regional-lora
+  - krea2
+  - flux2-klein
+  - z-image
+priority: 108
+version: 2
+updated: 2026-08-16
+---
 
-**Applies to:** Krea 2 RAW/Turbo, FLUX.2 Klein, Z-Image/Z-Image Turbo  
-**Purpose:** qualify a specific ComfyUI + model + loader + LoRA combination after the static SD-28 release contract has passed.
+# Scene Director Runtime Readiness and Troubleshooting
 
-Static tests establish routing and graph safety. They do **not** prove visible spatial isolation on a real GPU run. Use this checklist whenever a backend/model/LoRA combination is being promoted from “supported, proof pending” to “runtime proven.”
+Use this guide when Scene Director is visible but a route, regional prompt, or regional LoRA is unavailable. For the current supported-family matrix and feature behavior, see `scene_director_current.md`.
 
-## Test fixture
+## First checks
 
-Keep the comparison controlled:
+1. Use a **ComfyUI / ComfyUI Portable** Image profile.
+2. Select a family, loader, and workflow that Scene Director currently supports.
+3. Make sure ComfyUI is running.
+4. Restart ComfyUI after installing or updating required custom nodes.
+5. Refresh/Test the selected ComfyUI profile in Neo Admin.
+6. Return to Image and check Scene Director readiness again.
 
-- fixed seed;
-- same model, VAE, text encoder, scheduler, sampler, steps, CFG/guidance and denoise;
-- same resolution;
-- same source image/mask for Img2Img/Inpaint;
-- same Scene Director region geometry and feather;
-- no unrelated LoRA/ControlNet/IPAdapter changes between A and B;
-- save Neo Inspector metadata for every run.
+Scene Director keeps the editor available where possible, but individual execution capabilities remain gated when their required nodes are missing.
 
-Recommended scene: two or three visually different subjects with non-overlapping regions and one neutral background area.
+## Current runtime dependencies
 
-## A/B sequence
+### Krea 2 RAW / Turbo
 
-### A — regional prompt only
+Modern Krea Scene Director uses the external **ComfyUI-Krea2-Regional** runtime. ComfyUI must expose:
 
-Run the scene with the regional LoRA row disabled. Save image and Inspector metadata.
+```text
+Krea2RegionalBuilder
+Krea2ApplyRegional
+```
 
-Expected:
+If they are missing, install/update `januspluto/ComfyUI-Krea2-Regional`, restart ComfyUI, and refresh the Neo ComfyUI profile. Krea does not fall back to a global LoRA when the regional runtime is missing.
 
-- one provider sampler;
-- regional prompt lanes active;
-- no `NeoRegionalLoRADelta` wrapper when no regional LoRA is requested;
-- release lock locked;
-- GPU LoRA proof absent/not applicable.
+### FLUX.2 Klein / Z-Image
 
-### B — one regional LoRA
+These modern routes use Neo's lightweight regional path. Region-targeted LoRA execution can require the bundled `NeoRegionalLoRADelta` custom node.
 
-Enable one LoRA on one subject region only.
+If Neo reports that node as missing, copy the bundled `neo_scene_director` package from the Neo Studio root into:
 
-Expected runtime proof:
+```text
+<ComfyUI-root>/custom_nodes/neo_scene_director
+```
 
-- `lora_loaded=true`;
-- `model_family_match=true`;
-- `region_mask_bound=true`;
-- `masked_delta_hook_active=true`;
-- `delta_eval_attempted=true`;
-- `delta_nonzero=true`;
-- `global_model_mutation=false`;
-- `sampler_count=1`;
-- `forward_hooks_removed=true`;
-- token/spatial scope proof true where the family adapter exposes it.
+Then restart ComfyUI completely and refresh/Test the selected ComfyUI profile.
 
-### C — 3+ regional LoRAs
+### SDXL / SD 1.5 classic Scene Director
 
-Assign separate compatible LoRAs to at least three regions.
+Classic checkpoint routes require the bundled `NeoSceneDirectorV054` runtime. The same `neo_scene_director` custom-node package provides the Neo Scene Director nodes used by supported classic routes.
 
-Expected:
+## If a regional LoRA is unavailable
 
-- one `NeoRegionalLoRADelta` model wrapper;
-- one provider sampler;
-- no standard LoRA-loader node created for the region rows;
-- every accepted route remains bound to its owning mask;
-- no legacy two-route limit.
+Check that:
 
-### D — wrong-family LoRA
+- the LoRA exists in Neo's LoRA Stack;
+- the LoRA row is assigned to the intended Scene Director region;
+- the LoRA matches the selected model family/scale where Neo can determine compatibility;
+- the region has a valid box/mask;
+- the required regional runtime node is available for that family;
+- the route is not Outpaint, which is currently planned-gated for Scene Director.
 
-Assign a deliberately incompatible LoRA.
+Neo does not fall back to a global LoRA when a region-targeted LoRA cannot be executed safely.
 
-Expected:
+## Krea 2 recommended starting settings
 
-- LoRA rejected or failed closed;
-- no global LoRA fallback;
-- no finish-pass sampler;
-- owning trigger terms are not injected when compatibility is explicitly rejected;
-- regional prompting can remain active if otherwise valid;
-- release lock remains healthy.
+Current Krea defaults are intentionally conservative:
 
-## Fixed-seed leakage measurement
+- **Adaptive Masks:** Refine boxes
+- **Exclusive Masks:** On
+- **Restrict Image Attention:** Off
+- **Layout in Base:** Position hints
+- **Region Lock Strength:** 0.4
 
-For A and B, compare pixels outside the selected region. This is a **visual/effect measurement**, not part of the compile-time support claim.
+Start there before changing isolation controls. Restrict Image Attention is optional rather than a default because it can hurt some layouts.
 
-Record:
+## If subjects leak or duplicate
 
-- mask used for the region;
-- optional guard band around the feathered boundary;
-- mean absolute pixel difference outside the guard band;
-- maximum outside-region difference;
-- percentage of outside-region pixels above a chosen difference threshold;
-- a visual difference image.
+Try these in order:
 
-Do not interpret `runtime_gpu_proven=true` as mathematical proof that every final outside-region pixel is invariant. It proves the masked-delta runtime actually executed as designed; downstream transformer mixing can still create indirect changes.
+1. reduce overlap between region boxes;
+2. keep each subject prompt focused on that subject rather than rewriting the whole scene locally;
+3. keep the main prompt responsible for global composition, camera, lighting, and relationships;
+4. use Exclusive Masks where supported;
+5. avoid stacking unrelated global LoRAs with region-targeted LoRAs while troubleshooting;
+6. test the same setup without the regional LoRA to determine whether the problem comes from layout or the LoRA itself.
 
-## Family checks
+Regional isolation is a controlled generation technique, not a guarantee that every pixel outside a region will be mathematically unchanged.
 
-### Krea 2 RAW
+## If Scene Director disappears after changing route
 
-- provider/user RAW sampler profile remains unchanged;
-- regional negative conditioning works;
-- Krea LoRA key resolution succeeds;
-- non-Krea family metadata is rejected.
+Scene Director is route-aware. Check the current family, loader, and workflow against `scene_director_current.md`. Changing from a supported checkpoint/components/GGUF route to an unsupported family or planned-gated Outpaint route can intentionally disable execution.
 
-### Krea 2 Turbo
+Saved region layouts may remain available for replay/planning even when the current route cannot execute them.
 
-- 8 steps;
-- Comfy CFG 1;
-- zero-negative policy;
-- Scene Director does not silently convert the graph to RAW values.
+## What to share when asking for help
 
-### FLUX.2 Klein
+Include:
 
-Run 4B and 9B separately.
+- selected Image profile;
+- family, loader, workflow, and model filename;
+- ComfyUI build and relevant custom-node versions;
+- whether the route is classic or modern;
+- Scene Director readiness/disabled message;
+- LoRA filename and family/scale metadata when regional LoRA is involved;
+- GPU/VRAM if the failure occurs only during generation.
 
-- model scale is correctly identified;
-- 4B ↔ 9B LoRA crossing is blocked;
-- same-scale Base ↔ Distilled crossing stays preflight unless runtime compatibility is proved;
-- `FluxGuidance` remains in the regional conditioning path;
-- partial `linear1_qkv` mappings do not expand into unrelated output features.
-
-### Z-Image Base
-
-- `ModelSamplingAuraFlow` remains in the provider model chain;
-- Base steps/CFG are preserved;
-- regional negative conditioning works;
-- padded text/image tokens receive zero regional-LoRA mask values.
-
-### Z-Image Turbo
-
-- Neo's current provider contract remains 9 KSampler steps / CFG 1 / zero-negative;
-- padded tokens remain zero-masked;
-- Base ↔ Turbo LoRA crossing remains runtime-preflight unless specifically proved.
-
-## Loader checks
-
-Repeat relevant tests for:
-
-- `diffusion_model` / components / safetensors;
-- GGUF.
-
-For GGUF, verify that regional execution operates through live activation/module dimensions and does not attempt to rewrite quantized base weights.
-
-## Failure acceptance criteria
-
-A backend/model combination must remain **proof pending or blocked** if any of these occur:
-
-- delta never evaluates;
-- delta is always zero when a compatible LoRA should be active;
-- family/model signature does not match;
-- regional mask cannot be proven;
-- global model mutation is observed;
-- sampler count changes;
-- hooks are not cleaned up;
-- unknown token geometry causes non-zero regional execution;
-- release lock reports a blocker.
-
-Do not bypass these states by enabling a classic, global-LoRA, crop-refine or finish-pass fallback.
+Do not share private tokens or unnecessary personal filesystem paths.

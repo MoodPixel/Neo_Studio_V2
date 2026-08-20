@@ -25,8 +25,8 @@ tags:
   - transparent png
   - alpha preservation
 priority: 110
-version: 2
-updated: 2026-07-31
+version: 3
+updated: 2026-08-14
 ---
 
 # Image Upscale
@@ -182,3 +182,17 @@ Rules:
 - face restoration appears only when the selected Forge profile reports it;
 - the output is appended as a derived result with source/parent lineage;
 - Image Upscale remains a pixel-processing Extras operation and is not Forge native High-Res Fix.
+
+
+## IMG-R17A preset dispatch parity hotfix — 2026-08-14
+
+The Finish workspace **Generate** action now routes into the standalone **Image Upscale** queue whenever the active Image workspace app is **Finish** and Image Upscale is enabled.
+
+That means:
+
+- preset-driven runs such as **Preserve 2×**, **Preserve 4×**, and **Portrait restore 2×** no longer fall back into a normal image generation queue from the Finish workspace;
+- custom and preset configurations now follow the same standalone upscale path;
+- uploaded/staged source files still take priority over the currently selected result;
+- the dedicated **Upscale selected result** and **Run uploaded batch** buttons continue to work as before.
+
+If the Finish workspace is open and the user is clearly trying to upscale, Neo should treat that as an upscale request, not a fresh prompt-generation request.

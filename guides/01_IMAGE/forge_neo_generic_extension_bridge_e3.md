@@ -1,6 +1,6 @@
 # Forge Neo generic extension discovery and bridge E3
 
-Status: **implemented offline / physical validation required**  
+Status: **experimental; availability depends on the selected live Forge profile**  
 Date: **2026-07-31**
 
 E3 adds a provider-owned discovery/bridge layer for Forge extensions installed and managed by Forge itself. It does **not** copy Forge extensions into Neo Studio's extension registry and it does **not** make arbitrary scripts executable by name alone.
@@ -121,7 +121,3 @@ Installation, update, disable/remove, and repository operations remain in Forge'
 ## Privacy
 
 The provider catalog keeps portable names, branch/version, shortened commit hash, primitive script metadata, and schema fingerprints. Forge filesystem paths and extension remote URLs are not persisted through the E3 bridge contract.
-
-## Physical validation boundary
-
-E3 automated tests prove discovery/classification/validation/payload compilation only. Before calling a third-party script physically validated, test the exact extension version, Forge version, model family, workflow, generated output, and conflict behavior on a real Forge installation.

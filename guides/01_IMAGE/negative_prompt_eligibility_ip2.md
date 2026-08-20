@@ -94,10 +94,6 @@ Those boundaries remain for later preset/profile phases.
 
 IP-3 sampling-preset preparation now runs immediately before IP-2 inside the Image `NeoJob` boundary. This is intentional: Provider Defaults removes stale guidance values before IP-2 evaluates them, while manual values entered after Empty · Clean Slate remain available to IP-2. IP-2 remains the sole authority for negative-prompt ACTIVE/WEAK/disabled execution state.
 
-## IP-8 final release lock
-
-This phase remains the authority for the behavior documented above. The complete sampling-preset program is finally release-locked by **IP-8** through `neo_app.image.sampling_preset_release_lock` and observed by `neo_app.image.sampling_preset_inspector`. IP-8 does not replace this phase's ownership or fabricate GPU/visual proof.
-
 ## IR-4 live UI recovery
 
 The IP-2 backend contract remains unchanged. IR-4 reconnects its browser mirror to the real Image DOM, adds Qwen True-CFG labeling through the existing CFG control, and locks non-destructive negative-prompt greying. See `cfg_negative_prompt_live_ux_ir4.md` / `CFG_NEGATIVE_PROMPT_LIVE_UX_IR4.md`.
