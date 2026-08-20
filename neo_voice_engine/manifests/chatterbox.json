@@ -1,0 +1,236 @@
+{
+  "schema_id": "neo.voice_engine.manifest.v1",
+  "manifest_id": "neo.voice_engine.chatterbox",
+  "manifest_version": "1.0.0",
+  "enabled": true,
+  "engine": {
+    "id": "chatterbox",
+    "label": "Chatterbox",
+    "description": "Neo Studio's isolated local Chatterbox TTS / zero-shot voice-clone worker.",
+    "worker": {
+      "mode": "managed_process",
+      "base_url": "http://127.0.0.1:8791",
+      "health_path": "/api/voice/health",
+      "command": [
+        "{python}",
+        "-m",
+        "uvicorn",
+        "neo_integrations.chatterbox_adapter.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8791",
+        "--no-access-log",
+        "--log-level",
+        "warning"
+      ],
+      "cwd": "",
+      "env": {
+        "NEO_CHATTERBOX_NEO_ROOT": "{project_root}",
+        "NEO_CHATTERBOX_HOST": "127.0.0.1",
+        "NEO_CHATTERBOX_PORT": "8791",
+        "NEO_VOICE_RUNTIME_ROOT": "{voice_runtime_root}"
+      },
+      "auto_start": true,
+      "startup_timeout_seconds": 30,
+      "environment": {
+        "kind": "venv",
+        "scope": "voice_runtime",
+        "root": "envs/chatterbox",
+        "python": "envs/chatterbox/Scripts/python.exe"
+      },
+      "installation": {
+        "strategy": "managed",
+        "required_paths": [
+          "neo_integrations/chatterbox_adapter/app.py",
+          "neo_integrations/chatterbox_adapter/engine.py"
+        ],
+        "optional_paths": [],
+        "expected_size_mb": null
+      }
+    }
+  },
+  "models": [
+    {
+      "id": "chatterbox_turbo",
+      "label": "Chatterbox Turbo",
+      "description": "English low-compute Chatterbox route with paralinguistic tag support and zero-shot reference cloning.",
+      "default": true,
+      "tasks": [
+        "tts",
+        "voice_clone"
+      ],
+      "languages": [
+        "en"
+      ],
+      "voice_modes": [
+        "built_in",
+        "reference_clone"
+      ],
+      "output_formats": [
+        "wav",
+        "mp3"
+      ],
+      "streaming": false,
+      "reference_audio": true,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 4096,
+        "recommended_vram_mb": 6144,
+        "min_ram_mb": 8192,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": true
+      },
+      "license": {
+        "name": "Chatterbox upstream license",
+        "spdx_id": "",
+        "commercial_use": "unknown",
+        "redistribution": "unknown",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/resemble-ai/chatterbox"
+      },
+      "sources": [
+        {
+          "kind": "github",
+          "url": "https://github.com/resemble-ai/chatterbox",
+          "repo_id": "",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": null
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "chatterbox",
+        "english",
+        "expressive",
+        "zero-shot-clone",
+        "paralinguistic"
+      ]
+    },
+    {
+      "id": "chatterbox_multilingual",
+      "label": "Chatterbox Multilingual V3",
+      "description": "Current multilingual Chatterbox V3 route with zero-shot reference cloning.",
+      "default": false,
+      "tasks": [
+        "tts",
+        "voice_clone"
+      ],
+      "languages": [
+        "ar",
+        "da",
+        "de",
+        "el",
+        "en",
+        "es",
+        "fi",
+        "fr",
+        "he",
+        "hi",
+        "it",
+        "ja",
+        "ko",
+        "ms",
+        "nl",
+        "no",
+        "pl",
+        "pt",
+        "ru",
+        "sv",
+        "sw",
+        "tr",
+        "zh"
+      ],
+      "voice_modes": [
+        "built_in",
+        "reference_clone"
+      ],
+      "output_formats": [
+        "wav",
+        "mp3"
+      ],
+      "streaming": false,
+      "reference_audio": true,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 6144,
+        "recommended_vram_mb": 8192,
+        "min_ram_mb": 12288,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": true
+      },
+      "license": {
+        "name": "Chatterbox upstream license",
+        "spdx_id": "",
+        "commercial_use": "unknown",
+        "redistribution": "unknown",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/resemble-ai/chatterbox"
+      },
+      "sources": [
+        {
+          "kind": "github",
+          "url": "https://github.com/resemble-ai/chatterbox",
+          "repo_id": "",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": null
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "chatterbox",
+        "multilingual",
+        "zero-shot-clone"
+      ]
+    }
+  ],
+  "voices": [
+    {
+      "id": "provider_default",
+      "label": "Chatterbox Default",
+      "model_ids": [
+        "chatterbox_turbo",
+        "chatterbox_multilingual"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "en"
+      ]
+    }
+  ],
+  "notes": [
+    "VO-E5 migrates the already-tested Chatterbox physical adapter behind Neo Voice Engine without merging its Python dependencies into the gateway environment.",
+    "Model weights remain lazy-loaded by the Chatterbox worker on first use.",
+    "VO-E5A resolves the Chatterbox venv from the external Voice runtime root at envs/chatterbox; source remains inside Neo Studio and the legacy root-level venv is no longer an active runtime path."
+  ]
+}

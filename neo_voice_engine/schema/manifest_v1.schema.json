@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.voice_engine.manifest.v1",
+  "title": "Neo Voice Engine Manifest v1",
+  "type": "object",
+  "required": [
+    "schema_id",
+    "manifest_id",
+    "manifest_version",
+    "engine",
+    "models"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "neo.voice_engine.manifest.v1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"
+    },
+    "manifest_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "id",
+        "worker"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "worker": {
+          "type": "object",
+          "required": [
+            "mode",
+            "base_url"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "external_http",
+                "managed_process"
+              ]
+            },
+            "base_url": {
+              "type": "string"
+            },
+            "health_path": {
+              "type": "string"
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            },
+            "auto_start": {
+              "type": "boolean"
+            },
+            "startup_timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "environment": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "external",
+                    "venv",
+                    "python",
+                    "system"
+                  ]
+                },
+                "root": {
+                  "type": "string"
+                },
+                "python": {
+                  "type": "string"
+                },
+                "scope": {
+                  "enum": [
+                    "project",
+                    "voice_runtime"
+                  ]
+                }
+              }
+            },
+            "installation": {
+              "$ref": "#/$defs/install"
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "tasks"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "enum": [
+                "tts",
+                "voice_clone",
+                "voice_design",
+                "voice_conversion",
+                "realtime_voice_conversion",
+                "singing_voice_conversion"
+              ]
+            }
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "voice_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "output_formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "streaming": {
+            "type": "boolean"
+          },
+          "reference_audio": {
+            "type": "boolean"
+          },
+          "hardware": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "boolean"
+              },
+              "cuda": {
+                "type": "boolean"
+              },
+              "rocm": {
+                "type": "boolean"
+              },
+              "mps": {
+                "type": "boolean"
+              },
+              "directml": {
+                "type": "boolean"
+              },
+              "xpu": {
+                "type": "boolean"
+              },
+              "min_vram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "recommended_vram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min_ram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gpu_exclusive": {
+                "type": "boolean"
+              },
+              "allow_cpu_fallback": {
+                "type": "boolean"
+              }
+            }
+          },
+          "license": {
+            "type": "object"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "install": {
+            "$ref": "#/$defs/install"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "evictable": {
+                "type": "boolean"
+              },
+              "idle_unload_seconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unload_strategy": {
+                "enum": [
+                  "auto",
+                  "worker_api",
+                  "stop_worker"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "voices": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "install": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "enum": [
+            "external",
+            "managed",
+            "manual",
+            "bundled"
+          ]
+        },
+        "required_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_size_mb": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

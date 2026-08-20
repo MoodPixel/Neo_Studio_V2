@@ -1,0 +1,104 @@
+{
+  "schema_id": "neo.voice_engine.manifest.v1",
+  "manifest_id": "example.tts",
+  "manifest_version": "1.0.0",
+  "enabled": false,
+  "engine": {
+    "id": "example_tts",
+    "label": "Example TTS",
+    "description": "Disabled documentation-only manifest example.",
+    "worker": {
+      "mode": "managed_process",
+      "base_url": "http://127.0.0.1:8899",
+      "health_path": "/api/voice/health",
+      "command": [
+        "{python}",
+        "-m",
+        "example_worker"
+      ],
+      "cwd": "example_worker",
+      "auto_start": true,
+      "startup_timeout_seconds": 30,
+      "environment": {
+        "kind": "venv",
+        "root": "envs/example_tts",
+        "python": "envs/example_tts/Scripts/python.exe",
+        "scope": "voice_runtime"
+      },
+      "installation": {
+        "strategy": "managed",
+        "required_paths": [
+          "example_worker"
+        ],
+        "optional_paths": []
+      }
+    }
+  },
+  "models": [
+    {
+      "id": "example_tts_base",
+      "label": "Example TTS Base",
+      "tasks": [
+        "tts",
+        "voice_clone"
+      ],
+      "languages": [
+        "en"
+      ],
+      "voice_modes": [
+        "reference_clone"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": true,
+      "hardware": {
+        "cpu": false,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 4096,
+        "recommended_vram_mb": 8192,
+        "min_ram_mb": 8192,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Example License",
+        "spdx_id": "",
+        "commercial_use": "unknown",
+        "redistribution": "unknown",
+        "requires_user_acceptance": false,
+        "url": ""
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "repo_id": "example/example-tts",
+          "revision": "main",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [
+          "models/example_tts"
+        ],
+        "optional_paths": [],
+        "expected_size_mb": 4096
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "auto"
+      }
+    }
+  ],
+  "voices": [],
+  "notes": [
+    "Documentation example only. Keep disabled until a real worker integration is reviewed."
+  ]
+}

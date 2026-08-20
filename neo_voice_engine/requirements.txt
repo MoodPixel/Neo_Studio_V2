@@ -1,0 +1,3 @@
+# VO-E2 gateway/supervisor only. Keep model ML stacks out of this environment.
+fastapi>=0.115.0
+uvicorn>=0.30.0
