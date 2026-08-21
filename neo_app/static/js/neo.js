@@ -35,7 +35,7 @@ const state = {
   adminIndexJobLog: null,
   adminChromaExport: null,
   adminChromaImport: null,
-  adminModels: { catalog: null, paths: null, installed: null, packs: null, workspaces: null, downloadJobs: null, discovery: {}, metadata: {}, downloadPlans: {}, lastStart: null, filters: { search: '', category: '', base_model: '', model_type: '', provider: '', creative_category: '', backend: '', recommended: '' }, error: '', status: '', lastLoadedAt: '' },
+  adminModels: { catalog: null, paths: null, installed: null, snapshotStatus: null, snapshotStatusLoading: false, snapshotMonitors: {}, packs: null, workspaces: null, downloadJobs: null, discovery: {}, metadata: {}, downloadPlans: {}, lastStart: null, filters: { search: '', category: '', base_model: '', model_type: '', provider: '', creative_category: '', backend: '', recommended: '' }, error: '', status: '', lastLoadedAt: '' },
   adminModelsLoading: false,
   memory: null,
   memoryDiagnostics: null,
@@ -2773,8 +2773,13 @@ const IMAGE_MAIN_MODEL_TYPE_LABELS = Object.freeze({
   gguf: 'GGUF',
   api_model: 'API Model',
 });
-function imageMainModelTypeLabel(loaderId = '', fallback = '') {
+function imageInternalLoaderLabel(loaderId = '', fallback = '') {
   return IMAGE_MAIN_MODEL_TYPE_LABELS[loaderId] || fallback || humanize(loaderId || 'model');
+}
+function imageMainModelTypeLabel(loaderId = '', fallback = '') {
+  if (['checkpoint', 'checkpoint_aio', 'diffusion_model', 'unet'].includes(loaderId)) return 'Safetensors';
+  if (loaderId === 'gguf') return 'GGUF';
+  return imageInternalLoaderLabel(loaderId, fallback);
 }
 function imageSelectableLoaderIdsForFamily(familyId = '', { includeDiagnostics = false } = {}) {
   const family = familyId || state.imageDraft.family || imageCommandValue('family') || 'sdxl';
@@ -5282,16 +5287,16 @@ function startVideoResultPoller(resultId) {
         stopVideoResultPoller();
         closeVideoProgressSocket();
         setVideoWorkspaceProgress('Video imported — playback ready', 100, { status: 'completed', result_id: resultId });
-        render();
+        renderSurfaceUpdate('video');
         return;
       }
       if (attempts <= 120) {
         setVideoWorkspaceProgress(`Waiting for Comfy video output… ${attempts}`, Math.min(98, Math.max(55, videoProgressPercent())));
-        render();
+        renderSurfaceUpdate('video');
       } else {
         stopVideoResultPoller();
         setVideoWorkspaceProgress('Import still pending — use Refresh Results / Import', 100, { status: 'waiting' });
-        render();
+        renderSurfaceUpdate('video');
       }
     } catch (error) {
       if (attempts > 3) console.warn('Video result poll skipped', error);
@@ -5418,13 +5423,13 @@ async function pollGrokVideoJob(profileId, jobId) {
     setVideoWorkspaceProgress('Grok Video completed and saved to Neo', 100, { status: 'completed', result_id: result?.result_id || '' });
     saveUiState();
     recordMemoryEvent('video.xai_grok.completed', 'video', { job_id: jobId, result_id: result?.result_id || '', profile_id: profileId });
-    render();
+    renderSurfaceUpdate('video');
   } else if (['failed', 'cancelled'].includes(result?.status)) {
     stopVideoProviderJobPoller();
     setVideoWorkspaceProgress(result?.message || 'Grok Video failed', 100, { status: 'failed' });
     saveUiState();
     recordMemoryEvent('video.xai_grok.failed', 'video', { job_id: jobId, profile_id: profileId, error: result?.message || '' });
-    render();
+    renderSurfaceUpdate('video');
   }
   return result;
 }
@@ -33190,6 +33195,7 @@ function ensureAdminModelsState() {
   state.adminModels.discovery = state.adminModels.discovery || {};
   state.adminModels.metadata = state.adminModels.metadata || {};
   state.adminModels.downloadPlans = state.adminModels.downloadPlans || {};
+  state.adminModels.snapshotMonitors = state.adminModels.snapshotMonitors || {};
   state.adminModels.selectedVariants = state.adminModels.selectedVariants || {};
   state.adminModels.lastPlannedVariant = state.adminModels.lastPlannedVariant || {};
   state.adminModels.filters = {
@@ -33229,6 +33235,132 @@ async function adminModelsPostJson(url, payload = {}) {
   return response.json();
 }
 
+function adminModelSnapshotStatusRows() {
+  const rows = ensureAdminModelsState().snapshotStatus?.rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
+function adminModelSnapshotLiveStatus(catalogId) {
+  return adminModelSnapshotStatusRows().find((item) => item?.catalog_id === catalogId) || null;
+}
+
+function adminModelSnapshotStatePresentation(stateValue) {
+  const value = String(stateValue || 'not_checked').toLowerCase();
+  const map = {
+    installed: { label: 'Installed', variant: 'success', action: 'Repair / reinstall', summary: 'Requested revision and required model content are verified in the Hugging Face cache.' },
+    not_installed: { label: 'Not installed', variant: 'warning', action: 'Install', summary: 'The manifest-requested revision is not available in the local Hugging Face cache.' },
+    partial: { label: 'Incomplete', variant: 'warning', action: 'Repair', summary: 'The requested revision resolves, but required model content is missing.' },
+    stale: { label: 'Different revision cached', variant: 'warning', action: 'Repair', summary: 'Other cached revisions exist, but the manifest-requested revision is not locally resolved.' },
+    corrupt: { label: 'Cache problem', variant: 'danger', action: 'Repair', summary: 'The requested Hugging Face cache materialization is structurally invalid or unreadable.' },
+    unverified: { label: 'Needs verification', variant: 'muted', action: 'Retry / repair', summary: 'Neo cannot prove this snapshot with the manifest-declared content probe.' },
+    checking: { label: 'Checking…', variant: 'active', action: 'Checking…', summary: 'Neo is checking local Hugging Face cache state.' },
+    not_checked: { label: 'Not checked', variant: 'muted', action: 'Install', summary: 'Installed state has not been checked in this Admin session yet.' },
+  };
+  return map[value] || { label: humanize(value), variant: 'muted', action: 'Install', summary: 'Snapshot state is not yet classified.' };
+}
+
+function adminModelVoiceRuntimePresentation(status) {
+  const runtime = status?.runtime || {};
+  const installed = Boolean(runtime.runtime_available || runtime.installed);
+  const sourceKind = String(runtime.source_kind || '').toLowerCase();
+  if (installed && sourceKind === 'legacy_runtime_snapshot') {
+    return { installed: true, legacy: true, label: 'Runtime installed · Legacy', variant: 'success', sourceLabel: runtime.source_label || 'Legacy Neo Runtime', summary: 'The existing Neo_Runtime model is complete and remains fully supported. No Hugging Face migration or re-download is required.' };
+  }
+  if (installed && sourceKind === 'huggingface_cache_snapshot') {
+    return { installed: true, legacy: false, label: 'Installed', variant: 'success', sourceLabel: runtime.source_label || 'Hugging Face cache', summary: 'Voice runtime is using the verified local Hugging Face cache snapshot.' };
+  }
+  return { installed: false, legacy: false, label: '', variant: '', sourceLabel: '', summary: runtime.message || '' };
+}
+
+async function refreshAdminModelSnapshotStatus({ quiet = false } = {}) {
+  const models = ensureAdminModelsState();
+  if (models.snapshotStatusLoading) return models.snapshotStatus;
+  models.snapshotStatusLoading = true;
+  if (!quiet) render();
+  try {
+    const result = await adminModelsPostJson('/api/admin/models/repository-snapshots/status', {});
+    models.snapshotStatus = result;
+    if (!result?.ok) models.error = (result?.errors || ['Could not verify repository snapshots.']).join(' · ');
+    return result;
+  } catch (error) {
+    models.error = error?.message || String(error);
+    return null;
+  } finally {
+    models.snapshotStatusLoading = false;
+    if (!quiet) render();
+  }
+}
+
+function adminModelSnapshotActiveJob(record) {
+  const job = adminModelLatestJob(record?.id, 'repository_snapshot');
+  if (!job) return null;
+  return ['queued', 'preparing', 'downloading', 'verifying', 'cancelling'].includes(String(job.status || '').toLowerCase()) ? job : null;
+}
+
+function adminModelSnapshotJobStageLabel(job) {
+  const status = String(job?.status || '').toLowerCase();
+  const stage = String(job?.progress?.stage || status).toLowerCase();
+  if (status === 'cancelling') return 'Cancelling…';
+  if (stage === 'checking_disk') return 'Checking disk…';
+  if (stage === 'preparing' || status === 'preparing') return 'Preparing…';
+  if (stage === 'downloading' || status === 'downloading') return 'Downloading…';
+  if (stage === 'verifying' || status === 'verifying') return 'Verifying…';
+  if (status === 'queued') return 'Queued…';
+  return 'Installing…';
+}
+
+function adminModelUpsertDownloadJob(job) {
+  if (!job?.job_id) return;
+  const models = ensureAdminModelsState();
+  const payload = models.downloadJobs || { schema_id: 'neo.admin.models.download_jobs_payload.v1', status: 'ready', jobs: [] };
+  const jobs = Array.isArray(payload.jobs) ? [...payload.jobs] : [];
+  const index = jobs.findIndex((item) => item?.job_id === job.job_id);
+  if (index >= 0) jobs[index] = job; else jobs.unshift(job);
+  models.downloadJobs = { ...payload, jobs };
+}
+
+async function monitorAdminModelSnapshotJob(jobId, catalogId) {
+  const models = ensureAdminModelsState();
+  if (!jobId || models.snapshotMonitors?.[jobId]) return;
+  models.snapshotMonitors[jobId] = true;
+  try {
+    while (models.snapshotMonitors[jobId]) {
+      await new Promise((resolve) => setTimeout(resolve, 1250));
+      const payload = await loadJson(`/api/admin/models/download/jobs/${encodeURIComponent(jobId)}`, null);
+      const job = payload?.job || null;
+      if (!job) {
+        delete models.snapshotMonitors[jobId];
+        break;
+      }
+      adminModelUpsertDownloadJob(job);
+      const terminal = ['completed', 'failed', 'cancelled', 'blocked', 'planned'].includes(String(job.status || '').toLowerCase());
+      if (terminal) {
+        models.downloadJobs = await loadJson('/api/admin/models/download/jobs', models.downloadJobs);
+        await refreshAdminModelSnapshotStatus({ quiet: true });
+        models.status = job.status === 'completed' ? `installed:${catalogId}` : (job.status || 'ready');
+        delete models.snapshotMonitors[jobId];
+        renderSurfaceUpdate('admin');
+        break;
+      }
+      renderSurfaceUpdate('admin');
+    }
+  } catch (error) {
+    delete models.snapshotMonitors[jobId];
+    models.error = error?.message || String(error);
+    renderSurfaceUpdate('admin');
+  }
+}
+
+function resumeAdminModelSnapshotJobMonitors() {
+  const jobs = ensureAdminModelsState().downloadJobs?.jobs;
+  if (!Array.isArray(jobs)) return;
+  jobs.forEach((job) => {
+    if (job?.job_kind === 'repository_snapshot' && ['queued', 'preparing', 'downloading', 'verifying', 'cancelling'].includes(String(job.status || '').toLowerCase())) {
+      monitorAdminModelSnapshotJob(job.job_id, job.catalog_id);
+    }
+  });
+}
+
 async function reloadAdminModelsState() {
   const models = ensureAdminModelsState();
   state.adminModelsLoading = true;
@@ -33239,11 +33371,13 @@ async function reloadAdminModelsState() {
     models.catalog = await loadJson('/api/admin/models/catalog', null);
     models.paths = await loadJson('/api/admin/models/paths', null);
     models.installed = await loadJson('/api/admin/models/installed', null);
+    models.snapshotStatus = await adminModelsPostJson('/api/admin/models/repository-snapshots/status', {});
     models.packs = await loadJson('/api/admin/models/packs', null);
     models.workspaces = await loadJson('/api/admin/models/workspaces', null);
     models.downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
     models.lastLoadedAt = new Date().toLocaleString();
     models.status = 'ready';
+    resumeAdminModelSnapshotJobMonitors();
   } catch (error) {
     models.error = error?.message || 'Could not load Admin Model Guide.';
     models.status = 'error';
@@ -33258,7 +33392,7 @@ function adminModelCatalogRecords() {
   return Array.isArray(records) ? records : [];
 }
 
-const ADMIN_MODEL_KNOWN_DOMAINS = Object.freeze(['image', 'video', 'llm', 'utility']);
+const ADMIN_MODEL_KNOWN_DOMAINS = Object.freeze(['image', 'video', 'llm', 'utility', 'voice']);
 
 function adminModelIsPlaceholderGuide(record) {
   const id = String(record?.id || '').toLowerCase();
@@ -33276,13 +33410,47 @@ function adminModelIsVisibleRecord(record) {
   return Boolean(record) && !adminModelIsPlaceholderGuide(record);
 }
 
+function adminModelIsRepositorySnapshot(record) {
+  return String(record?.source_mode || '').toLowerCase() === 'repository_snapshot';
+}
+
+function adminModelLatestJob(catalogId, jobKind = '') {
+  const jobs = ensureAdminModelsState().downloadJobs?.jobs;
+  if (!Array.isArray(jobs)) return null;
+  return jobs.find((job) => job?.catalog_id === catalogId && (!jobKind || job?.job_kind === jobKind)) || null;
+}
+
+function adminModelSnapshotInstallAction(record, { small = false } = {}) {
+  if (!adminModelIsRepositorySnapshot(record)) return '';
+  const activeJob = adminModelSnapshotActiveJob(record);
+  if (activeJob) {
+    return `<button type="button" class="neo-btn${small ? ' small' : ''} primary" disabled>${escapeHtml(adminModelSnapshotJobStageLabel(activeJob))}</button>`;
+  }
+  const status = adminModelInstallStatus(record.id);
+  const stateValue = status?.overall_status || (ensureAdminModelsState().snapshotStatusLoading ? 'checking' : 'not_checked');
+  const presentation = adminModelSnapshotStatePresentation(stateValue);
+  const runtime = adminModelVoiceRuntimePresentation(status);
+  if (runtime.legacy) {
+    return `<button type="button" class="neo-btn${small ? ' small' : ''} secondary" onclick="startAdminModelSnapshotInstall('${escapeAttr(record.id)}')" title="${escapeAttr('Optional: install a separate Admin-managed Hugging Face copy. This may use network data. The existing legacy model remains supported without migration.')}">Install HF copy</button>`;
+  }
+  const installed = String(stateValue).toLowerCase() === 'installed';
+  const className = installed ? ' secondary' : ' primary';
+  return `<button type="button" class="neo-btn${small ? ' small' : ''}${className}" onclick="startAdminModelSnapshotInstall('${escapeAttr(record.id)}')" title="${escapeAttr(presentation.summary)}">${escapeHtml(presentation.action)}</button>`;
+}
+
+function adminModelSnapshotVerifyAction(record, { small = false } = {}) {
+  if (!adminModelIsRepositorySnapshot(record)) return '';
+  const loading = Boolean(ensureAdminModelsState().snapshotStatusLoading);
+  return `<button type="button" class="neo-btn${small ? ' small' : ''}" onclick="refreshAdminModelSnapshotStatus()" ${loading ? 'disabled' : ''}>${loading ? 'Checking…' : 'Verify'}</button>`;
+}
+
 function adminModelIsActionableSourceRecord(record) {
   if (!adminModelIsVisibleRecord(record)) return false;
   const source = record?.source || {};
   const provider = String(source.provider || '').toLowerCase();
   const sourceMode = String(record?.source_mode || '').toLowerCase();
   if (!['huggingface', 'civitai'].includes(provider)) return false;
-  if (sourceMode !== 'discover_files' && sourceMode !== 'static_file') return false;
+  if (!['discover_files', 'static_file', 'repository_snapshot'].includes(sourceMode)) return false;
   if (provider === 'huggingface') return Boolean(source.repo || source.download_url || source.source_url);
   if (provider === 'civitai') return Boolean(source.model_id || source.version_id || source.download_url || source.source_url);
   return false;
@@ -33408,7 +33576,9 @@ function adminModelSourceSelectOptions(selected = '') {
   const options = records.map((record) => {
     const source = record.source || {};
     const sourceName = source.repo || source.model_id || source.source_url || record.id;
-    const suffix = record.source_mode === 'discover_files' ? ` · ${sourceName}` : ` · ${record.model_type || 'file'}`;
+    const suffix = adminModelIsRepositorySnapshot(record)
+      ? ` · ${sourceName} · snapshot`
+      : (record.source_mode === 'discover_files' ? ` · ${sourceName}` : ` · ${record.model_type || 'file'}`);
     return `<option value="${escapeAttr(record.id)}" ${record.id === selected ? 'selected' : ''}>${escapeHtml(`${record.display_name || record.id}${suffix}`)}</option>`;
   }).join('');
   return `<option value="">${records.length ? 'All sources / files' : 'No matching actionable sources'}</option>${options}`;
@@ -33454,16 +33624,70 @@ function adminModelSourceUrl(record) {
 }
 
 function adminModelInstallStatus(catalogId) {
-  const installed = ensureAdminModelsState().installed || {};
-  const rows = Array.isArray(installed.catalog_status) ? installed.catalog_status : [];
+  const liveSnapshot = adminModelSnapshotLiveStatus(catalogId);
+  if (liveSnapshot) return liveSnapshot;
+  const installedPayload = ensureAdminModelsState().installed || {};
+  const scan = installedPayload?.scan && typeof installedPayload.scan === 'object' ? installedPayload.scan : installedPayload;
+  const rows = Array.isArray(scan?.catalog_status) ? scan.catalog_status : [];
   return rows.find((item) => item?.catalog_id === catalogId) || null;
 }
 
 function adminModelStatusBadge(record) {
   const status = adminModelInstallStatus(record.id);
-  const label = status?.overall_status || 'not scanned';
-  const variant = label === 'installed' ? 'success' : label === 'missing' ? 'warning' : label === 'local_candidates' ? 'active' : '';
-  return NeoUI.statusBadge(label, variant || label);
+  const rawLabel = status?.overall_status || (adminModelIsRepositorySnapshot(record) && ensureAdminModelsState().snapshotStatusLoading ? 'checking' : 'not scanned');
+  if (adminModelIsRepositorySnapshot(record)) {
+    const runtime = adminModelVoiceRuntimePresentation(status);
+    if (runtime.legacy) return NeoUI.statusBadge(runtime.label, runtime.variant);
+    const presentation = adminModelSnapshotStatePresentation(rawLabel === 'not scanned' ? 'not_checked' : rawLabel);
+    return NeoUI.statusBadge(presentation.label, presentation.variant);
+  }
+  const variant = rawLabel === 'installed' ? 'success'
+    : ['missing', 'not_installed', 'partial', 'stale'].includes(rawLabel) ? 'warning'
+      : rawLabel === 'corrupt' ? 'danger'
+        : rawLabel === 'local_candidates' ? 'active'
+          : rawLabel === 'unverified' ? 'muted' : '';
+  return NeoUI.statusBadge(rawLabel, variant || rawLabel);
+}
+
+function adminModelSnapshotProbePanel(record) {
+  if (!adminModelIsRepositorySnapshot(record)) return '';
+  const status = adminModelInstallStatus(record.id);
+  if (!status) return `<div class="neo-ui-card compact"><div class="neo-ui-section-head"><div><strong>Model availability</strong><p class="neo-muted">Neo has not checked the local runtime or repository snapshot in the current Admin session.</p></div>${NeoUI.statusBadge('Not checked', 'muted')}</div><div class="neo-ui-toolbar">${adminModelSnapshotVerifyAction(record, { small: true })}</div></div>`;
+  const probe = status.snapshot_probe || {};
+  const source = probe.source || {};
+  const cache = probe.cache || {};
+  const tree = probe.tree || {};
+  const content = probe.content_probe || {};
+  const runtimeRaw = status.runtime || {};
+  const runtime = adminModelVoiceRuntimePresentation(status);
+  const missing = Array.isArray(content.missing_paths) ? content.missing_paths.slice(0, 8) : [];
+  const issues = [
+    ...(Array.isArray(probe.errors) ? probe.errors : []),
+    ...(Array.isArray(probe.warnings) ? probe.warnings : []),
+  ].slice(0, 8);
+  const stateValue = probe.state || status.overall_status || 'unknown';
+  const presentation = adminModelSnapshotStatePresentation(stateValue);
+  const runtimeLabel = runtime.installed ? `${runtime.sourceLabel || 'Local source'} · ready` : (runtimeRaw.state ? humanize(runtimeRaw.state) : 'not available');
+  const rows = [
+    record.category === 'voice' ? `Voice runtime: ${runtimeLabel}` : '',
+    runtime.installed && runtimeRaw.source_path ? `Runtime path: ${runtimeRaw.source_path}` : '',
+    runtime.legacy ? 'Compatibility: existing Neo_Runtime snapshot remains supported permanently; no migration or re-download is required.' : '',
+    runtime.legacy ? `Admin HF copy: ${presentation.label} (optional while legacy runtime is ready)` : `Admin HF snapshot: ${presentation.label}`,
+    !runtime.legacy ? presentation.summary : '',
+    `HF reason: ${probe.reason || status.reason || 'no reason'}`,
+    `Requested revision: ${source.requested_revision || status.revision || record.source?.revision || 'main'}`,
+    source.resolved_revision ? `Resolved commit: ${source.resolved_revision}` : '',
+    cache.snapshot_path ? `HF snapshot: ${cache.snapshot_path}` : '',
+    tree.file_count ? `Materialized files: ${tree.file_count}` : '',
+    tree.broken_symlink_count ? `Broken cache links: ${tree.broken_symlink_count}` : '',
+    content.probe_id ? `Content probe: ${content.probe_id} · ${content.state || 'unknown'}` : `Content probe: ${record.install?.probe_id || 'not declared'}`,
+    ...missing.map((item) => `Missing: ${item}`),
+    ...issues.map((item) => `Probe note: ${item}`),
+    record.category === 'voice' && record.base_model === 'qwen' ? 'Voice runtime: verified Qwen CustomVoice HF snapshots are loadable through Phase 4.5.7; Phase 4.6.1 additionally preserves complete legacy Neo_Runtime snapshots first.' : '',
+    record.category === 'voice' ? 'Generate never downloads weights; it uses only an already-verified local runtime source.' : '',
+  ].filter(Boolean);
+  const badge = runtime.legacy ? NeoUI.statusBadge(runtime.label, runtime.variant) : NeoUI.statusBadge(presentation.label, presentation.variant);
+  return `<div class="neo-ui-card compact neo-admin-model-snapshot-probe"><div class="neo-ui-section-head"><div><strong>Model availability</strong><p>Voice runtime availability is checked separately from the optional Admin-managed Hugging Face copy.</p></div>${badge}</div>${NeoUI.metaList(rows, { code: false })}<div class="neo-ui-toolbar">${adminModelSnapshotVerifyAction(record, { small: true })}</div></div>`;
 }
 
 function adminModelDiscoveryVariants(catalogId) {
@@ -33585,11 +33809,14 @@ function adminModelCard(record) {
   const discovery = ensureAdminModelsState().discovery?.[record.id];
   const variantCount = discovery?.summary?.variant_count ?? (Array.isArray(discovery?.variants) ? discovery.variants.length : 0);
   const badges = [record.category, record.base_model, record.model_type, source.provider, ...(install.backend_targets || []), ...(categories || []).slice(0, 3)].filter(Boolean);
+  const isSnapshot = adminModelIsRepositorySnapshot(record);
   const canDiscover = ['huggingface', 'civitai'].includes(String(source.provider || '').toLowerCase()) && record.source_mode === 'discover_files';
   const actions = [
+    isSnapshot ? adminModelSnapshotInstallAction(record, { small: true }) : '',
+    isSnapshot ? adminModelSnapshotVerifyAction(record, { small: true }) : '',
     canDiscover ? `<button type="button" class="neo-btn small primary" onclick="discoverAdminModelFiles('${escapeAttr(record.id)}')">Discover files</button>` : '',
     `<button type="button" class="neo-btn small" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">Load details</button>`,
-    `<button type="button" class="neo-btn small" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan</button>`,
+    !isSnapshot ? `<button type="button" class="neo-btn small" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan</button>` : '',
     adminModelSourceUrl(record) ? `<a class="neo-btn small secondary" href="${escapeAttr(adminModelSourceUrl(record))}" target="_blank" rel="noopener">Open source</a>` : '',
   ].filter(Boolean).join('');
   const discovered = discovery ? `<div class="neo-admin-model-discovery-note"><span class="neo-badge ${discovery.ok ? 'success' : 'warning'}">${escapeHtml(discovery.status || 'discovery')}</span><span>${escapeHtml(`${variantCount} variant(s)`)}</span></div>` : '';
@@ -33598,6 +33825,7 @@ function adminModelCard(record) {
     ${NeoUI.badgeRow(badges)}
     ${NeoUI.metaList([`ID: ${record.id}`, `Source mode: ${record.source_mode || 'static_file'}`, `Target: ${install.target_type || record.model_type || 'unknown'}`], { code: false })}
     ${discovered}
+    ${isSnapshot ? adminModelSnapshotProbePanel(record) : ''}
     ${adminModelMetadataPanel(record)}
     <div class="neo-ui-toolbar">${actions}</div>
   </article>`;
@@ -33616,6 +33844,11 @@ function adminModelVariantCard(record, variant) {
 async function discoverAdminModelFiles(catalogId) {
   const record = adminModelRecordById(catalogId);
   if (!record) return;
+  if (adminModelIsRepositorySnapshot(record)) {
+    ensureAdminModelsState().discovery[catalogId] = { ok: false, status: 'snapshot_source', errors: ['Repository snapshots do not use single-file discovery.'] };
+    render();
+    return;
+  }
   const provider = String(record.source?.provider || '').toLowerCase();
   const endpoint = provider === 'civitai' ? '/api/admin/models/remote/civitai/discover-files' : '/api/admin/models/remote/huggingface/discover-files';
   const models = ensureAdminModelsState();
@@ -33637,6 +33870,11 @@ async function discoverAdminModelFiles(catalogId) {
 async function planAdminModelDownload(catalogId, variantPath = '') {
   const record = adminModelRecordById(catalogId);
   if (!record) return;
+  if (adminModelIsRepositorySnapshot(record)) {
+    ensureAdminModelsState().downloadPlans[catalogId] = { ok: false, status: 'snapshot_installer_required', errors: ['Repository snapshots are installed as complete Hugging Face repositories, not through the single-file planner.'] };
+    render();
+    return;
+  }
   const install = record.install || {};
   const backend = (install.backend_targets || [])[0] || 'comfyui';
   const discovery = ensureAdminModelsState().discovery?.[catalogId];
@@ -33682,9 +33920,50 @@ async function startAdminModelDownload(catalogId) {
   render();
 }
 
+async function startAdminModelSnapshotInstall(catalogId) {
+  const models = ensureAdminModelsState();
+  const record = adminModelRecordById(catalogId);
+  if (!record || !adminModelIsRepositorySnapshot(record)) return;
+  const cache = models.paths?.huggingface_cache || {};
+  const repo = record.source?.repo || 'Hugging Face repository';
+  const revision = record.source?.revision || 'main';
+  const expectedMb = Number(record.install?.expected_size_mb || 0);
+  const sizeLine = expectedMb ? `\nExpected model size: ${adminModelFormatBytes(expectedMb * 1024 * 1024)}` : '';
+  const status = adminModelInstallStatus(catalogId);
+  const currentState = status?.overall_status || 'not_installed';
+  const runtime = adminModelVoiceRuntimePresentation(status);
+  const operation = runtime.legacy ? 'Install optional HF copy' : (currentState === 'installed' ? 'Repair / reinstall' : (['partial', 'stale', 'corrupt', 'unverified'].includes(currentState) ? 'Repair' : 'Install'));
+  const legacyWarning = runtime.legacy ? `\n\nIMPORTANT: ${record.display_name || catalogId} is already runtime-ready from the existing Neo_Runtime model. No migration is required. Continuing is OPTIONAL and may download missing Hugging Face data into a second cache copy. Cancel now if you want to keep using the legacy model without using network data.` : '';
+  const message = `${operation} ${record.display_name || catalogId}?\n\nVoice runtime: ${runtime.legacy ? 'Installed — Legacy Neo Runtime' : (runtime.installed ? `Installed — ${runtime.sourceLabel}` : 'No executable local source')}\nAdmin HF state: ${adminModelSnapshotStatePresentation(currentState).label}\nRepository: ${repo}\nRevision: ${revision}\nHugging Face cache: ${cache.hub_cache || 'resolved at install time'}${sizeLine}${legacyWarning}\n\nBefore any transfer, Neo will verify free space on the filesystem that owns the Hugging Face cache. The check reserves the full manifest size plus safety headroom and is repeated immediately before huggingface_hub.snapshot_download(). After transfer, Neo resolves the requested cache ref and verifies required model content before the job can complete. Existing Hugging Face blobs may be reused by the Hub cache, but disk preflight remains conservative. Neo does not use a local_dir mirror.`;
+  if (!window.confirm(message)) return;
+  try {
+    models.status = `installing:${catalogId}`;
+    render();
+    const result = await adminModelsPostJson('/api/admin/models/download/start', { catalog_id: catalogId, snapshot_install: true, confirmed: true, dry_run: false });
+    models.lastStart = result;
+    models.downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+    if (!result?.ok) {
+      const detail = [result?.disk_preflight?.message || '', ...(result?.errors || []), result?.snapshot_request?.dependency?.message || ''].filter(Boolean).join(' · ');
+      models.error = detail || 'Repository snapshot installation could not start.';
+      if (result?.disk_preflight && !result.disk_preflight.ok) window.alert(result.disk_preflight.message || detail);
+      models.status = result?.status || 'needs_attention';
+    } else {
+      models.status = result.status || 'queued';
+      state.adminModelsChildTab = 'downloads';
+      const jobId = result?.job?.job_id || '';
+      if (jobId) monitorAdminModelSnapshotJob(jobId, catalogId);
+    }
+  } catch (error) {
+    models.error = error?.message || String(error);
+    models.status = 'error';
+  }
+  render();
+}
+
 async function scanAdminInstalledModels() {
   try {
     ensureAdminModelsState().installed = await adminModelsPostJson('/api/admin/models/scan-installed', {});
+    await refreshAdminModelSnapshotStatus({ quiet: true });
     render();
   } catch (error) {
     ensureAdminModelsState().error = error?.message || String(error);
@@ -33718,6 +33997,8 @@ async function saveAdminModelPaths() {
 
 async function refreshAdminModelDownloadJobs() {
   ensureAdminModelsState().downloadJobs = await loadJson('/api/admin/models/download/jobs', null);
+  await refreshAdminModelSnapshotStatus({ quiet: true });
+  resumeAdminModelSnapshotJobMonitors();
   render();
 }
 
@@ -33760,11 +34041,12 @@ function adminModelsOverviewPanel() {
   const catalog = models.catalog || {};
   const summary = catalog.summary || {};
   const validation = catalog.validation || {};
-  const badges = [`Records ${summary.record_count || 0}`, `Recommended ${summary.recommended_count || 0}`, `Dynamic ${summary.dynamic_source_count || 0}`, `Status ${catalog.status || models.status || 'not loaded'}`];
+  const snapshotSummary = models.snapshotStatus?.summary || {};
+  const badges = [`Records ${summary.record_count || 0}`, `Recommended ${summary.recommended_count || 0}`, `Dynamic ${summary.dynamic_source_count || 0}`, `Snapshots ${snapshotSummary.installed_count || 0}/${snapshotSummary.record_count || summary.repository_snapshot_count || 0} installed`, `Status ${catalog.status || models.status || 'not loaded'}`];
   const status = models.error ? 'needs attention' : (catalog.status || models.status || 'ready');
   return `<div class="neo-admin-models-overview-left">${NeoUI.card({
     title: 'Models',
-    description: 'Manifest-driven source catalog for Image, Video, LLM, LoRA, ControlNet, GGUF, packs, paths, and workspace requirements.',
+    description: 'Manifest-driven source catalog for Image, Video, Voice, LLM, repository snapshots, LoRA, ControlNet, GGUF, packs, paths, and workspace requirements.',
     badge: NeoUI.statusBadge(status),
     body: `${NeoUI.badgeRow(badges)}${models.error ? `<p class="neo-error-text">${escapeHtml(models.error)}</p>` : ''}${NeoUI.metaList([`Manifest validation: ${validation.ok === false ? 'needs attention' : 'ready'}`, `Last loaded: ${models.lastLoadedAt || 'not loaded yet'}`, 'Public manifests live in neo_manifests/models. User paths and jobs stay in neo_data.'], { code: false })}`,
     actions: '<button type="button" class="neo-btn primary" onclick="reloadAdminModelsState()">Refresh Models</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'paths\')">Open Paths</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'installed\')">Open Installed</button>'
@@ -33789,11 +34071,22 @@ function adminModelsSourcesBody() {
     const detailsLoaded = ensureAdminModelsState().metadata?.[record.id];
     const sourceUrl = adminModelSourceUrl(record);
     const openSourceAction = sourceUrl ? `<a class="neo-btn secondary" href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener">Open source</a>` : '';
+    const isSnapshot = adminModelIsRepositorySnapshot(record);
+    const snapshotSize = Number(record.install?.expected_size_mb || 0);
+    const snapshotBody = isSnapshot
+      ? (() => { const allowPatterns = Array.isArray(record.install?.allow_patterns) ? record.install.allow_patterns : []; const filtered = allowPatterns.length > 0; return `<div class="neo-ui-card compact"><strong>Repository snapshot</strong><p class="neo-muted">${filtered ? 'This source uses a manifest-declared provider-required Hugging Face snapshot materialization.' : 'This source is installed as a complete Hugging Face repository snapshot.'} Single-file discovery and manual shard planning are disabled. Install uses Hugging Face snapshot_download() and the resolved Hub cache.</p>${NeoUI.metaList([`Repository: ${record.source?.repo || 'unknown'}`, `Revision: ${record.source?.revision || 'main'}`, `Install strategy: ${record.install?.strategy || 'huggingface_snapshot'}`, filtered ? `Materialization: filtered (${allowPatterns.length} required patterns)` : 'Materialization: complete repository', snapshotSize ? `Expected transfer/materialization size: ${adminModelFormatBytes(snapshotSize * 1024 * 1024)}` : '', snapshotSize ? `Disk preflight: expected size + max(1 GB, 10%) safety reserve; rechecks immediately before transfer` : 'Disk preflight: requires manifest expected_size_mb', `Probe: ${record.install?.probe_id || 'not declared'}`, 'Installed authority: local HF ref → snapshot materialization → manifest content probe', record.category === 'voice' ? 'Runtime authority: supported legacy local source first → verified HF snapshot; no forced migration' : ''].filter(Boolean), { code: false })}</div>${adminModelSnapshotProbePanel(record)}`; })()
+      : '';
+    const actions = isSnapshot
+      ? `${adminModelSnapshotInstallAction(record)}${adminModelSnapshotVerifyAction(record)}<button type="button" class="neo-btn" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">${detailsLoaded ? 'Refresh details' : 'Load details / previews'}</button>${openSourceAction}`
+      : `<button type="button" class="neo-btn primary" onclick="discoverAdminModelFiles('${escapeAttr(record.id)}')">Discover files</button><button type="button" class="neo-btn" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">${detailsLoaded ? 'Refresh details' : 'Load details / previews'}</button><button type="button" class="neo-btn" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan default</button>${openSourceAction}`;
+    const body = isSnapshot
+      ? `${NeoUI.badgeRow([record.category, record.base_model, record.model_type, record.source_mode])}<div class="neo-ui-toolbar">${actions}</div>${snapshotBody}${adminModelMetadataPanel(record)}`
+      : `${NeoUI.badgeRow([record.category, record.base_model, record.model_type, record.source_mode])}<div class="neo-ui-toolbar">${actions}</div>${discovery?.errors?.length ? `<p class="neo-error-text">${escapeHtml(discovery.errors.join(' · '))}</p>` : ''}${adminModelMetadataPanel(record)}${variants.length ? `${adminModelVariantSelectHtml(record, variants)}${adminModelSelectedVariantPanel(record)}` : NeoUI.emptyState('No variants loaded yet.', 'Click Discover files to query the remote source for this session.')}`;
     return NeoUI.card({
       title: record.display_name || record.id,
       description: `${record.source?.provider || 'source'} · ${sourceLabel}`,
-      badge: NeoUI.statusBadge(discovery?.status || 'not discovered'),
-      body: `${NeoUI.badgeRow([record.category, record.base_model, record.model_type, record.source_mode])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" onclick="discoverAdminModelFiles('${escapeAttr(record.id)}')">Discover files</button><button type="button" class="neo-btn" onclick="loadAdminModelMetadata('${escapeAttr(record.id)}')">${detailsLoaded ? 'Refresh details' : 'Load details / previews'}</button><button type="button" class="neo-btn" onclick="planAdminModelDownload('${escapeAttr(record.id)}')">Plan default</button>${openSourceAction}</div>${discovery?.errors?.length ? `<p class="neo-error-text">${escapeHtml(discovery.errors.join(' · '))}</p>` : ''}${adminModelMetadataPanel(record)}${variants.length ? `${adminModelVariantSelectHtml(record, variants)}${adminModelSelectedVariantPanel(record)}` : NeoUI.emptyState('No variants loaded yet.', 'Click Discover files to query the remote source for this session.')}`,
+      badge: isSnapshot ? adminModelStatusBadge(record) : NeoUI.statusBadge(discovery?.status || 'not discovered'),
+      body,
     });
   }).join('');
   return `<div class="neo-admin-models-sources">${adminModelsFilterControlsHtml()}${sections || NeoUI.emptyState('No remote source records match the current filters.')}</div>`;
@@ -33815,6 +34108,7 @@ function adminModelInstalledVisibleCatalogRows(scan) {
     const record = adminModelCatalogRecordById(item?.catalog_id);
     if (!record) return true;
     if (adminModelIsPlaceholderGuide(record)) return false;
+    if (adminModelIsRepositorySnapshot(record)) return false;
     return adminModelIsActionableSourceRecord(record) || item?.overall_status === 'installed' || item?.overall_status === 'local_candidates';
   });
 }
@@ -33845,7 +34139,27 @@ function adminModelCatalogComparisonCard(item) {
     return bits.join(' · ');
   }).join(' | ');
   const candidatePreview = (item.backends || []).flatMap((backend) => backend.candidate_preview || []).slice(0, 5);
-  return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(backendText || item.catalog_id || '')}</p></div>${NeoUI.statusBadge(item.overall_status || 'unknown')}</div>${candidatePreview.length ? NeoUI.metaList(candidatePreview.map((candidate) => `${candidate.filename || candidate.relative_path || 'candidate'}${candidate.size_bytes ? ` · ${adminModelFormatBytes(candidate.size_bytes)}` : ''}`), { code: false }) : ''}</article>`;
+  const probe = item.snapshot_probe || {};
+  const probeSource = probe.source || {};
+  const probeCache = probe.cache || {};
+  const probeContent = probe.content_probe || {};
+  const runtime = adminModelVoiceRuntimePresentation(item);
+  const runtimeRaw = item.runtime || {};
+  const hfPresentation = adminModelSnapshotStatePresentation(item.overall_status || 'not_installed');
+  const snapshotRows = item.source_mode === 'repository_snapshot' ? [
+    runtime.installed ? `Voice runtime: Installed — ${runtime.sourceLabel}` : '',
+    runtime.installed && runtimeRaw.source_path ? `Runtime path: ${runtimeRaw.source_path}` : '',
+    runtime.legacy ? 'Migration: not required; legacy runtime remains supported with zero network use.' : '',
+    `Admin HF copy: ${hfPresentation.label}`,
+    `Repository: ${item.repo || record?.source?.repo || 'unknown'} @ ${item.revision || record?.source?.revision || 'main'}`,
+    `HF reason: ${item.reason || probe.reason || 'unknown'}`,
+    probeSource.resolved_revision ? `Resolved commit: ${probeSource.resolved_revision}` : '',
+    probeCache.snapshot_path ? `Snapshot: ${probeCache.snapshot_path}` : '',
+    probeContent.probe_id ? `Content probe: ${probeContent.probe_id} · ${probeContent.state || 'unknown'}` : '',
+    ...(Array.isArray(probeContent.missing_paths) ? probeContent.missing_paths.slice(0, 6).map((path) => `Missing: ${path}`) : []),
+  ].filter(Boolean) : [];
+  const statusBadge = runtime.legacy ? NeoUI.statusBadge(runtime.label, runtime.variant) : NeoUI.statusBadge(item.overall_status || 'unknown');
+  return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(backendText || item.catalog_id || '')}</p></div>${statusBadge}</div>${snapshotRows.length ? NeoUI.metaList(snapshotRows, { code: false }) : ''}${candidatePreview.length ? NeoUI.metaList(candidatePreview.map((candidate) => `${candidate.filename || candidate.relative_path || 'candidate'}${candidate.size_bytes ? ` · ${adminModelFormatBytes(candidate.size_bytes)}` : ''}`), { code: false }) : ''}</article>`;
 }
 
 function adminModelsInstalledBody() {
@@ -33861,12 +34175,25 @@ function adminModelsInstalledBody() {
   const comparisonBody = catalogRows.length
     ? `<details class="neo-ui-details"><summary>Manifest comparison (${catalogRows.length})</summary><div class="neo-ui-record-list">${catalogRows.slice(0, 120).map(adminModelCatalogComparisonCard).join('')}</div></details>`
     : '';
-  return `<div class="neo-admin-models-installed">${NeoUI.card({
-    title: 'Installed scanner',
-    description: 'Shows actual local model files found in configured folders first. Manifest comparison is secondary and hides guide/template records.',
+  const snapshotPayload = ensureAdminModelsState().snapshotStatus || {};
+  const snapshotRows = adminModelSnapshotStatusRows();
+  const snapshotSummary = snapshotPayload.summary || {};
+  const snapshotBody = snapshotRows.length
+    ? `<div class="neo-ui-record-list">${snapshotRows.map(adminModelCatalogComparisonCard).join('')}</div>`
+    : NeoUI.emptyState('No repository snapshots are registered.', 'Repository-snapshot models will appear here when present in the manifest.');
+  const snapshotCard = NeoUI.card({
+    title: 'Hugging Face repository snapshots',
+    description: 'Live local-only view of repository snapshots plus executable Voice runtime compatibility. This fast check does not walk your ComfyUI/Forge model folders or persist a new installed index. A supported legacy Neo_Runtime model remains valid even when no Admin Hugging Face copy exists.',
+    badge: NeoUI.statusBadge(ensureAdminModelsState().snapshotStatusLoading ? 'checking' : (snapshotPayload.status || 'not checked')),
+    body: `${NeoUI.badgeRow([`Voice runtime installed ${snapshotSummary.voice_runtime_installed_count || 0}/${snapshotSummary.voice_runtime_checked_count || 0}`, `Legacy runtime ${snapshotSummary.voice_legacy_runtime_count || 0}`, `HF runtime ${snapshotSummary.voice_huggingface_runtime_count || 0}`, `HF Installed ${snapshotSummary.installed_count || 0}/${snapshotSummary.record_count || snapshotRows.length || 0}`, `HF Not installed ${snapshotSummary.not_installed_count || 0}`, `HF Cache problem ${snapshotSummary.corrupt_count || 0}`])}${snapshotPayload.checked_at ? NeoUI.metaList([`Last checked: ${snapshotPayload.checked_at}`, `HF cache: ${snapshotPayload.cache?.hub_cache || 'not resolved'}`, 'Runtime authority: supported legacy local source first → verified HF snapshot → unavailable', 'Authority: requested revision → local HF snapshot → manifest content probe', 'HF-copy authority: requested revision → local HF snapshot → manifest content probe', 'Legacy-ready models do not require migration or re-download. Installing an HF copy is optional.'], { code: false }) : ''}`,
+    actions: `<button type="button" class="neo-btn primary" onclick="refreshAdminModelSnapshotStatus()" ${ensureAdminModelsState().snapshotStatusLoading ? 'disabled' : ''}>${ensureAdminModelsState().snapshotStatusLoading ? 'Checking…' : 'Verify HF snapshots'}</button>`
+  });
+  return `<div class="neo-admin-models-installed">${snapshotCard}${snapshotBody}${NeoUI.card({
+    title: 'Local model scanner',
+    description: 'Scans configured ComfyUI, Forge, KoboldCPP, and local-model folders. This broader scan is separate from the lightweight live Hugging Face snapshot check above.',
     badge: NeoUI.statusBadge(scan?.status || installedPayload?.status || 'not scanned'),
     body: NeoUI.badgeRow([`Local files ${summary.detected_file_count || localFiles.length || 0}`, `Targets ${summary.target_ready_count || 0}/${summary.target_count || 0}`, `Manifest installed ${summary.catalog_installed_count || 0}`, `Missing ${summary.catalog_missing_count || 0}`, `Candidates ${summary.catalog_with_local_candidates_count || 0}`]),
-    actions: '<button type="button" class="neo-btn primary" onclick="scanAdminInstalledModels()">Scan installed models</button><button type="button" class="neo-btn" onclick="reloadAdminModelsState()">Refresh</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'paths\')">Open Paths</button>'
+    actions: '<button type="button" class="neo-btn primary" onclick="scanAdminInstalledModels()">Scan local models</button><button type="button" class="neo-btn" onclick="reloadAdminModelsState()">Refresh all</button><button type="button" class="neo-btn" onclick="setAdminModelsChildTab(\'paths\')">Open Paths</button>'
   })}<div class="neo-ui-record-list">${localBody}</div>${comparisonBody}</div>`;
 }
 
@@ -33883,6 +34210,21 @@ function adminModelsPathsBody() {
   const forge = backends.forge || {};
   const kobold = backends.koboldcpp || {};
   const local = backends.local_llm || {};
+  const hfCache = pathsPayload.huggingface_cache || {};
+  const hfLibrary = hfCache.library || {};
+  const hfCacheCard = NeoUI.card({
+    title: 'Hugging Face cache',
+    description: 'Read-only runtime resolution used by repository-snapshot installs. This path comes from Hugging Face environment/default rules and is not saved into Neo model manifests or model_paths.json.',
+    badge: NeoUI.statusBadge(hfCache.status || 'not resolved'),
+    body: `${NeoUI.metaList([
+      `Hub cache: ${hfCache.hub_cache || 'not resolved'}`,
+      `HF home: ${hfCache.hf_home || 'not resolved'}`,
+      `Resolved from: ${hfCache.source || 'unknown'}`,
+      `Cache exists: ${hfCache.exists ? 'yes' : 'no (installer may create it later)'}`,
+      `huggingface_hub: ${hfLibrary.available ? (hfLibrary.version || 'available') : 'not available in Neo app environment'}`,
+      ...(hfCache.legacy_env_used ? ['Compatibility: legacy HUGGINGFACE_HUB_CACHE is active'] : []),
+    ], { code: false })}`,
+  });
   return `<div class="neo-admin-models-paths">${NeoUI.card({
     title: 'Model paths',
     description: 'Local-only settings saved under neo_data/config/model_paths.json. ComfyUI remains the shared model-path authority; Forge Neo can reference the same extra_model_paths.yaml without duplicating models.',
@@ -33907,7 +34249,7 @@ function adminModelsPathsBody() {
       ${adminModelPathField('admin-model-download-failed-root', 'Download failed root', download.failed_root, 'neo_data/downloads/failed')}
     </div>`,
     actions: '<button type="button" class="neo-btn primary" onclick="saveAdminModelPaths()">Save paths</button><button type="button" class="neo-btn" onclick="scanAdminInstalledModels()">Save then scan manually</button>'
-  })}</div>`;
+  })}${hfCacheCard}</div>`;
 }
 
 function adminModelsPacksBody() {
@@ -33953,11 +34295,23 @@ function adminModelsDownloadsBody() {
     const speed = adminModelFormatBytes(progress.speed_bytes_per_second);
     const eta = adminModelFormatDuration(progress.eta_seconds);
     const elapsed = adminModelFormatDuration(progress.elapsed_seconds || job.metrics?.elapsed_seconds);
-    const active = ['queued', 'downloading', 'cancelling'].includes(String(job.status || '').toLowerCase());
-    const cancelAction = active ? `<button type="button" class="neo-btn small danger" onclick="cancelAdminModelDownload('${escapeAttr(job.job_id)}')">Cancel</button>` : '';
-    return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(job.display_name || job.catalog_id || job.job_id)}</strong><p>${escapeHtml(job.paths?.final_path || job.source?.download_url || '')}</p></div>${NeoUI.statusBadge(job.status || 'job')}</div>${NeoUI.badgeRow([job.provider, job.dry_run ? 'dry-run' : '', percent ? `${percent}%` : '', speed ? `${speed}/s` : '', eta ? `ETA ${eta}` : ''].filter(Boolean))}<progress value="${escapeAttr(String(Math.min(Math.max(percent, 0), 100)))}" max="100" style="width:100%;height:12px;"></progress>${NeoUI.metaList([downloaded || total ? `Progress: ${downloaded || '0 B'}${total ? ` / ${total}` : ''}` : '', speed ? `Speed: ${speed}/s` : '', eta ? `Estimated time left: ${eta}` : '', elapsed ? `Elapsed: ${elapsed}` : ''].filter(Boolean), { code: false })}<div class="neo-ui-toolbar">${cancelAction}</div></article>`;
+    const isSnapshot = job.job_kind === 'repository_snapshot';
+    const diskPreflight = job.disk_preflight || {};
+    const diskEstimate = diskPreflight.estimate || {};
+    const diskState = diskPreflight.disk || {};
+    const active = ['queued', 'preparing', 'downloading', 'verifying', 'cancelling'].includes(String(job.status || '').toLowerCase());
+    const cancelAction = active ? `<button type="button" class="neo-btn small danger" onclick="cancelAdminModelDownload('${escapeAttr(job.job_id)}')" title="${isSnapshot ? 'Hugging Face cancellation is cooperative; the active transfer may finish before Neo can stop the job.' : 'Cancel this download'}">Cancel</button>` : '';
+    const location = isSnapshot ? (job.paths?.snapshot_path || job.paths?.cache_dir || job.source?.repo || '') : (job.paths?.final_path || job.source?.download_url || '');
+    const progressBar = progress.indeterminate && active ? '<progress max="100" style="width:100%;height:12px;"></progress>' : `<progress value="${escapeAttr(String(Math.min(Math.max(percent, 0), 100)))}" max="100" style="width:100%;height:12px;"></progress>`;
+    const errorText = job.error_message || (Array.isArray(job.errors) ? job.errors.join(' · ') : '');
+    const verification = job.verification || {};
+    const verificationState = verification.state || '';
+    const verificationSource = verification.source || {};
+    const stage = progress.stage || job.status || '';
+    const stageLabel = isSnapshot && active ? adminModelSnapshotJobStageLabel(job).replace('…', '') : (stage && stage !== job.status ? humanize(stage) : '');
+    return `<article class="neo-ui-record-card"><div class="neo-ui-section-head"><div><strong>${escapeHtml(job.display_name || job.catalog_id || job.job_id)}</strong><p>${escapeHtml(location)}</p></div>${NeoUI.statusBadge(job.status || 'job')}</div>${NeoUI.badgeRow([job.provider, isSnapshot ? 'repository snapshot' : '', job.installer, stageLabel, isSnapshot && diskPreflight.status ? `disk ${diskPreflight.status}` : '', percent && !progress.indeterminate ? `${percent}%` : '', speed ? `${speed}/s` : '', eta ? `ETA ${eta}` : ''].filter(Boolean))}${progressBar}${errorText ? `<p class="neo-error-text">${escapeHtml(errorText)}</p>` : ''}${NeoUI.metaList([isSnapshot ? `Repository: ${job.source?.repo || 'unknown'} @ ${job.source?.revision || 'main'}` : '', isSnapshot ? `Cache: ${job.paths?.cache_dir || job.target?.folder_path || 'not resolved'}` : '', isSnapshot && diskEstimate.required_free_bytes ? `Disk required: ${adminModelFormatBytes(diskEstimate.required_free_bytes)} (${adminModelFormatBytes(diskEstimate.expected_size_bytes)} expected + ${adminModelFormatBytes(diskEstimate.safety_reserve_bytes)} reserve)` : '', isSnapshot && diskState.free_bytes ? `Disk free at preflight: ${adminModelFormatBytes(diskState.free_bytes)}` : '', isSnapshot && diskPreflight.cache?.usage_path ? `Filesystem check: ${diskPreflight.cache.usage_path}` : '', isSnapshot && verificationState ? `Installed-state verification: ${verificationState}${verification.reason ? ` · ${verification.reason}` : ''}` : '', isSnapshot && verificationSource.resolved_revision ? `Verified commit: ${verificationSource.resolved_revision}` : '', downloaded || total ? `Progress: ${downloaded || '0 B'}${total ? ` / ${total}${isSnapshot ? ' expected' : ''}` : ''}` : '', speed ? `Speed: ${speed}/s` : '', eta ? `Estimated time left: ${eta}` : '', elapsed ? `Elapsed: ${elapsed}` : '', isSnapshot ? 'Snapshot transfer progress remains indeterminate. Admin follows the job through checking disk → preparing → downloading → verifying, then refreshes the authoritative installed state automatically.' : ''].filter(Boolean), { code: false })}<div class="neo-ui-toolbar">${cancelAction}</div></article>`;
   }).join('');
-  return `<div class="neo-admin-models-downloads">${NeoUI.card({ title: 'Download jobs', description: 'Download manager state with progress, speed, ETA, and cancel support.', badge: NeoUI.statusBadge(jobsPayload.status || 'ready'), body: NeoUI.badgeRow([`Jobs ${jobs.length}`, `Active ${jobsPayload.summary?.active_count || 0}`, `Completed ${jobsPayload.summary?.completed_count || 0}`, `Failed ${jobsPayload.summary?.failed_count || 0}`]), actions: '<button type="button" class="neo-btn primary" onclick="refreshAdminModelDownloadJobs()">Refresh jobs</button>' })}${planCards || NeoUI.emptyState('No download plans yet.', 'Open Sources and click Plan.')}${jobRows ? `<div class="neo-ui-record-list">${jobRows}</div>` : ''}</div>`;
+  return `<div class="neo-admin-models-downloads">${NeoUI.card({ title: 'Download & install jobs', description: 'Single-file downloads and Hugging Face repository-snapshot installs share one local job history. Snapshot jobs pass disk preflight before transfer and an authoritative local cache/content probe before completion; cancellation remains cooperative and transfer progress remains indeterminate.', badge: NeoUI.statusBadge(jobsPayload.status || 'ready'), body: NeoUI.badgeRow([`Jobs ${jobs.length}`, `Active ${jobsPayload.summary?.active_count || 0}`, `Completed ${jobsPayload.summary?.completed_count || 0}`, `Failed ${jobsPayload.summary?.failed_count || 0}`]), actions: '<button type="button" class="neo-btn primary" onclick="refreshAdminModelDownloadJobs()">Refresh jobs</button>' })}${planCards || NeoUI.emptyState('No single-file download plans yet.', 'Open Sources and click Plan for single-file downloads. Repository snapshots install directly from Sources.')}${jobRows ? `<div class="neo-ui-record-list">${jobRows}</div>` : ''}</div>`;
 }
 
 function adminModelsRawBody() {
@@ -38886,6 +39240,9 @@ const IMAGE_MODEL_FIELD_CATALOGS = Object.freeze({
   gguf_model: 'gguf_models',
   text_encoder_1: 'text_encoders',
   text_encoder_2: 'text_encoders',
+  text_encoder_3: 'text_encoders',
+  text_encoder_4: 'text_encoders',
+  ideogram4_unconditional_model: 'diffusion_models',
   qwen_text_encoder: 'qwen_text_encoders',
   qwen3_text_encoder: 'qwen_text_encoders',
   qwen3vl_text_encoder: 'text_encoders',
@@ -38929,6 +39286,8 @@ function imageOptionsForField(fieldId) {
   if (fieldId === 'scheduler') return profileModelOptions('schedulers');
   if (fieldId === 'text_encoder_1') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_primary') : profileModelOptions('text_encoders');
   if (fieldId === 'text_encoder_2') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_secondary') : profileModelOptions('text_encoders');
+  if (fieldId === 'text_encoder_3' || fieldId === 'text_encoder_4') return profileModelOptions('text_encoders');
+  if (fieldId === 'ideogram4_unconditional_model') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_models') : profileModelOptions('diffusion_models');
   if (fieldId === 'qwen_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
   if (fieldId === 'qwen3_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
   if (fieldId === 'qwen3vl_text_encoder') return profileModelOptions('text_encoders');
@@ -38988,14 +39347,77 @@ function renderImageParameterField(field, p) {
     : (fieldId === 'krea2_identity_edit_grounding_px' ? ' min="0" max="4096"' : '');
   return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}"${kreaRange} value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
 }
-const IMAGE_COMPONENT_PARAMETER_FIELD_IDS = new Set([
-  'text_encoder_1',
-  'text_encoder_2',
-  'qwen_text_encoder',
-  'qwen3_text_encoder',
-  'flux_guidance',
-  'hidream_variant',
-]);
+function imageComponentTopologyPayload() {
+  const payload = state.modelFamilies?.component_topology;
+  return payload && typeof payload === 'object' ? payload : null;
+}
+
+function activeImageComponentTopology() {
+  const payload = imageComponentTopologyPayload();
+  const entries = payload?.entries || {};
+  const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(family) || 'checkpoint';
+  const mode = activeImageMode();
+  const direct = entries[`${family}:${loader}:${mode}`];
+  if (direct) return direct;
+  if (routeModeAllowsTxt2imgProfileFallback(family, loader, mode)) return entries[`${family}:${loader}:txt2img`] || null;
+  return null;
+}
+
+function activeImageComponentTopologyFields() {
+  const topology = activeImageComponentTopology();
+  if (!topology || !Array.isArray(topology.components)) return [];
+  return topology.components.filter((component) => (
+    Boolean(component?.field_id) && imageOverlayFieldVisible(component.field_id)
+  ));
+}
+
+function imageTopologyFieldDefinition(component = {}) {
+  const fieldId = String(component.field_id || '').trim();
+  return {
+    field_id: fieldId,
+    label: component.label || humanize(fieldId),
+    control_type: 'select',
+    required: Boolean(component.required),
+    advanced: false,
+    help_text: `${component.role_id || fieldId}${component.conditional ? ' · route/provider conditional' : ''}`,
+  };
+}
+
+function activeImageComponentParameterFields() {
+  const topology = activeImageComponentTopology();
+  if (!topology || topology.artifact_format !== 'safetensors') return [];
+  const components = activeImageComponentTopologyFields();
+  // VAE/AE remains owned by the existing primary-model row. The topology still
+  // carries it for readiness/submission, but the component card must not render
+  // a duplicate selector. Classic/AIO optional overrides remain simple as well.
+  const withoutPrimaryRowAssets = components.filter((component) => component.field_id !== 'vae');
+  const visible = ['checkpoint', 'checkpoint_aio'].includes(topology.load_strategy)
+    ? withoutPrimaryRowAssets.filter((component) => component.required)
+    : withoutPrimaryRowAssets;
+  return visible.map(imageTopologyFieldDefinition);
+}
+
+function renderImageComponentParameterRows(p = {}) {
+  const topology = activeImageComponentTopology();
+  if (!topology || topology.artifact_format !== 'safetensors') return '';
+  const fields = activeImageComponentParameterFields();
+  if (!fields.length) return '';
+  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
+  if (!fieldHtml) return '';
+  const componentHelp = imageUsesStrictForgeRouteGating()
+    ? 'Select the native Forge modules required by this executable route. Component visibility comes from the active route contract, not from the file extension.'
+    : 'Select the exact external components required by this model family and workflow. Safetensors may be bundled or split/quantized; Neo does not infer topology from the extension alone. Neo does not guess installed filenames.';
+  const badges = [
+    'Safetensors',
+    humanize(topology.load_strategy || 'split_components'),
+    `${fields.filter((field) => field.required).length} required`,
+  ];
+  return `<div class="neo-parameter-profile-card neo-component-asset-card" data-testid="image-safetensors-component-assets" data-component-topology-schema="${escapeAttr(topology.schema || '')}">
+    <div class="neo-ui-section-head"><div><strong>Required Model Components</strong><p class="neo-muted">${escapeHtml(componentHelp)}</p></div>${badgeRow(badges)}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+  </div>`;
+}
 
 // M17.1: Krea 2 Identity Edit profile fields are family controls, not GGUF
 // runtime/component selectors. The Parameters surface previously never mounted
@@ -39037,30 +39459,6 @@ function renderKrea2EditParameterRows(p = {}) {
   ];
   return `<div class="neo-parameter-profile-card neo-krea2-edit-card" data-testid="krea2-edit-parameters">
     <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Neo's existing source adapter or the training-matched Krea 2 Identity Edit v1.2 workflow.</p></div>${badgeRow(badges)}</div>
-    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
-  </div>`;
-}
-
-function activeImageComponentParameterFields() {
-  const loader = state.imageDraft.loader || imageCommandValue('loader') || 'checkpoint';
-  if (!['diffusion_model', 'unet'].includes(loader)) return [];
-  const hidden = activeParameterProfileHiddenFields();
-  return activeImageParameterFields().filter((field) => (
-    IMAGE_COMPONENT_PARAMETER_FIELD_IDS.has(field.field_id)
-    && !hidden.has(field.field_id)
-  ));
-}
-
-function renderImageComponentParameterRows(p = {}) {
-  const fields = activeImageComponentParameterFields();
-  if (!fields.length) return '';
-  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
-  if (!fieldHtml) return '';
-  const componentHelp = imageUsesStrictForgeRouteGating()
-    ? 'Select the native Forge modules required by this executable route. Neo does not auto-select arbitrary installed files.'
-    : 'Select the exact ComfyUI text encoder and route-specific component values. Neo does not guess installed filenames.';
-  return `<div class="neo-parameter-profile-card neo-component-asset-card" data-testid="image-safetensors-component-assets">
-    <div class="neo-ui-section-head"><div><strong>Required Model Components</strong><p class="neo-muted">${escapeHtml(componentHelp)}</p></div><span class="neo-badge">Safetensors / Components</span></div>
     <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
   </div>`;
 }
@@ -52726,9 +53124,14 @@ function voiceProviderRoutingBadges() {
   const caps = routing.capabilities || {};
   const modelCount = Array.isArray(routing.models?.items) ? Math.max(0, routing.models.items.filter((item) => item?.id !== 'provider_default').length) : 0;
   const voiceCount = Array.isArray(routing.voices?.items) ? Math.max(0, routing.voices.items.filter((item) => item?.id !== 'provider_default').length) : 0;
+  const selectedModel = voiceSelectedModelRecord();
+  const selectedModelId = voiceEffectiveModelId();
+  const selectedModelLabel = selectedModel?.label || selectedModel?.name || selectedModelId;
+  const selectedEngine = selectedModel?.engine_id || '';
   return [
     profile.provider_label || profile.provider_id || 'No Voice provider',
-    profile.family ? `Family: ${profile.family}` : 'Family unavailable',
+    selectedModelId && selectedModelId !== 'provider_default' ? `Selected model: ${selectedModelLabel}` : 'Selected model: Provider Default',
+    selectedEngine ? `Engine: ${selectedEngine}` : (profile.family ? `Profile family: ${profile.family}` : 'Profile family unavailable'),
     `${modelCount} profile model${modelCount === 1 ? '' : 's'}`,
     `${voiceCount} profile voice${voiceCount === 1 ? '' : 's'}`,
     caps.multilingual ? 'Multilingual' : 'Language constrained',
@@ -52737,11 +53140,12 @@ function voiceProviderRoutingBadges() {
 }
 
 function voiceProviderControlMode() {
-  return getSurfaceWorkspaceAppId('voice') === 'reference' ? 'voice_clone' : 'tts';
+  // The persistent Script/Common Parameters rail is the Generation draft, even when another Voice workspace is open.
+  return 'tts';
 }
 
 function voiceProviderControlContract(mode = voiceProviderControlMode()) {
-  return state.voiceProviderControls?.[mode] || { controls: [], defaults: {}, control_ids: [] };
+  return state.voiceProviderControls?.[mode] || { status: 'loading', controls: [], defaults: {}, control_ids: [], errors: [] };
 }
 
 function voiceProviderControlsDraftPayload(mode = voiceProviderControlMode()) {
@@ -52753,31 +53157,82 @@ function voiceProviderControlsDraftPayload(mode = voiceProviderControlMode()) {
 
 function applyVoiceProviderControlContract(mode, contract) {
   state.voiceProviderControls = state.voiceProviderControls || { tts: null, voice_clone: null };
-  state.voiceProviderControls[mode] = contract || { controls: [], defaults: {}, control_ids: [] };
+  const normalized = contract || { status: 'unavailable', controls: [], defaults: {}, control_ids: [], errors: ['Provider-control contract is unavailable.'] };
+  state.voiceProviderControls[mode] = normalized;
   state.voiceDraft.provider_controls = state.voiceDraft.provider_controls || { tts: {}, voice_clone: {} };
-  const allowed = new Set((contract?.control_ids || []).map(String));
+
+  // A transient discovery/transport failure must not erase a user's existing
+  // model-specific draft. The unavailable contract blocks serialization through
+  // voiceProviderControlsDraftPayload(), while the draft is preserved for retry.
+  const status = String(normalized.status || 'ready').trim().toLowerCase();
+  if (['unavailable', 'invalid', 'invalid_profile', 'error', 'failed', 'loading'].includes(status)) return;
+
+  const allowed = new Set((normalized.control_ids || []).map(String));
   const current = state.voiceDraft.provider_controls[mode] || {};
   const next = {};
   Object.entries(current).forEach(([key, value]) => { if (allowed.has(String(key))) next[key] = value; });
-  Object.entries(contract?.defaults || {}).forEach(([key, value]) => { if (next[key] === undefined) next[key] = value; });
+  Object.entries(normalized.defaults || {}).forEach(([key, value]) => { if (next[key] === undefined) next[key] = value; });
   state.voiceDraft.provider_controls[mode] = next;
+}
+
+function voiceProviderControlFallbackContract(mode, status = 'unavailable', message = '') {
+  return {
+    schema_id: 'neo.voice.provider_controls.v1',
+    surface: 'voice',
+    mode,
+    profile_id: voiceBackendProfileId(),
+    model_id: voiceEffectiveModelId() === 'provider_default' ? '' : voiceEffectiveModelId(),
+    status,
+    controls: [],
+    control_ids: [],
+    defaults: {},
+    errors: message ? [message] : [],
+  };
+}
+
+function voiceSelectedModelSupportsProviderMode(mode) {
+  const effectiveModel = voiceEffectiveModelId();
+  const record = voiceSelectedModelRecord();
+  if (!record || !effectiveModel || effectiveModel === 'provider_default') return mode !== 'voice_clone' || voiceCloneRouteSupported();
+  const tasks = Array.isArray(record.tasks) ? record.tasks.map((item) => String(item || '').trim().toLowerCase()) : [];
+  return tasks.includes(String(mode || '').trim().toLowerCase());
+}
+
+function voiceShouldLoadCloneProviderControls() {
+  if (!voiceCloneRouteSupported() || !voiceSelectedModelSupportsProviderMode('voice_clone')) return false;
+  const workspaceId = getSurfaceWorkspaceAppId('voice');
+  const orchestrationMode = ['dialogue', 'batch'].includes(voiceDialogueMode()) && workspaceId === 'generation';
+  return workspaceId === 'reference' || orchestrationMode;
 }
 
 async function refreshVoiceProviderControls({ renderAfter = false } = {}) {
   const profileId = voiceBackendProfileId();
+  const requestedModelId = voiceEffectiveModelId();
   const providerControlQuery = (mode) => {
     const params = new URLSearchParams();
     if (profileId) params.set('profile_id', profileId);
     params.set('mode', mode);
+    const modelId = requestedModelId;
+    if (modelId && modelId !== 'provider_default') params.set('model_id', modelId);
     return `?${params.toString()}`;
   };
+
+  const cloneRequested = voiceShouldLoadCloneProviderControls();
+  state.voiceProviderControls = state.voiceProviderControls || { tts: null, voice_clone: null };
+  state.voiceProviderControls.tts = voiceProviderControlFallbackContract('tts', 'loading');
+  if (cloneRequested) state.voiceProviderControls.voice_clone = voiceProviderControlFallbackContract('voice_clone', 'loading');
+
+  const ttsFallback = voiceProviderControlFallbackContract('tts', 'unavailable', 'Provider-control discovery did not return a TTS contract.');
+  const cloneFallback = voiceProviderControlFallbackContract('voice_clone', 'unavailable', 'Provider-control discovery did not return a Voice Clone contract.');
   const [tts, clone] = await Promise.all([
-    loadJson(`/api/voice/provider-controls${providerControlQuery('tts')}`, null),
-    loadJson(`/api/voice/provider-controls${providerControlQuery('voice_clone')}`, null),
+    loadJson(`/api/voice/provider-controls${providerControlQuery('tts')}`, ttsFallback),
+    cloneRequested
+      ? loadJson(`/api/voice/provider-controls${providerControlQuery('voice_clone')}`, cloneFallback)
+      : Promise.resolve(voiceProviderControlFallbackContract('voice_clone', 'ready')),
   ]);
-  if (profileId !== voiceBackendProfileId()) return null;
-  applyVoiceProviderControlContract('tts', tts);
-  applyVoiceProviderControlContract('voice_clone', clone);
+  if (profileId !== voiceBackendProfileId() || requestedModelId !== voiceEffectiveModelId()) return null;
+  applyVoiceProviderControlContract('tts', tts || ttsFallback);
+  applyVoiceProviderControlContract('voice_clone', clone || cloneFallback);
   if (renderAfter) render();
   return { tts, voice_clone: clone };
 }
@@ -52786,11 +53241,36 @@ function voiceProviderControlFieldHtml(control, mode) {
   const id = String(control.id || '');
   const value = voiceProviderControlsDraftPayload(mode)[id] ?? control.default ?? '';
   const attrs = `data-voice-provider-control="${escapeAttr(id)}" data-voice-provider-mode="${escapeAttr(mode)}"`;
+  const placeholder = escapeAttr(control.placeholder || '');
   if (control.type === 'boolean') return `<label>${escapeHtml(control.label || id)}${optionSelect(`voiceProvider_${mode}_${id}`, [{id:'true',label:'Enabled'},{id:'false',label:'Disabled'}], String(Boolean(value)))}</label>`.replace('<select ', `<select ${attrs} `);
+  if (control.type === 'select') return `<label>${escapeHtml(control.label || id)}${optionSelect(`voiceProvider_${mode}_${id}`, Array.isArray(control.options) ? control.options : [], String(value || ''))}</label>`.replace('<select ', `<select ${attrs} `);
   if (control.type === 'json') return `<label>${escapeHtml(control.label || id)}<textarea rows="4" ${attrs} placeholder='{"key":"value"}'>${escapeHtml(JSON.stringify(value || {}, null, 2))}</textarea></label>`;
-  if (control.type === 'tags') return `<label>${escapeHtml(control.label || id)}<input ${attrs} value="${escapeAttr(Array.isArray(value) ? value.join(', ') : value || '')}" placeholder="tag one, tag two"></label>`;
+  if (control.type === 'tags') return `<label>${escapeHtml(control.label || id)}<input ${attrs} value="${escapeAttr(Array.isArray(value) ? value.join(', ') : value || '')}" placeholder="${placeholder || 'tag one, tag two'}"></label>`;
   if (control.type === 'number' || control.type === 'integer') return `<label>${escapeHtml(control.label || id)}<input type="number" ${attrs} min="${escapeAttr(control.min ?? '')}" max="${escapeAttr(control.max ?? '')}" step="${escapeAttr(control.step ?? (control.type === 'integer' ? 1 : 0.05))}" value="${escapeAttr(value)}"></label>`;
-  return `<label>${escapeHtml(control.label || id)}<input ${attrs} maxlength="${escapeAttr(control.max_length || 500)}" value="${escapeAttr(value || '')}"></label>`;
+  const maxLength = Number(control.max_length || 500);
+  const multiline = control.multiline === true || Number(control.rows || 0) > 1 || maxLength > 500;
+  if (multiline) {
+    const rows = Math.max(3, Math.min(8, Number(control.rows || 4)));
+    return `<label>${escapeHtml(control.label || id)}<textarea rows="${rows}" ${attrs} maxlength="${escapeAttr(maxLength)}" placeholder="${placeholder}">${escapeHtml(value || '')}</textarea></label>`;
+  }
+  return `<label>${escapeHtml(control.label || id)}<input ${attrs} maxlength="${escapeAttr(maxLength)}" value="${escapeAttr(value || '')}" placeholder="${placeholder}"></label>`;
+}
+
+function voiceProviderControlSectionHtml(mode) {
+  const contract = voiceProviderControlContract(mode);
+  const controls = Array.isArray(contract.controls) ? contract.controls : [];
+  const title = mode === 'voice_clone' ? 'Clone turn controls' : 'TTS turn controls';
+  const status = String(contract.status || 'ready').trim().toLowerCase();
+  if (status === 'loading') {
+    return `<div class="neo-ui-card compact"><strong>${title}</strong>${badgeRow(['Loading controls'])}<p class="neo-muted">Reading the selected model's provider-control contract…</p></div>`;
+  }
+  if (['unavailable', 'invalid', 'invalid_profile', 'error', 'failed'].includes(status)) {
+    const errors = Array.isArray(contract.errors) ? contract.errors.filter(Boolean) : [];
+    const detail = errors.length ? String(errors[0]) : 'The selected backend did not return a usable provider-control contract.';
+    return `<div class="neo-ui-card compact"><strong>${title}</strong>${badgeRow(['Controls unavailable', contract.model_id ? 'Model-scoped' : 'Profile-scoped'])}<p class="neo-muted">${escapeHtml(detail)}</p></div>`;
+  }
+  if (!controls.length) return `<div class="neo-ui-card compact"><strong>${title}</strong>${badgeRow(['No extra controls', contract.model_id ? 'Model-scoped' : 'Profile-scoped'])}<p class="neo-muted">The selected model/backend does not declare additional controls for this mode.</p></div>`;
+  return `<div class="neo-ui-card compact"><strong>${title}</strong>${badgeRow([`${controls.length} supported`, contract.model_id ? 'Model-scoped' : 'Profile-scoped'])}</div><div class="neo-ui-field-grid two compact">${controls.map((control) => voiceProviderControlFieldHtml(control, mode)).join('')}</div>`;
 }
 
 function voiceProviderControlsPanelHtml() {
@@ -52798,17 +53278,14 @@ function voiceProviderControlsPanelHtml() {
   const orchestrationMode = ['dialogue', 'batch'].includes(voiceDialogueMode()) && getSurfaceWorkspaceAppId('voice') === 'generation';
   const modes = orchestrationMode
     ? ['tts', ...(voiceCloneRouteSupported() ? ['voice_clone'] : [])]
-    : [voiceProviderControlMode()];
-  const sections = modes.map((mode) => {
-    const contract = voiceProviderControlContract(mode);
-    const controls = Array.isArray(contract.controls) ? contract.controls : [];
-    if (!controls.length) return `<div class="neo-ui-card compact"><strong>${mode === 'voice_clone' ? 'Clone turn controls' : 'TTS turn controls'}</strong><p class="neo-muted">No additional provider-specific controls are exposed for this mode.</p></div>`;
-    return `<div class="neo-ui-card compact"><strong>${mode === 'voice_clone' ? 'Clone turn controls' : 'TTS turn controls'}</strong>${badgeRow([`${controls.length} supported`, 'Profile-scoped'])}</div><div class="neo-ui-field-grid two compact">${controls.map((control) => voiceProviderControlFieldHtml(control, mode)).join('')}</div>`;
-  }).join('');
+    : ['tts'];
+  const sections = modes.map((mode) => voiceProviderControlSectionHtml(mode)).join('');
   const mode = voiceDialogueMode();
   const phaseSuffix = mode === 'dialogue' ? ' · Dialogue' : mode === 'batch' ? ' · Batch' : '';
-  const modeBadge = mode === 'dialogue' ? 'Dialogue mode' : mode === 'batch' ? 'Batch defaults' : (modes[0] === 'voice_clone' ? 'Clone controls' : 'TTS controls');
-  return `<div class="neo-parameter-stack" data-testid="voice-r8-provider-controls"><div class="neo-ui-card compact"><span class="neo-card-kicker">Voice${phaseSuffix}</span><strong>Provider Controls · ${escapeHtml(profile.display_name || profile.provider_id || '')}</strong><p>These controls come from the selected backend profile and apply only to that provider. Dialogue and Batch keep their own per-turn voice controls.</p>${badgeRow([modeBadge, 'Profile-scoped', 'Cross-backend replay clears'])}</div>${sections}</div>`;
+  const modeBadge = mode === 'dialogue' ? 'Dialogue mode' : mode === 'batch' ? 'Batch defaults' : 'TTS controls';
+  const selectedModel = voiceSelectedModelRecord();
+  const scopeBadge = selectedModel && voiceEffectiveModelId() !== 'provider_default' ? 'Selected-model scoped' : 'Profile-scoped';
+  return `<div class="neo-parameter-stack" data-testid="voice-r8-provider-controls"><div class="neo-ui-card compact"><span class="neo-card-kicker">Voice${phaseSuffix}</span><strong>Generation Provider Controls · ${escapeHtml(profile.display_name || profile.provider_id || '')}</strong><p>The persistent Script and Common Parameters rail always represents the TTS generation draft. Model-specific controls here therefore remain bound to TTS even while Assets, Reference, Finish, or Results is open. Clone-specific controls are owned by the Reference workspace.</p>${badgeRow([modeBadge, scopeBadge, 'Cross-backend replay clears'])}</div>${sections}</div>`;
 }
 
 function voiceAdapterQuery(profileId = voiceBackendProfileId()) {
@@ -52872,7 +53349,7 @@ async function refreshVoiceProviderRouting({ renderAfter = true, resetInvalidSel
   const payload = await loadJson(`/api/voice/provider-routing${voiceAdapterQuery(profileId)}`, null);
   if (requestEpoch !== voiceProviderRoutingRequestEpoch || profileId !== voiceBackendProfileId()) return null;
   applyVoiceProviderRoutingPayload(payload, { resetInvalidSelections });
-  await refreshVoiceProviderControls({ renderAfter: false });
+  await refreshVoiceSelectedModelContext({ renderAfter: false });
   await refreshVoiceDialogueCapabilities({ renderAfter: false });
   await refreshVoiceBatchRuntime({ renderAfter: false, loadHistory: false });
   if (state.voiceProfileAssets) await refreshVoiceProfileAssets({ renderAfter: false, selectAssetId: state.voiceSelectedProfileAssetId || state.voiceDraft.profile_asset_id || '' });
@@ -52982,13 +53459,15 @@ async function pollVoiceGenerationJob(jobId, pollEpoch = voiceGenerationPollEpoc
   const result = await loadJson(`/api/voice/generation/jobs/${encodeURIComponent(jobId)}`, null);
   if (pollEpoch !== voiceGenerationPollEpoch || !result) return;
   state.voiceLastJob = result;
-  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 20));
-  setWorkspaceProgress(result.message || result.status || 'Voice generation', Number.isFinite(percent) ? percent : 20, { allowBackwards: false });
+  const status = String(result.status || '').toLowerCase();
+  const terminal = ['completed','failed','cancelled','canceled','missing'].includes(status);
+  const percent = Number(result.progress?.percent ?? (status === 'completed' ? 100 : terminal ? 0 : 20));
+  const progressStatus = status === 'completed' ? 'completed' : ['cancelled','canceled'].includes(status) ? 'cancelled' : terminal ? 'failed' : 'running';
+  setWorkspaceProgress(result.message || result.status || 'Voice generation', Number.isFinite(percent) ? percent : (terminal ? 0 : 20), { allowBackwards: terminal, status: progressStatus });
   saveUiState();
-  const terminal = ['completed','failed','cancelled','canceled','missing'].includes(String(result.status || '').toLowerCase());
   recordMemoryEvent(terminal ? 'voice.generation.completed_poll' : 'voice.generation.polled', 'voice', { phase: 'VO-R4', job_id: result.job_id || jobId, status: result.status || '', progress: result.progress?.percent ?? null });
   if (terminal) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || jobId });
-  render();
+  renderSurfaceUpdate('voice');
   if (!terminal) voiceGenerationPollTimer = window.setTimeout(() => pollVoiceGenerationJob(jobId, pollEpoch), 1400);
 }
 
@@ -53008,13 +53487,19 @@ async function submitVoiceGeneration() {
   const result = await response.json().catch(() => ({ status: 'failed', message: 'Voice generation returned no JSON response.', outputs: [] }));
   state.voiceLastJob = result;
   state.voicePreviewStale = false;
-  const percent = Number(result.progress?.percent ?? (result.status === 'completed' ? 100 : 12));
-  setWorkspaceProgress(result.message || result.status || 'Voice generation submitted', Number.isFinite(percent) ? percent : 12, { allowBackwards: true });
+  const status = String(result.status || '').toLowerCase();
+  const pending = ['queued','running'].includes(status);
+  const completed = status === 'completed';
+  const cancelled = ['cancelled','canceled'].includes(status);
+  const terminal = !pending;
+  const percent = Number(result.progress?.percent ?? (completed ? 100 : terminal ? 0 : 12));
+  const progressStatus = completed ? 'completed' : cancelled ? 'cancelled' : terminal ? 'failed' : 'running';
+  setWorkspaceProgress(result.message || result.status || 'Voice generation submitted', Number.isFinite(percent) ? percent : (terminal ? 0 : 12), { allowBackwards: true, status: progressStatus });
   saveUiState();
   recordMemoryEvent('voice.generation.submitted', 'voice', { phase: 'VO-R4', profile_id: result.profile_id || profileId, provider_id: result.provider_id || '', job_id: result.job_id || '', status: result.status || '' });
-  if (['completed','failed','cancelled','canceled'].includes(String(result.status || '').toLowerCase())) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || '' });
+  if (terminal && result.job_id) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || '' });
   render();
-  if (['queued','running'].includes(String(result.status || '').toLowerCase()) && result.job_id) {
+  if (pending && result.job_id) {
     const pollEpoch = ++voiceGenerationPollEpoch;
     voiceGenerationPollTimer = window.setTimeout(() => pollVoiceGenerationJob(result.job_id, pollEpoch), 1200);
   }
@@ -53168,7 +53653,7 @@ async function pollVoiceDialogueJob(jobId, pollEpoch = voiceDialoguePollEpoch) {
     state.voiceDialogueDraft.notice = result.status === 'completed' ? 'Dialogue completed and selected in Results.' : '';
     state.voiceDialogueDraft.error = result.status === 'failed' ? (result.message || result.error || 'Dialogue failed.') : '';
   }
-  render();
+  renderSurfaceUpdate('voice');
   if (!terminal) voiceDialoguePollTimer = window.setTimeout(() => pollVoiceDialogueJob(jobId, pollEpoch), 1400);
 }
 
@@ -53501,7 +53986,7 @@ async function pollVoiceCloneJob(jobId, pollEpoch = voiceGenerationPollEpoch) {
   const terminal = ['completed','failed','cancelled','canceled','missing'].includes(String(result.status || '').toLowerCase());
   recordMemoryEvent(terminal ? 'voice.clone.completed_poll' : 'voice.clone.polled', 'voice', { phase: 'VO-R6', job_id: result.job_id || jobId, status: result.status || '', reference_id: result.reference?.reference_id || '' });
   if (terminal) await refreshVoiceResults({ renderAfter: false, selectJobId: result.job_id || jobId });
-  render();
+  renderSurfaceUpdate('voice');
   if (!terminal) voiceGenerationPollTimer = window.setTimeout(() => pollVoiceCloneJob(jobId, pollEpoch), 1400);
 }
 
@@ -53554,7 +54039,8 @@ function voiceR6ReferenceWorkspaceHtml() {
   const reference = voiceSelectedReferenceRecord();
   const notice = state.voiceReferenceNotice ? `<div class="neo-ui-card compact"><strong>Reference</strong><p>${escapeHtml(state.voiceReferenceNotice)}</p></div>` : '';
   const error = state.voiceReferenceError ? `<div class="neo-ui-card compact"><strong>Reference error</strong><p>${escapeHtml(state.voiceReferenceError)}</p></div>` : '';
-  return `<div class="neo-ui-card" data-testid="voice-r6-reference-runtime"><span class="neo-card-kicker">Reference</span><strong>Reference / Clone</strong><p>Reference audio is stored as a provider-independent Neo asset. Clone execution is available only when the selected backend advertises both reference audio and voice cloning.</p>${badgeRow([caps.reference_audio ? 'Reference supported' : 'Reference unsupported', caps.voice_clone ? 'Clone supported' : 'Clone unsupported', routing.health?.reachable ? 'Backend reachable' : 'Backend disconnected', reference?.clone_ready ? 'Selected reference ready' : 'Reference not ready'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6RefreshReferencesBtn">Refresh References</button><button type="button" class="neo-btn primary" id="voiceR6GenerateCloneBtn" ${voiceCloneCanRun() ? '' : 'disabled aria-disabled="true"'}>Generate Clone</button></div></div>${notice}${error}<div class="neo-ui-card"><strong>Upload Reference</strong><p>Use a clean single-speaker clip. Neo requires explicit authorization confirmation before the asset can be used for cloning.</p><div class="neo-ui-field-grid two compact"><label>Reference Audio<input id="voiceR6ReferenceFile" type="file" accept="audio/*"></label><label>Label<input id="voiceR6ReferenceLabel" placeholder="Optional voice label"></label></div><label>Optional Transcript<textarea id="voiceR6ReferenceTranscript" rows="2" placeholder="Exact words spoken in the clip, if known"></textarea></label><label class="neo-voice-rights-check"><input id="voiceR6RightsConfirmed" type="checkbox"> I confirm I am authorized to use this voice reference for cloning.</label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6UploadReferenceBtn">Upload + Analyze</button></div></div>${voiceR6ReferenceLedgerHtml()}${voiceR6SelectedReferenceHtml()}`;
+  const cloneControls = `<div class="neo-parameter-stack" data-testid="voice-reference-provider-controls"><div class="neo-ui-card compact"><strong>Reference / Clone Provider Controls</strong><p>Clone-only provider controls are scoped to the Reference action and never replace the persistent TTS generation controls.</p></div>${voiceProviderControlSectionHtml('voice_clone')}</div>`;
+  return `<div class="neo-ui-card" data-testid="voice-r6-reference-runtime"><span class="neo-card-kicker">Reference</span><strong>Reference / Clone</strong><p>Reference audio is stored as a provider-independent Neo asset. Clone execution is available only when the selected backend advertises both reference audio and voice cloning.</p>${badgeRow([caps.reference_audio ? 'Reference supported' : 'Reference unsupported', caps.voice_clone ? 'Clone supported' : 'Clone unsupported', routing.health?.reachable ? 'Backend reachable' : 'Backend disconnected', reference?.clone_ready ? 'Selected reference ready' : 'Reference not ready'])}<div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6RefreshReferencesBtn">Refresh References</button><button type="button" class="neo-btn primary" id="voiceR6GenerateCloneBtn" ${voiceCloneCanRun() ? '' : 'disabled aria-disabled="true"'}>Generate Clone</button></div></div>${notice}${error}${cloneControls}<div class="neo-ui-card"><strong>Upload Reference</strong><p>Use a clean single-speaker clip. Neo requires explicit authorization confirmation before the asset can be used for cloning.</p><div class="neo-ui-field-grid two compact"><label>Reference Audio<input id="voiceR6ReferenceFile" type="file" accept="audio/*"></label><label>Label<input id="voiceR6ReferenceLabel" placeholder="Optional voice label"></label></div><label>Optional Transcript<textarea id="voiceR6ReferenceTranscript" rows="2" placeholder="Exact words spoken in the clip, if known"></textarea></label><label class="neo-voice-rights-check"><input id="voiceR6RightsConfirmed" type="checkbox"> I confirm I am authorized to use this voice reference for cloning.</label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="voiceR6UploadReferenceBtn">Upload + Analyze</button></div></div>${voiceR6ReferenceLedgerHtml()}${voiceR6SelectedReferenceHtml()}`;
 }
 
 function voiceProfileAssetItems() {
@@ -53747,6 +54233,66 @@ function activeVoiceWorkspaceSummary(subtab = activeSubtab(activeSurface())) {
 
 
 
+function voiceEffectiveModelId() {
+  const selected = String(state.voiceDraft.model_id || 'provider_default');
+  if (selected !== 'provider_default') return selected;
+  return String(state.voiceModels?.resolved_default_id || state.voiceProviderRouting?.models?.resolved_default_id || 'provider_default');
+}
+
+function voiceSelectedModelRecord() {
+  const id = voiceEffectiveModelId();
+  const records = Array.isArray(state.voiceModels?.models) ? state.voiceModels.models : [];
+  return records.find((item) => String(item?.id || '') === id) || null;
+}
+
+function voiceSelectedModelIsQwenCustomVoice() {
+  return /^qwen3_tts_(06b|17b)_custom_voice$/i.test(voiceEffectiveModelId());
+}
+
+function voiceLanguageOptions() {
+  const contract = voiceProviderControlContract('tts');
+  const mapped = contract?.common_controls?.language;
+  if (mapped?.type === 'select' && Array.isArray(mapped.options) && mapped.options.length) {
+    return mapped.options.map((item) => ({ id: String(item.id || ''), label: String(item.label || item.id || '') })).filter((item) => item.id);
+  }
+  const record = voiceSelectedModelRecord();
+  const labels = { auto:'Auto', zh:'Chinese', en:'English', ja:'Japanese', ko:'Korean', de:'German', fr:'French', ru:'Russian', pt:'Portuguese', es:'Spanish', it:'Italian' };
+  const langs = Array.isArray(record?.languages) ? record.languages.map(String).filter(Boolean) : [];
+  if (voiceSelectedModelIsQwenCustomVoice() && langs.length) return [{id:'auto',label:'Auto'}, ...langs.map((id) => ({ id, label: labels[id] || id }))];
+  return [];
+}
+
+function sanitizeVoiceForSelectedModel() {
+  const selectedVoice = String(state.voiceDraft.voice_id || 'provider_default');
+  if (selectedVoice === 'provider_default') return;
+  const valid = new Set(voiceVoiceOptions().map((item) => String(item.id || '')));
+  if (!valid.has(selectedVoice)) state.voiceDraft.voice_id = 'provider_default';
+}
+
+async function refreshVoiceSelectedModelContext({ renderAfter = false } = {}) {
+  const modelId = voiceEffectiveModelId();
+  const profile = state.voiceProviderRouting?.profile || {};
+  if (modelId && modelId !== 'provider_default') {
+    const params = new URLSearchParams();
+    if (voiceBackendProfileId()) params.set('profile_id', voiceBackendProfileId());
+    params.set('family', modelId);
+    if (profile.provider_id) params.set('runtime', profile.provider_id);
+    const caps = await loadJson(`/api/voice/capabilities?${params.toString()}`, null);
+    if (caps) state.voiceCapabilities = caps;
+  }
+  await refreshVoiceProviderControls({ renderAfter: false });
+  const ttsContract = voiceProviderControlContract('tts');
+  if (voiceSelectedModelIsQwenCustomVoice()) {
+    const mappedVoice = String(ttsContract?.common_controls?.voice_id?.default || '');
+    const mappedLanguage = String(ttsContract?.common_controls?.language?.default || '');
+    if ((!state.voiceDraft.voice_id || state.voiceDraft.voice_id === 'provider_default') && mappedVoice) state.voiceDraft.voice_id = mappedVoice;
+    const languageOptions = voiceLanguageOptions();
+    if (mappedLanguage && languageOptions.length && !languageOptions.some((item) => item.id === String(state.voiceDraft.language || ''))) state.voiceDraft.language = mappedLanguage;
+  }
+  sanitizeVoiceForSelectedModel();
+  if (renderAfter) render();
+}
+
 function voiceModelOptions() {
   const records = Array.isArray(state.voiceModels?.models) ? state.voiceModels.models : [];
   const options = records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })).filter((item) => item.id);
@@ -53768,7 +54314,15 @@ function activeVoiceProfileRecord() {
 
 function voiceVoiceOptions() {
   const records = Array.isArray(state.voiceVoices?.voices) ? state.voiceVoices.voices : [];
-  const options = records.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })).filter((item) => item.id);
+  const effectiveModel = voiceEffectiveModelId();
+  const filtered = records.filter((item) => {
+    const id = String(item?.id || '');
+    if (id === 'provider_default') return true;
+    const modelIds = Array.isArray(item?.model_ids) ? item.model_ids.map(String) : [];
+    if (!modelIds.length || effectiveModel === 'provider_default') return true;
+    return modelIds.includes(effectiveModel);
+  });
+  const options = filtered.map((item) => ({ id: item.id || item.name || item.label, label: item.label || item.name || item.id })).filter((item) => item.id);
   if (!options.some((item) => item.id === 'provider_default')) options.unshift({ id: 'provider_default', label: 'Provider Default' });
   return options.length ? options : [{ id: 'provider_default', label: 'Provider Default' }];
 }
@@ -54218,7 +54772,7 @@ async function pollVoiceBatchRuntime(batchId, pollEpoch = voiceBatchPollEpoch) {
     await refreshVoiceResults({ renderAfter: false });
   }
   recordMemoryEvent(terminal ? 'voice.batch.completed' : 'voice.batch.polled', 'voice', { phase: 'VO-R11', batch_id: batchId, status: result.status || '', percent: Number.isFinite(percent) ? percent : null });
-  render();
+  renderSurfaceUpdate('voice');
   if (!terminal) voiceBatchPollTimer = window.setTimeout(() => pollVoiceBatchRuntime(batchId, pollEpoch), 1400);
 }
 
@@ -54316,8 +54870,13 @@ function voiceCommonScriptPanelHtml() {
   const modelControl = voiceCommonControlState('model_id');
   const voiceControl = voiceCommonControlState('voice_id');
   const languageValue = languageControl.mode === 'fixed' && languageControl.fixed_value ? languageControl.fixed_value : (common.language || 'en');
-  const languageHint = languageControl.mode === 'fixed' ? `Fixed by selected profile: ${languageValue}` : 'Provider-routed locale';
-  return `<div class="neo-voice-common-script" data-testid="voice-r4-script-panel"><label>Script<textarea id="voiceScriptBody" rows="10" maxlength="100000" placeholder="Paste narration or voiceover text here.">${escapeHtml(script)}</textarea></label><div class="neo-ui-field-grid three compact"><label>Language / Locale <span class="neo-field-hint">${escapeHtml(languageHint)}</span><input id="voiceLanguage" maxlength="32" value="${escapeAttr(languageValue)}" placeholder="en" ${languageControl.enabled === false ? 'disabled aria-disabled="true"' : ''}></label><label>Model <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceModelId', voiceModelOptions(), common.model_id || 'provider_default', modelControl.enabled !== false && voiceRoutingReady())}</label><label>Voice / Speaker <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceSourceId', voiceVoiceOptions(), common.voice_id || 'provider_default', voiceControl.enabled !== false && voiceRoutingReady())}</label></div>${badgeRow([`${wordCount} words`, `${charCount} chars`, approxSeconds ? `~${approxSeconds}s read` : 'No script yet', voiceRoutingReady() ? 'Provider mapping: active' : 'Provider mapping: unavailable'])}</div>`;
+  const languageOptions = voiceLanguageOptions();
+  const qwenLanguageSelect = voiceSelectedModelIsQwenCustomVoice() && languageOptions.length;
+  const languageHint = languageControl.mode === 'fixed' ? `Fixed by selected profile: ${languageValue}` : (qwenLanguageSelect ? 'Qwen model languages' : 'Provider-routed locale');
+  const languageField = qwenLanguageSelect
+    ? voiceOptionSelect('voiceLanguage', languageOptions, languageOptions.some((item) => item.id === languageValue) ? languageValue : 'auto', languageControl.enabled !== false && voiceRoutingReady())
+    : `<input id="voiceLanguage" maxlength="32" value="${escapeAttr(languageValue)}" placeholder="en" ${languageControl.enabled === false ? 'disabled aria-disabled="true"' : ''}>`;
+  return `<div class="neo-voice-common-script" data-testid="voice-r4-script-panel"><label>Script<textarea id="voiceScriptBody" rows="10" maxlength="100000" placeholder="Paste narration or voiceover text here.">${escapeHtml(script)}</textarea></label><div class="neo-ui-field-grid three compact"><label>Language / Locale <span class="neo-field-hint">${escapeHtml(languageHint)}</span>${languageField}</label><label>Model <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceModelId', voiceModelOptions(), common.model_id || 'provider_default', modelControl.enabled !== false && voiceRoutingReady())}</label><label>Voice / Speaker <span class="neo-field-hint">selected profile only</span>${voiceOptionSelect('voiceSourceId', voiceVoiceOptions(), common.voice_id || 'provider_default', voiceControl.enabled !== false && voiceRoutingReady())}</label></div>${badgeRow([`${wordCount} words`, `${charCount} chars`, approxSeconds ? `~${approxSeconds}s read` : 'No script yet', voiceSelectedModelIsQwenCustomVoice() ? 'Qwen CustomVoice' : (voiceRoutingReady() ? 'Provider mapping: active' : 'Provider mapping: unavailable')])}</div>`;
 }
 
 function voiceCommonAudioPreviewPanelHtml() {
@@ -54561,6 +55120,7 @@ function renderVoicePanels(surface, subtab) {
     setSurfaceWorkspaceAppId('voice', requested);
     saveUiState();
     recordMemoryEvent('voice.workspace_app.opened', 'voice', { workspace_app: requested });
+    await refreshVoiceProviderControls({ renderAfter: false });
     render();
   });
   document.getElementById('voiceWorkspaceGenerationMode')?.addEventListener('change', async (event) => {
@@ -54709,7 +55269,13 @@ function bindVoiceDraftInputs() {
       saveUiState();
       const commonFields = new Set(['script_body','language','model_id','voice_id','speaking_rate','output_format','split_long_text','max_chunk_chars','punctuation_cleanup']);
       recordMemoryEvent(commonFields.has(key) ? 'voice.common_settings.changed' : 'voice.runtime_field.changed', 'voice', { field: key, phase: commonFields.has(key) ? 'VO-R2' : 'legacy_compatibility' });
-      if (['voiceSourceType','voiceOutputFormat','voiceModelId','voiceSplitLongText','voiceReferenceId','voiceSavedProfileId'].includes(id)) { if (id === 'voiceSourceType' && value === 'reference_clone') state.voiceDraft.job_type = 'clone_voice'; if (id === 'voiceSourceType' && value === 'saved_profile') state.voiceDraft.job_type = 'generate_speech'; if (id === 'voiceSavedProfileId') applyVoiceProfileDraft(value, false); render(); }
+      if (['voiceSourceType','voiceOutputFormat','voiceModelId','voiceSplitLongText','voiceReferenceId','voiceSavedProfileId'].includes(id)) {
+        if (id === 'voiceSourceType' && value === 'reference_clone') state.voiceDraft.job_type = 'clone_voice';
+        if (id === 'voiceSourceType' && value === 'saved_profile') state.voiceDraft.job_type = 'generate_speech';
+        if (id === 'voiceSavedProfileId') applyVoiceProfileDraft(value, false);
+        if (id === 'voiceModelId') { state.voiceDraft.voice_id = 'provider_default'; refreshVoiceSelectedModelContext({ renderAfter: true }); }
+        else render();
+      }
     });
   });
   document.getElementById('voiceUploadReferenceBtn')?.addEventListener('click', uploadVoiceReferenceFile);
@@ -55964,12 +56530,12 @@ async function pollPromptCaptioningBatchStatus(jobId) {
     updatePromptCaptioningBatchDisplay(data);
     const status = String(data.status || data.job?.status || '').toLowerCase();
     if (['completed', 'completed_with_errors', 'failed', 'cancelled', 'interrupted', 'idle'].includes(status)) stopPromptCaptioningBatchPolling();
-    render();
+    renderSurfaceUpdate('prompt_captioning');
   } catch (error) {
     batch.status = `Batch status error: ${error.message}`;
     batch.log = batch.status;
     stopPromptCaptioningBatchPolling();
-    render();
+    renderSurfaceUpdate('prompt_captioning');
   }
 }
 
@@ -60441,7 +61007,7 @@ async function handleImageWatchdogDetach(profileId, jobId, watch, result = {}) {
   saveUiState();
   clearImageProgressWatchdog();
   updateImageGenerationControls();
-  render();
+  renderSurfaceUpdate('image');
   setWorkspaceProgress(recovery.label, 100, { batchDone: state.imageResults.length, allowBackwards: true });
   recordMemoryEvent('image.generation.progress_watchdog_recovery_available', 'image', { profile_id: profileId, job_id: jobId, reason: recovery.reason });
   return { ...(result || {}), status: 'watchdog_recovery_available', neo_recovery: recovery, job_id: jobId, profile_id: profileId };
@@ -60769,7 +61335,8 @@ function pruneImageParamsForActiveRoute(params = {}, draft = state.imageDraft ||
 function imageRouteUiSnapshot(params = {}) {
   const profile = activeImageParameterProfile();
   const fields = activeImageParameterFields();
-  const visibleFields = fields.map((field) => field.field_id).filter(Boolean);
+  const topologyFields = activeImageComponentTopologyFields().map((component) => component.field_id).filter(Boolean);
+  const visibleFields = [...new Set([...fields.map((field) => field.field_id).filter(Boolean), ...topologyFields])];
   const hiddenFields = Array.isArray(profile?.hidden_fields) ? profile.hidden_fields : [];
   return {
     visible_fields: visibleFields,
@@ -60780,6 +61347,63 @@ function imageRouteUiSnapshot(params = {}) {
   };
 }
 
+function imageTopologyComponentDraftValue(component = {}) {
+  const fieldId = String(component.field_id || '').trim();
+  if (!fieldId) return '';
+  const key = imageFieldDraftKey(fieldId);
+  return state.imageDraft[key] ?? state.imageDraft[fieldId] ?? '';
+}
+
+function applyImageComponentTopologyParams(params = {}) {
+  const topology = activeImageComponentTopology();
+  if (!topology || !Array.isArray(topology.components)) return params;
+  topology.components.forEach((component) => {
+    const fieldId = String(component.field_id || '').trim();
+    if (!fieldId) return;
+    const value = imageTopologyComponentDraftValue(component);
+    if (value === undefined || value === null || value === '') return;
+    params[fieldId] = value;
+    const role = String(component.role_id || '').trim();
+    if (fieldId === 'qwen_text_encoder') params.text_encoder_1 = value;
+    if (fieldId === 'qwen3_text_encoder') params.text_encoder_1 = value;
+    if (fieldId === 'qwen3vl_text_encoder') {
+      params.text_encoder_1 = value;
+      params.text_encoder_primary = value;
+    }
+    const roleAliases = {
+      sd3_clip_l: 'sd3_clip_l',
+      sd3_clip_g: 'sd3_clip_g',
+      sd3_t5xxl: 'sd3_t5xxl',
+      hidream_clip_l: 'hidream_clip_l',
+      hidream_clip_g: 'hidream_clip_g',
+      hidream_t5xxl: 'hidream_t5xxl',
+      hidream_llama_3_1_8b: 'hidream_llama_3_1_8b',
+      mistral3_text_encoder: 'mistral3_text_encoder',
+      umt5_text_encoder: 'umt5_text_encoder',
+      anima_qwen3_06b_text_encoder: 'anima_qwen3_06b_text_encoder',
+      ideogram4_qwen3_vl_text_encoder: 'ideogram4_qwen3_vl_text_encoder',
+      qwen_image_vae: 'qwen_image_vae',
+      wan_vae: 'wan_vae',
+      flux2_vae: 'flux2_vae',
+      sd3_vae: 'sd3_vae',
+    };
+    if (roleAliases[role]) params[roleAliases[role]] = value;
+    if (Array.isArray(component.role_aliases)) component.role_aliases.forEach((alias) => {
+      if (roleAliases[alias]) params[roleAliases[alias]] = value;
+    });
+  });
+  params._neo_image_component_topology = {
+    schema: topology.schema || 'neo.image.component_topology.v1',
+    family: topology.family || state.imageDraft.family || '',
+    loader: topology.loader || state.imageDraft.loader || '',
+    mode: topology.mode || activeImageMode(),
+    artifact_format: topology.artifact_format || '',
+    load_strategy: topology.load_strategy || '',
+    required_fields: topology.components.filter((component) => component.required).map((component) => component.field_id),
+  };
+  return params;
+}
+
 function parameterProfileParams() {
   const fields = activeImageParameterFields();
   const params = {};
@@ -60787,6 +61411,7 @@ function parameterProfileParams() {
     const key = imageFieldDraftKey(field.field_id);
     if (state.imageDraft[key] !== undefined) params[key] = state.imageDraft[key];
   });
+  applyImageComponentTopologyParams(params);
   const primaryKey = imagePrimaryModelFieldId();
   const primaryValue = state.imageDraft[primaryKey] || state.imageDraft.model || 'provider_default';
   params.model = primaryValue;
@@ -62071,7 +62696,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     // toolbar evaluation captured before that live connection cannot remain
     // stale and keep High-Res/ADetailer/Upscale disabled.
     await refreshImagePreviewActionEvaluation(profileId).catch(() => null);
-    render();
+    renderSurfaceUpdate('image');
     recordMemoryEvent('image.generation.completed', 'image', { profile_id: profileId, job_id: jobId, outputs: state.imageResults.length, status: result.status });
     return result;
   }
@@ -62089,7 +62714,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     state.activeImageJob = null;
     updateImageGenerationControls();
     await refreshImagePreviewActionEvaluation(profileId).catch(() => null);
-    render();
+    renderSurfaceUpdate('image');
     recordMemoryEvent('image.generation.output_import_failed', 'image', { profile_id: profileId, job_id: jobId, outputs: state.imageResults.length, status: result.status });
     return result;
   }
@@ -62130,6 +62755,39 @@ async function pollImageGeneration(profileId, jobId, attempt) {
   }
   await new Promise((resolve) => setTimeout(resolve, pollSettings.intervalMs));
   return pollImageGeneration(profileId, jobId, attempt + 1);
+}
+
+let neoDeferredSurfaceRender = null;
+
+function neoActiveEditingControl() {
+  const node = document.activeElement;
+  if (!node || node === document.body || node === document.documentElement) return null;
+  if (typeof node.matches !== 'function') return null;
+  return node.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]') ? node : null;
+}
+
+function renderSurfaceUpdate(surfaceId, { deferWhileEditing = true } = {}) {
+  const wanted = String(surfaceId || '').trim();
+  if (wanted && state.activeSurfaceId !== wanted) return false;
+  const activeControl = deferWhileEditing ? neoActiveEditingControl() : null;
+  if (activeControl) {
+    const activeSurfaceId = wanted || state.activeSurfaceId || '';
+    if (!neoDeferredSurfaceRender || neoDeferredSurfaceRender.node !== activeControl || neoDeferredSurfaceRender.surfaceId !== activeSurfaceId) {
+      neoDeferredSurfaceRender = { node: activeControl, surfaceId: activeSurfaceId };
+      activeControl.addEventListener('blur', () => {
+        const pending = neoDeferredSurfaceRender;
+        if (!pending || pending.node !== activeControl) return;
+        neoDeferredSurfaceRender = null;
+        window.setTimeout(() => {
+          if (state.activeSurfaceId === pending.surfaceId && !neoActiveEditingControl()) render();
+        }, 0);
+      }, { once: true });
+    }
+    return false;
+  }
+  neoDeferredSurfaceRender = null;
+  render();
+  return true;
 }
 
 function render() {

@@ -40,8 +40,8 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 7
-updated: 2026-08-07
+version: 8
+updated: 2026-08-21
 ---
 
 # Image Parameters
@@ -55,7 +55,7 @@ These controls decide which Image route Neo will validate and run.
 | Field | What it does | How to use it |
 |---|---|---|
 | **Model Family** | Selects the model family/workflow family, such as SDXL, SD 1.5, Flux 1, Flux 2 Klein, Krea 2 RAW, Krea 2 Turbo, Qwen Rapid AIO, Qwen Image Edit, ZImage, ZImage Turbo, or HiDream. | Choose this first. It controls which loaders, workflow modes, and parameter fields are allowed. |
-| **Main Model Type** | Selects the main file/loader contract for the family. Visible labels include **Safetensors / Checkpoint**, **Safetensors / Bundled**, **Safetensors / Components**, and **GGUF**. | Use Checkpoint for classic SDXL/SD 1.5 files, Bundled for all-in-one Qwen Rapid AIO models, Components for split model + text encoder + VAE workflows, and GGUF for quantized routes. |
+| **Main Model Type** | Selects the public main-model artifact format. Normal UI uses **Safetensors** or **GGUF**; Neo resolves the internal checkpoint/AIO/split-component strategy behind that choice. | Pick the actual main-model file format. Do not infer component needs from the extension: split Safetensors routes may still require text encoders, VAE/AE, companion models, or other assets. |
 | **Workflow Mode** | Selects the generation type. In the normal Image command strip this is usually **Generate**, **Img2Img**, **Inpaint**, or **Outpaint**. Internally, Generate maps to `txt2img`. | Use Generate for text-only creation, Img2Img to preserve a source image, Inpaint to edit a masked region, and Outpaint to expand/canvas extend an image. |
 | **Validate** | Runs the readiness/preflight checks without starting a generation. | Use this when a route says a model/source/mask/backend is missing. |
 | **Generate** | Starts the selected route. | Disabled when readiness fails or another image job is active. |
@@ -217,30 +217,33 @@ Use the dedicated guides for detailed behavior:
 
 The Qwen Rapid AIO field `qwen_rapid_aio_checkpoint` is a checkpoint-role field and receives options from the shared Comfy checkpoint catalog. For `checkpoint_aio`, normal UI shows only the bundled main model selector; external VAE and component selectors remain hidden.
 
-## Required Model Components — P2.2
+## Required Model Components — Phase 4.7
 
-When **Main Model Type** is **Safetensors / Components**, Neo may show a separate **Required Model Components** card.
+Neo resolves this card from the active **Model Family + internal load strategy + Workflow Mode** contract. The card is no longer tied to GGUF and is not hidden merely because the main model ends in `.safetensors`.
 
-| Control | Used by | What to select |
+| Control | Example routes | What to select |
 |---|---|---|
-| Primary Text Encoder | Flux 1, HiDream, and compatible component profiles | Exact installed primary/CLIP encoder from ComfyUI. |
-| Secondary Text Encoder | Flux 1 dual-encoder routes | Exact installed secondary/T5 encoder. |
-| Qwen Text Encoder | Qwen Image and Qwen Image Edit | Exact installed Qwen vision-language text encoder. |
-| Qwen3 Text Encoder | Flux 2 Klein, Z-Image, Z-Image Turbo | Exact installed Qwen3 encoder. |
-| Qwen3-VL-4B Text Encoder | Krea 2 RAW, Krea 2 Turbo | Exact installed Qwen3-VL-4B encoder. Neo requires a backend `CLIPLoader` that advertises `type=krea2`. |
-| Flux Guidance | Flux component routes | Flux-specific model guidance. It does not erase or silently replace an explicitly entered sampler CFG. |
-| Family Variant | Routes such as HiDream where a compiler variant is required | Select the variant supported by the current route. |
+| Text Encoder 1 / 2 | Flux 1, SD3.5, HiDream, other split routes | Exact installed encoder required by the family contract. |
+| Text Encoder 3 / 4 | SD3.5 / HiDream multi-encoder routes | Exact T5/LLM encoder required by that route. |
+| Qwen Text Encoder | Qwen Image/Edit native split Safetensors routes | Exact installed Qwen encoder. |
+| Qwen3 Text Encoder | Flux 2 Klein, ZImage / ZImage Turbo | Exact installed Qwen3 encoder. |
+| Qwen3-VL-4B Text Encoder | Krea 2 RAW / Turbo | Exact installed Qwen3-VL-4B encoder. Krea 2 keeps this encoder native/safetensors even when the transformer itself is GGUF. |
+| VAE / AE | Flux, Qwen, ZImage, Krea2, HiDream and other split routes | Exact decoder/autoencoder required by the route. The selector stays in the existing primary-model row rather than being duplicated in the component card. |
+| Unconditional Model | Ideogram 4 | Exact companion/unconditional model required by the dual-model topology. |
+| MMProj | Qwen image-conditioned routes that explicitly declare it | Select the matching projector only when the active route marks MMProj required/optional. Format alone does not control this field. |
 
-The main diffusion model and VAE/AE stay in the primary model row. A component route is ready only when every required file has been explicitly selected.
+Classic SDXL/SD 1.5 Safetensors checkpoints and Qwen Rapid AIO bundled Safetensors remain simple bundled routes, so Neo does not create an unnecessary split-component card for them.
 
-After adding models to ComfyUI:
+Quantized, INT, FP8, scaled, or reduced-precision `.safetensors` files are still Safetensors. If the family uses split components, keep selecting the required encoder(s)/VAE/companion files exactly as the route contract specifies.
 
-1. Confirm the file is in the correct Comfy model folder.
-2. Refresh or reconnect the Neo backend profile.
+The main model and component selectors use live Comfy/Admin catalogs. After adding model files:
+
+1. Put each file in the correct Comfy model folder.
+2. Refresh/reconnect the selected backend.
 3. Reopen the family/model controls.
-4. Select the exact filename shown by ComfyUI.
+4. Select the exact installed filenames.
 
-Do not rename a file merely to match an old guide/default. P2.2 removes those filename assumptions. If a selector remains empty, check the Comfy `/object_info` or `/models/...` catalog and backend connection status.
+`provider_default`, `automatic`, and `select_*` placeholders are not real selections when a component is required. Readiness should fail rather than silently guessing a file.
 
 ## Qwen Rapid AIO CFG — P2.3
 

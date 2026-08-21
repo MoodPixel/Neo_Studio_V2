@@ -4,6 +4,7 @@ uvicorn>=0.30.0
 pydantic>=2.7.0
 python-multipart>=0.0.9
 websockets>=12.0
+huggingface-hub>=0.36,<2
 
 # Image, upload, preprocessing, and built-in extension helpers
 Pillow>=10.0.0

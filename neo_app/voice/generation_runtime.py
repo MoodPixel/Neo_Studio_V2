@@ -473,7 +473,7 @@ def generate_voice_payload(payload: dict[str, Any] | None = None) -> dict[str, A
     if not isinstance(profile, dict) or profile.get("enabled", True) is False:
         return {"schema_id": VOICE_GENERATION_RUNTIME_SCHEMA, "phase": VOICE_GENERATION_PHASE, "ok": False, "status": "invalid_profile", "message": "Selected Voice backend profile is unavailable.", "profile_id": profile_id, "provider_id": provider_id, "outputs": []}
 
-    provider_control_validation = normalize_voice_provider_controls(profile, data.get("provider_controls"), mode="tts")
+    provider_control_validation = normalize_voice_provider_controls(profile, data.get("provider_controls"), mode="tts", model_id=resolved_model)
     if provider_control_validation.get("status") != "valid":
         message = "; ".join(item.get("message") or item.get("code") or "Invalid provider control" for item in provider_control_validation.get("errors") or [])
         return {"schema_id": VOICE_GENERATION_RUNTIME_SCHEMA, "phase": "VO-R8", "ok": False, "status": "invalid_provider_controls", "message": message or "Voice provider controls are invalid.", "profile_id": profile_id, "provider_id": provider_id, "provider_control_validation": provider_control_validation, "outputs": []}

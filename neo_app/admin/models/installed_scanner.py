@@ -10,10 +10,12 @@ import os
 from .manifest_loader import load_folder_rules, load_model_catalog
 from .model_paths import ROOT_DIR, load_model_paths
 from .path_resolver import resolve_model_target
+from .huggingface_cache import resolve_huggingface_cache
+from .huggingface_snapshot_probe import repository_snapshot_catalog_status
 
 INSTALLED_SCAN_SCHEMA_ID = "neo.admin.models.installed_scan.v1"
 INSTALLED_INDEX_PATH = ROOT_DIR / "neo_data" / "cache" / "model_installed_index.json"
-INSTALLED_SCAN_VERSION = "0.3.0-phase3"
+INSTALLED_SCAN_VERSION = "0.4.0-phase4_5_5"
 MAX_FILES_PER_TARGET = 2500
 MAX_TOTAL_FILES = 10000
 
@@ -165,6 +167,10 @@ def _build_scan_targets(*, model_paths: dict[str, Any], folder_rules: dict[str, 
         for target_type in _as_dict(rules).keys():
             requested.add((_clean(backend_id).lower(), _clean(target_type).lower()))
     for record in records:
+        if _clean(record.get("source_mode")).lower() == "repository_snapshot":
+            # Repository snapshots live in the Hugging Face cache and are not
+            # file-tree scan targets. A dedicated snapshot probe owns them.
+            continue
         target_type = _record_target_type(record)
         for backend_id in _record_backends(record):
             requested.add((backend_id, target_type))
@@ -236,8 +242,16 @@ def _index_files_by_target(targets: list[dict[str, Any]], *, folder_rules: dict[
     return files_by_target, detected_files, warnings, truncated
 
 
-def _catalog_install_status(record: dict[str, Any], files_by_target: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+def _catalog_install_status(
+    record: dict[str, Any],
+    files_by_target: dict[str, list[dict[str, Any]]],
+    *,
+    hf_cache_resolution: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     record_id = _clean(record.get("id"))
+    if _clean(record.get("source_mode")).lower() == "repository_snapshot":
+        return repository_snapshot_catalog_status(record, cache_resolution=hf_cache_resolution)
+
     expected = _record_expected_filenames(record)
     target_type = _record_target_type(record)
     statuses: list[dict[str, Any]] = []
@@ -322,7 +336,12 @@ def scan_installed_models(
     records = _catalog_records(catalog)
     targets = _build_scan_targets(model_paths=model_paths, folder_rules=folder_rules, records=records)
     files_by_target, detected_files, warnings, truncated = _index_files_by_target(targets, folder_rules=folder_rules)
-    catalog_status = [_catalog_install_status(record, files_by_target) for record in records]
+    has_repository_snapshots = any(_clean(record.get("source_mode")).lower() == "repository_snapshot" for record in records)
+    hf_cache_resolution = resolve_huggingface_cache(include_library_snapshot=False) if has_repository_snapshots else None
+    catalog_status = [
+        _catalog_install_status(record, files_by_target, hf_cache_resolution=hf_cache_resolution)
+        for record in records
+    ]
     extension_counts = Counter(str(item.get("extension") or "unknown") for item in detected_files)
     target_counts = Counter(str(item.get("target_key") or "unknown") for item in detected_files)
     type_counts = Counter(str(item.get("target_type") or "unknown") for item in detected_files)
@@ -339,7 +358,13 @@ def scan_installed_models(
             "detected_file_count": len(detected_files),
             "catalog_record_count": len(records),
             "catalog_installed_count": sum(1 for item in catalog_status if item.get("overall_status") == "installed"),
-            "catalog_missing_count": sum(1 for item in catalog_status if item.get("overall_status") == "missing"),
+            "catalog_missing_count": sum(1 for item in catalog_status if item.get("overall_status") in {"missing", "not_installed"}),
+            "catalog_partial_count": sum(1 for item in catalog_status if item.get("overall_status") == "partial"),
+            "catalog_stale_count": sum(1 for item in catalog_status if item.get("overall_status") == "stale"),
+            "catalog_corrupt_count": sum(1 for item in catalog_status if item.get("overall_status") == "corrupt"),
+            "catalog_unverified_count": sum(1 for item in catalog_status if item.get("overall_status") == "unverified"),
+            "repository_snapshot_count": sum(1 for item in catalog_status if item.get("source_mode") == "repository_snapshot"),
+            "repository_snapshot_installed_count": sum(1 for item in catalog_status if item.get("source_mode") == "repository_snapshot" and item.get("overall_status") == "installed"),
             "catalog_with_local_candidates_count": sum(1 for item in catalog_status if item.get("overall_status") == "local_candidates"),
             "extension_counts": dict(sorted(extension_counts.items())),
             "target_counts": dict(sorted(target_counts.items())),
@@ -355,8 +380,12 @@ def scan_installed_models(
             "exists": INSTALLED_INDEX_PATH.exists(),
             "policy": "local_only_gitignored_neo_data_cache",
         },
+        "snapshot_probe_phase": "phase4_5_5_huggingface_snapshot_installed_probe",
+        "huggingface_cache": hf_cache_resolution or {},
         "capabilities": {
             "installed_scan": True,
+            "huggingface_repository_snapshot_probe": True,
+            "repository_snapshot_content_verification": True,
             "remote_metadata": False,
             "downloads": False,
             "hashing": False,
@@ -407,6 +436,7 @@ def admin_installed_models_payload() -> dict[str, Any]:
         },
         "capabilities": {
             "installed_scan": True,
+            "huggingface_repository_snapshot_probe": True,
             "scan_endpoint": "/api/admin/models/scan-installed",
             "remote_metadata": False,
             "downloads": False,

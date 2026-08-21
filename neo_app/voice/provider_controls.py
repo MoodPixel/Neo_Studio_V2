@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import json
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from .provider_routing import VoiceProfileRoutingError, resolve_voice_profile
 
 VOICE_PROVIDER_CONTROLS_SCHEMA = "neo.voice.provider_controls.v1"
 VOICE_PROVIDER_CONTROLS_PHASE = "VO-R8"
-_ALLOWED_TYPES = {"number", "integer", "boolean", "text", "tags", "json"}
+_ALLOWED_TYPES = {"number", "integer", "boolean", "text", "select", "tags", "json"}
 _ALLOWED_MODES = {"tts", "voice_clone"}
 _RESERVED_NATIVE_KEYS = {
     "script", "text", "model", "model_id", "voice", "voice_id", "language", "profile_id", "provider_id",
@@ -104,6 +107,12 @@ def _normalize_value(definition: dict[str, Any], value: Any) -> Any:
         if text in {"false", "0", "no", "off", ""}:
             return False
         raise VoiceProviderControlsError(f"{label} must be true or false.")
+    if kind == "select":
+        selected = str(value or "").strip()
+        option_ids = {str(item.get("id") or "").strip() for item in (definition.get("options") or []) if isinstance(item, dict)}
+        if selected not in option_ids:
+            raise VoiceProviderControlsError(f"{label} must be one of the supported options.")
+        return selected
     if kind == "tags":
         values = value if isinstance(value, list) else [part.strip() for part in str(value or "").split(",")]
         result = [str(item).strip()[:80] for item in values if str(item).strip()][:24]
@@ -152,7 +161,98 @@ def build_voice_provider_controls(profile: dict[str, Any], *, mode: str = "tts")
     }
 
 
-def voice_provider_controls_payload(profile_id: str | None = None, *, mode: str = "tts") -> dict[str, Any]:
+def _is_qwen3_model(model_id: str | None) -> bool:
+    return str(model_id or "").strip().lower().startswith("qwen3_tts_")
+
+
+def _gateway_model_control_contract(profile: dict[str, Any], model_id: str, mode: str) -> dict[str, Any] | None:
+    if str(profile.get("provider_id") or "").strip().lower() != "neo_voice_engine" or not _is_qwen3_model(model_id):
+        return None
+    connection = profile.get("connection") if isinstance(profile.get("connection"), dict) else {}
+    base_url = str(connection.get("base_url") or "").strip().rstrip("/")
+    if not base_url:
+        return {
+            "status": "unavailable",
+            "controls": [],
+            "error_code": "gateway_base_url_missing",
+            "error": "Neo Voice Engine base URL is not configured.",
+        }
+    query = urlencode({"model_id": model_id, "mode": mode})
+    request = Request(f"{base_url}/api/voice/controls?{query}", headers={"Accept": "application/json"})
+    try:
+        configured_timeout = float(connection.get("timeout_seconds") or 30)
+    except (TypeError, ValueError):
+        configured_timeout = 30.0
+    timeout_seconds = max(1.0, min(configured_timeout, 30.0))
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310 - local configured gateway only
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - UI discovery returns a structured unavailable contract.
+        return {
+            "status": "unavailable",
+            "controls": [],
+            "error_code": "gateway_controls_unavailable",
+            "error": str(exc),
+            "timeout_seconds": timeout_seconds,
+        }
+    if not isinstance(payload, dict):
+        return {
+            "status": "invalid",
+            "controls": [],
+            "error_code": "invalid_gateway_controls_payload",
+            "error": "Gateway returned a non-object controls payload.",
+        }
+    return payload
+
+
+def build_model_voice_provider_controls(profile: dict[str, Any], *, mode: str = "tts", model_id: str | None = None) -> dict[str, Any]:
+    if not _is_qwen3_model(model_id):
+        return build_voice_provider_controls(profile, mode=mode)
+    mode = mode if mode in _ALLOWED_MODES else "tts"
+    gateway = _gateway_model_control_contract(profile, str(model_id), mode) or {}
+    raw = gateway.get("controls") if isinstance(gateway.get("controls"), list) else []
+    provider_controls: list[dict[str, Any]] = []
+    common_controls: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        control_id = str(item.get("id") or "").strip()
+        control_type = str(item.get("type") or "").strip().lower()
+        if not control_id or control_id in seen or control_type not in _ALLOWED_TYPES:
+            continue
+        seen.add(control_id)
+        definition = {**deepcopy(item), "id": control_id, "type": control_type, "modes": [mode]}
+        surface_field = str(definition.get("surface_field") or "").strip()
+        if surface_field in {"language", "voice_id"}:
+            common_controls[surface_field] = definition
+            continue
+        provider_controls.append({**definition, "visible": True, "enabled": True, "authority": "selected_model_gateway_manifest"})
+    status = "ready" if gateway.get("authoritative") is True else str(gateway.get("status") or "unavailable")
+    return {
+        "schema_id": VOICE_PROVIDER_CONTROLS_SCHEMA,
+        "phase": "QWEN3-TTS-P4",
+        "surface": "voice",
+        "mode": mode,
+        "profile_id": str(profile.get("profile_id") or ""),
+        "provider_id": str(profile.get("provider_id") or ""),
+        "model_id": str(model_id or ""),
+        "status": status,
+        "authority": "selected_model_gateway_manifest",
+        "controls": provider_controls,
+        "control_ids": [item["id"] for item in provider_controls],
+        "defaults": {item["id"]: deepcopy(item.get("default")) for item in provider_controls if item.get("default") is not None},
+        "common_controls": common_controls,
+        "common_contract_isolated": True,
+        "provider_native_passthrough": "nested_provider_controls_only",
+        "gateway_authority": str(gateway.get("authority") or ""),
+        "gateway_worker_contacted": gateway.get("worker_contacted") if isinstance(gateway.get("worker_contacted"), bool) else None,
+        "transport_error_code": str(gateway.get("error_code") or ""),
+        "errors": ([str(gateway.get("error"))] if gateway.get("error") else []),
+    }
+
+
+def voice_provider_controls_payload(profile_id: str | None = None, *, mode: str = "tts", model_id: str | None = None) -> dict[str, Any]:
     try:
         profile = resolve_voice_profile(profile_id)
     except VoiceProfileRoutingError as exc:
@@ -169,11 +269,11 @@ def voice_provider_controls_payload(profile_id: str | None = None, *, mode: str 
             "defaults": {},
             "errors": [str(exc)],
         }
-    return build_voice_provider_controls(profile, mode=mode)
+    return build_model_voice_provider_controls(profile, mode=mode, model_id=model_id)
 
 
-def normalize_voice_provider_controls(profile: dict[str, Any], raw: Any, *, mode: str = "tts") -> dict[str, Any]:
-    contract = build_voice_provider_controls(profile, mode=mode)
+def normalize_voice_provider_controls(profile: dict[str, Any], raw: Any, *, mode: str = "tts", model_id: str | None = None) -> dict[str, Any]:
+    contract = build_model_voice_provider_controls(profile, mode=mode, model_id=model_id)
     data = raw if isinstance(raw, dict) else {}
     definitions = {item["id"]: item for item in contract["controls"]}
     errors: list[dict[str, str]] = []

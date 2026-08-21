@@ -215,6 +215,66 @@ def build_download_plan(payload: dict[str, Any] | None = None) -> dict[str, Any]
     provider = _clean_lower(source.get("provider"))
     source_mode = _download_mode(record)
     target_type = _target_type(record, data, variant)
+
+    # Repository snapshots are a different install class from Neo's single-file
+    # downloader. Phase 4.5.1 deliberately fails closed here so a complete HF
+    # repository can never be mistaken for one selected weight shard.
+    if source_mode == "repository_snapshot":
+        install = _as_dict(record.get("install"))
+        repo = _clean(source.get("repo"))
+        revision = _clean(source.get("revision")) or "main"
+        errors = [
+            "Repository snapshot records cannot use the single-file download planner. Use the Hugging Face snapshot installer."
+        ]
+        if provider != "huggingface":
+            errors.append("Repository snapshot planning requires the Hugging Face provider.")
+        if not repo:
+            errors.append("Repository snapshot planning requires a Hugging Face repo id.")
+        if _clean_lower(install.get("strategy")) != "huggingface_snapshot":
+            errors.append("Repository snapshot records must declare install.strategy=huggingface_snapshot.")
+        return {
+            "schema_id": DOWNLOAD_PLAN_SCHEMA_ID,
+            "ok": False,
+            "status": "snapshot_installer_required",
+            "phase": PHASE_ID,
+            "catalog_id": _clean(record.get("id")),
+            "record": {
+                "id": record.get("id"),
+                "display_name": record.get("display_name"),
+                "category": record.get("category"),
+                "base_model": record.get("base_model"),
+                "model_type": record.get("model_type"),
+                "source_mode": source_mode,
+            },
+            "source": {
+                "provider": provider,
+                "repo": repo,
+                "revision": revision,
+                "source_url": _clean(source.get("source_url")) or (f"https://huggingface.co/{repo}" if repo else ""),
+                "requires_token": bool(source.get("requires_token") or source.get("gated") or source.get("private")),
+            },
+            "install": {
+                "strategy": _clean_lower(install.get("strategy")),
+                "target_type": _clean_lower(install.get("target_type")),
+                "backend_targets": [_clean_lower(item) for item in _as_list(install.get("backend_targets")) if _clean(item)],
+                "probe_id": _clean(install.get("probe_id")),
+                "expected_size_mb": install.get("expected_size_mb"),
+            },
+            "confirmation": {
+                "required": False,
+                "reason": "Repository snapshots are intentionally excluded from the single-file planner.",
+                "summary": "Use the repository snapshot installer for this model.",
+            },
+            "capabilities": {
+                "download_planning": False,
+                "single_file_download": False,
+                "repository_snapshot_manifest": True,
+                "repository_snapshot_install": False,
+            },
+            "warnings": sorted(set(warnings + _license_warnings(record, source))),
+            "errors": errors,
+        }
+
     file_info = _file_info_for_plan(record, data, variant)
     filename = _clean(file_info.get("filename"))
     extension = _clean_lower(file_info.get("extension"))

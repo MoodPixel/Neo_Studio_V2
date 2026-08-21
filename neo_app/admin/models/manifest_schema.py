@@ -10,8 +10,9 @@ MODEL_PACKS_SCHEMA_ID = "neo.models.packs.v1"
 WORKSPACE_REQUIREMENTS_SCHEMA_ID = "neo.models.workspace_requirements.v1"
 
 SUPPORTED_DOMAINS = {"image", "video", "llm", "utility", "voice"}
-SUPPORTED_SOURCE_MODES = {"static_file", "discover_files", "manual_only"}
+SUPPORTED_SOURCE_MODES = {"static_file", "discover_files", "manual_only", "repository_snapshot"}
 SUPPORTED_PROVIDERS = {"huggingface", "civitai", "manual", "local", "url"}
+SUPPORTED_SNAPSHOT_INSTALL_STRATEGIES = {"huggingface_snapshot"}
 
 
 @dataclass(slots=True)
@@ -273,13 +274,45 @@ def validate_model_catalog(
         target_type = str(install.get("target_type") or record.get("model_type") or "")
         if not target_type:
             errors.append(f"{prefix}.install.target_type is required")
-        if technical_types and target_type not in technical_types:
+
+        is_repository_snapshot = source_mode == "repository_snapshot"
+        if is_repository_snapshot:
+            if provider != "huggingface":
+                errors.append(f"{prefix}.source.provider must be 'huggingface' for repository_snapshot records")
+            if not _is_non_empty_string(source.get("repo")):
+                errors.append(f"{prefix}.source.repo is required for repository_snapshot records")
+            if not _is_non_empty_string(source.get("revision")):
+                errors.append(f"{prefix}.source.revision is required for repository_snapshot records")
+            strategy = str(install.get("strategy") or "")
+            if strategy not in SUPPORTED_SNAPSHOT_INSTALL_STRATEGIES:
+                errors.append(f"{prefix}.install.strategy must be 'huggingface_snapshot' for repository_snapshot records")
+            if target_type != "hf_cache":
+                errors.append(f"{prefix}.install.target_type must be 'hf_cache' for repository_snapshot records")
+            if not _is_non_empty_string(install.get("probe_id")):
+                errors.append(f"{prefix}.install.probe_id is required for repository_snapshot records")
+            expected_size_mb = install.get("expected_size_mb")
+            if expected_size_mb is None:
+                errors.append(f"{prefix}.install.expected_size_mb is required for repository_snapshot disk preflight")
+            elif not isinstance(expected_size_mb, (int, float)) or isinstance(expected_size_mb, bool) or expected_size_mb <= 0:
+                errors.append(f"{prefix}.install.expected_size_mb must be a positive number for repository_snapshot disk preflight")
+            for pattern_key in ("allow_patterns", "ignore_patterns"):
+                raw_patterns = install.get(pattern_key)
+                if raw_patterns is not None:
+                    if not isinstance(raw_patterns, list) or not raw_patterns:
+                        errors.append(f"{prefix}.install.{pattern_key} must be a non-empty string array when declared")
+                    elif any(not _is_non_empty_string(item) for item in raw_patterns):
+                        errors.append(f"{prefix}.install.{pattern_key} entries must be non-empty strings")
+        elif technical_types and target_type not in technical_types:
             warnings.append(f"{prefix}.install.target_type '{target_type}' is not listed in category_map.technical_types")
+
         backend_targets = [str(item) for item in _as_list(install.get("backend_targets")) if str(item).strip()]
-        for backend_id in backend_targets:
-            backend_map = _as_dict(backend_rules.get(backend_id))
-            if backend_map and target_type not in backend_map:
-                warnings.append(f"{prefix} target_type '{target_type}' has no folder rule for backend '{backend_id}'")
+        if is_repository_snapshot and not backend_targets:
+            errors.append(f"{prefix}.install.backend_targets must declare at least one consuming backend for repository_snapshot records")
+        if not is_repository_snapshot:
+            for backend_id in backend_targets:
+                backend_map = _as_dict(backend_rules.get(backend_id))
+                if backend_map and target_type not in backend_map:
+                    warnings.append(f"{prefix} target_type '{target_type}' has no folder rule for backend '{backend_id}'")
 
         ui = _as_dict(record.get("ui"))
         categories = [str(item) for item in _as_list(ui.get("creative_categories")) if str(item).strip()]

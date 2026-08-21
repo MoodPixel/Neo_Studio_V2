@@ -45,8 +45,8 @@ tags:
   - checkpoint
   - routes
 priority: 120
-version: 4
-updated: 2026-08-07
+version: 5
+updated: 2026-08-21
 ---
 
 # Image Model Families, Loaders, and Routes
@@ -59,7 +59,7 @@ Backend profile + Model Family + Main Model Type + Workflow Mode
 
 Use this guide when the user asks what model families Neo supports, why certain fields appear/disappear, or which route they should choose.
 
-Legacy assistant phrasing may call SDXL/SD 1.5 local checkpoint routes **Checkpoint / Comfy image routes**. In V2, those are represented by the **SDXL** and **SD 1.5** Model Families with the **Safetensors / Checkpoint** Main Model Type.
+Legacy assistant phrasing may call SDXL/SD 1.5 local checkpoint routes **Checkpoint / Comfy image routes**. In V2, those are represented by the **SDXL** and **SD 1.5** Model Families with the **Safetensors** Main Model Type (internally the checkpoint strategy).
 
 ## Normal Image dropdown families
 
@@ -67,30 +67,39 @@ These are the current normal Image workspace families from the route matrix. Ava
 
 | Model Family label | Internal family | Normal Main Model Types | Normal Workflow Modes | Notes |
 |---|---|---|---|---|
-| **SDXL** | `sdxl` | **Safetensors / Checkpoint** | Generate, Img2Img, Inpaint, Outpaint | Classic SDXL checkpoint route through Comfy. Good general route when using `.safetensors` checkpoints. |
-| **SD 1.5** | `sd15` | **Safetensors / Checkpoint** | Generate, Img2Img, Inpaint, Outpaint | Classic SD 1.5 checkpoint route. Useful for older SD models, some LoRAs, ControlNet-heavy workflows, and lower VRAM tests. |
-| **Flux 1** | `flux` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Component route uses diffusion model + text encoders + AE/VAE + Flux Guidance. Inpaint/outpaint resolve through internal Flux Fill behavior; Flux Fill is not a separate normal dropdown family. |
-| **Flux 2 Klein** | `flux2_klein` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Flux 2 Klein route. Uses component or GGUF loaders with native image-conditioned route support. |
-| **Krea 2 RAW** | `krea2` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Standalone Krea 2 base/normal family. Generate is native for components; image-conditioned and GGUF routes are selectable experimental routes. Uses Qwen3-VL-4B + Qwen Image VAE. |
-| **Krea 2 Turbo** | `krea2_turbo` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Distilled Krea 2 family with an 8-step / CFG-1 recommended default profile and zeroed-negative conditioning topology. Explicit user Parameters remain authoritative. Image-conditioned and GGUF routes are experimental. |
-| **Qwen Rapid AIO** | `qwen_rapid_aio` | **Safetensors / Bundled**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Compact all-in-one Qwen image route. Bundled checkpoint keeps extra model components hidden unless needed. GGUF route needs matching GGUF/runtime support. |
-| **Qwen Image Edit** | `qwen_image` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Qwen-native edit family for source-image workflows. Stronger fit when the user wants instruction-like edits while preserving a source image. |
-| **Qwen Image Edit 2509** | `qwen_image_edit_2509` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Newer Qwen edit route with multi-source edit support where the selected loader/profile exposes it. |
-| **ZImage** | `z_image` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | ZImage route using component or GGUF model setup. Good to explain as a modern component-family route rather than a classic SD checkpoint. |
-| **ZImage Turbo** | `z_image_turbo` | **Safetensors / Components**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Turbo-style low-step route. Negative prompt and some SD controls may be hidden because the turbo profile uses simplified conditioning. |
-| **HiDream** | `hidream` | **Safetensors / Components**, **GGUF** | Generate | Current normal route is txt2img-focused. Image-conditioned variants are not normal queue-enabled routes unless the route matrix/live snapshot says otherwise. |
+| **SDXL** | `sdxl` | **Safetensors** | Generate, Img2Img, Inpaint, Outpaint | Classic SDXL checkpoint route through Comfy. Good general route when using `.safetensors` checkpoints. |
+| **SD 1.5** | `sd15` | **Safetensors** | Generate, Img2Img, Inpaint, Outpaint | Classic SD 1.5 checkpoint route. Useful for older SD models, some LoRAs, ControlNet-heavy workflows, and lower VRAM tests. |
+| **Flux 1** | `flux` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Component route uses diffusion model + text encoders + AE/VAE + Flux Guidance. Inpaint/outpaint resolve through internal Flux Fill behavior; Flux Fill is not a separate normal dropdown family. |
+| **Flux 2 Klein** | `flux2_klein` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Flux 2 Klein route. Uses component or GGUF loaders with native image-conditioned route support. |
+| **Krea 2 RAW** | `krea2` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Standalone Krea 2 base/normal family. Generate is native for components; image-conditioned and GGUF routes are selectable experimental routes. Uses Qwen3-VL-4B + Qwen Image VAE. |
+| **Krea 2 Turbo** | `krea2_turbo` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Distilled Krea 2 family with an 8-step / CFG-1 recommended default profile and zeroed-negative conditioning topology. Explicit user Parameters remain authoritative. Image-conditioned and GGUF routes are experimental. |
+| **Qwen Rapid AIO** | `qwen_rapid_aio` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Compact all-in-one Qwen image route. Bundled checkpoint keeps extra model components hidden unless needed. GGUF route needs matching GGUF/runtime support. |
+| **Qwen Image Edit** | `qwen_image` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Qwen-native edit family for source-image workflows. Stronger fit when the user wants instruction-like edits while preserving a source image. |
+| **Qwen Image Edit 2509** | `qwen_image_edit_2509` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Newer Qwen edit route with multi-source edit support where the selected loader/profile exposes it. |
+| **ZImage** | `z_image` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | ZImage route using component or GGUF model setup. Good to explain as a modern component-family route rather than a classic SD checkpoint. |
+| **ZImage Turbo** | `z_image_turbo` | **Safetensors**, **GGUF** | Generate, Img2Img, Inpaint, Outpaint | Turbo-style low-step route. Negative prompt and some SD controls may be hidden because the turbo profile uses simplified conditioning. |
+| **HiDream** | `hidream` | **Safetensors**, **GGUF** | Generate | Current normal route is txt2img-focused. Image-conditioned variants are not normal queue-enabled routes unless the route matrix/live snapshot says otherwise. |
 
-## Main Model Type labels
+## Main Model Type labels and internal strategies
 
-| UI label | Internal loader | Meaning |
+Normal users choose the **artifact format**:
+
+| UI label | Meaning |
+|---|---|
+| **Safetensors** | Main model is a `.safetensors`/native tensor artifact. It may be a classic checkpoint, an all-in-one bundle, or a split diffusion model that still needs external components. |
+| **GGUF** | Main model is a GGUF artifact and uses a provider-owned GGUF loading strategy. |
+| **API Model** | Cloud/API provider model controlled by the selected backend profile. |
+
+Neo preserves the internal loader strategy separately:
+
+| Internal loader | Strategy | Typical example |
 |---|---|---|
-| **Safetensors / Checkpoint** | `checkpoint` | Single classic checkpoint model, mainly SDXL and SD 1.5. |
-| **Safetensors / Bundled** | `checkpoint_aio` | All-in-one/bundled model route, currently used by Qwen Rapid AIO. Extra encoder/VAE fields usually stay hidden. |
-| **Safetensors / Components** | `diffusion_model` | Split component route: diffusion model plus text encoder(s), VAE/AE, guidance fields, and route-specific parts. |
-| **GGUF** | `gguf` | Quantized model route. Requires matching GGUF custom node/runtime support and profile readiness. |
-| **API Model** | `api_model` | Cloud/API provider model. Usually controlled by the selected backend profile rather than the normal local model dropdown. |
+| `checkpoint` | bundled classic checkpoint | SDXL / SD 1.5 |
+| `checkpoint_aio` | bundled all-in-one checkpoint | Qwen Rapid AIO |
+| `diffusion_model` | split native/safetensors components | Flux, Krea2, Qwen Image, ZImage, HiDream |
+| `gguf` | GGUF components | GGUF routes |
 
-The old **UNet** loader remains a legacy/backward-compatibility concept. Normal Image UI should prefer **Safetensors / Components** or **GGUF** for modern split routes.
+The old `unet` loader remains compatibility-only. Quantized/INT/FP8/scaled Safetensors do not get a new loader ID; they remain Safetensors and use the family-appropriate internal strategy.
 
 ## Workflow Mode labels
 
@@ -114,7 +123,7 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 ### Flux 1
 
 - Normal family label is **Flux 1**.
-- Main Model Type can be **Safetensors / Components** or **GGUF**.
+- Main Model Type can be **Safetensors** or **GGUF**.
 - Flux uses **Flux Guidance** instead of normal SD-style CFG.
 - CFG and Clip Skip are hidden/disabled on Flux component routes.
 - **FLUX.1 Krea is a Flux 1 variant (`krea_dev`), not a separate Model Family.** Selecting a Krea model keeps the normal Flux 1 family and automatically resolves the Krea runtime.
@@ -125,7 +134,7 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 ### Flux 2 Klein
 
 - Normal family label is **Flux 2 Klein**.
-- Supports **Safetensors / Components** and **GGUF** route types.
+- Supports **Safetensors** and **GGUF** route types.
 - The selected model size owns encoder compatibility: **Klein 4B requires Qwen3-4B; Klein 9B requires Qwen3-8B**.
 - For Klein GGUF, the diffusion model can remain GGUF while the matching Qwen3 encoder is either native safetensors (`CLIPLoader(type=flux2)`) or GGUF (`CLIPLoaderGGUF(type=flux2)`).
 - Qwen2/Qwen2.5-VL and MMProj files belong to other Qwen image/edit contracts and are not valid Klein text encoders.
@@ -147,7 +156,7 @@ The old **UNet** loader remains a legacy/backward-compatibility concept. Normal 
 ### Qwen Rapid AIO
 
 - Normal family label is **Qwen Rapid AIO**.
-- Main Model Type can be **Safetensors / Bundled** or **GGUF**.
+- Main Model Type can be **Safetensors** or **GGUF**.
 - Bundled/AIO mode hides extra components because the model route is compact.
 - GGUF mode requires matching GGUF model/runtime support and may need additional route readiness.
 - Use it when the user wants a simpler Qwen route with fewer visible component fields.
@@ -274,24 +283,27 @@ Assistant rules:
 
 `Qwen Rapid AIO + Safetensors / Bundled` is backed by ComfyUI `CheckpointLoaderSimple`, so its model selector uses Neo's shared checkpoint `models` catalog. Seeing a Qwen file in another checkpoint-family dropdown reflects the shared loader catalog; it does not reclassify the model as SDXL or SD 1.5.
 
-## Safetensors / Components catalog behavior — P2.2
+## Phase 4.7 — Safetensors / GGUF format vs component topology
 
-Modern component families use separate files instead of one bundled checkpoint. Neo discovers these files from ComfyUI and shows the exact installed names.
+Neo's normal **Main Model Type** selector now presents the public artifact format as **Safetensors** or **GGUF** where both are available. Internally, Neo still keeps the real loader strategy (`checkpoint`, `checkpoint_aio`, `diffusion_model`, or `gguf`) because the provider/compiler needs that distinction.
 
-Covered families:
+The file extension does **not** decide whether external components are shown. Component visibility comes from the active family + internal loader + workflow mode contract.
 
-- Flux 1
-- Flux 2 Klein
-- Qwen Image
-- Qwen Image Edit 2509
-- Z-Image
-- Z-Image Turbo
-- HiDream
+Examples:
 
-For these routes, selecting the main diffusion model is not enough. You must also select the required text encoder(s) and VAE/AE shown in **Required Model Components** and the primary model row.
+- **SDXL / SD 1.5 + Safetensors** → classic checkpoint route; external text encoders stay hidden.
+- **Qwen Rapid AIO + Safetensors** → bundled/AIO route; external encoder/VAE/MMProj fields stay hidden unless a future explicit override contract enables them.
+- **Flux 1 + Safetensors** → split diffusion model + T5XXL/CLIP-L + VAE/AE.
+- **Flux 2 Klein + Safetensors** → split diffusion model + Qwen3 encoder + VAE/AE.
+- **Krea 2 RAW/Turbo + Safetensors** → Krea2 diffusion model + Qwen3-VL-4B + Qwen Image VAE.
+- **Qwen Image/Edit + Safetensors** → split diffusion model + Qwen text encoder + VAE. Native Safetensors routes do not inherit a GGUF MMProj requirement.
+- **ZImage + Safetensors** → split diffusion model + Qwen3 encoder + AE/VAE.
+- **HiDream + Safetensors** → split model + CLIP-L + CLIP-G + T5XXL + Llama 3.1 8B + VAE/AE when that route is selected.
+- **Anima + Safetensors** → split model + external Qwen3 0.6B encoder + Qwen Image VAE.
+- **Ideogram 4 + Safetensors** → main model + unconditional companion model + Qwen3-VL encoder + Flux 2 VAE.
 
-Neo merges choices from compatible Comfy loader nodes. If a node exists but its dropdown is empty, Neo checks other loader aliases and then conventional `/models/...` endpoints. After installing a new file, refresh/reconnect the Comfy backend so Neo can rebuild the catalog.
+Quantized, INT, FP8, scaled, or other reduced-precision `.safetensors` files remain **Safetensors**. Quantization is model metadata, not a loader category. If their architecture uses split components, the Required Model Components card remains visible.
 
-Neo does not assume filenames such as `clip_l.safetensors`, `qwen_3_4b.safetensors`, or `ae.safetensors`. Select the exact installed file. Subfolder paths and capitalization are preserved.
+MMProj follows the same rule. It is required only when the active route declares an MMProj requirement (for example supported Qwen GGUF image-conditioned modes); Neo must not show or require MMProj merely because the main file uses a particular extension.
 
-`provider_default`, `automatic`, and similar placeholders mean **not selected**. Generation remains blocked until every required component has a real file selection.
+Neo discovers component choices from compatible Comfy loader nodes and profile catalogs. After adding a file, refresh/reconnect the Comfy backend so Neo can rebuild those catalogs. Exact installed filenames remain authoritative; Neo does not rename or guess model files.

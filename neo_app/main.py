@@ -145,7 +145,7 @@ from neo_app.admin.engine import admin_engine_state_payload, update_model_paths,
 from neo_app.admin.semantic_engine import semantic_engine_state_payload, semantic_engine_test_payload
 from neo_app.admin.chroma_collections import chroma_collection_state_payload, export_chroma_collection_payload, export_archive_path, import_chroma_archive_payload
 from neo_app.admin.index_jobs import index_job_queue_state_payload, create_index_job_payload, cancel_index_job_payload, read_index_job_log_payload
-from neo_app.admin.models.model_catalog_service import admin_model_catalog_payload, admin_model_catalog_summary_payload, admin_model_category_map_payload, admin_model_folder_rules_payload, admin_model_schema_payload, admin_model_paths_state_payload, admin_model_paths_save_payload, admin_model_target_resolution_payload, admin_model_installed_state_payload, admin_model_scan_installed_payload, admin_model_huggingface_metadata_state_payload, admin_model_huggingface_discover_files_state_payload, admin_model_civitai_metadata_state_payload, admin_model_civitai_discover_files_state_payload, admin_model_filter_state_payload, admin_model_download_plan_state_payload, admin_model_download_start_state_payload, admin_model_download_cancel_state_payload, admin_model_download_jobs_state_payload, admin_model_download_job_state_payload, admin_model_packs_state_payload, admin_model_pack_status_state_payload, admin_model_pack_download_plan_state_payload, admin_model_workspace_requirements_state_payload, admin_model_workspace_status_state_payload, admin_model_workspace_download_plan_state_payload
+from neo_app.admin.models.model_catalog_service import admin_model_catalog_payload, admin_model_catalog_summary_payload, admin_model_category_map_payload, admin_model_folder_rules_payload, admin_model_schema_payload, admin_model_paths_state_payload, admin_model_paths_save_payload, admin_model_target_resolution_payload, admin_model_installed_state_payload, admin_model_scan_installed_payload, admin_model_repository_snapshot_status_payload, admin_model_huggingface_metadata_state_payload, admin_model_huggingface_discover_files_state_payload, admin_model_civitai_metadata_state_payload, admin_model_civitai_discover_files_state_payload, admin_model_filter_state_payload, admin_model_download_plan_state_payload, admin_model_download_start_state_payload, admin_model_download_cancel_state_payload, admin_model_download_jobs_state_payload, admin_model_download_job_state_payload, admin_model_packs_state_payload, admin_model_pack_status_state_payload, admin_model_pack_download_plan_state_payload, admin_model_workspace_requirements_state_payload, admin_model_workspace_status_state_payload, admin_model_workspace_download_plan_state_payload
 from neo_app.admin.models.model_paths import load_model_paths
 from neo_app.admin.image_node_manager import (
     SETTINGS_PATH as NODE_MANAGER_SETTINGS_PATH,
@@ -2144,6 +2144,11 @@ def admin_models_installed() -> dict:
 @app.post("/api/admin/models/scan-installed")
 def admin_models_scan_installed(payload: dict | None = None) -> dict:
     return admin_model_scan_installed_payload(payload)
+
+
+@app.post("/api/admin/models/repository-snapshots/status")
+def admin_models_repository_snapshot_status(payload: dict | None = None) -> dict:
+    return admin_model_repository_snapshot_status_payload(payload)
 
 
 @app.post("/api/admin/models/remote/huggingface/metadata")
@@ -9433,9 +9438,9 @@ def voice_provider_routing(profile_id: str | None = None) -> dict:
 
 
 @app.get("/api/voice/provider-controls")
-def voice_provider_controls(profile_id: str | None = None, mode: str = "tts") -> dict:
-    """Return the VO-R8 provider-specific synthesis control contract for one selected Voice profile."""
-    return voice_provider_controls_payload(profile_id=profile_id, mode=mode)
+def voice_provider_controls(profile_id: str | None = None, mode: str = "tts", model_id: str | None = None) -> dict:
+    """Return provider-specific synthesis controls for the selected Voice profile/model."""
+    return voice_provider_controls_payload(profile_id=profile_id, mode=mode, model_id=model_id)
 
 
 @app.get("/api/voice/capabilities")

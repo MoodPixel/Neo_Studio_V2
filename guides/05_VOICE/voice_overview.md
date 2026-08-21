@@ -32,11 +32,29 @@ tags:
   - script import
   - batch queue
 priority: 65
-version: 18
-updated: 2026-08-14
+version: 28
+updated: 2026-08-21
 ---
 
 # Voice Tab Overview
+
+## Phase 4.6.3 — Physical lifecycle closure
+
+The post-Phase-4.6 managed Voice path has now generated successfully on the Windows/NVIDIA host after the no-redownload compatibility and polling/VRAM fixes were applied. The physically exercised path used an already-supported local Qwen installation, proving that Neo can keep existing model data in place and continue generating without a mandatory Hugging Face re-download.
+
+Physical closure does not redefine optional Admin acquisition as mandatory migration. A legacy-ready Qwen model may continue to run indefinitely without an HF copy. Existing valid Chatterbox HF-cache snapshots remain reusable in place. Fresh Admin download/repair flows stay explicit user actions and were not forced merely for closure.
+
+The Phase 4.6.2 background-polling focus contract remains locked by automated regression. The user's successful generation report closes the runtime lifecycle path; it does not by itself claim that every controlled selector/context-menu polling scenario was separately repeated on the host.
+
+## Phase 4.6.2 — Background polling UI stability
+
+Background jobs may continue after the user moves to another Neo surface, but they must not repaint that other workspace. Admin repository-snapshot monitoring, Video result polling, Image terminal polling, Voice generation/dialogue/clone/batch polling, and Prompt/Caption batch polling now use a surface-scoped render boundary. If the relevant surface is active and a text input, textarea, select, contenteditable field, or textbox currently owns focus, the poll-driven repaint is deferred until that control blurs. State still updates immediately; only destructive DOM replacement is deferred.
+
+For Qwen 1.7B, the Phase 4.4 12 GB-class policy remains unchanged: 12000 MB minimum total capacity, 6144 MB cold-load-free requirement, plus the gateway reserve. When another GPU workload is using VRAM, the scheduler now reports `insufficient_free_vram` with observed/safely-available values and tells the user to finish or unload the competing workload. This is diagnostics/UX hardening, not a lowering of the safety floor.
+
+## Phase 4.6.1 — No-redownload Voice compatibility
+
+Existing complete Qwen models under `Neo_Runtime/voice/models/qwen3_tts` remain first-class runtime sources; they do not need to be moved into the Hugging Face cache or downloaded again. Admin shows runtime truth separately from the optional HF copy. Existing Chatterbox snapshots already present in the standard HF cache are reused in place when their authoritative local probe passes. Generate never downloads model weights.
 
 
 ## Public user summary
@@ -51,7 +69,9 @@ For normal use, Voice should be explained without internal milestone identifiers
 - **Results** — review the shared Voice result registry.
 - **Finish** — non-destructive local audio finishing for Neo-owned outputs.
 
-The default normal route is **Neo Voice Engine**. The currently validated worker family is **Chatterbox**, while the direct Chatterbox profile remains a diagnostic fallback. Internal VO-R/VO-E identifiers belong in engineering records and should not be shown as normal UI copy.
+The default normal route is **Neo Voice Engine**. Chatterbox remains the default established worker family, while Qwen3-TTS 0.6B CustomVoice now has a successful first physical CUDA/WAV generation on the target Windows/NVIDIA path. The direct Chatterbox profile remains a diagnostic fallback. Internal VO-R/VO-E identifiers belong in engineering records and should not be shown as normal UI copy.
+
+**Qwen3-TTS status:** Phase 4 activates normal TTS UI for installed/runtime-ready **0.6B and 1.7B CustomVoice** while preserving the Phase 3 local-only registry/install guards. Language and Speaker stay in the common Voice contract; 1.7B gets a model-scoped Voice Instruction control. Phase 4.2 fixes the false repeated-generation VRAM denial and the post-hotfix 0.6B repeat test passed. Phase 4.3 physically proved 1.7B CustomVoice can load and generate on the RTX 3060 12 GB-class host with a 4230 MB peak process reservation and no CUDA OOM. Phase 4.4 now admits that validated class through separate total-capacity (12000 MB) and cold-load-free (6144 MB) checks while keeping 8 GB-class support unclaimed. Phase 4.4.1 fixes the persistent Voice rail so TTS provider controls (including 1.7B Voice Instruction) stay visible regardless of the open workspace while clone controls remain owned by Reference. Phase 4.4.2 then hardens the control-contract transport: manifest controls are read before full model resolution, the old 3-second bridge cap is removed, clone-control discovery is conditional, and the UI distinguishes an unavailable contract from a model that genuinely has no extra controls. Missing/partial Qwen installs remain hidden, Base clone and VoiceDesign remain gated, and read-only catalog/control discovery does not start the Qwen worker.
 
 Voice is an active top-level Neo Studio surface. **VO-R1** reinstated the five-workspace shell, **VO-R2** established the provider-neutral common TTS draft, **VO-R3** made the selected Voice Backend Profile authoritative for provider/model/voice/capability routing, **VO-R4** activated the canonical provider-routed TTS generation runtime with durable job state and Neo-owned audio persistence, **VO-R5** added the shared-registry Preview + Results system, and **VO-R6 — Reference / Clone** activates Neo-owned reference-audio assets plus capability-gated voice-clone generation through the same current runtime/result lineage. **VO-R7 — Voice Profiles / Assets** added current reusable Voice Profile Assets that safely capture common Voice settings and optional authorized reference lineage without becoming backend-routing authority. **VO-R8 — Provider-Specific Controls** activates selected-profile, capability- and mode-scoped synthesis controls without expanding the VO-R2 common contract. **VO-R9 — Finish** activates provider-independent, capability-gated local post-processing for completed Neo-owned Voice outputs with non-destructive child-result lineage in the shared generation registry. **VO-R10 — Dialogue / Multi-speaker** added current deterministic speaker parsing, same-backend speaker mapping, real R4/R6 child synthesis, and FFmpeg-stitched combined Dialogue results. **VO-R11 — Batch** now adds safe TXT/MD/CSV/JSON/SRT import, bounded current-child orchestration, per-item retry, manifest history, and Batch lineage on normal playable Results. **VO-R12A — Voice Surface Layout Parity + Navigation Flattening** then realigned the Voice workspace shell with the Image command-strip grammar, moved workspace / mode / runtime actions into the top command area, added a visible progress lane, and removed the extra nested per-workspace wrapper cards so each workspace now exposes its real extension blocks more directly. **VO-R12B — Voice Subtab Visual Modernization** adds one Voice-scoped modern form/card design layer across Generation, Assets, Reference, Finish, and Results so flattened workspace content uses Neo-styled dark inputs, selects, file pickers, disabled/focus states, action rows, result cards, and responsive field grids instead of native-browser control rendering. **VO-R13 — Chatterbox Physical Backend** now turns the existing Chatterbox adapter target into a real isolated local service: the shipped `voice.chatterbox` profile defaults to `127.0.0.1:8791`, Admin Connect/Test probes that selected endpoint, R4/R6 submit asynchronous provider jobs, and real completed audio is returned for Neo-owned persistence without placing Chatterbox's pinned ML stack inside Neo's main virtual environment. **VO-E1 — Neo Voice Engine Contract Freeze** freezes the combined-backend boundary, **VO-E2 — Gateway / Supervisor** implements it as a lightweight FastAPI service, **VO-E3 — Manifest Registry** makes engine/model identity durable, **VO-E4 — GPU Scheduler + Model Lifecycle** adds pre-dispatch resource control, and **VO-E5 — Chatterbox Migration** now proves the architecture end-to-end: `voice.neo_engine` on `127.0.0.1:8790` is the default Voice profile, its first active manifest owns `chatterbox_turbo` and `chatterbox_multilingual`, and the gateway auto-starts the isolated Chatterbox worker on `127.0.0.1:8791` only when required. **VO-E5A — External Voice Runtime Root** now moves the gateway and worker environments to the sibling `Neo_Runtime/voice/envs/` tree, adds a configurable shared/Voice-specific runtime root, and archives legacy root-level venvs only after the rebuilt external environments verify successfully. R2/R3/R4/R6/R8/R10/R11 remain Neo-side authorities; R13 remains the physical Chatterbox worker implementation underneath the new gateway. The direct `voice.chatterbox` profile remains enabled only as a non-default diagnostic/fallback route.
 
@@ -141,7 +161,7 @@ VO-R4 uses the selected profile's `voice_runtime` contract. Current local Voice 
 
 The frontend never calls Chatterbox, Kokoro, or Fish Speech directly.
 
-**VO-R13 / VO-E5 / VO-E5A / VO-E5B physical Chatterbox:** `setup_chatterbox_backend.bat` creates the isolated external `Neo_Runtime/voice/envs/chatterbox` environment and now explicitly installs/verifies the correct PyTorch device lane (CUDA on detected NVIDIA hosts; CPU otherwise). `setup_neo_voice_engine.bat` creates `.../envs/gateway`. Normal use starts only `run_neo_voice_engine.bat`; the gateway supervises the Chatterbox worker on demand through `neo_voice_engine/manifests/chatterbox.json`. `run_chatterbox_backend.bat` remains a direct diagnostic/fallback launcher. First-use model download/loading still occurs behind the asynchronous provider-job contract. See `guides/05_VOICE/chatterbox_backend.md`, `guides/05_VOICE/neo_voice_engine_gateway.md`, and `guides/05_VOICE/external_voice_runtime.md`.
+**VO-R13 / VO-E5 / VO-E5A / VO-E5B + Phase 4.6 physical Chatterbox:** `setup_chatterbox_backend.bat` creates/verifies only the isolated external `Neo_Runtime/voice/envs/chatterbox` environment and the correct PyTorch device lane. Chatterbox Turbo / Multilingual V3 model acquisition now belongs to **Admin → Models** through the same repository-snapshot lifecycle used by managed Voice models. Normal use starts `run_neo_voice_engine.bat`; the gateway supervises the local-only Chatterbox worker on demand. The direct launcher moved to `scripts/dev/chatterbox/run_chatterbox_backend.bat`. Generate never downloads missing Chatterbox weights. See `guides/05_VOICE/chatterbox_backend.md`, `guides/05_VOICE/neo_voice_engine_gateway.md`, and `guides/05_VOICE/external_voice_runtime.md`.
 
 The provider may respond with immediate audio, embedded/base64 audio, a provider-local output file, a same-provider-host output URL, or an asynchronous provider request/job ID. Neo normalizes those outcomes behind the current runtime contract.
 
@@ -485,7 +505,7 @@ Neo Voice runtime
 - a cold managed worker reports `stopped` and auto-starts on first executable job instead of appearing failed;
 - the gateway still contains no Chatterbox/Torch stack; Chatterbox remains isolated under `Neo_Runtime/voice/envs/chatterbox`;
 - VO-E4 scheduler admission chooses CPU/CUDA before worker submit and forwards only a private `_neo_execution` hint;
-- Chatterbox lazy model loading remains inside the async generation job; no blocking first-use gateway `/load` is required;
+- Chatterbox model objects load lazily from an already verified local HF snapshot inside the async generation job; acquisition/repair belongs to Admin → Models and Generate never downloads weights;
 - clone authorization, QC, local reference transport and path guards are revalidated at the gateway before worker dispatch;
 - final audio persistence remains Neo-owned; gateway output is temporary provider material;
 - manifest identity stays fail-closed and future engines must integrate as new workers/manifests rather than new Neo-facing stacks.
@@ -494,6 +514,19 @@ See `guides/05_VOICE/neo_voice_engine_contract.md`, `guides/05_VOICE/neo_voice_e
 
 ## Next implementation phase
 
-- Add the next reviewed TTS family (recommended: Qwen3-TTS) as a separate manifest-owned worker behind Neo Voice Engine.
+- Physically retest Qwen3-TTS 1.7B CustomVoice through the normal managed Voice route after Phase 4.4.1, verifying the visible Voice Instruction field plus several resident-reuse generations under the Phase 4.4 split VRAM policy; then move Voice model acquisition toward the unified Admin Model Manifest / Hugging Face snapshot-cache path before Base clone and later VoiceDesign UI support.
 - Do not create a new Neo-facing backend profile per model family; Neo should continue selecting `voice.neo_engine` while engine/model choice is resolved inside the gateway.
 - Keep each incompatible ML stack isolated and preserve the same registry/scheduler/job/output contract proven by Chatterbox.
+
+## Phase 4.6 — Voice Model Lifecycle Unification
+
+Phase 4.6 makes the model lifecycle consistent across the currently executable managed local Voice families. Backend setup scripts install dependencies; Admin → Models owns explicit model acquisition; local probes own installed truth; workers receive local model paths; and Generate cannot acquire weights from the network.
+
+Current Admin-managed executable Voice models are:
+
+- `qwen3_tts_06b_custom_voice`
+- `qwen3_tts_17b_custom_voice`
+- `chatterbox_turbo`
+- `chatterbox_multilingual`
+
+Unsupported/gated Qwen Base/VoiceDesign variants and preview-only Voice profiles are not given misleading Install actions merely because upstream repositories exist.

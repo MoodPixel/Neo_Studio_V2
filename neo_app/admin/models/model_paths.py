@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+from .huggingface_cache import resolve_huggingface_cache
+
 ROOT_DIR = Path(__file__).resolve().parents[3]
 MODEL_PATHS_DIR = ROOT_DIR / "neo_data" / "config"
 MODEL_PATHS_PATH = MODEL_PATHS_DIR / "model_paths.json"
@@ -171,6 +173,7 @@ def update_model_paths_config(update: dict[str, Any] | None) -> dict[str, Any]:
 
 def admin_model_paths_payload(*, create: bool = False) -> dict[str, Any]:
     payload = load_model_paths(create=create)
+    hf_cache = resolve_huggingface_cache()
     return {
         "schema_id": "neo.admin.models.paths_payload.v1",
         "status": "ready",
@@ -181,18 +184,21 @@ def admin_model_paths_payload(*, create: bool = False) -> dict[str, Any]:
             "policy": "local_only_gitignored_neo_data",
         },
         "paths": payload,
+        "huggingface_cache": hf_cache,
         "capabilities": {
             "path_configuration": True,
             "folder_resolution": True,
             "installed_scan": True,
             "downloads": True,
             "remote_metadata": True,
+            "huggingface_cache_resolution": True,
         },
     }
 
 
 def save_model_paths_payload(update: dict[str, Any] | None) -> dict[str, Any]:
     saved = update_model_paths_config(update)
+    hf_cache = resolve_huggingface_cache()
     return {
         "schema_id": "neo.admin.models.paths_save_payload.v1",
         "status": "saved",
@@ -203,4 +209,6 @@ def save_model_paths_payload(update: dict[str, Any] | None) -> dict[str, Any]:
             "policy": "local_only_gitignored_neo_data",
         },
         "paths": saved,
+        "huggingface_cache": hf_cache,
+        "capabilities": {"huggingface_cache_resolution": True},
     }

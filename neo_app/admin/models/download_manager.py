@@ -13,6 +13,13 @@ import shutil
 import time
 
 from .download_planner import build_download_plan
+from .huggingface_disk_preflight import build_huggingface_snapshot_disk_preflight
+from .huggingface_snapshot_installer import (
+    HuggingFaceSnapshotInstallError,
+    build_huggingface_snapshot_install_request,
+    install_huggingface_snapshot,
+)
+from .huggingface_snapshot_probe import probe_huggingface_snapshot_install_request
 from .model_paths import load_model_paths
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -66,6 +73,14 @@ def _safe_int(value: Any, default: int = 0) -> int:
     return default
 
 
+def _normalized_fs_path(value: Any) -> str:
+    text = _clean(value)
+    if not text:
+        return ""
+    try:
+        return os.path.normcase(os.path.normpath(os.path.abspath(os.path.expanduser(text))))
+    except Exception:
+        return os.path.normcase(os.path.normpath(text))
 
 
 def _display_path(path: Path) -> str:
@@ -323,6 +338,274 @@ def _job_from_plan(plan: dict[str, Any], payload: dict[str, Any], *, status: str
     }
 
 
+def _job_from_snapshot_request(
+    request_payload: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    status: str,
+    disk_preflight: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    job_id = _safe_job_id(payload.get("job_id"))
+    source = _as_dict(request_payload.get("source"))
+    install = _as_dict(request_payload.get("install"))
+    cache = _as_dict(request_payload.get("cache"))
+    backend_targets = [_clean_lower(item) for item in _as_list(install.get("backend_targets")) if _clean(item)]
+    expected_size_mb = _safe_int(install.get("expected_size_mb"), default=0)
+    expected_size_bytes = expected_size_mb * 1024 * 1024 if expected_size_mb > 0 else 0
+    stamp = _now()
+    return {
+        "schema_id": DOWNLOAD_JOB_SCHEMA_ID,
+        "phase": "phase4_5_4_huggingface_snapshot_disk_preflight",
+        "job_id": job_id,
+        "job_kind": "repository_snapshot",
+        "installer": "huggingface_snapshot",
+        "status": status,
+        "created_at": stamp,
+        "updated_at": stamp,
+        "catalog_id": _clean(request_payload.get("catalog_id")),
+        "display_name": _clean(request_payload.get("display_name")),
+        "provider": "huggingface",
+        "source": {
+            "provider": "huggingface",
+            "repo": _clean(source.get("repo")),
+            "revision": _clean(source.get("revision")) or "main",
+            "source_url": _clean(source.get("source_url")),
+            "requires_token": bool(source.get("requires_token")),
+        },
+        "file": {
+            "filename": "",
+            "extension": "",
+            "size_bytes": expected_size_bytes,
+            "hashes": {},
+        },
+        "target": {
+            "backend": backend_targets[0] if backend_targets else "",
+            "target_type": "hf_cache",
+            "folder_path": _clean(cache.get("hub_cache")),
+            "final_path": "",
+        },
+        "paths": {
+            "cache_dir": _clean(cache.get("hub_cache")),
+            "snapshot_path": "",
+            "final_path": "",
+        },
+        "progress": {
+            "bytes_downloaded": 0,
+            "size_bytes": expected_size_bytes,
+            "percent": 0,
+            "indeterminate": True,
+            "stage": "planned" if status == "planned" else "queued",
+        },
+        "warnings": sorted(set([str(item) for item in _as_list(request_payload.get("warnings"))])),
+        "errors": [],
+        "snapshot_request": deepcopy(request_payload),
+        "disk_preflight": deepcopy(_as_dict(disk_preflight)),
+        "policy": {
+            "confirmed": bool(payload.get("confirmed")),
+            "dry_run": bool(payload.get("dry_run")),
+            "overwrite": False,
+            "tokens_saved": False,
+            "remote_metadata_saved": False,
+            "preview_images_saved": False,
+            "huggingface_owns_cache_layout": True,
+            "uses_local_dir": False,
+            "cancel_mode": "cooperative_after_current_huggingface_transfer",
+            "disk_preflight": True,
+            "disk_preflight_fail_closed": True,
+            "disk_preflight_recheck_before_transfer": True,
+            "authoritative_installed_probe": True,
+        },
+    }
+
+
+def _snapshot_worker(job_id: str, *, token: str = "") -> None:
+    job = _get_job(job_id)
+    if not job:
+        return
+    cancel_event = _CANCEL_EVENTS.setdefault(job_id, Event())
+    start_time = time.time()
+    try:
+        if cancel_event.is_set():
+            raise InterruptedError("snapshot_install_cancelled_before_start")
+        _update_job(
+            job_id,
+            status="preparing",
+            started_at=_now(),
+            progress={**_as_dict(job.get("progress")), "indeterminate": True, "stage": "checking_disk"},
+        )
+        fresh_preflight = build_huggingface_snapshot_disk_preflight(_as_dict(job.get("snapshot_request")))
+        _update_job(job_id, disk_preflight=fresh_preflight)
+        if not bool(fresh_preflight.get("ok")):
+            _update_job(
+                job_id,
+                status="failed",
+                failed_at=_now(),
+                errors=[str(item) for item in _as_list(fresh_preflight.get("errors"))] or ["disk_space_check_failed"],
+                error_message=_clean(fresh_preflight.get("message")) or "Disk-space preflight failed before Hugging Face transfer.",
+                progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "failed"},
+            )
+            return
+        if cancel_event.is_set():
+            raise InterruptedError("snapshot_install_cancelled_before_transfer")
+        _update_job(
+            job_id,
+            status="preparing",
+            progress={**_as_dict(job.get("progress")), "indeterminate": True, "stage": "preparing"},
+        )
+        _update_job(
+            job_id,
+            status="downloading",
+            progress={**_as_dict(job.get("progress")), "indeterminate": True, "stage": "downloading"},
+        )
+        result = install_huggingface_snapshot(_as_dict(job.get("snapshot_request")), token=token)
+        snapshot_path = _clean(_as_dict(result.get("cache")).get("snapshot_path"))
+        source_result = _as_dict(result.get("source"))
+        elapsed = max(time.time() - start_time, 0.001)
+        if cancel_event.is_set():
+            _update_job(
+                job_id,
+                status="cancelled",
+                cancelled_at=_now(),
+                paths={**_as_dict(job.get("paths")), "snapshot_path": snapshot_path},
+                warnings=sorted(set([*_as_list(job.get("warnings")), "cancel_requested_after_huggingface_transfer_started_snapshot_may_remain_cached"])),
+                errors=["snapshot_install_cancelled"],
+                progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "cancelled", "elapsed_seconds": round(elapsed, 3)},
+            )
+            return
+        _update_job(
+            job_id,
+            status="verifying",
+            paths={**_as_dict(job.get("paths")), "snapshot_path": snapshot_path},
+            progress={**_as_dict(job.get("progress")), "indeterminate": True, "stage": "verifying", "elapsed_seconds": round(elapsed, 3)},
+        )
+        snapshot_probe = probe_huggingface_snapshot_install_request(_as_dict(job.get("snapshot_request")))
+        probe_state = _clean_lower(snapshot_probe.get("state"))
+        probe_snapshot_path = _clean(_as_dict(snapshot_probe.get("cache")).get("snapshot_path"))
+        if probe_state != "installed":
+            probe_errors = [str(item) for item in _as_list(snapshot_probe.get("errors")) if str(item).strip()]
+            _update_job(
+                job_id,
+                status="failed",
+                failed_at=_now(),
+                paths={**_as_dict(job.get("paths")), "snapshot_path": probe_snapshot_path or snapshot_path},
+                errors=probe_errors or [f"huggingface_snapshot_probe_{probe_state or 'failed'}"],
+                error_message=_clean(snapshot_probe.get("message")) or "The downloaded Hugging Face snapshot did not pass installed-state verification.",
+                verification=snapshot_probe,
+                progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "failed", "elapsed_seconds": round(elapsed, 3)},
+            )
+            return
+        if probe_snapshot_path and snapshot_path and _normalized_fs_path(probe_snapshot_path) != _normalized_fs_path(snapshot_path):
+            _update_job(
+                job_id,
+                status="failed",
+                failed_at=_now(),
+                paths={**_as_dict(job.get("paths")), "snapshot_path": probe_snapshot_path},
+                errors=["huggingface_snapshot_verification_path_mismatch"],
+                error_message="Hugging Face returned one snapshot path, but the authoritative cache ref resolved to a different path.",
+                verification=snapshot_probe,
+                progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "failed", "elapsed_seconds": round(elapsed, 3)},
+            )
+            return
+        resolved_revision = _clean(_as_dict(snapshot_probe.get("source")).get("resolved_revision")) or _clean(source_result.get("resolved_revision"))
+        _update_job(
+            job_id,
+            status="completed",
+            completed_at=_now(),
+            source={**_as_dict(job.get("source")), "resolved_revision": resolved_revision},
+            paths={**_as_dict(job.get("paths")), "snapshot_path": probe_snapshot_path or snapshot_path},
+            progress={
+                **_as_dict(job.get("progress")),
+                "bytes_downloaded": _safe_int(_as_dict(job.get("progress")).get("size_bytes"), 0),
+                "percent": 100,
+                "indeterminate": False,
+                "stage": "completed",
+                "eta_seconds": 0,
+                "elapsed_seconds": round(elapsed, 3),
+            },
+            metrics={"elapsed_seconds": round(elapsed, 3)},
+            verification=snapshot_probe,
+        )
+    except InterruptedError:
+        _update_job(job_id, status="cancelled", cancelled_at=_now(), errors=["snapshot_install_cancelled"], progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "cancelled"})
+    except HuggingFaceSnapshotInstallError as exc:
+        _update_job(job_id, status="failed", failed_at=_now(), errors=[exc.code], error_message=exc.message, progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "failed"})
+    except Exception as exc:  # pragma: no cover - defensive worker boundary
+        _update_job(job_id, status="failed", failed_at=_now(), errors=[f"huggingface_snapshot_worker_failed:{type(exc).__name__}"], error_message="Hugging Face snapshot installation failed unexpectedly.", progress={**_as_dict(job.get("progress")), "indeterminate": False, "stage": "failed"})
+    finally:
+        _CANCEL_EVENTS.pop(job_id, None)
+        _JOB_THREADS.pop(job_id, None)
+
+
+def _start_huggingface_snapshot_install(payload: dict[str, Any]) -> dict[str, Any]:
+    request_payload = build_huggingface_snapshot_install_request(payload)
+    errors = [str(item) for item in _as_list(request_payload.get("errors"))]
+    warnings = [str(item) for item in _as_list(request_payload.get("warnings"))]
+    disk_preflight = build_huggingface_snapshot_disk_preflight(request_payload) if bool(request_payload.get("ok")) else {}
+    warnings.extend(str(item) for item in _as_list(_as_dict(disk_preflight).get("warnings")))
+    if disk_preflight and not bool(disk_preflight.get("ok")):
+        errors.extend(str(item) for item in _as_list(disk_preflight.get("errors")))
+    if not bool(payload.get("confirmed")):
+        errors.append("download_confirmation_required")
+    if not bool(request_payload.get("ok")) or errors:
+        status = "insufficient_disk_space" if "insufficient_disk_space" in errors else "needs_attention"
+        return {
+            "schema_id": DOWNLOAD_START_SCHEMA_ID,
+            "ok": False,
+            "status": status,
+            "phase": "phase4_5_4_huggingface_snapshot_disk_preflight",
+            "snapshot_request": request_payload,
+            "disk_preflight": disk_preflight,
+            "warnings": sorted(set(warnings)),
+            "errors": sorted(set(errors)),
+            "capabilities": {
+                "download_manager": True,
+                "repository_snapshot_install": True,
+                "huggingface_snapshot_download": True,
+                "disk_preflight": True,
+                "requires_confirmation": True,
+                "stores_tokens": False,
+            },
+        }
+
+    dry_run = bool(payload.get("dry_run"))
+    job = _job_from_snapshot_request(
+        request_payload,
+        payload,
+        status="planned" if dry_run else "queued",
+        disk_preflight=disk_preflight,
+    )
+    _upsert_job(job)
+    if not dry_run:
+        token = _clean(payload.get("token"))
+        cancel_event = Event()
+        _CANCEL_EVENTS[job["job_id"]] = cancel_event
+        thread = Thread(target=_snapshot_worker, kwargs={"job_id": job["job_id"], "token": token}, daemon=True)
+        _JOB_THREADS[job["job_id"]] = thread
+        thread.start()
+
+    return {
+        "schema_id": DOWNLOAD_START_SCHEMA_ID,
+        "ok": True,
+        "status": job["status"],
+        "phase": "phase4_5_4_huggingface_snapshot_disk_preflight",
+        "job": _redact_job(job),
+        "warnings": job.get("warnings", []),
+        "errors": [],
+        "capabilities": {
+            "download_manager": True,
+            "repository_snapshot_install": True,
+            "huggingface_snapshot_download": True,
+            "background_jobs": True,
+            "cancel": "cooperative",
+            "retry": False,
+            "stores_tokens": False,
+            "disk_preflight": True,
+            "disk_preflight_recheck_before_transfer": True,
+            "authoritative_installed_probe": True,
+        },
+    }
+
+
 def _download_headers(provider: str, token: str) -> dict[str, str]:
     headers = {"User-Agent": USER_AGENT}
     if token:
@@ -430,6 +713,8 @@ def _download_worker(job_id: str, *, token: str = "", overwrite: bool = False, t
 
 def start_model_download(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     data = _as_dict(payload)
+    if bool(data.get("snapshot_install")):
+        return _start_huggingface_snapshot_install(data)
     plan = _plan_from_start_payload(data)
     ok, warnings, errors = _validate_plan_for_download(plan, data)
     if not bool(data.get("confirmed")):
@@ -523,7 +808,7 @@ def list_model_download_jobs(payload: dict[str, Any] | None = None) -> dict[str,
         "jobs": jobs,
         "summary": {
             "count": len(jobs),
-            "active_count": sum(1 for job in jobs if job.get("status") in {"queued", "downloading"}),
+            "active_count": sum(1 for job in jobs if job.get("status") in {"queued", "preparing", "downloading", "verifying", "cancelling"}),
             "completed_count": sum(1 for job in jobs if job.get("status") == "completed"),
             "failed_count": sum(1 for job in jobs if job.get("status") == "failed"),
         },
@@ -571,7 +856,7 @@ def cancel_model_download(payload: dict[str, Any] | None = None) -> dict[str, An
             "job_id": job_id,
             "errors": ["download_job_not_found"],
         }
-    if job.get("status") not in {"queued", "downloading"}:
+    if job.get("status") not in {"queued", "preparing", "downloading", "verifying"}:
         return {
             "schema_id": DOWNLOAD_CANCEL_SCHEMA_ID,
             "ok": False,
@@ -583,7 +868,10 @@ def cancel_model_download(payload: dict[str, Any] | None = None) -> dict[str, An
     event = _CANCEL_EVENTS.get(job_id)
     if event:
         event.set()
-        updated = _update_job(job_id, status="cancelling", cancel_requested_at=_now()) or job
+        changes: dict[str, Any] = {"status": "cancelling", "cancel_requested_at": _now()}
+        if job.get("job_kind") == "repository_snapshot":
+            changes["warnings"] = sorted(set([*_as_list(job.get("warnings")), "huggingface_snapshot_cancel_is_cooperative_transfer_may_finish_before_worker_stops"]))
+        updated = _update_job(job_id, **changes) or job
     else:
         updated = _update_job(job_id, status="cancelled", cancelled_at=_now(), errors=["download_cancelled_before_worker_started"]) or job
     return {

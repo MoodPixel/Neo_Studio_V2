@@ -138,6 +138,9 @@ if "%NVIDIA_DETECTED%"=="1" (
     )
 )
 
+> "%VENV_DIR%\.neo_chatterbox_ready" echo Neo Studio Chatterbox runtime verified - Phase 4.6
+if errorlevel 1 goto :failed
+
 call :archive_legacy_venv "%LEGACY_VENV%" "chatterbox-root-venv"
 call :archive_legacy_data
 
@@ -152,12 +155,14 @@ if "%NVIDIA_DETECTED%"=="1" (
 )
 echo.
 echo Normal path:
-echo   1. Run setup_neo_voice_engine.bat if needed.
-echo   2. Run run_neo_voice_engine.bat.
-echo   3. Use Voice - Neo Voice Engine at http://127.0.0.1:8790.
+echo   1. Start Neo Studio and open Admin ^> Models.
+echo   2. Install or verify Chatterbox Turbo / Chatterbox Multilingual V3 there.
+echo   3. Run setup_neo_voice_engine.bat if needed, then run_neo_voice_engine.bat.
+echo   4. Use Voice - Neo Voice Engine at http://127.0.0.1:8790.
 echo.
-echo The gateway auto-starts Chatterbox on 127.0.0.1:8791 when needed.
-echo run_chatterbox_backend.bat remains a direct diagnostic fallback only.
+echo Model weights are NOT downloaded by this setup script or by Voice Generate.
+echo The gateway auto-starts Chatterbox on 127.0.0.1:8791 only after model admission.
+echo Developer direct-worker diagnostics live under scripts\dev\chatterbox.
 echo ============================================================
 echo.
 pause

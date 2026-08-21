@@ -111,6 +111,7 @@ from neo_extensions.built_in.background_removal.backend.context_latent import (
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderFeatureCapabilities, ProviderRunResult, ProviderValidationResult
 from neo_app.runtime.job_registry import GenerationJobRegistry, get_generation_job_registry
 from neo_app.services.comfy_gpu_lifecycle import ComfyGpuBusyError, get_comfy_gpu_lifecycle_manager
+from neo_app.services.comfy_model_residency import get_comfy_model_residency_guard
 from neo_app.services.comfy_runtime_recovery import classify_comfy_runtime_error
 from neo_app.services.runtime_debug_logs import (
     log_image_event,
@@ -5042,26 +5043,54 @@ class ComfyProvider(BaseProvider):
                     runtime={"debug_logs": {"run_id": run_id}, "gpu_lifecycle": exc.status, "recoverable": True},
                 )
             gpu_lease_token = str(gpu_lease.get("token") or "")
-            # R10D: LayerDiffuse can leave Comfy-side cached model objects in an
-            # 8-channel patched state after a workflow-replacement run. For any
-            # non-LayerDiffuse compile with a clean 4-channel graph, proactively
-            # ask Comfy to unload cached models before queueing. Failure to free
-            # is non-fatal; the diagnostic report still records the graph state.
+            # Phase 4.7.1 / R10D residency repair: normal Comfy generations keep
+            # cached model objects resident. LayerDiffuse still gets a one-shot
+            # safety reset, but only on the first normal run after an actually
+            # queued LayerDiffuse workflow. The guard persists this tiny transition
+            # bit across Neo restarts so safety does not require flushing every run.
             actual_params_for_cache_guard = compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {}
             extension_meta_for_cache_guard = compiled.backend_payload.get("extensions") if isinstance(compiled.backend_payload.get("extensions"), dict) else {}
             contamination_reports = extension_meta_for_cache_guard.get("contamination_reports") if isinstance(extension_meta_for_cache_guard.get("contamination_reports"), dict) else {}
             layer_report = contamination_reports.get("image.layerdiffuse") if isinstance(contamination_reports.get("image.layerdiffuse"), dict) else {}
-            if (
-                actual_params_for_cache_guard.get("_neo_layerdiffuse_cache_guard", True) is not False
-                and layer_report
-                and layer_report.get("layerdiffuse_requested") is False
-                and layer_report.get("model_channel_risk") == "normal_4ch"
-            ):
+            residency_guard = get_comfy_model_residency_guard()
+            layerdiffuse_requested_for_residency = bool(layer_report.get("layerdiffuse_requested"))
+            residency_decision = residency_guard.prequeue_decision(
+                self.base_url,
+                layerdiffuse_requested=layerdiffuse_requested_for_residency,
+                guard_enabled=actual_params_for_cache_guard.get("_neo_layerdiffuse_cache_guard", True) is not False,
+            )
+            if residency_decision.get("should_free"):
                 try:
                     free_response = self._post_json("/free", {"unload_models": True, "free_memory": True}, allow_empty=True)
-                    log_image_event("layerdiffuse_cache_guard_free", run_id=run_id, payload={"response": free_response, "reason": "non_layerdiffuse_4ch_compile"})
+                    residency_guard.mark_free_succeeded(
+                        self.base_url,
+                        reason=str(residency_decision.get("reason") or "layerdiffuse_to_normal_transition"),
+                        run_id=run_id,
+                    )
+                    log_image_event(
+                        "layerdiffuse_cache_guard_free",
+                        run_id=run_id,
+                        payload={"response": free_response, "reason": residency_decision.get("reason"), "model_residency": residency_decision},
+                    )
                 except Exception as exc:  # noqa: BLE001
-                    log_image_event("layerdiffuse_cache_guard_free_failed", run_id=run_id, level="WARNING", payload={"error": str(exc), "reason": "non_layerdiffuse_4ch_compile"})
+                    residency_guard.mark_free_failed(
+                        self.base_url,
+                        reason=str(residency_decision.get("reason") or "layerdiffuse_to_normal_transition"),
+                        error=str(exc),
+                        run_id=run_id,
+                    )
+                    log_image_event(
+                        "layerdiffuse_cache_guard_free_failed",
+                        run_id=run_id,
+                        level="WARNING",
+                        payload={"error": str(exc), "reason": residency_decision.get("reason"), "model_residency": residency_decision},
+                    )
+            else:
+                log_image_event(
+                    "comfy_model_residency_keep",
+                    run_id=run_id,
+                    payload={"reason": residency_decision.get("reason"), "model_residency": residency_decision},
+                )
             record_queue_payload(run_id=run_id, request_payload=payload)
             try:
                 response_payload = self._post_json("/prompt", payload)
@@ -5077,6 +5106,13 @@ class ComfyProvider(BaseProvider):
                     gpu_manager.release(gpu_lease_token, state="queue_failed")
                 raise
             prompt_id = response_payload.get("prompt_id") or run_id or f"comfy-{uuid4().hex[:8]}"
+            if layerdiffuse_requested_for_residency:
+                residency_guard.mark_layerdiffuse_queued(self.base_url, prompt_id=str(prompt_id), run_id=run_id)
+                residency_decision = {
+                    **residency_decision,
+                    "reset_required_after_queue": True,
+                    "queued_layerdiffuse_prompt_id": str(prompt_id),
+                }
             gpu_manager.bind_prompt(gpu_lease_token, prompt_id=prompt_id, cleanup_after=False, watch=True)
             record_compiled_workflow(run_id=prompt_id, provider_id=self.manifest.provider_id, backend_payload=compiled.backend_payload)
             record_queue_payload(run_id=prompt_id, request_payload=payload, response_payload=response_payload)
@@ -5136,6 +5172,7 @@ class ComfyProvider(BaseProvider):
                 "extensions": runtime_extensions,
                 "latent_branch_resume_validation": latent_preflight_report,
                 "gpu_lifecycle": gpu_manager.status(group=gpu_lease.get("resource_group")),
+                "model_residency": {**residency_decision, "state": residency_guard.status(self.base_url)},
             }
             registry_record = {}
             try:

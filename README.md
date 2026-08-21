@@ -36,7 +36,7 @@ Neo Studio does **not** bundle third-party AI models or engines. It connects to 
 
 - Generate, edit, inpaint, outpaint, refine, upscale, inspect, and replay Image jobs from one workspace.
 - Route requests through the selected **ComfyUI / ComfyUI Portable**, **Forge Neo**, or **Grok Imagine** backend profile without silently switching providers.
-- Supports checkpoint, component/safetensors, GGUF, bundled/AIO, and provider-owned workflows depending on the selected model family.
+- Normal local **Main Model Type** choices are Safetensors or GGUF; Neo internally resolves classic checkpoint, bundled/AIO, split-component, or GGUF strategies from the selected family/workflow.
 - Built-in workflow tools include **ControlNet**, **IP Adapter / FaceID**, **LoRA Stack**, **Style Stack**, **Wildcards**, **ADetailer**, **LayerDiffuse**, **High-Res Lab**, **Image Upscale**, **LanPaint**, **Forge Couple**, and **Scene Director** where the selected route supports them.
 - Output Inspector records source lineage, effective settings, provider information, elapsed timing, replay metadata, and reusable result actions.
 
@@ -173,7 +173,9 @@ Image UI
   ↓
 Selected backend profile
   ↓
-Model family + loader + workflow mode
+Model family + public model format + workflow mode
+  ↓
+Internal load strategy + required component topology
   ↓
 Neo route/compiler
   ↓
@@ -182,7 +184,24 @@ Comfy graph OR Forge API OR cloud API
 Neo-owned output + metadata + replay lineage
 ```
 
-The same model family can have different support depending on the selected loader/backend. Neo therefore checks the active route instead of assuming that a model name alone guarantees a workflow.
+The same model family can have different support depending on the selected internal loader/backend. Neo therefore checks the active route instead of assuming that a model name alone guarantees a workflow.
+
+### Phase 4.7 — Image model component topology
+
+The normal Image UI keeps the primary format choice simple: **Safetensors** or **GGUF**. Those labels describe the main model artifact format; they do **not** determine whether the workflow is bundled or split into external components. Neo resolves that separately from the selected family + internal load strategy + workflow mode.
+
+Examples:
+
+- SDXL/SD 1.5 Safetensors checkpoints remain bundled checkpoint workflows and do not gain unnecessary external text-encoder selectors.
+- Flux, Flux 2 Klein, Krea 2, Qwen Image/Edit, ZImage, HiDream, Anima, Ideogram 4, and other split-component Safetensors routes can expose the exact text encoder(s), VAE/AE, companion model, or other assets required by their route contract.
+- Quantized/FP8/INT/scaled `.safetensors` files are still Safetensors. Quantization does not turn them into GGUF workflows and does not hide their external components.
+- MMProj is route-driven. Neo shows/requires it only when the active image-conditioning route declares it; the `.gguf` or `.safetensors` extension alone is not the authority.
+
+This keeps the UI simple while preserving the real Comfy workflow topology behind it.
+
+### Phase 4.7.1 — Comfy native model residency
+
+Neo no longer calls ComfyUI `/free` before ordinary clean Image generations. Repeated normal runs keep compatible Comfy model objects resident so the same model does not reload from disk on every generation. The LayerDiffuse safety guard is now one-shot and transition-driven: an actually queued LayerDiffuse workflow marks that backend as requiring a reset, the first later non-LayerDiffuse run performs one `/free`, and subsequent normal runs keep the model resident again. The tiny transition flag is persisted under `neo_data/runtime/` so the safety boundary can survive a Neo restart while ComfyUI stays open. Manual/OOM/recovery cleanup remains owned by the existing runtime recovery paths.
 
 ---
 
@@ -258,11 +277,14 @@ The default runtime root is outside the source tree:
 
 This prevents the Neo Studio repository from accumulating one Python environment per Voice model family.
 
+Qwen3-TTS CustomVoice is now a physically validated local-only Voice Engine route with permanent legacy/no-redownload compatibility. Existing complete `Neo_Runtime` snapshots remain usable with first priority, while new installations may use Admin-managed Hugging Face repository snapshots. The 0.6B and 1.7B CustomVoice routes retain their validated provider controls and VRAM admission policy; missing or partial installs stay non-executable and Generate never downloads weights.
+
 ### Currently validated Voice backend
 
 | Backend | State | Notes |
 |---|---|---|
-| **Neo Voice Engine + Chatterbox** | ✅ Functional / validated | Unified gateway route, local TTS, reference cloning, isolated CUDA environment, job/result handling. |
+| **Neo Voice Engine + Chatterbox** | ✅ Functional / unified lifecycle | Isolated CUDA runtime, Admin/local HF snapshot lifecycle, historical HF-cache reuse, local-only generation, reference cloning, job/result handling. Existing Chatterbox backend physical runtime evidence remains valid; optional Admin re-install is not required for an already-valid local snapshot. |
+| **Qwen3-TTS CustomVoice** | ✅ Physically validated local runtime / dual-source capable | Post-Phase-4.6 generation is confirmed on the Windows/NVIDIA host using the existing-local/no-redownload path. Existing `Neo_Runtime` snapshots remain first priority; verified Admin HF snapshots are the alternate source; Admin HF copies are optional for legacy-ready users; Generate never downloads weights. |
 | **Chatterbox Legacy Direct** | Diagnostic fallback | Kept for direct backend troubleshooting; not the normal daily route. |
 | **Kokoro Preview** | Preview adapter | Lightweight profile exists but is not the primary validated gateway worker family. |
 | **Fish Speech HQ** | Advanced/preview adapter | Profile and capability layer exist; separate runtime validation/integration is still evolving. |
@@ -288,6 +310,55 @@ This prevents the Neo Studio repository from accumulating one Python environment
 setup_chatterbox_backend.bat
 setup_neo_voice_engine.bat
 ```
+
+`setup_chatterbox_backend.bat` installs/verifies only the isolated Chatterbox environment under `Neo_Runtime\voice\envs\chatterbox`; it does **not** download model weights. Start Neo Studio and install **Chatterbox Turbo** and/or **Chatterbox Multilingual V3** from **Admin → Models**, then run the normal Voice Engine. Chatterbox uses only the authoritative local Hugging Face snapshot during managed generation; Generate never downloads missing weights. Direct worker diagnosis is developer-only at `scripts\dev\chatterbox\run_chatterbox_backend.bat`.
+
+### Qwen3-TTS CustomVoice setup
+
+Normal users have one Qwen-specific setup script:
+
+```bat
+setup_qwen3_tts_backend.bat
+```
+
+That script installs only the isolated Qwen worker environment under `Neo_Runtime\voice\envs\qwen3_tts`. It does **not** download model weights. After setup, start Neo Studio and install **Qwen3-TTS 0.6B CustomVoice** and/or **Qwen3-TTS 1.7B CustomVoice** from **Admin → Models**. Admin installs the complete Hugging Face repository snapshot into the Hugging Face cache and verifies its requested revision/content before Voice can use it.
+
+Existing complete snapshots under `Neo_Runtime\voice\models\qwen3_tts` remain supported and keep first priority for backward compatibility, but new normal-user installs should use Admin → Models. Qwen managed routing is **local-only**: a generation request never silently downloads missing weights.
+
+### Phase 4.6.3 — Voice Lifecycle Physical Validation Closure
+
+The consolidated Voice lifecycle is now closed for the physically exercised local-runtime path. After the Phase 4.6.1 no-redownload compatibility layer and Phase 4.6.2 polling/VRAM hotfix were applied, generation was confirmed working on the Windows/NVIDIA host. This physically validates that an existing supported local Qwen installation remains usable through the managed Voice route without a forced Hugging Face re-download.
+
+This closure does **not** require downloading a duplicate Admin HF copy merely to prove migration. Repository-snapshot install/repair remains an explicit optional action for machines that need it. Chatterbox's previously validated local backend remains supported under the unified local-only lifecycle; a fresh network-backed Admin install was intentionally not forced as part of this closure. Controlled background-poll focus/context-menu behavior remains covered by the Phase 4.6.2 automated regression unless separately re-exercised on the host.
+
+### Phase 4.6.2 — Background Polling UI Stability + GPU Busy Diagnostics
+
+Long-running work in another Neo workspace no longer forces a full repaint of the workspace you are actively editing. Video result polling, Admin model-install monitoring, Image terminal polling, Voice job polling, and Prompt/Caption batch polling now render only their own active surface; active text/select controls defer same-surface poll repaints until focus leaves. This prevents model dropdowns from closing and prevents Script/context-menu focus from being stolen while another job is running.
+
+The Qwen 1.7B 12 GB-class admission policy from Phase 4.4 is unchanged. A `gpu_oom` / no-safe-admission result can still be correct when another workload such as Video/Comfy is occupying VRAM. The scheduler now reports the required cold-load headroom, observed free VRAM, safely available VRAM after Neo's reserve, and an explicit `insufficient_free_vram` reason so a busy GPU is not mistaken for a regression in the 1.7B calibration.
+
+### Phase 4.6.1 — Legacy Voice Model Compatibility / No-Redownload Migration
+
+Neo does **not** require existing users to re-download already working Voice models. A complete legacy Qwen snapshot under `Neo_Runtime\voice\models\qwen3_tts` remains a permanent supported runtime source and keeps precedence over an Admin-managed Hugging Face copy. Admin now reports **runtime availability** separately from **Admin HF copy state**. If a legacy model is ready while the HF cache is absent/broken, Neo shows the model as runtime-installed from **Legacy Neo Runtime** and offers **Install HF copy** only as an optional action. No migration is required.
+
+Historical Chatterbox models that were already downloaded into the standard Hugging Face cache are reused in place when their local revision/materialization/content probe passes. Neo does not copy them into `Neo_Runtime`, and managed generation never downloads weights.
+
+The compatibility policy is:
+
+```text
+Qwen: complete Neo_Runtime snapshot -> verified HF cache snapshot -> unavailable
+Chatterbox: verified existing/local HF cache snapshot -> unavailable
+
+Legacy-ready model -> keep using it with zero network use
+Optional Admin HF copy -> explicit user action only; may download missing data
+Generate -> never downloads model weights
+```
+
+The Qwen manifest uses `startup_policy: on_demand`. Opening Voice, refreshing models/voices, gateway health polling, and Admin status reads do **not** start the Qwen worker or consume VRAM. The worker may start only after the isolated runtime and selected model snapshot both pass install probes and an executable Voice job reaches scheduler admission.
+
+Start `run_neo_voice_engine.bat` and Neo Studio, open **Voice → Generation**, select an installed **Qwen3-TTS 0.6B CustomVoice** or **1.7B CustomVoice**, choose a supported language/speaker, then generate. The 0.6B route deliberately has no Voice Instruction field; that control appears only for installed 1.7B CustomVoice.
+
+Developer-only direct download, worker-launch, preflight, and 1.7B calibration BAT wrappers live under `scripts\dev\qwen3_tts`. They are intentionally excluded from the normal root-level setup path.
 
 Normal daily Voice-engine launch:
 
@@ -345,7 +416,7 @@ run_neo_studio.bat
 
 5. Open the local URL shown in the console.
 
-> Neo Studio does not download AI models automatically. Install and place models in your backend folders manually.
+> Neo Studio never downloads model weights implicitly during generation. Admin → Models can perform an explicit user-confirmed model install for supported repository-snapshot models; existing compatible local/legacy Voice models can continue to run without migration or re-download.
 
 ---
 
@@ -1057,27 +1128,27 @@ Support is optional, but always appreciated 💙
 
 
 <!-- README screenshot URLs: upload each PNG through GitHub user-attachments, then replace only the URL on the matching line below. The PNG files themselves should stay untracked. -->
-[shot-image-01]: https://github.com/user-attachments/assets/2b9b3560-189f-425f-959b-5490ca76fa75
-[shot-image-02]: https://github.com/user-attachments/assets/792091a4-8095-4007-aea7-ff7aaff9ceaa
-[shot-image-03]: https://github.com/user-attachments/assets/89fa0955-0770-4ab9-a5e0-98cbfb50fd77
-[shot-video-01]: https://github.com/user-attachments/assets/1347e8b8-1d07-41e9-8203-3458dfa3f8a2
-[shot-video-02]: https://github.com/user-attachments/assets/2a5075f6-14ed-4c36-bee8-bf97a924b4b4
-[shot-video-03]: https://github.com/user-attachments/assets/087fe1d3-a57b-4a8d-aa0e-9c758253b1ef
-[shot-voice-01]: https://github.com/user-attachments/assets/25048cab-c6b0-4339-a3a5-5a8eba3857ad
-[shot-voice-02]: https://github.com/user-attachments/assets/c914007b-1a9f-4fb6-9bae-8a9dbd74baf2
-[shot-voice-03]: https://github.com/user-attachments/assets/3ef78f09-1141-4e12-adf6-9031ffd38819
-[shot-voice-04]: https://github.com/user-attachments/assets/0ca3b6d7-0c74-4a8b-88c5-e7ada150cd9c
-[shot-prompt-01]: https://github.com/user-attachments/assets/87eefad8-d206-4e06-8730-ce39630791bf
-[shot-prompt-02]: https://github.com/user-attachments/assets/cd1e3e04-4418-440a-a3c1-f2bd4b45b6e4
-[shot-prompt-03]: https://github.com/user-attachments/assets/05687313-f062-4a4e-aed7-aa5e8d7634cb
-[shot-prompt-04]: https://github.com/user-attachments/assets/a5f8c5bd-90f4-4b2c-b329-d8b59268e1a3
-[shot-prompt-05]: https://github.com/user-attachments/assets/8c484e38-2b4e-47bf-b516-b80a6c4fda7b
-[shot-prompt-06]: https://github.com/user-attachments/assets/6c8db0ad-4eac-456b-a1e0-33f07e09154a
-[shot-roleplay-01]: https://github.com/user-attachments/assets/865591b9-be1b-4ee0-860d-80237afa4354
-[shot-roleplay-02]: https://github.com/user-attachments/assets/e7e3a696-0ca4-4ad7-8810-f08f6777f059
-[shot-roleplay-03]: https://github.com/user-attachments/assets/b7d9be09-2190-483d-9f40-9fb40df863e5
-[shot-roleplay-04]: https://github.com/user-attachments/assets/18ef0557-8d13-45fa-8566-326f5e0213a0
-[shot-assistant-01]: https://github.com/user-attachments/assets/9f0bb8e0-1d2f-4a9a-9985-b97a5b2b3a94
-[shot-assistant-02]: https://github.com/user-attachments/assets/18f24148-65f6-46f1-b01c-0bf29540ba7f
-[shot-assistant-03]: https://github.com/user-attachments/assets/a830ef2d-ab93-462d-88f0-35af2ff5efb9
-[shot-admin-01]: https://github.com/user-attachments/assets/24ef7dd2-4acc-4552-a23a-99bab3bb96db
+[shot-image-01]: https://github.com/user-attachments/assets/REPLACE-Image01
+[shot-image-02]: https://github.com/user-attachments/assets/REPLACE-Image02
+[shot-image-03]: https://github.com/user-attachments/assets/REPLACE-Image03
+[shot-video-01]: https://github.com/user-attachments/assets/REPLACE-Video01
+[shot-video-02]: https://github.com/user-attachments/assets/REPLACE-Video02
+[shot-video-03]: https://github.com/user-attachments/assets/REPLACE-Video03
+[shot-voice-01]: https://github.com/user-attachments/assets/REPLACE-Voice01
+[shot-voice-02]: https://github.com/user-attachments/assets/REPLACE-Voice02
+[shot-voice-03]: https://github.com/user-attachments/assets/REPLACE-Voice03
+[shot-voice-04]: https://github.com/user-attachments/assets/REPLACE-Voice04
+[shot-prompt-01]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning01
+[shot-prompt-02]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning02
+[shot-prompt-03]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning03
+[shot-prompt-04]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning04
+[shot-prompt-05]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning05
+[shot-prompt-06]: https://github.com/user-attachments/assets/REPLACE-PromptCaptioning06
+[shot-roleplay-01]: https://github.com/user-attachments/assets/REPLACE-Roleplay01
+[shot-roleplay-02]: https://github.com/user-attachments/assets/REPLACE-Roleplay02
+[shot-roleplay-03]: https://github.com/user-attachments/assets/REPLACE-Roleplay03
+[shot-roleplay-04]: https://github.com/user-attachments/assets/REPLACE-Roleplay04
+[shot-assistant-01]: https://github.com/user-attachments/assets/REPLACE-Assistant01
+[shot-assistant-02]: https://github.com/user-attachments/assets/REPLACE-Assistant02
+[shot-assistant-03]: https://github.com/user-attachments/assets/REPLACE-Assistant03
+[shot-admin-01]: https://github.com/user-attachments/assets/REPLACE-Admin

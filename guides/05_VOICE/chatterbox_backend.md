@@ -16,11 +16,23 @@ tags:
   - local backend
   - multilingual
 priority: 68
-version: 5
-updated: 2026-08-11
+version: 8
+updated: 2026-08-21
 ---
 
 # Chatterbox Local Voice Backend
+
+## Phase 4.6.3 — Lifecycle closure status
+
+The unified Voice lifecycle is closed without forcing a duplicate model acquisition on existing users. Chatterbox retains its previously validated local backend/runtime evidence and now follows the same local-only model lifecycle contract as Qwen: setup owns dependencies, Admin owns explicit model acquisition/repair, the authoritative local snapshot probe owns installed truth, and managed Generate never downloads weights.
+
+A fresh network-backed Chatterbox Admin install was not forced during the Phase 4.6.3 host closure because the acceptance rule is no-redownload compatibility, not mandatory re-acquisition. Existing valid Hugging Face cache snapshots remain reusable in place.
+
+## Phase 4.6.1 — Existing-model compatibility / no re-download
+
+Chatterbox does not require a model re-download when an older first-use installation already exists in the standard Hugging Face Hub cache. Phase 4.6.1 keeps that cache in place: if the requested local ref resolves and the authoritative `chatterbox_model_snapshot` content probe passes, the existing cached snapshot remains runtime-ready. Neo does not copy it into `Neo_Runtime` and does not manufacture a second cache.
+
+Unlike Qwen, Chatterbox did not use the Phase-3 `Neo_Runtime/voice/models/qwen3_tts` legacy snapshot layout. Its historical compatible model source is the Hugging Face cache itself. Setup still installs dependencies only, and managed Generate never downloads weights.
 
 **VO-R13** added Neo's physical Chatterbox runtime. **VO-E5** placed it behind Neo Voice Engine, **VO-E5A** moved its isolated environment out of the Neo Studio source tree, and **VO-E5B** hardens the installer so NVIDIA hosts cannot silently end up with a CPU-only PyTorch build. Chatterbox now runs from `Neo_Runtime\voice\envs\chatterbox`; the default Neo-facing Voice profile is now `voice.neo_engine` on `127.0.0.1:8790`, while the worker remains on `127.0.0.1:8791`.
 
@@ -28,13 +40,14 @@ updated: 2026-08-11
 
 From the Neo Studio project root on Windows:
 
-1. Run `setup_chatterbox_backend.bat` once.
+1. Run `setup_chatterbox_backend.bat` once. This installs/verifies only the isolated Chatterbox worker environment.
 2. Run `setup_neo_voice_engine.bat` once if the gateway environment is not already prepared.
-3. Start `run_neo_voice_engine.bat`.
-4. Open Neo and use the default **Voice · Neo Voice Engine** profile at `http://127.0.0.1:8790`.
-5. Generate normally or use an authorized clone-ready reference. The gateway auto-starts the Chatterbox worker on `127.0.0.1:8791` when needed.
+3. Start Neo Studio, open **Admin → Models**, and install or verify **Chatterbox Turbo** and/or **Chatterbox Multilingual V3**.
+4. Start `run_neo_voice_engine.bat`.
+5. Open Neo and use the default **Voice · Neo Voice Engine** profile at `http://127.0.0.1:8790`.
+6. Generate normally or use an authorized clone-ready reference. The gateway auto-starts the Chatterbox worker on `127.0.0.1:8791` only after runtime/model admission passes.
 
-`run_chatterbox_backend.bat` and the non-default **Voice · Chatterbox (Legacy Direct)** profile remain available for diagnosis/fallback. Neo's frontend still talks only to Neo.
+The direct worker launcher is developer-only at `scripts/dev/chatterbox/run_chatterbox_backend.bat`. The non-default **Voice · Chatterbox (Legacy Direct)** profile remains diagnostic/fallback only. Both managed and developer launch paths are local-only and never restore first-use model downloads.
 
 
 ## VO-E5A runtime location
@@ -45,7 +58,7 @@ By default the worker environment is created at `<Neo parent>\Neo_Runtime\voice\
 
 - Neo submits the existing R4/R6 provider contract to Neo Voice Engine; the gateway creates an `nve_*` job and dispatches the manifest-owned request to Chatterbox.
 - Chatterbox `POST /api/voice/render` still returns its own asynchronous worker job immediately; the gateway polls it and maps completion/cancellation back to the provider-facing job.
-- Chatterbox model weights load lazily. First use can remain in `loading_model` while files download and the checkpoint initializes.
+- Chatterbox model objects still load lazily into RAM/VRAM, but weights must already be an authoritative local Hugging Face snapshot installed/verified through **Admin → Models**. Managed generation never downloads weights.
 - The adapter keeps only one Chatterbox model resident at a time and clears the previous model/CUDA cache when switching families.
 - Completed worker audio is first copied into gateway-owned temporary output, then Neo imports it into Neo-owned Voice output storage before marking the R4/R6 job complete.
 - The adapter never writes a fake/silent success output.
@@ -108,11 +121,36 @@ Chatterbox requires its bundled PerTh watermarking path to initialize successful
 ## Troubleshooting
 
 - **Neo Voice Engine offline:** start `run_neo_voice_engine.bat`, then Connect/Test the default Voice profile again.
-- **Chatterbox worker will not auto-start:** rerun `setup_chatterbox_backend.bat`; use `run_chatterbox_backend.bat` only to diagnose the worker directly on `8791`.
+- **Chatterbox worker will not auto-start:** rerun `setup_chatterbox_backend.bat`; verify the selected model in **Admin → Models**; use `scripts/dev/chatterbox/run_chatterbox_backend.bat` only for direct worker diagnosis on `8791`.
 - **`Failed to load chatterbox_turbo: 'NoneType' object is not callable`:** this is the known PerTh / `pkg_resources` compatibility failure. Stop the adapter, rerun `setup_chatterbox_backend.bat` so the external Chatterbox environment receives `setuptools<82`, then restart the adapter.
 - **`Neo Voice Engine requested CUDA but CUDA is not available to the Chatterbox worker`:** rerun the VO-E5B `setup_chatterbox_backend.bat`. On NVIDIA hosts it repairs Torch/torchaudio from the explicit CUDA wheel lane and refuses to finish until CUDA is visible. If your driver requires another supported PyTorch 2.6 lane, set `NEO_CHATTERBOX_CUDA_VARIANT=cu118`, `cu124`, or `cu126` before rerunning setup.
 - **Dependency missing/incompatible:** rerun `setup_chatterbox_backend.bat`. It changes only the external `Neo_Runtime\voice\envs\chatterbox` environment.
-- **First generation looks stuck on model loading:** keep the adapter console open; first use downloads/initializes model weights.
+- **Model is reported missing/incomplete:** open **Admin → Models**, install or Repair the selected Chatterbox snapshot, then Verify. Generate does not download missing weights.
 - **Turbo non-English request:** select Chatterbox Multilingual V3.
 - **Turbo clone reference error:** use a clean reference longer than five seconds.
 - **Rate/MP3 error:** ensure FFmpeg is available on PATH.
+
+## Phase 4.6 — Unified Voice model lifecycle
+
+Chatterbox now follows the same model-acquisition boundary as Admin-managed Qwen models:
+
+```text
+setup_chatterbox_backend.bat
+  -> isolated dependencies + .neo_chatterbox_ready only
+
+Admin → Models
+  -> Hugging Face repository_snapshot install
+  -> disk preflight
+  -> local requested-revision/materialization/content probe
+
+Neo Voice Engine
+  -> authoritative local snapshot path
+  -> ChatterboxTurboTTS.from_local(...) / ChatterboxMultilingualTTS.from_local(...)
+
+Voice Generate
+  -X-> network model download
+```
+
+The two executable Chatterbox catalog records are `chatterbox_turbo` (`ResembleAI/chatterbox-turbo`) and `chatterbox_multilingual` (`ResembleAI/chatterbox`, V3 materialization). The manifest may declare `install.allow_patterns` for a provider-required materialization; this keeps the normal Hugging Face cache layout while avoiding unrelated historical files in a shared upstream repository. The authoritative `chatterbox_model_snapshot` probe verifies the local files that Neo's `from_local()` loaders require.
+
+Existing Hugging Face cache content created by older Chatterbox first-use behavior is reusable when the requested local ref resolves and the content probe passes. Neo does not copy it into `Neo_Runtime` and does not use old job history as installation authority.

@@ -1870,7 +1870,7 @@
         "status": "not_checked",
         "reachable": false,
         "base_url": "http://127.0.0.1:8791",
-        "message": "Start run_chatterbox_backend.bat, then click Connect/Test. Model weights load lazily on first generation.",
+        "message": "Developer diagnostic only: install/verify the Chatterbox model in Admin → Models, run scripts\\dev\\chatterbox\\run_chatterbox_backend.bat, then click Connect/Test. The worker is local-only and Generate never downloads weights.",
         "models": {
           "models": [],
           "diffusion_models": [],

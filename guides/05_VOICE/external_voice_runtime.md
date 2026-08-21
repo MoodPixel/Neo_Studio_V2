@@ -15,8 +15,8 @@ tags:
   - storage
   - migration
 priority: 72
-version: 2
-updated: 2026-08-11
+version: 3
+updated: 2026-08-21
 ---
 
 # External Voice Runtime Root
@@ -129,7 +129,7 @@ Normal use afterward:
 run_neo_voice_engine.bat
 ```
 
-The gateway auto-starts the external Chatterbox worker when required. `run_chatterbox_backend.bat` remains direct diagnostic/fallback only. VO-E5B makes the Chatterbox setup device-aware: NVIDIA hosts receive an explicit CUDA PyTorch wheel lane inside `envs/chatterbox`, while non-NVIDIA hosts receive the explicit CPU lane. This does not change the external runtime layout.
+The gateway auto-starts the external Chatterbox worker when required. Direct diagnosis uses the developer-only `scripts/dev/chatterbox/run_chatterbox_backend.bat`. VO-E5B makes the Chatterbox setup device-aware: NVIDIA hosts receive an explicit CUDA PyTorch wheel lane inside `envs/chatterbox`, while non-NVIDIA hosts receive the explicit CPU lane. Phase 4.6 leaves model weights in the normal Hugging Face Hub cache selected by Admin → Models; it does not create a second Chatterbox model tree under `Neo_Runtime`.
 
 ## Manifest path scopes
 
@@ -154,3 +154,7 @@ The registry resolves these paths against the configured Voice runtime root and 
 - Neo Voice Engine owns temporary worker/gateway runtime state under the external Voice runtime root.
 - Worker environments are disposable/rebuildable runtime dependencies.
 - Checked-in manifests/source remain machine-portable.
+
+## Phase 4.6 model-storage boundary
+
+`Neo_Runtime/voice/envs/` owns isolated Python runtimes, not Admin-managed model weights. Qwen legacy snapshots under `Neo_Runtime/voice/models/qwen3_tts` remain a compatibility exception with first precedence. New Qwen and Chatterbox repository-snapshot installs use the Hugging Face cache resolved by Admin. No setup script creates or mirrors HF `blobs / refs / snapshots` data.

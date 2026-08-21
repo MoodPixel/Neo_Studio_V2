@@ -19,8 +19,8 @@ tags:
   - worker isolation
   - provider contract
 priority: 69
-version: 4
-updated: 2026-08-11
+version: 8
+updated: 2026-08-20
 ---
 
 # Neo Voice Engine Contract
@@ -126,10 +126,20 @@ The v1 vocabulary reserves future tasks such as voice design and voice conversio
 3. **VO-E3 — complete:** manifest-driven worker/model identity, install/hardware/license/source metadata, fail-closed conflicts, registry diagnostics.
 4. **VO-E4 — complete:** GPU-aware admission, model residency/load/unload/eviction policy, bounded managed-worker recovery.
 5. **VO-E5 — complete:** register the tested Chatterbox service as the first active manifest-owned worker, route the default `voice.neo_engine` profile through the gateway, and retain the direct Chatterbox profile only as legacy fallback.
-6. **Next model-family milestone:** add additional workers such as Qwen3-TTS through the same manifest/worker contract instead of creating new Neo-facing provider stacks.
-7. Onboard additional TTS/VC workers without adding Neo-facing backend profiles.
+6. **Qwen3-TTS Phase 1 — complete audit only:** freeze the next-family capability/runtime contract without registering a worker or changing Voice behavior. Five released 12Hz roles are mapped; Voice Design protocol gaps, clone modes, live speaker/language discovery, isolated environment ownership, and unvalidated hardware admission are explicit.
+7. **Qwen3-TTS Phase 2 — complete worker milestone:** isolated `qwen3_tts` worker, external environment/model roots, live model/voice/control discovery, lifecycle load/unload, async WAV jobs, CustomVoice, Base clone, and direct VoiceDesign dispatch. The manifest remains disabled, so normal product activation is still gated.
+8. **Qwen3-TTS Phase 3 — complete registry/install milestone:** activate the managed manifest, local-only model registry, runtime/model install probes, explicit snapshot installer, family aliases, and conservative scheduler floors while keeping the normal Voice UI and VoiceDesign gateway task gated.
+9. **Qwen3-TTS Phase 4 — UI/runtime activation + first physical generation:** installed/runtime-ready CustomVoice models can enter normal TTS; Language/Speaker map to common fields, 1.7B adds manifest-owned Voice Instruction, and model-control discovery remains non-starting. Real 0.6B CUDA/WAV generation succeeded physically and exposed a repeated-residency scheduler defect.
+10. **Qwen3-TTS Phase 4.2 — resident VRAM admission hotfix:** split cold-load admission from lifecycle-confirmed same-model resident reuse, keep the 0.6B 8192 MB cold floor unchanged, release transient Qwen CUDA allocator cache after inference, expose admission diagnostics, and make terminal scheduler failures stop the Voice progress state. The post-hotfix repeated 0.6B physical retest passed.
+11. **Qwen3-TTS Phase 4.3 — 1.7B VRAM calibration:** add an explicit diagnostic-only direct CUDA load/generation/unload tool after the conservative 12288 MB production floor blocked a GPU reporting 12287 MB total VRAM before model load. Physical calibration then succeeded: 4230 MB peak process reservation, 24.781 s model load, 17.992 s generation, no CUDA OOM.
+12. **Qwen3-TTS Phase 4.4 — production VRAM admission calibration:** introduce generic split manifest semantics for `min_total_vram_mb` vs `cold_load_free_vram_mb`, admit the physically validated 12 GB-class 1.7B route with a 12000 MB capacity floor and 6144 MB cold-free floor, preserve Phase 4.2 resident reuse, and keep legacy `min_vram_mb` manifests compatible.
+13. **Qwen3-TTS Phase 4.4.1 — provider-controls UI binding hotfix:** keep the persistent Script/Common Parameters rail TTS-scoped across workspace navigation, move clone-only provider controls into Reference, reject stale model-control responses after model switches, render long model text controls as multiline fields, and distinguish selected model/engine from the backend profile family without changing scheduler/runtime policy.
+13. Onboard additional TTS/VC workers without adding Neo-facing backend profiles.
 
 ## Music is separate
 The future Music backend should be a separate Neo Music Engine. Voice and Music may share architectural conventions but should not share one ML runtime or one provider service.
 
 For the canonical locked field/schema rules, see `neo_system_records/03_PROVIDER_SYSTEM/VOICE_ENGINE_CONTRACT_VO_E1_20260811.md`. For the current physical stack, see `guides/05_VOICE/neo_voice_engine_gateway.md`, `guides/05_VOICE/neo_voice_engine_registry.md`, `guides/05_VOICE/neo_voice_engine_scheduler.md`, and the VO-E2/VO-E3/VO-E4/VO-E5 provider records.
+
+
+For the Qwen-specific audit, isolated worker, active registry/install boundary, Phase 4 CustomVoice UI contract, Phase 4.2 resident-reuse scheduler rule, Phase 4.3 physical 1.7B calibration, Phase 4.4 split production VRAM admission, Phase 4.4.1 provider-control UI binding, and remaining clone/VoiceDesign gates, see `guides/05_VOICE/qwen3_tts.md`.

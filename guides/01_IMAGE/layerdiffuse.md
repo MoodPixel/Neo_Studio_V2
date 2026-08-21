@@ -103,6 +103,18 @@ Some extra modes are visible as blocked/experimental until verified workflow exp
 | Flux / Qwen / ZImage / HiDream / GGUF / API | Component/GGUF/API | Any | Not supported unless route matrix explicitly promotes it |
 | Inpaint / Outpaint | Any | Inpaint/Outpaint | Unsupported / gated |
 
+## Model cache / residency behavior
+
+Neo keeps normal Comfy model objects resident between Image generations. LayerDiffuse no longer causes a blanket `/free` on every clean non-LayerDiffuse run. The cache reset is transition-driven:
+
+```text
+Normal → Normal             keep resident
+LayerDiffuse → LayerDiffuse keep resident
+LayerDiffuse → Normal       free once, then keep resident
+```
+
+The one-shot reset exists because LayerDiffuse can patch the cached model topology. Neo records only a tiny backend transition flag under `neo_data/runtime/`; it does not copy or persist model weights. Ordinary model switching remains ComfyUI-owned, and explicit OOM/recovery/manual cleanup may still unload models when necessary.
+
 ## How to explain it to users
 
 Good answer pattern:

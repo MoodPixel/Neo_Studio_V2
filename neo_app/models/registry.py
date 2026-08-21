@@ -120,6 +120,7 @@ def get_surface_families(surface: str) -> list[ModelFamily]:
 
 
 def get_model_family_payload(surface: str | None = None) -> dict:
+    from neo_app.models.component_topology import build_image_component_topology_payload
     from neo_app.models.physical_validation import physical_validation_payload
     from neo_app.models.route_matrix import ROUTE_STATES, ROUTE_STATE_UI_POLICY, list_model_backend_routes
     from neo_app.models.route_regression_lock import regression_lock_payload
@@ -159,6 +160,7 @@ def get_model_family_payload(surface: str | None = None) -> dict:
         "route_states": list(ROUTE_STATES),
         "route_state_ui_policy": ROUTE_STATE_UI_POLICY,
         "route_matrix": route_rows,
+        "component_topology": build_image_component_topology_payload() if surface == "image" else None,
         "physical_validation": physical_validation_payload(),
         "route_regression_lock": regression_lock_payload(),
     }
