@@ -1,0 +1,787 @@
+{
+  "schema_id": "neo.voice_engine.manifest.v1",
+  "manifest_id": "neo.voice_engine.qwen3_tts",
+  "manifest_version": "0.4.4",
+  "enabled": true,
+  "engine": {
+    "id": "qwen3_tts",
+    "label": "Qwen3-TTS",
+    "description": "Neo Studio managed Qwen3-TTS worker with explicit local model registry/install probes, Phase 4 CustomVoice UI activation, resident-reuse protection, and calibrated 12 GB-class admission for physically validated 1.7B CustomVoice.",
+    "worker": {
+      "mode": "managed_process",
+      "base_url": "http://127.0.0.1:8792",
+      "health_path": "/api/voice/health",
+      "command": [
+        "{python}",
+        "-m",
+        "uvicorn",
+        "neo_integrations.qwen3_tts_adapter.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8792",
+        "--no-access-log",
+        "--log-level",
+        "warning"
+      ],
+      "cwd": "",
+      "env": {
+        "NEO_QWEN3_TTS_NEO_ROOT": "{project_root}",
+        "NEO_QWEN3_TTS_HOST": "127.0.0.1",
+        "NEO_QWEN3_TTS_PORT": "8792",
+        "NEO_VOICE_RUNTIME_ROOT": "{voice_runtime_root}",
+        "NEO_QWEN3_TTS_MODEL_ROOT": "{voice_runtime_root}/models/qwen3_tts",
+        "NEO_QWEN3_TTS_LOCAL_ONLY": "1"
+      },
+      "auto_start": false,
+      "startup_policy": "on_demand",
+      "startup_timeout_seconds": 90,
+      "environment": {
+        "kind": "venv",
+        "scope": "voice_runtime",
+        "root": "envs/qwen3_tts",
+        "python": "envs/qwen3_tts/Scripts/python.exe"
+      },
+      "installation": {
+        "strategy": "managed",
+        "required_paths": [
+          "neo_integrations/qwen3_tts_adapter/app.py",
+          "neo_integrations/qwen3_tts_adapter/engine.py"
+        ],
+        "optional_paths": [],
+        "expected_size_mb": null,
+        "probe_id": "qwen3_tts_runtime_env"
+      }
+    }
+  },
+  "models": [
+    {
+      "id": "qwen3_tts_17b_custom_voice",
+      "label": "Qwen3-TTS 1.7B CustomVoice",
+      "description": "Built-in-speaker multilingual TTS with natural-language Voice Instruction control. Phase 4.4 admits the physically validated 1.7B route on 12 GB-class CUDA GPUs using separate total-capacity and cold-load-free-VRAM checks.",
+      "default": false,
+      "tasks": [
+        "tts"
+      ],
+      "languages": [
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "voice_modes": [
+        "built_in"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": false,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 6144,
+        "recommended_vram_mb": 6144,
+        "min_ram_mb": 24576,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false,
+        "min_total_vram_mb": 12000,
+        "cold_load_free_vram_mb": 6144,
+        "recommended_total_vram_mb": 16384
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": 4520,
+        "probe_id": "qwen3_tts_model_snapshot"
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "qwen3-tts",
+        "custom-voice",
+        "instruction-control",
+        "phase4-voice-ui",
+        "voice-ui-requires-executable",
+        "phase4-4-vram-calibrated",
+        "physical-12gb-validated"
+      ],
+      "provider_controls": [
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "select",
+          "default": "auto",
+          "modes": [
+            "tts"
+          ],
+          "surface_field": "language",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto"
+            },
+            {
+              "id": "zh",
+              "label": "Chinese"
+            },
+            {
+              "id": "en",
+              "label": "English"
+            },
+            {
+              "id": "ja",
+              "label": "Japanese"
+            },
+            {
+              "id": "ko",
+              "label": "Korean"
+            },
+            {
+              "id": "de",
+              "label": "German"
+            },
+            {
+              "id": "fr",
+              "label": "French"
+            },
+            {
+              "id": "ru",
+              "label": "Russian"
+            },
+            {
+              "id": "pt",
+              "label": "Portuguese"
+            },
+            {
+              "id": "es",
+              "label": "Spanish"
+            },
+            {
+              "id": "it",
+              "label": "Italian"
+            }
+          ]
+        },
+        {
+          "id": "speaker",
+          "label": "Speaker",
+          "type": "select",
+          "default": "ryan",
+          "modes": [
+            "tts"
+          ],
+          "surface_field": "voice_id",
+          "options": [
+            {
+              "id": "vivian",
+              "label": "Vivian"
+            },
+            {
+              "id": "serena",
+              "label": "Serena"
+            },
+            {
+              "id": "uncle_fu",
+              "label": "Uncle Fu"
+            },
+            {
+              "id": "dylan",
+              "label": "Dylan"
+            },
+            {
+              "id": "eric",
+              "label": "Eric"
+            },
+            {
+              "id": "ryan",
+              "label": "Ryan"
+            },
+            {
+              "id": "aiden",
+              "label": "Aiden"
+            },
+            {
+              "id": "ono_anna",
+              "label": "Ono Anna"
+            },
+            {
+              "id": "sohee",
+              "label": "Sohee"
+            }
+          ]
+        },
+        {
+          "id": "voice_instruction",
+          "label": "Voice Instruction",
+          "type": "text",
+          "default": "",
+          "modes": [
+            "tts"
+          ],
+          "max_length": 1000,
+          "placeholder": "Describe delivery, emotion, pace, or speaking style."
+        }
+      ]
+    },
+    {
+      "id": "qwen3_tts_06b_custom_voice",
+      "label": "Qwen3-TTS 0.6B CustomVoice",
+      "description": "Lower-size built-in-speaker multilingual TTS. Phase 4 exposes Speaker + Language in Voice when the isolated runtime and model snapshot are ready; upstream 0.6B disables instruct.",
+      "default": true,
+      "tasks": [
+        "tts"
+      ],
+      "languages": [
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "voice_modes": [
+        "built_in"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": false,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 8192,
+        "recommended_vram_mb": 10240,
+        "min_ram_mb": 16384,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+          "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": 2500,
+        "probe_id": "qwen3_tts_model_snapshot"
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "qwen3-tts",
+        "custom-voice",
+        "phase4-voice-ui",
+        "voice-ui-requires-executable"
+      ],
+      "provider_controls": [
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "select",
+          "default": "auto",
+          "modes": [
+            "tts"
+          ],
+          "surface_field": "language",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto"
+            },
+            {
+              "id": "zh",
+              "label": "Chinese"
+            },
+            {
+              "id": "en",
+              "label": "English"
+            },
+            {
+              "id": "ja",
+              "label": "Japanese"
+            },
+            {
+              "id": "ko",
+              "label": "Korean"
+            },
+            {
+              "id": "de",
+              "label": "German"
+            },
+            {
+              "id": "fr",
+              "label": "French"
+            },
+            {
+              "id": "ru",
+              "label": "Russian"
+            },
+            {
+              "id": "pt",
+              "label": "Portuguese"
+            },
+            {
+              "id": "es",
+              "label": "Spanish"
+            },
+            {
+              "id": "it",
+              "label": "Italian"
+            }
+          ]
+        },
+        {
+          "id": "speaker",
+          "label": "Speaker",
+          "type": "select",
+          "default": "ryan",
+          "modes": [
+            "tts"
+          ],
+          "surface_field": "voice_id",
+          "options": [
+            {
+              "id": "vivian",
+              "label": "Vivian"
+            },
+            {
+              "id": "serena",
+              "label": "Serena"
+            },
+            {
+              "id": "uncle_fu",
+              "label": "Uncle Fu"
+            },
+            {
+              "id": "dylan",
+              "label": "Dylan"
+            },
+            {
+              "id": "eric",
+              "label": "Eric"
+            },
+            {
+              "id": "ryan",
+              "label": "Ryan"
+            },
+            {
+              "id": "aiden",
+              "label": "Aiden"
+            },
+            {
+              "id": "ono_anna",
+              "label": "Ono Anna"
+            },
+            {
+              "id": "sohee",
+              "label": "Sohee"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen3_tts_17b_base",
+      "label": "Qwen3-TTS 1.7B Base (Voice Clone)",
+      "description": "Reference voice cloning with ICL transcript mode or x-vector-only speaker embedding mode.",
+      "default": false,
+      "tasks": [
+        "voice_clone"
+      ],
+      "languages": [
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "voice_modes": [
+        "reference_clone"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": true,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 12288,
+        "recommended_vram_mb": 16384,
+        "min_ram_mb": 24576,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": 4540,
+        "probe_id": "qwen3_tts_model_snapshot"
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "qwen3-tts",
+        "voice-clone",
+        "voice-ui-gated"
+      ]
+    },
+    {
+      "id": "qwen3_tts_06b_base",
+      "label": "Qwen3-TTS 0.6B Base (Voice Clone)",
+      "description": "Lower-size reference voice cloning with ICL transcript mode or x-vector-only mode.",
+      "default": false,
+      "tasks": [
+        "voice_clone"
+      ],
+      "languages": [
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "voice_modes": [
+        "reference_clone"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": true,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 8192,
+        "recommended_vram_mb": 10240,
+        "min_ram_mb": 16384,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+          "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": 2520,
+        "probe_id": "qwen3_tts_model_snapshot"
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "qwen3-tts",
+        "voice-clone",
+        "voice-ui-gated"
+      ]
+    },
+    {
+      "id": "qwen3_tts_17b_voice_design",
+      "label": "Qwen3-TTS 1.7B VoiceDesign",
+      "description": "Natural-language voice design. Worker runtime exists in Phase 2; Neo gateway/UI voice_design activation remains deferred.",
+      "default": false,
+      "tasks": [
+        "voice_design"
+      ],
+      "languages": [
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "de",
+        "fr",
+        "ru",
+        "pt",
+        "es",
+        "it"
+      ],
+      "voice_modes": [
+        "voice_design"
+      ],
+      "output_formats": [
+        "wav"
+      ],
+      "streaming": false,
+      "reference_audio": false,
+      "hardware": {
+        "cpu": true,
+        "cuda": true,
+        "rocm": false,
+        "mps": false,
+        "directml": false,
+        "xpu": false,
+        "min_vram_mb": 12288,
+        "recommended_vram_mb": 16384,
+        "min_ram_mb": 24576,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_acceptance": false,
+        "url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "sources": [
+        {
+          "kind": "huggingface",
+          "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "revision": "",
+          "filename": ""
+        }
+      ],
+      "install": {
+        "strategy": "managed",
+        "required_paths": [],
+        "optional_paths": [],
+        "expected_size_mb": 4520,
+        "probe_id": "qwen3_tts_model_snapshot"
+      },
+      "lifecycle": {
+        "evictable": true,
+        "idle_unload_seconds": 300,
+        "unload_strategy": "worker_api"
+      },
+      "tags": [
+        "qwen3-tts",
+        "voice-design",
+        "voice-ui-gated"
+      ]
+    }
+  ],
+  "voices": [
+    {
+      "id": "vivian",
+      "label": "Vivian",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "zh"
+      ]
+    },
+    {
+      "id": "serena",
+      "label": "Serena",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "zh"
+      ]
+    },
+    {
+      "id": "uncle_fu",
+      "label": "Uncle_Fu",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "zh"
+      ]
+    },
+    {
+      "id": "dylan",
+      "label": "Dylan",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "zh"
+      ]
+    },
+    {
+      "id": "eric",
+      "label": "Eric",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "zh"
+      ]
+    },
+    {
+      "id": "ryan",
+      "label": "Ryan",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "aiden",
+      "label": "Aiden",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "ono_anna",
+      "label": "Ono_Anna",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "ja"
+      ]
+    },
+    {
+      "id": "sohee",
+      "label": "Sohee",
+      "model_ids": [
+        "qwen3_tts_17b_custom_voice",
+        "qwen3_tts_06b_custom_voice"
+      ],
+      "kind": "built_in",
+      "languages": [
+        "ko"
+      ]
+    }
+  ],
+  "notes": [
+    "The gateway is local-only for Qwen model weights: it never silently downloads a missing model during generation. Use the explicit model installer or place a complete snapshot under Neo_Runtime/voice/models/qwen3_tts.",
+    "Install state combines the verified isolated-runtime marker with a local snapshot probe (config plus complete weight set).",
+    "Phase 4 exposes installed/runtime-ready Qwen3-TTS CustomVoice models in the normal Voice TTS selector.",
+    "Base voice-clone and VoiceDesign models remain voice-ui-gated for later dedicated surface activation.",
+    "Provider-control discovery is manifest-owned and does not require starting the Qwen worker."
+  ]
+}

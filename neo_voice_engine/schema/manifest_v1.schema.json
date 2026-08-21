@@ -83,6 +83,12 @@
             "auto_start": {
               "type": "boolean"
             },
+            "startup_policy": {
+              "enum": [
+                "manual",
+                "on_demand"
+              ]
+            },
             "startup_timeout_seconds": {
               "type": "number",
               "exclusiveMinimum": 0
@@ -208,6 +214,18 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "min_total_vram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cold_load_free_vram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "recommended_total_vram_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
               "min_ram_mb": {
                 "type": "integer",
                 "minimum": 0
@@ -256,6 +274,83 @@
                 ]
               }
             }
+          },
+          "provider_controls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "type"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "number",
+                    "integer",
+                    "boolean",
+                    "text",
+                    "select",
+                    "tags",
+                    "json"
+                  ]
+                },
+                "default": {},
+                "modes": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "tts",
+                      "voice_clone",
+                      "voice_design"
+                    ]
+                  }
+                },
+                "surface_field": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "step": {
+                  "type": "number"
+                },
+                "max_length": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -298,8 +393,15 @@
           }
         },
         "expected_size_mb": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
+        },
+        "probe_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"
         }
       }
     }

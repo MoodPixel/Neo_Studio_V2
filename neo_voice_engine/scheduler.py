@@ -125,6 +125,9 @@ class ResourceLease:
     device_index: int | None
     reserved_vram_mb: int
     acquired_at: str
+    admission_mode: str = "cold_load"
+    observed_free_vram_mb: int = 0
+    effective_free_vram_mb: int = 0
 
     def public(self) -> dict[str, Any]:
         return {
@@ -135,6 +138,9 @@ class ResourceLease:
             "device": self.device,
             "device_index": self.device_index,
             "reserved_vram_mb": self.reserved_vram_mb,
+            "admission_mode": self.admission_mode,
+            "observed_free_vram_mb": self.observed_free_vram_mb,
+            "effective_free_vram_mb": self.effective_free_vram_mb,
             "acquired_at": self.acquired_at,
         }
 
@@ -165,6 +171,12 @@ class VoiceResourceScheduler:
             "checked_at": "",
         }
         self._last_admission_error = ""
+        self._last_admission: dict[str, Any] = {
+            "mode": "unprobed",
+            "admitted": False,
+            "message": "No scheduler admission has been attempted yet.",
+            "checked_at": "",
+        }
 
     @staticmethod
     def _hardware(model: dict[str, Any]) -> dict[str, Any]:
@@ -192,13 +204,24 @@ class VoiceResourceScheduler:
         hardware = self._hardware(model)
         cuda = bool(hardware.get("cuda", False))
         cpu = bool(hardware.get("cpu", False))
-        minimum = _safe_int(hardware.get("min_vram_mb"), 0)
-        recommended = _safe_int(hardware.get("recommended_vram_mb"), minimum)
+
+        # Legacy manifests express cold admission with min_vram_mb only.
+        # Phase 4.4 adds an optional split contract so a model can require a
+        # validated GPU capacity class independently from the amount of VRAM
+        # that must be free immediately before a cold load.
+        legacy_minimum = _safe_int(hardware.get("min_vram_mb"), 0)
+        cold_load_free = _safe_int(hardware.get("cold_load_free_vram_mb"), 0) or legacy_minimum
+        recommended = _safe_int(hardware.get("recommended_vram_mb"), cold_load_free)
+        min_total = _safe_int(hardware.get("min_total_vram_mb"), 0)
+        recommended_total = _safe_int(hardware.get("recommended_total_vram_mb"), min_total)
         return {
             "cuda": cuda,
             "cpu": cpu,
-            "min_vram_mb": minimum,
-            "recommended_vram_mb": max(minimum, recommended),
+            "min_vram_mb": legacy_minimum,
+            "cold_load_free_vram_mb": cold_load_free,
+            "recommended_vram_mb": max(cold_load_free, recommended),
+            "min_total_vram_mb": min_total,
+            "recommended_total_vram_mb": max(min_total, recommended_total),
             "gpu_exclusive": bool(hardware.get("gpu_exclusive", cuda)),
             "allow_cpu_fallback": bool(hardware.get("allow_cpu_fallback", cpu)),
         }
@@ -214,16 +237,100 @@ class VoiceResourceScheduler:
     def _active_gpu_leases(self) -> int:
         return sum(1 for lease in self._leases.values() if lease.device == "cuda")
 
-    def _choose_cuda_device(self, hardware: dict[str, Any], required_mb: int) -> tuple[int, int] | None:
+    @staticmethod
+    def _device_payload(hardware: dict[str, Any], device_index: int) -> dict[str, Any] | None:
+        for raw in hardware.get("devices") or []:
+            if not isinstance(raw, dict):
+                continue
+            if _safe_int(raw.get("index"), -1) == int(device_index):
+                return raw
+        return None
+
+    def _record_admission(self, **payload: Any) -> None:
+        record = {
+            "mode": str(payload.pop("mode", "unknown") or "unknown"),
+            "admitted": bool(payload.pop("admitted", False)),
+            "message": str(payload.pop("message", "") or ""),
+            "checked_at": _now(),
+            **payload,
+        }
+        with self._condition:
+            self._last_admission = record
+            self._last_admission_error = "" if record["admitted"] else record["message"]
+
+    def _confirmed_resident_cuda_device(self, model: dict[str, Any]) -> int | None:
+        """Return the CUDA device only when the worker confirms the same model is resident.
+
+        Scheduler bookkeeping alone is not enough: a worker can unload or switch a
+        model outside the scheduler's last record.  Resident-reuse admission is
+        therefore granted only after a live, read-only lifecycle check on an
+        already-running worker.  This check never starts a worker.
+        """
+        model_id = str(model["id"])
+        engine_id = str(model["engine_id"])
+        with self._condition:
+            record = self._residency.get(model_id)
+            if record is None:
+                return None
+            if str(record.get("state") or "") not in {"resident", "implicit", "idle"}:
+                return None
+            if str(record.get("device") or "") != "cuda":
+                return None
+            device_index = record.get("device_index")
+            if device_index is None:
+                return None
+
+        try:
+            worker = self.supervisor.public_worker(engine_id)
+        except Exception:
+            return None
+        if bool(worker.get("managed")) and str(worker.get("state") or "").lower() not in {"ready", "connected", "ok", "healthy"}:
+            return None
+        try:
+            lifecycle = self.supervisor.model_lifecycle(engine_id, model_id)
+        except Exception:
+            return None
+        if not bool(lifecycle.get("supported")):
+            return None
+        lifecycle_state = str(lifecycle.get("state") or "").lower()
+        loaded_model_id = str(lifecycle.get("loaded_model_id") or "").strip()
+        if lifecycle_state == "resident" and loaded_model_id == model_id:
+            with self._condition:
+                live = self._residency.get(model_id)
+                if live is not None:
+                    live["state"] = "resident"
+                    live["message"] = "Worker lifecycle confirmed the model is already resident."
+            return int(device_index)
+
+        if lifecycle_state in {"unloaded", "missing", "stopped"}:
+            with self._condition:
+                live = self._residency.get(model_id)
+                if live is not None and int(live.get("active_jobs") or 0) == 0:
+                    live["state"] = "unloaded"
+                    live["device"] = ""
+                    live["device_index"] = None
+                    live["message"] = "Worker lifecycle reported that the model is no longer resident."
+        return None
+
+    def _choose_cuda_device(
+        self,
+        hardware: dict[str, Any],
+        required_free_mb: int,
+        *,
+        min_total_vram_mb: int = 0,
+    ) -> tuple[int, int] | None:
         candidates: list[tuple[int, int]] = []
         reserve = max(0, int(self.config.gpu_vram_reserve_mb))
         for raw in hardware.get("devices") or []:
             if not isinstance(raw, dict):
                 continue
             index = _safe_int(raw.get("index"), 0)
+            total = _safe_int(raw.get("total_vram_mb"), 0)
+            if min_total_vram_mb > 0 and total < min_total_vram_mb:
+                continue
             free = _safe_int(raw.get("free_vram_mb"), 0)
             effective = max(0, free - reserve - self._reserved_on_device(index))
-            if effective >= required_mb:
+            if effective >= required_free_mb:
                 candidates.append((index, effective))
         if not candidates:
             return None
@@ -266,6 +373,9 @@ class VoiceResourceScheduler:
         record["estimated_vram_mb"] = max(record.get("estimated_vram_mb") or 0, lease.reserved_vram_mb)
         record["last_used_monotonic"] = time.monotonic()
         record["last_used"] = _now()
+        record["last_admission_mode"] = lease.admission_mode
+        record["last_observed_free_vram_mb"] = lease.observed_free_vram_mb
+        record["last_effective_free_vram_mb"] = lease.effective_free_vram_mb
 
     def _evict_candidates(self, *, exclude_model_id: str = "") -> list[str]:
         now = time.monotonic()
@@ -424,6 +534,7 @@ class VoiceResourceScheduler:
                             device_index=None,
                             reserved_vram_mb=0,
                             acquired_at=_now(),
+                            admission_mode="cpu",
                         )
                         self._leases[lease.lease_id] = lease
                         self._mark_lease(lease, model)
@@ -435,9 +546,64 @@ class VoiceResourceScheduler:
                         self._condition.wait(timeout=0.05)
                         continue
 
+                resident_device_index = self._confirmed_resident_cuda_device(model)
                 hardware = self._probe()
-                required = requirements["min_vram_mb"]
-                choice = self._choose_cuda_device(hardware, required) if hardware.get("available") else None
+                reserve = max(0, int(self.config.gpu_vram_reserve_mb))
+                resident_headroom_failed = False
+                if resident_device_index is not None and hardware.get("available"):
+                    raw_device = self._device_payload(hardware, resident_device_index)
+                    if raw_device is not None:
+                        observed_free = _safe_int(raw_device.get("free_vram_mb"), 0)
+                        other_reserved = self._reserved_on_device(resident_device_index)
+                        effective_free = max(0, observed_free - other_reserved - reserve)
+                        if observed_free - other_reserved >= reserve:
+                            with self._condition:
+                                if not self._waiters or self._waiters[0] != waiter_id:
+                                    continue
+                                if requirements["gpu_exclusive"] and self._active_gpu_leases() >= self.config.gpu_max_concurrent_jobs:
+                                    self._condition.wait(timeout=0.05)
+                                    continue
+                                lease = ResourceLease(
+                                    lease_id=f"lease_{uuid4().hex[:16]}",
+                                    job_id=job_id,
+                                    engine_id=engine_id,
+                                    model_id=model_id,
+                                    device="cuda",
+                                    device_index=resident_device_index,
+                                    reserved_vram_mb=0,
+                                    acquired_at=_now(),
+                                    admission_mode="resident_reuse",
+                                    observed_free_vram_mb=observed_free,
+                                    effective_free_vram_mb=effective_free,
+                                )
+                                self._leases[lease.lease_id] = lease
+                                self._mark_lease(lease, model)
+                                self._waiters.pop(0)
+                                self._record_admission(
+                                    mode="resident_reuse",
+                                    admitted=True,
+                                    message=f"Reusing resident voice model '{model_id}' on CUDA:{resident_device_index} without charging its cold-load VRAM twice.",
+                                    model_id=model_id,
+                                    engine_id=engine_id,
+                                    device_index=resident_device_index,
+                                    observed_free_vram_mb=observed_free,
+                                    effective_free_vram_mb=effective_free,
+                                    resident_headroom_mb=reserve,
+                                    cold_min_vram_mb=requirements["cold_load_free_vram_mb"],
+                                    min_total_vram_mb=requirements["min_total_vram_mb"],
+                                )
+                                self._condition.notify_all()
+                                return lease
+                        else:
+                            resident_headroom_failed = True
+
+                required = requirements["cold_load_free_vram_mb"]
+                min_total = requirements["min_total_vram_mb"]
+                choice = (
+                    self._choose_cuda_device(hardware, required, min_total_vram_mb=min_total)
+                    if hardware.get("available") and resident_device_index is None
+                    else None
+                )
                 if choice is not None:
                     device_index, effective_free = choice
                     reservation = requirements["recommended_vram_mb"] or required
@@ -450,6 +616,8 @@ class VoiceResourceScheduler:
                         if requirements["gpu_exclusive"] and self._active_gpu_leases() >= self.config.gpu_max_concurrent_jobs:
                             self._condition.wait(timeout=0.05)
                             continue
+                        raw_device = self._device_payload(hardware, device_index) or {}
+                        observed_free = _safe_int(raw_device.get("free_vram_mb"), 0)
                         lease = ResourceLease(
                             lease_id=f"lease_{uuid4().hex[:16]}",
                             job_id=job_id,
@@ -459,10 +627,29 @@ class VoiceResourceScheduler:
                             device_index=device_index,
                             reserved_vram_mb=max(0, reservation),
                             acquired_at=_now(),
+                            admission_mode="cold_load",
+                            observed_free_vram_mb=observed_free,
+                            effective_free_vram_mb=effective_free,
                         )
                         self._leases[lease.lease_id] = lease
                         self._mark_lease(lease, model)
                         self._waiters.pop(0)
+                        self._record_admission(
+                            mode="cold_load",
+                            admitted=True,
+                            message=f"Cold-load admission granted for voice model '{model_id}' on CUDA:{device_index}.",
+                            model_id=model_id,
+                            engine_id=engine_id,
+                            device_index=device_index,
+                            observed_free_vram_mb=observed_free,
+                            effective_free_vram_mb=effective_free,
+                            required_vram_mb=required,
+                            cold_load_free_vram_mb=required,
+                            min_total_vram_mb=min_total,
+                            recommended_total_vram_mb=requirements["recommended_total_vram_mb"],
+                            reserved_vram_mb=max(0, reservation),
+                            reserve_vram_mb=reserve,
+                        )
                         self._condition.notify_all()
                         return lease
 
@@ -484,6 +671,7 @@ class VoiceResourceScheduler:
                             device_index=None,
                             reserved_vram_mb=0,
                             acquired_at=_now(),
+                            admission_mode="cpu_fallback",
                         )
                         self._leases[lease.lease_id] = lease
                         self._mark_lease(lease, model)
@@ -491,13 +679,70 @@ class VoiceResourceScheduler:
                         self._condition.notify_all()
                         return lease
 
-                message = (
-                    f"Voice model '{model_id}' requires CUDA VRAM but no safe admission is currently available."
-                    if hardware.get("available")
-                    else f"Voice model '{model_id}' requires CUDA and no CUDA device is available to the gateway."
+                admission_reason = "unknown"
+                observed_free_vram_mb = 0
+                effective_free_vram_mb = 0
+                if resident_headroom_failed:
+                    admission_reason = "resident_safety_reserve_unavailable"
+                    raw_device = self._device_payload(hardware, resident_device_index) if resident_device_index is not None else None
+                    observed_free_vram_mb = _safe_int((raw_device or {}).get("free_vram_mb"), 0)
+                    other_reserved = self._reserved_on_device(resident_device_index) if resident_device_index is not None else 0
+                    effective_free_vram_mb = max(0, observed_free_vram_mb - other_reserved - reserve)
+                    message = (
+                        f"Voice model '{model_id}' is already resident, but Neo's {reserve} MB CUDA safety reserve "
+                        f"is not currently available (GPU free: {observed_free_vram_mb} MB). "
+                        "Another GPU workload may still be holding VRAM; finish or unload that workload and retry."
+                    )
+                    admission_mode = "resident_reuse"
+                else:
+                    capacity_ok = True
+                    devices = [raw for raw in (hardware.get("devices") or []) if isinstance(raw, dict)]
+                    capacity_devices = devices
+                    if hardware.get("available") and min_total > 0:
+                        capacity_devices = [raw for raw in devices if _safe_int(raw.get("total_vram_mb"), 0) >= min_total]
+                        capacity_ok = bool(capacity_devices)
+                    if hardware.get("available") and not capacity_ok:
+                        admission_reason = "insufficient_total_vram"
+                        message = (
+                            f"Voice model '{model_id}' requires a CUDA GPU with at least {min_total} MB total VRAM; "
+                            "no detected device meets that validated capacity class."
+                        )
+                    elif hardware.get("available"):
+                        admission_reason = "insufficient_free_vram"
+                        best_device = max(capacity_devices or devices, key=lambda raw: _safe_int(raw.get("free_vram_mb"), 0), default={})
+                        best_index = _safe_int(best_device.get("index"), 0)
+                        observed_free_vram_mb = _safe_int(best_device.get("free_vram_mb"), 0)
+                        other_reserved = self._reserved_on_device(best_index)
+                        effective_free_vram_mb = max(0, observed_free_vram_mb - other_reserved - reserve)
+                        message = (
+                            f"Voice model '{model_id}' needs at least {required} MB safely free for a cold load plus "
+                            f"Neo's {reserve} MB CUDA reserve, but the best matching GPU currently has "
+                            f"{observed_free_vram_mb} MB free ({effective_free_vram_mb} MB safely available). "
+                            "Another GPU workload may be using VRAM (for example Video/Comfy). Finish or unload it and retry."
+                        )
+                    else:
+                        admission_reason = "cuda_unavailable"
+                        message = f"Voice model '{model_id}' requires CUDA and no CUDA device is available to the gateway."
+                    admission_mode = "cold_load"
+                self._record_admission(
+                    mode=admission_mode,
+                    admitted=False,
+                    message=message,
+                    model_id=model_id,
+                    engine_id=engine_id,
+                    required_vram_mb=0 if resident_headroom_failed else required,
+                    cold_min_vram_mb=required,
+                    cold_load_free_vram_mb=required,
+                    min_total_vram_mb=min_total,
+                    recommended_total_vram_mb=requirements["recommended_total_vram_mb"],
+                    recommended_vram_mb=requirements["recommended_vram_mb"],
+                    reserve_vram_mb=self.config.gpu_vram_reserve_mb,
+                    resident_reuse_confirmed=resident_device_index is not None,
+                    admission_reason=admission_reason,
+                    observed_free_vram_mb=observed_free_vram_mb,
+                    effective_free_vram_mb=effective_free_vram_mb,
+                    hardware=hardware,
                 )
-                with self._condition:
-                    self._last_admission_error = message
                 code = "gpu_oom" if hardware.get("available") else "hardware_unavailable"
                 raise VoiceEngineError(
                     code,
@@ -506,9 +751,18 @@ class VoiceResourceScheduler:
                     details={
                         "model_id": model_id,
                         "engine_id": engine_id,
-                        "required_vram_mb": required,
+                        "admission_mode": admission_mode,
+                        "resident_reuse_confirmed": resident_device_index is not None,
+                        "required_vram_mb": 0 if resident_headroom_failed else required,
+                        "cold_min_vram_mb": required,
+                        "cold_load_free_vram_mb": required,
+                        "min_total_vram_mb": min_total,
+                        "recommended_total_vram_mb": requirements["recommended_total_vram_mb"],
                         "recommended_vram_mb": requirements["recommended_vram_mb"],
                         "reserve_vram_mb": self.config.gpu_vram_reserve_mb,
+                        "admission_reason": admission_reason,
+                        "observed_free_vram_mb": observed_free_vram_mb,
+                        "effective_free_vram_mb": effective_free_vram_mb,
                         "hardware": hardware,
                     },
                     http_status=503,
@@ -522,13 +776,63 @@ class VoiceResourceScheduler:
     def prepare_model(self, lease: ResourceLease, model: dict[str, Any]) -> dict[str, Any]:
         model_id = str(model["id"])
         engine_id = str(model["engine_id"])
+        install = model.get("install") if isinstance(model.get("install"), dict) else {}
+        runtime_state = str(install.get("runtime_state") or model.get("install_state") or "external")
+        model_state = str(install.get("model_state") or model.get("install_state") or "external")
+        runtime_install = install.get("runtime") if isinstance(install.get("runtime"), dict) else {}
+        runtime_has_authoritative_probe = bool(runtime_install.get("probes"))
+        if runtime_state not in {"installed", "external"} and runtime_has_authoritative_probe:
+            raise VoiceEngineError(
+                "dependency_missing",
+                f"Voice runtime for '{model_id}' is not fully installed; worker launch was blocked before contact.",
+                details={
+                    "engine_id": engine_id,
+                    "model_id": model_id,
+                    "runtime_install_state": runtime_state,
+                    "model_install_state": model_state,
+                    "install": install,
+                },
+                http_status=409,
+            )
+        if model_state not in {"installed", "external"}:
+            raise VoiceEngineError(
+                "model_not_installed",
+                f"Voice model '{model_id}' is not fully installed; worker launch was blocked before contact.",
+                details={
+                    "engine_id": engine_id,
+                    "model_id": model_id,
+                    "runtime_install_state": runtime_state,
+                    "model_install_state": model_state,
+                    "install": install,
+                },
+                http_status=409,
+            )
         self.supervisor.ensure_ready(engine_id)
-        response = self.supervisor.load_model(
-            engine_id,
-            model_id,
-            device=lease.device,
-            device_index=lease.device_index,
-        )
+        if lease.admission_mode == "resident_reuse":
+            lifecycle = self.supervisor.model_lifecycle(engine_id, model_id)
+            lifecycle_state = str(lifecycle.get("state") or "").lower()
+            loaded_model_id = str(lifecycle.get("loaded_model_id") or "").strip()
+            if not bool(lifecycle.get("supported")) or lifecycle_state != "resident" or loaded_model_id != model_id:
+                raise VoiceEngineError(
+                    "gpu_oom",
+                    f"Resident-reuse admission for '{model_id}' became stale before dispatch; retry the job for a fresh admission decision.",
+                    retryable=True,
+                    details={
+                        "model_id": model_id,
+                        "engine_id": engine_id,
+                        "admission_mode": "resident_reuse",
+                        "lifecycle": lifecycle,
+                    },
+                    http_status=503,
+                )
+            response = {**lifecycle, "supported": True, "state": "resident", "reused": True}
+        else:
+            response = self.supervisor.load_model(
+                engine_id,
+                model_id,
+                device=lease.device,
+                device_index=lease.device_index,
+            )
         with self._condition:
             record = self._residency_record(model)
             if bool(response.get("supported")):
@@ -573,6 +877,9 @@ class VoiceResourceScheduler:
             "device": lease.device,
             "device_index": lease.device_index,
             "reserved_vram_mb": lease.reserved_vram_mb,
+            "admission_mode": lease.admission_mode,
+            "observed_free_vram_mb": lease.observed_free_vram_mb,
+            "effective_free_vram_mb": lease.effective_free_vram_mb,
         }
 
     def snapshot(self, *, refresh_hardware: bool = False) -> dict[str, Any]:
@@ -596,5 +903,6 @@ class VoiceResourceScheduler:
                 "active_gpu_leases": self._active_gpu_leases(),
                 "hardware": dict(self._last_hardware),
                 "residency": residency,
+                "last_admission": dict(self._last_admission),
                 "last_admission_error": self._last_admission_error,
             }

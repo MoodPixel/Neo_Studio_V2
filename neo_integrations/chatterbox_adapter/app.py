@@ -153,6 +153,9 @@ def health() -> dict[str, Any]:
         "dependencies": deps,
         "device": engine.device,
         "loaded_model_id": engine.loaded_model_id,
+        "loaded_model_source_kind": engine.model_source_kind,
+        "loaded_model_source_path": engine.model_source_path,
+        "local_only": str(os.getenv("NEO_CHATTERBOX_LOCAL_ONLY") or "1").strip().lower() not in {"0", "false", "no", "off"},
         "queue_mode": "single_gpu_worker",
         "neo_root": str(engine.neo_root),
     }
@@ -177,8 +180,13 @@ def capabilities() -> dict[str, Any]:
 @app.get("/api/voice/models")
 def models(family: str | None = None) -> dict[str, Any]:
     del family
+    turbo_runtime = engine.runtime_model_status(ADAPTER_MODEL_TURBO)
+    multilingual_runtime = engine.runtime_model_status(ADAPTER_MODEL_MULTILINGUAL)
     return {
-        "schema_id": "neo.chatterbox.models.v1",
+        "schema_id": "neo.chatterbox.models.v2",
+        "phase": ADAPTER_PHASE,
+        "download_policy": "admin_models_only",
+        "local_only": True,
         "models": [
             {
                 "id": ADAPTER_MODEL_TURBO,
@@ -189,7 +197,9 @@ def models(family: str | None = None) -> dict[str, Any]:
                 "voice_clone": True,
                 "paralinguistic_tags": True,
                 "model_size": "350M",
-                "notes": "Lower-compute English route. CFG/min-p/exaggeration are not native Turbo controls.",
+                "install": turbo_runtime,
+                "runtime_source_kind": turbo_runtime.get("source_kind") or "",
+                "notes": "Lower-compute English route. Model weights are installed through Admin → Models; managed generation is local-only.",
             },
             {
                 "id": ADAPTER_MODEL_MULTILINGUAL,
@@ -200,7 +210,9 @@ def models(family: str | None = None) -> dict[str, Any]:
                 "voice_clone": True,
                 "paralinguistic_tags": False,
                 "model_size": "500M",
-                "notes": "Recommended current multilingual checkpoint with zero-shot voice cloning.",
+                "install": multilingual_runtime,
+                "runtime_source_kind": multilingual_runtime.get("source_kind") or "",
+                "notes": "Current multilingual V3 checkpoint. Model weights are installed through Admin → Models; managed generation is local-only.",
             },
         ],
     }

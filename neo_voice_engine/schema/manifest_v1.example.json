@@ -18,6 +18,7 @@
       ],
       "cwd": "example_worker",
       "auto_start": true,
+      "startup_policy": "on_demand",
       "startup_timeout_seconds": 30,
       "environment": {
         "kind": "venv",
@@ -62,6 +63,9 @@
         "xpu": false,
         "min_vram_mb": 4096,
         "recommended_vram_mb": 8192,
+        "min_total_vram_mb": 0,
+        "cold_load_free_vram_mb": 0,
+        "recommended_total_vram_mb": 0,
         "min_ram_mb": 8192,
         "gpu_exclusive": true,
         "allow_cpu_fallback": false
@@ -94,7 +98,19 @@
         "evictable": true,
         "idle_unload_seconds": 300,
         "unload_strategy": "auto"
-      }
+      },
+      "provider_controls": [
+        {
+          "id": "example_style",
+          "label": "Example Style",
+          "type": "text",
+          "default": "",
+          "modes": [
+            "tts"
+          ],
+          "max_length": 200
+        }
+      ]
     }
   ],
   "voices": [],

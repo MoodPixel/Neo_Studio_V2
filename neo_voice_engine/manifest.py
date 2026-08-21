@@ -18,6 +18,7 @@ PUBLIC_TASKS = {
     "singing_voice_conversion",
 }
 WORKER_MODES = {"external_http", "managed_process"}
+WORKER_STARTUP_POLICIES = {"manual", "on_demand"}
 INSTALL_STRATEGIES = {"external", "managed", "manual", "bundled"}
 ENVIRONMENT_KINDS = {"external", "venv", "python", "system"}
 ENVIRONMENT_SCOPES = {"project", "voice_runtime"}
@@ -196,11 +197,18 @@ def _normalize_install(raw: Any, field: str, *, default_strategy: str) -> dict[s
     strategy = str(data.get("strategy") or default_strategy).strip().lower()
     if strategy not in INSTALL_STRATEGIES:
         raise ManifestValidationError(f"{field}.strategy must be one of {sorted(INSTALL_STRATEGIES)}.", field=f"{field}.strategy")
+    probe_id = str(data.get("probe_id") or "").strip().lower()
+    if probe_id and not _ID_RE.fullmatch(probe_id):
+        raise ManifestValidationError(
+            f"{field}.probe_id must be a stable lowercase ID using letters, numbers, '.', '_' or '-'.",
+            field=f"{field}.probe_id",
+        )
     return {
         "strategy": strategy,
         "required_paths": _relative_paths(data.get("required_paths"), f"{field}.required_paths"),
         "optional_paths": _relative_paths(data.get("optional_paths"), f"{field}.optional_paths"),
         "expected_size_mb": _nonnegative_int(data.get("expected_size_mb"), f"{field}.expected_size_mb"),
+        "probe_id": probe_id,
     }
 
 
@@ -225,8 +233,20 @@ def _normalize_worker(raw: Any, field: str) -> dict[str, Any]:
     if not health_path.startswith("/"):
         raise ManifestValidationError(f"{field}.health_path must begin with '/'.", field=f"{field}.health_path")
     auto_start = bool(data.get("auto_start", False))
+    startup_policy_raw = str(data.get("startup_policy") or "").strip().lower()
+    startup_policy = startup_policy_raw or ("on_demand" if auto_start else "manual")
+    if startup_policy not in WORKER_STARTUP_POLICIES:
+        raise ManifestValidationError(
+            f"{field}.startup_policy must be one of {sorted(WORKER_STARTUP_POLICIES)}.",
+            field=f"{field}.startup_policy",
+        )
     if mode != "managed_process" and auto_start:
         raise ManifestValidationError(f"{field}.auto_start is only valid for managed_process workers.", field=f"{field}.auto_start")
+    if mode != "managed_process" and startup_policy != "manual":
+        raise ManifestValidationError(
+            f"{field}.startup_policy='{startup_policy}' is only valid for managed_process workers.",
+            field=f"{field}.startup_policy",
+        )
     return {
         "mode": mode,
         "base_url": _validate_loopback_url(data.get("base_url"), f"{field}.base_url"),
@@ -235,6 +255,7 @@ def _normalize_worker(raw: Any, field: str) -> dict[str, Any]:
         "cwd": _relative_path(data.get("cwd"), f"{field}.cwd"),
         "env": env,
         "auto_start": auto_start,
+        "startup_policy": startup_policy,
         "startup_timeout_seconds": _positive_float(data.get("startup_timeout_seconds"), f"{field}.startup_timeout_seconds", 20.0),
         "environment": _normalize_environment(data.get("environment"), f"{field}.environment"),
         "installation": _normalize_install(
@@ -256,6 +277,9 @@ def _normalize_hardware(raw: Any, field: str) -> dict[str, Any]:
         "xpu": bool(data.get("xpu", False)),
         "min_vram_mb": _nonnegative_int(data.get("min_vram_mb"), f"{field}.min_vram_mb"),
         "recommended_vram_mb": _nonnegative_int(data.get("recommended_vram_mb"), f"{field}.recommended_vram_mb"),
+        "min_total_vram_mb": _nonnegative_int(data.get("min_total_vram_mb"), f"{field}.min_total_vram_mb"),
+        "cold_load_free_vram_mb": _nonnegative_int(data.get("cold_load_free_vram_mb"), f"{field}.cold_load_free_vram_mb"),
+        "recommended_total_vram_mb": _nonnegative_int(data.get("recommended_total_vram_mb"), f"{field}.recommended_total_vram_mb"),
         "min_ram_mb": _nonnegative_int(data.get("min_ram_mb"), f"{field}.min_ram_mb"),
         "gpu_exclusive": bool(data.get("gpu_exclusive", bool(data.get("cuda", False)))),
         "allow_cpu_fallback": bool(data.get("allow_cpu_fallback", bool(data.get("cpu", False)))),
@@ -317,6 +341,58 @@ def _normalize_sources(raw: Any, field: str) -> list[dict[str, Any]]:
     return result
 
 
+def _normalize_provider_controls(raw: Any, field: str) -> list[dict[str, Any]]:
+    if raw in (None, []):
+        return []
+    items = _require_list(raw, field)
+    allowed_types = {"number", "integer", "boolean", "text", "select", "tags", "json"}
+    allowed_modes = {"tts", "voice_clone", "voice_design"}
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(items):
+        item_field = f"{field}[{index}]"
+        data = _require_object(item, item_field)
+        control_id = _id(data.get("id"), f"{item_field}.id")
+        if control_id in seen:
+            raise ManifestValidationError(f"{item_field}.id duplicates provider control '{control_id}'.", field=f"{item_field}.id")
+        seen.add(control_id)
+        kind = str(data.get("type") or "text").strip().lower()
+        if kind not in allowed_types:
+            raise ManifestValidationError(f"{item_field}.type must be one of {sorted(allowed_types)}.", field=f"{item_field}.type")
+        modes = _string_list(data.get("modes") or ["tts"], f"{item_field}.modes", lower=True)
+        bad_modes = [mode for mode in modes if mode not in allowed_modes]
+        if bad_modes:
+            raise ManifestValidationError(f"{item_field}.modes contains unsupported mode(s): {', '.join(bad_modes)}.", field=f"{item_field}.modes")
+        normalized = {
+            "id": control_id,
+            "label": str(data.get("label") or control_id).strip() or control_id,
+            "type": kind,
+            "default": data.get("default"),
+            "modes": modes or ["tts"],
+            "surface_field": str(data.get("surface_field") or "").strip(),
+            "placeholder": str(data.get("placeholder") or "").strip(),
+        }
+        for key in ("min", "max", "step", "max_length"):
+            if data.get(key) is not None:
+                normalized[key] = data.get(key)
+        if kind == "select":
+            options_raw = _require_list(data.get("options") or [], f"{item_field}.options")
+            options: list[dict[str, str]] = []
+            option_ids: set[str] = set()
+            for option_index, option in enumerate(options_raw):
+                option_data = _require_object(option, f"{item_field}.options[{option_index}]")
+                option_id = str(option_data.get("id") or "").strip()
+                if not option_id or option_id in option_ids:
+                    raise ManifestValidationError(f"{item_field}.options[{option_index}].id must be unique and non-empty.", field=f"{item_field}.options[{option_index}].id")
+                option_ids.add(option_id)
+                options.append({"id": option_id, "label": str(option_data.get("label") or option_id).strip() or option_id})
+            if not options:
+                raise ManifestValidationError(f"{item_field}.options must contain at least one option for select controls.", field=f"{item_field}.options")
+            normalized["options"] = options
+        output.append(normalized)
+    return output
+
+
 def _normalize_model(raw: Any, field: str, engine_install_strategy: str) -> dict[str, Any]:
     data = _require_object(raw, field)
     model_id = _id(data.get("id"), f"{field}.id")
@@ -356,6 +432,7 @@ def _normalize_model(raw: Any, field: str, engine_install_strategy: str) -> dict
         "sources": _normalize_sources(data.get("sources"), f"{field}.sources"),
         "install": _normalize_install(data.get("install"), f"{field}.install", default_strategy=engine_install_strategy),
         "tags": _string_list(data.get("tags"), f"{field}.tags", lower=True),
+        "provider_controls": _normalize_provider_controls(data.get("provider_controls"), f"{field}.provider_controls"),
     }
 
 

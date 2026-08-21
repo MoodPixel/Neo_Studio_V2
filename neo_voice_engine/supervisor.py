@@ -28,6 +28,10 @@ class WorkerSpec:
     env: dict[str, str] = field(default_factory=dict)
     managed: bool = False
     auto_start: bool = False
+    startup_policy: str = "manual"
+    runtime_install_state: str = "external"
+    runtime_install_message: str = ""
+    runtime_missing_paths: tuple[str, ...] = ()
     health_path: str = "/api/voice/health"
     startup_timeout_seconds: float | None = None
     source: str = "manual"
@@ -57,6 +61,17 @@ class WorkerRuntime:
 
 class WorkerSupervisor:
     """Owns worker process lifecycle without importing worker ML dependencies."""
+
+    @staticmethod
+    def _managed_on_demand(spec: WorkerSpec) -> bool:
+        # ``auto_start`` is the legacy VO-E5 spelling. Manifest v1 now also
+        # exposes an explicit startup policy so registration/discovery never
+        # implies process launch. Existing Chatterbox manifests remain compatible.
+        return bool(spec.managed and (spec.startup_policy == "on_demand" or spec.auto_start))
+
+    @staticmethod
+    def _runtime_install_ready(spec: WorkerSpec) -> bool:
+        return str(spec.runtime_install_state or "external").lower() in {"installed", "external"}
 
     def __init__(
         self,
@@ -88,7 +103,13 @@ class WorkerSupervisor:
             existing = self._workers.get(engine_id)
             if existing and existing.process is not None and existing.process.poll() is None:
                 raise ValueError(f"Worker '{engine_id}' is running and cannot be replaced without stopping it first")
-            self._workers[engine_id] = WorkerRuntime(spec=spec, client=client or self._client_factory(spec))
+            runtime = WorkerRuntime(spec=spec, client=client or self._client_factory(spec))
+            if spec.managed and not self._runtime_install_ready(spec):
+                runtime.state = str(spec.runtime_install_state or "not_installed").lower()
+                runtime.message = spec.runtime_install_message or "Managed worker runtime is not fully installed."
+            elif self._managed_on_demand(spec):
+                runtime.message = "Managed worker is registered and will start on demand."
+            self._workers[engine_id] = runtime
 
     def unregister(self, engine_id: str, *, force: bool = False) -> bool:
         with self._lock:
@@ -175,6 +196,23 @@ class WorkerSupervisor:
             runtime = self._workers.get(engine_id)
         if runtime is None:
             raise VoiceEngineError("worker_unavailable", f"Voice worker '{engine_id}' is not registered.", http_status=503)
+        if runtime.spec.managed and not self._runtime_install_ready(runtime.spec):
+            install_state = str(runtime.spec.runtime_install_state or "not_installed").lower()
+            with self._lock:
+                runtime.state = install_state
+                runtime.message = runtime.spec.runtime_install_message or "Managed worker runtime is not fully installed."
+                runtime.last_error = ""
+                runtime.last_checked = _now()
+                runtime.pid = None
+            return {
+                "status": install_state,
+                "message": runtime.message,
+                "startup_policy": runtime.spec.startup_policy,
+                "installation": {
+                    "state": install_state,
+                    "missing_paths": list(runtime.spec.runtime_missing_paths),
+                },
+            }
         if runtime.spec.managed and runtime.process is not None:
             exit_code = runtime.process.poll()
             if exit_code is not None:
@@ -206,16 +244,20 @@ class WorkerSupervisor:
             # work, so health polling must preserve that idle/stopped state.
             with self._lock:
                 if (
-                    runtime.spec.managed
-                    and runtime.spec.auto_start
+                    self._managed_on_demand(runtime.spec)
                     and runtime.process is None
                     and runtime.state == "stopped"
                     and runtime.last_exit_code is None
                 ):
-                    runtime.message = "Managed worker is stopped and will auto-start on demand."
+                    runtime.message = "Managed worker is stopped and will start on demand."
                     runtime.last_error = ""
                     runtime.last_checked = _now()
-                    return {"status": "stopped", "message": runtime.message, "auto_start": True}
+                    return {
+                        "status": "stopped",
+                        "message": runtime.message,
+                        "auto_start": runtime.spec.auto_start,
+                        "startup_policy": runtime.spec.startup_policy,
+                    }
                 runtime.state = "failed"
                 runtime.message = f"Worker probe failed: {exc}"
                 runtime.last_error = str(exc)
@@ -241,6 +283,18 @@ class WorkerSupervisor:
                 f"External worker '{engine_id}' is not reachable and cannot be started by this gateway.",
                 retryable=True,
                 http_status=503,
+            )
+        if not self._runtime_install_ready(runtime.spec):
+            raise VoiceEngineError(
+                "dependency_missing",
+                f"Managed worker '{engine_id}' runtime is not fully installed and cannot be started.",
+                details={
+                    "engine_id": engine_id,
+                    "runtime_install_state": runtime.spec.runtime_install_state,
+                    "missing_paths": list(runtime.spec.runtime_missing_paths),
+                    "message": runtime.spec.runtime_install_message,
+                },
+                http_status=409,
             )
         if not runtime.spec.command:
             raise VoiceEngineError("dependency_missing", f"Managed worker '{engine_id}' has no configured launch command.", http_status=503)
@@ -307,12 +361,16 @@ class WorkerSupervisor:
             runtime = self._workers.get(engine_id)
             if runtime is None:
                 raise VoiceEngineError("worker_unavailable", f"Voice worker '{engine_id}' is not registered.", http_status=503)
-            if not runtime.spec.managed or not runtime.spec.auto_start:
+            if not self._managed_on_demand(runtime.spec):
                 raise VoiceEngineError(
                     "worker_unavailable",
                     f"Voice worker '{engine_id}' is not gateway-managed for automatic recovery.",
                     retryable=True,
-                    details={"managed": runtime.spec.managed, "auto_start": runtime.spec.auto_start},
+                    details={
+                        "managed": runtime.spec.managed,
+                        "auto_start": runtime.spec.auto_start,
+                        "startup_policy": runtime.spec.startup_policy,
+                    },
                     http_status=503,
                 )
             self._prune_restart_attempts(runtime)
@@ -363,7 +421,7 @@ class WorkerSupervisor:
             return {"attempted": False, "reason": "failure_not_recoverable", "code": code}
         with self._lock:
             runtime = self._workers.get(engine_id)
-            if runtime is None or not runtime.spec.managed or not runtime.spec.auto_start:
+            if runtime is None or not self._managed_on_demand(runtime.spec):
                 return {"attempted": False, "reason": "worker_not_managed", "code": code}
             runtime.last_error = message or runtime.last_error
         try:
@@ -377,10 +435,22 @@ class WorkerSupervisor:
             runtime = self._workers.get(engine_id)
         if runtime is None:
             raise VoiceEngineError("worker_unavailable", f"Voice worker '{engine_id}' is not registered.", http_status=503)
-        if runtime.spec.managed and runtime.spec.auto_start and runtime.process is None and runtime.state != "recovery_exhausted":
-            # A manifest-owned worker may be intentionally stopped until first use.
-            # Probe once in case the user launched it manually, otherwise perform a
-            # normal first start without consuming the crash-recovery budget.
+        if runtime.spec.managed and not self._runtime_install_ready(runtime.spec):
+            raise VoiceEngineError(
+                "dependency_missing",
+                f"Voice worker '{engine_id}' runtime is not fully installed.",
+                details={
+                    "engine_id": engine_id,
+                    "runtime_install_state": runtime.spec.runtime_install_state,
+                    "missing_paths": list(runtime.spec.runtime_missing_paths),
+                    "message": runtime.spec.runtime_install_message,
+                },
+                http_status=409,
+            )
+        if self._managed_on_demand(runtime.spec) and runtime.process is None and runtime.state != "recovery_exhausted":
+            # Discovery/health never starts workers. Executable work reaches this
+            # method only after model/install admission, so this is the single
+            # automatic first-start boundary.
             health = self.probe(engine_id)
             if str(health.get("status") or "").lower() in {"ready", "connected", "ok", "healthy"}:
                 return
@@ -389,7 +459,7 @@ class WorkerSupervisor:
         health = self.probe(engine_id)
         if str(health.get("status") or "").lower() in {"ready", "connected", "ok", "healthy"}:
             return
-        if runtime.spec.managed and runtime.spec.auto_start:
+        if self._managed_on_demand(runtime.spec):
             self.recover(engine_id, reason="health_probe_failed")
             return
         raise VoiceEngineError(
@@ -487,12 +557,18 @@ class WorkerSupervisor:
                 "base_url": runtime.spec.base_url,
                 "managed": runtime.spec.managed,
                 "auto_start": runtime.spec.auto_start,
+                "startup_policy": runtime.spec.startup_policy,
                 "source": runtime.spec.source,
                 "manifest_id": runtime.spec.manifest_id,
                 "environment": {
                     "kind": runtime.spec.environment_kind,
                     "root_configured": bool(runtime.spec.environment_root),
                     "python_configured": bool(runtime.spec.python_path),
+                },
+                "installation": {
+                    "state": runtime.spec.runtime_install_state,
+                    "message": runtime.spec.runtime_install_message,
+                    "missing_paths": list(runtime.spec.runtime_missing_paths),
                 },
                 "state": runtime.state,
                 "message": runtime.message,

@@ -16,6 +16,41 @@ from .scheduler import VoiceResourceScheduler
 from .supervisor import WorkerSupervisor
 
 
+VOICE_UI_GATE_TAG = "voice-ui-gated"
+VOICE_UI_REQUIRES_EXECUTABLE_TAG = "voice-ui-requires-executable"
+
+
+def _surface_visible_models(models: list[dict[str, Any]], *, include_gated: bool = False) -> list[dict[str, Any]]:
+    if include_gated:
+        return [dict(model) for model in models]
+    out: list[dict[str, Any]] = []
+    for model in models:
+        tags = {str(tag).strip().lower() for tag in (model.get("tags") or [])}
+        if VOICE_UI_GATE_TAG in tags:
+            continue
+        if VOICE_UI_REQUIRES_EXECUTABLE_TAG in tags and not bool((model.get("runtime") or {}).get("executable", False)):
+            continue
+        out.append(dict(model))
+    return out
+
+
+def _surface_visible_voices(voices: list[dict[str, Any]], visible_models: list[dict[str, Any]], *, include_gated: bool = False) -> list[dict[str, Any]]:
+    if include_gated:
+        return [dict(voice) for voice in voices]
+    visible_ids = {str(model.get("id") or "") for model in visible_models}
+    visible_engines = {str(model.get("engine_id") or "") for model in visible_models}
+    out: list[dict[str, Any]] = []
+    for voice in voices:
+        model_ids = {str(value) for value in (voice.get("model_ids") or []) if str(value).strip()}
+        engine_id = str(voice.get("engine_id") or "")
+        if model_ids:
+            if model_ids & visible_ids:
+                out.append(dict(voice))
+        elif not engine_id or engine_id in visible_engines:
+            out.append(dict(voice))
+    return out
+
+
 class VoiceEngineRuntime:
     def __init__(
         self,
@@ -116,10 +151,11 @@ def build_app(runtime: VoiceEngineRuntime | None = None) -> FastAPI:
         return state.scheduler.snapshot(refresh_hardware=refresh_hardware)
 
     @app.get("/api/voice/capabilities")
-    def capabilities(refresh: bool = Query(default=True)) -> dict[str, Any]:
+    def capabilities(refresh: bool = Query(default=True), include_gated: bool = Query(default=False)) -> dict[str, Any]:
         snapshot = state.catalog.refresh() if refresh else state.catalog.snapshot()
         all_models = snapshot["models"]
-        models = [model for model in all_models if bool((model.get("runtime") or {}).get("executable", False))]
+        product_models = _surface_visible_models(all_models, include_gated=include_gated)
+        models = [model for model in product_models if bool((model.get("runtime") or {}).get("executable", False))]
         tasks = sorted({task for model in models for task in (model.get("tasks") or [])})
         formats = sorted({fmt for model in models for fmt in (model.get("output_formats") or [])})
         multilingual = any(len(model.get("languages") or []) > 1 for model in models)
@@ -148,22 +184,27 @@ def build_app(runtime: VoiceEngineRuntime | None = None) -> FastAPI:
         }
 
     @app.get("/api/voice/models")
-    def models(refresh: bool = Query(default=True)) -> dict[str, Any]:
+    def models(refresh: bool = Query(default=True), include_gated: bool = Query(default=False)) -> dict[str, Any]:
         snapshot = state.catalog.refresh() if refresh else state.catalog.snapshot()
+        visible = _surface_visible_models(snapshot["models"], include_gated=include_gated)
         return {
             "schema_id": "neo.voice_engine.models.v1",
             "provider_id": "neo_voice_engine",
-            "models": snapshot["models"],
+            "models": visible,
+            "gated_models_hidden": max(0, len(snapshot["models"]) - len(visible)),
             "errors": snapshot["errors"],
         }
 
     @app.get("/api/voice/voices")
-    def voices(refresh: bool = Query(default=True)) -> dict[str, Any]:
+    def voices(refresh: bool = Query(default=True), include_gated: bool = Query(default=False)) -> dict[str, Any]:
         snapshot = state.catalog.refresh() if refresh else state.catalog.snapshot()
+        visible_models = _surface_visible_models(snapshot["models"], include_gated=include_gated)
+        visible_voices = _surface_visible_voices(snapshot["voices"], visible_models, include_gated=include_gated)
         return {
             "schema_id": "neo.voice_engine.voices.v1",
             "provider_id": "neo_voice_engine",
-            "voices": snapshot["voices"],
+            "voices": visible_voices,
+            "gated_voices_hidden": max(0, len(snapshot["voices"]) - len(visible_voices)),
             "errors": snapshot["errors"],
         }
 

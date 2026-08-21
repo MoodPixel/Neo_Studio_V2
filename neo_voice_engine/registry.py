@@ -7,6 +7,7 @@ from typing import Any
 
 from .config import GatewayConfig
 from .manifest import ManifestDocument, ManifestValidationError, load_manifest
+from .install_probes import run_install_probe
 from .supervisor import WorkerSpec, WorkerSupervisor
 
 
@@ -149,6 +150,7 @@ class ManifestRegistry:
         command = tuple(_render(str(item), replacements) for item in worker.get("command") or [])
         env = {str(key): _render(str(value), replacements) for key, value in (worker.get("env") or {}).items()}
         mode = str(worker["mode"])
+        runtime_install = self._worker_install_state(document)
         return WorkerSpec(
             engine_id=str(engine["id"]),
             label=str(engine.get("label") or engine["id"]),
@@ -158,6 +160,10 @@ class ManifestRegistry:
             env=env,
             managed=mode == "managed_process",
             auto_start=bool(worker.get("auto_start", False)),
+            startup_policy=str(worker.get("startup_policy") or ("on_demand" if worker.get("auto_start") else "manual")),
+            runtime_install_state=str(runtime_install.get("state") or "not_installed"),
+            runtime_install_message=str(runtime_install.get("message") or ""),
+            runtime_missing_paths=tuple(str(item) for item in (runtime_install.get("missing_paths") or [])),
             health_path=str(worker.get("health_path") or "/api/voice/health"),
             startup_timeout_seconds=float(worker.get("startup_timeout_seconds") or self.config.worker_start_timeout_seconds),
             source="manifest",
@@ -167,10 +173,10 @@ class ManifestRegistry:
             python_path=str(python_path or ""),
         )
 
-    def _install_state(self, document: ManifestDocument, model: dict[str, Any]) -> dict[str, Any]:
-        worker_install = document.payload["engine"]["worker"]["installation"]
-        model_install = model["install"]
-        strategy = str(model_install.get("strategy") or worker_install.get("strategy") or "manual")
+    def _worker_install_state(self, document: ManifestDocument) -> dict[str, Any]:
+        worker = document.payload["engine"]["worker"]
+        install = worker["installation"]
+        strategy = str(install.get("strategy") or "manual")
         if strategy == "external":
             return {
                 "strategy": strategy,
@@ -178,14 +184,19 @@ class ManifestRegistry:
                 "required_paths": [],
                 "missing_paths": [],
                 "optional_paths": [],
-                "expected_size_mb": model_install.get("expected_size_mb"),
+                "probes": [],
+                "message": "Worker runtime is externally managed.",
             }
-        required = list(dict.fromkeys([*(worker_install.get("required_paths") or []), *(model_install.get("required_paths") or [])]))
-        optional = list(dict.fromkeys([*(worker_install.get("optional_paths") or []), *(model_install.get("optional_paths") or [])]))
-        environment = document.payload["engine"]["worker"]["environment"]
+
+        environment = worker["environment"]
         env_scope = str(environment.get("scope") or "project")
         env_probe = str(environment.get("python") or environment.get("root") or "").strip()
-        env_label = _scoped_path_label(env_probe, env_scope) if env_probe and str(environment.get("kind") or "") == "venv" else ""
+        env_label = (
+            _scoped_path_label(env_probe, env_scope)
+            if env_probe and str(environment.get("kind") or "") == "venv"
+            else ""
+        )
+        required = list(dict.fromkeys(install.get("required_paths") or []))
         required_labels = list(dict.fromkeys(([env_label] if env_label else []) + required))
         existing: list[str] = []
         if env_label:
@@ -197,22 +208,179 @@ class ManifestRegistry:
             if resolved is not None and resolved.exists():
                 existing.append(item)
         missing = [item for item in required_labels if item not in existing]
-        if not required_labels:
-            state = "installed"
-        elif not missing:
-            state = "installed"
+
+        if not required_labels or not missing:
+            path_state = "installed"
         elif existing:
-            state = "partial"
+            path_state = "partial"
         else:
+            path_state = "not_installed"
+
+        probes: list[dict[str, Any]] = []
+        probe_id = str(install.get("probe_id") or "")
+        if probe_id:
+            probe = run_install_probe(
+                probe_id,
+                runtime_root=self.config.runtime_root,
+                engine_id=document.engine_id,
+                model_id="",
+                project_root=self.config.project_root,
+            )
+            probes.append(dict(probe))
+            for item in probe.get("missing_paths") or []:
+                label = str(item)
+                if label and label not in missing:
+                    missing.append(label)
+
+        probe_states = [str(item.get("state") or "not_installed") for item in probes]
+        if any(value == "not_installed" for value in probe_states):
             state = "not_installed"
+        elif any(value == "partial" for value in probe_states):
+            state = "partial"
+        elif path_state == "installed" and all(value in {"installed", "external"} for value in probe_states):
+            state = "installed"
+        elif path_state == "not_installed" and not probe_states:
+            state = "not_installed"
+        else:
+            state = "partial"
+        message = str((probes[-1] if probes else {}).get("message") or "")
+        if not message:
+            message = (
+                "Managed worker runtime is installed."
+                if state == "installed"
+                else "Managed worker runtime is not fully installed."
+            )
         return {
             "strategy": strategy,
             "state": state,
             "required_paths": required_labels,
             "missing_paths": missing,
-            "optional_paths": optional,
+            "optional_paths": list(dict.fromkeys(install.get("optional_paths") or [])),
             "environment_scope": env_scope,
+            "expected_size_mb": install.get("expected_size_mb"),
+            "probes": probes,
+            "message": message,
+        }
+
+    def _model_install_state(self, document: ManifestDocument, model: dict[str, Any]) -> dict[str, Any]:
+        install = model["install"]
+        strategy = str(install.get("strategy") or document.payload["engine"]["worker"]["installation"].get("strategy") or "manual")
+        if strategy == "external":
+            return {
+                "strategy": strategy,
+                "state": "external",
+                "required_paths": [],
+                "missing_paths": [],
+                "optional_paths": [],
+                "expected_size_mb": install.get("expected_size_mb"),
+                "probes": [],
+                "message": "Model is externally managed.",
+            }
+
+        required = list(dict.fromkeys(install.get("required_paths") or []))
+        existing: list[str] = []
+        for item in required:
+            resolved = _resolve_project_path(self.config.project_root, item)
+            if resolved is not None and resolved.exists():
+                existing.append(item)
+        missing = [item for item in required if item not in existing]
+        if not required or not missing:
+            path_state = "installed"
+        elif existing:
+            path_state = "partial"
+        else:
+            path_state = "not_installed"
+
+        probes: list[dict[str, Any]] = []
+        probe_id = str(install.get("probe_id") or "")
+        if probe_id:
+            probe = run_install_probe(
+                probe_id,
+                runtime_root=self.config.runtime_root,
+                engine_id=document.engine_id,
+                model_id=str(model.get("id") or ""),
+                project_root=self.config.project_root,
+            )
+            probes.append(dict(probe))
+            for item in probe.get("missing_paths") or []:
+                label = str(item)
+                if label and label not in missing:
+                    missing.append(label)
+
+        probe_states = [str(item.get("state") or "not_installed") for item in probes]
+        if any(value == "not_installed" for value in probe_states):
+            state = "not_installed"
+        elif any(value == "partial" for value in probe_states):
+            state = "partial"
+        elif path_state == "installed" and all(value in {"installed", "external"} for value in probe_states):
+            state = "installed"
+        elif path_state == "not_installed" and not probe_states:
+            state = "not_installed"
+        else:
+            state = "partial"
+        message = str((probes[-1] if probes else {}).get("message") or "")
+        if not message:
+            message = "Model is installed." if state == "installed" else "Model is not fully installed."
+        return {
+            "strategy": strategy,
+            "state": state,
+            "required_paths": required,
+            "missing_paths": missing,
+            "optional_paths": list(dict.fromkeys(install.get("optional_paths") or [])),
+            "expected_size_mb": install.get("expected_size_mb"),
+            "probes": probes,
+            "message": message,
+        }
+
+    def _install_state(self, document: ManifestDocument, model: dict[str, Any]) -> dict[str, Any]:
+        runtime_install = self._worker_install_state(document)
+        model_install = self._model_install_state(document, model)
+        runtime_state = str(runtime_install.get("state") or "not_installed")
+        model_state = str(model_install.get("state") or "not_installed")
+        runtime_ready = runtime_state in {"installed", "external"}
+        model_ready = model_state in {"installed", "external"}
+        if runtime_ready and model_ready:
+            state = "installed" if "installed" in {runtime_state, model_state} else "external"
+        elif not runtime_ready and model_ready:
+            state = "partial"
+        elif runtime_ready and not model_ready:
+            state = model_state
+        elif runtime_state == "not_installed" and model_state == "not_installed":
+            state = "not_installed"
+        else:
+            state = "partial"
+        missing = list(dict.fromkeys([
+            *(runtime_install.get("missing_paths") or []),
+            *(model_install.get("missing_paths") or []),
+        ]))
+        return {
+            "strategy": str(model_install.get("strategy") or runtime_install.get("strategy") or "manual"),
+            "state": state,
+            "runtime_state": runtime_state,
+            "model_state": model_state,
+            "runtime_ready": runtime_ready,
+            "model_ready": model_ready,
+            "required_paths": list(dict.fromkeys([
+                *(runtime_install.get("required_paths") or []),
+                *(model_install.get("required_paths") or []),
+            ])),
+            "missing_paths": missing,
+            "optional_paths": list(dict.fromkeys([
+                *(runtime_install.get("optional_paths") or []),
+                *(model_install.get("optional_paths") or []),
+            ])),
             "expected_size_mb": model_install.get("expected_size_mb"),
+            "probes": [
+                *(runtime_install.get("probes") or []),
+                *(model_install.get("probes") or []),
+            ],
+            "runtime": runtime_install,
+            "model": model_install,
+            "message": (
+                "Runtime and model are installed."
+                if runtime_ready and model_ready
+                else "Runtime or selected model is not fully installed."
+            ),
         }
 
     def reload(self) -> dict[str, Any]:
@@ -283,6 +451,7 @@ class ManifestRegistry:
                     "mode": worker_payload["mode"],
                     "base_url": worker_payload["base_url"],
                     "auto_start": worker_payload["auto_start"],
+                    "startup_policy": worker_payload.get("startup_policy") or ("on_demand" if worker_payload["auto_start"] else "manual"),
                     "health_path": worker_payload["health_path"],
                     "environment": dict(worker_payload["environment"]),
                     "installation": dict(worker_payload["installation"]),
@@ -315,6 +484,7 @@ class ManifestRegistry:
                     "install_state": install["state"],
                     "availability": "installed" if install["state"] == "installed" else install["state"],
                     "tags": list(model.get("tags") or []),
+                    "provider_controls": [dict(item) for item in (model.get("provider_controls") or [])],
                     "source": "manifest",
                 }
             for voice in document.payload.get("voices") or []:

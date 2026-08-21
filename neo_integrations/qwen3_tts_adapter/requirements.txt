@@ -1,0 +1,4 @@
+# Isolated Qwen3-TTS worker. Do not merge these pins into Neo Studio's main venv.
+qwen-tts==0.1.1
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1

@@ -98,8 +98,9 @@ class GatewayCatalog:
         worker_state = str(worker.get("state") or "stopped").lower()
         managed = bool(worker.get("managed", False))
         auto_start = bool(worker.get("auto_start", False))
+        startup_policy = str(worker.get("startup_policy") or ("on_demand" if auto_start else "manual")).lower()
         installed = install_state in {"installed", "external"}
-        executable = installed and (worker_state == "ready" or (managed and auto_start))
+        executable = installed and (worker_state == "ready" or (managed and startup_policy == "on_demand"))
         if install_state == "partial":
             availability = "partial"
         elif install_state == "not_installed":
@@ -114,6 +115,8 @@ class GatewayCatalog:
             "executable": executable,
             "managed": managed,
             "auto_start": auto_start,
+            "startup_policy": startup_policy,
+            "install_state": str((result.get("install") or {}).get("runtime_state") or ""),
         }
         return result
 
@@ -140,7 +143,7 @@ class GatewayCatalog:
 
             for model in self.registry.models():
                 engine_id = str(model["engine_id"])
-                worker = worker_public.get(engine_id) or {"state": "unregistered", "managed": False, "auto_start": False}
+                worker = worker_public.get(engine_id) or {"state": "unregistered", "managed": False, "auto_start": False, "startup_policy": "manual"}
                 models[str(model["id"])] = self._manifest_runtime_overlay(model, worker)
 
             voices.extend(self.registry.voices())
@@ -269,12 +272,36 @@ class GatewayCatalog:
             model = dict(self._models.get(requested) or {})
         if not model:
             raise VoiceEngineError("unsupported_model", f"Voice model '{requested}' is not available in the gateway catalogue.", http_status=400)
+        install = model.get("install") if isinstance(model.get("install"), dict) else {}
         install_state = str(model.get("install_state") or "")
-        if install_state in {"not_installed", "partial"}:
+        runtime_state = str(install.get("runtime_state") or install_state)
+        model_state = str(install.get("model_state") or install_state)
+        runtime_install = install.get("runtime") if isinstance(install.get("runtime"), dict) else {}
+        runtime_has_authoritative_probe = bool(runtime_install.get("probes"))
+        if runtime_state not in {"installed", "external"} and runtime_has_authoritative_probe:
+            raise VoiceEngineError(
+                "dependency_missing",
+                f"Voice runtime for model '{requested}' is not fully installed.",
+                details={
+                    "model_id": requested,
+                    "engine_id": model.get("engine_id"),
+                    "runtime_install_state": runtime_state,
+                    "model_install_state": model_state,
+                    "install": install,
+                },
+                http_status=409,
+            )
+        if model_state not in {"installed", "external"}:
             raise VoiceEngineError(
                 "model_not_installed",
-                f"Voice model '{requested}' is declared but is not fully installed.",
-                details={"model_id": requested, "install": model.get("install") or {}, "install_state": install_state},
+                f"Voice model '{requested}' is declared but its local model snapshot is not fully installed.",
+                details={
+                    "model_id": requested,
+                    "runtime_install_state": runtime_state,
+                    "model_install_state": model_state,
+                    "install": install,
+                    "install_state": install_state,
+                },
                 http_status=409,
             )
         if not bool((model.get("runtime") or {}).get("executable", True)):
@@ -288,16 +315,80 @@ class GatewayCatalog:
         return model
 
     def controls(self, model_id: str, mode: str) -> dict[str, Any]:
-        model = self.resolve_model(model_id)
+        requested_model_id = str(model_id or "").strip()
+        requested_mode = str(mode or "tts").strip().lower() or "tts"
+
+        # Provider-control discovery is metadata discovery, not model execution.
+        # For manifest-owned models, read the already-loaded registry first so a
+        # static control contract never depends on a full catalogue refresh,
+        # install-state probe, worker health, or worker startup.
+        manifest_model = self.registry.model(requested_model_id) if self.registry is not None else None
+        if manifest_model:
+            declared = [
+                dict(item)
+                for item in (manifest_model.get("provider_controls") or [])
+                if requested_mode in {str(value).strip().lower() for value in (item.get("modes") or [])}
+            ]
+            if declared:
+                return {
+                    "schema_id": "neo.voice_engine.controls.v1",
+                    "provider_id": "neo_voice_engine",
+                    "engine_id": manifest_model["engine_id"],
+                    "model_id": requested_model_id,
+                    "mode": requested_mode,
+                    "authoritative": True,
+                    "authority": "selected_model_manifest",
+                    "controls": declared,
+                    "worker_contacted": False,
+                }
+
+            declared_tasks = {str(value).strip().lower() for value in (manifest_model.get("tasks") or []) if str(value).strip()}
+            if requested_mode not in declared_tasks:
+                return {
+                    "schema_id": "neo.voice_engine.controls.v1",
+                    "provider_id": "neo_voice_engine",
+                    "engine_id": manifest_model["engine_id"],
+                    "model_id": requested_model_id,
+                    "mode": requested_mode,
+                    "authoritative": True,
+                    "authority": "selected_model_manifest_mode_unsupported",
+                    "controls": [],
+                    "worker_contacted": False,
+                }
+
+        # Dynamic-control compatibility lane. Only reach the worker when the
+        # selected model does not have an authoritative manifest contract for
+        # this supported mode. This intentionally keeps legacy/manual workers
+        # and future dynamic-control backends working.
+        model = self.resolve_model(requested_model_id)
+        declared = [
+            dict(item)
+            for item in (model.get("provider_controls") or [])
+            if requested_mode in {str(value).strip().lower() for value in (item.get("modes") or [])}
+        ]
+        if declared:
+            return {
+                "schema_id": "neo.voice_engine.controls.v1",
+                "provider_id": "neo_voice_engine",
+                "engine_id": model["engine_id"],
+                "model_id": requested_model_id,
+                "mode": requested_mode,
+                "authoritative": True,
+                "authority": "selected_model_manifest",
+                "controls": declared,
+                "worker_contacted": False,
+            }
         client = self.supervisor.client(model["engine_id"])
-        payload = client.controls(model_id, mode)
+        payload = client.controls(requested_model_id, requested_mode)
         return {
             "schema_id": "neo.voice_engine.controls.v1",
             "provider_id": "neo_voice_engine",
             "engine_id": model["engine_id"],
-            "model_id": model_id,
-            "mode": mode,
+            "model_id": requested_model_id,
+            "mode": requested_mode,
             "authoritative": bool(payload.get("authoritative", False)),
+            "authority": "worker_live_fallback",
             "controls": payload.get("controls") if isinstance(payload.get("controls"), list) else [],
+            "worker_contacted": True,
             "worker": payload,
         }

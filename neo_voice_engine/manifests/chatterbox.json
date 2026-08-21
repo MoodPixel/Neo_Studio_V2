@@ -1,7 +1,7 @@
 {
   "schema_id": "neo.voice_engine.manifest.v1",
   "manifest_id": "neo.voice_engine.chatterbox",
-  "manifest_version": "1.0.0",
+  "manifest_version": "2.0.0",
   "enabled": true,
   "engine": {
     "id": "chatterbox",
@@ -29,7 +29,10 @@
         "NEO_CHATTERBOX_NEO_ROOT": "{project_root}",
         "NEO_CHATTERBOX_HOST": "127.0.0.1",
         "NEO_CHATTERBOX_PORT": "8791",
-        "NEO_VOICE_RUNTIME_ROOT": "{voice_runtime_root}"
+        "NEO_VOICE_RUNTIME_ROOT": "{voice_runtime_root}",
+        "NEO_CHATTERBOX_LOCAL_ONLY": "1",
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1"
       },
       "auto_start": true,
       "startup_timeout_seconds": 30,
@@ -46,7 +49,8 @@
           "neo_integrations/chatterbox_adapter/engine.py"
         ],
         "optional_paths": [],
-        "expected_size_mb": null
+        "expected_size_mb": null,
+        "probe_id": "chatterbox_runtime_env"
       }
     }
   },
@@ -87,19 +91,19 @@
         "allow_cpu_fallback": true
       },
       "license": {
-        "name": "Chatterbox upstream license",
-        "spdx_id": "",
-        "commercial_use": "unknown",
-        "redistribution": "unknown",
+        "name": "MIT",
+        "spdx_id": "MIT",
+        "commercial_use": "yes",
+        "redistribution": "yes",
         "requires_user_acceptance": false,
-        "url": "https://github.com/resemble-ai/chatterbox"
+        "url": "https://github.com/resemble-ai/chatterbox/blob/master/LICENSE"
       },
       "sources": [
         {
-          "kind": "github",
-          "url": "https://github.com/resemble-ai/chatterbox",
-          "repo_id": "",
-          "revision": "",
+          "kind": "huggingface",
+          "url": "https://huggingface.co/ResembleAI/chatterbox-turbo",
+          "repo_id": "ResembleAI/chatterbox-turbo",
+          "revision": "main",
           "filename": ""
         }
       ],
@@ -107,7 +111,8 @@
         "strategy": "managed",
         "required_paths": [],
         "optional_paths": [],
-        "expected_size_mb": null
+        "expected_size_mb": 3300,
+        "probe_id": "chatterbox_model_snapshot"
       },
       "lifecycle": {
         "evictable": true,
@@ -180,19 +185,19 @@
         "allow_cpu_fallback": true
       },
       "license": {
-        "name": "Chatterbox upstream license",
-        "spdx_id": "",
-        "commercial_use": "unknown",
-        "redistribution": "unknown",
+        "name": "MIT",
+        "spdx_id": "MIT",
+        "commercial_use": "yes",
+        "redistribution": "yes",
         "requires_user_acceptance": false,
-        "url": "https://github.com/resemble-ai/chatterbox"
+        "url": "https://github.com/resemble-ai/chatterbox/blob/master/LICENSE"
       },
       "sources": [
         {
-          "kind": "github",
-          "url": "https://github.com/resemble-ai/chatterbox",
-          "repo_id": "",
-          "revision": "",
+          "kind": "huggingface",
+          "url": "https://huggingface.co/ResembleAI/chatterbox",
+          "repo_id": "ResembleAI/chatterbox",
+          "revision": "main",
           "filename": ""
         }
       ],
@@ -200,7 +205,8 @@
         "strategy": "managed",
         "required_paths": [],
         "optional_paths": [],
-        "expected_size_mb": null
+        "expected_size_mb": 3400,
+        "probe_id": "chatterbox_model_snapshot"
       },
       "lifecycle": {
         "evictable": true,
@@ -229,8 +235,9 @@
     }
   ],
   "notes": [
-    "VO-E5 migrates the already-tested Chatterbox physical adapter behind Neo Voice Engine without merging its Python dependencies into the gateway environment.",
-    "Model weights remain lazy-loaded by the Chatterbox worker on first use.",
-    "VO-E5A resolves the Chatterbox venv from the external Voice runtime root at envs/chatterbox; source remains inside Neo Studio and the legacy root-level venv is no longer an active runtime path."
+    "Phase 4.6 unifies Chatterbox with the Admin repository-snapshot lifecycle used by managed Voice models.",
+    "setup_chatterbox_backend.bat installs/verifies the isolated worker environment only; model weights are installed or repaired from Admin → Models.",
+    "The worker loads only an authoritative local Hugging Face snapshot path through from_local(); managed generation never invokes Chatterbox from_pretrained() and never downloads weights.",
+    "Existing Hugging Face cache materializations created by older Chatterbox first-use downloads remain reusable when the manifest content probe passes."
   ]
 }

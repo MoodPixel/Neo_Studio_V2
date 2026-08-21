@@ -1,13 +1,13 @@
 {
   "schema_id": "neo.models.catalog.v1",
-  "version": "0.7.0-curated-base-model-guide",
+  "version": "0.9.0-voice-lifecycle-unification",
   "catalog": {
     "id": "neo-model-guide-public-preview",
     "display_name": "Neo Model Guide",
-    "status": "phase10_workspace_integration_seed_models",
-    "updated_at": "2026-07-10",
-    "description": "Curated Neo Studio model source manifest for Image, Video, LLM, ControlNet/IPAdapter, VAE, text encoders, GGUF variants, and utility assets.",
-    "policy": "The manifest defines model meaning, grouping, source intent, and install targets. User paths, tokens, installed scans, and download state belong in neo_data, not in the repo."
+    "status": "phase4_6_voice_model_lifecycle_unification",
+    "updated_at": "2026-08-21",
+    "description": "Curated Neo Studio model source manifest for Image, Video, LLM, Voice, ControlNet/IPAdapter, VAE, text encoders, GGUF variants, repository snapshots, and utility assets. Voice repository snapshots may declare a minimal provider-required materialization through allow_patterns.",
+    "policy": "The manifest declares model identity, grouping, source intent, install strategy, and optional provider-required snapshot materialization. Machine-specific cache state, tokens, installed scans, and download state remain runtime data under neo_data or Hugging Face cache ownership; Generate never installs model weights."
   },
   "records": [
     {
@@ -5099,6 +5099,279 @@
       },
       "notes": [
         "Wan2.2 T2V requires matching HighNoise and LowNoise models. Add/download both."
+      ]
+    },
+    {
+      "id": "qwen3_tts_06b_custom_voice",
+      "display_name": "Qwen3-TTS 0.6B CustomVoice",
+      "description": "Lower-size multilingual built-in-speaker TTS model used by Neo Voice. This model must be installed as a complete Hugging Face repository snapshot rather than as an individual weight file.",
+      "category": "voice",
+      "base_model": "qwen",
+      "model_type": "tts_transformers",
+      "source_mode": "repository_snapshot",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "strategy": "huggingface_snapshot",
+        "target_type": "hf_cache",
+        "backend_targets": [
+          "voice"
+        ],
+        "probe_id": "qwen3_tts_model_snapshot",
+        "expected_size_mb": 2500
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "general",
+          "utility"
+        ],
+        "badges": [
+          "voice",
+          "qwen3-tts",
+          "custom-voice",
+          "huggingface",
+          "repository-snapshot"
+        ],
+        "filter_group": "Voice / Qwen / TTS Transformers"
+      },
+      "hardware": {
+        "min_vram_mb": 8192,
+        "recommended_vram_mb": 10240,
+        "min_ram_mb": 16384,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_review": false,
+        "source_url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "notes": [
+        "Install the complete repository snapshot. Individual safetensors shards are not a valid Neo installation.",
+        "The catalog id intentionally matches the Qwen Voice Engine model id so later runtime binding does not need an alias table."
+      ]
+    },
+    {
+      "id": "qwen3_tts_17b_custom_voice",
+      "display_name": "Qwen3-TTS 1.7B CustomVoice",
+      "description": "Higher-capacity multilingual built-in-speaker TTS model with natural-language Voice Instruction support in Neo Voice. This model must be installed as a complete Hugging Face repository snapshot.",
+      "category": "voice",
+      "base_model": "qwen",
+      "model_type": "tts_transformers",
+      "source_mode": "repository_snapshot",
+      "source": {
+        "provider": "huggingface",
+        "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "strategy": "huggingface_snapshot",
+        "target_type": "hf_cache",
+        "backend_targets": [
+          "voice"
+        ],
+        "probe_id": "qwen3_tts_model_snapshot",
+        "expected_size_mb": 4520
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "general",
+          "utility"
+        ],
+        "badges": [
+          "voice",
+          "qwen3-tts",
+          "custom-voice",
+          "voice-instruction",
+          "huggingface",
+          "repository-snapshot"
+        ],
+        "filter_group": "Voice / Qwen / TTS Transformers"
+      },
+      "hardware": {
+        "min_vram_mb": 6144,
+        "recommended_vram_mb": 6144,
+        "min_ram_mb": 24576,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": false,
+        "min_total_vram_mb": 12000,
+        "cold_load_free_vram_mb": 6144,
+        "recommended_total_vram_mb": 16384
+      },
+      "license": {
+        "name": "Apache-2.0",
+        "spdx_id": "Apache-2.0",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_review": false,
+        "source_url": "https://github.com/QwenLM/Qwen3-TTS/blob/main/LICENSE"
+      },
+      "notes": [
+        "Install the complete repository snapshot. Individual safetensors shards are not a valid Neo installation.",
+        "The catalog id intentionally matches the Qwen Voice Engine model id so later runtime binding does not need an alias table.",
+        "The 12 GB-class admission values mirror the physically validated Qwen Voice Engine contract."
+      ]
+    },
+    {
+      "id": "chatterbox_turbo",
+      "display_name": "Chatterbox Turbo",
+      "description": "English low-compute Chatterbox model with paralinguistic tags and zero-shot cloning. Neo installs the provider-required Hugging Face snapshot materialization through Admin \u2192 Models and loads it locally only.",
+      "category": "voice",
+      "base_model": "chatterbox",
+      "model_type": "tts_transformers",
+      "source_mode": "repository_snapshot",
+      "source": {
+        "provider": "huggingface",
+        "repo": "ResembleAI/chatterbox-turbo",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/ResembleAI/chatterbox-turbo",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "strategy": "huggingface_snapshot",
+        "target_type": "hf_cache",
+        "backend_targets": [
+          "voice"
+        ],
+        "probe_id": "chatterbox_model_snapshot",
+        "expected_size_mb": 3300,
+        "allow_patterns": [
+          "ve.safetensors",
+          "t3_turbo_v1.safetensors",
+          "s3gen_meanflow.safetensors",
+          "conds.pt",
+          "added_tokens.json",
+          "merges.txt",
+          "special_tokens_map.json",
+          "tokenizer_config.json",
+          "vocab.json"
+        ]
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "general",
+          "utility"
+        ],
+        "badges": [
+          "voice",
+          "chatterbox",
+          "turbo",
+          "voice-clone",
+          "huggingface",
+          "repository-snapshot"
+        ],
+        "filter_group": "Voice / Chatterbox / TTS Transformers"
+      },
+      "hardware": {
+        "min_vram_mb": 4096,
+        "recommended_vram_mb": 6144,
+        "min_ram_mb": 8192,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": true
+      },
+      "license": {
+        "name": "MIT",
+        "spdx_id": "MIT",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_review": false,
+        "source_url": "https://github.com/resemble-ai/chatterbox/blob/master/LICENSE"
+      },
+      "notes": [
+        "The catalog id intentionally matches the Voice Engine model id.",
+        "The allow_patterns list mirrors the files required by ChatterboxTurboTTS.from_local() and avoids unrelated repository artifacts.",
+        "Existing upstream-created Hugging Face cache snapshots are eligible when the authoritative content probe passes."
+      ]
+    },
+    {
+      "id": "chatterbox_multilingual",
+      "display_name": "Chatterbox Multilingual V3",
+      "description": "Current Chatterbox multilingual V3 route with 23-language zero-shot cloning. Neo installs only the V3 provider-required Hugging Face snapshot materialization and loads it locally only.",
+      "category": "voice",
+      "base_model": "chatterbox",
+      "model_type": "tts_transformers",
+      "source_mode": "repository_snapshot",
+      "source": {
+        "provider": "huggingface",
+        "repo": "ResembleAI/chatterbox",
+        "revision": "main",
+        "discovery": false,
+        "source_url": "https://huggingface.co/ResembleAI/chatterbox",
+        "requires_token": false,
+        "gated": false
+      },
+      "install": {
+        "strategy": "huggingface_snapshot",
+        "target_type": "hf_cache",
+        "backend_targets": [
+          "voice"
+        ],
+        "probe_id": "chatterbox_model_snapshot",
+        "expected_size_mb": 3400,
+        "allow_patterns": [
+          "ve.pt",
+          "t3_mtl23ls_v3.safetensors",
+          "s3gen.pt",
+          "grapheme_mtl_merged_expanded_v1.json",
+          "conds.pt",
+          "Cangjie5_TC.json"
+        ]
+      },
+      "ui": {
+        "recommended": true,
+        "creative_categories": [
+          "general",
+          "utility"
+        ],
+        "badges": [
+          "voice",
+          "chatterbox",
+          "multilingual",
+          "v3",
+          "voice-clone",
+          "huggingface",
+          "repository-snapshot"
+        ],
+        "filter_group": "Voice / Chatterbox / TTS Transformers"
+      },
+      "hardware": {
+        "min_vram_mb": 6144,
+        "recommended_vram_mb": 8192,
+        "min_ram_mb": 12288,
+        "gpu_exclusive": true,
+        "allow_cpu_fallback": true
+      },
+      "license": {
+        "name": "MIT",
+        "spdx_id": "MIT",
+        "commercial_use": "yes",
+        "redistribution": "yes",
+        "requires_user_review": false,
+        "source_url": "https://github.com/resemble-ai/chatterbox/blob/master/LICENSE"
+      },
+      "notes": [
+        "The catalog id intentionally matches the Voice Engine model id.",
+        "The allow_patterns list matches the current V3 local loader contract and prevents Admin from downloading unrelated historical checkpoints from the large shared Chatterbox repository.",
+        "Existing upstream-created Hugging Face cache snapshots are eligible when the authoritative content probe passes."
       ]
     }
   ]

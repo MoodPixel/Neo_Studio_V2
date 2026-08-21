@@ -136,12 +136,22 @@ class ChatterboxEngine:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._model: Any = None
         self._model_id = ""
+        self._model_source_kind = ""
+        self._model_source_path = ""
         self._device = ""
         self._lock = threading.RLock()
 
     @property
     def loaded_model_id(self) -> str:
         return self._model_id
+
+    @property
+    def model_source_kind(self) -> str:
+        return self._model_source_kind
+
+    @property
+    def model_source_path(self) -> str:
+        return self._model_source_path
 
     @property
     def device(self) -> str:
@@ -208,6 +218,8 @@ class ChatterboxEngine:
                 "state": "resident",
                 "model_id": self._model_id,
                 "device": self.device,
+                "source_kind": self._model_source_kind,
+                "source_path": self._model_source_path,
                 "sample_rate": int(getattr(model, "sr", 24000) or 24000),
             }
 
@@ -245,7 +257,30 @@ class ChatterboxEngine:
                 "state": "resident" if resident else "unloaded",
                 "loaded_model_id": self._model_id,
                 "device": self.device,
+                "source_kind": self._model_source_kind if resident else "",
+                "source_path": self._model_source_path if resident else "",
                 "evictable": True,
+            }
+
+    def runtime_model_status(self, model_id: str) -> dict[str, Any]:
+        requested = str(model_id or "").strip()
+        if requested not in SUPPORTED_MODELS:
+            raise ChatterboxAdapterError(f"Unsupported Chatterbox model '{requested}'.")
+        try:
+            from neo_voice_engine.chatterbox_runtime_resolver import probe_chatterbox_runtime_model
+
+            return probe_chatterbox_runtime_model(project_root=self.neo_root, model_id=requested)
+        except ChatterboxAdapterError:
+            raise
+        except Exception as exc:
+            return {
+                "model_id": requested,
+                "state": "not_installed",
+                "installed": False,
+                "source_kind": "",
+                "source_path": "",
+                "message": f"Chatterbox runtime resolver failed ({type(exc).__name__}).",
+                "catalog_error": "runtime_resolver_failed",
             }
 
     def _unload_model(self) -> None:
@@ -253,6 +288,8 @@ class ChatterboxEngine:
             return
         self._model = None
         self._model_id = ""
+        self._model_source_kind = ""
+        self._model_source_path = ""
         gc.collect()
         try:
             torch = self._torch()
@@ -267,8 +304,19 @@ class ChatterboxEngine:
         if self._model is not None and self._model_id == model_id:
             return self._model
 
+        local_only = str(os.getenv("NEO_CHATTERBOX_LOCAL_ONLY") or "1").strip().lower() not in {"0", "false", "no", "off"}
+        runtime = self.runtime_model_status(model_id)
+        source_path = str(runtime.get("source_path") or "").strip()
+        source_kind = str(runtime.get("source_kind") or "").strip()
+        if local_only and (runtime.get("state") != "installed" or not source_path):
+            raise ChatterboxAdapterError(
+                f"{model_id} is not installed for local Voice execution. "
+                "Install or repair it in Neo Studio Admin → Models. Managed Chatterbox generation never downloads model weights."
+            )
+
         if progress:
-            progress(12, "loading_model", f"Loading {model_id}; first use may download model weights")
+            label = f"Loading {model_id} from verified local Hugging Face cache" if source_path else f"Loading {model_id} in developer remote-fallback mode"
+            progress(12, "loading_model", label)
         self._unload_model()
         perth_status = perth_watermarker_status()
         if not perth_status["callable"]:
@@ -286,16 +334,31 @@ class ChatterboxEngine:
             if model_id == ADAPTER_MODEL_TURBO:
                 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-                model = ChatterboxTurboTTS.from_pretrained(device=self._device)
+                if source_path:
+                    model = ChatterboxTurboTTS.from_local(Path(source_path), self._device, nano=False)
+                elif not local_only:  # explicit developer escape hatch only
+                    model = ChatterboxTurboTTS.from_pretrained(device=self._device)
+                else:  # pragma: no cover - guarded above
+                    raise ChatterboxAdapterError("Chatterbox Turbo local snapshot is unavailable.")
             else:
                 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
-                model = ChatterboxMultilingualTTS.from_pretrained(device=self._device, t3_model="v3")
+                if source_path:
+                    model = ChatterboxMultilingualTTS.from_local(Path(source_path), self._device, t3_model="v3")
+                elif not local_only:  # explicit developer escape hatch only
+                    model = ChatterboxMultilingualTTS.from_pretrained(device=self._device, t3_model="v3")
+                else:  # pragma: no cover - guarded above
+                    raise ChatterboxAdapterError("Chatterbox Multilingual local snapshot is unavailable.")
+        except ChatterboxAdapterError:
+            self._unload_model()
+            raise
         except Exception as exc:  # pragma: no cover - physical model load.
             self._unload_model()
-            raise ChatterboxAdapterError(f"Failed to load {model_id}: {exc}") from exc
+            raise ChatterboxAdapterError(f"Failed to load {model_id} from the local model snapshot: {exc}") from exc
         self._model = model
         self._model_id = model_id
+        self._model_source_kind = source_kind or ("developer_remote_fallback" if not source_path else "huggingface_cache_snapshot")
+        self._model_source_path = source_path
         return model
 
     def _resolve_reference(self, request_payload: dict[str, Any]) -> Path | None:

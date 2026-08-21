@@ -1,0 +1,432 @@
+{
+  "schema_id": "neo.voice_engine.qwen3_tts.contract.v1",
+  "schema_version": 1,
+  "phase": "qwen3_tts_capability_runtime_contract_audit",
+  "behavioral_activation": false,
+  "audited_at": "2026-08-20",
+  "source_snapshot": {
+    "github_repository": "QwenLM/Qwen3-TTS",
+    "github_revision": "022e286b98fbec7e1e916cb940cdf532cd9f488e",
+    "upstream_release_date": "2026-01-22",
+    "package_name": "qwen-tts",
+    "package_version": "0.1.1",
+    "code_license": "Apache-2.0",
+    "python_requires": ">=3.9",
+    "upstream_recommended_python": "3.12",
+    "pinned_runtime_dependencies": {
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0"
+    },
+    "optional_acceleration": {
+      "flash_attention_2": "recommended_upstream_when_compatible",
+      "dtype_requirement": "float16_or_bfloat16_for_flash_attention_2"
+    },
+    "references": [
+      "https://github.com/QwenLM/Qwen3-TTS",
+      "https://huggingface.co/collections/Qwen/qwen3-tts"
+    ]
+  },
+  "engine_contract": {
+    "candidate_engine_id": "qwen3_tts",
+    "future_worker_mode": "managed_process",
+    "future_loopback_url": "http://127.0.0.1:8792",
+    "environment_scope": "voice_runtime",
+    "environment_root": "envs/qwen3_tts",
+    "model_root": "models/qwen3_tts",
+    "isolation_required": true,
+    "activation_state": "audited_not_registered",
+    "active_manifest_created": false,
+    "worker_created": false,
+    "installer_created": false,
+    "ui_wired": false,
+    "initial_transport": "non_streaming_job_result",
+    "upstream_streaming_supported": true,
+    "neo_streaming_activation": "deferred_after_non_streaming_physical_validation",
+    "output_contract": "worker_returns_real_wav_audio_then_neo_persists_final_result",
+    "model_download_policy": "future_worker_or_installer_may_use_huggingface_or_local_directory; phase1_downloads_nothing",
+    "behavioral_activation": false
+  },
+  "languages": {
+    "neo_codes": [
+      "zh",
+      "en",
+      "ja",
+      "ko",
+      "de",
+      "fr",
+      "ru",
+      "pt",
+      "es",
+      "it"
+    ],
+    "upstream_names": [
+      "Chinese",
+      "English",
+      "Japanese",
+      "Korean",
+      "German",
+      "French",
+      "Russian",
+      "Portuguese",
+      "Spanish",
+      "Italian"
+    ],
+    "supports_auto_language": true,
+    "discovery_policy": "worker_live_get_supported_languages_is_authoritative_when_runtime_exists"
+  },
+  "built_in_speakers": {
+    "discovery_policy": "worker_live_get_supported_speakers_is_authoritative_when_runtime_exists",
+    "audit_seed_only": true,
+    "items": [
+      {
+        "neo_id": "vivian",
+        "provider_name": "Vivian",
+        "native_language": "Chinese"
+      },
+      {
+        "neo_id": "serena",
+        "provider_name": "Serena",
+        "native_language": "Chinese"
+      },
+      {
+        "neo_id": "uncle_fu",
+        "provider_name": "Uncle_Fu",
+        "native_language": "Chinese"
+      },
+      {
+        "neo_id": "dylan",
+        "provider_name": "Dylan",
+        "native_language": "Chinese (Beijing Dialect)"
+      },
+      {
+        "neo_id": "eric",
+        "provider_name": "Eric",
+        "native_language": "Chinese (Sichuan Dialect)"
+      },
+      {
+        "neo_id": "ryan",
+        "provider_name": "Ryan",
+        "native_language": "English"
+      },
+      {
+        "neo_id": "aiden",
+        "provider_name": "Aiden",
+        "native_language": "English"
+      },
+      {
+        "neo_id": "ono_anna",
+        "provider_name": "Ono_Anna",
+        "native_language": "Japanese"
+      },
+      {
+        "neo_id": "sohee",
+        "provider_name": "Sohee",
+        "native_language": "Korean"
+      }
+    ]
+  },
+  "models": [
+    {
+      "neo_model_id": "qwen3_tts_17b_custom_voice",
+      "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "role": "custom_voice",
+      "size_class": "1.7B",
+      "neo_tasks_target": [
+        "tts"
+      ],
+      "voice_modes_target": [
+        "built_in"
+      ],
+      "reference_audio": false,
+      "built_in_speakers": true,
+      "voice_design": false,
+      "instruction_control": {
+        "state": "supported",
+        "neo_phase1_policy": "record_only"
+      },
+      "upstream_streaming": true,
+      "initial_neo_streaming": false,
+      "upstream_generation_api": "generate_custom_voice",
+      "approx_repo_size_mb": 4520,
+      "weights_license": "Apache-2.0",
+      "hardware_validation": {
+        "min_vram_mb": null,
+        "recommended_vram_mb": null,
+        "rtx_12gb_status": "pending_physical_validation"
+      }
+    },
+    {
+      "neo_model_id": "qwen3_tts_06b_custom_voice",
+      "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "role": "custom_voice",
+      "size_class": "0.6B",
+      "neo_tasks_target": [
+        "tts"
+      ],
+      "voice_modes_target": [
+        "built_in"
+      ],
+      "reference_audio": false,
+      "built_in_speakers": true,
+      "voice_design": false,
+      "instruction_control": {
+        "state": "source_conflict_runtime_validation_required",
+        "neo_phase1_policy": "do_not_expose_until_worker_probe_and_physical_test",
+        "source_notes": [
+          "The upstream GitHub released-model matrix leaves 0.6B CustomVoice Instruction Control blank.",
+          "The current official Hugging Face model card describes natural-language style control for the 0.6B CustomVoice checkpoint.",
+          "The common generate_custom_voice wrapper accepts an optional instruct argument; Phase 1 does not treat that alone as sufficient product capability proof."
+        ]
+      },
+      "upstream_streaming": true,
+      "initial_neo_streaming": false,
+      "upstream_generation_api": "generate_custom_voice",
+      "approx_repo_size_mb": 2500,
+      "weights_license": "Apache-2.0",
+      "hardware_validation": {
+        "min_vram_mb": null,
+        "recommended_vram_mb": null,
+        "rtx_12gb_status": "pending_physical_validation"
+      }
+    },
+    {
+      "neo_model_id": "qwen3_tts_17b_base",
+      "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "role": "base_clone",
+      "size_class": "1.7B",
+      "neo_tasks_target": [
+        "voice_clone"
+      ],
+      "voice_modes_target": [
+        "reference_clone"
+      ],
+      "reference_audio": true,
+      "built_in_speakers": false,
+      "voice_design": false,
+      "instruction_control": {
+        "state": "not_declared"
+      },
+      "upstream_streaming": true,
+      "initial_neo_streaming": false,
+      "upstream_generation_api": "generate_voice_clone",
+      "approx_repo_size_mb": 4540,
+      "weights_license": "Apache-2.0",
+      "clone_contract": {
+        "rapid_reference_claim_seconds": 3,
+        "icl": {
+          "reference_audio_required": true,
+          "reference_text_required": true,
+          "x_vector_only_mode": false
+        },
+        "x_vector_only": {
+          "reference_audio_required": true,
+          "reference_text_required": false,
+          "x_vector_only_mode": true
+        },
+        "neo_reference_transport": "neo_owned_local_path",
+        "authorization_and_qc": "existing_neo_r6_authority_remains_required"
+      },
+      "hardware_validation": {
+        "min_vram_mb": null,
+        "recommended_vram_mb": null,
+        "rtx_12gb_status": "pending_physical_validation"
+      }
+    },
+    {
+      "neo_model_id": "qwen3_tts_06b_base",
+      "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+      "role": "base_clone",
+      "size_class": "0.6B",
+      "neo_tasks_target": [
+        "voice_clone"
+      ],
+      "voice_modes_target": [
+        "reference_clone"
+      ],
+      "reference_audio": true,
+      "built_in_speakers": false,
+      "voice_design": false,
+      "instruction_control": {
+        "state": "not_declared"
+      },
+      "upstream_streaming": true,
+      "initial_neo_streaming": false,
+      "upstream_generation_api": "generate_voice_clone",
+      "approx_repo_size_mb": 2520,
+      "weights_license": "Apache-2.0",
+      "clone_contract": {
+        "rapid_reference_claim_seconds": 3,
+        "icl": {
+          "reference_audio_required": true,
+          "reference_text_required": true,
+          "x_vector_only_mode": false
+        },
+        "x_vector_only": {
+          "reference_audio_required": true,
+          "reference_text_required": false,
+          "x_vector_only_mode": true
+        },
+        "neo_reference_transport": "neo_owned_local_path",
+        "authorization_and_qc": "existing_neo_r6_authority_remains_required"
+      },
+      "hardware_validation": {
+        "min_vram_mb": null,
+        "recommended_vram_mb": null,
+        "rtx_12gb_status": "pending_physical_validation"
+      }
+    },
+    {
+      "neo_model_id": "qwen3_tts_17b_voice_design",
+      "upstream_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+      "role": "voice_design",
+      "size_class": "1.7B",
+      "neo_tasks_target": [
+        "voice_design"
+      ],
+      "voice_modes_target": [
+        "voice_design"
+      ],
+      "reference_audio": false,
+      "built_in_speakers": false,
+      "voice_design": true,
+      "instruction_control": {
+        "state": "required_for_voice_design",
+        "neo_phase1_policy": "record_only"
+      },
+      "upstream_streaming": true,
+      "initial_neo_streaming": false,
+      "upstream_generation_api": "generate_voice_design",
+      "approx_repo_size_mb": 4520,
+      "weights_license": "Apache-2.0",
+      "hardware_validation": {
+        "min_vram_mb": null,
+        "recommended_vram_mb": null,
+        "rtx_12gb_status": "pending_physical_validation"
+      }
+    }
+  ],
+  "provider_control_candidates": {
+    "shared_generation_kwargs": [
+      "do_sample",
+      "top_k",
+      "top_p",
+      "temperature",
+      "repetition_penalty",
+      "subtalker_dosample",
+      "subtalker_top_k",
+      "subtalker_top_p",
+      "subtalker_temperature",
+      "max_new_tokens"
+    ],
+    "custom_voice": [
+      "language",
+      "speaker",
+      "instruct"
+    ],
+    "voice_design": [
+      "language",
+      "instruct"
+    ],
+    "voice_clone": [
+      "language",
+      "ref_text",
+      "x_vector_only_mode"
+    ],
+    "phase1_policy": "record_only_no_ui_or_request_schema_changes"
+  },
+  "neo_integration_audit": {
+    "manifest_v1_fit": {
+      "can_represent_engine_model_identity": true,
+      "can_represent_tasks_languages_streaming_reference_audio": true,
+      "can_represent_voice_design_task_token": true,
+      "can_represent_instruction_control_semantics": false,
+      "can_represent_clone_submodes_and_transcript_requirement": false,
+      "can_represent_live_speaker_discovery_strategy": false,
+      "decision": "Keep manifest v1 for coarse model ownership; use worker /voices and /controls plus Qwen-specific request normalization for dynamic semantics. Do not overload manifest v1 in Phase 1."
+    },
+    "current_activation_blockers": [
+      {
+        "id": "active_manifest_missing",
+        "severity": "expected",
+        "detail": "No qwen3_tts manifest is registered; Phase 1 intentionally stays non-behavioral."
+      },
+      {
+        "id": "worker_missing",
+        "severity": "expected",
+        "detail": "No isolated Qwen3-TTS worker exists yet."
+      },
+      {
+        "id": "gateway_mode_limit",
+        "severity": "required_before_voice_design",
+        "detail": "neo_voice_engine.jobs currently accepts only tts and voice_clone modes even though manifest vocabulary reserves voice_design."
+      },
+      {
+        "id": "provider_controls_mode_limit",
+        "severity": "required_before_voice_design",
+        "detail": "neo_app.voice.provider_controls currently allows only tts and voice_clone modes."
+      },
+      {
+        "id": "static_family_fallback",
+        "severity": "required_before_activation",
+        "detail": "neo_app.voice.capabilities.normalize_family falls back unknown families to chatterbox_turbo; Qwen IDs must be registered before any UI/runtime activation."
+      },
+      {
+        "id": "neo_voice_engine_alias_scope",
+        "severity": "required_before_activation",
+        "detail": "RUNTIME_ALIASES currently lists only Chatterbox model families for neo_voice_engine."
+      },
+      {
+        "id": "voice_source_option_gap",
+        "severity": "required_before_voice_design",
+        "detail": "Current Voice Source options are built_in, saved_profile and reference_clone; voice_design requires a dedicated source/mode surface."
+      },
+      {
+        "id": "hardware_admission_unknown",
+        "severity": "physical_validation",
+        "detail": "Upstream sources audited here do not establish Neo-safe min/recommended VRAM values; do not invent scheduler thresholds before physical tests."
+      }
+    ],
+    "existing_neo_assets_to_reuse": [
+      "voice.neo_engine selected-profile authority",
+      "manifest registry and managed-worker supervisor",
+      "voice_runtime external isolated environment root",
+      "R6 authorization + QC + neo_owned_local_path reference transport",
+      "R7 Voice Profile Assets",
+      "R10 Dialogue orchestration after single-turn routes are active",
+      "R11 Batch orchestration after single-item routes are active",
+      "shared Results and Neo-owned final audio persistence",
+      "provider-independent Finish tools"
+    ],
+    "phase2_worker_contract_target": {
+      "engine_id": "qwen3_tts",
+      "managed_environment": "voice_runtime://envs/qwen3_tts",
+      "loopback_port": 8792,
+      "initial_endpoints": [
+        "/api/voice/health",
+        "/api/voice/capabilities",
+        "/api/voice/models",
+        "/api/voice/voices",
+        "/api/voice/controls",
+        "/api/voice/render",
+        "/api/voice/jobs/{provider_job_id}",
+        "/api/voice/jobs/{provider_job_id}/output",
+        "/api/voice/models/{model_id}/unload"
+      ],
+      "initial_active_modes": [
+        "tts",
+        "voice_clone"
+      ],
+      "voice_design_endpoint_policy": "defer until gateway/app mode contract is explicitly extended; do not tunnel voice_design through generic tts"
+    }
+  },
+  "non_goals": [
+    "No Qwen3-TTS model download.",
+    "No Python environment creation or package installation.",
+    "No active qwen3_tts manifest registration.",
+    "No worker process or HTTP endpoint implementation.",
+    "No Voice UI/model selector/provider-control changes.",
+    "No changes to Chatterbox execution.",
+    "No VRAM compatibility claim without physical validation.",
+    "No streaming activation in the first implementation milestone."
+  ]
+}

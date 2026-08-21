@@ -86,17 +86,99 @@
             "enum": [
               "static_file",
               "discover_files",
-              "manual_only"
+              "manual_only",
+              "repository_snapshot"
             ]
           },
           "source": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "provider": {
+                "enum": [
+                  "huggingface",
+                  "civitai",
+                  "manual",
+                  "local",
+                  "url"
+                ]
+              },
+              "repo": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "source_url": {
+                "type": "string"
+              },
+              "download_url": {
+                "type": "string"
+              },
+              "requires_token": {
+                "type": "boolean"
+              },
+              "gated": {
+                "type": "boolean"
+              },
+              "private": {
+                "type": "boolean"
+              },
+              "discovery": {
+                "type": "boolean"
+              }
+            }
           },
           "file_rules": {
             "type": "object"
           },
           "install": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "strategy": {
+                "type": "string"
+              },
+              "target_type": {
+                "type": "string"
+              },
+              "backend_targets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "probe_id": {
+                "type": "string"
+              },
+              "expected_size_mb": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "path_rule": {
+                "type": "string"
+              },
+              "allow_patterns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "ignore_patterns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
+            }
           },
           "ui": {
             "type": "object"
@@ -113,7 +195,96 @@
               "type": "string"
             }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "source_mode": {
+                  "const": "repository_snapshot"
+                }
+              },
+              "required": [
+                "source_mode"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source": {
+                  "type": "object",
+                  "required": [
+                    "provider",
+                    "repo",
+                    "revision"
+                  ],
+                  "properties": {
+                    "provider": {
+                      "const": "huggingface"
+                    },
+                    "repo": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "revision": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "install": {
+                  "type": "object",
+                  "required": [
+                    "strategy",
+                    "target_type",
+                    "backend_targets",
+                    "probe_id",
+                    "expected_size_mb"
+                  ],
+                  "properties": {
+                    "strategy": {
+                      "const": "huggingface_snapshot"
+                    },
+                    "target_type": {
+                      "const": "hf_cache"
+                    },
+                    "backend_targets": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "probe_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expected_size_mb": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "allow_patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    "ignore_patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     }
   }

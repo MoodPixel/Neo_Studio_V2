@@ -26,12 +26,12 @@ setup_neo_voice_engine.bat
 run_neo_voice_engine.bat
 ```
 
-The gateway auto-starts this worker when an executable Chatterbox job first arrives. You normally do **not** need to run `run_chatterbox_backend.bat` yourself.
+The gateway auto-starts this worker when an executable Chatterbox job first arrives. Normal users do **not** launch the worker directly.
 
-For direct diagnosis only:
+For developer/direct diagnosis only:
 
 ```text
-run_chatterbox_backend.bat
+scripts\dev\chatterbox\run_chatterbox_backend.bat
 ```
 
 ## Physical endpoints
@@ -50,7 +50,7 @@ GET  /api/voice/models/{model_id}/lifecycle
 POST /api/voice/models/{model_id}/unload
 ```
 
-A synchronous model-load endpoint is intentionally not required. Chatterbox model downloads/loading can exceed a normal control-request timeout, so first-use loading remains inside the asynchronous render job. The gateway scheduler passes its selected device through the private `_neo_execution` hint before lazy load.
+Phase 4.6 removes model download from render jobs. Admin → Models installs/verifies the Hugging Face snapshot first; the adapter receives the resulting local snapshot path and calls `from_local()`. Model construction remains lazy inside the asynchronous render job, and the gateway scheduler passes its selected device through the private `_neo_execution` hint. Managed/direct diagnostic launchers set local-only/offline flags, so missing weights fail instead of downloading.
 
 ## Models
 
@@ -76,5 +76,9 @@ Environment controls:
 - `NEO_CHATTERBOX_HOST` / `NEO_CHATTERBOX_PORT` — direct worker launcher binding;
 - `NEO_CHATTERBOX_DEVICE=auto|cuda|cpu|mps` — standalone/default device selection;
 - gateway `_neo_execution` — private per-job scheduler hint and current VO-E5 device authority when routed through Neo Voice Engine;
-- `HF_TOKEN` — passed through when required by upstream model access;
+- Hugging Face access tokens belong to the explicit Admin → Models install session when required; the Chatterbox worker itself is local-only;
 - `NEO_CHATTERBOX_ALLOW_EXTERNAL_REFERENCE=1` — development-only override for the Neo reference-root guard.
+
+## Phase 4.6 local model source
+
+The worker resolves `chatterbox_turbo` and `chatterbox_multilingual` through `neo_voice_engine.chatterbox_runtime_resolver`. Only an authoritative local HF snapshot becomes a model path. Turbo is constructed with `ChatterboxTurboTTS.from_local(...)`; Multilingual uses `ChatterboxMultilingualTTS.from_local(..., t3_model="v3")`. `from_pretrained()` is retained only behind an explicit developer opt-out from local-only mode and is unreachable in the managed manifest route.
