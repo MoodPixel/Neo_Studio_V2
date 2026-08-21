@@ -11,6 +11,8 @@ IR-4 reconnects the IP-1/IP-2 guidance and negative-prompt contracts to the actu
 - FLUX.1 / FLUX.2 Klein: classic CFG is not presented as an editable SD-style control. Guidance belongs to the model/Flux Guidance route and the negative prompt is disabled for the current True-CFG contract.
 - Krea 2 Turbo / Z-Image Turbo: CFG is visibly fixed at 1 and disabled. Negative prompt is retained in authoring state but greyed/disabled because the family uses disabled/zeroed negative conditioning.
 - Qwen Rapid AIO remains `PROFILE_CONTROLLED`; IR-4 does not invent a family-wide True-CFG promise for provider-controlled behavior.
+- Qwen True CFG manual edits also clear Clean Slate / provider-managed unset state for the semantic `true_cfg` field, so values typed into the single CFG box stay visible instead of being blanked on rerender.
+- The sampling-preset helper treats Qwen `cfg` and `true_cfg` as aliases of one physical input. It clears that DOM control only once, and a dirty/manual sampling edit survives workspace remounts instead of re-applying the previous built-in preset over the user's value.
 
 ## Retention rule
 

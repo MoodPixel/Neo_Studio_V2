@@ -330,7 +330,16 @@
   }
 
   function clearManagedFields() {
-    managedFields().forEach(clearField);
+    // Qwen uses one visible input for both compatibility cfg and semantic
+    // true_cfg. Clear each physical DOM field once so aliasing cannot trigger
+    // duplicate destructive input/change cycles.
+    const seen = new Set();
+    managedFields().forEach((name) => {
+      const field = fieldFor(name, state.scope) || ensureShadowField(name);
+      if (!field || seen.has(field)) return;
+      seen.add(field);
+      clearField(name);
+    });
   }
 
   function readManagedValues() {
@@ -832,7 +841,18 @@
     try {
       await loadContracts();
       state.lastContextKey = contextKey(contextFromDom(state.scope));
-      await applySelected('initial_mount');
+      if (state.dirty) {
+        // The workspace DOM can be rebuilt after a manual sampling edit. Do
+        // not re-apply the previously selected built-in preset on remount or
+        // it will erase the authored value that neo.js just restored from
+        // state.imageDraft (most visibly Qwen True CFG).
+        syncHiddenState();
+        updateButtons();
+        setStatus('Manual sampling edits preserved after workspace refresh.', 'warning');
+        renderInspector();
+      } else {
+        await applySelected('initial_mount');
+      }
     } catch (error) {
       setStatus(`Sampling presets unavailable: ${error.message}`, 'warning');
     }

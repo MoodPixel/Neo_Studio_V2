@@ -13,13 +13,19 @@ tags:
   - source assets
   - backend profiles
 priority: 70
-version: 10
-updated: 2026-08-14
+version: 11
+updated: 2026-08-21
 ---
 
 # Video Tab Overview
 
 The Video tab is one provider-aware workspace for video generation, source frames, progress, previews, output metadata, and result history.
+
+## Phase 4.7.2 runtime diagnostics
+
+For local ComfyUI-backed Video generation, Neo separates **queue ownership** from **model residency ownership**. The core generation compilers submit through `/prompt` and do not perform a normal-generation `/free`/`unload_models` cleanup. The Video Backend Probe reports whether Neo requested explicit CPU offload, VAE offload, or block swap and includes current VRAM information when the backend exposes it. If repeated runs still reload the same model while those controls are off, inspect the active ComfyUI loader/custom-node log rather than applying the Image LayerDiffuse cache-reset policy.
+
+MiniMax H3 additionally supports mixed-format model components: the main H3 diffusion-model loader and the Qwen3-VL text-encoder loader are resolved independently. Live discovery can therefore expose GGUF H3 text encoders while the main model is Safetensors/INT, and vice versa, as long as the connected backend exposes the corresponding loader.
 
 ## Workspace navigation
 

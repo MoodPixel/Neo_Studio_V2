@@ -16,8 +16,8 @@ tags:
   - reference video
   - comfyui
 priority: 82
-version: 2
-updated: 2026-08-17
+version: 3
+updated: 2026-08-21
 ---
 
 # MiniMax H3 Local Audio-Video Support
@@ -92,6 +92,21 @@ For Ref2VA images, **Reference Image Size** controls how much source-image detai
 - **Max** — keeps more reference resolution for stronger fine-detail/identity guidance, with higher resource use.
 
 Start with **Match** and use **Max** when the reference loses important face, clothing, or object detail.
+
+## Mixed-format text encoders
+
+MiniMax H3 treats the diffusion-model container and the Qwen3-VL text-encoder container as separate choices. The connected ComfyUI `/object_info` catalogs remain authoritative.
+
+Supported topology includes:
+
+- native/Safetensors (including INT/FP8/scaled Safetensors) H3 diffusion model + native/Safetensors Qwen3-VL encoder;
+- native/Safetensors H3 diffusion model + **GGUF Qwen3-VL encoder** when a compatible H3 GGUF CLIP loader is installed;
+- GGUF H3 diffusion model + GGUF Qwen3-VL encoder;
+- GGUF H3 diffusion model + native/Safetensors Qwen3-VL encoder when the native loader is available.
+
+Neo currently recognizes the normal `CLIPLoader` for native encoders and H3-capable GGUF loader classes such as `H3ClipLoaderAny`, `VideoCLIPLoaderGGUF`, `CLIPLoaderGGUFAdvanced`, and `CLIPLoaderGGUF` when they are advertised by the live backend. The selected encoder filename determines which encoder-loader family is used; the main H3 model loader does not force the encoder format.
+
+Some third-party GGUF Qwen3-VL conversions use loader-owned projector/MMProj companion data. Neo does not fabricate or pair arbitrary sidecars. If a conversion requires one, install/use the compatible H3 loader/node pack that owns that conversion contract.
 
 ## Native audio behavior
 
@@ -171,6 +186,12 @@ Use the correct `<Picture n>`, `<Video n>`, or `<Audio n>` label and state exact
 **First/last image behavior is wrong**  
 Check **Keyframe Role**. A first/last keyframe is a temporal anchor; use Reference-to-Video when you only want semantic guidance.
 
+**GGUF H3 text encoder is missing from the Text Encoder dropdown**  
+Connect/Test the active ComfyUI Video backend again so Neo refreshes live `/object_info`. MiniMax H3 merges native and supported GGUF encoder catalogs regardless of whether the main H3 model is Safetensors/UNET or GGUF. If the GGUF file is still absent, confirm that your installed H3 GGUF CLIP loader actually advertises that file in its `clip_name`/text-encoder dropdown.
+
+**The same H3/Video model reloads every generation**  
+Open the Video Backend Probe and inspect the model-residency section. Normal Neo Video generation does not call Comfy `/free`. If **Neo forced unload** and **Neo /free during normal Video generation** are both false and explicit CPU-offload/block-swap is off, capture the Comfy terminal lines at the end of run 1 and start of run 2. The loader/custom node or VRAM pressure is then the likely residency authority.
+
 **Generation runs out of memory**  
 Try the low-VRAM profile, reduce workload where the route permits it, use Reference Image Size **Match**, or disable optional accelerators/extra processing while diagnosing the base route.
 
@@ -178,3 +199,18 @@ Try the low-VRAM profile, reduce workload where the route permits it, use Refere
 That is intentional. Choose only one H3 approximate accelerator.
 
 For the shared reference-input behavior, see `guides/02_VIDEO/video_reference_inputs.md`.
+
+## Source readiness in Img2Vid
+
+MiniMax H3 **Img2Vid** uses the Video workspace's source-image state. After a source image is uploaded successfully, the workspace readiness gate should recognize that image immediately and enable Compile/Generate when the backend and route are otherwise ready.
+
+Reference media is separate from an Img2Vid source image. H3 **Reference-to-Video** checks the shared Reference Inputs collection instead of the Img2Vid source field. A reference image guides the generated video; it is not treated as frame zero unless the selected workflow explicitly uses it as a source/keyframe.
+
+If the header still reports a missing source after the preview/path is visible, refresh the Video backend once and verify that the selected workflow is **Img2Vid**, not **Reference-to-Video**.
+
+## Live preview and final playback
+
+MiniMax H3 local jobs are queued with a Neo-owned ComfyUI `client_id`. When the connected ComfyUI backend emits websocket preview frames, Video → Preview shows the latest live sampling frame while the job runs. After sampling, the status changes through decode / assemble / save stages and the finished `SaveVideo` output is imported into the normal Video result player.
+
+If Image live preview works but H3 does not, refresh/restart Neo after applying the current files so the H3 queue payload includes the client id. ComfyUI itself must also have preview generation enabled; Neo cannot invent latent preview frames when the backend emits none.
+

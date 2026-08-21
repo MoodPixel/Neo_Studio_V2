@@ -118,7 +118,7 @@ IMG2VID_FIELDS: Final[tuple[VideoParameterField, ...]] = (
 
 H3_FIELDS: Final[tuple[VideoParameterField, ...]] = (
     VideoParameterField("model_name", "H3 Diffusion Model", "models", "backend_select", "", route_scope=("minimax_h3",), description="FL2VA or Ref2VA H3 model from the live ComfyUI loader catalog."),
-    VideoParameterField("clip_name", "H3 Text Encoder", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 Qwen3-VL text encoder from the live ComfyUI catalog."),
+    VideoParameterField("clip_name", "H3 Text Encoder", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 Qwen3-VL text encoder from live native + GGUF ComfyUI catalogs. Encoder format is independent from the H3 diffusion-model loader."),
     VideoParameterField("vae_name", "H3 Video VAE", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 video VAE from the live ComfyUI VAE catalog."),
     VideoParameterField("audio_vae_name", "H3 Audio VAE", "models", "backend_select", "", route_scope=("minimax_h3",), description="MiniMax H3 audio VAE used to decode native stereo audio."),
     VideoParameterField("h3_shift_video", "Video Sigma Shift", "h3", "float", 12.0, 0.01, 100, 0.01, route_scope=("minimax_h3",), description="Native MiniMax H3 video flow shift."),

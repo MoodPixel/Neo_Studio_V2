@@ -9,6 +9,7 @@ from typing import Any, Final
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from neo_app.video.backend_probe import _get_json, route_node_readiness, video_backend_profile_payload
 from neo_app.video.comfy_input_handoff import prepare_comfy_input_file_handoff
@@ -26,6 +27,13 @@ SUPPORTED_TYPES: Final[set[str]] = {"txt2vid", "img2vid", "first_last_frame", "r
 H3_FPS: Final[int] = 24
 H3_FRAME_MODULUS: Final[int] = 17
 H3_FRAME_REMAINDER: Final[int] = 5
+H3_NATIVE_CLIP_LOADER_CANDIDATES: Final[tuple[str, ...]] = ("CLIPLoader",)
+H3_GGUF_CLIP_LOADER_CANDIDATES: Final[tuple[str, ...]] = (
+    "H3ClipLoaderAny",
+    "VideoCLIPLoaderGGUF",
+    "CLIPLoaderGGUFAdvanced",
+    "CLIPLoaderGGUF",
+)
 
 FALLBACK_MODELS: Final[dict[str, dict[str, str]]] = {
     "unet": {
@@ -269,15 +277,80 @@ def _first_matching(values: list[str], needles: tuple[str, ...], fallback: str) 
     return values[0]
 
 
+def _clip_catalogs_by_class(info: dict[str, Any], candidates: tuple[str, ...]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    folded = {str(key).casefold(): str(key) for key in (info or {})}
+    for candidate in candidates:
+        actual = folded.get(candidate.casefold())
+        if not actual:
+            continue
+        values = _combo_values(info, actual, "clip_name", "text_encoder_name")
+        if values:
+            result[actual] = values
+    return result
+
+
+def _select_h3_clip_loader(req: MiniMaxH3CompileRequest, info: dict[str, Any], main_loader: str) -> dict[str, Any]:
+    native_catalogs = _clip_catalogs_by_class(info, H3_NATIVE_CLIP_LOADER_CANDIDATES)
+    gguf_catalogs = _clip_catalogs_by_class(info, H3_GGUF_CLIP_LOADER_CANDIDATES)
+    native_values = list(dict.fromkeys(value for rows in native_catalogs.values() for value in rows))
+    gguf_values = list(dict.fromkeys(value for rows in gguf_catalogs.values() for value in rows))
+    requested = str(req.clip_name or "").strip()
+
+    if requested:
+        requested_format = "gguf" if requested.casefold().endswith(".gguf") else "safetensors"
+    elif main_loader == "gguf" and gguf_values:
+        requested_format = "gguf"
+    elif native_values:
+        requested_format = "safetensors"
+    elif gguf_values:
+        requested_format = "gguf"
+    else:
+        requested_format = "gguf" if main_loader == "gguf" else "safetensors"
+
+    if requested_format == "gguf":
+        candidates = gguf_catalogs
+        fallback_class = _class_exists(info, *H3_GGUF_CLIP_LOADER_CANDIDATES) or "CLIPLoaderGGUF"
+        fallback_model = FALLBACK_MODELS["gguf"]["clip"]
+        pool = gguf_values
+    else:
+        candidates = native_catalogs
+        fallback_class = _class_exists(info, *H3_NATIVE_CLIP_LOADER_CANDIDATES) or "CLIPLoader"
+        fallback_model = FALLBACK_MODELS["unet"]["clip"]
+        pool = native_values
+
+    selected_class = ""
+    if requested:
+        for class_type, values in candidates.items():
+            if requested in values:
+                selected_class = class_type
+                break
+    if not selected_class and candidates:
+        selected_class = next(iter(candidates))
+    selected_class = selected_class or fallback_class
+
+    selected_model = requested or _first_matching(pool, ("minimax_h3", "qwen3vl", "qwen3_vl"), fallback_model)
+    return {
+        "class_type": selected_class,
+        "selected_model": selected_model,
+        "format": requested_format,
+        "mixed_format_supported": True,
+        "native_catalog": native_values,
+        "gguf_catalog": gguf_values,
+        "native_loader_classes": list(native_catalogs),
+        "gguf_loader_classes": list(gguf_catalogs),
+    }
+
+
 def discover_minimax_h3_bindings(req: MiniMaxH3CompileRequest, object_info: dict[str, Any] | None = None) -> dict[str, Any]:
     info = object_info or {}
     loader = normalize_video_loader(req.loader)
     if loader == "gguf":
-        model_loader = _class_exists(info, "UnetLoaderGGUF", "UNETLoaderGGUF") or "UnetLoaderGGUF"
-        clip_loader = _class_exists(info, "CLIPLoaderGGUF") or "CLIPLoaderGGUF"
+        model_loader = _class_exists(info, "UnetLoaderGGUF", "UNETLoaderGGUF", "UnetLoaderGGUFAdvanced") or "UnetLoaderGGUF"
     else:
         model_loader = _class_exists(info, "UNETLoader", "DiffusionModelLoader") or "UNETLoader"
-        clip_loader = _class_exists(info, "CLIPLoader") or "CLIPLoader"
+    clip_topology = _select_h3_clip_loader(req, info, loader)
+    clip_loader = clip_topology["class_type"]
     classes = {
         "model_loader": model_loader,
         "clip_loader": clip_loader,
@@ -320,12 +393,19 @@ def discover_minimax_h3_bindings(req: MiniMaxH3CompileRequest, object_info: dict
         "classes": classes,
         "models": {
             "model_name": _first_matching(model_values, model_needles, FALLBACK_MODELS[loader][route_key]),
-            "clip_name": _first_matching(clip_values, clip_needles, fallback["clip"]),
+            "clip_name": req.clip_name or clip_topology["selected_model"] or _first_matching(clip_values, clip_needles, fallback["clip"]),
             "video_vae": _first_matching(video_vae_values or vae_values, ("minimax_h3_video", "h3_video", "video"), FALLBACK_MODELS["shared"]["video_vae"]),
             "audio_vae": _first_matching(audio_vae_values or vae_values, ("minimax_h3_audio", "h3_audio", "audio"), FALLBACK_MODELS["shared"]["audio_vae"]),
             "turbo_lora": _first_matching(turbo_loras, ("4step", "turbo", "lightx2v"), "") if turbo_loras else "",
         },
-        "catalogs": {"models": model_values, "text_encoders": clip_values, "vaes": vae_values, "loras": lora_values, "turbo_loras": turbo_loras},
+        "catalogs": {
+            "models": model_values,
+            "text_encoders": list(dict.fromkeys([*clip_topology["native_catalog"], *clip_topology["gguf_catalog"]])) or clip_values,
+            "native_text_encoders": clip_topology["native_catalog"],
+            "gguf_text_encoders": clip_topology["gguf_catalog"],
+            "vaes": vae_values, "loras": lora_values, "turbo_loras": turbo_loras,
+        },
+        "text_encoder_topology": clip_topology,
     }
 
 
@@ -449,6 +529,12 @@ def build_minimax_h3_workflow(req: MiniMaxH3CompileRequest, object_info: dict[st
     bindings = discover_minimax_h3_bindings(req, info)
     classes = bindings["classes"]
     params, notes = _normalized_parameters(req)
+    clip_topology = bindings.get("text_encoder_topology") or {}
+    if clip_topology.get("format") == "gguf":
+        notes.append(
+            f"H3 text encoder is GGUF and is loaded independently through {clip_topology.get('class_type') or 'a GGUF CLIP loader'}; "
+            "the main diffusion model may remain safetensors/UNET. Any conversion-specific MMProj pairing is owned by the selected Comfy loader/node pack."
+        )
     workflow: dict[str, Any] = {}
     next_id = 1
 
@@ -578,11 +664,12 @@ def build_minimax_h3_workflow(req: MiniMaxH3CompileRequest, object_info: dict[st
     save_format = requested_format if requested_format in save_formats else "auto"
     save_id = str(next_id); workflow[save_id] = {"class_type": classes["save_video"], "inputs": {"video": [create_id, 0], "filename_prefix": f"video/{prefix}", "format": save_format, "codec": "auto"}}
 
+    client_id = f"neo-video-h3-{uuid4().hex[:10]}"
     return {
         "schema_version": SCHEMA_VERSION, "surface": "video", "phase": PHASE,
         "route_id": f"minimax_h3.{loader}.{mode}", "compiled_at": _now(),
         "parameters": {key: value for key, value in params.items() if key != "profile"}, "profile": params["profile"],
-        "bindings": bindings, "workflow": workflow, "prompt_api_payload": {"prompt": workflow}, "normalization_notes": notes,
+        "bindings": bindings, "workflow": workflow, "prompt_api_payload": {"prompt": workflow, "client_id": client_id}, "client_id": client_id, "normalization_notes": notes,
         "h3": {
             "native_audio": True, "audio_channels": "stereo", "fps": H3_FPS, "conditioning": "ref2va" if mode == "reference_to_video" else "fl2va",
             "keyframe_role": req.h3_keyframe_role, "reference_counts": {"images": len(req.h3_reference_images), "videos": len(req.h3_reference_videos), "audios": len(req.h3_reference_audios)},
@@ -638,6 +725,19 @@ def video_minimax_h3_compile_payload(payload: dict[str, Any] | None = None, obje
             object_info = {}
 
     bindings = discover_minimax_h3_bindings(req, object_info)
+    clip_topology = bindings.get("text_encoder_topology") or {}
+    selected_clip_loader = str(clip_topology.get("class_type") or "")
+    if object_info and selected_clip_loader and selected_clip_loader not in object_info:
+        selected_clip = str(req.clip_name or clip_topology.get("selected_model") or "")
+        return {
+            "schema_version": SCHEMA_VERSION, "surface": "video", "phase": PHASE,
+            "ok": False, "queued": False,
+            "error": f"MiniMax H3 text encoder '{selected_clip}' requires loader '{selected_clip_loader}', but that loader is not visible in ComfyUI /object_info.",
+            "errors": [f"Missing H3 text-encoder loader: {selected_clip_loader}"],
+            "request": req.payload(), "route": route.payload(),
+            "text_encoder_topology": clip_topology,
+            "backend": {"profile": profile, "base_url": base_url},
+        }
     selected_model = req.model_name or req.gguf_name or req.unet_name or bindings["models"]["model_name"]
     low_model = selected_model.casefold()
     if nt == "reference_to_video" and "fl2va" in low_model:
@@ -730,5 +830,14 @@ def video_minimax_h3_generate_payload(payload: dict[str, Any] | None = None, obj
         queue_response = _post_json(base_url, "/prompt", compile_payload["prompt_api_payload"], timeout)
     except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         return {**compile_payload, "ok": False, "queued": False, "error": f"ComfyUI H3 queue failed: {exc}", "input_handoff": handoff_logs}
-    response = {**compile_payload, "ok": True, "queued": True, "dry_run": False, "queue_response": queue_response, "prompt_id": queue_response.get("prompt_id") or queue_response.get("node_id") or "", "input_handoff": handoff_logs}
+    response = {
+        **compile_payload,
+        "ok": True,
+        "queued": True,
+        "dry_run": False,
+        "queue_response": queue_response,
+        "prompt_id": queue_response.get("prompt_id") or queue_response.get("node_id") or "",
+        "client_id": compile_payload.get("client_id") or (compile_payload.get("prompt_api_payload") or {}).get("client_id") or "",
+        "input_handoff": handoff_logs,
+    }
     return _attach_video_output_record(response, data)

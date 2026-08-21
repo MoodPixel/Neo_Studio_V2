@@ -40,7 +40,7 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 8
+version: 9
 updated: 2026-08-21
 ---
 
@@ -149,6 +149,8 @@ Custom Krea 2 VAE/AE selection is intentionally **warning-only**. Neo does not e
 | **Final preview** | Shows the selected generated output when available. |
 | **Batch thumbnails** | Shows each output from the current batch. Click a thumbnail to make it the main preview. |
 
+For modern dual-handoff workflows such as Qwen native edit, the preview panel may show a live `PreviewImage` frame while Neo imports the backend `SaveImage` result into Results. That separation is intentional: preview stays fast, while Results keeps the final saved file that matches Comfy native output more closely.
+
 Output deletion, metadata inspection, replay, source/control asset tracking, and safe cascade delete belong in the Results / Output Inspector area, not the preview panel.
 
 ## Workflow-mode requirements
@@ -172,6 +174,7 @@ For local Comfy masked modes, the Parameters panel also exposes **Inpaint/Outpai
   - **M14.1:** the visible Klein Qwen3 encoder is stored canonically as `qwen3_text_encoder`. Legacy encoder aliases are reconciled automatically before submission; they are not independent controls.
 - **Krea 2 RAW / Krea 2 Turbo (M16):** use the dedicated Krea 2 family contract with Qwen3-VL-4B + Qwen Image VAE. Native txt2img is the primary supported route; Img2Img/Inpaint/Outpaint and GGUF are exposed as experimental provider-owned adapters. Krea 2 does not use Flux Guidance, T5XXL, CLIP-L, Qwen2.5-VL, or MMProj.
 - **Qwen Rapid AIO** uses a bundled model route or GGUF route. Extra component fields stay hidden unless the selected loader/profile requires them.
+- **Qwen Image / Qwen Image Edit / Qwen Image Edit 2509/2511** support mixed text-encoder formats on safetensors/component routes. The visible `qwen_text_encoder` field merges the native Qwen/text-encoder catalog with the GGUF single-encoder catalog even when native encoders are already present; Neo automatically uses `CLIPLoader(type=qwen_image)` for native encoders and `CLIPLoaderGGUF(type=qwen_image)` for GGUF encoders.
 - **Qwen Image Edit / Qwen Image Edit 2509** are stronger for source-image/edit workflows and can expose multi-source behavior depending on route and loader.
 - **ZImage Turbo** uses low-step/low-CFG defaults and may hide negative prompt because turbo conditioning is simplified.
 - **HiDream** is currently txt2img-focused in normal Image routes.
@@ -287,3 +290,24 @@ The Parameters panel now includes a compact **Generation Setup** summary. It is 
 It summarizes the selected family, main model type, workflow mode, Native/LanPaint masked engine, Crop & Stitch state, sampler engine, Multi-KSampler stage count, and inter-stage latent-upscale count. The editable controls above remain authoritative.
 
 The summary must never rewrite Steps, CFG, Sampler, Scheduler, Denoise, Seed, dimensions, batch count, or stage settings. Compatibility status is shown as Ready, Experimental, or Gated. Technical route keys, schema IDs, compiler IDs, and node IDs stay out of normal/guided UI and remain available only in Expert diagnostics.
+
+## GGUF text-encoder discovery
+
+When **Main Model Type = GGUF**, Neo builds text-encoder selectors from the connected ComfyUI profile rather than assuming the encoder must use the same file format as the main diffusion model.
+
+The dropdown can therefore include both supported GGUF encoders and compatible native/Safetensors text encoders exposed by ComfyUI. This is intentional: a GGUF diffusion model can still use a native text encoder when the selected workflow/compiler supports that topology.
+
+For Qwen image-conditioned routes, an explicit MMProj/projector remains part of Neo's compatibility contract where that route declares it. Neo does not remove saved MMProj state merely because compatible ComfyUI-GGUF builds may auto-pair a matching projector. Existing project/replay data with an explicit projector remains valid.
+
+## Qwen native edit controls
+
+When the active route is **Qwen Image Edit**, **Qwen Image Edit 2509**, or **Qwen Image Edit 2511** on the **Safetensors / Components** path, Neo shows an extra **Qwen Native Edit Controls** card.
+
+- **Qwen text encoder loader**: lets you keep the mixed Qwen encoder catalog while forcing **Auto**, **Native CLIPLoader**, or **GGUF CLIPLoader** when needed.
+- **Aura shift**: feeds `ModelSamplingAuraFlow`.
+- **CFGNorm**: lets you enable/disable the patch, set **strength**, and choose **pre-CFG** behavior.
+- Neo also aligns the workflow more closely with native Comfy behavior by preprocessing Qwen source images with `FluxKontextImageScale`, using `VAEEncode(Image 1)` as the latent anchor for Qwen img2img/outpaint, and automatically applying `FluxKontextMultiReferenceLatentMethod(index_timestep_zero)` on both positive and negative conditioning for Qwen 2509/2511 img2img — including single-source edits.
+
+### Qwen parity-node readiness
+
+On Qwen safetensors/component edit routes, Neo now verifies the live Comfy node classes needed by the selected Parameters. `CFGNorm` must be present when CFGNorm is enabled; Qwen img2img uses `FluxKontextImageScale`; and Qwen 2509/2511 img2img uses `FluxKontextMultiReferenceLatentMethod(index_timestep_zero)` for both single- and multi-source edits. If live `/object_info` proves an explicitly required node is missing, Neo blocks the route with a concrete readiness error rather than silently omitting the requested stage.

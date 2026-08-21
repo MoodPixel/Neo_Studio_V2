@@ -1289,9 +1289,16 @@ function imageSamplingSelectOptions(fieldId, options = []) {
 function noteImageManagedSamplingFieldEdit(fieldId, rawValue = undefined) {
   if (!imageSamplingPresetManagedFields().includes(fieldId)) return false;
   const authority = imageSamplingPresetAuthorityState();
+  const isUnset = rawValue === '' || rawValue === null || rawValue === undefined;
+  // IR hotfix: cfg and true_cfg can share one physical Qwen input. Once the
+  // user authors a concrete value, clear any stale preset-unset marker even if
+  // the current authority has already been released to Manual / No Preset.
+  if (!isUnset && Array.isArray(authority.unset_fields) && authority.unset_fields.includes(fieldId)) {
+    authority.unset_fields = authority.unset_fields.filter((item) => item !== fieldId);
+    state.imagePresetAuthority = authority;
+  }
   if (authority.source !== 'builtin') return false;
   if (authority.application_mode === 'clean_slate') {
-    const isUnset = rawValue === '' || rawValue === null || rawValue === undefined;
     if (isUnset) {
       delete state.imageDraft[fieldId];
       authority.unset_fields = [...new Set([...(authority.unset_fields || []), fieldId])];
@@ -2228,7 +2235,13 @@ function syncKrea2IdentityReferenceRoles() {
   state.imageDraft.source_image_2_role = 'main_subject';
 }
 function imageMultiReferenceSlotLimit(profile = activeImageProfile()) {
-  return krea2IdentityEditActive() ? 2 : 3;
+  if (krea2IdentityEditActive()) return 2;
+  if (controlNetPoseTransferActive()) return 2;
+  return 3;
+}
+function qwenPoseTransferRuntimeCardVisible() {
+  if (!controlNetPoseTransferActive()) return false;
+  return qwenVisibleSourceSlotCount() >= 2 || controlNetPoseTransferHasImage3Conflict();
 }
 function imageMultiReferenceActive(profile = activeImageProfile()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('multi_source_panel', false)) return false;
@@ -2258,10 +2271,9 @@ function qwenVisibleSourceSlotCount() {
   const requested = Number(state.imageDraft.qwen_source_slot_count || 1);
   const slotLimit = imageMultiReferenceSlotLimit();
   let count = Number.isFinite(requested) ? Math.max(1, Math.min(slotLimit, requested)) : 1;
-  if (controlNetPoseTransferActive()) count = 3;
   if (state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url) count = Math.max(count, 2);
-  if (slotLimit >= 3 && (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url)) count = Math.max(count, 3);
-  return Math.min(controlNetPoseTransferActive() ? 3 : slotLimit, count);
+  if (!controlNetPoseTransferActive() && slotLimit >= 3 && (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url)) count = Math.max(count, 3);
+  return Math.min(slotLimit, count);
 }
 function qwenStitchRouteActive(mode = activeImageMode()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('stitch_images', false)) return false;
@@ -3233,6 +3245,20 @@ function profileModelOptions(kind = 'models') {
   return profileModelOptionsForSurface('image', kind);
 }
 
+function imageProfileModelOptionsAny(kinds = []) {
+  const seen = new Set();
+  const merged = [];
+  (Array.isArray(kinds) ? kinds : [kinds]).forEach((kind) => {
+    profileModelOptions(kind).forEach((opt) => {
+      const id = String(opt?.id || '').trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      merged.push(opt);
+    });
+  });
+  return merged;
+}
+
 
 function activeImageMode() {
   const mode = imageCommandValue('workflowMode') || state.activeSubtabId || 'generate';
@@ -3926,6 +3952,7 @@ const VIDEO_VID2VID_COMPILE_ENDPOINT = '/api/video/compile/ltx23-vid2vid';
 const VIDEO_DEPTH_MOTION_COMPILE_ENDPOINT = '/api/video/compile/ltx23-depth-motion';
 const VIDEO_SCHEDULE_COMPILE_ENDPOINT = '/api/video/compile/ltx23-schedule';
 const VIDEO_AUDIO_VIDEO_COMPILE_ENDPOINT = '/api/video/compile/ltx23-audio-video';
+const VIDEO_MINIMAX_H3_COMPILE_ENDPOINT = '/api/video/compile/minimax-h3';
 const VIDEO_OUTPUT_FORMAT_OPTIONS = [
   { id: 'webm', label: 'WEBM' },
   { id: 'mp4', label: 'MP4 later' },
@@ -4553,6 +4580,19 @@ function videoModelDiscoveryOptionsAny(kinds = []) {
   });
   return merged;
 }
+function videoProfileModelOptionsAny(kinds = []) {
+  const seen = new Set();
+  const merged = [];
+  (Array.isArray(kinds) ? kinds : [kinds]).forEach((kind) => {
+    profileModelOptionsForSurface('video', kind).forEach((opt) => {
+      const id = String(opt?.id || '').trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      merged.push(opt);
+    });
+  });
+  return merged;
+}
 function videoOptionsWithoutPlaceholder(options = []) {
   return (Array.isArray(options) ? options : []).filter((opt) => {
     const id = String(opt?.id || '').trim();
@@ -5069,10 +5109,31 @@ function videoCanQueueLtxAudioVideo() {
   const route = videoFindRoute();
   return Boolean(route && (route.route_id === 'ltx23.gguf.audio_video' || route.route_id === 'ltx23.unet.audio_video') && state.videoDraft.mode === 'audio_video' && videoAudioVideoReady());
 }
+function videoCanQueueMiniMaxH3() {
+  const route = videoFindRoute();
+  if (!route || String(state.videoDraft.family || '').trim() !== 'minimax_h3') return false;
+  const mode = state.videoDraft.mode || 'txt2vid';
+  if (mode === 'img2vid') return Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
+  if (mode === 'first_last_frame') return Boolean((state.videoDraft.first_image || state.videoDraft.source_image || state.videoDraft.first_image_url || state.videoDraft.source_image_url) && (state.videoDraft.last_image || state.videoDraft.last_image_url));
+  if (mode === 'reference_to_video') return videoReferenceTotalCount() >= 1;
+  return true;
+}
+function videoLocalReadinessLabel(route = videoFindRoute()) {
+  if (!route) return 'Route unavailable';
+  const mode = state.videoDraft.mode || 'txt2vid';
+  if (mode === 'img2vid' && !(state.videoDraft.source_image || state.videoDraft.source_image_url)) return 'Add a source image';
+  if (mode === 'first_last_frame' && !((state.videoDraft.first_image || state.videoDraft.source_image || state.videoDraft.first_image_url || state.videoDraft.source_image_url) && (state.videoDraft.last_image || state.videoDraft.last_image_url))) return 'Add first and last frames';
+  if (mode === 'multiscene' && !videoMultisceneReady()) return 'Add at least two multiscene images';
+  if (['vid2vid', 'extend', 'depth_motion'].includes(mode) && !videoCanExtendActiveResult()) return 'Add a source video';
+  if (mode === 'reference_to_video' && videoReferenceTotalCount() < 1) return 'Add at least one reference input';
+  if (mode === 'prompt_schedule' && !videoScheduleReady()) return 'Add schedule events';
+  if (mode === 'audio_video' && !videoAudioVideoReady()) return 'Add audio prompt or dialogue';
+  return 'Ready for selected route';
+}
 function videoCanQueueActiveWanRoute() {
   if (!videoBackendConnected()) return false;
   if (isCloudVideoProfile()) return videoCloudCanGenerate();
-  return videoCanQueueWanTxt2Vid() || videoCanQueueWanImg2Vid() || videoCanQueueWanGgufImg2Vid() || videoCanQueueWanRapidAioGguf() || videoCanQueueLtxTxt2Vid() || videoCanQueueLtxImg2Vid() || videoCanQueueLtxFirstLastFrame() || videoCanQueueLtxMultiScene() || videoCanQueueLtxExtend() || videoCanQueueLtxVid2Vid() || videoCanQueueLtxDepthMotion() || videoCanQueueLtxSchedule() || videoCanQueueLtxAudioVideo();
+  return videoCanQueueWanTxt2Vid() || videoCanQueueWanImg2Vid() || videoCanQueueWanGgufImg2Vid() || videoCanQueueWanRapidAioGguf() || videoCanQueueLtxTxt2Vid() || videoCanQueueLtxImg2Vid() || videoCanQueueLtxFirstLastFrame() || videoCanQueueLtxMultiScene() || videoCanQueueLtxExtend() || videoCanQueueLtxVid2Vid() || videoCanQueueLtxDepthMotion() || videoCanQueueLtxSchedule() || videoCanQueueLtxAudioVideo() || videoCanQueueMiniMaxH3();
 }
 
 function videoProgressTimestampMs(value = '') {
@@ -5225,6 +5286,24 @@ function closeVideoProgressSocket() {
   state.videoProgressSocket = null;
 }
 
+function videoExecutingNodeLabel(nodeId) {
+  const workflow = state.videoLastGenerate?.workflow || state.videoLastGenerate?.prompt_api_payload?.prompt || {};
+  const classType = String(workflow?.[String(nodeId)]?.class_type || '');
+  const labels = {
+    MiniMaxH3ImageToVideo: 'Preparing MiniMax H3 conditioning',
+    MiniMaxH3ReferenceToVideo: 'Preparing MiniMax H3 references',
+    SamplerCustomAdvanced: 'Sampling video — live preview active',
+    KSampler: 'Sampling video — live preview active',
+    VAEDecode: 'Decoding video frames',
+    VAEDecodeAudio: 'Decoding audio',
+    CreateVideo: 'Assembling video + audio',
+    SaveVideo: 'Saving final video',
+    SaveWEBM: 'Saving final video',
+    VHS_VideoCombine: 'Encoding final video',
+  };
+  return labels[classType] || (classType ? `Executing ${classType}` : `Executing video node ${nodeId}`);
+}
+
 function startVideoProgressSocket(profileId, clientId) {
   if (!profileId || !clientId) return;
   closeVideoProgressSocket();
@@ -5248,7 +5327,7 @@ function startVideoProgressSocket(profileId, clientId) {
             if (max > 0) setVideoWorkspaceProgress(`Generating node ${value}/${max}`, Math.min(96, Math.max(20, (value / max) * 100)));
           } else if (type === 'executing') {
             if (data.node === null || data.node === undefined) setVideoWorkspaceProgress('Finalizing video output', 97);
-            else setVideoWorkspaceProgress(`Executing video node ${data.node}`, Math.max(35, videoProgressPercent()));
+            else setVideoWorkspaceProgress(videoExecutingNodeLabel(data.node), Math.max(35, videoProgressPercent()));
           } else if (type === 'execution_success') {
             setVideoWorkspaceProgress('Comfy job finished — importing result', 99);
           } else if (type === 'error') {
@@ -5316,8 +5395,9 @@ async function compileVideoWanRoute() {
   const isAudioVideo = state.videoDraft.mode === 'audio_video';
   const isLtx = state.videoDraft.family === 'ltx23';
   const isRapidAio = state.videoDraft.loader === 'rapid_aio_gguf';
+  const isMiniMaxH3 = state.videoDraft.family === 'minimax_h3';
   const payload = videoWanPayload({ dryRun: true });
-  const endpoint = isAudioVideo ? VIDEO_AUDIO_VIDEO_COMPILE_ENDPOINT : isSchedule ? VIDEO_SCHEDULE_COMPILE_ENDPOINT : isDepthMotion ? VIDEO_DEPTH_MOTION_COMPILE_ENDPOINT : isVid2Vid ? VIDEO_VID2VID_COMPILE_ENDPOINT : isExtend ? VIDEO_EXTEND_COMPILE_ENDPOINT : isMultiScene ? VIDEO_MULTISCENE_COMPILE_ENDPOINT : isFirstLast ? VIDEO_FIRST_LAST_FRAME_COMPILE_ENDPOINT : isLtx ? (isImg ? '/api/video/compile/ltx23-img2vid' : '/api/video/compile/ltx23-txt2vid') : isRapidAio ? (isImg ? '/api/video/compile/wan22-img2vid' : '/api/video/compile/wan22-txt2vid') : isImg ? '/api/video/compile/wan22-img2vid' : '/api/video/compile/wan22-txt2vid';
+  const endpoint = isMiniMaxH3 ? VIDEO_MINIMAX_H3_COMPILE_ENDPOINT : isAudioVideo ? VIDEO_AUDIO_VIDEO_COMPILE_ENDPOINT : isSchedule ? VIDEO_SCHEDULE_COMPILE_ENDPOINT : isDepthMotion ? VIDEO_DEPTH_MOTION_COMPILE_ENDPOINT : isVid2Vid ? VIDEO_VID2VID_COMPILE_ENDPOINT : isExtend ? VIDEO_EXTEND_COMPILE_ENDPOINT : isMultiScene ? VIDEO_MULTISCENE_COMPILE_ENDPOINT : isFirstLast ? VIDEO_FIRST_LAST_FRAME_COMPILE_ENDPOINT : isLtx ? (isImg ? '/api/video/compile/ltx23-img2vid' : '/api/video/compile/ltx23-txt2vid') : isRapidAio ? (isImg ? '/api/video/compile/wan22-img2vid' : '/api/video/compile/wan22-txt2vid') : isImg ? '/api/video/compile/wan22-img2vid' : '/api/video/compile/wan22-txt2vid';
   const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const result = await response.json();
   state.videoLastGenerate = result;
@@ -5327,7 +5407,7 @@ async function compileVideoWanRoute() {
     state.videoResults = [result.neo_persisted.record, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== (result.neo_persisted.result_id || result.result_id)) : [])];
   }
   saveUiState();
-  recordMemoryEvent(isAudioVideo ? 'video.ltx23_audio_video.compiled' : isSchedule ? 'video.ltx23_schedule.compiled' : isDepthMotion ? 'video.ltx23_depth_motion.compiled' : isVid2Vid ? 'video.ltx23_vid2vid.compiled' : isExtend ? 'video.ltx23_extend.compiled' : isMultiScene ? 'video.ltx23_multiscene.compiled' : isFirstLast ? 'video.ltx23_first_last_frame.compiled' : isLtx ? (isImg ? 'video.ltx23_img2vid.compiled' : 'video.ltx23_txt2vid.compiled') : isImg ? 'video.wan22_img2vid.compiled' : 'video.wan22_txt2vid.compiled', 'video', { ok: Boolean(result?.ok), route: result?.route_id || '', metadata: result?.neo_output?.metadata_sidecar || '', source: result?.source?.source_image || result?.source?.first_image || '' });
+  recordMemoryEvent(isMiniMaxH3 ? `video.minimax_h3_${state.videoDraft.mode || 'txt2vid'}.compiled` : isAudioVideo ? 'video.ltx23_audio_video.compiled' : isSchedule ? 'video.ltx23_schedule.compiled' : isDepthMotion ? 'video.ltx23_depth_motion.compiled' : isVid2Vid ? 'video.ltx23_vid2vid.compiled' : isExtend ? 'video.ltx23_extend.compiled' : isMultiScene ? 'video.ltx23_multiscene.compiled' : isFirstLast ? 'video.ltx23_first_last_frame.compiled' : isLtx ? (isImg ? 'video.ltx23_img2vid.compiled' : 'video.ltx23_txt2vid.compiled') : isImg ? 'video.wan22_img2vid.compiled' : 'video.wan22_txt2vid.compiled', 'video', { ok: Boolean(result?.ok), route: result?.route_id || '', metadata: result?.neo_output?.metadata_sidecar || '', source: result?.source?.source_image || result?.source?.first_image || '' });
   render();
   return result;
 }
@@ -6548,12 +6628,21 @@ function videoBackendProbeSummaryHtml() {
     `Low model: ${gguf.models?.low_noise_model || 'not selected'}`,
     `Dual-noise pair: ${gguf.dual_noise_ready ? 'ready' : 'not ready'}`,
   ] : [];
+  const residency = probe?.model_residency || null;
+  const residencyRows = residency ? [
+    `Model residency owner: ${humanize(residency.owner || 'comfyui_and_loader_nodes')}`,
+    `Neo forced unload: ${residency.neo_forced_unload ? 'yes' : 'no'}`,
+    `Neo /free during normal Video generation: ${residency.neo_free_endpoint_in_normal_generation ? 'yes' : 'no'}`,
+    `Explicit offload/block swap: ${residency.offload_requested ? 'enabled' : 'off'}`,
+    `Residency diagnosis: ${humanize(residency.reload_classification || 'comfy_or_loader_managed')}`,
+  ] : [];
   return `<div class="neo-ui-card neo-video-backend-probe" data-testid="video-backend-probe-panel" data-schema="neo.video.backend_probe.vg13">
     <strong>Backend Probe</strong>
-    <p>Checks ComfyUI Portable reachability, <code>/object_info</code> nodes, selected-route readiness, and WAN GGUF model visibility without queueing a generation.</p>
+    <p>Checks ComfyUI reachability, <code>/object_info</code> nodes, selected-route readiness, model visibility, and model-residency/offload intent without queueing a generation.</p>
     ${NeoUI.badgeRow([`Status: ${humanize(status)}`, `Reachable: ${reachable ? 'yes' : 'no'}`, `Route: ${probe?.route?.route_id || route?.route_id || 'unknown'}`, `Route ready: ${ready ? 'yes' : 'not yet'}`])}
     <div class="neo-badge-row">${categoryRows}</div>
     ${ggufRows.length ? NeoUI.metaList(ggufRows) : ''}
+    ${residencyRows.length ? NeoUI.metaList(residencyRows) : ''}
     ${(errors.length || warnings.length || actions.length) ? NeoUI.metaList([...errors, ...warnings, ...actions.map((item) => `Action: ${item}`)]) : '<p class="neo-muted">No backend probe has run in this UI session yet.</p>'}
     <p class="neo-muted">Use the Workspace card above to probe readiness. Node installs and updates stay in Admin.</p>
   </div>`;
@@ -7083,6 +7172,7 @@ function renderVideoCommandStrip(ctx = {}) {
   const headerRoute = ctx.videoHeaderRoute || null;
   const backendConnected = Boolean(ctx.videoHeaderBackendConnected);
   const canProbe = Boolean(ctx.videoHeaderCanProbe);
+  const readinessLabel = backendConnected ? videoLocalReadinessLabel(headerRoute) : (canProbe ? 'Probe backend first' : 'Backend disconnected');
   const configHtml = `
       <div class="neo-workspace-row compact-row" data-testid="video-workspace-model-route-row" data-command-role="video-route">
         <label>Model Family${optionSelect('videoWorkspaceFamily', videoFamilyOptions(), state.videoDraft.family || 'wan22')}</label>
@@ -7098,7 +7188,7 @@ function renderVideoCommandStrip(ctx = {}) {
           <button class="neo-btn secondary" id="videoRefreshResultsBtn" type="button">Refresh Results</button>
         </div>
         <div class="neo-progress-wrap" aria-label="Video generation progress" data-command-role="video-progress">
-          <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="videoProgressLabel">${videoProgressLabel(canRun ? 'Ready' : backendConnected ? (headerRoute ? 'Waiting for required source/input' : 'Route unavailable') : canProbe ? 'Probe backend first' : 'Backend disconnected')}</span><span id="videoProgressElapsed" class="neo-progress-elapsed">${videoProgressElapsedLabel()}</span></span></div>
+          <div class="neo-progress-meta"><span>Progress</span><span class="neo-progress-status"><span id="videoProgressLabel">${videoProgressLabel(canRun ? 'Ready' : readinessLabel)}</span><span id="videoProgressElapsed" class="neo-progress-elapsed">${videoProgressElapsedLabel()}</span></span></div>
           <div class="neo-progress-track"><span id="videoProgressFill" style="width: ${videoProgressPercent()}%"></span></div>
         </div>`;
   return commandStripShell('video', 'video-generation-command-strip', `${configHtml}${actionsHtml}`, 'neo-video-command-strip');
@@ -38313,7 +38403,9 @@ function renderQwenSourcePreviewSlot(lane, primaryPreview = '') {
 }
 
 function renderQwenSourcePreviewStack(primaryPreview) {
-  const lanes = [1, 2, 3].filter((lane) => lane === 1 || qwenVisibleSourceSlotCount() >= lane);
+  const lanes = [1];
+  if (qwenVisibleSourceSlotCount() >= 2) lanes.push(2);
+  if ((!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() >= 3) || qwenPoseTransferRuntimeCardVisible()) lanes.push(3);
   return `<div class="neo-source-preview-stack-multi" data-testid="qwen-source-preview-stack">${lanes.map((lane) => renderQwenSourcePreviewSlot(lane, primaryPreview)).join('')}</div>`;
 }
 
@@ -39160,8 +39252,9 @@ function renderImageSourcePanelBody() {
         ${krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : '<div class="neo-source-meta"><span class="neo-badge">Image 1: Primary / identity reference</span></div>') : `<label class="neo-source-file-label">Image 1 Role
           ${optionSelect('imageQwenSourceRole1', qwenSourceRoleOptions(1), state.imageDraft.source_image_1_role || 'main_subject')}
         </label>`}
-        ${[2, 3].filter((lane) => qwenVisibleSourceSlotCount() >= lane).map((lane) => renderQwenSourceCard(lane)).join('')}
-        ${!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() < imageMultiReferenceSlotLimit() ? `<button class="neo-btn secondary neo-add-source-btn" id="imageQwenAddSourceBtn" type="button">+ Add source image</button>` : ''}
+        ${[2].filter((lane) => qwenVisibleSourceSlotCount() >= lane).map((lane) => renderQwenSourceCard(lane)).join('')}
+        ${(!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() >= 3) || qwenPoseTransferRuntimeCardVisible() ? renderQwenSourceCard(3) : ''}
+        ${qwenVisibleSourceSlotCount() < imageMultiReferenceSlotLimit() ? `<button class="neo-btn secondary neo-add-source-btn" id="imageQwenAddSourceBtn" type="button">+ Add source image</button>` : ''}
         <p class="neo-muted">${escapeHtml(imageMultiReferenceHelpText())}</p>
       </div>`
     : '';
@@ -39263,14 +39356,20 @@ function imageOptionsForField(fieldId) {
     return flux2KleinTextEncoderOptions();
   }
   if (isImageGgufRuntimeActive()) {
-    if (fieldId === 'text_encoder_1') return profileModelOptions('gguf_text_encoder_primary');
-    if (fieldId === 'text_encoder_2') return profileModelOptions('gguf_text_encoder_secondary');
-    if (['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return profileModelOptions('gguf_text_encoders');
+    if (fieldId === 'text_encoder_1') return imageProfileModelOptionsAny(['gguf_text_encoder_primary', 'gguf_text_encoders', 'text_encoders']);
+    if (fieldId === 'text_encoder_2') return imageProfileModelOptionsAny(['gguf_text_encoder_secondary', 'text_encoders']);
+    if (['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return imageProfileModelOptionsAny(['gguf_text_encoders', 'gguf_text_encoder_primary', 'qwen_text_encoders', 'text_encoders']);
   }
   const modelCatalog = imageModelCatalogForField(fieldId);
+  // Qwen component routes intentionally support mixed encoder formats. Do this
+  // before the generic modelCatalog early-return so a non-empty native Qwen
+  // catalog cannot hide CLIPLoaderGGUF-discovered .gguf encoders.
+  if (['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) {
+    return imageProfileModelOptionsAny(['gguf_text_encoders', 'gguf_text_encoder_primary', modelCatalog || 'qwen_text_encoders', 'text_encoders']);
+  }
   if (modelCatalog) {
     const options = profileModelOptions(modelCatalog);
-    if (options.length || !['qwen_text_encoder', 'qwen3_text_encoder'].includes(fieldId)) return options;
+    if (options.length) return options;
     return profileModelOptions('text_encoders');
   }
   if (fieldId === 'krea2_edit_engine') return [
@@ -39284,12 +39383,12 @@ function imageOptionsForField(fieldId) {
   if (fieldId === 'vae') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_vaes') : profileModelOptions('vaes');
   if (fieldId === 'sampler') return profileModelOptions('samplers');
   if (fieldId === 'scheduler') return profileModelOptions('schedulers');
-  if (fieldId === 'text_encoder_1') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_primary') : profileModelOptions('text_encoders');
-  if (fieldId === 'text_encoder_2') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoder_secondary') : profileModelOptions('text_encoders');
+  if (fieldId === 'text_encoder_1') return isImageGgufRuntimeActive() ? imageProfileModelOptionsAny(['gguf_text_encoder_primary', 'gguf_text_encoders', 'text_encoders']) : profileModelOptions('text_encoders');
+  if (fieldId === 'text_encoder_2') return isImageGgufRuntimeActive() ? imageProfileModelOptionsAny(['gguf_text_encoder_secondary', 'text_encoders']) : profileModelOptions('text_encoders');
   if (fieldId === 'text_encoder_3' || fieldId === 'text_encoder_4') return profileModelOptions('text_encoders');
   if (fieldId === 'ideogram4_unconditional_model') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_models') : profileModelOptions('diffusion_models');
-  if (fieldId === 'qwen_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
-  if (fieldId === 'qwen3_text_encoder') return isImageGgufRuntimeActive() ? profileModelOptions('gguf_text_encoders') : profileModelOptions('text_encoders');
+  if (fieldId === 'qwen_text_encoder') return imageProfileModelOptionsAny(['gguf_text_encoders', 'gguf_text_encoder_primary', 'qwen_text_encoders', 'text_encoders']);
+  if (fieldId === 'qwen3_text_encoder') return imageProfileModelOptionsAny(['gguf_text_encoders', 'gguf_text_encoder_primary', 'qwen_text_encoders', 'text_encoders']);
   if (fieldId === 'qwen3vl_text_encoder') return profileModelOptions('text_encoders');
   if (fieldId === 'qwen_mmproj') return profileModelOptions('mmproj');
   if (fieldId === 'hidream_variant') return [
@@ -39460,6 +39559,60 @@ function renderKrea2EditParameterRows(p = {}) {
   return `<div class="neo-parameter-profile-card neo-krea2-edit-card" data-testid="krea2-edit-parameters">
     <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Neo's existing source adapter or the training-matched Krea 2 Identity Edit v1.2 workflow.</p></div>${badgeRow(badges)}</div>
     <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+  </div>`;
+}
+
+function qwenNativeEditParityActive() {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  return ['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family) && ['diffusion_model', 'unet'].includes(loader);
+}
+
+function qwenClipLoaderModeValue(p = {}) {
+  return String(
+    state.imageDraft.qwen_clip_loader_mode
+    || p.qwen_clip_loader_mode
+    || (String(state.imageDraft.qwen_clip_loader || p.qwen_clip_loader || state.imageDraft.text_encoder_loader || p.text_encoder_loader || '').trim() === 'CLIPLoaderGGUF' ? 'gguf' : (String(state.imageDraft.qwen_clip_loader || p.qwen_clip_loader || state.imageDraft.text_encoder_loader || p.text_encoder_loader || '').trim() === 'CLIPLoader' ? 'native' : 'auto'))
+  ).trim() || 'auto';
+}
+
+function qwenClipLoaderModeOptions() {
+  return [
+    { id: 'auto', label: 'Auto (match selected encoder file)' },
+    { id: 'native', label: 'Native CLIPLoader (.safetensors encoders)' },
+    { id: 'gguf', label: 'GGUF CLIPLoader (.gguf encoders)' },
+  ];
+}
+
+function qwenClipLoaderSubmissionValue(mode = '') {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized === 'native') return 'CLIPLoader';
+  if (normalized === 'gguf') return 'CLIPLoaderGGUF';
+  return 'auto';
+}
+
+function renderQwenNativeEditParityRows(p = {}) {
+  if (!qwenNativeEditParityActive()) return '';
+  const loaderMode = qwenClipLoaderModeValue(p);
+  const auraShift = state.imageDraft.qwen_aura_shift ?? p.qwen_aura_shift ?? 3.1;
+  const cfgNormEnabled = state.imageDraft.qwen_cfgnorm_enabled ?? p.qwen_cfgnorm_enabled ?? true;
+  const cfgNormStrength = state.imageDraft.qwen_cfgnorm_strength ?? p.qwen_cfgnorm_strength ?? 1;
+  const cfgNormPreCfg = state.imageDraft.qwen_cfgnorm_pre_cfg ?? p.qwen_cfgnorm_pre_cfg ?? false;
+  const badges = [
+    'Qwen native parity',
+    loaderMode === 'gguf' ? 'GGUF CLIP Loader' : (loaderMode === 'native' ? 'Native CLIP Loader' : 'Auto loader'),
+    'AuraFlow + CFGNorm',
+  ];
+  return `<div class="neo-parameter-profile-card neo-qwen-native-parity-card" data-testid="qwen-native-parity-parameters">
+    <div class="neo-ui-section-head"><div><strong>Qwen Native Edit Controls</strong><p class="neo-muted">Matches the Comfy native graph more closely for Qwen safetensors/component routes. Use the loader override when your Qwen text encoder is GGUF, then tune AuraFlow shift and CFGNorm here.</p></div>${badgeRow(badges)}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">
+      <label><span>Qwen text encoder loader</span>${optionSelect('imageQwenClipLoaderMode', qwenClipLoaderModeOptions(), loaderMode)}<small class="neo-muted">Auto follows the encoder file type. Override only when you know the route should force GGUF or native CLIP loading.</small></label>
+      <label><span>Aura shift</span><input id="imageQwenAuraShift" type="number" min="0" max="16" step="0.1" value="${escapeAttr(auraShift)}" aria-label="Qwen Aura shift"><small class="neo-muted">Feeds ModelSamplingAuraFlow.</small></label>
+      <label class="neo-check-row"><input id="imageQwenCfgNormEnabled" type="checkbox" ${cfgNormEnabled ? 'checked' : ''}> Enable CFGNorm</label>
+      <label><span>CFGNorm strength</span><input id="imageQwenCfgNormStrength" type="number" min="0" max="16" step="0.1" value="${escapeAttr(cfgNormStrength)}" aria-label="Qwen CFGNorm strength" ${cfgNormEnabled ? '' : 'disabled'}><small class="neo-muted">Comfy-native default is 1.0.</small></label>
+      <label class="neo-check-row"><input id="imageQwenCfgNormPreCfg" type="checkbox" ${cfgNormPreCfg ? 'checked' : ''} ${cfgNormEnabled ? '' : 'disabled'}> Apply as pre-CFG</label>
+    </div>
+    <p class="neo-muted">Neo now uses FluxKontextImageScale for source lanes and VAEEncode on Image 1 for img2img/outpaint latent anchoring. Qwen 2509/2511 multi-source img2img also applies FluxKontextMultiReferenceLatentMethod automatically.</p>
   </div>`;
 }
 
@@ -40166,6 +40319,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
       ${componentParameterRows}
       ${ggufRuntime}
       ${krea2EditParameterRows}
+      ${renderQwenNativeEditParityRows(p)}
       <div class="neo-parameter-row neo-sampler-scheduler-row" data-sampler-backend="${escapeAttr(imageSamplerBackendValue(p))}">
         <label>Sampler Engine${optionSelect('imageSamplerBackend', imageSamplerBackendOptions(p), imageSamplerBackendValue(p))}</label>
         <label>Sampler${optionSelect('imageSampler', imageSamplerBackendValue(p) === 'res4lyf_clownshark' ? imageRes4lyfSamplingOptions('sampler') : imageSamplingSelectOptions('sampler', imageOptionsForField('sampler')), imageSamplingDisplayValue('sampler', p.sampler, 'provider_default'))}</label>
@@ -52125,7 +52279,12 @@ function videoBackendOptionsForField(field) {
   if (kind === 'wan_high_noise_gguf') return videoProfileNoiseModelOptions('high');
   if (kind === 'wan_low_noise_gguf') return videoProfileNoiseModelOptions('low');
   if (kind === 'auto_model') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_models' : 'diffusion_models');
-  if (kind === 'auto_text_encoder') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_text_encoder_primary' : 'text_encoders');
+  if (kind === 'auto_text_encoder') {
+    if ((state.videoDraft.family || '') === 'minimax_h3') {
+      return videoProfileModelOptionsAny(['text_encoders', 'gguf_text_encoder_primary', 'gguf_text_encoders']);
+    }
+    return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_text_encoder_primary' : 'text_encoders');
+  }
   if (kind === 'auto_text_projection') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_text_encoder_secondary' : 'text_encoders');
   if (kind === 'auto_vae') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_vaes' : 'vaes');
   if (kind === 'video_loras' || kind === 'wan_lightx2v_high_lora' || kind === 'wan_lightx2v_low_lora') return profileModelOptionsForSurface('video', 'loras');
@@ -52208,6 +52367,7 @@ function videoParameterPanelHtml() {
     renderLine('WAN Dual Noise', ['high_noise_model', 'low_noise_model']),
     renderLine('Rapid AIO GGUF', ['rapid_aio_model', 'rapid_aio_text_encoder', 'rapid_aio_vae']),
     renderLine('Video LoRA / LightX2V', ['enable_video_lora', 'video_lora_mode', 'video_lora_model', 'video_lora_strength', 'video_lora_target', 'enable_lightx2v', 'high_noise_lora', 'low_noise_lora', 'high_noise_lora_strength', 'low_noise_lora_strength'], 'video-lora-vg8'),
+    renderLine('MiniMax H3', ['h3_keyframe_role', 'h3_ref_image_size', 'h3_shift_video', 'h3_shift_audio', 'h3_turbo_enabled', 'h3_turbo_lora', 'h3_turbo_strength', 'h3_acceleration_mode', 'h3_spectrum_blend', 'h3_block_cache_threshold'], 'video-h3-v1'),
     renderLine('Profile + Size', ['vram_profile', 'width', 'height']),
     renderLine('Timing', ['frames', 'fps']),
     renderLine('Sampling', ['steps', 'guidance', 'split_step', 'seed'], 'sampling-a'),
@@ -52218,11 +52378,23 @@ function videoParameterPanelHtml() {
   ].filter(Boolean).join('');
   const warningHtml = profile.warnings.length ? `<div class="neo-ui-card warning"><strong>Profile notes</strong>${NeoUI.metaList(profile.warnings)}</div>` : '';
   const vramNotes = profile.vram_profile.notes || [];
+  const h3HelperHtml = (state.videoDraft.family || '') === 'minimax_h3'
+    ? `<div class="neo-ui-card compact" data-testid="video-h3-helper-card"><strong>H3 Accelerator</strong><p>MiniMax H3 can use an optional Turbo LoRA plus one accelerator at a time. Spectrum and BlockCache stay mutually exclusive by design.</p><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoApplyH3TurboPresetBtn">Apply H3 Turbo Preset</button></div></div>`
+    : '';
   return `<div class="neo-parameter-stack neo-video-parameter-stack" data-testid="video-parameter-stack" data-schema="neo.video.parameter_profile.v3">
     <div class="neo-ui-card neo-video-profile-summary" data-testid="video-parameter-profile-summary"><strong>Parameters</strong><p>Select backend-loaded models, generation size, timing, sampling, decode safety, and output settings.</p>${NeoUI.badgeRow([`Backend: ${videoBackendConnected() ? 'connected' : (videoBackendCanProbe() ? 'not probed' : 'disconnected')}`, `VRAM: ${profile.vram_profile.label}`, `Target: ${profile.vram_profile.target}`, `Batch: 1`])}${vramNotes.length ? NeoUI.metaList(vramNotes) : ''}</div>
+    ${h3HelperHtml}
     ${lines}
     ${warningHtml}
   </div>`;
+}
+
+function applyVideoH3TurboPreset() {
+  if ((state.videoDraft.family || '').trim() !== 'minimax_h3') return;
+  state.videoDraft.h3_turbo_enabled = true;
+  state.videoDraft.h3_turbo_strength = Number(state.videoDraft.h3_turbo_strength ?? 1.0);
+  if (!String(state.videoDraft.h3_acceleration_mode || '').trim() || state.videoDraft.h3_acceleration_mode === 'off') state.videoDraft.h3_acceleration_mode = 'spectrum';
+  if (!Number(state.videoDraft.steps || 0) || Number(state.videoDraft.steps || 0) > 8) state.videoDraft.steps = 8;
 }
 
 function videoPromptPanelHtml() {
@@ -52237,7 +52409,7 @@ function videoPromptPanelHtml() {
 function renderVideoPreviewFinishActionToolbar(record = {}) {
   const videoFile = videoResultFile(record);
   const resultId = record?.result_id || '';
-  if (!resultId && !videoFile?.url) return '';
+  if (!videoFile?.url) return '';
   const actions = [
     { id: 'interpolate', icon: '🎞️', label: 'Interpolate', tooltip: 'Run Frame Interpolation on this video' },
     { id: 'upscale', icon: '⬆️', label: 'Upscale', tooltip: 'Run SeedVR2 Upscale on this video' },
@@ -52309,6 +52481,10 @@ function videoReferenceKindLabel(kind) {
 
 function videoReferenceCollectionKey(kind) {
   return kind === 'video' ? 'reference_videos' : kind === 'audio' ? 'reference_audios' : 'reference_images';
+}
+
+function videoH3ReferencePanelHtml() {
+  return videoReferencePanelHtml();
 }
 
 function videoReferencePanelHtml() {
@@ -52410,7 +52586,7 @@ function useSelectedResultAsCloudSourceVideo() {
 function videoSourcePanelHtml() {
   if (isCloudVideoProfile()) {
     const mode = ensureCloudVideoMode();
-    if (mode === 'reference_to_video') return videoReferencePanelHtml();
+    if (mode === 'reference_to_video') return (state.videoDraft.family || '') === 'minimax_h3' ? videoH3ReferencePanelHtml() : videoReferencePanelHtml();
     if (mode === 'vid2vid' || mode === 'extend') return videoCloudSourceVideoPanelHtml();
     const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
     const preview = state.videoDraft.source_image_url ? `<img src="${escapeAttr(state.videoDraft.source_image_url)}" alt="Grok Video source image" class="neo-mini-preview">` : '<div class="neo-result-placeholder compact">No source image selected</div>';
@@ -53039,7 +53215,7 @@ function videoReferenceWorkspaceHtml() {
 
 function videoReferenceInputHtml() {
   const mode = state.videoDraft.mode || 'txt2vid';
-  if (mode === 'reference_to_video') return videoReferencePanelHtml();
+  if (mode === 'reference_to_video') return (state.videoDraft.family || '') === 'minimax_h3' ? videoH3ReferencePanelHtml() : videoReferencePanelHtml();
   if (['img2vid', 'first_last_frame', 'multiscene', 'vid2vid', 'extend', 'depth_motion'].includes(mode)) return videoSourcePanelHtml();
   return NeoUI.emptyState('No reference input for this generation type.', 'Reference stays intentionally clean until a route that consumes image, video, motion, or depth guidance is selected.');
 }
@@ -55323,7 +55499,7 @@ function renderVideoPanels(surface, subtab) {
     appendVideoWorkspaceHtml(left, videoGenerationWorkspaceLeftHtml(), 'video-generation-workspace-stack');
 
     const mode = state.videoDraft.mode || 'txt2vid';
-    if (['img2vid', 'first_last_frame', 'multiscene', 'extend', 'vid2vid', 'depth_motion'].includes(mode)) {
+    if (['img2vid', 'first_last_frame', 'multiscene', 'reference_to_video', 'extend', 'vid2vid', 'depth_motion'].includes(mode)) {
       left.appendChild(panel('Source / Reference', videoSourcePanelHtml(), false, 'source'));
     }
     if (mode === 'prompt_schedule') left.appendChild(panel('Prompt / Motion Schedule', videoNativeBuiltInToolHtml('video.prompt_motion_schedule', videoSchedulePanelHtml()), false, 'schedule'));
@@ -55454,6 +55630,7 @@ function renderVideoPanels(surface, subtab) {
   document.getElementById('videoFinishMotionTimingPolicy')?.addEventListener('change', (event) => { state.videoDraft.finish_motion_timing_policy = event.target.value || 'same_duration'; if (state.videoDraft.finish_motion_timing_policy === 'motion_speed_repair' && !state.videoDraft.finish_motion_speed_multiplier) state.videoDraft.finish_motion_speed_multiplier = 1.2; saveUiState(); render(); });
   document.getElementById('videoFinishMotionSpeedMultiplier')?.addEventListener('change', (event) => { state.videoDraft.finish_motion_speed_multiplier = Number(event.target.value || 1); state.videoDraft.finish_pipeline_preset = 'custom'; saveUiState(); render(); });
   document.getElementById('videoApplyFinishPipelinePresetBtn')?.addEventListener('click', () => { applyVideoFinishPipelinePreset(state.videoDraft.finish_pipeline_preset || 'custom'); saveUiState(); recordMemoryEvent('video.finish_pipeline_preset.applied', 'video', { preset: state.videoDraft.finish_pipeline_preset || 'custom', motion_policy: state.videoDraft.finish_motion_timing_policy || 'same_duration', speed: state.videoDraft.finish_motion_speed_multiplier || 1 }); render(); });
+  document.getElementById('videoApplyH3TurboPresetBtn')?.addEventListener('click', () => { applyVideoH3TurboPreset(); saveUiState(); recordMemoryEvent('video.h3_turbo_preset.applied', 'video', { turbo_enabled: Boolean(state.videoDraft.h3_turbo_enabled), acceleration: state.videoDraft.h3_acceleration_mode || 'off', steps: Number(state.videoDraft.steps || 0) }); render(); });
   document.getElementById('videoCompileInterpolationBtn')?.addEventListener('click', async () => { await compileVideoInterpolation(); });
   document.getElementById('videoGenerateInterpolationBtn')?.addEventListener('click', async () => { await generateVideoInterpolation(); });
   document.getElementById('videoInterpolationVramProfile')?.addEventListener('change', (event) => { const profile = event.target.value || 'medium'; state.videoDraft.interpolation_vram_profile = profile; const contract = videoFrameInterpolationProfileContract(profile); state.videoDraft.interpolation_clear_cache_after_n_frames = contract.cache || state.videoDraft.interpolation_clear_cache_after_n_frames || 8; if (!contract.multipliers.includes(Number(state.videoDraft.interpolation_multiplier || 2))) state.videoDraft.interpolation_multiplier = contract.multipliers[0] || 2; saveUiState(); render(); });
@@ -55912,7 +56089,7 @@ function clearQwenReferenceSource(lane, options = {}) {
   state.imageDraft[`source_image_${numericLane}_name`] = '';
   if (numericLane === 3) state.imageDraft.qwen_composition_source_mode = 'source_image';
   if (options.remove) {
-    const higherLaneHasImage = numericLane === 2 && Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
+    const higherLaneHasImage = numericLane === 2 && !controlNetPoseTransferActive() && Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
     if (!higherLaneHasImage) state.imageDraft.qwen_source_slot_count = Math.max(1, numericLane - 1);
   }
   if (numericLane === 2) syncKrea2IdentityReferenceRoles();
@@ -60558,7 +60735,10 @@ function bindImageDraftInputs() {
     node.addEventListener('input', (event) => {
       const rawValue = event.target.value;
       updateDraftValue(key, rawValue === '' ? '' : Number(rawValue));
-      if (key === 'cfg' && imageUsesTrueCfgSemantic()) updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+      if (key === 'cfg' && imageUsesTrueCfgSemantic()) {
+        updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+        noteImageManagedSamplingFieldEdit('true_cfg', rawValue);
+      }
       if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, rawValue);
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
@@ -60568,7 +60748,10 @@ function bindImageDraftInputs() {
     node.addEventListener('change', (event) => {
       let rawValue = event.target.value;
       updateDraftValue(key, rawValue === '' ? '' : Number(rawValue));
-      if (key === 'cfg' && imageUsesTrueCfgSemantic()) updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+      if (key === 'cfg' && imageUsesTrueCfgSemantic()) {
+        updateDraftValue('true_cfg', rawValue === '' ? '' : Number(rawValue));
+        noteImageManagedSamplingFieldEdit('true_cfg', rawValue);
+      }
       if (!key.startsWith('lanpaint_')) noteImageManagedSamplingFieldEdit(key, rawValue);
       if (key === 'width' || key === 'height') state.imageDraft.size_preset = 'custom';
       if (key === 'seed') state.imageDraft._seed_locked = Number(event.target.value) >= 0;
@@ -60630,6 +60813,39 @@ function bindImageDraftInputs() {
 
   bindImageSeedActionButtons();
   bindImageSizeHelperControls();
+
+  const qwenNativeLoaderNode = document.getElementById('imageQwenClipLoaderMode');
+  if (qwenNativeLoaderNode) {
+    qwenNativeLoaderNode.addEventListener('change', (event) => {
+      const mode = String(event.target.value || 'auto').trim() || 'auto';
+      updateDraftValue('qwen_clip_loader_mode', mode);
+      updateDraftValue('qwen_clip_loader', qwenClipLoaderSubmissionValue(mode));
+      updateDraftValue('text_encoder_loader', qwenClipLoaderSubmissionValue(mode));
+    });
+  }
+  const qwenAuraNode = document.getElementById('imageQwenAuraShift');
+  if (qwenAuraNode) {
+    const sync = (event) => updateDraftValue('qwen_aura_shift', Number(event.target.value));
+    qwenAuraNode.addEventListener('input', sync);
+    qwenAuraNode.addEventListener('change', sync);
+  }
+  const qwenCfgNormEnabledNode = document.getElementById('imageQwenCfgNormEnabled');
+  if (qwenCfgNormEnabledNode) {
+    qwenCfgNormEnabledNode.addEventListener('change', (event) => {
+      updateDraftValue('qwen_cfgnorm_enabled', Boolean(event.target.checked));
+      render();
+    });
+  }
+  const qwenCfgNormStrengthNode = document.getElementById('imageQwenCfgNormStrength');
+  if (qwenCfgNormStrengthNode) {
+    const sync = (event) => updateDraftValue('qwen_cfgnorm_strength', Number(event.target.value));
+    qwenCfgNormStrengthNode.addEventListener('input', sync);
+    qwenCfgNormStrengthNode.addEventListener('change', sync);
+  }
+  const qwenCfgNormPreCfgNode = document.getElementById('imageQwenCfgNormPreCfg');
+  if (qwenCfgNormPreCfgNode) {
+    qwenCfgNormPreCfgNode.addEventListener('change', (event) => updateDraftValue('qwen_cfgnorm_pre_cfg', Boolean(event.target.checked)));
+  }
 
   document.querySelectorAll('[id^="imageParam_"]').forEach((node) => {
     const fieldId = node.id.replace('imageParam_', '');
@@ -61412,6 +61628,16 @@ function parameterProfileParams() {
     if (state.imageDraft[key] !== undefined) params[key] = state.imageDraft[key];
   });
   applyImageComponentTopologyParams(params);
+  if (qwenNativeEditParityActive()) {
+    const loaderMode = qwenClipLoaderModeValue(state.imageDraft || {});
+    params.qwen_clip_loader_mode = loaderMode;
+    params.qwen_clip_loader = qwenClipLoaderSubmissionValue(loaderMode);
+    params.text_encoder_loader = qwenClipLoaderSubmissionValue(loaderMode);
+    if (state.imageDraft.qwen_aura_shift !== undefined) params.qwen_aura_shift = Number(state.imageDraft.qwen_aura_shift);
+    if (state.imageDraft.qwen_cfgnorm_enabled !== undefined) params.qwen_cfgnorm_enabled = Boolean(state.imageDraft.qwen_cfgnorm_enabled);
+    if (state.imageDraft.qwen_cfgnorm_strength !== undefined) params.qwen_cfgnorm_strength = Number(state.imageDraft.qwen_cfgnorm_strength);
+    if (state.imageDraft.qwen_cfgnorm_pre_cfg !== undefined) params.qwen_cfgnorm_pre_cfg = Boolean(state.imageDraft.qwen_cfgnorm_pre_cfg);
+  }
   const primaryKey = imagePrimaryModelFieldId();
   const primaryValue = state.imageDraft[primaryKey] || state.imageDraft.model || 'provider_default';
   params.model = primaryValue;

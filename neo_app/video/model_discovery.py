@@ -12,6 +12,13 @@ SCHEMA_VERSION: Final[str] = "neo.video.model_discovery.vg6"
 WAN22_GGUF_DUAL_NOISE_ROUTE_ID: Final[str] = "wan22.gguf.img2vid_14b_dual_noise"
 WAN22_RAPID_AIO_GGUF_ROUTE_IDS: Final[set[str]] = {"wan22.rapid_aio_gguf.txt2vid", "wan22.rapid_aio_gguf.img2vid"}
 RAPID_AIO_NONE_TEST_ID: Final[str] = "__none_test_packed__"
+H3_NATIVE_CLIP_LOADER_CANDIDATES: Final[tuple[str, ...]] = ("CLIPLoader",)
+H3_GGUF_CLIP_LOADER_CANDIDATES: Final[tuple[str, ...]] = (
+    "H3ClipLoaderAny",
+    "VideoCLIPLoaderGGUF",
+    "CLIPLoaderGGUFAdvanced",
+    "CLIPLoaderGGUF",
+)
 DEFAULT_FALLBACK_MODELS: Final[dict[str, str]] = {
     "high_noise": "wan2.2_i2v_high_noise_14B_Q4_K_M.gguf",
     "low_noise": "wan2.2_i2v_low_noise_14B_Q4_K_M.gguf",
@@ -120,12 +127,40 @@ def _node_combo_values(object_info: dict[str, Any], class_candidates: tuple[str,
     return []
 
 
-def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_type: str) -> dict[str, list[str]]:
+def _node_combo_values_merged(object_info: dict[str, Any], class_candidates: tuple[str, ...], field_candidates: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    values: list[str] = []
+    classes: list[str] = []
+    info = object_info or {}
+    folded = {str(key).casefold(): str(key) for key in info}
+    for candidate in class_candidates:
+        actual = folded.get(candidate.casefold())
+        if not actual:
+            continue
+        rows = _node_combo_values(info, (actual,), field_candidates)
+        if rows:
+            values.extend(rows)
+            classes.append(actual)
+    return _unique(values), _unique(classes)
+
+
+def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_type: str) -> dict[str, Any]:
+    """Resolve H3 main-model and text-encoder catalogs independently.
+
+    Phase 4.7.2 deliberately decouples the H3 text-encoder container from the
+    diffusion-model loader. A safetensors/UNET H3 model may use a GGUF Qwen3-VL
+    encoder, and a GGUF H3 diffusion model may still use a native safetensors
+    encoder, as long as the connected Comfy backend exposes a compatible loader.
+    """
     gguf = loader == "gguf"
-    model_classes = ("UnetLoaderGGUF", "UNETLoaderGGUF") if gguf else ("UNETLoader", "DiffusionModelLoader")
-    clip_classes = ("CLIPLoaderGGUF",) if gguf else ("CLIPLoader",)
+    model_classes = ("UnetLoaderGGUF", "UNETLoaderGGUF", "UnetLoaderGGUFAdvanced") if gguf else ("UNETLoader", "DiffusionModelLoader")
     model_values = _node_combo_values(object_info, model_classes, ("unet_name", "model_name"))
-    clip_values = _node_combo_values(object_info, clip_classes, ("clip_name", "text_encoder_name"))
+    native_clip_values, native_clip_classes = _node_combo_values_merged(
+        object_info, H3_NATIVE_CLIP_LOADER_CANDIDATES, ("clip_name", "text_encoder_name")
+    )
+    gguf_clip_values, gguf_clip_classes = _node_combo_values_merged(
+        object_info, H3_GGUF_CLIP_LOADER_CANDIDATES, ("clip_name", "text_encoder_name")
+    )
+    clip_values = _unique([*native_clip_values, *gguf_clip_values])
     vae_values = _node_combo_values(object_info, ("VAELoader", "VAELoaderKJ"), ("vae_name", "ckpt_name"))
     lora_values = _node_combo_values(object_info, ("LoraLoaderModelOnly", "LoraLoader"), ("lora_name",))
 
@@ -139,6 +174,8 @@ def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_ty
     else:
         route_models = [value for value in h3_models if has_any(value, ("fl2va", "fl2v", "i2v"))]
     h3_clips = [value for value in clip_values if has_any(value, ("minimax_h3", "minimax-h3", "qwen3vl", "qwen3_vl"))]
+    native_h3_clips = [value for value in native_clip_values if has_any(value, ("minimax_h3", "minimax-h3", "qwen3vl", "qwen3_vl"))]
+    gguf_h3_clips = [value for value in gguf_clip_values if has_any(value, ("minimax_h3", "minimax-h3", "qwen3vl", "qwen3_vl"))]
     h3_vaes = [value for value in vae_values if has_any(value, ("minimax_h3", "minimax-h3", "h3_"))]
     video_vaes = [value for value in h3_vaes if "video" in value.casefold()]
     audio_vaes = [value for value in h3_vaes if "audio" in value.casefold()]
@@ -147,6 +184,10 @@ def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_ty
         "route_models": route_models or h3_models,
         "h3_models": h3_models,
         "text_encoders": h3_clips or clip_values,
+        "native_text_encoders": native_h3_clips or native_clip_values,
+        "gguf_text_encoders": gguf_h3_clips or gguf_clip_values,
+        "native_clip_loader_classes": native_clip_classes,
+        "gguf_clip_loader_classes": gguf_clip_classes,
         "video_vaes": video_vaes or h3_vaes,
         "audio_vaes": audio_vaes or h3_vaes,
         "vaes": h3_vaes or vae_values,
@@ -239,6 +280,8 @@ def video_model_discovery_from_object_info(
         catalogs_raw = _h3_dynamic_catalogs(info, nl, nt)
         route_models = catalogs_raw["route_models"]
         text_encoders = catalogs_raw["text_encoders"]
+        native_text_encoders = catalogs_raw["native_text_encoders"]
+        gguf_text_encoders = catalogs_raw["gguf_text_encoders"]
         video_vaes = catalogs_raw["video_vaes"]
         audio_vaes = catalogs_raw["audio_vaes"]
         loras = catalogs_raw["loras"]
@@ -246,12 +289,26 @@ def video_model_discovery_from_object_info(
         selected_model = str(high_noise_model or rapid_aio_model or "").strip()
         selected_clip = str(clip_name or "").strip()
         selected_vae = str(vae_name or "").strip()
+        if selected_model.casefold() in {"provider_default", "automatic", "auto", "none"}:
+            selected_model = ""
+        if selected_clip.casefold() in {"provider_default", "automatic", "auto", "none"}:
+            selected_clip = ""
+        if selected_vae.casefold() in {"provider_default", "automatic", "auto", "none"}:
+            selected_vae = ""
         warnings: list[str] = []
         errors: list[str] = []
         if not route_models:
             errors.append("No MiniMax H3 model is visible in the selected ComfyUI model loader catalog.")
         if not text_encoders:
-            errors.append("No MiniMax H3/Qwen3-VL text encoder is visible in the selected ComfyUI CLIP loader catalog.")
+            errors.append("No MiniMax H3/Qwen3-VL text encoder is visible in the connected ComfyUI native or GGUF CLIP loader catalogs.")
+        selected_clip_format = "gguf" if selected_clip.casefold().endswith(".gguf") else ("safetensors" if selected_clip else "auto")
+        selected_clip_loader_ready = True
+        if selected_clip_format == "gguf" and not catalogs_raw["gguf_clip_loader_classes"]:
+            selected_clip_loader_ready = False
+            errors.append("The selected MiniMax H3 text encoder is GGUF, but no compatible GGUF CLIP loader is visible in ComfyUI.")
+        elif selected_clip and selected_clip_format != "gguf" and not catalogs_raw["native_clip_loader_classes"]:
+            selected_clip_loader_ready = False
+            errors.append("The selected MiniMax H3 text encoder is native/safetensors, but ComfyUI CLIPLoader is not visible.")
         if not video_vaes:
             errors.append("No MiniMax H3 video VAE is visible in the ComfyUI VAE catalog.")
         if not audio_vaes:
@@ -264,6 +321,8 @@ def video_model_discovery_from_object_info(
             "diffusion_models": route_models if nl != "gguf" else [],
             "gguf_models": route_models if nl == "gguf" else [],
             "text_encoders": text_encoders,
+            "native_text_encoders": native_text_encoders,
+            "gguf_text_encoders": gguf_text_encoders,
             "vaes": catalogs_raw["vaes"],
             "h3_video_vaes": video_vaes,
             "h3_audio_vaes": audio_vaes,
@@ -278,9 +337,9 @@ def video_model_discovery_from_object_info(
         base_payload.update({
             "schema_version": "neo.video.model_discovery.h3.v1",
             "phase": "H3-R1",
-            "catalog_ready": bool(route_models and text_encoders and video_vaes and audio_vaes),
+            "catalog_ready": bool(route_models and text_encoders and video_vaes and audio_vaes and selected_clip_loader_ready),
             "field_sources": {
-                "model_name": "live_h3_model_loader", "clip_name": "live_h3_clip_loader",
+                "model_name": "live_h3_model_loader", "clip_name": "live_h3_native_plus_gguf_clip_loaders",
                 "vae_name": "live_h3_vae_catalog", "audio_vae_name": "live_h3_vae_catalog",
                 "h3_turbo_lora": "live_lora_catalog",
             },
@@ -292,6 +351,15 @@ def video_model_discovery_from_object_info(
                 "h3_turbo_lora": high_noise_lora or (turbo_loras[0] if turbo_loras else ""),
             },
             "catalogs": catalogs, "options": options,
+            "text_encoder_topology": {
+                "mixed_format_supported": True,
+                "selected_format": selected_clip_format,
+                "selected_loader_ready": selected_clip_loader_ready,
+                "native_loader_classes": catalogs_raw["native_clip_loader_classes"],
+                "gguf_loader_classes": catalogs_raw["gguf_clip_loader_classes"],
+                "native_count": len(native_text_encoders),
+                "gguf_count": len(gguf_text_encoders),
+            },
             "counts": {key: len(values) for key, values in catalogs.items()},
             "warnings": warnings, "errors": errors,
         })

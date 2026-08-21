@@ -72,9 +72,9 @@ This is source preprocessing, not Inpaint. The Inpaint action still clears and o
 
 ## Qwen Pose Transfer source roles
 
-When **ControlNet & Pose → Pose Transfer** is active on Qwen Image Edit 2511, the normal multi-reference source system receives fixed temporary roles: **Image 1 = subject**, **Image 2 = pose reference**, and **Image 3 = generated DWPose map**. Image 3 is reserved and its upload target is hidden until Pose Transfer is turned off.
+When **ControlNet & Pose → Pose Transfer** is active on Qwen Image Edit 2511, the normal multi-reference source system receives fixed temporary roles: **Image 1 = subject**, **Image 2 = pose reference**, and **Image 3 = generated DWPose map**. Neo now keeps the UI progressive: only **Image 1** is shown by default, **Image 2** appears when you add another source lane, and the Image 3 pose-map card appears only as a runtime/helper card once pose transfer actually needs it or when Neo detects a stale Image 3 conflict.
 
-The pose map is not persisted as a user source lane during normal generation. Neo generates it from Image 2 inside the Comfy graph and connects that output directly to Qwen's Image 3 conditioning input. The optional map preview remains diagnostic only.
+The pose map is not persisted as a user source lane during normal generation. Neo generates it from Image 2 inside the Comfy graph and connects that output directly to Qwen's Image 3 conditioning input. The optional map preview remains diagnostic only. Removing Image 2 can collapse the panel back to a single visible source lane, which matches the normal GGUF img2img source workflow.
 
 ## Backend validation
 
@@ -91,3 +91,7 @@ Before provider compilation, Neo revalidates the handoff against the actual requ
 ## Phase 11 cleanup and replay ownership
 
 A Source action may explicitly preserve the currently selected Image profile while loading prompt/recipe context from a saved result. This is the only replay override used by Source staging. After the staged generation reaches a terminal state, the Source handoff and provider upload aliases are removed while the canonical Neo-owned source image remains available.
+
+## Comfy cache-stable source handoffs
+
+For local Comfy routes, Neo uses content-addressed input names for source/reference/mask handoffs. The filename is derived from the file bytes rather than a per-run UUID, so the same unchanged source can keep the same `LoadImage` identity between generations. Neo retains these `neo_img2img_cache_*` / `neo_mask_cache_*` handoffs during normal post-save cleanup to preserve Comfy node/conditioning cache reuse. When the image bytes change, the hash changes and Comfy receives a new input identity automatically.

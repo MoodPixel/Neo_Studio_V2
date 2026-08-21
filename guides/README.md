@@ -18,13 +18,15 @@ tags:
   - setup
   - troubleshooting
 priority: 100
-version: 1
-updated: 2026-08-16
+version: 2
+updated: 2026-08-21
 ---
 
 # Neo Studio User Guides
 
-The `guides/` folder is Neo Studio's **user-help knowledge surface**. It explains how to set up features, use controls, understand availability, recover from common problems, and interpret user-visible status messages.
+The root `README.md` is Neo Studio's **public quick-start and product overview**. The `guides/` folder is the deeper **user-help knowledge surface** for feature setup, controls, compatibility, recovery, and user-visible status messages.
+
+Both surfaces are written for users. Internal milestone history, implementation notes, engineering evidence, and developer-only tooling belong under `neo_system_records/`, `scripts/`, or `tests/` instead.
 
 ## What belongs in a Guide
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 import mimetypes
 import socket
@@ -747,6 +748,17 @@ class ComfyProvider(BaseProvider):
             "TextEncodeQwenImageEditPlusAdvance_lrzjason",
             "TextEncodeQwenImageEditPlusPro_lrzjason",
         ]
+        # Qwen native parity nodes are intentionally included in the safe
+        # object_info slice. Provider compilers use this slice to decide whether
+        # the installed Comfy backend can reproduce Neo's Qwen-native graph.
+        # Omitting these classes previously made live nodes look unavailable and
+        # caused CFGNorm / FluxKontext parity stages to be silently skipped.
+        qwen_native_parity_nodes = [
+            "CFGNorm",
+            "FluxKontextImageScale",
+            "FluxKontextMultiReferenceLatentMethod",
+            "ModelSamplingAuraFlow",
+        ]
         # ImageStitch is not a single universal Comfy class name.  Core or
         # other custom-node packs may expose ImageStitch, while the
         # ComfyUI-RMBG pack exposes AILab_ImageStitch.  Preserve both names
@@ -774,6 +786,7 @@ class ComfyProvider(BaseProvider):
             node_name: self._node_input_names(info, node_name)
             for node_name in [
                 *qwen_edit_nodes,
+                *qwen_native_parity_nodes,
                 *stitch_nodes,
                 *context_latent_nodes,
                 *masked_edit_optional_nodes,
@@ -873,6 +886,10 @@ class ComfyProvider(BaseProvider):
             "available_nodes": list(payload["object_info_node_inputs"].keys()),
             "builtin_declares_target_size": "target_size" in payload["object_info_node_inputs"].get("TextEncodeQwenImageEditPlus", {}).get("all", []),
             "builtin_declares_size": "size" in payload["object_info_node_inputs"].get("TextEncodeQwenImageEditPlus", {}).get("all", []),
+            "native_parity_nodes": {
+                node_name: node_name in payload["object_info_node_inputs"]
+                for node_name in qwen_native_parity_nodes
+            },
         }
         return payload
 
@@ -3347,13 +3364,25 @@ class ComfyProvider(BaseProvider):
 
         boundary = f"----NeoStudioBoundary{uuid4().hex}"
         prefix = "neo_mask" if "mask" in path.name.lower() else "neo_img2img"
-        filename = f"{prefix}_{uuid4().hex[:8]}_{path.name}"
+        # Content-addressed handoff names keep Comfy's LoadImage identity stable
+        # across repeated Neo generations. The old per-run UUID changed the
+        # LoadImage input every queue, invalidating downstream Qwen image/text
+        # conditioning caches and forcing the large text encoder back into VRAM.
+        file_bytes = path.read_bytes()
+        content_hash = hashlib.sha256(file_bytes).hexdigest()[:20]
+        suffix = path.suffix.lower() if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"} else ".png"
+        filename = f"{prefix}_cache_{content_hash}{suffix}"
+        # Reuse an existing content-addressed Comfy input when possible. This is
+        # safe because the filename is derived from the file bytes, not the local
+        # path or original filename.
+        if self._verify_comfy_input_image_name(filename):
+            return filename
         content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         body = bytearray()
         body.extend(f"--{boundary}\r\n".encode())
         body.extend(f'Content-Disposition: form-data; name="image"; filename="{filename}"\r\n'.encode())
         body.extend(f"Content-Type: {content_type}\r\n\r\n".encode())
-        body.extend(path.read_bytes())
+        body.extend(file_bytes)
         body.extend(f"\r\n--{boundary}\r\n".encode())
         body.extend(b'Content-Disposition: form-data; name="type"\r\n\r\ninput')
         body.extend(f"\r\n--{boundary}--\r\n".encode())
@@ -4573,7 +4602,7 @@ class ComfyProvider(BaseProvider):
                 "Phase 12.8 provider checkpoint compiler supports real SD 1.5 txt2img/img2img/inpaint routes.",
                 "Basic checkpoint txt2img/img2img/inpaint graphs are supported for SDXL and SD 1.5 route contracts with family-specific defaults.",
                 "Phase 12.19 treats outpaint as a dedicated mode with a normalized padding/mask/final-size payload.",
-                "Neo uses PreviewImage as the backend temporary handoff so final files are saved only under Neo_Data.",
+                "Neo may use PreviewImage for live preview and SaveImage for final backend-native handoff; Neo_Data remains the canonical results store.",
                 f"Prompt conditioning mode: {conditioning_mode}.",
                 f"Clip Skip: {clip_skip['clip_skip']} ({clip_skip['backend_mode']}).",
             ],
@@ -5486,7 +5515,11 @@ class ComfyProvider(BaseProvider):
         return result.outputs
 
     def _extract_outputs(self, job_id: str, history_item: dict[str, Any]) -> list[dict[str, Any]]:
-        outputs: list[dict[str, Any]] = []
+        latent_outputs: list[dict[str, Any]] = []
+        image_outputs: list[dict[str, Any]] = []
+        runtime = self._load_registered_runtime(job_id)
+        actual_params = runtime.get("actual_params") if isinstance(runtime.get("actual_params"), dict) else {}
+        workflow_node_map = runtime.get("workflow_node_map") if isinstance(runtime.get("workflow_node_map"), dict) else {}
         for node_id, node_output in (history_item.get("outputs") or {}).items():
             for image in node_output.get("images") or []:
                 query = parse.urlencode({
@@ -5494,7 +5527,7 @@ class ComfyProvider(BaseProvider):
                     "subfolder": image.get("subfolder", ""),
                     "type": image.get("type", "output"),
                 })
-                outputs.append({
+                image_outputs.append({
                     "job_id": job_id,
                     "node_id": node_id,
                     "kind": "image",
@@ -5550,5 +5583,38 @@ class ComfyProvider(BaseProvider):
                     }
                 if reference_error:
                     item["provider_reference_error"] = reference_error
-                outputs.append(item)
-        return outputs
+                latent_outputs.append(item)
+
+        preferred_node_ids: list[str] = []
+        if isinstance(actual_params.get("_neo_output_import_node_ids"), list):
+            preferred_node_ids = [str(item) for item in actual_params.get("_neo_output_import_node_ids") if str(item or "").strip()]
+        if not preferred_node_ids:
+            preferred_node_ids = [
+                str(item.get("node_id"))
+                for item in image_outputs
+                if str(workflow_node_map.get(str(item.get("node_id"))) or "") in {"SaveImage", "ImageSave"}
+            ]
+        preferred_node_set = set(preferred_node_ids)
+        if preferred_node_set:
+            filtered_images = [item for item in image_outputs if str(item.get("node_id")) in preferred_node_set]
+            if filtered_images:
+                image_outputs = filtered_images
+        else:
+            backend_native_images = [item for item in image_outputs if str(item.get("type") or "").strip().lower() == "output"]
+            if backend_native_images:
+                image_outputs = backend_native_images
+
+        preferred_rank = {node_id: index for index, node_id in enumerate(preferred_node_ids)}
+
+        def _image_sort_key(item: dict[str, Any]) -> tuple[int, int, int, str]:
+            node_id = str(item.get("node_id") or "")
+            node_rank = preferred_rank.get(node_id, 9999)
+            type_rank = 0 if str(item.get("type") or "").strip().lower() == "output" else 1
+            try:
+                numeric_node_id = int(node_id)
+            except Exception:
+                numeric_node_id = 10**9
+            return (node_rank, type_rank, numeric_node_id, str(item.get("filename") or ""))
+
+        image_outputs.sort(key=_image_sort_key)
+        return [*image_outputs, *latent_outputs]

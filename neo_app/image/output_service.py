@@ -778,6 +778,20 @@ def _is_safe_comfy_input_handoff_name(value: Any) -> bool:
     return name.startswith(COMFY_INPUT_HANDOFF_PREFIXES)
 
 
+def _is_cache_stable_comfy_input_handoff_name(value: Any) -> bool:
+    """Return True for Neo content-addressed Comfy input cache entries.
+
+    These files intentionally survive per-output cleanup so unchanged source
+    images keep the same LoadImage identity between runs. They remain Neo-owned
+    and can be removed by an explicit backend/input cache cleanup in a future
+    maintenance pass.
+    """
+    name = _basename(value)
+    if not _is_safe_comfy_input_handoff_name(name):
+        return False
+    return name.startswith(("neo_img2img_cache_", "neo_mask_cache_"))
+
+
 def _iter_comfy_handoff_names(value: Any, *, depth: int = 0) -> Iterable[str]:
     if depth > 8:
         return
@@ -821,6 +835,9 @@ def cleanup_backend_input_handoffs(params: dict[str, Any], *, context: dict[str,
         if not _is_safe_comfy_input_handoff_name(safe_name):
             skipped.append(safe_name or "empty")
             continue
+        if _is_cache_stable_comfy_input_handoff_name(safe_name):
+            skipped.append(f"{safe_name} (retained for Comfy cache stability)")
+            continue
         target = (input_root / safe_name).resolve()
         try:
             if input_root not in target.parents:
@@ -841,6 +858,7 @@ def cleanup_backend_input_handoffs(params: dict[str, Any], *, context: dict[str,
         "errors": errors,
         "policy": "neo_created_backend_input_handoffs_only",
         "safe_prefixes": list(COMFY_INPUT_HANDOFF_PREFIXES),
+        "cache_retention_prefixes": ["neo_img2img_cache_", "neo_mask_cache_"],
     }
 
 

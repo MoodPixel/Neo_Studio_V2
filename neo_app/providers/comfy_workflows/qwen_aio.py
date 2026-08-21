@@ -70,6 +70,60 @@ QWEN_RAPID_AIO_DEFAULTS = QwenRapidAioDefaults()
 QWEN_NATIVE_EDIT_DEFAULTS = QwenNativeEditDefaults()
 
 
+def _qwen_output_prefix(*, family: Any, mode: Any, variant: str = "qwen") -> str:
+    raw = f"NeoStudio_{variant}_{family or 'qwen'}_{mode or 'generate'}"
+    clean = []
+    for char in str(raw):
+        clean.append(char if char.isalnum() else "_")
+    return "".join(clean).strip("_") or "NeoStudio_Qwen"
+
+
+def _append_qwen_output_handoff(
+    workflow: dict[str, Any],
+    *,
+    next_id: int,
+    image_ref: list[Any],
+    filename_prefix: str,
+) -> tuple[int, str, str]:
+    save_id = str(next_id)
+    workflow[save_id] = {
+        "class_type": "SaveImage",
+        "inputs": {"filename_prefix": filename_prefix, "images": list(image_ref)},
+    }
+    next_id += 1
+    preview_id = str(next_id)
+    workflow[preview_id] = {"class_type": "PreviewImage", "inputs": {"images": list(image_ref)}}
+    next_id += 1
+    return next_id, save_id, preview_id
+
+
+def _is_gguf_file(value: Any) -> bool:
+    return str(value or "").strip().lower().endswith(".gguf")
+
+
+def _qwen_native_edit_clip_loader_for_encoder(text_encoder: Any, requested_loader: Any = None) -> str:
+    candidate = str(requested_loader or "").strip()
+    if _is_gguf_file(text_encoder):
+        return candidate if candidate in {"CLIPLoaderGGUF", "ClipLoaderGGUF"} else "CLIPLoaderGGUF"
+    return "CLIPLoader"
+
+
+def _backend_supports_qwen_mixed_clip_loader(backend_capabilities: dict[str, Any] | None, loader_class: str, *, clip_type: str = "qwen_image") -> bool:
+    object_info = ((backend_capabilities or {}).get("object_info_node_inputs") or {})
+    node_info = object_info.get(loader_class) or object_info.get("ClipLoaderGGUF" if loader_class == "CLIPLoaderGGUF" else loader_class) or {}
+    if not isinstance(node_info, dict) or not node_info:
+        return False
+    if loader_class == "CLIPLoader":
+        return True
+    type_spec = node_info.get("type")
+    if isinstance(type_spec, (list, tuple, set)):
+        return clip_type in {str(item) for item in type_spec}
+    if isinstance(type_spec, dict):
+        values = type_spec.get("values") or type_spec.get("choices") or []
+        return clip_type in {str(item) for item in values}
+    return True
+
+
 QWEN_RAPID_AIO_BUNDLED_COMPONENT_FIELDS = {
     # Split/component model fields that must not survive on the bundled
     # CheckpointLoaderSimple route. The AIO checkpoint owns UNet, text encoder,
@@ -291,8 +345,84 @@ def _qwen_edit_node_compatibility_snapshot(backend_capabilities: dict[str, Any] 
         "risk": "node_internal_size_nameerror_possible" if node_name == "TextEncodeQwenImageEditPlus" and "target_size" not in supported_inputs and "size" not in supported_inputs else "normal",
     }
 
+def _backend_declares_node(backend_capabilities: dict[str, Any] | None, node_name: str) -> bool:
+    node_map = (backend_capabilities or {}).get("object_info_node_inputs") or {}
+    return isinstance(node_map.get(node_name), dict) and bool(node_map.get(node_name))
 
-def _load_qwen_source_images(workflow: dict[str, Any], params: dict[str, Any], *, start_id: int = 20, max_images: int = 3) -> tuple[int, dict[str, list[Any]], list[str], dict[str, Any]]:
+
+def _qwen_node_available_or_unknown(backend_capabilities: dict[str, Any] | None, node_name: str) -> bool:
+    if backend_capabilities is None:
+        return True
+    node_map = (backend_capabilities or {}).get("object_info_node_inputs") or {}
+    if not isinstance(node_map, dict) or not node_map:
+        return True
+    return _backend_declares_node(backend_capabilities, node_name)
+
+
+def _qwen_live_object_info_available(backend_capabilities: dict[str, Any] | None) -> bool:
+    if not isinstance(backend_capabilities, dict):
+        return False
+    node_map = backend_capabilities.get("object_info_node_inputs") or {}
+    discovery_status = str(backend_capabilities.get("discovery_status") or "").strip().lower()
+    return discovery_status == "available" and isinstance(node_map, dict) and bool(node_map)
+
+
+def _require_qwen_parity_node(
+    validation: ProviderValidationResult,
+    backend_capabilities: dict[str, Any] | None,
+    node_name: str,
+    *,
+    reason: str,
+) -> bool:
+    available = _qwen_node_available_or_unknown(backend_capabilities, node_name)
+    if available:
+        return True
+    if _qwen_live_object_info_available(backend_capabilities):
+        message = f"Qwen native parity requires Comfy node {node_name}: {reason}"
+        if message not in validation.errors:
+            validation.errors.append(message)
+        validation.ok = False
+    return False
+
+
+def _append_qwen_source_scale_node(
+    workflow: dict[str, Any],
+    next_id: int,
+    source_ref: list[Any],
+    *,
+    backend_capabilities: dict[str, Any] | None,
+) -> tuple[int, list[Any], dict[str, Any] | None]:
+    if not _qwen_node_available_or_unknown(backend_capabilities, "FluxKontextImageScale"):
+        return next_id, source_ref, None
+    workflow[str(next_id)] = {"class_type": "FluxKontextImageScale", "inputs": {"image": list(source_ref)}}
+    return next_id + 1, [str(next_id), 0], {"class_type": "FluxKontextImageScale", "node_id": str(next_id)}
+
+
+def _append_qwen_multi_reference_latent_method(
+    workflow: dict[str, Any],
+    next_id: int,
+    conditioning_ref: list[Any],
+    *,
+    backend_capabilities: dict[str, Any] | None,
+    method: str = "index_timestep_zero",
+) -> tuple[int, list[Any], dict[str, Any] | None]:
+    if not _qwen_node_available_or_unknown(backend_capabilities, "FluxKontextMultiReferenceLatentMethod"):
+        return next_id, conditioning_ref, None
+    workflow[str(next_id)] = {
+        "class_type": "FluxKontextMultiReferenceLatentMethod",
+        "inputs": {"conditioning": list(conditioning_ref), "reference_latents_method": method},
+    }
+    return next_id + 1, [str(next_id), 0], {"class_type": "FluxKontextMultiReferenceLatentMethod", "node_id": str(next_id), "method": method}
+
+
+def _load_qwen_source_images(
+    workflow: dict[str, Any],
+    params: dict[str, Any],
+    *,
+    start_id: int = 20,
+    max_images: int = 3,
+    backend_capabilities: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, list[Any]], list[str], dict[str, Any]]:
     next_id = start_id
     qwen_inputs: dict[str, list[Any]] = {}
     notes: list[str] = []
@@ -304,19 +434,37 @@ def _load_qwen_source_images(workflow: dict[str, Any], params: dict[str, Any], *
     ]
     names = all_names[:max_images]
     ignored_names = [name for name in all_names[max_images:] if name]
-    meta: dict[str, Any] = {"source_images": {}, "qwen_source_image_limit": max_images}
+    meta: dict[str, Any] = {"source_images": {}, "qwen_source_image_limit": max_images, "source_image_nodes": {}}
     if ignored_names:
         meta["ignored_source_images"] = ignored_names
         notes.append(f"Qwen edit route ignored extra source lane(s) above limit {max_images}: " + ", ".join(ignored_names))
+    scaled_lanes: list[str] = []
     for idx, name in enumerate(names, start=1):
         if not name:
             continue
-        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": name, "upload": "image"}}
-        qwen_inputs[f"image{idx}"] = [str(next_id), 0]
-        meta["source_images"][f"image{idx}"] = name
+        load_id = str(next_id)
+        workflow[load_id] = {"class_type": "LoadImage", "inputs": {"image": name, "upload": "image"}}
+        image_ref: list[Any] = [load_id, 0]
         next_id += 1
+        next_id, image_ref, scale_meta = _append_qwen_source_scale_node(
+            workflow,
+            next_id,
+            image_ref,
+            backend_capabilities=backend_capabilities,
+        )
+        lane = f"image{idx}"
+        qwen_inputs[lane] = list(image_ref)
+        meta["source_images"][lane] = name
+        lane_nodes = {"load": load_id}
+        if scale_meta:
+            lane_nodes["scale"] = scale_meta.get("node_id")
+            scaled_lanes.append(lane)
+        meta["source_image_nodes"][lane] = lane_nodes
     if qwen_inputs:
         notes.append("Qwen edit conditioning received source image lane(s): " + ", ".join(sorted(qwen_inputs.keys())))
+    if scaled_lanes:
+        notes.append("FluxKontextImageScale preprocess applied to: " + ", ".join(sorted(scaled_lanes)))
+        meta["qwen_source_preprocess_node"] = "FluxKontextImageScale"
     return next_id, qwen_inputs, notes, meta
 
 
@@ -436,7 +584,7 @@ def compile_qwen_rapid_aio_checkpoint(
         # lanes. Mask/canvas routes stay single-source until a validated
         # multi-reference inpaint/outpaint graph exists.
         source_limit = 3 if mode == "img2img" else 1
-        next_id, qwen_inputs, notes, meta = _load_qwen_source_images(workflow, params, start_id=next_id, max_images=source_limit)
+        next_id, qwen_inputs, notes, meta = _load_qwen_source_images(workflow, params, start_id=next_id, max_images=source_limit, backend_capabilities=backend_capabilities)
         route_notes.extend(notes)
         route_meta.update(meta)
         source_ref = list(qwen_inputs.get("image1") or []) or None
@@ -541,11 +689,6 @@ def compile_qwen_rapid_aio_checkpoint(
         next_id += 1
         model_ref = ["1", 0]
 
-    if mode == "inpaint" and batch_count > 1:
-        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
-        latent_ref = [str(next_id), 0]
-        next_id += 1
-
     sampler_id = str(next_id)
     workflow[sampler_id] = {
         "class_type": "KSampler",
@@ -561,7 +704,13 @@ def compile_qwen_rapid_aio_checkpoint(
         workflow[composite_id] = {"class_type": "ImageCompositeMasked", "inputs": {"destination": list(source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": list(mask_ref)}}
         output_ref = [composite_id, 0]
         next_id += 1
-    workflow[str(next_id)] = {"class_type": "PreviewImage", "inputs": {"images": output_ref}}
+    output_prefix = _qwen_output_prefix(family=job.family, mode=mode, variant="qwen_rapid_aio")
+    next_id, save_output_node_id, preview_output_node_id = _append_qwen_output_handoff(
+        workflow,
+        next_id=next_id,
+        image_ref=output_ref,
+        filename_prefix=output_prefix,
+    )
 
     actual_params = {
         **params,
@@ -570,6 +719,15 @@ def compile_qwen_rapid_aio_checkpoint(
         "actual_seed": seed,
         "requested_seed": requested_seed,
         "workflow_type": route.workflow_type or f"image.{mode}.qwen_rapid_aio",
+        "_neo_output_import_node_ids": [save_output_node_id],
+        "_neo_output_contract": {
+            "schema": "neo.image.output_contract.v1",
+            "final_image_node_ids": [save_output_node_id],
+            "preview_node_ids": [preview_output_node_id],
+            "provider_final_output_policy": "prefer_save_image_over_preview",
+            "preview_role": "live_preview_only",
+            "filename_prefix": output_prefix,
+        },
         "prompt_conditioning_mode": conditioning_mode,
         "clamp": conditioning_mode,
         "prompt_conditioning": {
@@ -743,8 +901,17 @@ def compile_qwen_native_edit(
     cfg = float(_param(params, "cfg", default=defaults.cfg))
     denoise = float(_param(params, "denoise", "strength", default=defaults.denoise))
     aura_shift = float(_param(params, "qwen_aura_shift", "aura_shift", "shift", default=defaults.aura_shift))
+    qwen_cfgnorm_enabled = _truthy_param(params, "qwen_cfgnorm_enabled", default=True)
+    qwen_cfgnorm_strength = float(_param(params, "qwen_cfgnorm_strength", "cfgnorm_strength", default=1.0))
+    qwen_cfgnorm_pre_cfg = _truthy_param({**params, "qwen_cfgnorm_pre_cfg": params.get("qwen_cfgnorm_pre_cfg", params.get("pre_cfg"))}, "qwen_cfgnorm_pre_cfg", default=False)
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
+    requested_clip_loader = _param(params, "clip_loader", "text_encoder_loader", "qwen_clip_loader", default="")
+    clip_loader = _qwen_native_edit_clip_loader_for_encoder(text_encoder, requested_clip_loader)
+    text_encoder_file_type = "gguf" if _is_gguf_file(text_encoder) else "native"
+    if clip_loader != "CLIPLoader" and backend_capabilities is not None and not _backend_supports_qwen_mixed_clip_loader(backend_capabilities, clip_loader, clip_type=defaults.clip_type):
+        validation.errors.append(f"Selected Qwen text encoder '{text_encoder}' needs {clip_loader}(type={defaults.clip_type}) in ComfyUI.")
+        validation.ok = False
     vae_decode_strategy = resolve_vae_decode_strategy(
         params=params,
         family=visible_family,
@@ -756,16 +923,43 @@ def compile_qwen_native_edit(
 
     workflow: dict[str, Any] = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": diffusion_model, "weight_dtype": weight_dtype}},
-        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder, "type": defaults.clip_type, "device": clip_device}},
+        "2": {"class_type": clip_loader, "inputs": {"clip_name": text_encoder, "type": defaults.clip_type, "device": clip_device}},
         "3": build_vae_loader_node(vae, vae_decode_strategy),
     }
 
     route_notes: list[str] = []
     route_meta: dict[str, Any] = {}
+    if mode == "img2img":
+        _require_qwen_parity_node(
+            validation,
+            backend_capabilities,
+            "FluxKontextImageScale",
+            reason="img2img source preprocessing must match the native Qwen edit graph instead of silently bypassing image scaling.",
+        )
+    _require_qwen_parity_node(
+        validation,
+        backend_capabilities,
+        defaults.sampling_node,
+        reason="the selected Qwen route uses ModelSamplingAuraFlow before KSampler.",
+    )
+    if qwen_cfgnorm_enabled:
+        _require_qwen_parity_node(
+            validation,
+            backend_capabilities,
+            "CFGNorm",
+            reason="CFGNorm is enabled in Neo Parameters and must not be silently dropped.",
+        )
     max_source_images = 3 if visible_family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and mode == "img2img" else 1
-    next_id, qwen_inputs, notes, image_meta = _load_qwen_source_images(workflow, params, start_id=20, max_images=max_source_images)
+    next_id, qwen_inputs, notes, image_meta = _load_qwen_source_images(workflow, params, start_id=20, max_images=max_source_images, backend_capabilities=backend_capabilities)
     route_notes.extend(notes)
     route_meta.update(image_meta)
+    if mode == "img2img" and visible_family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and len(qwen_inputs) >= 1:
+        _require_qwen_parity_node(
+            validation,
+            backend_capabilities,
+            "FluxKontextMultiReferenceLatentMethod",
+            reason="Qwen 2509/2511 native img2img requires index_timestep_zero conditioning on both prompt branches, including single-source edits.",
+        )
     source_ref: list[Any] | None = list(qwen_inputs.get("image1") or []) or None
     original_source_ref: list[Any] | None = list(source_ref) if source_ref else None
     mask_ref: list[Any] | None = None
@@ -817,12 +1011,42 @@ def compile_qwen_native_edit(
         backend_capabilities=backend_capabilities,
     )
     route_meta.update(edit_meta)
+    if mode == "img2img" and visible_family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and len(qwen_inputs) >= 1:
+        next_id, positive_ref, positive_mref_meta = _append_qwen_multi_reference_latent_method(
+            workflow,
+            next_id,
+            positive_ref,
+            backend_capabilities=backend_capabilities,
+        )
+        next_id, negative_ref, negative_mref_meta = _append_qwen_multi_reference_latent_method(
+            workflow,
+            next_id,
+            negative_ref,
+            backend_capabilities=backend_capabilities,
+        )
+        if positive_mref_meta and negative_mref_meta:
+            route_meta["qwen_multi_reference_latent_method"] = {
+                "enabled": True,
+                "method": positive_mref_meta.get("method", "index_timestep_zero"),
+                "positive_node_id": positive_mref_meta.get("node_id"),
+                "negative_node_id": negative_mref_meta.get("node_id"),
+            }
+            route_notes.append("Qwen native 2509/2511 img2img uses FluxKontextMultiReferenceLatentMethod(index_timestep_zero) on both prompt branches for single- and multi-source edits.")
 
     aura_sampling_id = str(next_id)
     workflow[aura_sampling_id] = {"class_type": defaults.sampling_node, "inputs": {"model": ["1", 0], "shift": aura_shift}}
     model_ref = [aura_sampling_id, 0]
     model_sampling_nodes = [aura_sampling_id]
     next_id += 1
+    qwen_cfgnorm_applied = False
+    if qwen_cfgnorm_enabled and _qwen_node_available_or_unknown(backend_capabilities, "CFGNorm"):
+        cfgnorm_id = str(next_id)
+        workflow[cfgnorm_id] = {"class_type": "CFGNorm", "inputs": {"model": list(model_ref), "strength": qwen_cfgnorm_strength, "pre_cfg": qwen_cfgnorm_pre_cfg}}
+        model_ref = [cfgnorm_id, 0]
+        model_sampling_nodes.append(cfgnorm_id)
+        qwen_cfgnorm_applied = True
+        next_id += 1
+        route_notes.append(f"Qwen native sampling inserts CFGNorm(strength={qwen_cfgnorm_strength}, pre_cfg={qwen_cfgnorm_pre_cfg}).")
 
     if mode == "inpaint" and source_ref is not None and mask_name:
         workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": mask_name, "channel": "red"}}
@@ -866,11 +1090,18 @@ def compile_qwen_native_edit(
         })
         route_notes.append("Qwen native inpaint uses source VAEEncode + SetLatentNoiseMask + ModelSamplingAuraFlow + DifferentialDiffusion.")
     else:
-        workflow[str(next_id)] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
-        latent_ref = [str(next_id), 0]
-        next_id += 1
+        if mode in {"img2img", "outpaint"} and source_ref is not None:
+            workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
+            latent_ref = [str(next_id), 0]
+            next_id += 1
+            route_meta["qwen_source_latent_mode"] = "vae_encode_image1"
+            route_notes.append("Qwen native img2img/outpaint uses Image 1 as the VAE latent anchor instead of an empty latent canvas.")
+        else:
+            workflow[str(next_id)] = {"class_type": defaults.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+            latent_ref = [str(next_id), 0]
+            next_id += 1
 
-    if mode == "inpaint" and batch_count > 1:
+    if batch_count > 1 and mode in {"img2img", "inpaint", "outpaint"}:
         workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
         latent_ref = [str(next_id), 0]
         next_id += 1
@@ -888,7 +1119,13 @@ def compile_qwen_native_edit(
         workflow[composite_id] = {"class_type": "ImageCompositeMasked", "inputs": {"destination": list(original_source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": list(mask_ref)}}
         output_ref = [composite_id, 0]
         next_id += 1
-    workflow[str(next_id)] = {"class_type": "PreviewImage", "inputs": {"images": output_ref}}
+    output_prefix = _qwen_output_prefix(family=job.family, mode=mode, variant="qwen_native_edit")
+    next_id, save_output_node_id, preview_output_node_id = _append_qwen_output_handoff(
+        workflow,
+        next_id=next_id,
+        image_ref=output_ref,
+        filename_prefix=output_prefix,
+    )
 
     effective_source_limit = max_source_images
     actual_params = {
@@ -898,6 +1135,15 @@ def compile_qwen_native_edit(
         "actual_seed": seed,
         "requested_seed": requested_seed,
         "workflow_type": route.workflow_type or f"image.{mode}.qwen_native_edit",
+        "_neo_output_import_node_ids": [save_output_node_id],
+        "_neo_output_contract": {
+            "schema": "neo.image.output_contract.v1",
+            "final_image_node_ids": [save_output_node_id],
+            "preview_node_ids": [preview_output_node_id],
+            "provider_final_output_policy": "prefer_save_image_over_preview",
+            "preview_role": "live_preview_only",
+            "filename_prefix": output_prefix,
+        },
         "prompt_conditioning_mode": conditioning_mode,
         "clamp": conditioning_mode,
         "prompt_conditioning": {"mode": conditioning_mode, "display_mode": conditioning.get("display_mode"), "changed": bool(conditioning.get("changed")), "weighted_tags": int(conditioning.get("weighted_tags") or 0), "clamped_tags": int(conditioning.get("clamped_tags") or 0), "positive": conditioning.get("positive") or {}, "negative": conditioning.get("negative") or {}},
@@ -910,14 +1156,26 @@ def compile_qwen_native_edit(
             "source_image_limit": effective_source_limit,
             "source_image_limit_policy": "2509/2511 allow 1-3 sources for img2img/edit only; inpaint/outpaint are single-source mask/canvas workflows.",
             "status": "available",
-            "provider_nodes": {"diffusion_model_loader": "UNETLoader", "text_encoder_loader": "CLIPLoader", "conditioning": route_meta.get("qwen_edit_node_compatibility", {}).get("selected_node", "TextEncodeQwenImageEditPlus"), "sampling_patch": defaults.sampling_node, "vae_loader": vae_decode_strategy["loader_node_class"], "vae_decode": vae_decode_strategy["decode_node_class"]},
+            "provider_nodes": {"diffusion_model_loader": "UNETLoader", "text_encoder_loader": clip_loader, "requested_text_encoder_loader": requested_clip_loader or clip_loader, "conditioning": route_meta.get("qwen_edit_node_compatibility", {}).get("selected_node", "TextEncodeQwenImageEditPlus"), "multi_reference_latent_method": route_meta.get("qwen_multi_reference_latent_method", {}).get("enabled") and "FluxKontextMultiReferenceLatentMethod" or "disabled", "source_preprocess": route_meta.get("qwen_source_preprocess_node") or "disabled", "sampling_patch": defaults.sampling_node, "cfgnorm": "CFGNorm" if qwen_cfgnorm_applied else "disabled", "vae_loader": vae_decode_strategy["loader_node_class"], "vae_decode": vae_decode_strategy["decode_node_class"]},
+            "text_encoder_policy": "single_qwen_mixed_loader",
+            "text_encoder_file_type": text_encoder_file_type,
+            "loader_rule": "Qwen safetensors/components edit routes use CLIPLoader(type=qwen_image) for native encoders and CLIPLoaderGGUF(type=qwen_image) for GGUF encoders.",
+            "img2img_parity_contract": "Img2img/outpaint use Image 1 as the VAE latent anchor; 2509/2511 img2img applies FluxKontextMultiReferenceLatentMethod(index_timestep_zero) for single- and multi-source edits.",
         },
         "vae_decode_mode": vae_decode_strategy["resolved"],
         "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": diffusion_model,
         "qwen_text_encoder": text_encoder,
+        "text_encoder_1": text_encoder,
+        "gguf_text_encoder_primary": text_encoder if text_encoder_file_type == "gguf" else params.get("gguf_text_encoder_primary", ""),
+        "_neo_effective_qwen_text_encoder_loader": clip_loader,
         "vae": vae,
         "qwen_aura_shift": aura_shift,
+        "qwen_cfgnorm_enabled": qwen_cfgnorm_enabled,
+        "qwen_cfgnorm_strength": qwen_cfgnorm_strength,
+        "qwen_cfgnorm_pre_cfg": qwen_cfgnorm_pre_cfg,
+        "qwen_clip_loader_mode": str(_param(params, "qwen_clip_loader_mode", default="auto") or "auto"),
+        "qwen_requested_clip_loader": requested_clip_loader or "auto",
         "cfg": cfg,
         "denoise": denoise,
         "qwen_multi_reference": effective_source_limit > 1,

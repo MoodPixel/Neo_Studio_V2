@@ -54,6 +54,33 @@ def _param(params: dict[str, Any], *names: str, default: Any = None) -> Any:
     return default
 
 
+def _is_gguf_file(value: Any) -> bool:
+    return str(value or "").strip().lower().endswith(".gguf")
+
+
+def _qwen_native_clip_loader_for_encoder(text_encoder: Any, requested_loader: Any = None) -> str:
+    candidate = str(requested_loader or "").strip()
+    if _is_gguf_file(text_encoder):
+        return candidate if candidate in {"CLIPLoaderGGUF", "ClipLoaderGGUF"} else "CLIPLoaderGGUF"
+    return "CLIPLoader"
+
+
+def _backend_supports_qwen_clip_loader(backend_capabilities: dict[str, Any] | None, loader_class: str, *, clip_type: str = "qwen_image") -> bool:
+    object_info = ((backend_capabilities or {}).get("object_info_node_inputs") or {})
+    node_info = object_info.get(loader_class) or object_info.get("ClipLoaderGGUF" if loader_class == "CLIPLoaderGGUF" else loader_class) or {}
+    if not isinstance(node_info, dict) or not node_info:
+        return False
+    if loader_class == "CLIPLoader":
+        return True
+    type_spec = node_info.get("type")
+    if isinstance(type_spec, (list, tuple, set)):
+        return clip_type in {str(item) for item in type_spec}
+    if isinstance(type_spec, dict):
+        values = type_spec.get("values") or type_spec.get("choices") or []
+        return clip_type in {str(item) for item in values}
+    return True
+
+
 def compile_qwen_native_txt2img(
     *,
     provider_id: str,
@@ -109,6 +136,12 @@ def compile_qwen_native_txt2img(
     aura_shift = float(_param(params, "qwen_aura_shift", "aura_shift", "shift", default=defaults.aura_shift))
     weight_dtype = str(_param(params, "weight_dtype", "model_precision", default="default"))
     clip_device = str(_param(params, "clip_device", "text_encoder_device", default=defaults.clip_device))
+    requested_clip_loader = _param(params, "clip_loader", "text_encoder_loader", "qwen_clip_loader", default="")
+    clip_loader = _qwen_native_clip_loader_for_encoder(text_encoder, requested_clip_loader)
+    text_encoder_file_type = "gguf" if _is_gguf_file(text_encoder) else "native"
+    if clip_loader != "CLIPLoader" and backend_capabilities is not None and not _backend_supports_qwen_clip_loader(backend_capabilities, clip_loader, clip_type=defaults.clip_type):
+        validation.errors.append(f"Selected Qwen text encoder '{text_encoder}' needs {clip_loader}(type={defaults.clip_type}) in ComfyUI.")
+        validation.ok = False
     vae_decode_strategy = resolve_vae_decode_strategy(
         params=params,
         family=job.family or "qwen_image",
@@ -149,17 +182,23 @@ def compile_qwen_native_txt2img(
             "image_conditioned_compiler": "comfy.qwen_native_edit",
             "provider_nodes": {
                 "diffusion_model_loader": "UNETLoader",
-                "text_encoder_loader": "CLIPLoader",
+                "text_encoder_loader": clip_loader,
+                "requested_text_encoder_loader": requested_clip_loader or clip_loader,
                 "sampling_patch": defaults.sampling_node,
                 "vae_loader": vae_decode_strategy["loader_node_class"],
                 "vae_decode": vae_decode_strategy["decode_node_class"],
             },
+            "text_encoder_policy": "single_qwen_mixed_loader",
+            "text_encoder_file_type": text_encoder_file_type,
+            "loader_rule": "Qwen safetensors/components use CLIPLoader(type=qwen_image) for native encoders and CLIPLoaderGGUF(type=qwen_image) for GGUF encoders.",
         },
         "vae_decode_mode": vae_decode_strategy["resolved"],
         "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
         "diffusion_model": diffusion_model,
         "qwen_text_encoder": text_encoder,
         "text_encoder_1": text_encoder,
+        "gguf_text_encoder_primary": text_encoder if text_encoder_file_type == "gguf" else params.get("gguf_text_encoder_primary", ""),
+        "_neo_effective_qwen_text_encoder_loader": clip_loader,
         "vae": vae,
         "qwen_aura_shift": aura_shift,
         "denoise": denoise,
@@ -175,7 +214,7 @@ def compile_qwen_native_txt2img(
             },
         },
         "2": {
-            "class_type": "CLIPLoader",
+            "class_type": clip_loader,
             "inputs": {
                 "clip_name": text_encoder,
                 "type": defaults.clip_type,
@@ -216,11 +255,23 @@ def compile_qwen_native_txt2img(
         },
         "9": build_vae_decode_node(["8", 0], ["3", 0], vae_decode_strategy),
         "10": {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": _qwen_output_prefix(family=job.family, mode=job.mode), "images": ["9", 0]},
+        },
+        "11": {
             "class_type": "PreviewImage",
             "inputs": {"images": ["9", 0]},
         },
     }
     actual_params["_neo_sampler_node_id"] = "8"
+    actual_params["_neo_output_import_node_ids"] = ["10"]
+    actual_params["_neo_output_contract"] = {
+        "schema": "neo.image.output_contract.v1",
+        "final_image_node_ids": ["10"],
+        "preview_node_ids": ["11"],
+        "provider_final_output_policy": "prefer_save_image_over_preview",
+        "preview_role": "live_preview_only",
+    }
     is_qwen_edit_family = str(job.family or "").strip().lower() in {"qwen_image_edit_2509", "qwen_image_edit_2511"}
     actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
         route={**route.as_dict(), "workflow_mode": "generate", "route_state": "available" if route.status == "available" else route.status},
@@ -273,7 +324,7 @@ def compile_qwen_native_txt2img(
             "backend_capabilities": backend_capabilities or {},
             "phase_notes": [
                 "V25.9.20 P3 promotes Qwen component routes out of gate-first wording; txt2img uses the Qwen native compiler.",
-                "Qwen native uses UNETLoader + CLIPLoader(type=qwen_image) + ModelSamplingAuraFlow + AE/VAE.",
+                "Qwen native uses UNETLoader plus a mixed single-encoder loader: native encoders use CLIPLoader(type=qwen_image), GGUF encoders use CLIPLoaderGGUF(type=qwen_image).",
                 "Qwen img2img, edit, inpaint, and outpaint compile through comfy.qwen_native_edit when an image-conditioned route is selected.",
                 f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
                 "Comfy node names are provider-local diagnostics; Image surface contracts stay family+loader+mode.",

@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from neo_app.providers.profiles import get_backend_profile_payload
 from neo_app.video.gguf_loader_adapter import build_wan22_gguf_loader_plan
 from neo_app.video.model_discovery import video_model_discovery_from_object_info
+from neo_app.video.model_residency_audit import video_model_residency_audit_payload
 from neo_app.video.route_matrix import find_video_route, normalize_video_family, normalize_video_generation_type, normalize_video_loader
 from neo_app.video.video_performance_probe import video_performance_probe_payload
 
@@ -83,29 +84,38 @@ NODE_CATEGORY_ALIASES: Final[dict[str, tuple[str, ...]]] = {
     ),
 }
 
+H3_CLIP_LOADER_GATE: Final[tuple[str, ...]] = (
+    "CLIPLoader",
+    "H3ClipLoaderAny",
+    "VideoCLIPLoaderGGUF",
+    "CLIPLoaderGGUFAdvanced",
+    "CLIPLoaderGGUF",
+)
+
+
 ROUTE_REQUIRED_NODE_SETS: Final[dict[str, dict[str, tuple[tuple[str, ...], ...]]]] = {
     **{route_id: {
-        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UNETLoader", "DiffusionModelLoader"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoraLoaderModelOnly",),),
     } for route_id in ("minimax_h3.unet.txt2vid",)},
     **{route_id: {
-        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UNETLoader", "DiffusionModelLoader"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoraLoaderModelOnly",),),
     } for route_id in ("minimax_h3.unet.img2vid", "minimax_h3.unet.first_last_frame")},
     "minimax_h3.unet.reference_to_video": {
-        "required": (("UNETLoader", "DiffusionModelLoader"), ("CLIPLoader",), ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UNETLoader", "DiffusionModelLoader"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoadImage",), ("LoadVideo",), ("GetVideoComponents",), ("LoadAudio",), ("LoraLoaderModelOnly",)),
     },
     **{route_id: {
-        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF", "UnetLoaderGGUFAdvanced"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoraLoaderModelOnly",),),
     } for route_id in ("minimax_h3.gguf.txt2vid",)},
     **{route_id: {
-        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF", "UnetLoaderGGUFAdvanced"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("LoadImage",), ("MiniMaxH3ImageToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoraLoaderModelOnly",),),
     } for route_id in ("minimax_h3.gguf.img2vid", "minimax_h3.gguf.first_last_frame")},
     "minimax_h3.gguf.reference_to_video": {
-        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF"), ("CLIPLoaderGGUF",), ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
+        "required": (("UnetLoaderGGUF", "UNETLoaderGGUF", "UnetLoaderGGUFAdvanced"), H3_CLIP_LOADER_GATE, ("VAELoader",), ("MiniMaxH3ReferenceToVideo",), ("MiniMaxH3SigmaShift",), ("RandomNoise",), ("KSamplerSelect",), ("BasicScheduler",), ("BasicGuider",), ("SamplerCustomAdvanced",), ("VAEDecode",), ("VAEDecodeAudio",), ("CreateVideo",), ("SaveVideo",)),
         "recommended": (("LoadImage",), ("LoadVideo",), ("GetVideoComponents",), ("LoadAudio",), ("LoraLoaderModelOnly",)),
     },
     "wan22.unet.txt2vid": {
@@ -521,6 +531,13 @@ def video_backend_probe_payload(
         performance_profile=performance_profile,
         values=performance_values,
     ) if reachable or object_info_override is not None else None
+    model_residency = video_model_residency_audit_payload(
+        family=nf,
+        loader=nl,
+        generation_type=nt,
+        performance_values=performance_values,
+        system_stats=system_stats,
+    )
     if performance_probe and not performance_probe.get("queue_ready", True):
         for item in performance_probe.get("errors", []):
             if item not in errors:
@@ -628,6 +645,7 @@ def video_backend_probe_payload(
         "gguf_model_probe": gguf_model_probe,
         "model_discovery": model_discovery,
         "performance_probe": performance_probe,
+        "model_residency": model_residency,
         "node_categories": node_categories,
         "system_stats": system_stats if reachable else {},
         "object_info_node_count": len(object_info) if isinstance(object_info, dict) else 0,
@@ -637,6 +655,7 @@ def video_backend_probe_payload(
         "rules": [
             "V-G13 probes ComfyUI /system_stats and /object_info only; it does not queue prompts.",
             "V-G13 performance probe validates active Sage Attention, TeaCache, and low-VRAM offload/block-swap selections.",
+            "Phase 4.7.2 reports Video model residency separately: ordinary Video generation does not call Comfy /free; ComfyUI and loader nodes own cache/offload behavior.",
             "Route readiness checks node availability for the selected Video model family, loader, and generation type.",
             "WAN 2.2 GGUF readiness validates loader schema, live /object_info model catalogs, high/low dropdown visibility, and dual-noise pairing.",
             "ComfyUI output folders are source references; Neo-owned video outputs stay under neo_data/outputs/video.",
