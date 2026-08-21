@@ -186,7 +186,7 @@ Neo-owned output + metadata + replay lineage
 
 The same model family can have different support depending on the selected internal loader/backend. Neo therefore checks the active route instead of assuming that a model name alone guarantees a workflow.
 
-### Phase 4.7 — Image model component topology
+### Image model component topology
 
 The normal Image UI keeps the primary format choice simple: **Safetensors** or **GGUF**. Those labels describe the main model artifact format; they do **not** determine whether the workflow is bundled or split into external components. Neo resolves that separately from the selected family + internal load strategy + workflow mode.
 
@@ -199,7 +199,7 @@ Examples:
 
 This keeps the UI simple while preserving the real Comfy workflow topology behind it.
 
-### Phase 4.7.1 — Comfy native model residency
+### Comfy native model residency
 
 Neo no longer calls ComfyUI `/free` before ordinary clean Image generations. Repeated normal runs keep compatible Comfy model objects resident so the same model does not reload from disk on every generation. The LayerDiffuse safety guard is now one-shot and transition-driven: an actually queued LayerDiffuse workflow marks that backend as requiring a reset, the first later non-LayerDiffuse run performs one `/free`, and subsequent normal runs keep the model resident again. The tiny transition flag is persisted under `neo_data/runtime/` so the safety boundary can survive a Neo restart while ComfyUI stays open. Manual/OOM/recovery cleanup remains owned by the existing runtime recovery paths.
 
@@ -325,19 +325,19 @@ That script installs only the isolated Qwen worker environment under `Neo_Runtim
 
 Existing complete snapshots under `Neo_Runtime\voice\models\qwen3_tts` remain supported and keep first priority for backward compatibility, but new normal-user installs should use Admin → Models. Qwen managed routing is **local-only**: a generation request never silently downloads missing weights.
 
-### Phase 4.6.3 — Voice Lifecycle Physical Validation Closure
+### Voice Lifecycle Physical Validation Closure
 
 The consolidated Voice lifecycle is now closed for the physically exercised local-runtime path. After the Phase 4.6.1 no-redownload compatibility layer and Phase 4.6.2 polling/VRAM hotfix were applied, generation was confirmed working on the Windows/NVIDIA host. This physically validates that an existing supported local Qwen installation remains usable through the managed Voice route without a forced Hugging Face re-download.
 
 This closure does **not** require downloading a duplicate Admin HF copy merely to prove migration. Repository-snapshot install/repair remains an explicit optional action for machines that need it. Chatterbox's previously validated local backend remains supported under the unified local-only lifecycle; a fresh network-backed Admin install was intentionally not forced as part of this closure. Controlled background-poll focus/context-menu behavior remains covered by the Phase 4.6.2 automated regression unless separately re-exercised on the host.
 
-### Phase 4.6.2 — Background Polling UI Stability + GPU Busy Diagnostics
+### Background Polling UI Stability + GPU Busy Diagnostics
 
 Long-running work in another Neo workspace no longer forces a full repaint of the workspace you are actively editing. Video result polling, Admin model-install monitoring, Image terminal polling, Voice job polling, and Prompt/Caption batch polling now render only their own active surface; active text/select controls defer same-surface poll repaints until focus leaves. This prevents model dropdowns from closing and prevents Script/context-menu focus from being stolen while another job is running.
 
 The Qwen 1.7B 12 GB-class admission policy from Phase 4.4 is unchanged. A `gpu_oom` / no-safe-admission result can still be correct when another workload such as Video/Comfy is occupying VRAM. The scheduler now reports the required cold-load headroom, observed free VRAM, safely available VRAM after Neo's reserve, and an explicit `insufficient_free_vram` reason so a busy GPU is not mistaken for a regression in the 1.7B calibration.
 
-### Phase 4.6.1 — Legacy Voice Model Compatibility / No-Redownload Migration
+### Legacy Voice Model Compatibility / No-Redownload Migration
 
 Neo does **not** require existing users to re-download already working Voice models. A complete legacy Qwen snapshot under `Neo_Runtime\voice\models\qwen3_tts` remains a permanent supported runtime source and keeps precedence over an Admin-managed Hugging Face copy. Admin now reports **runtime availability** separately from **Admin HF copy state**. If a legacy model is ready while the HF cache is absent/broken, Neo shows the model as runtime-installed from **Legacy Neo Runtime** and offers **Install HF copy** only as an optional action. No migration is required.
 
@@ -1151,4 +1151,4 @@ Support is optional, but always appreciated 💙
 [shot-assistant-01]: https://github.com/user-attachments/assets/REPLACE-Assistant01
 [shot-assistant-02]: https://github.com/user-attachments/assets/REPLACE-Assistant02
 [shot-assistant-03]: https://github.com/user-attachments/assets/REPLACE-Assistant03
-[shot-admin-01]: https://github.com/user-attachments/assets/REPLACE-Admin
+[shot-admin-01]: [https://github.com/user-attachments/assets/REPLACE-Admin](https://github.com/user-attachments/assets/24ef7dd2-4acc-4552-a23a-99bab3bb96db)
