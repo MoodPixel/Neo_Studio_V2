@@ -1,19 +1,17 @@
 {
   "id": "video.output_recorder",
-  "name": "Video \u00b7 Output Recorder",
-  "version": "0.1.0-video-ui-cleanup",
+  "name": "Video · Output Recorder",
+  "version": "0.1.1-video-results-only",
   "description": "Video built-in output ledger, replay metadata, memory export, and Project handoff recorder.",
   "extension_type": "utility_extension",
   "extension_origin": "built_in",
   "surface": "video",
   "subtabs": [
-    "results",
-    "generation"
+    "results"
   ],
   "workflow_modes": [],
   "workspace_apps": [
-    "results",
-    "generation"
+    "results"
   ],
   "mount_slots": [
     "video.results.output_recorder"
@@ -24,16 +22,6 @@
       "workspace_app": "results",
       "workflow_mode": null,
       "slot": "video.results.output_recorder",
-      "route_states": [
-        "available",
-        "experimental_available"
-      ]
-    },
-    {
-      "surface": "video",
-      "workspace_app": "generation",
-      "workflow_mode": null,
-      "slot": "video.generation.output_recorder",
       "route_states": [
         "available",
         "experimental_available"
@@ -54,9 +42,6 @@
   },
   "route_context_scope": "workspace",
   "route_states": {
-    "comfyui:*:*:*:generation": "available",
-    "comfyui_portable:*:*:*:generation": "available",
-    "cloud_api:*:*:*:generation": "available",
     "comfyui:*:*:*:results": "available",
     "comfyui_portable:*:*:*:results": "available",
     "cloud_api:*:*:*:results": "available",

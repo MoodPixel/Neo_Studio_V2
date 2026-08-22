@@ -200,6 +200,7 @@ const state = {
     clip_name2: 'provider_default',
     text_encoder: 'provider_default',
     vae_name: 'automatic',
+    audio_vae_name: 'provider_default',
     batch_count: 1,
     output_format: 'webm',
     decode_mode: 'standard',
@@ -215,6 +216,12 @@ const state = {
     cloud_source_video: '',
     cloud_source_video_name: '',
     cloud_source_result_id: '',
+    h3_source_video_path: '',
+    h3_source_video_name: '',
+    h3_source_video_comfy_name: '',
+    h3_source_result_id: '',
+    h3_source_file_id: '',
+    h3_source_video_include_audio: true,
     first_image: '',
     first_image_url: '',
     first_image_name: '',
@@ -4033,6 +4040,7 @@ const VIDEO_PARAMETER_FIELD_DEFS = [
   { field_id: 'clip_name', label: 'Text Encoder', section: 'models', type: 'backend_select', backend_kind: 'auto_text_encoder', description: 'Loaded from the selected Video backend.' },
   { field_id: 'clip_name2', label: 'Text Projection / Encoder B', section: 'models', type: 'backend_select', backend_kind: 'auto_text_projection', scopes: ['ltx23'], description: 'Second encoder/projection when the selected workflow needs one.' },
   { field_id: 'vae_name', label: 'VAE', section: 'models', type: 'backend_select', backend_kind: 'auto_vae', description: 'Loaded from the selected Video backend VAE catalog.' },
+  { field_id: 'audio_vae_name', label: 'Audio VAE', section: 'models', type: 'backend_select', backend_kind: 'audio_vae_name', scopes: ['minimax_h3'], description: 'MiniMax H3 audio VAE used for native stereo audio decode.' },
   { field_id: 'output_format', label: 'Output Format', section: 'output', type: 'select', options: VIDEO_OUTPUT_FORMAT_OPTIONS, description: 'WEBM is the first safe output. MP4/frames stay guarded.' },
   { field_id: 'width', label: 'Width', section: 'size', type: 'number', min: 256, step: 16, unit: 'px', description: 'Route-safe width.' },
   { field_id: 'height', label: 'Height', section: 'size', type: 'number', min: 256, step: 16, unit: 'px', description: 'Route-safe height.' },
@@ -4842,19 +4850,34 @@ function videoFinishSourceVideoPickerHtml({ lane = 'finish', fileInputId = 'vide
     </div>
   </div>`;
 }
-async function refreshActiveVideoResultFromComfy(options = {}) {
-  const record = activeVideoResultRecord();
-  if (!record?.result_id) return;
-  const response = await fetch(`/api/video/results/${encodeURIComponent(record.result_id)}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: 3 }) });
+async function refreshVideoResultFromComfy(resultId, options = {}) {
+  const cleanId = String(resultId || '').trim();
+  if (!cleanId) return null;
+  const response = await fetch(`/api/video/results/${encodeURIComponent(cleanId)}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: 3 }) });
   const payload = await response.json().catch(() => ({}));
   state.videoLastResultRefresh = payload;
+  if (payload?.record?.result_id) {
+    const updated = payload.record;
+    state.videoResults = [updated, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== updated.result_id) : [])];
+    state.videoActiveResultId = updated.result_id;
+  }
   await refreshVideoResults({ renderAfter: false });
+  if (state.videoResults.some((item) => item.result_id === cleanId)) state.videoActiveResultId = cleanId;
   saveUiState();
-  recordMemoryEvent('video.result.refresh_requested', 'video', { result_id: record.result_id, ok: Boolean(payload?.ok), error: payload?.error || '' });
-  if (payload?.ok && !options.silent) setVideoWorkspaceProgress('Video result import refreshed', videoResultFile(activeVideoResultRecord()) ? 100 : Math.max(70, videoProgressPercent()), { status: videoResultFile(activeVideoResultRecord()) ? 'completed' : 'import_checked' });
+  recordMemoryEvent('video.result.refresh_requested', 'video', { result_id: cleanId, ok: Boolean(payload?.ok), error: payload?.error || '', candidate_count: Number(payload?.import_status?.candidate_count || payload?.import?.candidate_count || 0), imported_count: Number(payload?.import_status?.imported_count || payload?.import?.imported_count || 0) });
+  const refreshedRecord = (Array.isArray(state.videoResults) ? state.videoResults : []).find((item) => item.result_id === cleanId) || null;
+  const hasVideo = Boolean(videoResultFile(refreshedRecord)?.url);
+  if (payload?.ok && !options.silent) setVideoWorkspaceProgress(hasVideo ? 'Video imported — playback ready' : 'Comfy result checked — output not attached yet', hasVideo ? 100 : Math.max(70, videoProgressPercent()), { status: hasVideo ? 'completed' : 'import_checked', result_id: cleanId });
+  if (!payload?.ok && !options.silent) setVideoWorkspaceProgress(payload?.error || 'Comfy result import failed', 100, { status: 'warning', result_id: cleanId });
   if (options.renderAfter === false) return payload;
   render();
   return payload;
+}
+
+async function refreshActiveVideoResultFromComfy(options = {}) {
+  const record = activeVideoResultRecord();
+  if (!record?.result_id) return null;
+  return refreshVideoResultFromComfy(record.result_id, options);
 }
 
 
@@ -4914,6 +4937,10 @@ function videoWanPayload({ dryRun = false } = {}) {
   const route = videoFindRoute();
   const isImg = state.videoDraft.mode === 'img2vid';
   const isLtx = state.videoDraft.family === 'ltx23';
+  const isH3 = state.videoDraft.family === 'minimax_h3';
+  const activeSourceRecord = activeVideoResultRecord();
+  const activeSourceFile = videoResultFile(activeSourceRecord);
+  const h3Vid2Vid = isH3 && state.videoDraft.mode === 'vid2vid';
   const payload = {
     family: state.videoDraft.family || 'wan22',
     loader: state.videoDraft.loader || 'unet',
@@ -4968,6 +4995,7 @@ function videoWanPayload({ dryRun = false } = {}) {
     text_encoder: videoSanitizedBackendSelection(state.videoDraft.clip_name || state.videoDraft.text_encoder),
     text_projection: videoSanitizedBackendSelection(state.videoDraft.clip_name2),
     vae_name: videoSanitizedBackendSelection(state.videoDraft.vae_name),
+    audio_vae_name: videoSanitizedBackendSelection(state.videoDraft.audio_vae_name),
     output_format: state.videoDraft.output_format || 'webm',
     source_image: state.videoDraft.source_image || '',
     source_image_name: state.videoDraft.source_image_comfy_name || state.videoDraft.source_image_name || '',
@@ -4992,17 +5020,19 @@ function videoWanPayload({ dryRun = false } = {}) {
     tile_size: Number(state.videoDraft.tile_size || (state.videoDraft.loader === 'gguf' ? 384 : 512)),
     temporal_tile_size: Number(state.videoDraft.temporal_tile_size || 4096),
     tiled_vae_decode: state.videoDraft.tiled_vae_decode !== false,
-    filename_prefix: isLtx ? (state.videoDraft.mode === 'audio_video' ? 'Neo_Video_LTX23_AudioVideo' : state.videoDraft.mode === 'prompt_schedule' ? 'Neo_Video_LTX23_Scheduled' : state.videoDraft.mode === 'depth_motion' ? 'Neo_Video_LTX23_DepthMotion' : state.videoDraft.mode === 'vid2vid' ? 'Neo_Video_LTX23_Vid2Vid' : state.videoDraft.mode === 'extend' ? 'Neo_Video_LTX23_Extend' : state.videoDraft.mode === 'multiscene' ? 'Neo_Video_LTX23_MultiScene' : isImg ? 'Neo_Video_LTX23_I2V' : 'Neo_Video_LTX23_T2V') : isImg ? 'Neo_Video_WAN22_I2V' : 'Neo_Video_WAN22_T2V',
-    source_result_id: activeVideoResultRecord()?.result_id || '',
-    source_file_id: videoResultFile(activeVideoResultRecord())?.file_id || '',
-    source_video_path: videoResultFile(activeVideoResultRecord())?.path || '',
+    filename_prefix: isH3 ? (state.videoDraft.mode === 'vid2vid' ? 'Neo_Video_MiniMax_H3_Vid2Vid' : state.videoDraft.mode === 'reference_to_video' ? 'Neo_Video_MiniMax_H3_Ref2VA' : state.videoDraft.mode === 'first_last_frame' ? 'Neo_Video_MiniMax_H3_FL2VA' : isImg ? 'Neo_Video_MiniMax_H3_I2VA' : 'Neo_Video_MiniMax_H3_T2VA') : isLtx ? (state.videoDraft.mode === 'audio_video' ? 'Neo_Video_LTX23_AudioVideo' : state.videoDraft.mode === 'prompt_schedule' ? 'Neo_Video_LTX23_Scheduled' : state.videoDraft.mode === 'depth_motion' ? 'Neo_Video_LTX23_DepthMotion' : state.videoDraft.mode === 'vid2vid' ? 'Neo_Video_LTX23_Vid2Vid' : state.videoDraft.mode === 'extend' ? 'Neo_Video_LTX23_Extend' : state.videoDraft.mode === 'multiscene' ? 'Neo_Video_LTX23_MultiScene' : isImg ? 'Neo_Video_LTX23_I2V' : 'Neo_Video_LTX23_T2V') : isImg ? 'Neo_Video_WAN22_I2V' : 'Neo_Video_WAN22_T2V',
+    source_result_id: h3Vid2Vid ? (state.videoDraft.h3_source_result_id || '') : (activeSourceRecord?.result_id || ''),
+    source_file_id: h3Vid2Vid ? (state.videoDraft.h3_source_file_id || '') : (activeSourceFile?.file_id || ''),
+    source_video_path: h3Vid2Vid ? videoH3SourceVideoPath() : (activeSourceFile?.path || ''),
+    source_video_name: h3Vid2Vid ? (state.videoDraft.h3_source_video_name || '') : (activeSourceFile?.filename || ''),
+    source_video_comfy_name: h3Vid2Vid ? (state.videoDraft.h3_source_video_comfy_name || '') : '',
     continuation_strength: Number(state.videoDraft.extend_continuation_strength ?? 0.75),
     extraction_mode: state.videoDraft.extend_extraction_mode || 'last_frame',
     stitch_output: state.videoDraft.extend_stitch_output === true,
     denoise_strength: Number(state.videoDraft.vid2vid_denoise_strength ?? 0.45),
     motion_strength: Number(state.videoDraft.vid2vid_motion_strength ?? 0.85),
     frame_load_cap: Number(state.videoDraft.vid2vid_frame_load_cap || 0),
-    preserve_audio: state.videoDraft.vid2vid_preserve_audio === true,
+    preserve_audio: h3Vid2Vid ? state.videoDraft.h3_source_video_include_audio !== false : state.videoDraft.vid2vid_preserve_audio === true,
     control_type: state.videoDraft.depth_motion_control_type || 'depth',
     control_strength: Number(state.videoDraft.depth_motion_control_strength ?? 0.65),
     depth_engine: state.videoDraft.depth_motion_depth_engine || 'auto',
@@ -5115,16 +5145,25 @@ function videoCanQueueMiniMaxH3() {
   const mode = state.videoDraft.mode || 'txt2vid';
   if (mode === 'img2vid') return Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
   if (mode === 'first_last_frame') return Boolean((state.videoDraft.first_image || state.videoDraft.source_image || state.videoDraft.first_image_url || state.videoDraft.source_image_url) && (state.videoDraft.last_image || state.videoDraft.last_image_url));
-  if (mode === 'reference_to_video') return videoReferenceTotalCount() >= 1;
+  if (mode === 'reference_to_video') {
+    const contract = videoReferenceInputContract();
+    const visualCount = videoReferenceItems('image').length + videoReferenceItems('video').length;
+    if (videoReferenceTotalCount() < Math.max(1, Number(contract.min_total || 1))) return false;
+    if (contract.audio_requires_visual_reference && visualCount < 1) return false;
+    return true;
+  }
+  if (mode === 'vid2vid') return Boolean(videoH3SourceVideoPath());
   return true;
 }
 function videoLocalReadinessLabel(route = videoFindRoute()) {
   if (!route) return 'Route unavailable';
   const mode = state.videoDraft.mode || 'txt2vid';
+  const isH3 = String(state.videoDraft.family || '').trim() === 'minimax_h3';
   if (mode === 'img2vid' && !(state.videoDraft.source_image || state.videoDraft.source_image_url)) return 'Add a source image';
   if (mode === 'first_last_frame' && !((state.videoDraft.first_image || state.videoDraft.source_image || state.videoDraft.first_image_url || state.videoDraft.source_image_url) && (state.videoDraft.last_image || state.videoDraft.last_image_url))) return 'Add first and last frames';
   if (mode === 'multiscene' && !videoMultisceneReady()) return 'Add at least two multiscene images';
-  if (['vid2vid', 'extend', 'depth_motion'].includes(mode) && !videoCanExtendActiveResult()) return 'Add a source video';
+  if (mode === 'vid2vid' && isH3 && !videoH3SourceVideoPath()) return 'Add an H3 source video';
+  if (['vid2vid', 'extend', 'depth_motion'].includes(mode) && !isH3 && !videoCanExtendActiveResult()) return 'Add a source video';
   if (mode === 'reference_to_video' && videoReferenceTotalCount() < 1) return 'Add at least one reference input';
   if (mode === 'prompt_schedule' && !videoScheduleReady()) return 'Add schedule events';
   if (mode === 'audio_video' && !videoAudioVideoReady()) return 'Add audio prompt or dialogue';
@@ -5304,7 +5343,7 @@ function videoExecutingNodeLabel(nodeId) {
   return labels[classType] || (classType ? `Executing ${classType}` : `Executing video node ${nodeId}`);
 }
 
-function startVideoProgressSocket(profileId, clientId) {
+function startVideoProgressSocket(profileId, clientId, resultId = '') {
   if (!profileId || !clientId) return;
   closeVideoProgressSocket();
   const url = new URL('/api/video/progress/ws', window.location.href);
@@ -5330,6 +5369,7 @@ function startVideoProgressSocket(profileId, clientId) {
             else setVideoWorkspaceProgress(videoExecutingNodeLabel(data.node), Math.max(35, videoProgressPercent()));
           } else if (type === 'execution_success') {
             setVideoWorkspaceProgress('Comfy job finished — importing result', 99);
+            if (resultId) window.setTimeout(() => refreshVideoResultFromComfy(resultId, { renderAfter: true, silent: true }), 250);
           } else if (type === 'error') {
             setVideoWorkspaceProgress(data.message || 'Video live progress error', Math.max(25, videoProgressPercent()), { status: 'warning' });
           }
@@ -5358,10 +5398,8 @@ function startVideoResultPoller(resultId) {
   state.videoResultPoller = setInterval(async () => {
     attempts += 1;
     try {
-      state.videoActiveResultId = resultId;
-      await refreshActiveVideoResultFromComfy({ renderAfter: false, silent: true });
-      await refreshVideoResults({ renderAfter: false });
-      const record = activeVideoResultRecord();
+      const payload = await refreshVideoResultFromComfy(resultId, { renderAfter: false, silent: true });
+      const record = (Array.isArray(state.videoResults) ? state.videoResults : []).find((item) => item.result_id === resultId) || null;
       if (videoResultFile(record)?.url) {
         stopVideoResultPoller();
         closeVideoProgressSocket();
@@ -5369,15 +5407,18 @@ function startVideoResultPoller(resultId) {
         renderSurfaceUpdate('video');
         return;
       }
-      if (attempts <= 120) {
-        setVideoWorkspaceProgress(`Waiting for Comfy video output… ${attempts}`, Math.min(98, Math.max(55, videoProgressPercent())));
-        renderSurfaceUpdate('video');
+      if (payload?.ok === false && attempts >= 2) {
+        setVideoWorkspaceProgress(`Comfy import retry ${attempts}: ${payload?.error || 'history/output not available yet'}`, Math.min(98, Math.max(55, videoProgressPercent())), { status: 'import_retry', result_id: resultId });
+      } else if (attempts <= 120) {
+        const candidates = Number(payload?.import_status?.candidate_count || payload?.import?.candidate_count || 0);
+        setVideoWorkspaceProgress(candidates ? `Comfy output found — importing… ${attempts}` : `Waiting for Comfy video output… ${attempts}`, Math.min(98, Math.max(55, videoProgressPercent())), { result_id: resultId });
       } else {
         stopVideoResultPoller();
-        setVideoWorkspaceProgress('Import still pending — use Refresh Results / Import', 100, { status: 'waiting' });
-        renderSurfaceUpdate('video');
+        setVideoWorkspaceProgress('Import still pending — use Import / Refresh Comfy Job for diagnostics', 100, { status: 'waiting', result_id: resultId });
       }
+      renderSurfaceUpdate('video');
     } catch (error) {
+      if (attempts > 1) setVideoWorkspaceProgress(`Comfy import retry ${attempts}: ${error.message || error}`, Math.min(98, Math.max(55, videoProgressPercent())), { status: 'import_retry', result_id: resultId });
       if (attempts > 3) console.warn('Video result poll skipped', error);
     }
   }, 5000);
@@ -5571,48 +5612,69 @@ async function generateVideoWanRoute() {
     alert(backendProfileBlockedMessage(profile, 'Video generation'));
     return { ok: false, queued: false, error: backendProfileBlockedMessage(profile, 'Video generation') };
   }
-  setVideoWorkspaceProgress('Preparing Video generation…', 8, { status: 'starting', reset_timing: true });
-  revokeVideoLivePreview();
-  state.videoLivePreviewFrameCount = 0;
-  const payload = videoWanPayload({ dryRun: false });
-  if (payload.family === 'wan22' && payload.loader === 'gguf' && payload.generation_type === 'img2vid') {
-    setVideoWorkspaceProgress('Backend preflight + queue handoff…', 24);
+  let payload = null;
+  let generationStage = 'preparation';
+  try {
+    setVideoWorkspaceProgress('Preparing Video generation…', 8, { status: 'starting', reset_timing: true });
+    revokeVideoLivePreview();
+    state.videoLivePreviewFrameCount = 0;
+    payload = videoWanPayload({ dryRun: false });
+    if (payload.family === 'wan22' && payload.loader === 'gguf' && payload.generation_type === 'img2vid') {
+      setVideoWorkspaceProgress('Backend preflight + queue handoff…', 24);
+    }
+    generationStage = 'queue_handoff';
+    setVideoWorkspaceProgress('Queueing Video job to Comfy…', 38);
+    const response = await fetch('/api/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const result = await response.json().catch(() => ({}));
+    state.videoLastGenerate = result;
+    if (result?.runtime_preflight) state.videoLastRuntimePreflight = result.runtime_preflight;
+    const resultId = result?.neo_persisted?.result_id || result?.result_id || '';
+    const promptId = result?.prompt_id || result?.backend?.prompt_id || '';
+    const clientId = result?.client_id || result?.prompt_api_payload?.client_id || result?.queue_response?.client_id || '';
+    const profileId = result?.backend?.profile?.profile_id || result?.backend?.profile_id || result?.neo_persisted?.record?.backend?.profile_id || 'video.comfyui_portable';
+    if (result?.neo_persisted?.record) {
+      state.videoActiveResultId = resultId || state.videoActiveResultId;
+      state.videoResults = [result.neo_persisted.record, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== (resultId || result.result_id)) : [])];
+    }
+    if (result?.queued) {
+      setVideoWorkspaceProgress('Video queued — waiting for Comfy progress', 45, { status: 'queued', result_id: resultId, prompt_id: promptId });
+      startVideoProgressSocket(profileId, clientId, resultId);
+      startVideoResultPoller(resultId);
+    } else {
+      const blockedByPreflight = result?.runtime_preflight && result.runtime_preflight.queue_allowed === false;
+      const failureLabel = blockedByPreflight ? `Blocked: ${videoRuntimePreflightBlockSummary(result.runtime_preflight, result?.error || '')}` : (result?.error || result?.detail || result?.message || `Video queue failed${response.ok ? '' : ` (HTTP ${response.status})`}`);
+      setVideoWorkspaceProgress(failureLabel, 100, { status: blockedByPreflight ? 'blocked' : 'failed', result_id: resultId, prompt_id: promptId });
+    }
+    saveUiState();
+    const isImg = payload.generation_type === 'img2vid';
+    const isFirstLast = payload.generation_type === 'first_last_frame';
+    const isMultiScene = payload.generation_type === 'multiscene';
+    const isExtend = payload.generation_type === 'extend';
+    const isVid2Vid = payload.generation_type === 'vid2vid';
+    const isDepthMotion = payload.generation_type === 'depth_motion';
+    const isSchedule = payload.generation_type === 'prompt_schedule';
+    const isAudioVideo = payload.generation_type === 'audio_video';
+    const isLtx = payload.family === 'ltx23';
+    const isMiniMaxH3 = payload.family === 'minimax_h3';
+    const generateEvent = isMiniMaxH3 ? `video.minimax_h3_${payload.generation_type}.generate_requested` : isAudioVideo ? 'video.ltx23_audio_video.generate_requested' : isSchedule ? 'video.ltx23_schedule.generate_requested' : isDepthMotion ? 'video.ltx23_depth_motion.generate_requested' : isVid2Vid ? 'video.ltx23_vid2vid.generate_requested' : isExtend ? 'video.ltx23_extend.generate_requested' : isMultiScene ? 'video.ltx23_multiscene.generate_requested' : isFirstLast ? 'video.ltx23_first_last_frame.generate_requested' : isLtx ? (isImg ? 'video.ltx23_img2vid.generate_requested' : 'video.ltx23_txt2vid.generate_requested') : isImg ? 'video.wan22_img2vid.generate_requested' : 'video.wan22_txt2vid.generate_requested';
+    recordMemoryEvent(generateEvent, 'video', { ok: Boolean(result?.ok), queued: Boolean(result?.queued), prompt_id: result?.prompt_id || '', error: result?.error || '', source: payload.source_video_path || payload.source_image || payload.first_image || '' });
+    render();
+    return result;
+  } catch (error) {
+    const message = error?.message || String(error || 'Unknown video generation error');
+    const label = generationStage === 'preparation' ? `Video generation preparation failed: ${message}` : `Video queue handoff failed: ${message}`;
+    setVideoWorkspaceProgress(label, 100, { status: 'failed' });
+    saveUiState();
+    recordMemoryEvent('video.generation.prequeue_failed', 'video', {
+      family: payload?.family || state.videoDraft.family || '',
+      loader: payload?.loader || state.videoDraft.loader || '',
+      generation_type: payload?.generation_type || state.videoDraft.mode || '',
+      stage: generationStage,
+      error: message,
+    });
+    render();
+    return { ok: false, queued: false, error: message, stage: generationStage };
   }
-  setVideoWorkspaceProgress('Queueing Video job to Comfy…', 38);
-  const response = await fetch('/api/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const result = await response.json();
-  state.videoLastGenerate = result;
-  if (result?.runtime_preflight) state.videoLastRuntimePreflight = result.runtime_preflight;
-  const resultId = result?.neo_persisted?.result_id || result?.result_id || '';
-  const promptId = result?.prompt_id || result?.backend?.prompt_id || '';
-  const clientId = result?.client_id || result?.prompt_api_payload?.client_id || result?.queue_response?.client_id || '';
-  const profileId = result?.backend?.profile?.profile_id || result?.backend?.profile_id || result?.neo_persisted?.record?.backend?.profile_id || 'video.comfyui_portable';
-  if (result?.neo_persisted?.record) {
-    state.videoActiveResultId = resultId || state.videoActiveResultId;
-    state.videoResults = [result.neo_persisted.record, ...(Array.isArray(state.videoResults) ? state.videoResults.filter((item) => item.result_id !== (resultId || result.result_id)) : [])];
-  }
-  if (result?.queued) {
-    setVideoWorkspaceProgress('Video queued — waiting for Comfy progress', 45, { status: 'queued', result_id: resultId, prompt_id: promptId });
-    startVideoProgressSocket(profileId, clientId);
-    startVideoResultPoller(resultId);
-  } else {
-    const blockedByPreflight = result?.runtime_preflight && result.runtime_preflight.queue_allowed === false;
-    const failureLabel = blockedByPreflight ? `Blocked: ${videoRuntimePreflightBlockSummary(result.runtime_preflight, result?.error || '')}` : (result?.error || 'Video queue failed');
-    setVideoWorkspaceProgress(failureLabel, 100, { status: blockedByPreflight ? 'blocked' : 'failed', result_id: resultId, prompt_id: promptId });
-  }
-  saveUiState();
-  const isImg = payload.generation_type === 'img2vid';
-  const isFirstLast = payload.generation_type === 'first_last_frame';
-  const isMultiScene = payload.generation_type === 'multiscene';
-  const isExtend = payload.generation_type === 'extend';
-  const isVid2Vid = payload.generation_type === 'vid2vid';
-  const isDepthMotion = payload.generation_type === 'depth_motion';
-  const isSchedule = payload.generation_type === 'prompt_schedule';
-  const isAudioVideo = payload.generation_type === 'audio_video';
-  const isLtx = payload.family === 'ltx23';
-  recordMemoryEvent(isAudioVideo ? 'video.ltx23_audio_video.generate_requested' : isSchedule ? 'video.ltx23_schedule.generate_requested' : isDepthMotion ? 'video.ltx23_depth_motion.generate_requested' : isVid2Vid ? 'video.ltx23_vid2vid.generate_requested' : isExtend ? 'video.ltx23_extend.generate_requested' : isMultiScene ? 'video.ltx23_multiscene.generate_requested' : isFirstLast ? 'video.ltx23_first_last_frame.generate_requested' : isLtx ? (isImg ? 'video.ltx23_img2vid.generate_requested' : 'video.ltx23_txt2vid.generate_requested') : isImg ? 'video.wan22_img2vid.generate_requested' : 'video.wan22_txt2vid.generate_requested', 'video', { ok: Boolean(result?.ok), queued: Boolean(result?.queued), prompt_id: result?.prompt_id || '', error: result?.error || '', source: payload.source_image || payload.first_image || '' });
-  render();
-  return result;
 }
 async function generateVideoWanTxt2Vid() { return generateVideoWanRoute(); }
 function videoFinishSourceFileInputForLane(lane = 'finish') {
@@ -6504,9 +6566,70 @@ function videoAudioVideoPanelHtml() {
   return `<div class="neo-ui-card" data-testid="video-audio-video-panel"><strong>Audio-Video Generation</strong><p>Builds an LTX Audio-Video route with audio prompt, dialogue, soundscape, and sync metadata. First pass uses prompt-conditioned audio intent so local ComfyUI audio-node signatures stay safe.</p>${NeoUI.badgeRow([canRun ? 'Audio prompt ready' : 'Add audio/dialogue/soundscape', 'LTX only', 'Audio VAE detected later', 'Replay metadata'])}<div class="neo-ui-field-grid two compact"><label>Audio Mode<select id="videoAudioMode"><option value="prompted" ${state.videoDraft.audio_mode !== 'dialogue' && state.videoDraft.audio_mode !== 'soundscape' ? 'selected' : ''}>Prompted audio</option><option value="dialogue" ${state.videoDraft.audio_mode === 'dialogue' ? 'selected' : ''}>Dialogue focused</option><option value="soundscape" ${state.videoDraft.audio_mode === 'soundscape' ? 'selected' : ''}>Soundscape focused</option></select></label><label>Audio Strength<input id="videoAudioStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.videoDraft.audio_strength ?? 0.75)}"></label><label>Sync Strength<input id="videoSyncStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.videoDraft.sync_strength ?? 0.6)}"></label></div><label>Audio Prompt<textarea id="videoAudioPrompt" rows="3" placeholder="Describe sounds, rhythm, music bed, impacts, breathing, ambience...">${escapeHtml(state.videoDraft.audio_prompt || '')}</textarea></label><label>Dialogue / Voice<textarea id="videoDialoguePrompt" rows="2" placeholder="Optional spoken line, voice direction, or dialogue timing...">${escapeHtml(state.videoDraft.dialogue_prompt || '')}</textarea></label><label>Soundscape<textarea id="videoSoundscapePrompt" rows="2" placeholder="Optional environmental soundscape: rain, crowd, traffic, room tone...">${escapeHtml(state.videoDraft.soundscape_prompt || '')}</textarea></label></div>`;
 }
 
+function videoH3SourceVideoPath() {
+  return String(state.videoDraft.h3_source_video_path || '').trim();
+}
+
+function videoH3SourceVideoReady() {
+  return Boolean(videoH3SourceVideoPath());
+}
+
+async function uploadVideoH3SourceVideo(file) {
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  form.append('lane', 'h3_vid2vid_source');
+  const response = await fetch(VIDEO_SOURCE_VIDEO_UPLOAD_ENDPOINT, { method: 'POST', body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.error || 'H3 source video upload failed.');
+  const record = payload.record || payload.neo_persisted?.record || {};
+  const fileRecord = videoResultFile(record) || {};
+  state.videoDraft.h3_source_video_path = fileRecord.path || record?.source?.source_video_path || '';
+  state.videoDraft.h3_source_video_name = fileRecord.filename || payload.original_filename || file.name;
+  state.videoDraft.h3_source_video_comfy_name = '';
+  state.videoDraft.h3_source_result_id = record.result_id || payload.result_id || '';
+  state.videoDraft.h3_source_file_id = fileRecord.file_id || '';
+  if (record?.result_id) state.videoSourceResults = [record, ...(Array.isArray(state.videoSourceResults) ? state.videoSourceResults.filter((item) => item.result_id !== record.result_id) : [])];
+  saveUiState();
+  recordMemoryEvent('video.minimax_h3_vid2vid.source_uploaded', 'video', { result_id: state.videoDraft.h3_source_result_id || '', filename: state.videoDraft.h3_source_video_name || file.name });
+  render();
+}
+
+function useSelectedResultAsH3SourceVideo() {
+  const record = activeVideoResultRecord();
+  const file = videoResultFile(record);
+  if (!file?.path) return;
+  state.videoDraft.h3_source_video_path = file.path;
+  state.videoDraft.h3_source_video_name = file.filename || 'Selected Neo result';
+  state.videoDraft.h3_source_video_comfy_name = '';
+  state.videoDraft.h3_source_result_id = record?.result_id || '';
+  state.videoDraft.h3_source_file_id = file.file_id || '';
+  saveUiState();
+  render();
+}
+
+function clearVideoH3SourceVideo() {
+  state.videoDraft.h3_source_video_path = '';
+  state.videoDraft.h3_source_video_name = '';
+  state.videoDraft.h3_source_video_comfy_name = '';
+  state.videoDraft.h3_source_result_id = '';
+  state.videoDraft.h3_source_file_id = '';
+  saveUiState();
+  render();
+}
+
 function videoVid2VidSourcePanelHtml() {
   const record = activeVideoResultRecord();
   const file = videoResultFile(record);
+  const isH3 = String(state.videoDraft.family || '').trim() === 'minimax_h3';
+  if (isH3) {
+    const sourcePath = videoH3SourceVideoPath();
+    const sourceName = state.videoDraft.h3_source_video_name || (sourcePath ? 'selected source video' : '');
+    const selectedReady = Boolean(file?.path);
+    const canRun = videoH3SourceVideoReady();
+    const referencePanel = videoReferencePanelHtml();
+    return `<div class="neo-ui-card" data-testid="video-h3-vid2vid-source-panel"><strong>MiniMax H3 Video Edit / Video-to-Video</strong><p>This is a first-class Neo Video Editing workflow backed by MiniMax H3 Ref2VA. The source video is wired as <code>&lt;Video 1&gt;</code>; optional extra images, videos, and audio remain ordered references. It is not a separate MiniMax checkpoint.</p>${NeoUI.badgeRow([canRun ? 'Source video ready' : 'Add a source video', 'Ref2VA-backed', state.videoDraft.h3_source_video_include_audio !== false ? 'Source audio referenced' : 'Source audio ignored', 'Native H3 stereo output'])}<label>Upload source video<input id="videoH3SourceVideoUpload" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska,.mp4,.webm,.mov,.mkv,.gif"></label><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoH3UseSelectedResultBtn" ${selectedReady ? '' : 'disabled'}>Use Selected Neo Result</button><button type="button" class="neo-btn secondary" id="videoH3ClearSourceVideoBtn" ${sourcePath ? '' : 'disabled'}>Clear source</button></div><div class="neo-ui-field-grid two compact"><label>Source soundtrack reference<select id="videoH3SourceVideoIncludeAudio"><option value="true" ${state.videoDraft.h3_source_video_include_audio !== false ? 'selected' : ''}>Use source soundtrack</option><option value="false" ${state.videoDraft.h3_source_video_include_audio === false ? 'selected' : ''}>Ignore source soundtrack</option></select></label></div>${NeoUI.metaList([sourcePath ? `Source: ${sourceName}` : 'Source: none selected', state.videoDraft.h3_source_result_id ? `Source result: ${state.videoDraft.h3_source_result_id}` : 'Source result: direct upload / not linked', 'H3 limits: source video consumes 1 of 3 video slots and 1 of 12 total reference files.'])}</div>${referencePanel}`;
+  }
   const canRun = videoCanExtendActiveResult();
   return `<div class="neo-ui-card" data-testid="video-vid2vid-source-panel"><strong>Video-to-Video Source</strong><p>Uses the selected Neo-owned Video result as source latents for a controlled LTX restyle/cleanup. Parent stays untouched; child output goes under <code>neo_data/outputs/video/vid2vid</code>.</p>${NeoUI.badgeRow([canRun ? 'Source video ready' : 'Select a result with a file', 'LTX only', 'Parent untouched', 'Restyle / cleanup'])}<div class="neo-ui-field-grid two compact"><label>Denoise Strength<input id="videoVid2VidDenoiseStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.videoDraft.vid2vid_denoise_strength ?? 0.45)}"></label><label>Motion Strength<input id="videoVid2VidMotionStrength" type="number" min="0" max="1" step="0.05" value="${escapeAttr(state.videoDraft.vid2vid_motion_strength ?? 0.85)}"></label><label>Frame Load Cap<input id="videoVid2VidFrameLoadCap" type="number" min="0" step="1" value="${escapeAttr(state.videoDraft.vid2vid_frame_load_cap || 0)}"></label><label>Preserve Audio<select id="videoVid2VidPreserveAudio"><option value="false" ${state.videoDraft.vid2vid_preserve_audio !== true ? 'selected' : ''}>Off / video only</option><option value="true" ${state.videoDraft.vid2vid_preserve_audio === true ? 'selected' : ''}>Intent only, guarded</option></select></label></div>${NeoUI.metaList([record?.result_id ? `Source result: ${record.result_id}` : 'Source result: none selected', file?.filename ? `Source file: ${file.filename}` : 'Source file: no attached Neo-owned video file'])}</div>`;
 }
@@ -6527,17 +6650,22 @@ function videoCompilerStatusHtml() {
   const canDepthMotion = videoCanQueueLtxDepthMotion();
   const canAudioVideo = videoCanQueueLtxAudioVideo();
   const canSchedule = videoCanQueueLtxSchedule();
-  const canRun = videoBackendConnected() && (canTxt || canImg || canGgufWanImg || canRapidAio || canLtx || canLtxImg || canFirstLast || canMultiScene || canExtend || canVid2Vid || canDepthMotion || canSchedule || canAudioVideo);
+  const isH3 = String(state.videoDraft.family || '').trim() === 'minimax_h3';
+  const canH3 = videoCanQueueMiniMaxH3();
+  const canRun = videoBackendConnected() && (canTxt || canImg || canGgufWanImg || canRapidAio || canLtx || canLtxImg || canFirstLast || canMultiScene || canExtend || canVid2Vid || canDepthMotion || canSchedule || canAudioVideo || canH3);
   const probe = activeVideoBackendProbe();
   const runtimePreflight = result?.runtime_preflight || state.videoLastRuntimePreflight || null;
   const probeStatus = probe?.backend?.status || 'not_checked';
-  const needsSource = (state.videoDraft.mode === 'img2vid' && !(canImg || canLtxImg || canRapidAio)) || (state.videoDraft.mode === 'first_last_frame' && !canFirstLast) || (state.videoDraft.mode === 'multiscene' && !canMultiScene) || (state.videoDraft.mode === 'extend' && !canExtend) || (state.videoDraft.mode === 'vid2vid' && !canVid2Vid) || (state.videoDraft.mode === 'depth_motion' && !canDepthMotion) || (state.videoDraft.mode === 'prompt_schedule' && !videoCanQueueLtxSchedule()) || (state.videoDraft.mode === 'audio_video' && !canAudioVideo);
-  const runnerLabel = canAudioVideo ? 'LTX 2.3 Audio-Video ready' : canDepthMotion ? 'LTX 2.3 Depth / Motion Control ready' : canVid2Vid ? 'LTX 2.3 Video-to-Video ready' : canExtend ? 'LTX 2.3 Extend ready' : canMultiScene ? 'LTX 2.3 MultiScene ready' : canFirstLast ? 'LTX 2.3 First/Last Frame ready' : canRapidAio ? `WAN Rapid AIO ${videoRapidAioFrameModeLabel()} ready` : canGgufWanImg ? 'WAN 2.2 GGUF Img2Vid ready' : canLtxImg ? 'LTX 2.3 Img2Vid ready' : canLtx ? 'LTX 2.3 Txt2Vid ready' : canTxt ? 'WAN 2.2 Txt2Vid ready' : canImg ? 'WAN 2.2 Img2Vid ready' : 'Waiting for selected route';
+  const mode = state.videoDraft.mode || 'txt2vid';
+  const needsSource = isH3 ? !canH3 : (mode === 'img2vid' && !(canImg || canLtxImg || canRapidAio)) || (mode === 'first_last_frame' && !canFirstLast) || (mode === 'multiscene' && !canMultiScene) || (mode === 'extend' && !canExtend) || (mode === 'vid2vid' && !canVid2Vid) || (mode === 'depth_motion' && !canDepthMotion) || (mode === 'prompt_schedule' && !videoCanQueueLtxSchedule()) || (mode === 'audio_video' && !canAudioVideo);
+  const h3RunnerLabel = mode === 'vid2vid' ? 'MiniMax H3 Video Edit / Ref2VA ready' : mode === 'reference_to_video' ? 'MiniMax H3 Ref2VA ready' : mode === 'first_last_frame' ? 'MiniMax H3 First/Last Frame ready' : mode === 'img2vid' ? 'MiniMax H3 Image-to-Video ready' : 'MiniMax H3 Text-to-Video ready';
+  const runnerLabel = isH3 && canH3 ? h3RunnerLabel : canAudioVideo ? 'LTX 2.3 Audio-Video ready' : canDepthMotion ? 'LTX 2.3 Depth / Motion Control ready' : canVid2Vid ? 'LTX 2.3 Video-to-Video ready' : canExtend ? 'LTX 2.3 Extend ready' : canMultiScene ? 'LTX 2.3 MultiScene ready' : canFirstLast ? 'LTX 2.3 First/Last Frame ready' : canRapidAio ? `WAN Rapid AIO ${videoRapidAioFrameModeLabel()} ready` : canGgufWanImg ? 'WAN 2.2 GGUF Img2Vid ready' : canLtxImg ? 'LTX 2.3 Img2Vid ready' : canLtx ? 'LTX 2.3 Txt2Vid ready' : canTxt ? 'WAN 2.2 Txt2Vid ready' : canImg ? 'WAN 2.2 Img2Vid ready' : 'Waiting for selected route';
+  const sourceStatus = isH3 && mode === 'vid2vid' ? `H3 source video: ${videoH3SourceVideoReady() ? (state.videoDraft.h3_source_video_name || 'selected') : 'missing'}` : mode === 'reference_to_video' ? `References: ${videoReferenceTotalCount()} staged` : mode === 'audio_video' ? `Audio prompt: ${videoAudioVideoReady() ? 'ready' : 'missing'}` : needsSource ? 'Source/input required' : mode === 'prompt_schedule' ? `Schedule beats: ${videoSchedulePromptEvents().length + videoScheduleMotionEvents().length}` : mode === 'depth_motion' ? `Depth/Motion source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : mode === 'vid2vid' ? `Video-to-Video source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : mode === 'extend' ? `Extend source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : mode === 'multiscene' ? `MultiScene: ${videoMultisceneSegments().filter((segment) => segment.image).length} segment image(s)` : videoIsWanRapidAioGgufRoute(route) && mode === 'img2vid' ? `Rapid AIO ${videoRapidAioFrameModeLabel()}: ${videoRapidAioSourceReady() ? 'source ready' : 'source required'}` : mode === 'first_last_frame' ? `First/Last: ${(state.videoDraft.first_image || state.videoDraft.source_image) ? 'first selected' : 'first missing'} · ${state.videoDraft.last_image ? 'last selected' : 'last missing'}` : `Source image: ${(state.videoDraft.source_image_name || state.videoDraft.source_image) ? 'selected' : 'not needed'}`;
   const statusRows = [
     `Run route: ${runnerLabel}`,
     `Route: ${route?.route_id || 'incompatible'}`,
     `Backend probe: ${humanize(probeStatus)}`,
-    state.videoDraft.mode === 'audio_video' ? `Audio prompt: ${videoAudioVideoReady() ? 'ready' : 'missing'}` : needsSource ? 'Source/input required' : state.videoDraft.mode === 'prompt_schedule' ? `Schedule beats: ${videoSchedulePromptEvents().length + videoScheduleMotionEvents().length}` : state.videoDraft.mode === 'depth_motion' ? `Depth/Motion source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : state.videoDraft.mode === 'vid2vid' ? `Video-to-Video source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : state.videoDraft.mode === 'extend' ? `Extend source: ${videoCanExtendActiveResult() ? 'selected result video' : 'missing result video'}` : state.videoDraft.mode === 'multiscene' ? `MultiScene: ${videoMultisceneSegments().filter((segment) => segment.image).length} segment image(s)` : videoIsWanRapidAioGgufRoute(route) && state.videoDraft.mode === 'img2vid' ? `Rapid AIO ${videoRapidAioFrameModeLabel()}: ${videoRapidAioSourceReady() ? 'source ready' : 'source required'}` : state.videoDraft.mode === 'first_last_frame' ? `First/Last: ${(state.videoDraft.first_image || state.videoDraft.source_image) ? 'first selected' : 'first missing'} · ${state.videoDraft.last_image ? 'last selected' : 'last missing'}` : `Source image: ${(state.videoDraft.source_image_name || state.videoDraft.source_image) ? 'selected' : 'not needed'}`,
+    sourceStatus,
     runtimePreflight ? `Runtime preflight: ${runtimePreflight.queue_allowed ? 'queue allowed' : `blocked · ${videoRuntimePreflightBlockSummary(runtimePreflight)}`}` : 'Runtime preflight: not checked',
     result ? `Last result: ${result.queued ? 'queued' : result.ok ? 'compiled' : 'failed'}` : 'Last result: none',
   ];
@@ -6557,6 +6685,7 @@ function videoCompilerStatusHtml() {
   const ggufActions = route?.route_id === 'wan22.gguf.img2vid_14b_dual_noise' ? '<button type="button" class="neo-btn secondary" id="videoRuntimePreflightBtn">Runtime preflight</button><button type="button" class="neo-btn secondary" id="videoApplyWanGgufFirstTestBtn">Apply safe WAN GGUF test preset</button>' : '';
   return `<div class="neo-ui-card neo-video-compiler" data-testid="video-compiler-panel" data-runtime-preflight-schema="neo.video.runtime_preflight.vg13"><strong>Run Status</strong><p>Shows whether the selected Video route is ready to compile or generate.</p>${NeoUI.badgeRow(statusRows)}${preflightRows.length ? NeoUI.metaList(preflightRows) : ''}${resultRows.length ? NeoUI.metaList(resultRows) : ''}${ggufActions ? `<div class="neo-ui-toolbar">${ggufActions}</div>` : ''}</div>`;
 }
+
 function videoEffectiveBucketSize(width, height, vram) {
   const requestedWidth = Math.max(256, Math.floor(Number(width || 832) / 16) * 16);
   const requestedHeight = Math.max(256, Math.floor(Number(height || 480) / 16) * 16);
@@ -52267,6 +52396,11 @@ function videoBackendOptionsForField(field) {
     auto_model: videoIsWanGgufDualNoiseRoute() ? '' : ((loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_models' : ''),
     auto_text_encoder: 'text_encoders',
     auto_vae: 'vaes',
+    model_name: (state.videoDraft.family || '') === 'minimax_h3' ? 'h3_route_models' : '',
+    clip_name: (state.videoDraft.family || '') === 'minimax_h3' ? 'text_encoders' : '',
+    vae_name: (state.videoDraft.family || '') === 'minimax_h3' ? 'h3_video_vaes' : '',
+    audio_vae_name: (state.videoDraft.family || '') === 'minimax_h3' ? 'h3_audio_vaes' : '',
+    h3_turbo_lora: (state.videoDraft.family || '') === 'minimax_h3' ? 'h3_turbo_loras' : '',
     video_loras: 'loras',
     wan_lightx2v_high_lora: 'wan_lightx2v_high_lora',
     wan_lightx2v_low_lora: 'wan_lightx2v_low_lora',
@@ -52287,6 +52421,12 @@ function videoBackendOptionsForField(field) {
   }
   if (kind === 'auto_text_projection') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_text_encoder_secondary' : 'text_encoders');
   if (kind === 'auto_vae') return profileModelOptionsForSurface('video', (loader === 'gguf' || loader === 'rapid_aio_gguf') ? 'gguf_vaes' : 'vaes');
+  if ((state.videoDraft.family || '') === 'minimax_h3') {
+    if (kind === 'model_name') return videoProfileModelOptionsAny((loader === 'gguf') ? ['gguf_models', 'diffusion_models'] : ['diffusion_models', 'gguf_models']);
+    if (kind === 'clip_name') return videoProfileModelOptionsAny(['text_encoders', 'gguf_text_encoder_primary', 'gguf_text_encoders']);
+    if (kind === 'vae_name' || kind === 'audio_vae_name') return videoProfileModelOptionsAny(['vaes', 'gguf_vaes']);
+    if (kind === 'h3_turbo_lora') return profileModelOptionsForSurface('video', 'loras');
+  }
   if (kind === 'video_loras' || kind === 'wan_lightx2v_high_lora' || kind === 'wan_lightx2v_low_lora') return profileModelOptionsForSurface('video', 'loras');
   return profileModelOptionsForSurface('video', kind);
 }
@@ -52304,7 +52444,7 @@ function videoParameterInputHtml(field, value, profile) {
   const minAttr = field.min !== undefined ? ` min="${escapeAttr(field.min)}"` : '';
   const stepAttr = field.step !== undefined ? ` step="${escapeAttr(field.step)}"` : '';
   const disabled = field.readonly ? ' disabled' : '';
-  if (field.type === 'backend_select') return optionSelect(id, videoBackendOptionsForField(field), value || (field.field_id === 'vae_name' ? 'automatic' : 'provider_default'));
+  if (field.type === 'backend_select') return optionSelect(id, videoBackendOptionsForField(field), value || (['vae_name', 'audio_vae_name'].includes(field.field_id) ? 'automatic' : 'provider_default'));
   if (field.type === 'select') return optionSelect(id, field.options || [], value);
   if (field.type === 'boolean') return optionSelect(id, VIDEO_BOOLEAN_OPTIONS, String(Boolean(value)));
   if (field.type === 'number') return `<input id="${id}" data-video-param="${escapeAttr(field.field_id)}" type="number"${minAttr}${maxAttr}${stepAttr} value="${escapeAttr(value)}"${disabled}>`;
@@ -52363,7 +52503,7 @@ function videoParameterPanelHtml() {
   };
   const lines = [
     renderLine('Performance', ['performance_profile', 'enable_sage_attention', 'sage_attention_mode', 'sage_attention_target', 'enable_teacache', 'teacache_profile', 'teacache_target', 'enable_cpu_offload', 'enable_vae_offload', 'enable_block_swap', 'block_swap_target', 'block_swap_blocks', 'enable_torch_compile', 'auto_resolve_vace_dimensions'], 'video-performance-vg13'),
-    renderLine('Models', ['wan_model_mode', 'model_name', 'clip_name', 'clip_name2', 'vae_name']),
+    renderLine('Models', ['wan_model_mode', 'model_name', 'clip_name', 'clip_name2', 'vae_name', 'audio_vae_name']),
     renderLine('WAN Dual Noise', ['high_noise_model', 'low_noise_model']),
     renderLine('Rapid AIO GGUF', ['rapid_aio_model', 'rapid_aio_text_encoder', 'rapid_aio_vae']),
     renderLine('Video LoRA / LightX2V', ['enable_video_lora', 'video_lora_mode', 'video_lora_model', 'video_lora_strength', 'video_lora_target', 'enable_lightx2v', 'high_noise_lora', 'low_noise_lora', 'high_noise_lora_strength', 'low_noise_lora_strength'], 'video-lora-vg8'),
@@ -52455,14 +52595,15 @@ function videoMultiscenePanelHtml() {
 
 function videoReferenceInputContract() {
   const mode = state.videoDraft.mode || 'txt2vid';
-  if (mode !== 'reference_to_video') return { supported: false, media_types: [], max_images: 0, max_videos: 0, max_audios: 0, max_total: 0, min_total: 0 };
+  const isH3Vid2Vid = !isCloudVideoProfile() && String(state.videoDraft.family || '').trim() === 'minimax_h3' && mode === 'vid2vid';
+  if (mode !== 'reference_to_video' && !isH3Vid2Vid) return { supported: false, media_types: [], max_images: 0, max_videos: 0, max_audios: 0, max_total: 0, min_total: 0 };
   if (isCloudVideoProfile()) {
     const contract = videoActiveBackendProfile()?.reference_input || {};
     return { supported: Boolean(contract.supported), media_types: Array.isArray(contract.media_types) ? contract.media_types : ['image'], max_images: Number(contract.max_images || 0), max_videos: Number(contract.max_videos || 0), max_audios: Number(contract.max_audios || 0), max_total: Number(contract.max_total || contract.max_images || 0), min_total: Number(contract.min_total || 1), prompt_reference_style: contract.prompt_reference_style || '<IMAGE_1> ...', audio_requires_visual_reference: Boolean(contract.audio_requires_visual_reference) };
   }
   const route = videoFindRoute();
   const contract = route?.parameter_profile?.reference_input || {};
-  return { supported: Boolean(contract.supported), media_types: Array.isArray(contract.media_types) ? contract.media_types : [], max_images: Number(contract.max_images || 0), max_videos: Number(contract.max_videos || 0), max_audios: Number(contract.max_audios || 0), max_total: Number(contract.max_total || 0), min_total: Number(contract.min_total || 1), prompt_reference_style: contract.prompt_reference_style || '', audio_requires_visual_reference: Boolean(contract.audio_requires_visual_reference) };
+  return { supported: Boolean(contract.supported), media_types: Array.isArray(contract.media_types) ? contract.media_types : [], max_images: Number(contract.max_images || 0), max_videos: Number(contract.max_videos || 0), max_audios: Number(contract.max_audios || 0), max_total: Number(contract.max_total || 0), min_total: Number(contract.min_total ?? (isH3Vid2Vid ? 0 : 1)), prompt_reference_style: contract.prompt_reference_style || '', audio_requires_visual_reference: Boolean(contract.audio_requires_visual_reference) };
 }
 
 function videoReferenceItems(kind = 'image') {
@@ -52489,7 +52630,8 @@ function videoH3ReferencePanelHtml() {
 
 function videoReferencePanelHtml() {
   const contract = videoReferenceInputContract();
-  if (!contract.supported) return NeoUI.emptyState('Reference-to-Video is unavailable for this route.', 'Select a provider/model route that declares reference input support.');
+  const isH3Vid2Vid = !isCloudVideoProfile() && String(state.videoDraft.family || '').trim() === 'minimax_h3' && (state.videoDraft.mode || '') === 'vid2vid';
+  if (!contract.supported) return NeoUI.emptyState(isH3Vid2Vid ? 'Additional H3 references are unavailable for this route.' : 'Reference-to-Video is unavailable for this route.', 'Select a provider/model route that declares reference input support.');
   const kinds = contract.media_types || [];
   const counts = { image: videoReferenceItems('image').length, video: videoReferenceItems('video').length, audio: videoReferenceItems('audio').length };
   const maximums = { image: contract.max_images, video: contract.max_videos, audio: contract.max_audios };
@@ -52504,7 +52646,10 @@ function videoReferencePanelHtml() {
   }).join('');
   const promptStyle = contract.prompt_reference_style ? `Prompt tags: ${contract.prompt_reference_style}` : 'Reference order is preserved in the provider payload.';
   const audioRule = contract.audio_requires_visual_reference ? 'Audio cannot be the only reference type.' : '';
-  return `<div class="neo-ui-card" data-testid="video-shared-reference-inputs" data-schema="neo.video.reference_input_contract.v1"><strong>Reference-to-Video Inputs</strong><p>Shared Neo reference UI; the selected provider/route owns media types and limits.</p>${NeoUI.badgeRow([`Total ${total}/${contract.max_total}`, ...kinds.map((kind) => `${videoReferenceKindLabel(kind)} ${counts[kind]}/${maximums[kind]}`)])}${cards}${NeoUI.metaList([promptStyle, audioRule].filter(Boolean), { code: false })}</div>`;
+  const title = isH3Vid2Vid ? 'Additional H3 Edit References' : 'Reference-to-Video Inputs';
+  const copy = isH3Vid2Vid ? 'The source video is already <Video 1>. Add optional identity/style images, up to two more videos, or audio references here; Neo preserves reference order for H3 Ref2VA.' : 'Shared Neo reference UI; the selected provider/route owns media types and limits.';
+  const totalBadge = isH3Vid2Vid ? `Additional ${total}/${contract.max_total} · H3 total ${total + 1}/12` : `Total ${total}/${contract.max_total}`;
+  return `<div class="neo-ui-card" data-testid="video-shared-reference-inputs" data-schema="neo.video.reference_input_contract.v1"><strong>${title}</strong><p>${copy}</p>${NeoUI.badgeRow([totalBadge, ...kinds.map((kind) => `${videoReferenceKindLabel(kind)} ${counts[kind]}/${maximums[kind]}`)])}${cards}${NeoUI.metaList([promptStyle, audioRule].filter(Boolean), { code: false })}</div>`;
 }
 
 async function uploadVideoReferenceFile(file, kind = 'image') {
@@ -52603,6 +52748,7 @@ function videoSourcePanelHtml() {
   const isExtend = state.videoDraft.mode === 'extend';
   const isVid2Vid = state.videoDraft.mode === 'vid2vid';
   const isDepthMotion = state.videoDraft.mode === 'depth_motion';
+  if (isVid2Vid && String(state.videoDraft.family || '').trim() === 'minimax_h3') return videoVid2VidSourcePanelHtml();
   const hasSource = Boolean(state.videoDraft.source_image || state.videoDraft.source_image_url);
   const hasFirst = Boolean(state.videoDraft.first_image || state.videoDraft.first_image_url || state.videoDraft.source_image || state.videoDraft.source_image_url);
   const hasLast = Boolean(state.videoDraft.last_image || state.videoDraft.last_image_url);
@@ -53175,13 +53321,14 @@ async function addVideoOutputCategory() {
 }
 
 function videoGenerationWorkspaceLeftHtml() {
-  const builtIns = videoBuiltInToolsHtml('generation');
+  const handled = new Set([...VIDEO_NATIVE_BUILTIN_EXTENSION_IDS, 'video.output_recorder']);
+  const builtIns = videoBuiltInToolsHtml('generation', handled);
   const externals = videoExternalExtensionsHtml('generation');
   const diagnostics = state.detailMode === 'expert' ? `<details class="neo-video-expert-diagnostics" data-testid="video-generation-expert-diagnostics"><summary>Route + backend diagnostics</summary>${videoRouteMatrixHtml()}${videoExternalNodeManagerHtml()}</details>` : '';
   if (isCloudVideoProfile()) {
-    return `${videoCloudWorkspaceSummaryHtml()}${builtIns}${externals}${videoOutputPathsCardHtml({ compact: true })}`;
+    return `${videoCloudWorkspaceSummaryHtml()}${builtIns}${externals}`;
   }
-  return `${videoBackendProbeSummaryHtml()}${videoNativeBuiltInToolHtml('video.vram_profile_advisor', videoVramEngineSummaryHtml())}${builtIns}${externals}${diagnostics}${videoOutputPathsCardHtml({ compact: state.detailMode !== 'expert' })}`;
+  return `${videoBackendProbeSummaryHtml()}${videoNativeBuiltInToolHtml('video.vram_profile_advisor', videoVramEngineSummaryHtml())}${builtIns}${externals}${diagnostics}`;
 }
 
 function videoAssetInventoryHtml() {
@@ -53195,7 +53342,7 @@ function videoAssetInventoryHtml() {
     d.last_image_name || d.last_image ? `Last frame: ${d.last_image_name || d.last_image}` : 'Last frame: none selected',
     `MultiScene inputs: ${segments.filter((item) => item.image).length}/${Math.max(segments.length, 0)} image segments ready`,
     `Reference inputs: ${videoReferenceItems('image').length} image · ${videoReferenceItems('video').length} video · ${videoReferenceItems('audio').length} audio`,
-    videoCloudSourceVideoPath() ? `Cloud source video: ${state.videoDraft.cloud_source_video_name || videoCloudSourceVideoPath()}` : (sourceFile?.filename ? `Selected result video: ${sourceFile.filename}` : 'Selected result video: none attached'),
+    videoH3SourceVideoPath() ? `H3 source video: ${state.videoDraft.h3_source_video_name || videoH3SourceVideoPath()}` : videoCloudSourceVideoPath() ? `Cloud source video: ${state.videoDraft.cloud_source_video_name || videoCloudSourceVideoPath()}` : (sourceFile?.filename ? `Selected result video: ${sourceFile.filename}` : 'Selected result video: none attached'),
   ];
   return `<div class="neo-ui-card neo-video-asset-inventory" data-testid="video-asset-inventory"><strong>Active Asset Inventory</strong><p>Assets reflects the inputs currently staged for Video workflows. Changing workspace does not change the selected generation type.</p>${NeoUI.metaList(rows)}</div>`;
 }
@@ -55495,7 +55642,6 @@ function renderVideoPanels(surface, subtab) {
   right.className = 'neo-workspace-column neo-workspace-right neo-video-workspace-right';
 
   if (app.id === 'generation') {
-    appendNeoFirstRunPanel(left, 'video', 'Video quick start');
     appendVideoWorkspaceHtml(left, videoGenerationWorkspaceLeftHtml(), 'video-generation-workspace-stack');
 
     const mode = state.videoDraft.mode || 'txt2vid';
@@ -55504,7 +55650,6 @@ function renderVideoPanels(surface, subtab) {
     }
     if (mode === 'prompt_schedule') left.appendChild(panel('Prompt / Motion Schedule', videoNativeBuiltInToolHtml('video.prompt_motion_schedule', videoSchedulePanelHtml()), false, 'schedule'));
     if (mode === 'audio_video') left.appendChild(panel('Audio-Video', videoNativeBuiltInToolHtml('video.audio_video', videoAudioVideoPanelHtml()), false, 'audio-video'));
-    left.appendChild(panel('Route Status', videoGenerationRouteStatusHtml(), false, 'safe'));
   } else if (app.id === 'assets') {
     appendVideoWorkspaceHtml(left, videoAssetsWorkspaceHtml(), 'video-assets-workspace-stack');
     left.appendChild(panel('Active Source Inputs', videoSourcePanelHtml(), false, 'assets-source-inputs'));
@@ -55719,6 +55864,13 @@ function renderVideoPanels(surface, subtab) {
   document.getElementById('videoCloudClearSourceVideoBtn')?.addEventListener('click', () => {
     state.videoDraft.cloud_source_video = ''; state.videoDraft.cloud_source_video_name = ''; state.videoDraft.cloud_source_result_id = ''; saveUiState(); render();
   });
+
+  document.getElementById('videoH3SourceVideoUpload')?.addEventListener('change', async (event) => {
+    try { await uploadVideoH3SourceVideo(event.target.files?.[0]); } catch (error) { window.alert(error.message || 'H3 source video upload failed'); }
+  });
+  document.getElementById('videoH3UseSelectedResultBtn')?.addEventListener('click', () => useSelectedResultAsH3SourceVideo());
+  document.getElementById('videoH3ClearSourceVideoBtn')?.addEventListener('click', () => clearVideoH3SourceVideo());
+  document.getElementById('videoH3SourceVideoIncludeAudio')?.addEventListener('change', (event) => { state.videoDraft.h3_source_video_include_audio = event.target.value !== 'false'; saveUiState(); render(); });
 
   document.getElementById('videoRapidAioFrameMode')?.addEventListener('change', (event) => {
     const value = event.target.value || 'start_frame';

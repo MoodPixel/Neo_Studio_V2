@@ -102,6 +102,12 @@ VIDEO_ROUTES: Final[tuple[VideoRoute, ...]] = (
         ("UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
     ),
     VideoRoute(
+        "minimax_h3.unet.vid2vid", "minimax_h3", "unet", "vid2vid", "enabled", "H3-R2", False,
+        ("MiniMax H3 video-editing UX backed by the Ref2VA checkpoint and MiniMaxH3ReferenceToVideo conditioning.", "The source video is <Video 1>; its soundtrack can be included as an H3 audio reference, with optional additional multimodal references."),
+        {"width": 1344, "height": 768, "frames": 124, "fps": 24, "steps": 20, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "source_video_required": True, "preserve_audio": True, "h3_ref_image_size": "match", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard", "reference_input": {"schema_version": "neo.video.reference_input_contract.v1", "supported": True, "media_types": ["image", "video", "audio"], "max_images": 9, "max_videos": 2, "max_audios": 3, "max_total": 11, "min_total": 0, "audio_requires_visual_reference": False, "prompt_reference_style": "<Video 1> = edit source; optional <Picture i>, <Video 2+>, <Audio i>"}},
+        ("UNETLoader", "CLIPLoader", "VAELoader", "LoadVideo", "GetVideoComponents", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
         "minimax_h3.gguf.txt2vid", "minimax_h3", "gguf", "txt2vid", "experimental", "H3-R1", False,
         ("Experimental low-VRAM H3 T2VA through ComfyUI-GGUF-compatible loaders.",),
         {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard"},
@@ -124,6 +130,12 @@ VIDEO_ROUTES: Final[tuple[VideoRoute, ...]] = (
         ("Experimental GGUF H3 Ref2VA lane with multimodal semantic references.",),
         {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "h3_ref_image_size": "match", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard", "reference_input": {"schema_version": "neo.video.reference_input_contract.v1", "supported": True, "media_types": ["image", "video", "audio"], "max_images": 9, "max_videos": 3, "max_audios": 3, "max_total": 12, "min_total": 1, "audio_requires_visual_reference": True, "prompt_reference_style": "<Picture i>, <Video i>, <Audio i>"}},
         ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
+    ),
+    VideoRoute(
+        "minimax_h3.gguf.vid2vid", "minimax_h3", "gguf", "vid2vid", "experimental", "H3-R2", False,
+        ("Experimental GGUF MiniMax H3 video-editing UX backed by Ref2VA.", "The source video is reserved as <Video 1>; optional extra references share the remaining Ref2VA limits."),
+        {"width": 960, "height": 544, "frames": 124, "fps": 24, "steps": 12, "guidance": 1.0, "sampler": "res_multistep", "scheduler": "simple", "source_video_required": True, "preserve_audio": True, "h3_ref_image_size": "match", "h3_shift_video": 12.0, "h3_shift_audio": 3.0, "h3_acceleration_mode": "off", "h3_turbo_enabled": False, "decode_mode": "standard", "reference_input": {"schema_version": "neo.video.reference_input_contract.v1", "supported": True, "media_types": ["image", "video", "audio"], "max_images": 9, "max_videos": 2, "max_audios": 3, "max_total": 11, "min_total": 0, "audio_requires_visual_reference": False, "prompt_reference_style": "<Video 1> = edit source; optional <Picture i>, <Video 2+>, <Audio i>"}},
+        ("UnetLoaderGGUF", "CLIPLoaderGGUF", "VAELoader", "LoadVideo", "GetVideoComponents", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo"),
     ),
     VideoRoute(
         "wan22.unet.txt2vid",

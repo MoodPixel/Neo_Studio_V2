@@ -165,37 +165,69 @@ def _comfy_history_entry(history: dict[str, Any], prompt_id: str) -> dict[str, A
 
 
 def _comfy_output_candidates(history_entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize Comfy history media across legacy and core SaveVideo UI payloads.
+
+    Core SaveVideo commonly reports an MP4 through the historical ``images`` UI key.
+    Depending on Comfy/proxy version, the path can arrive as ``filename`` + ``subfolder``,
+    a single ``path`` value such as ``video/Foo.mp4``, or inside a nested ``ui`` object.
+    Neo normalizes all of those forms before calling /view.
+    """
     outputs = history_entry.get("outputs") if isinstance(history_entry, dict) else {}
     if not isinstance(outputs, dict):
         return []
+
     candidates: list[dict[str, Any]] = []
-    media_keys = ("videos", "gifs", "animated", "images", "files")
+    seen: set[tuple[str, str, str, str, str]] = set()
+    preferred_keys = ("videos", "gifs", "images", "files", "animated")
+
+    def iter_buckets(node_output: dict[str, Any]):
+        containers: list[tuple[str, dict[str, Any]]] = [("", node_output)]
+        for nested_key in ("ui", "result", "outputs"):
+            nested = node_output.get(nested_key)
+            if isinstance(nested, dict):
+                containers.append((nested_key, nested))
+        for prefix, container in containers:
+            ordered = list(preferred_keys) + [key for key in container.keys() if key not in preferred_keys]
+            for key in ordered:
+                items = container.get(key)
+                if isinstance(items, list):
+                    yield (f"{prefix}.{key}" if prefix else key), items
+
     for node_id, node_output in outputs.items():
         if not isinstance(node_output, dict):
             continue
-        for key in media_keys:
-            items = node_output.get(key)
-            if not isinstance(items, list):
-                continue
+        for key, items in iter_buckets(node_output):
             for index, item in enumerate(items):
+                raw_path = ""
                 if isinstance(item, str):
-                    filename = Path(item).name
-                    source = {"filename": filename, "subfolder": "", "type": "output"}
+                    raw_path = item.strip()
+                    if not raw_path:
+                        continue
+                    source = {"filename": Path(raw_path).name, "subfolder": "", "type": "output"}
                 elif isinstance(item, dict):
-                    filename = str(item.get("filename") or item.get("name") or item.get("path") or "").strip()
-                    if not filename:
+                    raw_path = str(item.get("path") or item.get("filename") or item.get("name") or "").strip()
+                    if not raw_path:
                         continue
                     source = dict(item)
-                    source["filename"] = Path(filename).name
+                    source["filename"] = Path(raw_path).name
                     source.setdefault("subfolder", str(item.get("subfolder") or ""))
                     source.setdefault("type", str(item.get("type") or "output"))
                 else:
                     continue
+
+                # Some core/proxy history payloads encode "video/Foo.mp4" as one path
+                # instead of splitting subfolder + filename. Preserve that folder for /view.
+                if not str(source.get("subfolder") or "").strip():
+                    normalized = raw_path.replace("\\", "/")
+                    parent = Path(normalized).parent.as_posix()
+                    if parent not in {"", "."}:
+                        source["subfolder"] = parent
+
                 suffix = Path(str(source.get("filename") or "")).suffix.lower()
                 role = "video" if suffix in VIDEO_OUTPUT_EXTENSIONS else "preview" if suffix in VIDEO_PREVIEW_EXTENSIONS else ""
                 if not role:
                     continue
-                candidates.append({
+                candidate = {
                     "node_id": str(node_id),
                     "output_key": key,
                     "output_index": index,
@@ -204,7 +236,12 @@ def _comfy_output_candidates(history_entry: dict[str, Any]) -> list[dict[str, An
                     "subfolder": str(source.get("subfolder") or ""),
                     "type": str(source.get("type") or "output"),
                     "source": source,
-                })
+                }
+                dedupe = (candidate["node_id"], candidate["filename"], candidate["subfolder"], candidate["type"], candidate["role"])
+                if dedupe in seen:
+                    continue
+                seen.add(dedupe)
+                candidates.append(candidate)
     return candidates
 
 
@@ -857,8 +894,10 @@ def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = 
     prompt_id = str(((record.get("backend") or {}).get("prompt_id")) or "")
     if not prompt_id:
         return {"ok": False, "record": record, "error": "No ComfyUI prompt_id is stored for this video result."}
-    profile = video_backend_profile_payload(profile_id or ((record.get("backend") or {}).get("profile_id")))
-    base_url = profile["connection"]["base_url"]
+    backend_record = record.get("backend") if isinstance(record.get("backend"), dict) else {}
+    profile = video_backend_profile_payload(profile_id or backend_record.get("profile_id"))
+    stored_base_url = str(backend_record.get("base_url") or "").strip()
+    base_url = stored_base_url or str((profile.get("connection") or {}).get("base_url") or "").strip()
     try:
         req = Request(urljoin(base_url.rstrip("/") + "/", f"history/{prompt_id}"), headers={"Accept": "application/json", "User-Agent": "NeoStudioVideoResults/1.0"})
         with urlopen(req, timeout=timeout) as response:  # noqa: S310 - local ComfyUI endpoint.
@@ -898,6 +937,7 @@ def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = 
         "history_seen": bool(history),
         "history_entry_seen": bool(entry),
         "candidate_count": len(candidates),
+        "candidate_keys": sorted({str(item.get("output_key") or "") for item in candidates if isinstance(item, dict)}),
         "imported_count": int(import_payload.get("imported_count") or 0),
         "attached_video_count": len(files),
         "attached_preview_count": len(previews),

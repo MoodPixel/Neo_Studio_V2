@@ -169,7 +169,7 @@ def _h3_dynamic_catalogs(object_info: dict[str, Any], loader: str, generation_ty
         return any(needle.casefold().replace("-", "_") in low for needle in needles)
 
     h3_models = [value for value in model_values if has_any(value, ("minimax_h3", "minimax-h3", "h3_"))]
-    if generation_type == "reference_to_video":
+    if generation_type in {"reference_to_video", "vid2vid"}:
         route_models = [value for value in h3_models if has_any(value, ("ref2va", "ref2v", "ref"))]
     else:
         route_models = [value for value in h3_models if has_any(value, ("fl2va", "fl2v", "i2v"))]
@@ -336,7 +336,7 @@ def video_model_discovery_from_object_info(
         }.get(key)) for key, values in catalogs.items()}
         base_payload.update({
             "schema_version": "neo.video.model_discovery.h3.v1",
-            "phase": "H3-R1",
+            "phase": "H3-R2",
             "catalog_ready": bool(route_models and text_encoders and video_vaes and audio_vaes and selected_clip_loader_ready),
             "field_sources": {
                 "model_name": "live_h3_model_loader", "clip_name": "live_h3_native_plus_gguf_clip_loaders",

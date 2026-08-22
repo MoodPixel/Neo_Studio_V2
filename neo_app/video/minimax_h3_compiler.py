@@ -19,11 +19,11 @@ from neo_app.video.output_records import register_video_generation_result
 from neo_app.video.parameter_profiles import video_parameter_profile_payload
 from neo_app.video.route_matrix import find_video_route, normalize_video_family, normalize_video_generation_type, normalize_video_loader
 
-SCHEMA_VERSION: Final[str] = "neo.video.minimax_h3.compiler.v1"
-PHASE: Final[str] = "H3-R1"
+SCHEMA_VERSION: Final[str] = "neo.video.minimax_h3.compiler.v2"
+PHASE: Final[str] = "H3-R2"
 H3_FAMILY: Final[str] = "minimax_h3"
 SUPPORTED_LOADERS: Final[set[str]] = {"unet", "gguf"}
-SUPPORTED_TYPES: Final[set[str]] = {"txt2vid", "img2vid", "first_last_frame", "reference_to_video"}
+SUPPORTED_TYPES: Final[set[str]] = {"txt2vid", "img2vid", "first_last_frame", "reference_to_video", "vid2vid"}
 H3_FPS: Final[int] = 24
 H3_FRAME_MODULUS: Final[int] = 17
 H3_FRAME_REMAINDER: Final[int] = 5
@@ -108,6 +108,12 @@ class MiniMaxH3CompileRequest:
     last_image: str = ""
     last_image_name: str = ""
     last_image_comfy_name: str = ""
+    source_video_path: str = ""
+    source_video_name: str = ""
+    source_video_comfy_name: str = ""
+    source_result_id: str = ""
+    source_file_id: str = ""
+    preserve_audio: bool = True
     h3_keyframe_role: str = "first"
     h3_ref_image_size: str = "match"
     h3_shift_video: float = 12.0
@@ -150,6 +156,8 @@ class MiniMaxH3CompileRequest:
             source_image=str(data.get("source_image") or data.get("source_image_path") or ""), source_image_name=str(data.get("source_image_name") or ""), source_image_comfy_name=str(data.get("source_image_comfy_name") or data.get("comfy_source_image_name") or ""),
             first_image=str(data.get("first_image") or data.get("first_image_path") or ""), first_image_name=str(data.get("first_image_name") or ""), first_image_comfy_name=str(data.get("first_image_comfy_name") or ""),
             last_image=str(data.get("last_image") or data.get("last_image_path") or ""), last_image_name=str(data.get("last_image_name") or ""), last_image_comfy_name=str(data.get("last_image_comfy_name") or ""),
+            source_video_path=str(data.get("source_video_path") or data.get("source_video") or ""), source_video_name=str(data.get("source_video_name") or ""), source_video_comfy_name=str(data.get("source_video_comfy_name") or ""),
+            source_result_id=str(data.get("source_result_id") or ""), source_file_id=str(data.get("source_file_id") or ""), preserve_audio=_bool(data.get("preserve_audio", True)),
             h3_keyframe_role=str(data.get("h3_keyframe_role") or "first"), h3_ref_image_size=str(data.get("h3_ref_image_size") or "match"),
             h3_shift_video=float(data.get("h3_shift_video", 12.0) or 12.0), h3_shift_audio=float(data.get("h3_shift_audio", 3.0) or 3.0),
             h3_turbo_enabled=_bool(data.get("h3_turbo_enabled", False)), h3_turbo_lora=str(data.get("h3_turbo_lora") or ""), h3_turbo_strength=float(data.get("h3_turbo_strength", 1.0) or 1.0),
@@ -381,7 +389,7 @@ def discover_minimax_h3_bindings(req: MiniMaxH3CompileRequest, object_info: dict
     clip_values = _combo_values(info, clip_loader, "clip_name", "text_encoder_name")
     vae_values = _combo_values(info, classes["vae_loader"], "vae_name", "ckpt_name")
     lora_values = _combo_values(info, classes["lora"], "lora_name") if classes["lora"] else []
-    is_ref = normalize_video_generation_type(req.generation_type) == "reference_to_video"
+    is_ref = normalize_video_generation_type(req.generation_type) in {"reference_to_video", "vid2vid"}
     route_key = "ref2va" if is_ref else "fl2va"
     model_needles = ("minimax_h3_ref2va", "h3_ref2va", "ref2va") if is_ref else ("minimax_h3_fl2va", "h3_fl2va", "fl2va")
     clip_needles = ("minimax_h3", "qwen3vl", "qwen3_vl")
@@ -429,19 +437,22 @@ def _validate_request(req: MiniMaxH3CompileRequest) -> list[str]:
             errors.append("MiniMax H3 First/Last Frame requires a first image.")
         if not (req.last_image or req.last_image_name or req.last_image_comfy_name):
             errors.append("MiniMax H3 First/Last Frame requires a last image.")
-    if mode == "reference_to_video":
+    if mode in {"reference_to_video", "vid2vid"}:
         ni, nv, na = len(req.h3_reference_images), len(req.h3_reference_videos), len(req.h3_reference_audios)
+        source_video_count = 1 if mode == "vid2vid" else 0
+        if mode == "vid2vid" and not (req.source_video_path or req.source_video_name or req.source_video_comfy_name):
+            errors.append("MiniMax H3 Video-to-Video requires one source video.")
         if ni > 9:
             errors.append("MiniMax H3 Ref2VA accepts at most 9 reference images.")
-        if nv > 3:
-            errors.append("MiniMax H3 Ref2VA accepts at most 3 reference videos.")
+        if nv + source_video_count > 3:
+            errors.append("MiniMax H3 Ref2VA accepts at most 3 reference videos including the Video-to-Video source.")
         if na > 3:
             errors.append("MiniMax H3 Ref2VA accepts at most 3 standalone reference audio files.")
-        if ni + nv + na > 12:
-            errors.append("MiniMax H3 Ref2VA accepts at most 12 combined reference files.")
-        if na and not (ni or nv):
+        if ni + nv + na + source_video_count > 12:
+            errors.append("MiniMax H3 Ref2VA accepts at most 12 combined reference files including the Video-to-Video source.")
+        if mode == "reference_to_video" and na and not (ni or nv):
             errors.append("MiniMax H3 reference audio cannot be the only reference type; add at least one image or video reference.")
-        if not (ni or nv or na):
+        if mode == "reference_to_video" and not (ni or nv or na):
             errors.append("MiniMax H3 Omni Reference requires at least one reference image or video.")
     if req.h3_acceleration_mode not in {"off", "spectrum", "block_cache"}:
         errors.append("H3 acceleration must be off, spectrum, or block_cache.")
@@ -476,7 +487,7 @@ def _normalized_parameters(req: MiniMaxH3CompileRequest) -> tuple[dict[str, Any]
             notes.append("H3 Turbo audio shift is outside the commonly tested 4-6 range; distorted or unstable audio can result with incompatible few-step scheduling.")
     if req.h3_acceleration_mode in {"spectrum", "block_cache"}:
         notes.append("The selected H3 accelerator is approximate and can change motion, anatomy, audio, timing, or synchronization even with the same seed.")
-    if normalize_video_generation_type(req.generation_type) == "reference_to_video" and req.h3_reference_videos:
+    if normalize_video_generation_type(req.generation_type) in {"reference_to_video", "vid2vid"} and (req.h3_reference_videos or req.source_video_path or req.source_video_name or req.source_video_comfy_name):
         notes.append("H3 reference-video frame batches are interpreted at 24 FPS. Use 24 FPS reference clips when exact reference timing matters.")
     return {
         "width": width, "height": height, "frames": frames, "fps": H3_FPS,
@@ -618,7 +629,7 @@ def build_minimax_h3_workflow(req: MiniMaxH3CompileRequest, object_info: dict[st
         first_ref, last_ref = [first_id, 0], [last_id, 0]
 
     condition_id = str(next_id)
-    if mode == "reference_to_video":
+    if mode in {"reference_to_video", "vid2vid"}:
         cond_inputs: dict[str, Any] = {
             "clip": [clip_id, 0], "vae": [video_vae_id, 0], "audio_vae": [audio_vae_id, 0],
             "prompt": req.prompt.strip(), "width": params["width"], "height": params["height"], "length": params["frames"],
@@ -629,13 +640,24 @@ def build_minimax_h3_workflow(req: MiniMaxH3CompileRequest, object_info: dict[st
             node_id = str(next_id + 1); workflow[node_id] = {"class_type": classes["load_image"], "inputs": {"image": name}}
             cond_inputs[f"ref_images.ref_image_{index}"] = [node_id, 0]
             next_id += 1
-        for index, media in enumerate(req.h3_reference_videos[:3]):
+        video_index_offset = 0
+        if mode == "vid2vid":
+            source_name = req.source_video_comfy_name or req.source_video_name or Path(req.source_video_path).name
+            load_id = str(next_id + 1); workflow[load_id] = {"class_type": classes["load_video"], "inputs": {"file": source_name}}
+            comp_id = str(next_id + 2); workflow[comp_id] = {"class_type": classes["video_components"], "inputs": {"video": [load_id, 0]}}
+            cond_inputs["ref_videos.ref_video_0"] = [comp_id, 0]
+            if req.preserve_audio:
+                cond_inputs["ref_video_audios.ref_video_audio_0"] = [comp_id, 1]
+            next_id += 2
+            video_index_offset = 1
+        for index, media in enumerate(req.h3_reference_videos[: 3 - video_index_offset]):
             name = _media_input_name(media)
             load_id = str(next_id + 1); workflow[load_id] = {"class_type": classes["load_video"], "inputs": {"file": name}}
             comp_id = str(next_id + 2); workflow[comp_id] = {"class_type": classes["video_components"], "inputs": {"video": [load_id, 0]}}
-            cond_inputs[f"ref_videos.ref_video_{index}"] = [comp_id, 0]
+            target_index = index + video_index_offset
+            cond_inputs[f"ref_videos.ref_video_{target_index}"] = [comp_id, 0]
             if media.include_audio:
-                cond_inputs[f"ref_video_audios.ref_video_audio_{index}"] = [comp_id, 1]
+                cond_inputs[f"ref_video_audios.ref_video_audio_{target_index}"] = [comp_id, 1]
             next_id += 2
         for index, media in enumerate(req.h3_reference_audios[:3]):
             name = _media_input_name(media)
@@ -671,8 +693,8 @@ def build_minimax_h3_workflow(req: MiniMaxH3CompileRequest, object_info: dict[st
         "parameters": {key: value for key, value in params.items() if key != "profile"}, "profile": params["profile"],
         "bindings": bindings, "workflow": workflow, "prompt_api_payload": {"prompt": workflow, "client_id": client_id}, "client_id": client_id, "normalization_notes": notes,
         "h3": {
-            "native_audio": True, "audio_channels": "stereo", "fps": H3_FPS, "conditioning": "ref2va" if mode == "reference_to_video" else "fl2va",
-            "keyframe_role": req.h3_keyframe_role, "reference_counts": {"images": len(req.h3_reference_images), "videos": len(req.h3_reference_videos), "audios": len(req.h3_reference_audios)},
+            "native_audio": True, "audio_channels": "stereo", "fps": H3_FPS, "conditioning": "ref2va" if mode in {"reference_to_video", "vid2vid"} else "fl2va",
+            "keyframe_role": req.h3_keyframe_role, "source_video": bool(req.source_video_path or req.source_video_name or req.source_video_comfy_name), "source_video_audio": bool(req.preserve_audio) if mode == "vid2vid" else None, "reference_counts": {"images": len(req.h3_reference_images), "videos": len(req.h3_reference_videos) + (1 if mode == "vid2vid" else 0), "audios": len(req.h3_reference_audios)},
             "acceleration": req.h3_acceleration_mode, "turbo": req.h3_turbo_enabled,
         },
         "rules": [
@@ -740,9 +762,9 @@ def video_minimax_h3_compile_payload(payload: dict[str, Any] | None = None, obje
         }
     selected_model = req.model_name or req.gguf_name or req.unet_name or bindings["models"]["model_name"]
     low_model = selected_model.casefold()
-    if nt == "reference_to_video" and "fl2va" in low_model:
-        return {"schema_version": SCHEMA_VERSION, "surface": "video", "phase": PHASE, "ok": False, "queued": False, "error": "H3 Omni Reference requires a Ref2VA model, but the selected model looks like FL2VA.", "request": req.payload(), "route": route.payload()}
-    if nt != "reference_to_video" and "ref2va" in low_model:
+    if nt in {"reference_to_video", "vid2vid"} and "fl2va" in low_model:
+        return {"schema_version": SCHEMA_VERSION, "surface": "video", "phase": PHASE, "ok": False, "queued": False, "error": "H3 Ref2VA/Video-to-Video requires a Ref2VA model, but the selected model looks like FL2VA.", "request": req.payload(), "route": route.payload()}
+    if nt not in {"reference_to_video", "vid2vid"} and "ref2va" in low_model:
         return {"schema_version": SCHEMA_VERSION, "surface": "video", "phase": PHASE, "ok": False, "queued": False, "error": "H3 text/keyframe routes require an FL2VA model, but the selected model looks like Ref2VA.", "request": req.payload(), "route": route.payload()}
 
     readiness = route_node_readiness(route.route_id, object_info) if object_info else {"ready": False, "missing_required": [], "missing_recommended": []}
@@ -814,6 +836,13 @@ def video_minimax_h3_generate_payload(payload: dict[str, Any] | None = None, obj
         if not first.get("ok"): handoff_errors.append(first.get("error") or "H3 first-frame handoff failed")
         if not last.get("ok"): handoff_errors.append(last.get("error") or "H3 last-frame handoff failed")
     elif mode == "reference_to_video":
+        data, logs, errors = _handoff_references(data, base_url, timeout)
+        handoff_logs.extend(logs); handoff_errors.extend(errors)
+    elif mode == "vid2vid":
+        data, source = _handoff_single(data, "source_video_path", "source_video_name", "source_video_comfy_name", base_url, "neo_h3_vid2vid_source", timeout)
+        handoff_logs.append({"kind": "source_video", **source})
+        if not source.get("ok"):
+            handoff_errors.append(source.get("error") or "H3 Video-to-Video source handoff failed")
         data, logs, errors = _handoff_references(data, base_url, timeout)
         handoff_logs.extend(logs); handoff_errors.extend(errors)
     if handoff_errors:

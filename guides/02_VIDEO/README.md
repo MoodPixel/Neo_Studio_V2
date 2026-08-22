@@ -10,8 +10,8 @@ applies_to:
   - video_finish
   - video_results
 priority: 100
-version: 5
-updated: 2026-08-17
+version: 6
+updated: 2026-08-22
 ---
 
 # Video Guides — Current Architecture
@@ -61,6 +61,6 @@ The browser must not recreate local Video route/default tables, and Video extens
 4. [`video_workspace_layout.md`](video_workspace_layout.md) — ownership of Generation, Assets, Reference, Finish, and Results bodies.
 5. [`video_output_inspector.md`](video_output_inspector.md) — saved-output inspection, lineage, and safe replay.
 6. [`video_reference_inputs.md`](video_reference_inputs.md) — shared provider-aware reference images/video/audio and route limits.
-7. [`minimax_h3_local_support.md`](minimax_h3_local_support.md) — using MiniMax H3 native audio-video, keyframes, Ref2VA references, and speed controls.
+7. [`minimax_h3_local_support.md`](minimax_h3_local_support.md) — using MiniMax H3 native audio-video, separate Video/Audio VAE selection, keyframes, Ref2VA references, Ref2VA-backed Video Editing, and speed controls.
 8. [`xai_grok_imagine_video.md`](xai_grok_imagine_video.md) — using Grok Text/Image/Reference generation, Video Editing, and Video Extension.
 9. [`seedvr2_upscale.md`](seedvr2_upscale.md) — using SeedVR2 Finish Upscale, model selection, custom sizing, and memory controls.

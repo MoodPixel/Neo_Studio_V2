@@ -16,8 +16,8 @@ tags:
   - reference video
   - comfyui
 priority: 82
-version: 3
-updated: 2026-08-21
+version: 4
+updated: 2026-08-22
 ---
 
 # MiniMax H3 Local Audio-Video Support
@@ -61,6 +61,21 @@ Neo uses the same shared **Reference Inputs** panel used by other reference-capa
 - a reference video may also contribute its own soundtrack.
 
 The panel shows the current per-type and total counts and stops additional uploads when the active H3 limit is reached.
+
+### Video Editing / Video-to-Video
+
+Use **Video-to-Video** when an existing clip is the thing you want H3 to edit, restyle, or transform. Neo exposes this as a first-class Video Editing workflow, but the backend semantics stay honest: it is implemented with the H3 **Ref2VA** checkpoint and `MiniMaxH3ReferenceToVideo`, not a separate Vid2Vid checkpoint.
+
+The source panel lets you either upload a source clip or reuse the selected Neo Video result. Neo reserves that source as **`<Video 1>`** and can also pass its synchronized soundtrack as the paired H3 video-audio reference. You can disable the source-soundtrack reference when only the source visuals/motion should guide the edit.
+
+Because the source clip consumes one Ref2VA video/file slot, Video Editing exposes the remaining optional reference budget as:
+
+- up to **9 extra images**;
+- up to **2 extra videos**;
+- up to **3 standalone audio clips**;
+- up to **11 extra files total**, keeping the complete H3 request within the native 12-file limit.
+
+Optional extra references use the same ordered reference panel. Extra videos begin at `<Video 2>` because `<Video 1>` is always the edit source.
 
 ## Referencing media in the prompt
 
@@ -108,9 +123,35 @@ Neo currently recognizes the normal `CLIPLoader` for native encoders and H3-capa
 
 Some third-party GGUF Qwen3-VL conversions use loader-owned projector/MMProj companion data. Neo does not fabricate or pair arbitrary sidecars. If a conversion requires one, install/use the compatible H3 loader/node pack that owns that conversion contract.
 
+## Capability boundary
+
+Neo's local H3-Base surface intentionally exposes only capabilities that map to the installed H3-Base model/node contract:
+
+| Neo workflow | H3 backend semantics | Local status |
+|---|---|---|
+| Text-to-Video | FL2VA with no keyframe; native A/V output | Enabled |
+| Image-to-Video | FL2VA with one first **or** last keyframe | Enabled |
+| First + Last Frame | FL2VA with both temporal anchors | Enabled |
+| Reference-to-Video | Ref2VA multimodal references | Enabled |
+| Video-to-Video / Video Editing | Ref2VA with source video reserved as `<Video 1>` | Enabled |
+| Audio-only reference generation | Not a valid local Ref2VA input shape | Not exposed |
+| H3-Context-IR | Separate upstream stage/system | Not claimed as local H3-Base |
+| H3-Regenerate-2K | Separate upstream stage/system | Not claimed as local H3-Base |
+
+This prevents the UI from advertising modes that cannot compile into a real local graph.
+
 ## Native audio behavior
 
-H3 can create video and stereo audio together. Use the main prompt to describe the sound you want rather than treating audio as a separate finishing step.
+H3 can create video and stereo audio together. Neo therefore exposes **two independent VAE selectors** in the H3 **Models** parameter group:
+
+- **H3 Video VAE** — used for visual latent encode/decode;
+- **H3 Audio VAE** — used for native 32 kHz stereo audio latent encode/decode.
+
+Both selectors are populated from the connected ComfyUI VAE catalog. The H3 discovery layer separates video- and audio-VAE candidates instead of treating one VAE selection as authority for both. The selected Audio VAE is submitted in `audio_vae_name` and is wired into `MiniMaxH3ReferenceToVideo` where applicable plus `VAEDecodeAudio` for native audio output.
+
+The Audio VAE control is also present in Neo's **frontend fallback parameter profile**. That matters when the canonical `/api/video/parameter-profile` response is still loading or temporarily unavailable: H3 must still render all four Models controls — Model, Text Encoder, Video VAE, and Audio VAE — rather than silently dropping the audio selector.
+
+Use the main prompt to describe the sound you want rather than treating H3 audio as a separate finishing step.
 
 Examples:
 
@@ -167,15 +208,25 @@ H3 generation and Finish are separate. Generate the base H3 clip first, inspect 
 1. Connect/test the ComfyUI profile you want to use.
 2. Select **MiniMax H3** as the Video family.
 3. Choose the available H3 model route and workflow mode.
-4. Confirm the required H3 model/encoder/video-VAE/audio-VAE assets are visible in the route controls.
+4. In **Models**, confirm the H3 diffusion model, text encoder, **H3 Video VAE**, and **H3 Audio VAE** selections are correct.
 5. For Reference-to-Video, add references in the shared **Reference Inputs** panel and stay within the displayed limits.
-6. Write the prompt, including H3 reference labels where appropriate.
-7. Generate and inspect the saved result in Results / Output Inspector.
+6. For Video-to-Video, upload/reuse the source video, choose whether its soundtrack should be referenced, then add any optional extra references.
+7. Write the prompt, including H3 reference labels where appropriate.
+8. Generate and inspect the saved result in Results / Output Inspector.
 
 ## Troubleshooting
 
+**Generate stays on Preparing Video generation… and Comfy receives no prompt**  
+Current Neo builds fail closed before queue submission: a payload/pre-queue JavaScript failure should end the progress state and show a concrete preparation or queue-handoff error instead of running indefinitely. If an older build stays at the initial Preparing state, apply the current frontend files and hard-refresh the Neo page so the restored shared reference helper is loaded.
+
 **Reference-to-Video will not accept another file**  
 Check both the per-type counter and the total counter. H3 allows 9 images, 3 videos, 3 standalone audios, and 12 references total.
+
+**H3 Audio VAE is missing from Models**  
+Current builds render the Audio VAE selector from both the canonical parameter profile and the frontend fallback profile. Hard-refresh Neo after applying the current frontend file. If the selector appears but has no usable Audio VAE option, run **Test/Refresh backend** and verify ComfyUI exposes the Audio VAE through `VAELoader`.
+
+**Video-to-Video says the source is missing**  
+Use the H3 Video Edit source panel to upload a video or choose **Use Selected Neo Result**. The generic LTX selected-result source state is not used as hidden H3 authority.
 
 **Only audio references are loaded**  
 Add at least one picture or video reference. Standalone audio cannot be the only H3 reference modality.
@@ -214,3 +265,23 @@ MiniMax H3 local jobs are queued with a Neo-owned ComfyUI `client_id`. When the 
 
 If Image live preview works but H3 does not, refresh/restart Neo after applying the current files so the H3 queue payload includes the client id. ComfyUI itself must also have preview generation enabled; Neo cannot invent latent preview frames when the backend emits none.
 
+
+## 2026-08-22 — Final playback + model-row hotfix
+
+### Final Comfy video import
+
+Neo's live sampler frame is temporary. The final Preview player switches to the completed Neo-owned video only after Neo imports the Comfy `SaveVideo` result from `/history/{prompt_id}` and `/view`.
+
+Core Comfy `SaveVideo` can report the final MP4 through the historical `images` UI bucket, and different Comfy/proxy builds may represent its location as either `filename` + `subfolder`, a single `path` such as `video/MyClip.mp4`, or a nested `ui.images` payload. Neo now normalizes all of those shapes and preserves the `video/` subfolder when requesting the file from `/view`.
+
+The generation poller is bound to the exact queued Neo result id. An `execution_success` websocket event triggers an immediate import attempt, while the normal result poller remains as fallback. Import failures are surfaced as retry/status text instead of silently leaving the last live preview frame visible.
+
+### Local Models row
+
+The canonical Python parameter profile now owns generic Model / Text Encoder / VAE fields for WAN and LTX as well as the H3-specific four-field model contract. MiniMax H3 must render:
+
+```text
+H3 Diffusion Model | H3 Text Encoder | H3 Video VAE | H3 Audio VAE
+```
+
+WAN/LTX canonical profiles must not lose their base model selectors simply because `/api/video/parameter-profile` is available. The frontend fallback remains a degraded-mode safety net, not the primary source of these controls.

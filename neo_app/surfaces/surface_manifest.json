@@ -305,7 +305,7 @@
         {
           "subtab_id": "generation",
           "display_name": "Generation",
-          "description": "Create Video jobs with the active provider, canonical route, prompt/source inputs, route parameters, built-in tools, compatible external extensions, backend readiness, and output safety.",
+          "description": "Create Video jobs with the active provider, canonical route, prompt/source inputs, route parameters, built-in tools, and compatible external extensions.",
           "slots": [
             "video.generation.backend",
             "video.generation.prompt",
@@ -315,12 +315,9 @@
             "video.generation.builtins",
             "video.generation.audio_video",
             "video.generation.depth_motion_control",
-            "video.generation.output_recorder",
             "video.generation.prompt_motion_schedule",
             "video.generation.size_timing_presets",
             "video.generation.external_extensions",
-            "video.generation.route_status",
-            "video.generation.outputs",
             "video.generation.contract",
             "video.generation.route_matrix",
             "video.generation.compiler",

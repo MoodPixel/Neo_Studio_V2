@@ -64,8 +64,7 @@ Left
   route-required Source / Reference
   Prompt / Motion Schedule when selected
   Audio-Video controls when selected
-  Route Status
-  output storage / expert diagnostics
+  expert diagnostics
 
 Right — persistent
   Prompt + Preview
@@ -179,3 +178,10 @@ Do not mix both origins back into one generic extension stack. Do not add per-pa
 ## 2026-08-09 — Results + Finish visual polish
 
 The Video left rail uses the modern Neo card language consistently. **Results & Save Details**, **Replay Storage Manager**, and **Motion Timing + Finish Presets** use Video-specific dark/glass form controls, compact context chips, stronger internal grouping, and modern status/action rows. This is presentation-only; routing, save behavior, replay behavior, and finish execution are unchanged.
+
+## 2026-08-22 — Generation declutter (step 1)
+
+- The **Generation** left rail no longer mounts the **Start Here / Video quick start** helper card.
+- **Route Status** is removed from the Generation left rail. Route readiness remains represented in the command strip chips and runtime progress/status handling.
+- **Output Storage** is removed from the Generation left rail. Output-folder checks remain an implementation helper, not a primary Generation card.
+- **Video · Output Recorder** no longer mounts in Generation. It remains owned by **Results**.
