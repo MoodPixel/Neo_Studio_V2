@@ -4,6 +4,8 @@ from copy import deepcopy
 from math import isclose
 from typing import Any, Mapping
 
+from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
+
 SCHEMA_VERSION = "neo.image.parameter_integrity.v1"
 SUBMISSION_SCHEMA_VERSION = "neo.image.parameter_integrity_submission.v1"
 
@@ -77,6 +79,79 @@ def _lookup(values: Mapping[str, Any] | None, field: str) -> tuple[bool, Any, st
     return False, None, ""
 
 
+def _outpaint_contract_snapshot(values: Mapping[str, Any] | None) -> dict[str, Any]:
+    source = dict(values or {}) if isinstance(values, Mapping) else {}
+    if not source:
+        return {}
+    try:
+        payload = normalize_outpaint_payload(
+            source,
+            default_width=int(float(source.get("width") or 1024)),
+            default_height=int(float(source.get("height") or 1024)),
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    if outpaint_padding_total(payload) <= 0:
+        return {}
+    source_resolution = payload.get("source_resolution") if isinstance(payload.get("source_resolution"), Mapping) else {}
+    working_size = source_resolution.get("working_size") if isinstance(source_resolution.get("working_size"), Mapping) else {}
+    final_size = payload.get("final_size") if isinstance(payload.get("final_size"), Mapping) else {}
+    padding = payload.get("padding") if isinstance(payload.get("padding"), Mapping) else {}
+    contract = {
+        "mode": "outpaint",
+        "padding": {
+            "left": int(padding.get("left", 0) or 0),
+            "right": int(padding.get("right", 0) or 0),
+            "top": int(padding.get("top", 0) or 0),
+            "bottom": int(padding.get("bottom", 0) or 0),
+        },
+        "working_size": {
+            "width": int(working_size.get("width", 0) or 0),
+            "height": int(working_size.get("height", 0) or 0),
+        },
+        "final_size": {
+            "width": int(final_size.get("width", 0) or 0),
+            "height": int(final_size.get("height", 0) or 0),
+        },
+    }
+    return contract
+
+
+def _outpaint_transform_reason(field: str, contract: Mapping[str, Any] | None) -> str:
+    payload = contract if isinstance(contract, Mapping) else {}
+    final_size = payload.get("final_size") if isinstance(payload.get("final_size"), Mapping) else {}
+    working_size = payload.get("working_size") if isinstance(payload.get("working_size"), Mapping) else {}
+    padding = payload.get("padding") if isinstance(payload.get("padding"), Mapping) else {}
+    axis = "width" if field == "width" else "height"
+    if field == "width":
+        left = int(padding.get("left", 0) or 0)
+        right = int(padding.get("right", 0) or 0)
+        working = int(working_size.get("width", 0) or 0)
+        final = int(final_size.get("width", 0) or 0)
+        return f"intentional outpaint final canvas width ({working} + left {left} + right {right} = {final})"
+    top = int(padding.get("top", 0) or 0)
+    bottom = int(padding.get("bottom", 0) or 0)
+    working = int(working_size.get("height", 0) or 0)
+    final = int(final_size.get("height", 0) or 0)
+    return f"intentional outpaint final canvas height ({working} + top {top} + bottom {bottom} = {final})"
+
+
+def _intentional_transform_match(field: str, requested: Any, observed: Any, left_stage: Mapping[str, Any] | None, right_stage: Mapping[str, Any] | None) -> tuple[bool, str]:
+    if field not in {"width", "height"}:
+        return False, ""
+    for stage in (right_stage, left_stage):
+        contract = stage.get("_outpaint_contract") if isinstance(stage, Mapping) else None
+        if not isinstance(contract, Mapping):
+            continue
+        final_size = contract.get("final_size") if isinstance(contract.get("final_size"), Mapping) else {}
+        expected = final_size.get(field)
+        if expected in (None, "", 0):
+            continue
+        if values_match(field, observed, expected):
+            return True, _outpaint_transform_reason(field, contract)
+    return False, ""
+
+
 def snapshot_parameter_values(values: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return a privacy-safe snapshot of generation controls only."""
     result: dict[str, Any] = {}
@@ -89,6 +164,9 @@ def snapshot_parameter_values(values: Mapping[str, Any] | None) -> dict[str, Any
                 aliases[field] = alias
     if aliases:
         result["_aliases"] = aliases
+    outpaint_contract = _outpaint_contract_snapshot(values)
+    if outpaint_contract:
+        result["_outpaint_contract"] = outpaint_contract
     return result
 
 
@@ -205,9 +283,13 @@ def recalculate_parameter_integrity(trace: Mapping[str, Any] | None) -> dict[str
             if values_match(field, requested, observed):
                 comparisons.append(_comparison(left_name, right_name, field, requested, observed, "match"))
             else:
-                row = _comparison(left_name, right_name, field, requested, observed, "mismatch")
-                comparisons.append(row)
-                mismatches.append(row)
+                transformed, reason = _intentional_transform_match(field, requested, observed, left, right)
+                if transformed:
+                    comparisons.append(_comparison(left_name, right_name, field, requested, observed, "derived_transform", reason))
+                else:
+                    row = _comparison(left_name, right_name, field, requested, observed, "mismatch")
+                    comparisons.append(row)
+                    mismatches.append(row)
 
     out["comparisons"] = comparisons
     out["mismatches"] = mismatches

@@ -104,7 +104,7 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Krea 2 VAE** | Selects the VAE/AE used by Krea 2. | `qwen_image_vae.safetensors` remains the recommended/default architecture match. A different VAE/AE is treated as an **experimental override**: Neo shows an inline warning but does not block generation, and ComfyUI owns runtime compatibility validation. |
 | **Krea 2 Edit Engine** | Chooses the existing Neo source/mask/canvas adapter or the opt-in Krea 2 Identity Edit v1.2 graph in image modes. | Keep **Neo Native Adapter** for existing behavior. Identity Edit requires the current `comfyui-krea2edit` nodes and a selected Identity Edit LoRA. |
 | **Identity Edit LoRA / Strength** | Selects and weights the dedicated model-only Krea 2 editing LoRA. | Required only when Identity Edit is enabled. The recommended v1.2 weight starts around strength `1.0`. |
-| **Reference Fit / Reference Boost / Grounding Resolution** | Controls v1.2 source geometry, reference-fidelity attention, and Qwen3-VL image grounding. | Start with Fit, identity boost `4.0`, scene boost `1.0`, grounding `768`, then tune per edit. |
+| **Reference Fit / Reference Boost / Grounding Resolution / Grounding System Prompt** | Controls v1.2 source geometry, reference-fidelity attention, Qwen3-VL image grounding, and the optional grounding-system override. | Start with Fit, identity boost `4.0`, scene boost `1.0`, grounding `768`, and leave system prompt blank unless you intentionally need extra grounding guidance. |
 | **Seed** | Controls repeatability. `-1` usually means random/auto-resolved. | Use random for exploration, lock/reuse a seed for revisions, and copy seed when documenting a result. |
 | **Seed lock** | Keeps future generations on the same seed. | Use for controlled iterations. |
 | **Seed randomize** | Uses a fresh seed. | Use for exploration. |
@@ -119,6 +119,7 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Inpaint Context** | Chooses masked-region focus or full-image context. | Full-image context can preserve broader composition; masked focus concentrates the edit region. |
 | **Mask Grow** | Expands the mask before inpainting. | Useful when edges need more room to blend. |
 | **Mask Blur** | Softens mask edges. | Useful for smoother transitions. |
+| **Reference Attention Mask** | Optional Krea 2 Identity Edit source-side mask that biases the upstream `ref_boost_mask` socket. | Available only while Krea 2 Identity Edit is active. It is separate from the inpaint mask and targets Image 1 in single-reference mode or Image 2 in two-reference mode. |
 | **Source Resolution** | Outpaint source handling mode. | Appears for outpaint/canvas routes when the selected profile exposes source-resolution controls. |
 | **Max Long Edge / Max Canvas MP** | Outpaint source/canvas safety limits. | Prevents very large source images from creating oversized canvases. |
 | **Outpaint Left / Right / Top / Bottom** | Adds canvas area on each side. | Use small increments first. Large padding can increase VRAM and make composition harder. |
@@ -311,3 +312,24 @@ When the active route is **Qwen Image Edit**, **Qwen Image Edit 2509**, or **Qwe
 ### Qwen parity-node readiness
 
 On Qwen safetensors/component edit routes, Neo now verifies the live Comfy node classes needed by the selected Parameters. `CFGNorm` must be present when CFGNorm is enabled; Qwen img2img uses `FluxKontextImageScale`; and Qwen 2509/2511 img2img uses `FluxKontextMultiReferenceLatentMethod(index_timestep_zero)` for both single- and multi-source edits. If live `/object_info` proves an explicitly required node is missing, Neo blocks the route with a concrete readiness error rather than silently omitting the requested stage.
+
+## Img2Img Source Resolution (V25.9.24)
+
+Native/safetensors source-latent img2img routes now expose an **Img2Img Source Resolution** control for the first source image before VAE encode. This is available on Flux native, Qwen native edit variants, Krea 2 native/Turbo, and ZImage native/Turbo.
+
+- **Keep source resolution** — preserves the original source size. This matches the previous behavior and explains why some native img2img runs ignored the requested width/height.
+- **Fit source to target size** — resizes the source directly to the requested width/height. This can distort aspect ratio.
+- **Crop to target** — scales to cover the requested width/height and center-crops.
+- **Pad to target** — scales to fit inside the requested width/height and center-pads the remaining canvas.
+
+Neo records the resolved `img2img_source_resolution` policy inside job params so replay/inspection can see exactly how Image 1 was prepared. Krea 2 Identity Edit intentionally hides this control because that workflow owns its own reference handling path.
+
+## Outpaint Parameter Integrity (V25.9.24)
+
+Neo's shared parameter-integrity guard now understands that **outpaint intentionally transforms the final canvas size**. The user-requested width/height can remain the route/default sizing intent while the compiled workflow legitimately expands to a larger final latent based on:
+
+- outpaint working copy / source-resolution policy
+- left/right/top/bottom padding
+- final latent canvas derived from `working_size + padding`
+
+This means outpaint jobs no longer fail merely because `workflow_final.width/height` differ from the original requested width/height. Neo now verifies the **derived outpaint final size** instead of demanding a raw equality match. If the compiled workflow's final canvas does not match the derived outpaint contract, Neo still blocks the queue as a real integrity error.
