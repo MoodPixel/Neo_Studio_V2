@@ -10,8 +10,8 @@ applies_to:
   - video_finish
   - video_results
 priority: 100
-version: 9
-updated: 2026-08-31
+version: 10
+updated: 2026-09-01
 ---
 
 # Video Guides — Current Architecture
@@ -34,6 +34,8 @@ Video provider/profile
        portable rows -> support matrix -> compiler patch profile -> safe model patch
        MiniMax H3 UNET -> standard + speed/Turbo
        LTX 2.3 UNET primary -> standard only
+       WAN 2.2 UNET -> standard only
+       WAN 2.2 dual-noise GGUF -> standard + speed, all/high/low
   -> Neo-owned output ledger
        Results -> Video Output Inspector -> lineage/replay
 ```
@@ -56,6 +58,8 @@ Video provider/profile
 | MiniMax H3 LoRA regression gate | `python -m neo_app.video.minimax_h3_lora_regression` |
 | LTX 2.3 primary UNET Video LoRA runtime | `neo_app/video/ltx_lora_integration.py` |
 | LTX 2.3 Video LoRA regression gate | `python -m neo_app.video.ltx_lora_regression` |
+| WAN 2.2 Video LoRA runtime/migration | `neo_app/video/wan_lora_integration.py` + `wan_lora_payload_context.py` |
+| WAN 2.2 Video LoRA regression gate | `python -m neo_app.video.wan_lora_regression` |
 | Video workspace composition | `neo_app/static/js/neo.js` |
 | Video surface diagnostics/endpoints | `neo_app/static/js/surfaces/video.js` |
 | Persisted Video results | existing Video output-record ledger |
@@ -69,12 +73,13 @@ The browser must not recreate local Video route/default tables, and Video extens
 1. [`video_tab_overview.md`](video_tab_overview.md) — product behavior, provider boundary, storage ownership, and navigation.
 2. [`video_model_families.md`](video_model_families.md) — canonical local routing and parameter ownership.
 3. [`video_generation_extensions.md`](video_generation_extensions.md) — Video-owned extension context, route scopes, Built-in vs External rules.
-4. [`video_lora_stack.md`](video_lora_stack.md) — universal Video LoRA payload, exact-route support, compiler-owned anchors, MiniMax H3 standard/Turbo integration, and current fail-closed boundaries.
+4. [`video_lora_stack.md`](video_lora_stack.md) — universal Video LoRA payload, exact-route support, compiler-owned anchors, active H3/LTX/WAN runtimes, and fail-closed boundaries.
 5. [`minimax_h3_lora_regression.md`](minimax_h3_lora_regression.md) — CI-verified 43-case regression gate for all five MiniMax H3 UNET modes and the Img2Vid Turbo migration path.
 6. [`ltx_lora_runtime.md`](ltx_lora_runtime.md) — Phase-7 LTX 2.3 UNET Txt2Vid/Img2Vid standard-LoRA runtime, compiler anchor, fail-closed boundaries, and CI-verified 17-case gate.
-7. [`video_workspace_layout.md`](video_workspace_layout.md) — ownership of Generation, Assets, Reference, Finish, and Results bodies.
-8. [`video_output_inspector.md`](video_output_inspector.md) — saved-output inspection, lineage, and safe replay.
-9. [`video_reference_inputs.md`](video_reference_inputs.md) — shared provider-aware reference images/video/audio and route limits.
-10. [`minimax_h3_local_support.md`](minimax_h3_local_support.md) — using MiniMax H3 native audio-video, separate Video/Audio VAE selection, keyframes, Ref2VA references, Ref2VA-backed Video Editing, and speed controls.
-11. [`xai_grok_imagine_video.md`](xai_grok_imagine_video.md) — using Grok Text/Image/Reference generation, Video Editing, and Video Extension.
-12. [`seedvr2_upscale.md`](seedvr2_upscale.md) — using SeedVR2 Finish Upscale, model selection, custom sizing, and memory controls.
+7. [`wan_lora_runtime.md`](wan_lora_runtime.md) — Phase-8 WAN UNET + dual-noise GGUF runtime, all/high/low semantics, legacy Normal/LightX2V migration, Generate payload preservation, and CI-verified 30-case gate.
+8. [`video_workspace_layout.md`](video_workspace_layout.md) — ownership of Generation, Assets, Reference, Finish, and Results bodies.
+9. [`video_output_inspector.md`](video_output_inspector.md) — saved-output inspection, lineage, and safe replay.
+10. [`video_reference_inputs.md`](video_reference_inputs.md) — shared provider-aware reference images/video/audio and route limits.
+11. [`minimax_h3_local_support.md`](minimax_h3_local_support.md) — using MiniMax H3 native audio-video, separate Video/Audio VAE selection, keyframes, Ref2VA references, Ref2VA-backed Video Editing, and speed controls.
+12. [`xai_grok_imagine_video.md`](xai_grok_imagine_video.md) — using Grok Text/Image/Reference generation, Video Editing, and Video Extension.
+13. [`seedvr2_upscale.md`](seedvr2_upscale.md) — using SeedVR2 Finish Upscale, model selection, custom sizing, and memory controls.

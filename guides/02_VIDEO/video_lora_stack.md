@@ -15,12 +15,13 @@ tags:
   - lora
   - minimax h3
   - ltx
+  - wan
   - turbo
   - lightx2v
   - workflow patching
 priority: 84
-version: 3
-updated: 2026-08-31
+version: 4
+updated: 2026-09-01
 ---
 
 # Video LoRA Stack
@@ -46,7 +47,7 @@ The extension must not hardcode workflow node IDs. A compiler profile declares t
 
 ## Universal payload
 
-A standard row:
+Standard and speed rows use the same schema:
 
 ```json
 {
@@ -58,8 +59,6 @@ A standard row:
   "target": "all"
 }
 ```
-
-A speed/Turbo row uses the same structure:
 
 ```json
 {
@@ -87,15 +86,13 @@ Role affects ordering and compatibility. It does not create a separate LoRA engi
 - `high` — WAN high-noise branch only when exposed by the compiler.
 - `low` — WAN low-noise branch only when exposed by the compiler.
 
-MiniMax H3 and current LTX Phase-7 routes use `all` only.
+H3, LTX Phase 7, and WAN single-model UNET use `all` only. WAN dual-noise GGUF supports all three targets.
 
 ## Exact-route support
 
 Compatibility is fail-closed.
 
 ### MiniMax H3
-
-Runtime support is active for UNET/Diffusion routes:
 
 | Route | Standard | Speed/Turbo | Target |
 |---|---:|---:|---|
@@ -105,11 +102,9 @@ Runtime support is active for UNET/Diffusion routes:
 | `minimax_h3.unet.reference_to_video` | Yes | Yes | `all` |
 | `minimax_h3.unet.vid2vid` | Yes | Yes | `all` |
 
-H3 GGUF LoRA application remains fail-closed even when the base GGUF generation route is selectable.
+H3 GGUF LoRA application remains fail-closed.
 
 ### LTX 2.3
-
-Phase 7 activates standard model-only LoRA runtime on the two primary UNET routes:
 
 | Route | Standard | Speed/Turbo | Target |
 |---|---:|---:|---|
@@ -120,11 +115,15 @@ LTX GGUF and extended LTX modes remain fail-closed/provisional for LoRA runtime 
 
 ### WAN 2.2
 
-The support matrix recognizes `wan22.gguf.img2vid_14b_dual_noise` as a verified multi-branch LoRA topology with `all/high/low` semantics. The legacy WAN runtime adapter remains in place until a later compiler-anchor migration phase.
+| Route | Standard | Speed | Targets |
+|---|---:|---:|---|
+| `wan22.unet.txt2vid` | Yes | No | `all` |
+| `wan22.unet.img2vid` | Yes | No | `all` |
+| `wan22.gguf.img2vid_14b_dual_noise` | Yes | Yes | `all`, `high`, `low` |
+
+WAN Rapid AIO and imported native-workflow routes remain blocked for LoRA runtime.
 
 ## MiniMax H3 model flow
-
-MiniMax H3 remains the speed/Turbo-capable reference implementation:
 
 ```text
 H3 model loader
@@ -135,11 +134,9 @@ H3 model loader
   -> scheduler / guider / sampler
 ```
 
-Standard rows are applied before `role=speed` rows so the acceleration patch remains immediately upstream of native H3 sigma processing.
+Standard rows are applied before `role=speed` rows.
 
 ## LTX 2.3 model flow
-
-Phase 7 uses a separate LTX integration adapter while preserving the same universal payload and compiler-owned profile contract:
 
 ```text
 LTX model loader
@@ -149,28 +146,50 @@ LTX model loader
   -> sampler
 ```
 
-The adapter locates the compiler-declared `LTXVChunkFeedForward` class in the built workflow, extracts its current model reference, and publishes that exact reference and consumer input in the patch profile. It does not own or assume workflow node IDs.
+Phase 7 locates the built compiler's actual `LTXVChunkFeedForward.model` reference and publishes it through the compiler-owned patch profile. LTX currently accepts `role=standard`, `target=all`, UNET, and `LoraLoaderModelOnly` only.
 
-LTX Phase 7 accepts only:
+## WAN single-model flow
 
 ```text
-role = standard
-target = all
-loader = UNET
-loader node = LoraLoaderModelOnly
+WAN UNET loader
+  -> standard LoRA(s)
+  -> ModelSamplingSD3
+  -> sampler
 ```
 
-`strength_clip` is ignored with a runtime warning because this validated topology is model-only.
+Phase 8 locates the compiler-selected sampling class in the built graph and uses its current model reference as the patch anchor. The integration does not assume workflow node IDs.
+
+WAN UNET currently accepts `role=standard` and `target=all` only. Speed and high/low branch targets fail closed.
+
+## WAN dual-noise flow
+
+```text
+High model loader
+  -> standard LoRA(s)
+  -> speed LoRA(s)
+  -> optional Sage / TeaCache / low-VRAM patches
+  -> high ModelSamplingSD3
+
+Low model loader
+  -> standard LoRA(s)
+  -> speed LoRA(s)
+  -> optional Sage / TeaCache / low-VRAM patches
+  -> low ModelSamplingSD3
+```
+
+The compiler-owned multi-branch profile exposes distinct `high` and `low` branches. `target=all` maps to both branches. Standard rows are applied before speed rows independently on each branch.
 
 ## Empty or disabled stack
 
-For every currently validated runtime route, no active rows means no LoRA node insertion and no model-consumer rewiring.
+No active rows means no LoRA node insertion and no model-consumer rewiring.
 
-Verified invariants include:
+CI verifies no-op workflow equivalence for:
 
 ```text
-empty/disabled H3 stack workflow == original H3 workflow
-empty/disabled LTX stack workflow == original LTX workflow
+all five H3 UNET modes
+LTX UNET Txt2Vid / Img2Vid
+WAN UNET Txt2Vid / Img2Vid
+WAN dual-noise GGUF Img2Vid
 ```
 
 Metadata such as `lora_patch_profile` and `video_lora_stack` may exist outside the Comfy workflow without violating the no-op rule.
@@ -185,25 +204,60 @@ h3_turbo_lora
 h3_turbo_strength
 ```
 
-Neo converts these fields into the universal stack instead of inserting an independent Turbo node.
+Neo converts these fields into the universal stack instead of inserting an independent Turbo node. Matching universal rows are deduplicated and promoted to `speed` when required.
 
-If the same Turbo file already exists in the universal stack, Neo keeps one row, preserves its uid/strength, promotes it to `speed` when necessary, normalizes the H3 target to `all`, and suppresses the synthetic legacy duplicate.
+## Legacy WAN compatibility
 
-## Turbo / LightX2V discovery
+Phase 8 retains the historical WAN request fields for saved-workflow compatibility:
 
-H3 speed recommendation discovery recognizes family aliases such as `h3`, `minimax`, `minimax_h3`, `minimax-h3`, and `hailuo`, plus acceleration tokens such as `turbo`, `lightx2v`, `lightning`, `4step(s)`, `8step(s)`, and `distilled`.
+```text
+enable_video_lora
+video_lora_mode
+video_lora_model
+video_lora_strength
+video_lora_target
+enable_lightx2v
+high_noise_lora
+low_noise_lora
+high_noise_lora_strength
+low_noise_lora_strength
+```
 
-The classifier is **recommendation-only**. A normal manually selected LoRA is not rejected because its filename lacks a speed marker.
+They are now migration inputs rather than graph mutation authority.
 
-LTX Phase 7 does not activate a speed classifier or speed-LoRA runtime path.
+Legacy target conversion:
+
+```text
+Both -> all
+High -> high
+Low  -> low
+```
+
+Legacy LightX2V becomes high- and low-target `role=speed` rows. Duplicate branch coverage is suppressed, and a matching existing row can be promoted from `standard` to `speed` instead of loading the same file twice.
+
+The historical fixed WAN LoRA node IDs (`129:101`, `129:102`, `9001`, `9002`) are not used by the Phase-8 universal patcher. Regression tests assert that they do not survive in migrated workflows.
+
+The old `video_lora_adapter.py` remains temporarily for compatibility semantics; it is not deleted in Phase 8.
+
+## Generate payload preservation
+
+WAN Generate functions rebuild dataclass payloads before calling Compile. Since extension blocks are not dataclass fields, this can strip the universal stack from a nested call.
+
+`neo_app/video/wan_lora_payload_context.py` preserves the outer user payload until the compiler build hook consumes it. Phase-8 regression tests cover both WAN UNET Txt2Vid Generate and WAN dual-noise GGUF Img2Vid Generate.
 
 ## Live catalog validation
 
-Manual selection has one hard requirement on active H3 and LTX routes: the selected filename must exist in the live `LoraLoaderModelOnly` catalog exposed by ComfyUI.
+Every active H3, LTX, or WAN LoRA runtime requires the selected filename to exist in the live `LoraLoaderModelOnly` catalog exposed by ComfyUI.
 
-The runtime rejects selected files that are missing, an empty ModelOnly catalog when rows are requested, and a backend exposing only generic `LoraLoader`.
+The runtime fails before queueing when:
 
-Generic `LoraLoader` is not an interchangeable fallback because it has a model+CLIP contract while the currently validated H3/LTX routes are model-only.
+- `LoraLoaderModelOnly` is unavailable;
+- only generic `LoraLoader` exists;
+- the ModelOnly catalog is empty when rows are requested;
+- a selected filename is absent from the live catalog;
+- a route receives an unsupported role or target.
+
+Generic `LoraLoader` is not an interchangeable fallback because the validated routes use model-only patch profiles.
 
 ## Compiler-owned patch profiles
 
@@ -213,23 +267,9 @@ Schema:
 neo.video.lora_patch_profile.v1
 ```
 
-A single-model profile carries:
+Single-model profiles declare one model ref and its exact consumers. WAN dual-noise uses `model_only_multi_branch`, distinct high/low refs, and an `all` mapping to both branches.
 
-```text
-route_id
-compiler
-loader_type
-loader_node_class
-model_ref
-model_consumers[]
-targets
-target_map
-validated
-```
-
-Before inserting a LoRA node, Neo verifies that the declared consumers still point to the compiler-declared model reference. A stale graph/profile relationship fails closed.
-
-WAN's verified dual-noise profile uses high/low branches and maps `all` to both branches.
+Before inserting a LoRA node, Neo verifies that declared consumers still point to the compiler-declared model reference. A stale profile fails closed.
 
 ## Regression gates
 
@@ -239,13 +279,9 @@ WAN's verified dual-noise profile uses high/low branches and maps `all` to both 
 python -m neo_app.video.minimax_h3_lora_regression
 ```
 
-CI-verified result:
-
 ```text
 43 / 43 passed
 ```
-
-The matrix covers all five H3 UNET modes, standard + speed stacks, legacy Turbo migration, no-op equivalence, catalog validation, generic-loader rejection, target validation, and GGUF refusal.
 
 ### LTX 2.3 — Phase 7
 
@@ -253,38 +289,41 @@ The matrix covers all five H3 UNET modes, standard + speed stacks, legacy Turbo 
 python -m neo_app.video.ltx_lora_regression
 ```
 
-CI-verified result:
-
 ```text
 17 / 17 passed
 ```
 
-The LTX gate covers Txt2Vid and Img2Vid no-op equivalence, one/multiple standard LoRAs, speed-role rejection, branch-target rejection, catalog validation, generic-loader rejection, and GGUF refusal.
+### WAN 2.2 — Phase 8
 
-The Phase-7 workflow reruns the H3 gate in the same job. Current combined result:
+```bash
+python -m neo_app.video.wan_lora_regression
+```
+
+```text
+30 / 30 passed
+```
+
+The Phase-8 CI workflow reruns all three families together:
 
 ```text
 H3  43 / 43
 LTX 17 / 17
-Total 60 / 60
+WAN 30 / 30
+Total 90 / 90
 ```
+
+The WAN matrix includes single-model no-op/standard stacks, dual-noise all/high/low targeting, speed ordering, legacy Normal/LightX2V migration and deduplication, loader/catalog failures, historical-node absence, and Generate -> Compile payload preservation.
+
+See `guides/02_VIDEO/wan_lora_runtime.md` for the WAN-specific contract.
 
 ## Diagnostics
 
-Compiled H3/LTX metadata includes `video_lora_stack` with route-specific runtime information such as:
+Compiled route metadata may include:
 
-- active state;
-- requested/applied counts;
-- standard vs speed counts;
-- loader class;
-- applied names, strengths, roles, and generated node IDs;
-- final model reference;
-- live-catalog validation state;
-- model-only warnings such as ignored `strength_clip`.
-
-H3 additionally reports legacy Turbo bridge state and discovered speed candidates.
-
-The compiled result also includes `lora_patch_profile` for exact anchor inspection.
+- `lora_patch_profile` — compiler-owned graph anchor contract;
+- `video_lora_stack` — requested/applied counts, roles, targets, loader class, final refs, generated LoRA nodes, warnings, and live-catalog state;
+- H3 legacy Turbo bridge metadata;
+- WAN legacy bridge metadata and compatibility snapshot.
 
 ## Current boundaries
 
@@ -294,11 +333,12 @@ The Video LoRA system still does **not** claim:
 - LTX speed/Turbo LoRA support;
 - LTX GGUF LoRA support;
 - LTX extended-mode LoRA support;
-- universal WAN dual-noise runtime replacement;
+- WAN UNET speed LoRA support;
+- WAN UNET high/low targeting;
+- WAN Rapid AIO LoRA support;
+- WAN imported native-workflow LoRA support;
 - final full Video LoRA Stack UI/library manager;
-- silent automatic step/sampler rewrites based on speed-LoRA metadata.
-
-Recommended speed settings may be surfaced later, but user-entered sampling values should not be silently replaced.
+- safe removal of legacy H3/WAN controls from saved-workflow compatibility.
 
 ## Related files
 
@@ -312,18 +352,22 @@ Recommended speed settings may be surfaced later, but user-entered sampling valu
 - `neo_app/video/minimax_h3_lora_regression.py`
 - `neo_app/video/ltx_lora_integration.py`
 - `neo_app/video/ltx_lora_regression.py`
+- `neo_app/video/wan_lora_integration.py`
+- `neo_app/video/wan_lora_payload_context.py`
+- `neo_app/video/wan_lora_regression.py`
 - `guides/02_VIDEO/minimax_h3_lora_regression.md`
 - `guides/02_VIDEO/ltx_lora_runtime.md`
-- `guides/02_VIDEO/minimax_h3_local_support.md`
-- `guides/02_VIDEO/video_generation_extensions.md`
+- `guides/02_VIDEO/wan_lora_runtime.md`
 
 ## Promotion rule
 
-Do not widen LTX or WAN LoRA compatibility unless the new exact-route implementation preserves both existing regression gates:
+Do not widen Video LoRA compatibility unless the new exact-route implementation preserves the existing gates and adds deterministic fail-closed coverage for the promoted topology.
+
+Current baseline:
 
 ```text
 MiniMax H3: 43 / 43
 LTX 2.3:    17 / 17
+WAN 2.2:    30 / 30
+Combined:   90 / 90
 ```
-
-and adds its own deterministic fail-closed coverage for the newly promoted route topology.
