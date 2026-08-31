@@ -178,12 +178,19 @@ def merge_h3_legacy_turbo(
     discovered_candidates: list[str] | tuple[str, ...] | None = None,
     strength: float = 1.0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Bridge legacy H3 Turbo fields into the universal stack without double application."""
+    """Bridge legacy H3 Turbo fields into the universal stack without double application.
+
+    When a saved universal stack already contains the same file, the stack row
+    remains the single source of strength/uid truth. Legacy Turbo only promotes
+    that row to the H3 speed/all semantics required by the old control.
+    """
     merged = normalize_video_lora_rows(rows)
     meta = {
         "requested": bool(enabled),
         "bridged": False,
         "duplicate_suppressed": False,
+        "existing_role_promoted": False,
+        "existing_target_normalized": False,
         "selected_name": "",
         "source": "legacy_h3_turbo_fields",
     }
@@ -203,6 +210,12 @@ def merge_h3_legacy_turbo(
     existing = next((row for row in merged if str(row.get("name") or "").casefold() == selected.casefold()), None)
     if existing:
         meta["duplicate_suppressed"] = True
+        if existing.get("role") != "speed":
+            existing["role"] = "speed"
+            meta["existing_role_promoted"] = True
+        if existing.get("target") != "all":
+            existing["target"] = "all"
+            meta["existing_target_normalized"] = True
         return _ordered_h3_rows(merged), meta
 
     if len(merged) >= MAX_VIDEO_LORAS:
