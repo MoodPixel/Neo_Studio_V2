@@ -1,0 +1,43 @@
+name: Phase 6 MiniMax H3 LoRA Regression
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "neo_app/video/**"
+      - "neo_extensions/built_in/video.lora_stack/**"
+      - "tests/test_minimax_h3_lora_regression_phase6.py"
+      - ".github/workflows/phase6_minimax_h3_lora_regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase6-h3-lora-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Phase 6 Python files
+        run: |
+          python -m py_compile \
+            neo_app/video/video_lora_runtime.py \
+            neo_app/video/minimax_h3_lora_integration.py \
+            neo_app/video/minimax_h3_lora_regression.py \
+            tests/test_minimax_h3_lora_regression_phase6.py
+
+      - name: Run Phase 6 regression module
+        run: python -m neo_app.video.minimax_h3_lora_regression
+
+      - name: Run Phase 6 unittest gate
+        run: python -m unittest tests.test_minimax_h3_lora_regression_phase6 -v
