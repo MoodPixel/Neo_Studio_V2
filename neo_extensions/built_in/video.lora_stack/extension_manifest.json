@@ -1,8 +1,8 @@
 {
   "id": "video.lora_stack",
   "name": "Video · LoRA Stack",
-  "version": "0.6.0-phase6-minimax-h3-regression",
-  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, compiler-owned patch profiles, active MiniMax H3 UNET integration, and a deterministic Phase-6 five-mode regression gate. H3 standard/speed LoRAs use LoraLoaderModelOnly only; missing catalog entries, generic-loader-only backends, invalid H3 targets, and H3 GGUF LoRA injection fail closed.",
+  "version": "0.6.1-phase6-minimax-h3-ci-green",
+  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, compiler-owned patch profiles, active MiniMax H3 UNET integration, and a CI-verified Phase-6 five-mode regression gate. All 43 deterministic H3 LoRA/Turbo cases pass. H3 standard/speed LoRAs use LoraLoaderModelOnly only; missing catalog entries, generic-loader-only backends, invalid H3 targets, and H3 GGUF LoRA injection fail closed.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "video",
@@ -78,6 +78,11 @@
       "reference_to_video",
       "vid2vid"
     ],
+    "regression_gate_ci_verified": true,
+    "regression_gate_case_count": 43,
+    "regression_gate_passed": 43,
+    "regression_gate_failed": 0,
+    "regression_gate_next_phase_allowed": true,
     "fail_closed": true,
     "phase": "phase_6"
   },
