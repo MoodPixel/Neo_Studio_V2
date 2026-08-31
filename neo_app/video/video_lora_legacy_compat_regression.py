@@ -6,6 +6,7 @@ from typing import Any, Callable
 from neo_app.video import minimax_h3_lora_regression as h3reg
 from neo_app.video import video_lora_legacy_compat as compat
 from neo_app.video import wan_lora_regression as wanreg
+from neo_app.video.video_lora_runtime import normalize_video_lora_rows
 
 SCHEMA_VERSION = "neo.video.lora_legacy_compat.regression.v1"
 PHASE = "phase_9"
@@ -142,7 +143,8 @@ def _case_h3_universal_precedence() -> dict[str, Any]:
 def _case_h3_disabled_unchanged() -> dict[str, Any]:
     rows = [{"uid": "h3_standard", "name": h3reg.STANDARD_LORA, "strength_model": 0.77, "role": "standard", "target": "all"}]
     merged, meta = compat.merge_h3_legacy_turbo_hardened(rows, enabled=False)
-    _assert(merged == rows, "Disabled H3 legacy bridge changed universal state")
+    expected = normalize_video_lora_rows(rows)
+    _assert(merged == expected, "Disabled H3 legacy bridge changed canonical universal state")
     _assert(not meta["requested"], "Disabled H3 bridge reported requested")
     return {"rows": merged, "meta": meta}
 
