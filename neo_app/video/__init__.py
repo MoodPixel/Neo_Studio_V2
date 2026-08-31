@@ -5,6 +5,8 @@
 # adding the universal compiler-owned LoRA patch-profile/runtime bridge.
 from neo_app.video.minimax_h3_lora_integration import install_minimax_h3_lora_integration
 from neo_app.video.ltx_lora_integration import install_ltx_lora_integration
+from neo_app.video.wan_lora_integration import install_wan_lora_integration
 
 install_minimax_h3_lora_integration()
 install_ltx_lora_integration()
+install_wan_lora_integration()
