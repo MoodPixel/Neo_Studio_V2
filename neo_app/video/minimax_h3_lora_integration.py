@@ -39,6 +39,21 @@ def _speed_notes(compiled: dict[str, Any], req: Any, speed_count: int) -> None:
         notes.append("H3 speed LoRA audio shift is outside the commonly tested 4-6 range; incompatible few-step scheduling can destabilize audio.")
 
 
+def _validate_h3_lora_catalog(rows: list[dict[str, Any]], catalogs: dict[str, Any], loader_available: bool) -> None:
+    if not rows:
+        return
+    if not loader_available:
+        raise ValueError("MiniMax H3 LoRA rows were requested but ComfyUI does not expose LoraLoaderModelOnly.")
+    live_values = [str(item) for item in (catalogs.get("loras") or []) if str(item)]
+    if not live_values:
+        raise ValueError("MiniMax H3 LoRA rows were requested but LoraLoaderModelOnly exposes no LoRA files in its live catalog.")
+    live_folded = {value.casefold() for value in live_values}
+    missing = [str(row.get("name") or "") for row in rows if str(row.get("name") or "").casefold() not in live_folded]
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"Selected MiniMax H3 Video LoRA is not visible in the live LoraLoaderModelOnly catalog: {joined}")
+
+
 def install_minimax_h3_lora_integration() -> None:
     """Install the Phase-5 H3 LoRA integration once per Python process.
 
@@ -150,6 +165,7 @@ def install_minimax_h3_lora_integration() -> None:
             if ".unet." not in route_id:
                 raise ValueError("MiniMax H3 GGUF Video LoRA/Turbo remains fail-closed until GGUF LoRA-loader compatibility is validated.")
             loader_available = str(classes.get("lora") or "") == H3_MODEL_ONLY_LOADER
+            _validate_h3_lora_catalog(rows, catalogs, loader_available)
             patched_workflow, runtime = apply_h3_model_only_lora_stack(
                 workflow,
                 profile,
@@ -175,16 +191,11 @@ def install_minimax_h3_lora_integration() -> None:
                 "warnings": [],
             }
 
-        visible_loras = {str(item).casefold() for item in catalogs.get("loras", [])}
-        runtime_warnings = runtime.setdefault("warnings", [])
-        for row in rows:
-            if visible_loras and str(row.get("name") or "").casefold() not in visible_loras:
-                runtime_warnings.append(f"Selected LoRA is not present in the live LoraLoaderModelOnly catalog: {row.get('name')}")
-
         runtime["legacy_turbo_bridge"] = legacy_bridge
         runtime["speed_candidates"] = speed_candidates
         runtime["manual_selection_classifier_gate"] = False
         runtime["generic_lora_loader_fallback"] = False
+        runtime["live_catalog_validated"] = bool(rows)
         compiled["video_lora_stack"] = runtime
         _speed_notes(compiled, req, int(runtime.get("speed_count") or 0))
 
@@ -200,6 +211,7 @@ def install_minimax_h3_lora_integration() -> None:
             "MiniMax H3 UNET LoRAs use the universal Video LoRA stack and a compiler-owned model-only patch profile.",
             "Legacy H3 Turbo controls are bridged into role=speed without double-applying a LoRA already present in the universal stack.",
             "Turbo/LightX2V filename classification is recommendation-only; explicit manual LoRA selection is never blocked by the classifier.",
+            "Selected H3 LoRA files must exist in the live LoraLoaderModelOnly catalog before a workflow is accepted.",
         ])
         compiled["rules"] = list(dict.fromkeys(str(rule) for rule in rules if str(rule)))
         return compiled
