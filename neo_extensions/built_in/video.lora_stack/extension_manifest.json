@@ -1,8 +1,8 @@
 {
   "id": "video.lora_stack",
   "name": "Video · LoRA Stack",
-  "version": "0.3.0-phase3-support-matrix",
-  "description": "Built-in Video LoRA Stack with a universal portable payload and exact-route, fail-closed compatibility matrix for MiniMax H3, WAN 2.2, and LTX 2.3. Phase 3 declares standard/speed support, branch targeting, and required loader class per proven route; workflow patching and compiler-owned anchors remain inactive until Phase 4.",
+  "version": "0.4.0-phase4-patch-profiles",
+  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, and compiler-owned LoRA patch-profile contract. Phase 4 adds fail-closed validation for exact model refs and consumer inputs, including WAN high/low branches, while workflow mutation and LoRA node insertion remain intentionally inactive until family onboarding phases.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "video",
@@ -58,9 +58,11 @@
     "foundation_only": false,
     "payload_contract_only": false,
     "support_matrix_active": true,
+    "patch_profile_contract_active": true,
+    "compiler_profiles_required": true,
     "workflow_patching_active": false,
     "fail_closed": true,
-    "phase": "phase_3"
+    "phase": "phase_4"
   },
   "payload_contract": {
     "schema_version": "neo.extension.payload.v1",
@@ -83,7 +85,8 @@
     "python": [
       "backend/__init__.py",
       "backend/payload_schema.py",
-      "backend/support_matrix.py"
+      "backend/support_matrix.py",
+      "backend/patch_profile.py"
     ],
     "assets": [
       "backend/support_matrix_data.json"
