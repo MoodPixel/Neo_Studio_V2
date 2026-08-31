@@ -6,7 +6,9 @@
 from neo_app.video.minimax_h3_lora_integration import install_minimax_h3_lora_integration
 from neo_app.video.ltx_lora_integration import install_ltx_lora_integration
 from neo_app.video.wan_lora_integration import install_wan_lora_integration
+from neo_app.video.wan_lora_payload_context import install_wan_lora_payload_context_guard
 
 install_minimax_h3_lora_integration()
 install_ltx_lora_integration()
 install_wan_lora_integration()
+install_wan_lora_payload_context_guard()
