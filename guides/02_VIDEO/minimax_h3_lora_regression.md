@@ -17,13 +17,32 @@ tags:
   - regression
   - img2vid
 priority: 85
-version: 1
+version: 2
 updated: 2026-08-31
 ---
 
 # MiniMax H3 LoRA Regression Gate
 
 Phase 6 is the release gate for the MiniMax H3 implementation of `video.lora_stack`. It intentionally adds no LTX or WAN runtime support. The goal is to prove that the H3 universal LoRA architecture remains safe across every supported H3 UNET generation mode before another family is onboarded.
+
+## Gate status
+
+**CI verified: PASS**
+
+GitHub Actions executed the committed regression module and unittest wrapper on Python 3.11 and returned:
+
+```json
+{
+  "ok": true,
+  "gate": "pass",
+  "case_count": 43,
+  "passed": 43,
+  "failed": 0,
+  "next_phase_allowed": true
+}
+```
+
+The gate is therefore green for Phase 7 family onboarding.
 
 ## Run the gate
 
@@ -48,6 +67,14 @@ neo.video.minimax_h3.lora_regression.v1
 
 The report includes every case, pass/fail state, failure text, total counts, and `next_phase_allowed`.
 
+The unittest wrapper is:
+
+```bash
+python -m unittest tests.test_minimax_h3_lora_regression_phase6 -v
+```
+
+CI runs both commands through `.github/workflows/phase6_minimax_h3_lora_regression.yml`.
+
 ## Test environment
 
 The regression module uses deterministic synthetic ComfyUI `/object_info` data. It does not queue a real video or require installed H3 model weights. The synthetic backend exposes the exact contracts the H3 compiler consumes:
@@ -63,6 +90,8 @@ The regression module uses deterministic synthetic ComfyUI `/object_info` data. 
 - Hailuo Lightning speed LoRA
 
 A fixed seed is used so no-LoRA workflow equivalence is structural and deterministic.
+
+The CI runner installs the minimum Neo import dependencies required to exercise the actual repository import path, including Pydantic, Pillow, and CPU Torch. The regression itself remains CPU/deterministic graph validation and does not run H3 weights.
 
 ## Generation modes under test
 
@@ -127,7 +156,7 @@ It also verifies that:
 
 ## Legacy H3 Turbo compatibility
 
-The gate includes four Img2Vid-specific migration cases.
+The gate includes Img2Vid-specific migration coverage.
 
 ### Legacy Turbo only
 
@@ -159,6 +188,8 @@ same file already in stack
   -> normalize H3 target to all
   -> mark duplicate_suppressed
 ```
+
+The CI run explicitly passed this case, including `existing_role_promoted=true` and target normalization.
 
 ### Auto-discovery
 
@@ -202,9 +233,11 @@ Phase-6 workflow graph == original H3 workflow graph
 
 LoRA metadata/profile information may be present outside the workflow, but no LoRA node may be inserted and no model consumer may be rewired.
 
+GitHub Actions verified this no-op invariant for all five modes.
+
 ## Current boundary
 
-Passing this deterministic gate means the compiler/LoRA graph contract is ready for the next family onboarding phase. It does not claim visual quality equivalence on every third-party LoRA or validate an H3 GGUF LoRA topology.
+Passing this deterministic gate means the compiler/LoRA graph contract is ready for the next family onboarding phase. It does not claim visual quality equivalence on every third-party LoRA or validate an H3 GGUF LoRA topology on a physical GPU-backed ComfyUI installation.
 
 H3 GGUF remains explicitly blocked until its actual installed LoRA loader contract is verified.
 
@@ -214,12 +247,14 @@ H3 GGUF remains explicitly blocked until its actual installed LoRA loader contra
 - `neo_app/video/minimax_h3_lora_integration.py`
 - `neo_app/video/video_lora_runtime.py`
 - `neo_app/video/lora_patch_profiles.py`
+- `tests/test_minimax_h3_lora_regression_phase6.py`
+- `.github/workflows/phase6_minimax_h3_lora_regression.yml`
 - `guides/02_VIDEO/video_lora_stack.md`
 - `guides/02_VIDEO/minimax_h3_local_support.md`
 
 ## Promotion rule
 
-Do not enable LTX runtime LoRA patching until this command reports:
+Phase 6 has satisfied the promotion rule:
 
 ```json
 {
@@ -228,3 +263,5 @@ Do not enable LTX runtime LoRA patching until this command reports:
   "next_phase_allowed": true
 }
 ```
+
+The next runtime phase may therefore begin with **LTX UNET standard LoRA integration for Txt2Vid and Img2Vid**. This does not authorize LTX speed/Turbo support or unvalidated LTX routes.
