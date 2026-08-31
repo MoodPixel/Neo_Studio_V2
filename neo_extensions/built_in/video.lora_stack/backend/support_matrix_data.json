@@ -1,0 +1,252 @@
+{
+  "schema_version": "neo.video.lora_stack.support_matrix.v1",
+  "policy": "Video LoRA compatibility is exact-route and fail-closed. A family-level match never grants LoRA support to an unvalidated loader or generation type.",
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "states": [
+    "supported",
+    "provisional",
+    "blocked",
+    "unsupported"
+  ],
+  "groups": [
+    {
+      "name": "minimax_h3_unet",
+      "route_ids": [
+        "minimax_h3.unet.txt2vid",
+        "minimax_h3.unet.img2vid",
+        "minimax_h3.unet.first_last_frame",
+        "minimax_h3.unet.reference_to_video",
+        "minimax_h3.unet.vid2vid"
+      ],
+      "state": "supported",
+      "family": "minimax_h3",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase-0 inspection proved the H3 model patch point is upstream of all five UNET generation pipelines, so standard and speed LoRAs share one model-only compatibility class."
+    },
+    {
+      "name": "minimax_h3_gguf",
+      "route_ids": [
+        "minimax_h3.gguf.txt2vid",
+        "minimax_h3.gguf.img2vid",
+        "minimax_h3.gguf.first_last_frame",
+        "minimax_h3.gguf.reference_to_video",
+        "minimax_h3.gguf.vid2vid"
+      ],
+      "state": "provisional",
+      "family": "minimax_h3",
+      "loader": "gguf",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "H3 GGUF generation exists, but GGUF model-to-LoRA loader compatibility has not been physically validated. Fail closed until that exact loader topology is proven."
+    },
+    {
+      "name": "wan22_unet_single_model",
+      "route_ids": [
+        "wan22.unet.txt2vid",
+        "wan22.unet.img2vid"
+      ],
+      "state": "provisional",
+      "family": "wan22",
+      "loader": "unet",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "WAN UNET routes are compiler targets for the universal stack, but their exact model consumers have not yet published Phase-4 patch profiles."
+    },
+    {
+      "name": "wan22_rapid_aio",
+      "route_ids": [
+        "wan22.rapid_aio_gguf.txt2vid",
+        "wan22.rapid_aio_gguf.img2vid"
+      ],
+      "state": "blocked",
+      "family": "wan22",
+      "loader": "rapid_aio_gguf",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "provider_specific",
+      "required_loader_nodes": [],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Rapid AIO is an all-in-one GGUF route. It must explicitly opt in through a proven compiler profile; external model patching is blocked by default."
+    },
+    {
+      "name": "wan22_dual_noise_gguf_img2vid",
+      "route_ids": [
+        "wan22.gguf.img2vid_14b_dual_noise"
+      ],
+      "state": "supported",
+      "family": "wan22",
+      "loader": "gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": true,
+      "allowed_targets": ["all", "high", "low"],
+      "required_loader_type": "model_only_multi_branch",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "legacy_bridge_required": true,
+      "reason": "The existing WAN dual-noise adapter already proves model-only LoRA application and Both/High/Low targeting. Phase 4 will replace hardcoded node IDs with compiler-owned high/low anchors."
+    },
+    {
+      "name": "wan22_native_workflow",
+      "route_ids": [
+        "wan22.native_workflow.txt2vid",
+        "wan22.native_workflow.img2vid"
+      ],
+      "state": "blocked",
+      "family": "wan22",
+      "loader": "native_workflow",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "provider_specific",
+      "required_loader_nodes": [],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Imported native workflows do not expose compiler-owned LoRA anchors yet."
+    },
+    {
+      "name": "ltx23_unet_primary",
+      "route_ids": [
+        "ltx23.unet.txt2vid",
+        "ltx23.unet.img2vid"
+      ],
+      "state": "supported",
+      "family": "ltx23",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase-0 inspection proved a clean model-only insertion point between the LTX model loader and its first model consumer for Txt2Vid and Img2Vid."
+    },
+    {
+      "name": "ltx23_gguf_primary",
+      "route_ids": [
+        "ltx23.gguf.txt2vid",
+        "ltx23.gguf.img2vid"
+      ],
+      "state": "provisional",
+      "family": "ltx23",
+      "loader": "gguf",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "LTX GGUF generation is active, but exact GGUF model compatibility with the standard model-only LoRA loader is not yet proven."
+    },
+    {
+      "name": "ltx23_unet_extended_modes",
+      "route_ids": [
+        "ltx23.unet.first_last_frame",
+        "ltx23.unet.multiscene",
+        "ltx23.unet.extend",
+        "ltx23.unet.vid2vid",
+        "ltx23.unet.depth_motion",
+        "ltx23.unet.prompt_schedule",
+        "ltx23.unet.audio_video"
+      ],
+      "state": "provisional",
+      "family": "ltx23",
+      "loader": "unet",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "These LTX modes are active base routes, but their individual compiler model lineage must be inspected before LoRA support is promoted."
+    },
+    {
+      "name": "ltx23_gguf_extended_modes",
+      "route_ids": [
+        "ltx23.gguf.first_last_frame",
+        "ltx23.gguf.multiscene",
+        "ltx23.gguf.extend",
+        "ltx23.gguf.vid2vid",
+        "ltx23.gguf.depth_motion",
+        "ltx23.gguf.prompt_schedule",
+        "ltx23.gguf.audio_video"
+      ],
+      "state": "provisional",
+      "family": "ltx23",
+      "loader": "gguf",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Both route-specific model lineage and GGUF LoRA-loader compatibility remain unvalidated for these LTX modes."
+    },
+    {
+      "name": "ltx23_native_workflow",
+      "route_ids": [
+        "ltx23.native_workflow.txt2vid",
+        "ltx23.native_workflow.img2vid"
+      ],
+      "state": "blocked",
+      "family": "ltx23",
+      "loader": "native_workflow",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "provider_specific",
+      "required_loader_nodes": [],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Imported native LTX workflows have no compiler-owned LoRA anchor contract."
+    }
+  ]
+}

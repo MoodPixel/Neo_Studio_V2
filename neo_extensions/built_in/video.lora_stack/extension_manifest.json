@@ -1,0 +1,125 @@
+{
+  "id": "video.lora_stack",
+  "name": "Video · LoRA Stack",
+  "version": "0.6.1-phase6-minimax-h3-ci-green",
+  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, compiler-owned patch profiles, active MiniMax H3 UNET integration, and a CI-verified Phase-6 five-mode regression gate. All 43 deterministic H3 LoRA/Turbo cases pass. H3 standard/speed LoRAs use LoraLoaderModelOnly only; missing catalog entries, generic-loader-only backends, invalid H3 targets, and H3 GGUF LoRA injection fail closed.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "assets"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "assets"
+  ],
+  "mount_slots": [
+    "video.assets.lora_stack"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "assets",
+      "workflow_mode": null,
+      "slot": "video.assets.lora_stack",
+      "route_states": [
+        "available",
+        "experimental_available",
+        "implementation_target",
+        "planned_gated",
+        "provider_gated",
+        "unsupported"
+      ]
+    }
+  ],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "minimax_h3",
+    "wan22",
+    "ltx23"
+  ],
+  "supported_loaders": [
+    "unet",
+    "gguf",
+    "rapid_aio_gguf",
+    "native_workflow"
+  ],
+  "route_states": {},
+  "route_context_scope": "generation_route",
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true,
+    "foundation_only": false,
+    "payload_contract_only": false,
+    "support_matrix_active": true,
+    "patch_profile_contract_active": true,
+    "compiler_profiles_required": true,
+    "workflow_patching_active": true,
+    "workflow_patching_scope": "minimax_h3_unet",
+    "minimax_h3_integration_active": true,
+    "minimax_h3_standard_lora_active": true,
+    "minimax_h3_speed_lora_active": true,
+    "legacy_h3_turbo_bridge": true,
+    "legacy_h3_duplicate_role_promotion": true,
+    "live_lora_catalog_required": true,
+    "generic_lora_loader_fallback": false,
+    "h3_gguf_lora_fail_closed": true,
+    "regression_gate_module": "neo_app.video.minimax_h3_lora_regression",
+    "regression_gate_modes": [
+      "txt2vid",
+      "img2vid",
+      "first_last_frame",
+      "reference_to_video",
+      "vid2vid"
+    ],
+    "regression_gate_ci_verified": true,
+    "regression_gate_case_count": 43,
+    "regression_gate_passed": 43,
+    "regression_gate_failed": 0,
+    "regression_gate_next_phase_allowed": true,
+    "fail_closed": true,
+    "phase": "phase_6"
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true
+  },
+  "asset_bundle": {
+    "js": [],
+    "css": [],
+    "html": [],
+    "python": [
+      "backend/__init__.py",
+      "backend/payload_schema.py",
+      "backend/support_matrix.py",
+      "backend/patch_profile.py"
+    ],
+    "assets": [
+      "backend/support_matrix_data.json"
+    ]
+  },
+  "entrypoints": {},
+  "runtime": {
+    "contract_version": "neo.extension.runtime.v1",
+    "requested_permissions": [],
+    "activation": "restart_required",
+    "workflow_stage": "late_finish",
+    "workflow_priority": 100
+  }
+}
