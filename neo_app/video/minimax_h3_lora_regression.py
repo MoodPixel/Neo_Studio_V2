@@ -15,10 +15,16 @@ STANDARD_LORA = "cinematic_motion_character.safetensors"
 STANDARD_LORA_2 = "wardrobe_detail.safetensors"
 SPEED_LORA = "MiniMax-LightX2V-4steps.safetensors"
 LIGHTNING_LORA = "hailuo_lightning_8steps.safetensors"
+FIXED_SEED = 246813579
 
 
 def _combo(values: list[str]) -> list[Any]:
     return [values, {}]
+
+
+def _assert(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
 
 
 def synthetic_h3_object_info(*, model_only: bool = True, generic_lora: bool = False, loras: list[str] | None = None) -> dict[str, Any]:
@@ -89,6 +95,7 @@ def _request(mode: str, *, loader: str = "unet", turbo: bool = False, turbo_name
         "steps": 6,
         "sampler": "euler",
         "scheduler": "beta",
+        "seed": FIXED_SEED,
         "h3_shift_audio": 5.0,
         "h3_turbo_enabled": turbo,
         "h3_turbo_lora": turbo_name,
@@ -145,8 +152,7 @@ def _sigma_node(compiled: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         for node_id, node in workflow.items()
         if isinstance(node, dict) and str(node.get("class_type") or "") == "MiniMaxH3SigmaShift"
     ]
-    if len(rows) != 1:
-        raise AssertionError(f"Expected exactly one MiniMaxH3SigmaShift node, found {len(rows)}")
+    _assert(len(rows) == 1, f"Expected exactly one MiniMaxH3SigmaShift node, found {len(rows)}")
     return rows[0]
 
 
@@ -155,51 +161,46 @@ def _assert_profile_and_chain(compiled: dict[str, Any], expected_names: list[str
     profile = compiled.get("lora_patch_profile") or {}
     workflow = compiled.get("workflow") or {}
     prompt_workflow = (compiled.get("prompt_api_payload") or {}).get("prompt")
-    if prompt_workflow != workflow:
-        raise AssertionError("prompt_api_payload.prompt does not match the patched workflow")
-    if profile.get("schema_version") != "neo.video.lora_patch_profile.v1":
-        raise AssertionError("Missing/invalid H3 LoRA patch-profile schema")
-    if profile.get("owner") != "compiler" or profile.get("loader_type") != "model_only":
-        raise AssertionError("H3 LoRA patch profile is not compiler-owned/model-only")
-    if profile.get("loader_node_class") != H3_MODEL_ONLY_LOADER:
-        raise AssertionError("H3 LoRA profile is not locked to LoraLoaderModelOnly")
-    if profile.get("targets") != ["all"]:
-        raise AssertionError("H3 LoRA profile exposes an invalid target")
-    if not profile.get("validated"):
-        raise AssertionError("H3 UNET LoRA patch profile is not validated")
+    _assert(prompt_workflow == workflow, "prompt_api_payload.prompt does not match the patched workflow")
+    _assert(profile.get("schema_version") == "neo.video.lora_patch_profile.v1", "Missing/invalid H3 LoRA patch-profile schema")
+    _assert(profile.get("owner") == "compiler" and profile.get("loader_type") == "model_only", "H3 LoRA patch profile is not compiler-owned/model-only")
+    _assert(profile.get("loader_node_class") == H3_MODEL_ONLY_LOADER, "H3 LoRA profile is not locked to LoraLoaderModelOnly")
+    _assert(profile.get("targets") == ["all"], "H3 LoRA profile exposes an invalid target")
+    _assert(bool(profile.get("validated")), "H3 UNET LoRA patch profile is not validated")
 
     nodes = _lora_nodes(compiled)
     names = [str(node.get("inputs", {}).get("lora_name") or "") for _, node in nodes]
-    if names != expected_names:
-        raise AssertionError(f"LoRA node order mismatch: expected {expected_names}, got {names}")
+    _assert(names == expected_names, f"LoRA node order mismatch: expected {expected_names}, got {names}")
     roles = [str(item.get("role") or "") for item in runtime.get("applied", [])]
-    if roles != expected_roles:
-        raise AssertionError(f"LoRA runtime role order mismatch: expected {expected_roles}, got {roles}")
-    if runtime.get("applied_count") != len(expected_names):
-        raise AssertionError("LoRA applied_count does not match inserted nodes")
+    _assert(roles == expected_roles, f"LoRA runtime role order mismatch: expected {expected_roles}, got {roles}")
+    _assert(runtime.get("applied_count") == len(expected_names), "LoRA applied_count does not match inserted nodes")
+    _assert(bool(runtime.get("live_catalog_validated")), "Active H3 LoRA stack did not validate the live ModelOnly catalog")
 
     _, sigma = _sigma_node(compiled)
     final_ref = runtime.get("final_model_ref")
-    if sigma.get("inputs", {}).get("model") != final_ref:
-        raise AssertionError("MiniMaxH3SigmaShift does not consume the final Video LoRA model reference")
+    _assert(sigma.get("inputs", {}).get("model") == final_ref, "MiniMaxH3SigmaShift does not consume the final Video LoRA model reference")
+
+    json.dumps({"workflow": workflow, "profile": profile, "runtime": runtime})
 
 
-def _case_no_lora_equivalence(mode: str, object_info: dict[str, Any]) -> dict[str, Any]:
-    req = _request(mode)
+def _original_build() -> Callable[..., dict[str, Any]]:
     originals = getattr(h3, "_neo_phase5_video_lora_originals", {})
-    original_build = originals.get("build_minimax_h3_workflow")
-    if not callable(original_build):
+    original = originals.get("build_minimax_h3_workflow")
+    if not callable(original):
         raise AssertionError("Phase-5 original H3 compiler build function is unavailable")
-    original = original_build(replace(req, h3_turbo_enabled=False, h3_turbo_lora=""), object_info=object_info)
-    current = _build_with_rows(req, [], object_info)
-    if current.get("workflow") != original.get("workflow"):
-        raise AssertionError(f"No-LoRA workflow changed for {mode}")
-    if _lora_nodes(current):
-        raise AssertionError(f"No-LoRA workflow unexpectedly contains LoRA nodes for {mode}")
+    return original
+
+
+def _case_no_lora_equivalence(mode: str, object_info: dict[str, Any], *, disabled_with_rows: bool = False) -> dict[str, Any]:
+    req = _request(mode)
+    original = _original_build()(replace(req, h3_turbo_enabled=False, h3_turbo_lora=""), object_info=object_info)
+    rows = [{"name": STANDARD_LORA, "strength_model": 0.8, "role": "standard", "target": "all"}] if disabled_with_rows else []
+    current = _build_with_rows(req, rows, object_info, enabled=not disabled_with_rows)
+    _assert(current.get("workflow") == original.get("workflow"), f"No-op LoRA workflow changed for {mode}")
+    _assert(not _lora_nodes(current), f"No-op LoRA workflow unexpectedly contains LoRA nodes for {mode}")
     runtime = current.get("video_lora_stack") or {}
-    if runtime.get("active") or runtime.get("applied_count") != 0:
-        raise AssertionError(f"No-LoRA runtime is not a no-op for {mode}")
-    return {"mode": mode, "workflow_nodes": len(current.get("workflow") or {})}
+    _assert(not runtime.get("active") and runtime.get("applied_count") == 0, f"No-op LoRA runtime is not inert for {mode}")
+    return {"mode": mode, "disabled_with_rows": disabled_with_rows, "workflow_nodes": len(current.get("workflow") or {})}
 
 
 def _case_stack(mode: str, object_info: dict[str, Any], rows: list[dict[str, Any]], expected_names: list[str], expected_roles: list[str]) -> dict[str, Any]:
@@ -218,8 +219,7 @@ def _expect_error(fn: Callable[[], Any], contains: str) -> str:
         fn()
     except ValueError as exc:
         text = str(exc)
-        if contains.casefold() not in text.casefold():
-            raise AssertionError(f"Expected error containing {contains!r}, got {text!r}") from exc
+        _assert(contains.casefold() in text.casefold(), f"Expected error containing {contains!r}, got {text!r}")
         return text
     raise AssertionError(f"Expected ValueError containing {contains!r}")
 
@@ -237,9 +237,9 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
         else:
             cases.append({"name": name, "ok": True, "details": details})
 
-    record("speed classifier accepts MiniMax LightX2V", lambda: True if is_h3_speed_lora_name(SPEED_LORA) else (_ for _ in ()).throw(AssertionError("MiniMax LightX2V was not classified as speed")))
-    record("speed classifier accepts Hailuo Lightning", lambda: True if is_h3_speed_lora_name(LIGHTNING_LORA) else (_ for _ in ()).throw(AssertionError("Hailuo Lightning was not classified as speed")))
-    record("standard manual LoRA is not speed-classifier gated", lambda: True if not is_h3_speed_lora_name(STANDARD_LORA) else (_ for _ in ()).throw(AssertionError("Standard LoRA was misclassified as speed")))
+    record("speed classifier accepts MiniMax LightX2V", lambda: _assert(is_h3_speed_lora_name(SPEED_LORA), "MiniMax LightX2V was not classified as speed"))
+    record("speed classifier accepts Hailuo Lightning", lambda: _assert(is_h3_speed_lora_name(LIGHTNING_LORA), "Hailuo Lightning was not classified as speed"))
+    record("standard manual LoRA is not speed-classifier gated", lambda: _assert(not is_h3_speed_lora_name(STANDARD_LORA), "Standard LoRA was misclassified as speed"))
 
     standard = [{"name": STANDARD_LORA, "strength_model": 0.8, "role": "standard", "target": "all"}]
     multiple_standard = [
@@ -253,7 +253,8 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
     ]
 
     for mode in MODES:
-        record(f"{mode}: no-LoRA graph equivalence", lambda mode=mode: _case_no_lora_equivalence(mode, object_info))
+        record(f"{mode}: empty stack graph equivalence", lambda mode=mode: _case_no_lora_equivalence(mode, object_info))
+        record(f"{mode}: disabled populated stack graph equivalence", lambda mode=mode: _case_no_lora_equivalence(mode, object_info, disabled_with_rows=True))
         record(f"{mode}: standard LoRA", lambda mode=mode: _case_stack(mode, object_info, standard, [STANDARD_LORA], ["standard"]))
         record(f"{mode}: multiple standard LoRAs", lambda mode=mode: _case_stack(mode, object_info, multiple_standard, [STANDARD_LORA, STANDARD_LORA_2], ["standard", "standard"]))
         record(f"{mode}: speed/Turbo LoRA", lambda mode=mode: _case_stack(mode, object_info, speed, [SPEED_LORA], ["speed"]))
@@ -264,8 +265,7 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
         compiled = h3.build_minimax_h3_workflow(req, object_info=object_info)
         _assert_profile_and_chain(compiled, [SPEED_LORA], ["speed"])
         bridge = (compiled.get("video_lora_stack") or {}).get("legacy_turbo_bridge") or {}
-        if not bridge.get("bridged"):
-            raise AssertionError("Legacy Turbo was not bridged into the universal speed stack")
+        _assert(bool(bridge.get("bridged")), "Legacy Turbo was not bridged into the universal speed stack")
         return bridge
 
     def legacy_duplicate_speed() -> dict[str, Any]:
@@ -273,34 +273,34 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
         compiled = _build_with_rows(req, speed, object_info)
         _assert_profile_and_chain(compiled, [SPEED_LORA], ["speed"])
         bridge = (compiled.get("video_lora_stack") or {}).get("legacy_turbo_bridge") or {}
-        if not bridge.get("duplicate_suppressed") or bridge.get("bridged"):
-            raise AssertionError("Legacy duplicate Turbo was not suppressed")
+        _assert(bool(bridge.get("duplicate_suppressed")) and not bridge.get("bridged"), "Legacy duplicate Turbo was not suppressed")
         return bridge
 
     def legacy_duplicate_standard_promotes() -> dict[str, Any]:
         req = _request("img2vid", turbo=True, turbo_name=SPEED_LORA)
-        same_as_standard = [{"name": SPEED_LORA, "strength_model": 0.9, "role": "standard", "target": "all"}]
-        compiled = _build_with_rows(req, same_as_standard, object_info)
+        same_file = [{"name": SPEED_LORA, "strength_model": 0.9, "role": "standard", "target": "high"}]
+        compiled = _build_with_rows(req, same_file, object_info)
         _assert_profile_and_chain(compiled, [SPEED_LORA], ["speed"])
         bridge = (compiled.get("video_lora_stack") or {}).get("legacy_turbo_bridge") or {}
-        if not bridge.get("duplicate_suppressed") or not bridge.get("existing_role_promoted"):
-            raise AssertionError("Legacy Turbo duplicate did not promote the existing universal row to speed")
+        _assert(bool(bridge.get("duplicate_suppressed")), "Legacy Turbo duplicate was not suppressed")
+        _assert(bool(bridge.get("existing_role_promoted")), "Legacy Turbo duplicate did not promote the existing row to speed")
+        _assert(bool(bridge.get("existing_target_normalized")), "Legacy Turbo duplicate did not normalize the existing H3 target to all")
+        applied = (compiled.get("video_lora_stack") or {}).get("applied") or []
+        _assert(bool(applied) and float(applied[0].get("strength_model")) == 0.9, "Universal duplicate row strength was not preserved")
         return bridge
 
     def legacy_auto_discovery() -> dict[str, Any]:
         req = _request("img2vid", turbo=True, turbo_name="")
         compiled = h3.build_minimax_h3_workflow(req, object_info=object_info)
         runtime = compiled.get("video_lora_stack") or {}
-        if runtime.get("speed_count") != 1:
-            raise AssertionError("Legacy Turbo auto-discovery did not create exactly one speed row")
+        _assert(runtime.get("speed_count") == 1, "Legacy Turbo auto-discovery did not create exactly one speed row")
         bridge = runtime.get("legacy_turbo_bridge") or {}
-        if bridge.get("selected_name") not in {SPEED_LORA, LIGHTNING_LORA}:
-            raise AssertionError(f"Unexpected auto-discovered H3 speed LoRA: {bridge.get('selected_name')}")
+        _assert(bridge.get("selected_name") in {SPEED_LORA, LIGHTNING_LORA}, f"Unexpected auto-discovered H3 speed LoRA: {bridge.get('selected_name')}")
         return bridge
 
     record("img2vid: legacy Turbo uses universal stack", legacy_turbo_only)
     record("img2vid: legacy Turbo duplicate suppression", legacy_duplicate_speed)
-    record("img2vid: legacy Turbo promotes duplicate standard row", legacy_duplicate_standard_promotes)
+    record("img2vid: legacy Turbo promotes/normalizes duplicate universal row", legacy_duplicate_standard_promotes)
     record("img2vid: legacy Turbo auto-discovery", legacy_auto_discovery)
 
     record(
@@ -346,6 +346,16 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
             "supports only target='all'",
         ),
     )
+    record(
+        "legacy Turbo missing selected file fails closed",
+        lambda: _expect_error(
+            lambda: h3.build_minimax_h3_workflow(
+                _request("img2vid", turbo=True, turbo_name="missing_turbo.safetensors"),
+                object_info=object_info,
+            ),
+            "not visible in the live LoraLoaderModelOnly catalog",
+        ),
+    )
 
     failed = [case for case in cases if not case.get("ok")]
     return {
@@ -360,6 +370,7 @@ def run_minimax_h3_lora_regression() -> dict[str, Any]:
         "failed": len(failed),
         "cases": cases,
         "next_phase_allowed": not failed,
+        "run_command": "python -m neo_app.video.minimax_h3_lora_regression",
     }
 
 
