@@ -64,10 +64,10 @@
         "wan22.unet.txt2vid",
         "wan22.unet.img2vid"
       ],
-      "state": "provisional",
+      "state": "supported",
       "family": "wan22",
       "loader": "unet",
-      "supports_standard_lora": false,
+      "supports_standard_lora": true,
       "supports_speed_lora": false,
       "supports_branch_targeting": false,
       "allowed_targets": ["all"],
@@ -75,8 +75,8 @@
       "required_loader_nodes": ["LoraLoaderModelOnly"],
       "allow_generic_lora_loader_fallback": false,
       "patch_profile_required": true,
-      "validated_topology": false,
-      "reason": "WAN UNET routes are compiler targets for the universal stack, but their exact model consumers have not yet published Phase-4 patch profiles."
+      "validated_topology": true,
+      "reason": "Phase 8 CI verifies WAN 2.2 UNET Txt2Vid and Img2Vid standard LoRAs through a compiler-owned model-only anchor immediately upstream of ModelSamplingSD3. Speed roles and branch targeting remain fail closed on this single-model topology."
     },
     {
       "name": "wan22_rapid_aio",
@@ -116,7 +116,7 @@
       "patch_profile_required": true,
       "validated_topology": true,
       "legacy_bridge_required": true,
-      "reason": "The existing WAN dual-noise adapter already proves model-only LoRA application and Both/High/Low targeting. Phase 4 will replace hardcoded node IDs with compiler-owned high/low anchors."
+      "reason": "Phase 8 CI verifies universal standard/speed LoRA patching on compiler-owned high/low model branches with all/high/low targeting. Legacy WAN Normal LoRA and LightX2V fields are retained only through a migration bridge and no longer own hardcoded workflow node IDs."
     },
     {
       "name": "wan22_native_workflow",
