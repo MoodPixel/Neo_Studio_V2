@@ -19,8 +19,9 @@ tags:
   - turbo
   - lightx2v
   - workflow patching
+  - migration
 priority: 84
-version: 4
+version: 5
 updated: 2026-09-01
 ---
 
@@ -44,6 +45,18 @@ existing compiler graph
 ```
 
 The extension must not hardcode workflow node IDs. A compiler profile declares the exact model reference and exact consumer input(s) that may be rewired.
+
+Phase 9 adds a second invariant around saved legacy state:
+
+```text
+legacy H3/WAN fields
+        ↓ read-compatible intent only
+compatibility bridge
+        ↓
+universal video.lora_stack
+        ↓ only writeback + graph authority
+compiler-owned patch profile
+```
 
 ## Universal payload
 
@@ -123,7 +136,11 @@ LTX GGUF and extended LTX modes remain fail-closed/provisional for LoRA runtime 
 
 WAN Rapid AIO and imported native-workflow routes remain blocked for LoRA runtime.
 
-## MiniMax H3 model flow
+**Phase 9 does not change this support table.** It hardens compatibility and deprecation behavior only.
+
+## Runtime model flows
+
+### MiniMax H3
 
 ```text
 H3 model loader
@@ -134,9 +151,7 @@ H3 model loader
   -> scheduler / guider / sampler
 ```
 
-Standard rows are applied before `role=speed` rows.
-
-## LTX 2.3 model flow
+### LTX 2.3
 
 ```text
 LTX model loader
@@ -146,9 +161,9 @@ LTX model loader
   -> sampler
 ```
 
-Phase 7 locates the built compiler's actual `LTXVChunkFeedForward.model` reference and publishes it through the compiler-owned patch profile. LTX currently accepts `role=standard`, `target=all`, UNET, and `LoraLoaderModelOnly` only.
+LTX currently accepts `role=standard`, `target=all`, UNET, and `LoraLoaderModelOnly` only.
 
-## WAN single-model flow
+### WAN single-model
 
 ```text
 WAN UNET loader
@@ -157,11 +172,9 @@ WAN UNET loader
   -> sampler
 ```
 
-Phase 8 locates the compiler-selected sampling class in the built graph and uses its current model reference as the patch anchor. The integration does not assume workflow node IDs.
+WAN UNET currently accepts `role=standard` and `target=all` only.
 
-WAN UNET currently accepts `role=standard` and `target=all` only. Speed and high/low branch targets fail closed.
-
-## WAN dual-noise flow
+### WAN dual-noise
 
 ```text
 High model loader
@@ -183,20 +196,26 @@ The compiler-owned multi-branch profile exposes distinct `high` and `low` branch
 
 No active rows means no LoRA node insertion and no model-consumer rewiring.
 
-CI verifies no-op workflow equivalence for:
+CI verifies no-op workflow equivalence for all five H3 UNET modes, LTX UNET Txt2Vid/Img2Vid, WAN UNET Txt2Vid/Img2Vid, and WAN dual-noise GGUF Img2Vid.
+
+Metadata such as `lora_patch_profile`, `video_lora_stack`, and legacy compatibility diagnostics may exist outside the Comfy workflow without violating the no-op rule.
+
+## Phase 9 legacy compatibility boundary
+
+Old saved fields remain readable, but they are no longer valid writeback or graph-authority surfaces.
+
+Compiled hardened H3/WAN metadata declares:
 
 ```text
-all five H3 UNET modes
-LTX UNET Txt2Vid / Img2Vid
-WAN UNET Txt2Vid / Img2Vid
-WAN dual-noise GGUF Img2Vid
+legacy_field_writeback = false
+universal_stack_writeback = true
+next_save_action = persist_video.lora_stack_only
+graph_authority = compiler_owned_universal_video_lora_stack
 ```
 
-Metadata such as `lora_patch_profile` and `video_lora_stack` may exist outside the Comfy workflow without violating the no-op rule.
+### H3 Turbo compatibility
 
-## Legacy H3 Turbo compatibility
-
-Saved/request fields remain load-compatible:
+These fields remain readable:
 
 ```text
 h3_turbo_enabled
@@ -204,11 +223,11 @@ h3_turbo_lora
 h3_turbo_strength
 ```
 
-Neo converts these fields into the universal stack instead of inserting an independent Turbo node. Matching universal rows are deduplicated and promoted to `speed` when required.
+Neo converts them into universal rows. If the same file already exists in `video.lora_stack`, the universal row keeps its uid and strength. Legacy Turbo intent may promote it to `speed` and normalize its H3 target to `all`; no duplicate graph path is created.
 
-## Legacy WAN compatibility
+### WAN compatibility
 
-Phase 8 retains the historical WAN request fields for saved-workflow compatibility:
+These fields remain readable:
 
 ```text
 enable_video_lora
@@ -223,9 +242,7 @@ high_noise_lora_strength
 low_noise_lora_strength
 ```
 
-They are now migration inputs rather than graph mutation authority.
-
-Legacy target conversion:
+Legacy target conversion remains:
 
 ```text
 Both -> all
@@ -233,17 +250,62 @@ High -> high
 Low  -> low
 ```
 
-Legacy LightX2V becomes high- and low-target `role=speed` rows. Duplicate branch coverage is suppressed, and a matching existing row can be promoted from `standard` to `speed` instead of loading the same file twice.
+For branch overlap, universal state has precedence over legacy state for:
 
-The historical fixed WAN LoRA node IDs (`129:101`, `129:102`, `9001`, `9002`) are not used by the Phase-8 universal patcher. Regression tests assert that they do not survive in migrated workflows.
+```text
+uid
+strength_model
+strength_clip
+```
 
-The old `video_lora_adapter.py` remains temporarily for compatibility semantics; it is not deleted in Phase 8.
+Legacy intent may fill an uncovered branch or promote an already-covered matching branch to `speed`.
+
+### Branch-exact WAN speed promotion
+
+Phase 9 fixes an important mixed-state edge case. A universal `target=all` row must not be over-promoted when a legacy speed request applies to only one WAN branch.
+
+Example:
+
+```text
+Universal: file A, standard, all, strength 0.72
+Legacy:    file A, speed, high, strength 1.00
+```
+
+becomes:
+
+```text
+file A, speed,    high, strength 0.72
+file A, standard, low,  strength 0.72
+```
+
+The universal strength wins. The untouched low branch remains standard. Derived branch UIDs are deterministic and collision-safe.
+
+If an exact split would exceed the 12-row stack maximum, migration fails closed rather than dropping or widening state.
+
+## Legacy graph mutation is rejected
+
+Phase 9 verifies every LoRA loader node in hardened H3/WAN workflows after universal patching.
+
+Every `LoraLoaderModelOnly` or generic `LoraLoader` node must be declared by `video_lora_stack.applied`. Any undeclared LoRA node causes compile failure.
+
+Historical WAN graph IDs such as:
+
+```text
+129:101
+129:102
+9001
+9002
+```
+
+cannot re-enter as a parallel mutation path.
+
+The old `video_lora_adapter.py` remains temporarily for compatibility semantics, but its exposed diagnostic snapshot is sanitized: graph node IDs and source/output model links are removed, the snapshot is marked deprecated/compatibility-only, and its `graph_mutation_authority` is `none`.
+
+See [`video_lora_legacy_compatibility.md`](video_lora_legacy_compatibility.md) for the full deprecation/removal boundary.
 
 ## Generate payload preservation
 
-WAN Generate functions rebuild dataclass payloads before calling Compile. Since extension blocks are not dataclass fields, this can strip the universal stack from a nested call.
-
-`neo_app/video/wan_lora_payload_context.py` preserves the outer user payload until the compiler build hook consumes it. Phase-8 regression tests cover both WAN UNET Txt2Vid Generate and WAN dual-noise GGUF Img2Vid Generate.
+WAN Generate functions rebuild dataclass payloads before calling Compile. `neo_app/video/wan_lora_payload_context.py` preserves the outer user payload until the compiler build hook consumes it, so `extensions.video.lora_stack` survives Generate -> Compile nesting.
 
 ## Live catalog validation
 
@@ -269,7 +331,7 @@ neo.video.lora_patch_profile.v1
 
 Single-model profiles declare one model ref and its exact consumers. WAN dual-noise uses `model_only_multi_branch`, distinct high/low refs, and an `all` mapping to both branches.
 
-Before inserting a LoRA node, Neo verifies that declared consumers still point to the compiler-declared model reference. A stale profile fails closed.
+Before inserting a LoRA node, Neo verifies that declared consumers still point to the compiler-declared model reference. Phase 9 additionally verifies that every resulting LoRA node is declared by the universal runtime.
 
 ## Regression gates
 
@@ -303,27 +365,48 @@ python -m neo_app.video.wan_lora_regression
 30 / 30 passed
 ```
 
-The Phase-8 CI workflow reruns all three families together:
+### Legacy compatibility — Phase 9
 
-```text
-H3  43 / 43
-LTX 17 / 17
-WAN 30 / 30
-Total 90 / 90
+```bash
+python -m neo_app.video.video_lora_legacy_compat_regression
 ```
 
-The WAN matrix includes single-model no-op/standard stacks, dual-noise all/high/low targeting, speed ordering, legacy Normal/LightX2V migration and deduplication, loader/catalog failures, historical-node absence, and Generate -> Compile payload preservation.
+```text
+21 / 21 passed
+```
 
-See `guides/02_VIDEO/wan_lora_runtime.md` for the WAN-specific contract.
+The Phase-9 promotion gate reruns all earlier families:
 
-## Diagnostics
+```text
+H3       43 / 43
+LTX      17 / 17
+WAN      30 / 30
+Phase 9  21 / 21
+-----------------
+Total   111 / 111
+```
 
-Compiled route metadata may include:
+The 21 Phase-9 cases cover branch-exact WAN migration, universal uid/strength precedence, partial branch filling, deterministic ordering, UID collision handling, max-stack failure, H3 duplicate Turbo precedence, deprecation/writeback metadata, sanitized WAN diagnostics, and graph-authority acceptance/rejection.
 
-- `lora_patch_profile` — compiler-owned graph anchor contract;
-- `video_lora_stack` — requested/applied counts, roles, targets, loader class, final refs, generated LoRA nodes, warnings, and live-catalog state;
-- H3 legacy Turbo bridge metadata;
-- WAN legacy bridge metadata and compatibility snapshot.
+## Deprecation/removal boundary
+
+Phase 9 deliberately does **not** remove legacy H3/WAN fields or `video_lora_adapter.py`.
+
+Removal is allowed only after:
+
+1. saved-state writeback persists universal `video.lora_stack` state;
+2. migration diagnostics show no unresolved legacy-only states;
+3. a compatibility release boundary has retained legacy read support before final removal.
+
+So the current contract is:
+
+```text
+legacy read support   = yes
+legacy writeback      = no
+legacy graph authority= no
+universal writeback   = yes
+universal graph authority = yes
+```
 
 ## Current boundaries
 
@@ -338,7 +421,7 @@ The Video LoRA system still does **not** claim:
 - WAN Rapid AIO LoRA support;
 - WAN imported native-workflow LoRA support;
 - final full Video LoRA Stack UI/library manager;
-- safe removal of legacy H3/WAN controls from saved-workflow compatibility.
+- permission to delete legacy H3/WAN read compatibility yet.
 
 ## Related files
 
@@ -355,13 +438,16 @@ The Video LoRA system still does **not** claim:
 - `neo_app/video/wan_lora_integration.py`
 - `neo_app/video/wan_lora_payload_context.py`
 - `neo_app/video/wan_lora_regression.py`
+- `neo_app/video/video_lora_legacy_compat.py`
+- `neo_app/video/video_lora_legacy_compat_regression.py`
 - `guides/02_VIDEO/minimax_h3_lora_regression.md`
 - `guides/02_VIDEO/ltx_lora_runtime.md`
 - `guides/02_VIDEO/wan_lora_runtime.md`
+- `guides/02_VIDEO/video_lora_legacy_compatibility.md`
 
 ## Promotion rule
 
-Do not widen Video LoRA compatibility unless the new exact-route implementation preserves the existing gates and adds deterministic fail-closed coverage for the promoted topology.
+Do not widen Video LoRA compatibility unless the new exact-route implementation preserves every existing gate and adds deterministic fail-closed coverage for any newly promoted topology.
 
 Current baseline:
 
@@ -369,5 +455,6 @@ Current baseline:
 MiniMax H3: 43 / 43
 LTX 2.3:    17 / 17
 WAN 2.2:    30 / 30
-Combined:   90 / 90
+Phase 9:    21 / 21
+Combined:  111 / 111
 ```
