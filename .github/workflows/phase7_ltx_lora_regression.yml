@@ -7,6 +7,8 @@ on:
     paths:
       - "neo_app/video/**"
       - "neo_extensions/built_in/video.lora_stack/**"
+      - "guides/02_VIDEO/**"
+      - "neo_system_records/06_SURFACES/video/**"
       - "tests/test_ltx_lora_regression_phase7.py"
       - "tests/test_minimax_h3_lora_regression_phase6.py"
       - ".github/workflows/phase7_ltx_lora_regression.yml"
