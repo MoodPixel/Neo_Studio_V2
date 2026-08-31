@@ -17,8 +17,8 @@ tags:
   - external
   - compatibility
 priority: 76
-version: 5
-updated: 2026-08-14
+version: 6
+updated: 2026-08-31
 ---
 
 # Video Extensions and Route Compatibility
@@ -88,6 +88,7 @@ Examples:
 
 - Size / Timing Presets
 - VRAM Profile Advisor
+- Video LoRA Stack
 - Audio-Video
 - Depth / Motion Control
 - Prompt / Motion Schedule
@@ -105,6 +106,56 @@ Examples:
 
 Workspace-scoped tools still fail closed when their required backend is unsupported.
 
+## Universal Video LoRA Stack
+
+`video.lora_stack` is a built-in Video extension mounted at `video.assets.lora_stack`. Its user state is portable, but its graph compatibility is generation-route-scoped.
+
+The LoRA contract is deliberately split across three authorities:
+
+```txt
+extension payload
+  -> what LoRAs the user requested
+
+Video LoRA support matrix
+  -> whether that exact backend/family/loader/generation route may use them
+
+compiler-owned patch profile
+  -> the exact model reference and consumer input(s) that may be rewired
+```
+
+The extension must not infer graph node ids from a family name. A compatible compiler publishes schema `neo.video.lora_patch_profile.v1`, and the LoRA runtime validates that the declared consumers still point to the declared model reference before inserting any LoRA node.
+
+### Portable row roles and targets
+
+The universal stack currently normalizes rows into:
+
+```txt
+role: standard | speed
+target: all | high | low
+```
+
+Turbo, LightX2V, Lightning, distilled, and equivalent accelerator labels normalize to `role=speed`. `high` and `low` are valid only for a verified multi-branch route such as WAN 2.2 dual-noise; single-model MiniMax H3/LTX routes use `all`.
+
+### MiniMax H3 Phase-5 runtime
+
+MiniMax H3 UNET is the first family fully onboarded to the universal runtime. Standard and speed/Turbo LoRAs are supported on:
+
+- `minimax_h3.unet.txt2vid`
+- `minimax_h3.unet.img2vid`
+- `minimax_h3.unet.first_last_frame`
+- `minimax_h3.unet.reference_to_video`
+- `minimax_h3.unet.vid2vid`
+
+All five routes use the same compiler-owned model-only anchor immediately before `MiniMaxH3SigmaShift`. Standard rows are applied first, then speed rows, and the resulting model continues through the existing H3 sigma/Sage/Spectrum/BlockCache path.
+
+The legacy `h3_turbo_enabled`, `h3_turbo_lora`, and `h3_turbo_strength` fields remain load-compatible. Phase 5 converts them into a synthetic `role=speed` row instead of using a second direct Turbo patch path. If the same LoRA is already present in the universal stack, the synthetic row is suppressed to prevent double application.
+
+H3 LoRA discovery now requires `LoraLoaderModelOnly`. Generic `LoraLoader` is not accepted as an interchangeable fallback because it has a different model+CLIP contract. H3 GGUF LoRA application remains fail-closed until that exact topology is validated.
+
+Turbo filename matching is recommendation-only. Phase 5 recognizes MiniMax/H3/Hailuo family aliases plus acceleration tokens such as Turbo, LightX2V, Lightning, 4-step/8-step, and distilled, so names such as `MiniMax-LightX2V-4steps.safetensors` can appear as speed candidates. An explicitly selected normal LoRA is never rejected simply because its filename does not match this heuristic.
+
+See `guides/02_VIDEO/video_lora_stack.md` for the payload, support matrix, compiler-profile contract, diagnostics, and current family boundaries.
+
 ## Current compatibility reconciliation
 
 ### WAN Rapid AIO GGUF
@@ -114,7 +165,7 @@ Rapid AIO is explicitly supported by route-agnostic generation utilities that ca
 - `video.size_timing_presets`
 - `video.vram_profile_advisor`
 
-Rapid AIO does **not** imply support for LTX-only generation extensions.
+Rapid AIO does **not** imply support for LTX-only generation extensions or universal LoRA injection. The Video LoRA support matrix keeps Rapid AIO fail-closed until its provider-specific graph topology explicitly opts in.
 
 ### MiniMax H3 external/runtime helpers
 
@@ -125,7 +176,7 @@ MiniMax H3 itself is a built-in local family backed by ComfyUI core H3 nodes. Op
 - `minimax_h3_blockcache_t8` is an experimental approximate H3 block cache.
 - `kjnodes_h3` provides optional H3/Sage-oriented helpers where the active object-info contract supports them.
 
-Spectrum and T8 BlockCache are mutually exclusive in Neo's canonical H3 compiler. Turbo LoRA is an explicit H3 speed option and may alter fidelity. These helpers never change a route's generation semantics from keyframe mode to semantic reference mode.
+Spectrum and T8 BlockCache are mutually exclusive in Neo's canonical H3 compiler. Turbo/LightX2V LoRAs now enter through the universal Video LoRA stack as `role=speed`; they remain explicit speed choices and may alter fidelity. These helpers never change a route's generation semantics from keyframe mode to semantic reference mode.
 
 ### LTX-only extensions
 
@@ -136,6 +187,12 @@ These are restricted to their actual LTX generation types and active UNET/GGUF r
 - `video.prompt_motion_schedule` → `prompt_schedule`
 
 They must not appear as valid WAN/Rapid AIO workflow extensions.
+
+LTX UNET Txt2Vid and Img2Vid have verified Video LoRA support-matrix entries, but runtime LoRA patching is intentionally not promoted until the MiniMax Phase-6 regression gate is complete.
+
+### WAN dual-noise LoRA bridge
+
+The existing WAN 2.2 dual-noise adapter remains the runtime implementation for its current LoRA controls. The universal support matrix records its proven `all/high/low` branch semantics, but replacement of the hardcoded legacy adapter with compiler-owned high/low patch anchors is a later migration phase.
 
 ### Finish tools
 
@@ -168,7 +225,7 @@ The current rendered placement contract is:
 - installed third-party packages render in a dedicated **External Extensions** section;
 - both origins still use the same shared compatibility/runtime truth;
 - Finish/Results workspace-scoped tools are not forced through the current generation-family route;
-- The persistent right rail carries live Prompt/Preview/Parameters across all five Video workspaces; Route Status and extension/workspace tools remain in the owning left rail.
+- the persistent right rail carries live Prompt/Preview/Parameters across all five Video workspaces; Route Status and extension/workspace tools remain in the owning left rail.
 
 See `guides/02_VIDEO/video_workspace_layout.md`.
 
@@ -194,6 +251,8 @@ The UI must not recreate the old mixed stack where built-in and external records
 
 Native built-in features may use their specialized Video panels instead of a generic extension card. External records always remain inside the External Extensions section for the matching workspace.
 
+The Video LoRA Stack owns its canonical Assets slot even while its full stack-manager UI/library is still being built. Runtime support must not be inferred from whether a generic extension card is currently rendered.
+
 ## Maintenance rules
 
 When adding a Video extension:
@@ -206,15 +265,23 @@ When adding a Video extension:
 6. use route-state declarations for provider/workspace exceptions;
 7. do not read `state.imageDraft` or invoke Image provider gates from Video runtime code;
 8. keep built-in/external origin separate from compatibility logic;
-9. add route-isolation tests before promoting compatibility.
+9. add route-isolation tests before promoting compatibility;
+10. for graph-mutating features, make the compiler publish the patch anchor and never hardcode family workflow node ids in the extension;
+11. distinguish `LoraLoaderModelOnly` from generic/model+CLIP LoRA loaders and fail closed on an unvalidated loader contract;
+12. treat filename classification as recommendation metadata, not a permission gate for manual LoRA selection.
 
 ## Related files
 
 - `neo_app/extensions/schema.py`
 - `neo_app/extensions/runtime.py`
 - `neo_app/extensions/registry.py`
+- `neo_app/video/lora_patch_profiles.py`
+- `neo_app/video/video_lora_runtime.py`
+- `neo_app/video/minimax_h3_lora_integration.py`
 - `neo_app/static/js/neo.js`
-- `neo_extensions/built_in/video.*/extension_manifest.json`
+- `neo_extensions/built_in/video.lora_stack/extension_manifest.json`
+- `neo_extensions/built_in/video.lora_stack/backend/support_matrix.py`
+- `guides/02_VIDEO/video_lora_stack.md`
 - `guides/02_VIDEO/video_model_families.md`
 - `guides/02_VIDEO/video_tab_overview.md`
 - `guides/02_VIDEO/README.md`
