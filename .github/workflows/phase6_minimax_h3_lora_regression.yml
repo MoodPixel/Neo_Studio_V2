@@ -29,7 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal Neo import dependencies
-        run: python -m pip install "pydantic>=2,<3"
+        run: python -m pip install "pydantic>=2,<3" pillow
 
       - name: Compile Phase 6 Python files
         run: |
