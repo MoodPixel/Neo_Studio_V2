@@ -33,6 +33,14 @@ MATRIX_DATA = _load_data()
 SUPPORTED_BACKENDS = tuple(str(item) for item in MATRIX_DATA.get("supported_backends", []) if str(item))
 
 
+def _generation_type_from_route_id(route_id: str) -> str:
+    parts = str(route_id or "").split(".")
+    value = parts[2] if len(parts) > 2 else ""
+    if value.startswith("img2vid"):
+        return "img2vid"
+    return value
+
+
 def _expand_groups() -> dict[str, dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for group in MATRIX_DATA.get("groups", []) or []:
@@ -48,7 +56,11 @@ def _expand_groups() -> dict[str, dict[str, Any]]:
             rid = str(route_id or "").strip()
             if not rid:
                 continue
-            rows[rid] = {"route_id": rid, **deepcopy(shared)}
+            rows[rid] = {
+                "route_id": rid,
+                "generation_type": _generation_type_from_route_id(rid),
+                **deepcopy(shared),
+            }
     return rows
 
 
@@ -61,7 +73,7 @@ def _route_components(route: str | dict[str, Any] | None) -> tuple[str, str, str
         parts = rid.split(".")
         family = parts[0] if len(parts) > 0 else ""
         loader = parts[1] if len(parts) > 1 else ""
-        generation_type = parts[2] if len(parts) > 2 else ""
+        generation_type = _generation_type_from_route_id(rid)
         return rid, family, loader, generation_type
 
     route = route if isinstance(route, dict) else {}
@@ -127,7 +139,7 @@ def support_for_route(route: str | dict[str, Any] | None, *, backend: str | None
             for item in ROUTE_SUPPORT.values()
             if item.get("family") == family
             and item.get("loader") == loader
-            and str(item.get("route_id") or "").split(".")[2:3] == [generation_type]
+            and item.get("generation_type") == generation_type
         ]
         if len(matches) == 1:
             row = matches[0]
@@ -143,7 +155,6 @@ def support_for_route(route: str | dict[str, Any] | None, *, backend: str | None
 
     result = deepcopy(row)
     result["backend"] = backend_id
-    result.setdefault("generation_type", str(result.get("route_id") or "").split(".")[2] if len(str(result.get("route_id") or "").split(".")) > 2 else "")
     result["eligible"] = result.get("state") == SUPPORTED
     result["fail_closed"] = result.get("state") != SUPPORTED
     return result
