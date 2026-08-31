@@ -1,0 +1,64 @@
+{
+  "id": "video.lora_stack",
+  "name": "Video · LoRA Stack",
+  "version": "0.1.0-phase1-foundation",
+  "description": "Built-in Video LoRA Stack foundation. Phase 1 reserves the canonical Video Assets mount and extension identity only; route compatibility, catalog discovery, payload state, workflow patching, Turbo/Speed LoRAs, and compiler integration are intentionally not active yet.",
+  "extension_type": "workflow_extension",
+  "extension_origin": "built_in",
+  "surface": "video",
+  "subtabs": [
+    "assets"
+  ],
+  "workflow_modes": [],
+  "workspace_apps": [
+    "assets"
+  ],
+  "mount_slots": [
+    "video.assets.lora_stack"
+  ],
+  "mount_targets": [
+    {
+      "surface": "video",
+      "workspace_app": "assets",
+      "workflow_mode": null,
+      "slot": "video.assets.lora_stack",
+      "route_states": [
+        "available",
+        "experimental_available",
+        "implementation_target",
+        "planned_gated",
+        "provider_gated",
+        "unsupported"
+      ]
+    }
+  ],
+  "supported_backends": [],
+  "supported_families": [],
+  "supported_loaders": [],
+  "route_states": {},
+  "route_context_scope": "workspace",
+  "depends_on": [],
+  "extends": [],
+  "required_nodes": {},
+  "ui_schema": {
+    "provider_graph_mutation": false,
+    "surface_panel": true,
+    "foundation_only": true,
+    "phase": "phase_1"
+  },
+  "asset_bundle": {
+    "js": [],
+    "css": [],
+    "html": [],
+    "python": [],
+    "assets": []
+  },
+  "entrypoints": {},
+  "runtime": {
+    "contract_version": "neo.extension.runtime.v1",
+    "requested_permissions": [],
+    "activation": "restart_required",
+    "workflow_stage": "late_finish",
+    "workflow_priority": 100
+  }
+}
