@@ -1,0 +1,97 @@
+name: Phase 8 WAN Video LoRA Regression
+
+on:
+  pull_request:
+    branches:
+      - phase-7-ltx-unet-lora-runtime
+    paths:
+      - "neo_app/video/**"
+      - "neo_extensions/built_in/video.lora_stack/**"
+      - "guides/02_VIDEO/**"
+      - "neo_system_records/06_SURFACES/video/**"
+      - "tests/test_wan_lora_regression_phase8.py"
+      - "tests/test_ltx_lora_regression_phase7.py"
+      - "tests/test_minimax_h3_lora_regression_phase6.py"
+      - ".github/workflows/phase8_wan_lora_regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase8-wan-lora-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Neo import dependencies
+        run: |
+          python -m pip install "pydantic>=2,<3" pillow
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Compile Video LoRA phase files
+        run: |
+          python -m py_compile \
+            neo_app/video/wan_lora_integration.py \
+            neo_app/video/wan_lora_payload_context.py \
+            neo_app/video/wan_lora_regression.py \
+            neo_app/video/ltx_lora_integration.py \
+            neo_app/video/ltx_lora_regression.py \
+            neo_app/video/minimax_h3_lora_integration.py \
+            neo_app/video/minimax_h3_lora_regression.py \
+            tests/test_wan_lora_regression_phase8.py \
+            tests/test_ltx_lora_regression_phase7.py \
+            tests/test_minimax_h3_lora_regression_phase6.py
+
+      - name: Run Phase 6 H3 regression guard
+        run: python -m neo_app.video.minimax_h3_lora_regression
+
+      - name: Run Phase 7 LTX regression guard
+        run: python -m neo_app.video.ltx_lora_regression
+
+      - name: Run Phase 8 WAN regression module
+        run: python -m neo_app.video.wan_lora_regression
+
+      - name: Run all Video LoRA unittest gates
+        run: |
+          python -m unittest tests.test_minimax_h3_lora_regression_phase6 -v
+          python -m unittest tests.test_ltx_lora_regression_phase7 -v
+          python -m unittest tests.test_wan_lora_regression_phase8 -v
+
+      - name: Package Phase 8 changed/new files only
+        run: |
+          python - <<'PY'
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          base = "044705fea944cb42493245bbc6bcc8bcb9a42fb3"
+          names = subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"],
+              text=True,
+          ).splitlines()
+          paths = [Path(name) for name in names if name and Path(name).is_file()]
+          out = Path("NeoStudio_Phase8_WAN_Video_LoRA_Runtime_ChangeOnly.zip")
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+              for path in paths:
+                  archive.write(path, path.as_posix())
+          print(f"Packaged {len(paths)} changed/new files into {out}")
+          PY
+
+      - name: Upload verified Phase 8 change-only ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoStudio_Phase8_WAN_Video_LoRA_Runtime_ChangeOnly
+          path: NeoStudio_Phase8_WAN_Video_LoRA_Runtime_ChangeOnly.zip
+          if-no-files-found: error
+          retention-days: 7
