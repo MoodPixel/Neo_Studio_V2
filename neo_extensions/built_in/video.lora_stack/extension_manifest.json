@@ -1,8 +1,8 @@
 {
   "id": "video.lora_stack",
   "name": "Video · LoRA Stack",
-  "version": "0.2.0-phase2-payload",
-  "description": "Built-in Video LoRA Stack foundation with a universal portable payload contract. Phase 2 defines normalized LoRA identity, model/optional CLIP strengths, standard/speed role, and all/high/low branch targeting only; route compatibility, catalog discovery, workflow patching, Turbo recommendations, and compiler integration remain intentionally inactive.",
+  "version": "0.3.0-phase3-support-matrix",
+  "description": "Built-in Video LoRA Stack with a universal portable payload and exact-route, fail-closed compatibility matrix for MiniMax H3, WAN 2.2, and LTX 2.3. Phase 3 declares standard/speed support, branch targeting, and required loader class per proven route; workflow patching and compiler-owned anchors remain inactive until Phase 4.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "video",
@@ -32,11 +32,23 @@
       ]
     }
   ],
-  "supported_backends": [],
-  "supported_families": [],
-  "supported_loaders": [],
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "supported_families": [
+    "minimax_h3",
+    "wan22",
+    "ltx23"
+  ],
+  "supported_loaders": [
+    "unet",
+    "gguf",
+    "rapid_aio_gguf",
+    "native_workflow"
+  ],
   "route_states": {},
-  "route_context_scope": "workspace",
+  "route_context_scope": "generation_route",
   "depends_on": [],
   "extends": [],
   "required_nodes": {},
@@ -44,8 +56,11 @@
     "provider_graph_mutation": false,
     "surface_panel": true,
     "foundation_only": false,
-    "payload_contract_only": true,
-    "phase": "phase_2"
+    "payload_contract_only": false,
+    "support_matrix_active": true,
+    "workflow_patching_active": false,
+    "fail_closed": true,
+    "phase": "phase_3"
   },
   "payload_contract": {
     "schema_version": "neo.extension.payload.v1",
@@ -67,9 +82,12 @@
     "html": [],
     "python": [
       "backend/__init__.py",
-      "backend/payload_schema.py"
+      "backend/payload_schema.py",
+      "backend/support_matrix.py"
     ],
-    "assets": []
+    "assets": [
+      "backend/support_matrix_data.json"
+    ]
   },
   "entrypoints": {},
   "runtime": {
