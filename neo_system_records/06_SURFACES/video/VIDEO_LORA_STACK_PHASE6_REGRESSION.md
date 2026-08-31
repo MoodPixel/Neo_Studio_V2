@@ -5,11 +5,12 @@
 **Extension:** `video.lora_stack`  
 **Phase:** 6 — MiniMax H3 LoRA Regression Gate  
 **Phase-5 base:** `1520f2a7219726e6fb7e91a6c701e4ac00d442f1`  
-**Phase-6 branch:** `phase-6-minimax-h3-lora-regression`
+**Phase-6 branch:** `phase-6-minimax-h3-lora-regression`  
+**CI status:** **GREEN — 43/43 passed, 0 failed**
 
 ## Objective
 
-Phase 6 does not onboard a new model family. Its only purpose is to stress the MiniMax H3 reference implementation of the universal Video LoRA architecture before LTX runtime work begins.
+Phase 6 does not onboard a new model family. Its purpose is to stress the MiniMax H3 reference implementation of the universal Video LoRA architecture before LTX runtime work begins.
 
 The gate verifies:
 
@@ -46,9 +47,53 @@ neo.video.minimax_h3.lora_regression.v1
 
 and exits non-zero if any case fails.
 
+A normal unittest wrapper is also tracked at:
+
+```text
+tests/test_minimax_h3_lora_regression_phase6.py
+```
+
+## CI execution
+
+Phase 6 is now executed by GitHub Actions through:
+
+```text
+.github/workflows/phase6_minimax_h3_lora_regression.yml
+```
+
+Draft validation PR:
+
+```text
+#2 — Phase 6: MiniMax H3 Video LoRA regression gate
+```
+
+The final authoritative CI run used Python 3.11 on Ubuntu with Neo import dependencies (`pydantic`, Pillow, CPU Torch), compiled the Phase-6 Python files, executed the regression module, then executed the unittest wrapper.
+
+Authoritative result:
+
+```json
+{
+  "ok": true,
+  "gate": "pass",
+  "case_count": 43,
+  "passed": 43,
+  "failed": 0,
+  "next_phase_allowed": true
+}
+```
+
+Both CI steps passed:
+
+```text
+python -m neo_app.video.minimax_h3_lora_regression       PASS
+python -m unittest tests.test_minimax_h3_lora_regression_phase6 -v   PASS
+```
+
+This removes the earlier session limitation where the assistant container could inspect the repo but could not execute the full import graph locally.
+
 ## Deterministic backend contract
 
-The regression harness uses synthetic ComfyUI `/object_info` rather than real model execution. This keeps the graph gate deterministic and independent from GPU/model availability while still exercising the real H3 compiler and Video LoRA integration code.
+The regression harness uses synthetic ComfyUI `/object_info` rather than real model generation. This keeps the graph gate deterministic and independent from GPU/model availability while exercising the actual H3 compiler and Video LoRA integration code in the repository.
 
 Synthetic catalogs include:
 
@@ -117,17 +162,11 @@ Total deterministic matrix: **43 cases**.
 
 ### Phase-5 behavior
 
-If the universal stack already contained the same file selected by legacy Turbo, Phase 5 correctly suppressed a duplicate node. However, if that existing row was stored as:
-
-```text
-role = standard
-```
-
-then the row remained standard after deduplication. The model was not patched twice, but runtime Turbo/speed metadata could become false or misleading.
+If the universal stack already contained the same file selected by legacy Turbo, Phase 5 correctly suppressed a duplicate node. However, if that existing row was stored as `role=standard`, runtime Turbo/speed metadata could become false even though the model was not patched twice.
 
 ### Phase-6 fix
 
-`merge_h3_legacy_turbo()` now treats the existing universal row as source of uid/strength truth while applying legacy semantic migration:
+`merge_h3_legacy_turbo()` now treats the existing universal row as uid/strength truth while applying legacy semantic migration:
 
 ```text
 same filename
@@ -138,22 +177,24 @@ same filename
   -> duplicate_suppressed = true
 ```
 
-Diagnostics now include:
+Diagnostics include:
 
 ```text
 existing_role_promoted
 existing_target_normalized
 ```
 
+The CI gate verifies this exact case on Img2Vid.
+
 ## Defect found #2 — missing LoRA deferred too late
 
 ### Phase-5 behavior
 
-A manually selected LoRA absent from the live `LoraLoaderModelOnly` catalog produced a warning but could continue into the compiled graph. ComfyUI would then reject the invalid combo value later.
+A manually selected LoRA absent from the live `LoraLoaderModelOnly` catalog produced a warning but could continue into the compiled graph. ComfyUI would reject the invalid combo value later.
 
 ### Phase-6 fix
 
-Active H3 rows now require the filename to exist in the live ModelOnly catalog before graph mutation.
+Active H3 rows require the filename to exist in the live ModelOnly catalog before graph mutation.
 
 Fail-closed errors cover:
 
@@ -167,7 +208,7 @@ This does **not** reintroduce filename-classifier gating. A normal custom LoRA i
 
 ## Compiler/profile assertions
 
-For every active UNET stack the regression gate checks:
+For every active UNET stack the CI gate checks:
 
 ```text
 schema_version = neo.video.lora_patch_profile.v1
@@ -189,7 +230,7 @@ The gate also verifies:
 
 ## No-op invariant
 
-For every H3 mode:
+For every H3 mode the CI gate proved:
 
 ```text
 empty stack workflow == original H3 workflow
@@ -203,36 +244,25 @@ disabled populated stack workflow == original H3 workflow
 
 Only metadata outside the workflow may differ.
 
-## Session validation note
+## Validation boundary
 
-The current assistant execution container could not resolve `github.com`, so the repository could not be cloned into the local Python runtime for a full execution of the committed module in this session.
+The green Phase-6 gate validates compiler graph construction, LoRA ordering, payload migration, loader safety, route behavior, and fail-closed contracts. It does not claim visual-quality equivalence for every third-party LoRA or physically validate H3 GGUF LoRA loading on a GPU-backed ComfyUI instance.
 
-What was validated during implementation:
-
-- branch/source inspection through the GitHub connector;
-- exact H3 compiler graph topology and return structure;
-- Phase-6 helper hardening semantics in isolated Python checks;
-- deterministic regression design against the real compiler API/Phase-5 integration contract;
-- branch diff isolation after writes.
-
-The repo-native command above remains the authoritative pass/fail gate. Do not promote LTX runtime support unless it returns:
-
-```json
-{
-  "gate": "pass",
-  "failed": 0,
-  "next_phase_allowed": true
-}
-```
+H3 GGUF remains deliberately blocked.
 
 ## Phase-6 files
 
-Core:
+Core/runtime:
 
 - `neo_app/video/video_lora_runtime.py`
 - `neo_app/video/minimax_h3_lora_integration.py`
 - `neo_app/video/minimax_h3_lora_regression.py`
 - `neo_extensions/built_in/video.lora_stack/extension_manifest.json`
+
+Regression automation:
+
+- `tests/test_minimax_h3_lora_regression_phase6.py`
+- `.github/workflows/phase6_minimax_h3_lora_regression.yml`
 
 Guides/records:
 
@@ -243,4 +273,4 @@ Guides/records:
 
 ## Next phase
 
-After the regression command passes cleanly, the next implementation phase may onboard **LTX standard LoRA runtime integration** using the same compiler-owned patch-profile contract.
+The Phase-6 gate is green, so the next implementation phase is allowed to onboard **LTX UNET standard LoRA runtime integration**, starting with Txt2Vid and Img2Vid only. Speed/Turbo support for LTX is not implied.
