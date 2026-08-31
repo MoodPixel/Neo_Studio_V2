@@ -1,8 +1,8 @@
 {
   "id": "video.lora_stack",
   "name": "Video · LoRA Stack",
-  "version": "0.1.0-phase1-foundation",
-  "description": "Built-in Video LoRA Stack foundation. Phase 1 reserves the canonical Video Assets mount and extension identity only; route compatibility, catalog discovery, payload state, workflow patching, Turbo/Speed LoRAs, and compiler integration are intentionally not active yet.",
+  "version": "0.2.0-phase2-payload",
+  "description": "Built-in Video LoRA Stack foundation with a universal portable payload contract. Phase 2 defines normalized LoRA identity, model/optional CLIP strengths, standard/speed role, and all/high/low branch targeting only; route compatibility, catalog discovery, workflow patching, Turbo recommendations, and compiler integration remain intentionally inactive.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "video",
@@ -43,14 +43,32 @@
   "ui_schema": {
     "provider_graph_mutation": false,
     "surface_panel": true,
-    "foundation_only": true,
-    "phase": "phase_1"
+    "foundation_only": false,
+    "payload_contract_only": true,
+    "phase": "phase_2"
+  },
+  "payload_contract": {
+    "schema_version": "neo.extension.payload.v1",
+    "block_key": "extensions",
+    "required_keys": [
+      "enabled",
+      "version",
+      "inputs",
+      "params",
+      "assets",
+      "metadata"
+    ],
+    "forbids_hidden_field_leakage": true,
+    "route_validation_required": true
   },
   "asset_bundle": {
     "js": [],
     "css": [],
     "html": [],
-    "python": [],
+    "python": [
+      "backend/__init__.py",
+      "backend/payload_schema.py"
+    ],
     "assets": []
   },
   "entrypoints": {},
