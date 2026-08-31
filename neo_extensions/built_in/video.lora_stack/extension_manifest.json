@@ -1,8 +1,8 @@
 {
   "id": "video.lora_stack",
   "name": "Video · LoRA Stack",
-  "version": "0.4.0-phase4-patch-profiles",
-  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, and compiler-owned LoRA patch-profile contract. Phase 4 adds fail-closed validation for exact model refs and consumer inputs, including WAN high/low branches, while workflow mutation and LoRA node insertion remain intentionally inactive until family onboarding phases.",
+  "version": "0.5.0-phase5-minimax-h3",
+  "description": "Built-in Video LoRA Stack with universal payload, exact-route support matrix, compiler-owned patch profiles, and active MiniMax H3 UNET integration. Phase 5 applies standard and speed LoRAs through the H3 compiler anchor, bridges legacy H3 Turbo fields into role=speed, fixes MiniMax/LightX2V/Lightning discovery, and keeps H3 GGUF fail-closed until loader compatibility is validated.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
   "surface": "video",
@@ -60,9 +60,16 @@
     "support_matrix_active": true,
     "patch_profile_contract_active": true,
     "compiler_profiles_required": true,
-    "workflow_patching_active": false,
+    "workflow_patching_active": true,
+    "workflow_patching_scope": "minimax_h3_unet",
+    "minimax_h3_integration_active": true,
+    "minimax_h3_standard_lora_active": true,
+    "minimax_h3_speed_lora_active": true,
+    "legacy_h3_turbo_bridge": true,
+    "generic_lora_loader_fallback": false,
+    "h3_gguf_lora_fail_closed": true,
     "fail_closed": true,
-    "phase": "phase_4"
+    "phase": "phase_5"
   },
   "payload_contract": {
     "schema_version": "neo.extension.payload.v1",
