@@ -103,7 +103,7 @@ def _description_text(value: Any) -> str:
     return re.sub(r"<[^>]+>", "", text).strip()
 
 
-def normalize_civitai_payload(data: dict[str, Any]) -> dict[str, Any]:
+def normalize_civitai_payload(data: dict[str, Any], *, source_url: str = "") -> dict[str, Any]:
     data = data or {}
     model = data.get("model") if isinstance(data.get("model"), dict) else {}
     images = data.get("images") if isinstance(data.get("images"), list) else []
@@ -152,6 +152,7 @@ def normalize_civitai_payload(data: dict[str, Any]) -> dict[str, Any]:
     triggers = [item for item in triggers if item.casefold() not in neg_keys]
 
     return {
+        "civitai_url": str(source_url or "").strip(),
         "triggers": triggers,
         "keywords": keywords,
         "negative_keywords": negative_keywords,
@@ -167,6 +168,7 @@ def normalize_civitai_payload(data: dict[str, Any]) -> dict[str, Any]:
             "version_id": str(version_id),
             "model_name": str(model_name),
             "version_name": str(version_name),
+            "url": str(source_url or "").strip(),
         },
         "field_sources": {
             "triggers": "remote:civitai",
@@ -177,6 +179,8 @@ def normalize_civitai_payload(data: dict[str, Any]) -> dict[str, Any]:
             "prompt_options": "remote:civitai",
             "preview_images": "remote:civitai",
             "notes": "remote:civitai",
+            "civitai_url": "remote:civitai",
+            "remote_source.url": "remote:civitai",
         },
     }
 

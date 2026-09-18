@@ -18,6 +18,26 @@ def stable_record_id(value: str) -> str:
     return f"{safe}_{digest}"
 
 
+def normalize_catalog_path(value: Any) -> str:
+    """Normalize a provider catalog value without discarding its subfolders."""
+    text = str(value or "").replace("\\", "/").strip()
+    while text.startswith("./"):
+        text = text[2:]
+    return "/".join(part for part in text.split("/") if part and part != ".")
+
+
+def canonical_lora_identity(provider_id: Any, catalog_name: Any) -> str:
+    """Return the durable identity authority: provider plus full relative path."""
+    provider = str(provider_id or "").strip().casefold()
+    path = normalize_catalog_path(catalog_name).casefold()
+    return f"{provider}:{path}" if provider and path else ""
+
+
+def canonical_record_id(provider_id: Any, catalog_name: Any) -> str:
+    identity = canonical_lora_identity(provider_id, catalog_name)
+    return stable_record_id(identity) if identity else ""
+
+
 def _clean_list(values: Any) -> list[str]:
     if values is None:
         return []
@@ -56,6 +76,8 @@ def empty_lora_record(record_id: str = "") -> dict[str, Any]:
         "rel": "",
         "name": "",
         "catalog_name": "",
+        "provider_catalog_name": "",
+        "canonical_identity": "",
         "source": "manual",
         "category": "",
         "triggers": [],
@@ -67,6 +89,7 @@ def empty_lora_record(record_id: str = "") -> dict[str, Any]:
         "base_model": "",
         "style_category": "",
         "notes": "",
+        "civitai_url": "",
         "caution_notes": "",
         "example_prompt": "",
         "prompt_options": [],
@@ -114,7 +137,10 @@ def normalize_prompt_options(values: Any) -> list[dict[str, str]]:
 def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     record = record or {}
     name = str(record.get("name") or record.get("catalog_name") or record.get("file") or "").strip()
-    record_id = str(record.get("id") or "").strip() or stable_record_id(str(record.get("file") or name))
+    provider = str(record.get("provider_id") or "").strip().casefold()
+    catalog_name = normalize_catalog_path(record.get("catalog_name") or name)
+    identity = canonical_lora_identity(provider, catalog_name)
+    record_id = str(record.get("id") or "").strip() or canonical_record_id(provider, catalog_name) or stable_record_id(str(record.get("file") or name))
     base = empty_lora_record(record_id)
     for key in base:
         if key in record:
@@ -124,11 +150,17 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     base["name"] = name or Path(str(base.get("file") or "")).name or record_id
     if not base.get("catalog_name"):
         base["catalog_name"] = base["name"]
+    base["catalog_name"] = normalize_catalog_path(base.get("catalog_name"))
+    base["provider_catalog_name"] = str(base.get("provider_catalog_name") or base.get("catalog_name") or "").strip()
     for key in ("triggers", "keywords", "negative_keywords", "preview_images", "preview_urls", "catalog_match_keys"):
         base[key] = _clean_list(base.get(key))
     base["prompt_options"] = normalize_prompt_options(base.get("prompt_options"))
     if not isinstance(base.get("remote_source"), dict):
         base["remote_source"] = {}
+    civitai_url = str(base.get("civitai_url") or base["remote_source"].get("url") or "").strip()
+    if civitai_url:
+        base["civitai_url"] = civitai_url
+        base["remote_source"]["url"] = civitai_url
     if not isinstance(base.get("field_sources"), dict):
         base["field_sources"] = {}
     base["default_strength"] = _float(base.get("default_strength"), 0.8)
@@ -137,6 +169,7 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     if base["min_strength"] > base["max_strength"]:
         base["min_strength"], base["max_strength"] = base["max_strength"], base["min_strength"]
     base["provider_id"] = str(base.get("provider_id") or "").strip().casefold()
+    base["canonical_identity"] = canonical_lora_identity(base["provider_id"], base["catalog_name"])
     base["provider_label"] = str(base.get("provider_label") or "").strip()
     base["enabled"] = base.get("enabled") is not False
     now = utc_now_iso()
@@ -172,10 +205,12 @@ def record_from_provider_lora_name(
         source = "forge:extra_network_lora" if provider == "forge" else "comfy:LoraLoader.lora_name"
     label = str(provider_label or "").strip() or ("Forge Neo" if provider == "forge" else "ComfyUI")
     source_id = "forge_lora_catalog" if provider == "forge" else "comfy_lora_loader"
-    record = empty_lora_record(stable_record_id(f"{provider}:{text}"))
+    record = empty_lora_record(canonical_record_id(provider, text))
     record.update({
         "name": text,
         "catalog_name": text,
+        "provider_catalog_name": str(name or "").strip(),
+        "canonical_identity": canonical_lora_identity(provider, text),
         "file": text,
         "source": source_id,
         "category": f"from {label}",

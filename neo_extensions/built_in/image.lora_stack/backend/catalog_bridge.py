@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .library_schema import normalize_record, record_from_provider_lora_name, stable_record_id
+from .library_schema import canonical_lora_identity, normalize_record, record_from_provider_lora_name, stable_record_id
 
 
 def normalize_lora_catalog_name(value: Any) -> str:
@@ -95,16 +95,9 @@ def resolve_exact_provider_catalog_name(
 
 
 def lora_catalog_match_keys(value: Any) -> set[str]:
-    """Match saved records without changing the provider-facing catalog value."""
+    """Return identity-safe keys; basename/stem aliases are search-only data."""
     name = normalize_lora_catalog_name(value)
-    if not name:
-        return set()
-    path = Path(name)
-    keys = {name.casefold(), path.name.casefold(), path.stem.casefold()}
-    # Also match extensionless relative path, because some saved records lose the suffix.
-    if path.suffix:
-        keys.add(str(path.with_suffix("")).replace("\\", "/").casefold())
-    return {item for item in keys if item}
+    return {portable_catalog_key(name)} if name else set()
 
 
 def catalog_names_from_models(models_payload: Any) -> list[str]:
@@ -158,10 +151,7 @@ def catalog_records_from_names(
 
 def _record_catalog_keys(record: dict[str, Any]) -> set[str]:
     normalized = normalize_record(record)
-    keys: set[str] = set()
-    for value in [normalized.get("catalog_name"), normalized.get("name"), normalized.get("file"), normalized.get("id")]:
-        keys.update(lora_catalog_match_keys(value))
-    return keys
+    return lora_catalog_match_keys(normalized.get("catalog_name"))
 
 
 def attach_catalog_bridge(
@@ -196,17 +186,21 @@ def attach_catalog_bridge(
     seen_catalog_names: set[str] = set()
     for raw in records or []:
         record = normalize_record(raw)
+        record_provider = str(record.get("provider_id") or "").casefold()
         match = None
-        for key in _record_catalog_keys(record):
-            if key in catalog_by_key:
-                match = catalog_by_key[key]
-                break
+        if not record_provider or record_provider == provider:
+            for key in _record_catalog_keys(record):
+                if key in catalog_by_key:
+                    match = catalog_by_key[key]
+                    break
         if match:
             record["catalog_available"] = True
             record["catalog_name"] = match.get("catalog_name") or match.get("name") or record.get("catalog_name")
             record["catalog_source"] = source
             record["provider_id"] = provider
             record["provider_label"] = label
+            record["provider_catalog_name"] = match.get("provider_catalog_name") or match.get("catalog_name")
+            record["canonical_identity"] = canonical_lora_identity(provider, record.get("catalog_name"))
             seen_catalog_names.add(str(record.get("catalog_name") or "").casefold())
         else:
             record["catalog_available"] = False if record.get("source") != "manual" else bool(record.get("catalog_name"))
@@ -230,6 +224,7 @@ def resolve_catalog_record(
     catalog_source: str = "",
     provider_label: str = "",
 ) -> dict[str, Any] | None:
+    wanted = str(query or "").strip().casefold()
     wanted_keys = lora_catalog_match_keys(query)
     if not wanted_keys:
         return None
@@ -241,7 +236,7 @@ def resolve_catalog_record(
         provider_label=provider_label,
     )
     for record in bridged:
-        if wanted_keys.intersection(_record_catalog_keys(record)):
+        if wanted in {str(record.get("id") or "").casefold(), str(record.get("canonical_identity") or "").casefold()} or wanted_keys.intersection(_record_catalog_keys(record)):
             return normalize_record(record)
     return None
 

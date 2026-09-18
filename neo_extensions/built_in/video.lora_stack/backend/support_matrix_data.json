@@ -1,0 +1,256 @@
+{
+  "schema_version": "neo.video.lora_stack.support_matrix.v1",
+  "policy": "Video LoRA compatibility is exact-route and fail-closed. A family-level match never grants LoRA support to an unvalidated loader or generation type.",
+  "supported_backends": [
+    "comfyui",
+    "comfyui_portable"
+  ],
+  "states": [
+    "supported",
+    "provisional",
+    "blocked",
+    "unsupported"
+  ],
+  "groups": [
+    {
+      "name": "minimax_h3_unet",
+      "route_ids": [
+        "minimax_h3.unet.txt2vid",
+        "minimax_h3.unet.img2vid",
+        "minimax_h3.unet.first_last_frame",
+        "minimax_h3.unet.reference_to_video",
+        "minimax_h3.unet.vid2vid"
+      ],
+      "state": "supported",
+      "family": "minimax_h3",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase-0 inspection proved the H3 model patch point is upstream of all five UNET generation pipelines, so standard and speed LoRAs share one model-only compatibility class."
+    },
+    {
+      "name": "minimax_h3_gguf",
+      "route_ids": [
+        "minimax_h3.gguf.txt2vid",
+        "minimax_h3.gguf.img2vid",
+        "minimax_h3.gguf.first_last_frame",
+        "minimax_h3.gguf.reference_to_video",
+        "minimax_h3.gguf.vid2vid"
+      ],
+      "state": "supported",
+      "family": "minimax_h3",
+      "loader": "gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 13 enables H3 GGUF standard and speed/Turbo LoRAs only when live /object_info proves GGUF MODEL output compatibility with LoraLoaderModelOnly MODEL input."
+    },
+    {
+      "name": "wan22_unet_single_model",
+      "route_ids": [
+        "wan22.unet.txt2vid",
+        "wan22.unet.img2vid"
+      ],
+      "state": "supported",
+      "family": "wan22",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 15 validates standard and speed/LightX2V LoRAs on WAN 2.2 UNET Txt2Vid and Img2Vid through the same compiler-owned single-model anchor; standard rows are ordered before speed rows."
+    },
+    {
+      "name": "wan22_rapid_aio",
+      "route_ids": [
+        "wan22.rapid_aio_gguf.txt2vid",
+        "wan22.rapid_aio_gguf.img2vid"
+      ],
+      "state": "supported",
+      "family": "wan22",
+      "loader": "rapid_aio_gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 16 validates standard and speed LoRAs on Rapid AIO Txt2Vid/Img2Vid through the compiler final single-MODEL link, gated by live GGUF MODEL output and LoraLoaderModelOnly signatures; target=all only."
+    },
+    {
+      "name": "wan22_dual_noise_gguf_img2vid",
+      "route_ids": [
+        "wan22.gguf.img2vid_14b_dual_noise"
+      ],
+      "state": "supported",
+      "family": "wan22",
+      "loader": "gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": true,
+      "supports_branch_targeting": true,
+      "allowed_targets": ["all", "high", "low"],
+      "required_loader_type": "model_only_multi_branch",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "legacy_bridge_required": true,
+      "reason": "Phase 8 CI verifies universal standard/speed LoRA patching on compiler-owned high/low model branches with all/high/low targeting. Legacy WAN Normal LoRA and LightX2V fields are retained only through a migration bridge and no longer own hardcoded workflow node IDs."
+    },
+    {
+      "name": "wan22_native_workflow",
+      "route_ids": [
+        "wan22.native_workflow.txt2vid",
+        "wan22.native_workflow.img2vid"
+      ],
+      "state": "blocked",
+      "family": "wan22",
+      "loader": "native_workflow",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "provider_specific",
+      "required_loader_nodes": [],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Phase 17 defines a graph-bound native-workflow LoRA contract for WAN standard/speed rows, but routes remain blocked until a real importer emits and validates that compiler-owned contract.",
+      "native_lora_contract": "neo.video.native_workflow_lora_contract.v1",
+      "importer_contract_required": true
+    },
+    {
+      "name": "ltx23_unet_primary",
+      "route_ids": [
+        "ltx23.unet.txt2vid",
+        "ltx23.unet.img2vid"
+      ],
+      "state": "supported",
+      "family": "ltx23",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase-0 inspection proved a clean model-only insertion point between the LTX model loader and its first model consumer for Txt2Vid and Img2Vid."
+    },
+    {
+      "name": "ltx23_gguf_primary",
+      "route_ids": [
+        "ltx23.gguf.txt2vid",
+        "ltx23.gguf.img2vid"
+      ],
+      "state": "supported",
+      "family": "ltx23",
+      "loader": "gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 14 validates LTX GGUF Txt2Vid/Img2Vid standard LoRAs through live GGUF MODEL output and LoraLoaderModelOnly MODEL input contracts."
+    },
+    {
+      "name": "ltx23_unet_extended_modes",
+      "route_ids": [
+        "ltx23.unet.first_last_frame",
+        "ltx23.unet.multiscene",
+        "ltx23.unet.extend",
+        "ltx23.unet.vid2vid",
+        "ltx23.unet.depth_motion",
+        "ltx23.unet.prompt_schedule",
+        "ltx23.unet.audio_video"
+      ],
+      "state": "supported",
+      "family": "ltx23",
+      "loader": "unet",
+      "supports_standard_lora": true,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 14 validates every Neo-compiled LTX UNET extended route at its compiler-owned LTXVChunkFeedForward model anchor."
+    },
+    {
+      "name": "ltx23_gguf_extended_modes",
+      "route_ids": [
+        "ltx23.gguf.first_last_frame",
+        "ltx23.gguf.multiscene",
+        "ltx23.gguf.extend",
+        "ltx23.gguf.vid2vid",
+        "ltx23.gguf.depth_motion",
+        "ltx23.gguf.prompt_schedule",
+        "ltx23.gguf.audio_video"
+      ],
+      "state": "supported",
+      "family": "ltx23",
+      "loader": "gguf",
+      "supports_standard_lora": true,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "model_only",
+      "required_loader_nodes": ["LoraLoaderModelOnly"],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": true,
+      "reason": "Phase 14 validates every Neo-compiled LTX GGUF extended route at its compiler-owned model anchor plus live GGUF-to-ModelOnly socket proof."
+    },
+    {
+      "name": "ltx23_native_workflow",
+      "route_ids": [
+        "ltx23.native_workflow.txt2vid",
+        "ltx23.native_workflow.img2vid"
+      ],
+      "state": "blocked",
+      "family": "ltx23",
+      "loader": "native_workflow",
+      "supports_standard_lora": false,
+      "supports_speed_lora": false,
+      "supports_branch_targeting": false,
+      "allowed_targets": ["all"],
+      "required_loader_type": "provider_specific",
+      "required_loader_nodes": [],
+      "allow_generic_lora_loader_fallback": false,
+      "patch_profile_required": true,
+      "validated_topology": false,
+      "reason": "Phase 17 defines a graph-bound native-workflow LoRA contract for LTX standard rows, but routes remain blocked until a real importer emits and validates that compiler-owned contract.",
+      "native_lora_contract": "neo.video.native_workflow_lora_contract.v1",
+      "importer_contract_required": true
+    }
+  ]
+}

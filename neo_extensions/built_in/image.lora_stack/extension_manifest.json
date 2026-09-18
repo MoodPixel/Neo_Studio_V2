@@ -1,7 +1,7 @@
 {
   "id": "lora_stack",
   "name": "LoRA Stack",
-  "version": "0.1.0-p12-global-lora-engine-decoupling",
+  "version": "0.1.0-p12-global-lora-engine-decoupling-release8",
   "description": "Built-in Image LoRA Stack extension with engine-independent compatibility. Phase 12 resolves support from backend, family, loader and workflow mode; Native Inpaint and LanPaint share the same LoRA policy while each compiler retains its own graph anchors. Assets is the only editable UI mount; Generation submission still collects the explicitly applied optional stack with other Image workspace extensions.",
   "extension_type": "workflow_extension",
   "extension_origin": "built_in",
@@ -15828,6 +15828,43 @@
       "patch_profile_required": true,
       "compatibility_engine_independent": true
     }
+  },
+  "phase5_library_identity_persistence": {
+    "schema_version": "neo.lora_stack.library.v2",
+    "canonical_identity": "provider_id + normalized full relative catalog path",
+    "basename_merge_authority": false,
+    "verified_save_confirmation": true,
+    "civitai_url_aliases": [
+      "civitai_url",
+      "remote_source.url"
+    ],
+    "repair_policy": "preview token plus backup before apply",
+    "ambiguous_legacy_policy": "report without guessing, merging, or deleting"
+  },
+  "phase6_library_search_folder_notes": {
+    "schema_version": "neo.lora_stack.library.browser.v3",
+    "search_fields": [
+      "name",
+      "full relative catalog path",
+      "triggers and keywords",
+      "base model and category",
+      "prompts",
+      "notes",
+      "CivitAI model and version names"
+    ],
+    "search_term_policy": "all terms must match; quoted phrases are supported",
+    "folder_filter_policy": "exact provider-relative folder plus descendants",
+    "folder_identity_authority": false,
+    "notes_editable": true,
+    "zero_result_state": true
+  },
+  "phase8_release_integration": {
+    "schema_version": "neo.lora.release.integration.v1",
+    "code_ready_gate": "neo_app.lora_release_integration",
+    "image_migration": "preview-first identity audit with backup-before-apply",
+    "destructive_automatic_migration": false,
+    "ambiguous_legacy_policy": "report without guessing, merging, or deleting",
+    "physical_inference_required_for_production_proven": true
   },
   "phase19_exact_catalog_binding": {
     "required": true,
