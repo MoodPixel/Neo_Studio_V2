@@ -8,6 +8,7 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 
 > **New here?** Start with [Installation](#-installation), then [Connect Your Backends](#-connect-your-backends).
 
+[![Neo Studio V2 Overview](https://img.youtube.com/vi/T270nV_ANKg/maxresdefault.jpg)](https://youtu.be/T270nV_ANKg)
 -----
 
 ## Table of Contents
@@ -41,6 +42,8 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 - Normal local **Main Model Type** choices are Safetensors or GGUF; Neo internally resolves classic checkpoint, bundled/AIO, split-component, or GGUF strategies from the selected family/workflow.
 - Built-in workflow tools include **ControlNet**, **IP Adapter / FaceID**, **LoRA Stack**, **Style Stack**, **Wildcards**, **ADetailer**, **LayerDiffuse**, **High-Res Lab**, **Image Upscale**, **LanPaint**, **Forge Couple**, and **Scene Director** where the selected route supports them.
 - Output Inspector records source lineage, effective settings, provider information, elapsed timing, replay metadata, and reusable result actions.
+
+[![Neo Studio V2 Image Tab Basic Guide](https://img.youtube.com/vi/_yVpTDUdGJ8/maxresdefault.jpg)](https://youtu.be/_yVpTDUdGJ8)
 
 ### 🎬 Video
 
