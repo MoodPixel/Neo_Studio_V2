@@ -15,6 +15,7 @@ from neo_app.video.output_records import (
     list_video_output_records,
     load_video_output_record,
 )
+from neo_app.video.video_lora_persistence import state_from_record
 
 VIDEO_REPLAY_METADATA_SCHEMA_VERSION: Final[str] = "neo.video.replay_metadata.v22"
 VIDEO_MEMORY_EXPORT_SCHEMA_VERSION: Final[str] = "neo.video.memory_export.v22"
@@ -138,6 +139,7 @@ def build_video_replay_metadata(record: dict[str, Any]) -> dict[str, Any]:
         "outputs": record.get("outputs") if isinstance(record.get("outputs"), dict) else {"files": [], "previews": []},
         "lineage": record.get("lineage") if isinstance(record.get("lineage"), dict) else {},
         "backend": record.get("backend") if isinstance(record.get("backend"), dict) else {},
+        "video_lora_stack": state_from_record(record),
         "replay_payload": replay_payload,
         "memory_summary": memory_summary,
         "reuse_hint": {

@@ -683,6 +683,12 @@ def patch_masked_edit_workflow(
         # training-matched target latent and break the dual-conditioning recipe.
         return compiled
     engine = masked_edit_engine(job.params, mode)
+    if str(getattr(route, "engine", "") or "").strip().lower() == "krea2_anypaint" or engine == "krea2_anypaint":
+        # AnyPaint compiles a complete provider-owned masked graph, including
+        # its own prepare/encode/model patch path. Re-injecting Neo's native
+        # SetLatentNoiseMask/DifferentialDiffusion or LanPaint adapters would
+        # corrupt the execution graph.
+        return compiled
     if str(getattr(route, "engine", "") or "").strip().lower() == LANPAINT_ENGINE or engine == LANPAINT_ENGINE:
         return patch_lanpaint_masked_workflow(compiled, job=job, route=route)
     return patch_native_masked_workflow(compiled, job=job, route=route, backend_capabilities=backend_capabilities)

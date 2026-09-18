@@ -1,0 +1,43 @@
+/* Krea 2 Identity Edit compact controls */
+.neo-krea2-edit-engine-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.neo-krea2-identity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.neo-krea2-identity-grid .neo-param-field,
+.neo-krea2-identity-grid input,
+.neo-krea2-identity-grid select {
+  min-width: 0;
+  width: 100%;
+}
+
+.neo-krea2-identity-wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.neo-krea2-identity-wide textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .neo-krea2-identity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .neo-krea2-identity-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

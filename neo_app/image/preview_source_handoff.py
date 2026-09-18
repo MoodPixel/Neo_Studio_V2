@@ -11,6 +11,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .canonical_source_asset import CanonicalSourceAssetError, resolve_canonical_source_asset
+
 SCHEMA_ID = "neo.image.preview_source_handoff.v1"
 REPORT_SCHEMA_ID = "neo.image.preview_source_handoff_normalization.v1"
 SOURCE_MODES = {"img2img", "inpaint", "outpaint"}
@@ -132,6 +134,8 @@ def normalize_preview_source_handoff_params(
     runtime_mode: str,
     provider_id: str = "",
     profile_id: str = "",
+    root_dir: str | Path | None = None,
+    validate_asset: bool | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Promote and validate a staged source contract before provider handoff.
 
@@ -185,12 +189,37 @@ def normalize_preview_source_handoff_params(
 
     source = source_record_from_contract(contract)
     source_ref = _text(source.get("path"), source.get("url"))
+    canonical: dict[str, Any] = {}
+    should_validate_asset = bool(root_dir is not None) if validate_asset is None else bool(validate_asset)
     if not source_ref:
         report["status"] = "blocked"
         report["warning_codes"].append("preview_source_contract_missing_ref")
+    elif should_validate_asset:
+        try:
+            canonical = resolve_canonical_source_asset(source, root_dir=root_dir)
+        except CanonicalSourceAssetError as exc:
+            report["status"] = "blocked"
+            report["warning_codes"].append(exc.code)
+            report["detail"] = exc.detail
+        else:
+            # Canonical local path is the only provider upload authority. URL is
+            # retained for preview display, never as a substitute for validation.
+            normalized["source_image"] = canonical["path"]
+            normalized["source_image_path"] = canonical["path"]
+            normalized["source_image_url"] = canonical.get("url") or source.get("url") or ""
+            normalized["source_image_name"] = canonical["filename"]
+            normalized["source_image_width"] = canonical["width"]
+            normalized["source_image_height"] = canonical["height"]
+            normalized["source_id"] = canonical["source_id"]
+            normalized["_neo_canonical_source_asset"] = canonical
+            source.update(canonical)
+            report["source_promoted"] = True
+            report["canonical_source_id"] = canonical["source_id"]
+            report["provider_upload_ready"] = True
     else:
-        # The selected preview contract is the source authority for this handoff.
-        # Never retain an older source field or backend upload alias alongside it.
+        # Contract-only callers (registry diagnostics and offline route-matrix
+        # tests) do not own runtime files. The API generation boundary and the
+        # browser preflight both explicitly enable physical validation.
         normalized["source_image"] = source_ref
         normalized["source_image_path"] = source.get("path") or ""
         normalized["source_image_url"] = source.get("url") or ""
@@ -198,6 +227,7 @@ def normalize_preview_source_handoff_params(
         normalized["source_image_width"] = source.get("width") or 0
         normalized["source_image_height"] = source.get("height") or 0
         report["source_promoted"] = True
+        report["asset_validation"] = "deferred_to_runtime_boundary"
 
     for key in sorted(PROVIDER_TRANSIENT_KEYS):
         if key in normalized:

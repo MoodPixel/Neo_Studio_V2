@@ -31,6 +31,7 @@ from neo_app.providers.comfy_workflows.checkpoint_sd import resolve_sd_checkpoin
 from neo_app.providers.comfy_workflows.flux_native import compile_flux_native_txt2img, compile_flux_klein_txt2img, compile_flux_fill_workflow, compile_flux_krea_workflow
 from neo_app.providers.comfy_workflows.flux_gguf import compile_flux_gguf_txt2img
 from neo_app.providers.comfy_workflows.krea2 import compile_krea2_workflow
+from neo_app.providers.comfy_workflows.krea2_anypaint import compile_krea2_anypaint_workflow
 from neo_app.providers.comfy_workflows.lanpaint import (
     LANPAINT_BASE_OBJECT_INFO_NODE_CLASSES,
     LANPAINT_OBJECT_INFO_NODE_CLASSES,
@@ -68,6 +69,12 @@ from neo_app.image.flux1_krea_contract import (
     resolve_flux1_variant,
 )
 from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
+from neo_app.image.krea2_anypaint_capabilities import DISCOVERY_NODE_CLASSES as KREA2_ANYPAINT_DISCOVERY_NODE_CLASSES, inspect_krea2_anypaint_capabilities
+from neo_app.image.krea2_anypaint_runtime import (
+    finalize_krea2_anypaint_runtime_diagnostics,
+    is_krea2_anypaint_runtime,
+    validate_krea2_anypaint_submitted_graph,
+)
 from neo_app.image.parameter_integrity import (
     concrete_mismatches,
     finalize_comfy_parameter_integrity,
@@ -104,6 +111,10 @@ from neo_extensions.built_in.adetailer.backend.support_matrix import support_for
 from neo_extensions.built_in.high_res_lab.backend.support_matrix import is_route_active as high_res_lab_route_active
 from neo_extensions.built_in.scene_director.backend.support_matrix import get_scene_director_support
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_extensions.built_in.lora_stack.backend.krea2_compat import (
+    is_krea2_cache_catalog_name,
+    prepare_krea2_runtime_extensions,
+)
 from neo_extensions.built_in.background_removal.backend.context_latent import (
     build_context_latent_catalog,
     normalize_context_latent,
@@ -677,6 +688,12 @@ class ComfyProvider(BaseProvider):
             )
             payload = discovery_result_to_dict(result)
             payload["object_info_node_inputs"] = {}
+            payload["krea2_anypaint_capabilities"] = inspect_krea2_anypaint_capabilities(
+                {},
+                provider_id=self.manifest.provider_id,
+                reachable=False,
+                error=error_message,
+            )
             payload["lanpaint_family_expansion"] = deepcopy(expansion_summary)
             payload["lanpaint_family_adapters"] = deepcopy(adapter_registry)
             payload["lanpaint_capability_discovery_contract"] = deepcopy(discovery_contract)
@@ -797,6 +814,14 @@ class ComfyProvider(BaseProvider):
             ]
             if isinstance(info.get(node_name), dict)
         }
+        for node_name in KREA2_ANYPAINT_DISCOVERY_NODE_CLASSES:
+            if isinstance(info.get(node_name), dict):
+                payload["object_info_node_inputs"].setdefault(node_name, self._node_input_names(info, node_name))
+        payload["krea2_anypaint_capabilities"] = inspect_krea2_anypaint_capabilities(
+            info,
+            provider_id=self.manifest.provider_id,
+            reachable=True,
+        )
         payload["vae_utils_decode_diagnostics"] = {
             "available": all(node_name in payload["object_info_node_inputs"] for node_name in vae_utils_decode_nodes),
             "available_nodes": [node_name for node_name in vae_utils_decode_nodes if node_name in payload["object_info_node_inputs"]],
@@ -930,7 +955,10 @@ class ComfyProvider(BaseProvider):
         self._append_model_records(models, "vae", vae_names)
 
         lora_node = self._first_existing_node(info, ["LoraLoader", "LoraLoaderModelOnly"])
-        lora_names = self._node_required_choices(info, lora_node, "lora_name")
+        lora_names = [
+            name for name in self._node_required_choices(info, lora_node, "lora_name")
+            if not is_krea2_cache_catalog_name(name)
+        ]
         self._append_model_records(models, "lora", lora_names)
 
         # Built-in IP Adapter dropdown catalogs. Keep these as dedicated model
@@ -2695,6 +2723,19 @@ class ComfyProvider(BaseProvider):
         return str(mask or "").strip()
 
     @staticmethod
+    @staticmethod
+    def _krea2_identity_ref_boost_mask_value(params: dict[str, Any]) -> str:
+        mask = (
+            params.get("krea2_identity_edit_ref_boost_mask")
+            or params.get("krea2_identity_edit_ref_boost_mask_path")
+            or params.get("krea2_identity_edit_ref_boost_mask_url")
+            or params.get("krea2_identity_edit_ref_boost_mask_id")
+        )
+        if isinstance(mask, dict):
+            mask = mask.get("path") or mask.get("file") or mask.get("filename") or mask.get("url") or mask.get("mask_id")
+        return str(mask or "").strip()
+
+    @staticmethod
     def _comfy_input_image_name(source_image: str) -> str:
         if not source_image:
             return ""
@@ -2947,6 +2988,41 @@ class ComfyProvider(BaseProvider):
                 "load_name": reference.load_name,
                 "error": str(exc),
             }
+
+    def _probe_comfy_output_image_dimensions(self, output: dict[str, Any]) -> dict[str, Any]:
+        """Read only enough Comfy /view bytes to identify an output image size.
+
+        AnyPaint Phase 7 uses this after Comfy reports completion so the physical
+        image canvas can be compared with the provider-owned Phase 6 alignment
+        contract. The probe stops as soon as Pillow has parsed the image header;
+        it does not intentionally download the full output.
+        """
+        filename = str(output.get("filename") or "").strip()
+        if not filename:
+            return {"state": "unavailable", "width": 0, "height": 0, "error": "missing filename"}
+        query = parse.urlencode({
+            "filename": filename,
+            "subfolder": str(output.get("subfolder") or ""),
+            "type": str(output.get("type") or "output"),
+        })
+        req = request.Request(self._url(f"/view?{query}"), method="GET")
+        try:
+            from PIL import ImageFile  # type: ignore
+            parser = ImageFile.Parser()
+            with request.urlopen(req, timeout=max(self.timeout, 10)) as response:
+                for _ in range(8):
+                    chunk = response.read(32768)
+                    if not chunk:
+                        break
+                    parser.feed(chunk)
+                    if parser.image is not None:
+                        width, height = parser.image.size
+                        return {"state": "available", "width": int(width), "height": int(height)}
+            image = parser.close()
+            width, height = image.size
+            return {"state": "available", "width": int(width), "height": int(height)}
+        except Exception as exc:  # noqa: BLE001
+            return {"state": "unavailable", "width": 0, "height": 0, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001
             return {
                 "ok": False,
@@ -3728,6 +3804,16 @@ class ComfyProvider(BaseProvider):
         patch_extensions = self._non_checkpoint_patch_extensions(job.extensions, allowed_extension_ids=allowed_extension_ids)
         if not patch_extensions:
             return compiled
+        krea2_lora_compatibility: list[dict[str, Any]] = []
+        if str(route_payload.get("family") or "").strip().lower() in {"krea2", "krea2_turbo"}:
+            patch_extensions, krea2_lora_compatibility = prepare_krea2_runtime_extensions(
+                patch_extensions,
+                root=Path(__file__).resolve().parents[2],
+                family=str(route_payload.get("family") or ""),
+            )
+            if krea2_lora_compatibility:
+                actual_params["_neo_krea2_lora_compatibility"] = deepcopy(krea2_lora_compatibility)
+                backend_payload["actual_params"] = actual_params
         lora_patch_profile = actual_params.get("_neo_lora_patch_profile") if isinstance(actual_params.get("_neo_lora_patch_profile"), dict) else backend_payload.get("_neo_lora_patch_profile")
         adetailer_route_contract = actual_params.get("_neo_adetailer_route_contract") if isinstance(actual_params.get("_neo_adetailer_route_contract"), dict) else backend_payload.get("_neo_adetailer_route_contract")
         if tuple(allowed_extension_ids) == ("lora_stack",) and isinstance(lora_patch_profile, dict):
@@ -4040,6 +4126,26 @@ class ComfyProvider(BaseProvider):
                 route,
                 allowed_extension_ids=("lora_stack",),
                 fail_closed_on_unapplied_lora=True,
+            )
+
+        if route.compiler_id == "comfy.krea2_anypaint.phase4":
+            compiled = compile_krea2_anypaint_workflow(
+                provider_id=self.manifest.provider_id,
+                base_url=self.base_url,
+                job=job,
+                validation=validation,
+                route=route,
+                capabilities=self.feature_capability_payload(),
+                backend_capabilities=self.discover_backend_capabilities(),
+            )
+            return self._apply_comfy_latent_capture_hook(
+                self._apply_comfy_latent_branch_restore_hook(
+                    self._apply_non_checkpoint_extension_patches(compiled, job, route),
+                    job,
+                    route,
+                ),
+                job,
+                route,
             )
 
         if route.compiler_id in {"comfy.krea2", "comfy.krea2_gguf"}:
@@ -4714,6 +4820,17 @@ class ComfyProvider(BaseProvider):
                         except Exception as exc:  # noqa: BLE001
                             record_generation_error(run_id=run_id, message=f"Failed to upload {family_label} reference image{lane} to Comfy input.", exc=exc, payload={"lane": lane, "source_image": extra_source})
                             raise
+            if krea2_identity_stack_active:
+                ref_boost_mask = self._krea2_identity_ref_boost_mask_value(params)
+                if ref_boost_mask and not params.get("comfy_krea2_identity_edit_ref_boost_mask_name"):
+                    try:
+                        comfy_ref_mask = self._upload_image_to_comfy_input(ref_boost_mask)
+                        params["comfy_krea2_identity_edit_ref_boost_mask_name"] = comfy_ref_mask
+                        params["krea2_identity_edit_ref_boost_mask_uploaded_to_comfy"] = bool(comfy_ref_mask)
+                        log_image_event("krea2_identity_ref_boost_mask_handoff", run_id=run_id, payload={"mask_image": ref_boost_mask, "comfy_krea2_identity_edit_ref_boost_mask_name": comfy_ref_mask})
+                    except Exception as exc:  # noqa: BLE001
+                        record_generation_error(run_id=run_id, message="Failed to upload Krea 2 reference attention mask to Comfy input.", exc=exc, payload={"mask_image": ref_boost_mask})
+                        raise
             if runtime_job.mode == "inpaint":
                 mask_image = self._mask_image_value(params)
                 if mask_image and not params.get("comfy_mask_image_name"):
@@ -5007,6 +5124,38 @@ class ComfyProvider(BaseProvider):
                         "latent_branch_resume_validation": latent_preflight_report,
                     },
                 )
+
+            anypaint_submission_diagnostics = validate_krea2_anypaint_submitted_graph(
+                prompt_graph,
+                compiled.backend_payload.get("actual_params") if isinstance(compiled.backend_payload.get("actual_params"), dict) else {},
+            )
+            if anypaint_submission_diagnostics.get("active"):
+                actual_params_for_handoff = dict(compiled.backend_payload.get("actual_params") or {})
+                actual_params_for_handoff["_neo_krea2_anypaint_runtime_diagnostics"] = anypaint_submission_diagnostics
+                compiled.backend_payload["actual_params"] = actual_params_for_handoff
+                if anypaint_submission_diagnostics.get("ok") is not True:
+                    messages = [
+                        str(item.get("message") or "AnyPaint submitted graph validation failed.")
+                        for item in (anypaint_submission_diagnostics.get("errors") or [])
+                        if isinstance(item, dict)
+                    ]
+                    message = "; ".join(messages[:3]) or "Krea 2 AnyPaint submitted graph validation failed before queue."
+                    record_generation_error(
+                        run_id=run_id,
+                        message="Krea 2 AnyPaint runtime graph validation failed before Comfy queue.",
+                        payload={"krea2_anypaint_runtime_diagnostics": anypaint_submission_diagnostics},
+                    )
+                    return ProviderRunResult(
+                        job_id=run_id,
+                        provider_id=self.manifest.provider_id,
+                        status="failed",
+                        message=message,
+                        runtime={
+                            "debug_logs": {"run_id": run_id},
+                            "krea2_anypaint_runtime_diagnostics": anypaint_submission_diagnostics,
+                            "actual_params": actual_params_for_handoff,
+                        },
+                    )
             branch_resume = compiled.backend_payload.get("latent_branch_resume") if isinstance(compiled.backend_payload.get("latent_branch_resume"), dict) else None
             if branch_resume is not None:
                 branch_resume["preflight_state"] = "provider_artifact_available"
@@ -5186,6 +5335,7 @@ class ComfyProvider(BaseProvider):
             queued_at = time.time()
             self._queued_jobs[prompt_id] = {
                 "actual_params": actual_params,
+                "krea2_anypaint_runtime_diagnostics": actual_params.get("_neo_krea2_anypaint_runtime_diagnostics") if isinstance(actual_params.get("_neo_krea2_anypaint_runtime_diagnostics"), dict) else {},
                 "workflow_node_map": workflow_node_map,
                 "client_id": compiled.backend_payload.get("client_id"),
                 "batch_total": batch_total,
@@ -5236,7 +5386,7 @@ class ComfyProvider(BaseProvider):
                 message="Queued in ComfyUI.",
                 outputs=[],
                 client_id=compiled.backend_payload.get("client_id"),
-                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "parameter_integrity": actual_params.get("_neo_parameter_integrity") if isinstance(actual_params, dict) else None, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary, "gpu_lifecycle": gpu_manager.status(group=gpu_lease.get("resource_group"))},
+                runtime={"base_url": self.base_url, "live_preview": live_preview_enabled, "debug_logs": {"run_id": prompt_id}, "capabilities": runtime_capabilities, "actual_params": actual_params, "parameter_integrity": actual_params.get("_neo_parameter_integrity") if isinstance(actual_params, dict) else None, "krea2_anypaint_runtime_diagnostics": self._queued_jobs[prompt_id].get("krea2_anypaint_runtime_diagnostics") or {}, "route_snapshot": route_snapshot, "workflow_node_map": workflow_node_map, "latent_branch_resume_validation": latent_preflight_report, "poll": {"timeout_seconds": poll_timeout_seconds, "interval_ms": poll_interval_ms, "max_attempts": poll_max_attempts}, "poll_metadata": {"poll_timeout_seconds": poll_timeout_seconds, "poll_interval_ms": poll_interval_ms}, "run_timing": _image_run_timing(self._queued_jobs.get(prompt_id), completed=False), "progress": {"source": "comfyui", "percent": 5, "label": "Queued in ComfyUI", "batch_total": batch_total, "batch_done": 0}, "job_registry": registry_summary, "gpu_lifecycle": gpu_manager.status(group=gpu_lease.get("resource_group"))},
             )
         except Exception as exc:  # noqa: BLE001
             error_payload: dict[str, Any] = {"job": model_to_dict(runtime_job)}
@@ -5337,7 +5487,7 @@ class ComfyProvider(BaseProvider):
                 except Exception as exc:  # noqa: BLE001
                     log_image_event("job_registry_running_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
                 log_image_event("poll_running", run_id=job_id, payload={"percent": percent, "history_has_job": bool(history and job_id in history), "job_registry": self._registry_summary(job_id)})
-                return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="running", message="ComfyUI job still running or not in history yet.", runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": _image_run_timing(runtime, completed=False), "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
+                return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="running", message="ComfyUI job still running or not in history yet.", runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": _image_run_timing(runtime, completed=False), "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "krea2_anypaint_runtime_diagnostics": runtime.get("krea2_anypaint_runtime_diagnostics") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
             history_item = history[job_id] if isinstance(history.get(job_id), dict) else {}
             backend_failure = _comfy_history_failure_details(history_item)
             if backend_failure:
@@ -5389,6 +5539,23 @@ class ComfyProvider(BaseProvider):
 
             outputs = self._extract_outputs(job_id, history_item)
             runtime["batch_done"] = len(outputs)
+            actual_params_runtime = runtime.get("actual_params") if isinstance(runtime.get("actual_params"), dict) else {}
+            if is_krea2_anypaint_runtime(actual_params_runtime):
+                anypaint_runtime_diagnostics = finalize_krea2_anypaint_runtime_diagnostics(
+                    runtime.get("krea2_anypaint_runtime_diagnostics") if isinstance(runtime.get("krea2_anypaint_runtime_diagnostics"), dict) else actual_params_runtime.get("_neo_krea2_anypaint_runtime_diagnostics"),
+                    actual_params_runtime,
+                    outputs,
+                    dimension_probe=self._probe_comfy_output_image_dimensions,
+                )
+                runtime["krea2_anypaint_runtime_diagnostics"] = anypaint_runtime_diagnostics
+                runtime["actual_params"] = {**actual_params_runtime, "_neo_krea2_anypaint_runtime_diagnostics": anypaint_runtime_diagnostics}
+                if anypaint_runtime_diagnostics.get("ok") is not True:
+                    log_image_event(
+                        "krea2_anypaint_runtime_validation_mismatch",
+                        run_id=job_id,
+                        level="WARNING",
+                        payload=anypaint_runtime_diagnostics,
+                    )
             completed_at = time.time()
             runtime["completed_at"] = completed_at
             run_timing = _image_run_timing(runtime, completed=True)
@@ -5409,39 +5576,72 @@ class ComfyProvider(BaseProvider):
                     log_image_event("job_registry_no_outputs_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
                 log_image_event("poll_completed_no_outputs", run_id=job_id, payload={"run_timing": run_timing, "job_registry": self._registry_summary(job_id)})
                 get_comfy_gpu_lifecycle_manager().complete_prompt(base_url=self.base_url, prompt_id=job_id, state="completed_no_outputs", cleanup_after=False)
-                return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="completed_no_outputs_recoverable", message="ComfyUI completed, but Neo found no image outputs in history.", outputs=[], runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
+                return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="completed_no_outputs_recoverable", message="ComfyUI completed, but Neo found no image outputs in history.", outputs=[], runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "krea2_anypaint_runtime_diagnostics": runtime.get("krea2_anypaint_runtime_diagnostics") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
             progress = {"source": "comfyui.history", "percent": 100, "label": "Completed", "batch_total": int(runtime.get("batch_total") or len(outputs) or 1), "batch_done": len(outputs)}
             runtime["progress"] = progress
+            anypaint_diag = runtime.get("krea2_anypaint_runtime_diagnostics") if isinstance(runtime.get("krea2_anypaint_runtime_diagnostics"), dict) else {}
+            anypaint_has_runtime_issues = bool(anypaint_diag.get("active") and ((anypaint_diag.get("errors") or []) or (anypaint_diag.get("warnings") or [])))
+            completion_status = "completed_with_warnings" if anypaint_has_runtime_issues else "completed"
+            completion_message = "ComfyUI job completed with AnyPaint runtime diagnostics." if anypaint_has_runtime_issues else "ComfyUI job completed."
             try:
-                self.job_registry.mark_completed(job_id, message="ComfyUI job completed.", outputs=outputs, runtime=runtime, progress=progress)
+                self.job_registry.mark_completed(job_id, message=completion_message, outputs=outputs, runtime=runtime, progress=progress)
                 self.job_registry.mark_output_import_state(job_id, surface="image", status="pending", message="Backend outputs found; waiting for Neo_Data import.", outputs=outputs, recoverable=True)
             except Exception as exc:  # noqa: BLE001
                 log_image_event("job_registry_completed_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(exc)})
             log_image_event("poll_completed", run_id=job_id, payload={"output_count": len(outputs), "output_nodes": [item.get("node_id") for item in outputs], "run_timing": run_timing, "job_registry": self._registry_summary(job_id)})
             get_comfy_gpu_lifecycle_manager().complete_prompt(base_url=self.base_url, prompt_id=job_id, state="completed", cleanup_after=False)
-            return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="completed", message="ComfyUI job completed.", outputs=outputs, runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
+            return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status=completion_status, message=completion_message, outputs=outputs, runtime={"debug_logs": {"run_id": job_id}, "poll": poll_runtime, "run_timing": run_timing, "progress": progress, "actual_params": runtime.get("actual_params") or {}, "route_snapshot": runtime.get("route_snapshot") or {}, "workflow_node_map": runtime.get("workflow_node_map") or {}, "krea2_anypaint_runtime_diagnostics": runtime.get("krea2_anypaint_runtime_diagnostics") or {}, "extensions": runtime.get("extensions") or {}, "capabilities": self.feature_capability_payload(), "job_registry": self._registry_summary(job_id)})
         except Exception as exc:  # noqa: BLE001
             runtime = self._load_registered_runtime(job_id)
             poll_runtime = runtime.get("poll") or {"timeout_seconds": 0, "interval_ms": 1500, "max_attempts": 0, "unlimited": True}
-            if self._is_timeout_error(exc):
+            poll_failure = classify_comfy_runtime_error(exc, phase="poll", prompt_id=job_id)
+            transient_status = poll_failure.get("status_code") in {502, 503, 504}
+            retryable_transport = self._is_timeout_error(exc) or poll_failure.get("category") == "connection" or transient_status
+            if retryable_transport:
                 elapsed = max(0.0, time.time() - float(runtime.get("started_at") or time.time()))
                 percent = min(88, 20 + int(elapsed * 2))
-                progress = {"source": "comfyui.history.retry", "percent": percent, "label": "Waiting for ComfyUI history", "batch_total": int(runtime.get("batch_total") or 1), "batch_done": int(runtime.get("batch_done") or 0)}
+                timeout_retry = self._is_timeout_error(exc)
+                transport_errors = int(runtime.get("poll_transport_errors") or 0) + 1
+                runtime["poll_transport_errors"] = transport_errors
+                runtime["last_poll_transport_error"] = poll_failure
+                progress_label = "Waiting for ComfyUI history" if timeout_retry else "Comfy connection interrupted — still tracking job"
+                progress = {
+                    "source": "comfyui.history.retry",
+                    "percent": percent,
+                    "label": progress_label,
+                    "batch_total": int(runtime.get("batch_total") or 1),
+                    "batch_done": int(runtime.get("batch_done") or 0),
+                }
                 runtime["progress"] = progress
+                message = (
+                    "ComfyUI history poll timed out; Neo will keep waiting and retry."
+                    if timeout_retry
+                    else "Neo briefly lost the ComfyUI polling connection; the queued job is still tracked and polling will retry."
+                )
+                poll_state = {
+                    "timeout": timeout_retry,
+                    "transport_error": not timeout_retry,
+                    "error": str(exc),
+                    "failure": poll_failure,
+                    "transport_error_count": transport_errors,
+                }
                 try:
-                    self.job_registry.mark_running(job_id, message="ComfyUI history poll timed out; Neo will keep waiting and retry.", runtime=runtime, progress=progress, poll_state={"timeout": True, "error": str(exc)})
+                    self.job_registry.mark_running(job_id, message=message, runtime=runtime, progress=progress, poll_state=poll_state)
                 except Exception as registry_exc:  # noqa: BLE001
-                    log_image_event("job_registry_timeout_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(registry_exc)})
-                log_image_event("poll_retry_timeout", run_id=job_id, payload={"percent": percent, "error": str(exc), "job_registry": self._registry_summary(job_id)})
+                    log_image_event("job_registry_timeout_mark_failed" if timeout_retry else "job_registry_transport_retry_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(registry_exc)})
+                event_name = "poll_retry_timeout" if timeout_retry else "poll_retry_transport"
+                log_image_event(event_name, run_id=job_id, level="WARNING" if not timeout_retry else "INFO", payload={"percent": percent, "error": str(exc), "failure": poll_failure, "transport_error_count": transport_errors, "job_registry": self._registry_summary(job_id)})
                 return ProviderRunResult(
                     job_id=job_id,
                     provider_id=self.manifest.provider_id,
                     status="running",
-                    message="ComfyUI history poll timed out; Neo will keep waiting and retry.",
+                    message=message,
                     runtime={
                         "debug_logs": {"run_id": job_id},
                         "poll": poll_runtime,
                         "progress": progress,
+                        "poll_transport_error": poll_failure,
+                        "poll_transport_error_count": transport_errors,
                         "actual_params": runtime.get("actual_params") or {},
                         "route_snapshot": runtime.get("route_snapshot") or {},
                         "extensions": runtime.get("extensions") or {},
@@ -5453,8 +5653,8 @@ class ComfyProvider(BaseProvider):
                 self.job_registry.mark_failed(job_id, message=f"Failed to poll ComfyUI job: {exc}", error=str(exc), runtime=runtime)
             except Exception as registry_exc:  # noqa: BLE001
                 log_image_event("job_registry_failed_mark_failed", run_id=job_id, level="WARNING", payload={"error": str(registry_exc)})
-            record_generation_error(run_id=job_id, message="Failed to poll ComfyUI job.", exc=exc, payload={"job_id": job_id, "job_registry": self._registry_summary(job_id)})
-            return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="failed", message=f"Failed to poll ComfyUI job: {exc}", runtime={"debug_logs": {"run_id": job_id}, "job_registry": self._registry_summary(job_id)})
+            record_generation_error(run_id=job_id, message="Failed to poll ComfyUI job.", exc=exc, payload={"job_id": job_id, "poll_failure": poll_failure, "job_registry": self._registry_summary(job_id)})
+            return ProviderRunResult(job_id=job_id, provider_id=self.manifest.provider_id, status="failed", message=f"Failed to poll ComfyUI job: {exc}", runtime={"debug_logs": {"run_id": job_id}, "poll_failure": poll_failure, "job_registry": self._registry_summary(job_id)})
 
     def cancel_job(self, job_id: str) -> ProviderRunResult:
         try:

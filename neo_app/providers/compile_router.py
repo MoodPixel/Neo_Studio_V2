@@ -9,7 +9,7 @@ import json
 from neo_app.providers.schema import NeoJob
 from neo_app.models.route_matrix import normalize_backend, resolve_model_backend_route
 from neo_app.image.flux1_krea_contract import is_flux1_krea_route, resolve_flux1_variant
-from neo_app.image.krea2_contract import resolve_krea2_variant
+from neo_app.image.krea2_contract import normalize_krea2_edit_engine, resolve_krea2_variant
 from neo_app.image.lanpaint_family_adapter import PHASE14_STATE, PHASE15_STATE, PHASE16_STATE, PHASE17_STATE, get_lanpaint_family_adapter
 
 # Phase 15 keeps the shared compiler contract while onboarding the SD family through exact adapters.
@@ -31,6 +31,10 @@ INPAINT_ENGINE_ALIASES = {
     "normal": "native",
     "lan_paint": "lanpaint",
     "lanpaint": "lanpaint",
+    "anypaint": "krea2_anypaint",
+    "krea_anypaint": "krea2_anypaint",
+    "krea2_anypaint": "krea2_anypaint",
+    "krea_2_anypaint": "krea2_anypaint",
 }
 
 SUPPORTED_COMFY_ROUTES = {
@@ -294,8 +298,59 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
     flux1_variant = resolve_flux1_variant(params.get("flux_variant") or params.get("variant") or "dev", selected_model) if family == "flux" else ""
     flux1_krea = family == "flux" and is_flux1_krea_route(flux1_variant, selected_model)
     krea2_variant = resolve_krea2_variant(family, selected_model) if family in {"krea2", "krea2_turbo"} else ""
+    krea2_edit_engine = normalize_krea2_edit_engine(
+        params.get("krea2_edit_engine") or params.get("edit_engine") or params.get("image_edit_engine") or "native"
+    ) if family in {"krea2", "krea2_turbo"} else "native"
+
+    if (
+        mode in {"inpaint", "outpaint"}
+        and family in {"krea2", "krea2_turbo"}
+        and krea2_edit_engine == "identity_edit"
+        and masked_edit_engine != "native"
+    ):
+        engine_label = "Krea 2 AnyPaint" if masked_edit_engine == "krea2_anypaint" else ("LanPaint" if masked_edit_engine == "lanpaint" else masked_edit_engine)
+        return CompileRoute(
+            provider_id=job.provider_id,
+            backend="comfyui",
+            family=family,
+            loader=loader,
+            mode=mode,
+            requested_mode=requested_mode,
+            status="unsupported",
+            engine=masked_edit_engine,
+            blockers=[f"Krea 2 Identity Edit cannot be combined with {engine_label}. Use Native Inpaint/Outpaint while Identity Edit is enabled."],
+        )
 
     if mode in {"inpaint", "outpaint"} and masked_edit_engine != "native":
+        if masked_edit_engine == "krea2_anypaint":
+            supported_anypaint_route = family == "krea2_turbo" and loader == "diffusion_model"
+            if not supported_anypaint_route:
+                return CompileRoute(
+                    provider_id=job.provider_id,
+                    backend="comfyui",
+                    family=family,
+                    loader=loader,
+                    mode=mode,
+                    requested_mode=requested_mode,
+                    status="unsupported",
+                    engine=masked_edit_engine,
+                    blockers=["Krea 2 AnyPaint is available only for Krea 2 Turbo + Safetensors/Components (diffusion_model) inpaint/outpaint routes."],
+                )
+            return CompileRoute(
+                provider_id=job.provider_id,
+                backend="comfyui",
+                family=family,
+                loader=loader,
+                mode=mode,
+                requested_mode=requested_mode,
+                status="available",
+                compiler_id="comfy.krea2_anypaint.phase4",
+                workflow_type="krea2_anypaint_masked_edit",
+                engine=masked_edit_engine,
+                phase="Krea 2 AnyPaint Phase 4 — Standalone Compiler",
+                blockers=[],
+                warnings=["Krea 2 AnyPaint is compiled by its standalone AnyPaint compiler. Native Krea, Native Crop & Stitch, and LanPaint remain separate compiler paths."],
+            )
         if masked_edit_engine != "lanpaint":
             return CompileRoute(
                 provider_id=job.provider_id,
@@ -306,7 +361,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
                 requested_mode=requested_mode,
                 status="unsupported",
                 engine=masked_edit_engine,
-                blockers=[f"Unknown masked edit engine {masked_edit_engine!r}. Supported engines are native and lanpaint."],
+                blockers=[f"Unknown masked edit engine {masked_edit_engine!r}. Supported engines are native, krea2_anypaint, and lanpaint."],
             )
         adapter = get_lanpaint_family_adapter(
             family,

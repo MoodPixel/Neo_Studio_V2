@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping
 from neo_app.image.lanpaint_family_expansion import get_lanpaint_family_expansion_profile
 from neo_app.image.lanpaint_family_adapter import get_lanpaint_family_adapter, lanpaint_family_adapter_registry
 from neo_app.image.lanpaint_capability_discovery import lanpaint_snapshot_freshness
+from neo_app.image.krea2_contract import check_krea2_compatibility
 from neo_app.image.lanpaint_route_contract import (
     ENGINE_ID,
     MODE_ID,
@@ -425,6 +426,34 @@ def _expansion_profile_from_registry(
     return None
 
 
+def _krea2_selected_override(
+    family_id: str,
+    loader_id: str,
+    key: str,
+    *,
+    selected_assets: Mapping[str, Any] | None,
+    selected_name: str,
+    selected_found: bool | None,
+) -> tuple[bool, str | None]:
+    if family_id != "krea2_turbo" or key not in {"model", "vae"}:
+        return False, None
+    if not selected_name or selected_found is not True:
+        return False, None
+    selected = _mapping(selected_assets)
+    compatibility = check_krea2_compatibility(
+        family_id,
+        selected.get("model"),
+        selected.get("text_encoder"),
+        selected.get("vae"),
+        loader=loader_id,
+    )
+    if compatibility.compatible is False:
+        return False, None
+    if key == "model":
+        return True, "Selected custom Krea 2 Turbo model filename is not self-identifying, but the explicit family/loader selection and runtime compatibility contract allow it."
+    return True, compatibility.message
+
+
 def evaluate_lanpaint_route_capabilities(
     backend_capabilities: Mapping[str, Any] | None,
     *,
@@ -609,11 +638,35 @@ def evaluate_lanpaint_route_capabilities(
         compatible_selected = _asset_matches(selected_name, config) if selected_name else None
         if selected_name and config.get("tokens_none") and any(token in _normal_name(selected_name) for token in config["tokens_none"]):
             compatible_selected = False
-        model_checks[key] = {"label": str(config["label"]), "catalog": catalog, "candidates": candidates, "selected": selected_name, "selected_found": selected_found, "available": bool(candidates)}
+        override_selected, override_reason = _krea2_selected_override(
+            family_id,
+            loader_id,
+            key,
+            selected_assets=selected,
+            selected_name=selected_name,
+            selected_found=selected_found,
+        )
+        effective_candidates = list(candidates)
+        if override_selected and selected_name and not any(_normal_name(item) == _normal_name(selected_name) for item in effective_candidates):
+            effective_candidates.append(selected_name)
+        effective_available = bool(effective_candidates)
+        if override_selected:
+            compatible_selected = True
+        model_checks[key] = {
+            "label": str(config["label"]),
+            "catalog": catalog,
+            "candidates": effective_candidates,
+            "selected": selected_name,
+            "selected_found": selected_found,
+            "available": effective_available,
+            **({"selected_override_reason": override_reason} if override_selected and override_reason else {}),
+        }
         if not catalog:
             blockers.append(_issue(f"missing_{key}_catalog", f"ComfyUI did not advertise any assets for {config['label']}.", field=key))
-        elif not candidates:
+        elif not effective_candidates:
             blockers.append(_issue(f"missing_compatible_{key}", f"No compatible {config['label']} candidate was found in the connected ComfyUI catalog.", field=key, assets=catalog))
+        elif override_selected and override_reason:
+            warnings.append(_issue(f"selected_{key}_runtime_override", override_reason, field=key, assets=(selected_name,)))
         if selected_name and selected_found is False:
             blockers.append(_issue(f"selected_{key}_not_found", f"The selected {config['label']} is not present in the connected ComfyUI catalog.", field=key, assets=(selected_name,)))
         elif selected_name and compatible_selected is False:

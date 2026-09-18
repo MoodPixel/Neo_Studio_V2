@@ -386,6 +386,7 @@ from neo_app.image.base_contract import create_image_job_draft, get_image_surfac
 from neo_app.image.preview_actions import preview_action_definition_registry_payload
 from neo_app.image.preview_action_routing import build_preview_action_provider_evaluation
 from neo_app.image.preview_source_handoff import normalize_preview_source_handoff_params
+from neo_app.image.canonical_source_asset import CanonicalSourceAssetError, resolve_canonical_source_asset
 from neo_app.image.preview_reference_handoff import normalize_preview_reference_handoffs
 from neo_app.image.preview_finish_dispatch import normalize_preview_finish_params
 from neo_app.image.state_boundary import sanitize_image_action_state_for_provider
@@ -536,6 +537,7 @@ from neo_app.video.parameter_profiles import video_parameter_profile_payload
 from neo_app.video.vram_engine import video_vram_engine_payload, video_vram_preflight_payload
 from neo_app.video.performance_profiles import video_performance_profile_payload, video_performance_preflight_payload
 from neo_app.video.backend_probe import video_backend_probe_payload
+from neo_app.video.video_lora_ui import video_lora_catalog_payload
 from neo_app.video.runtime_preflight import video_runtime_preflight_payload, wan22_gguf_first_test_preset_payload
 from neo_app.video.external_node_manager import video_external_node_manager_payload
 from neo_app.video.interpolation_finish import video_interpolation_compile_payload, video_interpolation_generate_payload
@@ -5862,6 +5864,63 @@ def _profile_bound_provider(profile_id: str):
     return provider, profile
 
 
+def _profile_bound_provider_for_existing_job(profile_id: str, job_id: str):
+    """Bind an already-queued Image job without re-running the new-task gate.
+
+    Generation submission is intentionally strict and must pass the selected-profile
+    Connect/Test task gate. Once a provider job has been queued, however, polling,
+    preview, recovery, and cancellation are recovery operations on that existing
+    job. Requiring the live new-task gate again can orphan a still-running Comfy
+    prompt when the profile status briefly goes stale or a transport probe drops.
+
+    Durable job-registry data wins for the provider job's backend URL so tracking
+    stays attached to the same Comfy process that accepted the prompt.
+    """
+    ui_profile = get_backend_profile(profile_id)
+    if ui_profile is None:
+        raise HTTPException(status_code=404, detail=f"Unknown backend profile: {profile_id}")
+
+    registry_record: dict = {}
+    try:
+        registry = get_generation_job_registry(ROOT_DIR)
+        registry_record = registry.get(job_id, surface="image") or registry.get(job_id) or {}
+    except Exception:
+        registry_record = {}
+
+    runtime_profile = get_backend_profile_for_runtime(profile_id) or ui_profile
+    provider_id = str(registry_record.get("provider_id") or ui_profile.get("provider_id") or "").strip()
+    provider = get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Unknown provider for backend profile: {provider_id or ui_profile.get('provider_id')}")
+
+    if provider_id in {"comfyui", "comfyui_portable"}:
+        compiled = registry_record.get("compiled_backend_payload") if isinstance(registry_record.get("compiled_backend_payload"), dict) else {}
+        registered_runtime = registry_record.get("runtime") if isinstance(registry_record.get("runtime"), dict) else {}
+        connection = ui_profile.get("connection") if isinstance(ui_profile.get("connection"), dict) else {}
+        live_runtime = runtime_profile.get("runtime") if isinstance(runtime_profile.get("runtime"), dict) else {}
+        base_url = str(
+            compiled.get("base_url")
+            or registered_runtime.get("base_url")
+            or connection.get("base_url")
+            or live_runtime.get("base_url")
+            or "http://127.0.0.1:8188"
+        ).strip().rstrip("/")
+        try:
+            timeout = float(connection.get("timeout_seconds") or 3)
+        except (TypeError, ValueError):
+            timeout = 3.0
+        return ComfyProvider(provider.manifest, base_url=base_url, timeout=timeout), runtime_profile
+
+    if provider_id == "forge":
+        runtime_provider = get_provider(provider_id, profile=runtime_profile)
+        if runtime_provider is None:
+            raise HTTPException(status_code=404, detail="Forge Neo provider adapter is unavailable.")
+        return runtime_provider, runtime_profile
+    if provider_id == "xai_grok":
+        return XaiGrokProvider(provider.manifest, profile=runtime_profile), runtime_profile
+    return provider, runtime_profile
+
+
 def _profile_model_catalog_provider(profile_id: str):
     """Lenient provider binding for read-only model catalog scans.
 
@@ -6267,6 +6326,28 @@ def image_mask_image_file(mask_id: str) -> FileResponse:
     return FileResponse(path)
 
 
+@app.post("/api/image/source-handoff/preflight")
+def image_source_handoff_preflight(data: dict) -> dict:
+    """Validate an output source before the browser changes Image mode."""
+    source = data.get("source") if isinstance(data.get("source"), dict) else {}
+    selected_profile = str(data.get("profile_id") or "").strip()
+    selected_provider = str(data.get("provider_id") or "").strip().lower()
+    if not selected_profile or not selected_provider:
+        raise HTTPException(status_code=409, detail="Select an Image backend profile before staging this output.")
+    try:
+        canonical = resolve_canonical_source_asset(source)
+    except CanonicalSourceAssetError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.detail}) from exc
+    return {
+        "ok": True,
+        "canonical_source": canonical,
+        "provider_id": selected_provider,
+        "profile_id": selected_profile,
+        "provider_policy": "selected_profile_only",
+        "automatic_provider_fallback": False,
+    }
+
+
 
 
 def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_id: str = "", profile_id: str = "") -> dict:
@@ -6276,6 +6357,7 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
         runtime_mode=runtime_mode,
         provider_id=provider_id,
         profile_id=profile_id,
+        validate_asset=True,
     )
     if preview_handoff.get("status") == "blocked":
         reasons = ", ".join(preview_handoff.get("warning_codes") or ["preview_source_handoff_blocked"])
@@ -6299,6 +6381,27 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
     if source.startswith("/api/image/source-file/"):
         source = local_from_dir(source.rsplit("/", 1)[-1], IMAGE_SOURCE_INPUT_DIR) or source
 
+    # Direct uploads and output handoffs converge here before any local provider
+    # sees the request. This makes their final source path/dimensions contract
+    # identical instead of validating only toolbar-originated handoffs.
+    local_provider = str(provider_id or "").strip().lower() in {"comfyui", "comfyui_portable", "forge"}
+    if source and local_provider:
+        try:
+            canonical_source = resolve_canonical_source_asset({
+                "path": source,
+                "url": source_url,
+                "filename": normalized.get("source_image_name") or Path(source).name,
+                "result_id": normalized.get("_neo_canonical_source_asset", {}).get("result_id") if isinstance(normalized.get("_neo_canonical_source_asset"), dict) else "",
+                "file_id": normalized.get("_neo_canonical_source_asset", {}).get("file_id") if isinstance(normalized.get("_neo_canonical_source_asset"), dict) else "",
+            })
+        except CanonicalSourceAssetError as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.detail}) from exc
+        source = canonical_source["path"]
+        normalized["source_id"] = canonical_source["source_id"]
+        normalized["source_image_width"] = canonical_source["width"]
+        normalized["source_image_height"] = canonical_source["height"]
+        normalized["_neo_canonical_source_asset"] = canonical_source
+
     mask = str(normalized.get("mask_image") or normalized.get("mask_image_path") or normalized.get("inpaint_mask") or "").strip()
     mask_id = str(normalized.get("mask_id") or normalized.get("mask_image_id") or "").strip()
     mask_url = str(normalized.get("mask_image_url") or normalized.get("mask_url") or "").strip()
@@ -6309,6 +6412,17 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
         mask = local_from_dir(parsed_name, IMAGE_MASK_INPUT_DIR) or mask_url
     if mask.startswith("/api/image/mask-file/"):
         mask = local_from_dir(mask.rsplit("/", 1)[-1], IMAGE_MASK_INPUT_DIR) or mask
+
+    ref_boost_mask = str(normalized.get("krea2_identity_edit_ref_boost_mask") or normalized.get("krea2_identity_edit_ref_boost_mask_path") or "").strip()
+    ref_boost_mask_id = str(normalized.get("krea2_identity_edit_ref_boost_mask_id") or "").strip()
+    ref_boost_mask_url = str(normalized.get("krea2_identity_edit_ref_boost_mask_url") or "").strip()
+    if not ref_boost_mask and ref_boost_mask_id:
+        ref_boost_mask = local_from_dir(ref_boost_mask_id, IMAGE_MASK_INPUT_DIR)
+    if not ref_boost_mask and ref_boost_mask_url:
+        parsed_name = Path(ref_boost_mask_url.split("?", 1)[0]).name
+        ref_boost_mask = local_from_dir(parsed_name, IMAGE_MASK_INPUT_DIR) or ref_boost_mask_url
+    if ref_boost_mask.startswith("/api/image/mask-file/"):
+        ref_boost_mask = local_from_dir(ref_boost_mask.rsplit("/", 1)[-1], IMAGE_MASK_INPUT_DIR) or ref_boost_mask
 
     if source:
         normalized["source_image"] = source
@@ -6325,6 +6439,13 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
             normalized["mask_image_name"] = Path(mask).name
     if mask_url:
         normalized["mask_image_url"] = mask_url
+    if ref_boost_mask:
+        normalized["krea2_identity_edit_ref_boost_mask"] = ref_boost_mask
+        normalized["krea2_identity_edit_ref_boost_mask_path"] = ref_boost_mask
+        if not normalized.get("krea2_identity_edit_ref_boost_mask_name"):
+            normalized["krea2_identity_edit_ref_boost_mask_name"] = Path(ref_boost_mask).name
+    if ref_boost_mask_url:
+        normalized["krea2_identity_edit_ref_boost_mask_url"] = ref_boost_mask_url
 
     def normalize_visibility_mask_block(raw: object) -> dict:
         block = dict(raw) if isinstance(raw, dict) else {}
@@ -6696,7 +6817,7 @@ def image_generate(payload: dict) -> dict:
     # Phase J: cloud image providers such as Grok Imagine complete synchronously.
     # Persist completed outputs immediately so the Image tab can show Neo-owned
     # result files without depending on an extra poll or volatile provider memory.
-    if output.get("status") == "completed" and output.get("outputs"):
+    if output.get("status") in {"completed", "completed_with_warnings"} and output.get("outputs"):
         runtime_params = ((output.get("runtime") or {}).get("actual_params") or {}) if isinstance(output.get("runtime"), dict) else {}
         if isinstance(runtime_params, dict) and runtime_params:
             context = {**context, "params": {**(context.get("params") if isinstance(context.get("params"), dict) else {}), **runtime_params}}
@@ -6720,7 +6841,7 @@ def image_generate(payload: dict) -> dict:
 @app.get("/api/image/jobs/{profile_id}/{job_id}/preview")
 def image_job_live_preview(profile_id: str, job_id: str) -> dict:
     try:
-        provider, profile = _profile_bound_provider(profile_id)
+        provider, profile = _profile_bound_provider_for_existing_job(profile_id, job_id)
         fetcher = getattr(provider, "fetch_live_preview", None)
         if not callable(fetcher):
             return {"ok": False, "profile_id": profile_id, "job_id": job_id, "is_final": False, "message": "No HTTP preview exposed yet for this provider."}
@@ -6740,7 +6861,7 @@ def image_job_live_preview(profile_id: str, job_id: str) -> dict:
 @app.get("/api/image/jobs/{profile_id}/{job_id}")
 def image_job_status(profile_id: str, job_id: str) -> dict:
     try:
-        provider, profile = _profile_bound_provider(profile_id)
+        provider, profile = _profile_bound_provider_for_existing_job(profile_id, job_id)
         result = provider.poll_job(job_id)
     except Exception as exc:
         return normalize_image_provider_error(exc, operation="image_poll", profile_id=profile_id, job_id=job_id)
@@ -6767,7 +6888,7 @@ def image_job_status(profile_id: str, job_id: str) -> dict:
         output["runtime"] = runtime
     except Exception:
         pass
-    if output.get("status") == "completed" and output.get("outputs"):
+    if output.get("status") in {"completed", "completed_with_warnings"} and output.get("outputs"):
         context = _load_or_default_image_job_context(job_id, {
             "job_id": job_id,
             "profile_id": profile_id,
@@ -6805,7 +6926,7 @@ def image_job_recover_outputs(profile_id: str, job_id: str) -> dict:
     """
     registry = get_generation_job_registry(ROOT_DIR)
     try:
-        provider, profile = _profile_bound_provider(profile_id)
+        provider, profile = _profile_bound_provider_for_existing_job(profile_id, job_id)
         context = _load_or_default_image_job_context(job_id, {
             "job_id": job_id,
             "profile_id": profile_id,
@@ -6873,7 +6994,7 @@ def image_job_recover_outputs(profile_id: str, job_id: str) -> dict:
 
 def _control_image_job(profile_id: str, job_id: str, action: str) -> dict:
     try:
-        provider, _profile = _profile_bound_provider(profile_id)
+        provider, _profile = _profile_bound_provider_for_existing_job(profile_id, job_id)
         if action == "cancel":
             result = provider.cancel_job(job_id)
             context = IMAGE_JOB_CONTEXTS.setdefault(job_id, {"job_id": job_id, "profile_id": profile_id})
@@ -7167,7 +7288,7 @@ def _attach_persisted_image_outputs(output: dict, context: dict, *, force_retry:
     if persisted.get("ok") or persisted_files:
         output["outputs"] = persisted_files or persisted.get("files") or output.get("outputs") or []
         if persisted.get("ok"):
-            output["status"] = "completed"
+            output["status"] = "completed_with_warnings" if output.get("status") == "completed_with_warnings" else "completed"
         elif output.get("status") == "completed":
             output["status"] = "completed_with_warnings"
     else:
@@ -7346,7 +7467,9 @@ def video_project_asset_tray(project_id: str = "", limit: int = 30) -> dict:
 def video_result_refresh(result_id: str, payload: dict | None = None) -> dict:
     """Best-effort refresh of a queued ComfyUI video result."""
     data = payload if isinstance(payload, dict) else {}
-    return refresh_video_result_from_comfy(result_id, profile_id=data.get("profile_id"), timeout=float(data.get("timeout", 3.0) or 3.0))
+    history_timeout = float(data.get("history_timeout", data.get("timeout", 5.0)) or 5.0)
+    download_timeout = float(data.get("download_timeout", 120.0) or 120.0)
+    return refresh_video_result_from_comfy(result_id, profile_id=data.get("profile_id"), timeout=history_timeout, download_timeout=download_timeout)
 
 
 @app.get("/api/video/output-file")
@@ -7382,6 +7505,25 @@ def video_route_validation(family: str | None = None, loader: str | None = None,
 def video_parameter_profile(family: str | None = None, loader: str | None = None, generation_type: str | None = None, mode: str | None = None, vram_profile: str | None = None) -> dict:
     """Return route-derived Video parameters constrained by the selected VRAM profile."""
     return video_parameter_profile_payload(family=family, loader=loader, generation_type=generation_type or mode, vram_profile=vram_profile)
+
+
+@app.get("/api/video/lora-catalog")
+def video_lora_catalog(
+    family: str | None = None,
+    loader: str | None = None,
+    generation_type: str | None = None,
+    mode: str | None = None,
+    profile_id: str | None = None,
+    timeout: float = 2.0,
+) -> dict:
+    """Return the live route-aware Video LoRA catalog for the selected local Video profile."""
+    return video_lora_catalog_payload(
+        family=family,
+        loader=loader,
+        generation_type=generation_type or mode,
+        profile_id=profile_id,
+        timeout=timeout,
+    )
 
 
 @app.get("/api/video/backend-probe")
@@ -7960,9 +8102,9 @@ def image_output_file(result_id: str, file_id: str) -> FileResponse:
 
 
 @app.get("/api/image/results")
-def image_results(category: str | None = None, limit: int = 50, sort: str = "newest") -> dict:
+def image_results(category: str | None = None, limit: int = 50, offset: int = 0, sort: str = "newest") -> dict:
     """List persisted Image results from Neo_Data metadata sidecars."""
-    return list_image_results(category=category, limit=limit, sort=sort)
+    return list_image_results(category=category, limit=limit, offset=offset, sort=sort)
 
 
 @app.get("/api/image/results-integrity")

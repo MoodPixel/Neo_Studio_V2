@@ -6,6 +6,7 @@ from typing import Any, Callable, Final
 
 from neo_app.video.output_records import load_video_output_record
 from neo_app.video.route_matrix import VIDEO_ROUTES
+from neo_app.video.video_lora_persistence import inspector_payload as video_lora_inspector_payload
 
 VIDEO_OUTPUT_INSPECTOR_SCHEMA_VERSION: Final[str] = "neo.video.output_inspector.v1"
 VIDEO_FINISH_CATEGORIES: Final[frozenset[str]] = frozenset({"interpolate", "upscale", "repair", "source"})
@@ -330,6 +331,9 @@ def _replay_validation(base: dict[str, Any]) -> dict[str, Any]:
 
     if not profile_id:
         warnings.append("No backend profile id was recorded; Neo will keep the currently selected Video backend when loading this recipe.")
+    unresolved_loras = video_lora_inspector_payload(base).get("unresolved", [])
+    if unresolved_loras:
+        warnings.append(f"{len(unresolved_loras)} saved Video LoRA row(s) require repair before generation.")
 
     loadable = route_known and not reasons
     return {
@@ -403,6 +407,7 @@ def build_video_output_inspector(record: dict[str, Any], *, record_loader: Calla
         },
         "sources": _source_payload(record),
         "extensions": _extension_payload(record),
+        "video_lora_stack": video_lora_inspector_payload(record),
         "lineage": lineage,
         "replay": {
             "base_result_id": base_result_id,
@@ -431,6 +436,7 @@ def build_video_output_inspector(record: dict[str, Any], *, record_loader: Calla
                 },
                 "sources": _source_payload(base),
                 "extensions": _extension_payload(base),
+                "video_lora_stack": video_lora_inspector_payload(base),
             },
         },
         "diagnostics": {

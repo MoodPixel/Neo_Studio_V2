@@ -19,11 +19,13 @@ from neo_app.image.krea2_contract import (
 )
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 from neo_app.image.prompt_conditioning import condition_prompt_pair, normalize_prompt_conditioning_mode
+from neo_app.image.img2img_source_resolution import normalize_img2img_source_resolution_policy, insert_img2img_source_resolution_nodes
 from neo_app.models.asset_selection import require_explicit_asset_selection
 from neo_app.providers.compile_router import CompileRoute
 from neo_app.providers.comfy_workflows.adetailer_route_contract import publish_adetailer_route_contract
 from neo_app.providers.schema import CompiledJob, NeoJob, ProviderValidationResult
 from neo_extensions.built_in.lora_stack.backend.patch_profile import build_lora_patch_profile
+from neo_app.providers.comfy_workflows.masked_edit_engine import crop_stitch_enabled
 from neo_app.providers.comfy_workflows.vae_decode_utils import (
     build_vae_decode_node,
     build_vae_loader_node,
@@ -53,6 +55,7 @@ class Krea2Defaults:
 
 
 KREA2_DEFAULTS = Krea2Defaults()
+KREA2_NATIVE_INPAINT_COMPOSITE_BLUR_FLOOR = 8
 
 
 def _param(params: dict[str, Any], *names: str, default: Any = None) -> Any:
@@ -93,6 +96,14 @@ def _source_image_name(params: dict[str, Any]) -> str:
 
 def _mask_image_name(params: dict[str, Any]) -> str:
     for key in ("comfy_mask_image_name", "mask_image_name", "mask_image", "mask_image_path", "inpaint_mask", "mask"):
+        value = _image_name_value(params.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _krea2_identity_ref_boost_mask_name(params: dict[str, Any]) -> str:
+    for key in ("comfy_krea2_identity_edit_ref_boost_mask_name", "krea2_identity_edit_ref_boost_mask_name", "krea2_identity_edit_ref_boost_mask", "krea2_identity_edit_ref_boost_mask_path", "krea2_identity_edit_ref_boost_mask_url"):
         value = _image_name_value(params.get(key))
         if value:
             return value
@@ -279,6 +290,7 @@ def _compile_krea2_identity_edit(
     source_name = _source_image_name_for_lane(params, 1)
     source_b_name = _source_image_name_for_lane(params, 2)
     mask_name = _mask_image_name(params) if mode == "inpaint" else ""
+    ref_boost_mask_name = _krea2_identity_ref_boost_mask_name(params)
     identity_lora = str(require_explicit_asset_selection(
         validation,
         "Krea 2 Identity Edit LoRA",
@@ -390,6 +402,13 @@ def _compile_krea2_identity_edit(
         next_id += 1
         route_notes.append("Two-reference mode follows training order: Image 1 is the scene/composition reference and Image 2 is the subject/identity reference.")
 
+    ref_boost_mask_ref: list[Any] | None = None
+    if ref_boost_mask_name:
+        workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": ref_boost_mask_name, "channel": "red"}}
+        ref_boost_mask_ref = [str(next_id), 0]
+        next_id += 1
+        route_notes.append("Optional ref_boost_mask is wired into Krea2EditModelPatch to spatially bias the last reference block without changing inpaint commit boundaries.")
+
     workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
     source_latent_ref = [str(next_id), 0]
     next_id += 1
@@ -424,6 +443,8 @@ def _compile_krea2_identity_edit(
     if source_b_latent_ref is not None and source_b_ref is not None:
         patch_inputs["source_latent_b"] = list(source_b_latent_ref)
         patch_inputs["source_image_b"] = list(source_b_ref)
+    if ref_boost_mask_ref is not None:
+        patch_inputs["ref_boost_mask"] = list(ref_boost_mask_ref)
     workflow[str(next_id)] = {"class_type": "Krea2EditModelPatch", "inputs": patch_inputs}
     model_ref = [str(next_id), 0]
     patch_node_id = str(next_id)
@@ -490,6 +511,8 @@ def _compile_krea2_identity_edit(
         "krea2_identity_edit_fit_mode": fit_mode,
         "krea2_identity_edit_grounding_px": grounding_px,
         "krea2_identity_edit_system_prompt": system_prompt,
+        "krea2_identity_edit_ref_boost_mask": ref_boost_mask_name,
+        "krea2_identity_edit_ref_boost_mask_name": ref_boost_mask_name,
         "qwen3vl_text_encoder": text_encoder,
         "text_encoder_1": text_encoder,
         "text_encoder_2": "",
@@ -515,6 +538,7 @@ def _compile_krea2_identity_edit(
         "_neo_krea2_identity_edit_identity_lora_node_id": identity_lora_node_id,
         "_neo_krea2_identity_edit_patch_node_id": patch_node_id,
         "_neo_krea2_identity_edit_target_latent": list(target_latent_ref),
+        "_neo_krea2_identity_edit_ref_boost_mask_enabled": bool(ref_boost_mask_ref is not None),
         "_neo_krea2_identity_edit_negative_policy": "empty grounded negative with the same source image(s), matching training unconditional conditioning",
         **({"masked_edit_engine": "krea2_identity_edit", "inpaint_engine": "native", "masked_edit_engine_state": "krea2_identity_edit_family_graph"} if mode in {"inpaint", "outpaint"} else {}),
         "krea2_profile": {
@@ -647,13 +671,13 @@ def compile_krea2_workflow(
     mode = str(route.mode or job.mode or "txt2img")
     params = normalize_inpaint_target_aliases(raw_params) if mode == "inpaint" else raw_params
     loader = str(route.loader or job.loader or "diffusion_model")
+    masked_engine = str(route.engine or _param(params, "masked_edit_engine", "inpaint_engine", default="native") or "native").strip().lower().replace("-", "_")
     defaults = KREA2_DEFAULTS
     is_gguf = loader == "gguf"
     image_mode = mode in {"img2img", "edit", "inpaint", "outpaint"}
     edit_engine = normalize_krea2_edit_engine(_param(params, "krea2_edit_engine", "edit_engine", "image_edit_engine", default="native")) if image_mode else "native"
     identity_edit = bool(image_mode and edit_engine == KREA2_EDIT_ENGINE_IDENTITY)
     if identity_edit and mode in {"inpaint", "outpaint"}:
-        masked_engine = str(_param(params, "masked_edit_engine", "inpaint_engine", default="native") or "native").strip().lower().replace("-", "_")
         if masked_engine in {"lanpaint", "lan_paint"}:
             validation.errors.append("Krea 2 Identity Edit cannot be stacked with the LanPaint masked engine. Select Native masked editing or disable Identity Edit.")
             validation.ok = False
@@ -747,6 +771,7 @@ def compile_krea2_workflow(
     else:
         model_node = {"class_type": "UNETLoader", "inputs": {"unet_name": model_name, "weight_dtype": weight_dtype}}
         compiler_id = "comfy.krea2"
+
 
     if identity_edit:
         identity_params = {**params, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed}
@@ -842,6 +867,7 @@ def compile_krea2_workflow(
     source_ref: list[Any] | None = None
     original_source_ref: list[Any] | None = None
     mask_ref: list[Any] | None = None
+    composite_mask_ref: list[Any] | None = None
     latent_ref: list[Any] | None = None
     model_ref: list[Any] = ["1", 0]
     route_notes: list[str] = []
@@ -890,16 +916,29 @@ def compile_krea2_workflow(
         route_notes.append("Krea 2 outpaint uses the generated ImagePadForOutpaint mask as the latent noise mask.")
 
     if mode in {"img2img", "edit"} and source_ref is not None:
+        img2img_policy = normalize_img2img_source_resolution_policy(params, default_width=width, default_height=height)
+        next_id, source_ref, img2img_source_resolution_applied = insert_img2img_source_resolution_nodes(workflow, next_id, source_ref, img2img_policy)
+        if img2img_source_resolution_applied:
+            actual_params["img2img_source_resolution"] = img2img_policy
+            actual_params["_neo_img2img_source_resolution_applied"] = img2img_source_resolution_applied
+            route_notes.append(f"Krea 2 img2img source policy: {img2img_policy.get('mode_label', img2img_policy.get('mode', 'Keep source resolution'))}.")
+
+    if mode in {"img2img", "edit"} and source_ref is not None:
         workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
         latent_ref = [str(next_id), 0]
         next_id += 1
         route_notes.append("Krea 2 img2img uses Image 1 as a Qwen Image VAE latent anchor.")
     elif mode == "inpaint" and source_ref is not None and mask_name:
         workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": mask_name, "channel": "red"}}
-        mask_ref = [str(next_id), 0]
+        raw_mask_ref = [str(next_id), 0]
+        mask_ref = list(raw_mask_ref)
         next_id += 1
         grow = max(0, _int_param(params, "mask_grow", "grow_mask_by", default=3))
         blur = max(0, _int_param(params, "mask_blur", "blur_mask_by", default=0))
+        composite_blur = max(blur, KREA2_NATIVE_INPAINT_COMPOSITE_BLUR_FLOOR)
+        use_crop_stitch = crop_stitch_enabled(params)
+
+        # Sampling-mask path: preserve the user's exact grow/blur semantics.
         if grow or blur:
             workflow[str(next_id)] = {
                 "class_type": "GrowMaskWithBlur",
@@ -908,10 +947,31 @@ def compile_krea2_workflow(
             mask_ref = [str(next_id), 0]
             next_id += 1
         inpaint_target = str(_param(params, "inpaint_target", "mask_mode", default="masked") or "masked").strip().lower()
-        if inpaint_target in {"unmasked", "not_masked", "not_masked_area"}:
+        invert_target = inpaint_target in {"unmasked", "not_masked", "not_masked_area"}
+        if invert_target:
             workflow[str(next_id)] = {"class_type": "InvertMask", "inputs": {"mask": list(mask_ref)}}
             mask_ref = [str(next_id), 0]
             next_id += 1
+
+        # Final RGB composite-mask path: keep it independent from sampling so a
+        # sharp generation mask cannot create a hard seam when decoded pixels
+        # are pasted back into the untouched source. Native Crop & Stitch owns
+        # its own final stitcher and therefore bypasses this safety floor.
+        composite_mask_ref = list(mask_ref)
+        composite_guard_enabled = not use_crop_stitch
+        if composite_guard_enabled:
+            composite_mask_ref = list(raw_mask_ref)
+            workflow[str(next_id)] = {
+                "class_type": "GrowMaskWithBlur",
+                "inputs": {"mask": list(composite_mask_ref), "expand": grow, "incremental_expandrate": 0, "tapered_corners": True, "flip_input": False, "blur_radius": composite_blur, "lerp_alpha": 1, "decay_factor": 1, "fill_holes": False},
+            }
+            composite_mask_ref = [str(next_id), 0]
+            next_id += 1
+            if invert_target:
+                workflow[str(next_id)] = {"class_type": "InvertMask", "inputs": {"mask": list(composite_mask_ref)}}
+                composite_mask_ref = [str(next_id), 0]
+                next_id += 1
+
         workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
         encoded_ref = [str(next_id), 0]
         next_id += 1
@@ -928,8 +988,18 @@ def compile_krea2_workflow(
             "inpaint_target": inpaint_target,
             "_neo_krea2_inpaint_uses_latent_noise_mask": True,
             "_neo_krea2_inpaint_uses_differential_diffusion": True,
+            "_neo_krea2_inpaint_sampling_mask": {"grow": grow, "blur": blur, "inverted": invert_target},
+            "_neo_krea2_inpaint_composite_mask": {
+                "grow": grow,
+                "blur": composite_blur if composite_guard_enabled else blur,
+                "blur_floor": KREA2_NATIVE_INPAINT_COMPOSITE_BLUR_FLOOR,
+                "safety_floor_applied": bool(composite_guard_enabled and composite_blur > blur),
+                "guard_enabled": composite_guard_enabled,
+                "inverted": invert_target,
+                "owner": "ImageCompositeMasked" if composite_guard_enabled else "Native Crop & Stitch",
+            },
         })
-        route_notes.append("Krea 2 inpaint is a Neo latent-mask adapter using VAEEncode + SetLatentNoiseMask + DifferentialDiffusion.")
+        route_notes.append("Krea 2 inpaint preserves the user grow/blur for sampling and uses an independent seam-safe final composite mask when Native Crop & Stitch is disabled.")
     elif mode == "outpaint" and source_ref is not None:
         workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
         encoded_ref = [str(next_id), 0]
@@ -973,10 +1043,11 @@ def compile_krea2_workflow(
     next_id += 1
 
     if mode == "inpaint" and original_source_ref is not None and mask_ref is not None:
+        final_composite_mask_ref = list(composite_mask_ref or mask_ref)
         composite_id = str(next_id)
         workflow[composite_id] = {
             "class_type": "ImageCompositeMasked",
-            "inputs": {"destination": list(original_source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": list(mask_ref)},
+            "inputs": {"destination": list(original_source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": final_composite_mask_ref},
         }
         output_ref = [composite_id, 0]
         next_id += 1

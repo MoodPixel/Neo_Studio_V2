@@ -13,6 +13,11 @@ from urllib.request import Request, urlopen
 from neo_app.video.backend_probe import video_backend_profile_payload
 from neo_app.video.output_paths import ROOT_DIR, get_video_output_paths, safe_join, sanitize_path_part
 from neo_app.video.route_matrix import normalize_video_generation_type
+from neo_app.video.video_lora_persistence import (
+    attach_state_to_replay,
+    build_video_lora_persistence,
+    merge_record_extensions,
+)
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 from neo_app.memory.surface_ingestion_registry import ingest_surface_memory_event
 
@@ -272,7 +277,7 @@ def _download_comfy_output(base_url: str, candidate: dict[str, Any], target_path
     }
 
 
-def _import_candidates_to_neo(record: dict[str, Any], candidates: list[dict[str, Any]], *, base_url: str, timeout: float) -> dict[str, Any]:
+def _import_candidates_to_neo(record: dict[str, Any], candidates: list[dict[str, Any]], *, base_url: str, timeout: float, download_timeout: float | None = None) -> dict[str, Any]:
     result_id = str(record.get("result_id") or "video")
     category = str(record.get("category") or "txt2vid")
     output_dir = get_video_output_paths(category, create=True).output_dir
@@ -301,7 +306,7 @@ def _import_candidates_to_neo(record: dict[str, Any], candidates: list[dict[str,
             skipped.append(f"Target exists: {target.name}")
             continue
         try:
-            dl = _download_comfy_output(base_url, candidate, target, timeout=timeout)
+            dl = _download_comfy_output(base_url, candidate, target, timeout=float(download_timeout or timeout))
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             errors.append(f"Import failed for {candidate.get('filename')}: {exc}")
             continue
@@ -464,7 +469,7 @@ def build_video_replay_payload(record: dict[str, Any]) -> dict[str, Any]:
             "lineage": lineage,
             "replay_context": replay_context,
         })
-    return payload
+    return attach_state_to_replay(payload, record.get("video_lora_stack"))
 
 
 def build_assistant_summary(record: dict[str, Any]) -> str:
@@ -614,6 +619,7 @@ def register_video_generation_result(result: dict[str, Any], request: dict[str, 
     neo_output = result.get("neo_output") if isinstance(result.get("neo_output"), dict) else {}
     output_dir = get_video_output_paths(category, create=True).output_dir
     preview_dir = get_video_output_paths("previews", create=True).output_dir
+    video_lora_state = build_video_lora_persistence(result, request)
 
     files: list[dict[str, Any]] = []
     previews: list[dict[str, Any]] = []
@@ -669,7 +675,11 @@ def register_video_generation_result(result: dict[str, Any], request: dict[str, 
             "source_result_id": str(request.get("source_result_id") or ""),
         },
         "finish": finish_metadata.get("finish") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("finish"), dict) else {},
-        "extensions": finish_metadata.get("extensions") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("extensions"), dict) else {},
+        "extensions": merge_record_extensions(
+            finish_metadata.get("extensions") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("extensions"), dict) else {},
+            video_lora_state,
+        ),
+        "video_lora_stack": video_lora_state,
         "output_metadata": finish_metadata.get("output_metadata") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("output_metadata"), dict) else {},
         "memory_event": finish_metadata.get("memory_event") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("memory_event"), dict) else {},
         "finish_operation": (finish_metadata.get("finish") or {}).get("operation") if category in {"interpolate", "upscale"} and isinstance(finish_metadata.get("finish"), dict) else "",
@@ -880,7 +890,7 @@ def video_output_file_path(result_id: str, file_id: str) -> Path | None:
     return target if target.exists() and target.is_file() else None
 
 
-def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = None, timeout: float = 3.0) -> dict[str, Any]:
+def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = None, timeout: float = 5.0, download_timeout: float = 120.0) -> dict[str, Any]:
     """Refresh a queued ComfyUI video result and import completed media into Neo-owned outputs.
 
     V-G9 makes Comfy history actionable: Neo reads /history/{prompt_id}, scans common
@@ -915,7 +925,7 @@ def refresh_video_result_from_comfy(result_id: str, *, profile_id: str | None = 
 
     entry = _comfy_history_entry(history, prompt_id)
     candidates = _comfy_output_candidates(entry)
-    import_payload = _import_candidates_to_neo(record, candidates, base_url=base_url, timeout=timeout) if candidates else {
+    import_payload = _import_candidates_to_neo(record, candidates, base_url=base_url, timeout=timeout, download_timeout=download_timeout) if candidates else {
         "schema_version": VIDEO_RESULT_IMPORT_SCHEMA_VERSION,
         "source": "comfy_history_view_api",
         "imported_count": 0,

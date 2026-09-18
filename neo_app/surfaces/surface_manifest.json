@@ -333,6 +333,7 @@
             "video.assets.source",
             "video.assets.references",
             "video.assets.frames",
+            "video.assets.lora_stack",
             "video.assets.external_extensions"
           ]
         },

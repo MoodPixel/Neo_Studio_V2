@@ -4,6 +4,11 @@ from copy import deepcopy
 from math import isclose
 from typing import Any, Mapping
 
+from neo_app.image.krea2_anypaint_canvas import (
+    anypaint_canvas_matches,
+    anypaint_canvas_transform_reason,
+    build_krea2_anypaint_canvas_contract,
+)
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
 
 SCHEMA_VERSION = "neo.image.parameter_integrity.v1"
@@ -140,6 +145,9 @@ def _intentional_transform_match(field: str, requested: Any, observed: Any, left
     if field not in {"width", "height"}:
         return False, ""
     for stage in (right_stage, left_stage):
+        anypaint_contract = stage.get("_krea2_anypaint_canvas_contract") if isinstance(stage, Mapping) else None
+        if isinstance(anypaint_contract, Mapping) and anypaint_canvas_matches(field, observed, anypaint_contract):
+            return True, anypaint_canvas_transform_reason(field, anypaint_contract)
         contract = stage.get("_outpaint_contract") if isinstance(stage, Mapping) else None
         if not isinstance(contract, Mapping):
             continue
@@ -167,6 +175,23 @@ def snapshot_parameter_values(values: Mapping[str, Any] | None) -> dict[str, Any
     outpaint_contract = _outpaint_contract_snapshot(values)
     if outpaint_contract:
         result["_outpaint_contract"] = outpaint_contract
+    source = values if isinstance(values, Mapping) else {}
+    anypaint_contract = source.get("_neo_krea2_anypaint_canvas_contract") or source.get("krea2_anypaint_canvas_contract")
+    if isinstance(anypaint_contract, Mapping):
+        result["_krea2_anypaint_canvas_contract"] = deepcopy(dict(anypaint_contract))
+    else:
+        engine = str(source.get("masked_edit_engine") or source.get("inpaint_engine") or "").strip().lower().replace("-", "_")
+        if engine == "krea2_anypaint":
+            mode = str(source.get("mode") or source.get("workflow_mode") or ("outpaint" if outpaint_contract else "inpaint")).strip().lower()
+            try:
+                result["_krea2_anypaint_canvas_contract"] = build_krea2_anypaint_canvas_contract(
+                    source,
+                    mode=mode,
+                    default_width=int(float(source.get("width") or 1024)),
+                    default_height=int(float(source.get("height") or 1024)),
+                )
+            except Exception:  # noqa: BLE001
+                pass
     return result
 
 
@@ -338,6 +363,15 @@ def extract_workflow_parameter_values(workflow: Mapping[str, Any] | None, actual
     actual = actual_params if isinstance(actual_params, Mapping) else {}
     values: dict[str, Any] = {}
     proof: dict[str, Any] = {"sampler_nodes": []}
+
+    anypaint_contract = actual.get("_neo_krea2_anypaint_canvas_contract") or actual.get("krea2_anypaint_canvas_contract")
+    if isinstance(anypaint_contract, Mapping) and anypaint_contract.get("authoritative") is True:
+        final_size = anypaint_contract.get("final_size") if isinstance(anypaint_contract.get("final_size"), Mapping) else {}
+        if final_size.get("width"):
+            values["width"] = _plain(final_size.get("width"))
+        if final_size.get("height"):
+            values["height"] = _plain(final_size.get("height"))
+        proof["krea2_anypaint_canvas"] = deepcopy(dict(anypaint_contract))
 
     sampler_id = str(actual.get("_neo_sampler_node_id") or "")
     samplers = _sampler_like_nodes(graph)

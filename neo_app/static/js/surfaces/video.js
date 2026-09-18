@@ -44,7 +44,8 @@
       'workspace_ux_recomposition',
       'video_output_inspector',
       'workspace_rail_ownership',
-      'video_finish_source_picker_layout_v25_9_19_phase_10b'
+      'video_finish_source_picker_layout_v25_9_19_phase_10b',
+      'video_lora_stack_ui_phase10'
     ],
     policy: 'Video supports public-preview WAN/LTX/MiniMax H3 generation routes, ComfyUI readiness probing, VRAM preflight, source handling, finishing tools, result preview, and metadata replay. Experimental and planned routes stay guarded until their backend nodes and models are ready.',
     diagnostics: {
@@ -93,7 +94,11 @@
       wan_rapid_aio_mega_mode_selector: 'active',
       wan_rapid_aio_vace_dimension_snap: 'active',
       video_source_image_compact_preview: 'active',
-      video_lora_lightx2v_adapter: 'active',
+      video_lora_stack_ui: 'active_phase10',
+      video_lora_stack_mount: 'video.assets.lora_stack',
+      video_lora_catalog: 'selected_profile_live_object_info',
+      video_lora_legacy_controls: 'compatibility_only_hidden_from_normal_parameters',
+      video_lora_lightx2v_adapter: 'compatibility_only',
       video_result_import_playback: 'active',
       video_performance_adapter_layer: 'active',
       ltx23_txt2vid_compiler: 'active',
@@ -156,6 +161,7 @@
     memoryExportBatchEndpoint: '/api/video/memory-export',
     outputPreviewEndpoint: '/api/video/output-file',
     backendProbeEndpoint: '/api/video/backend-probe',
+    videoLoraCatalogEndpoint: '/api/video/lora-catalog',
     vramEngineEndpoint: '/api/video/vram-engine',
     vramPreflightEndpoint: '/api/video/vram-preflight',
     performanceProfileEndpoint: '/api/video/performance-profile',

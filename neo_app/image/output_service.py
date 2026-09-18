@@ -926,7 +926,7 @@ def resolve_output_file(result_id: str, file_id: str) -> Path:
     raise FileNotFoundError(f"Unknown output file id: {file_id}")
 
 
-def list_image_results(*, category: str | None = None, limit: int = 50, sort: str = "newest") -> dict[str, Any]:
+def list_image_results(*, category: str | None = None, limit: int = 50, offset: int = 0, sort: str = "newest") -> dict[str, Any]:
     """List persisted Image output records from Neo_Data metadata sidecars.
 
     Results APIs intentionally read Neo-owned sidecars, not ComfyUI output folders.
@@ -934,6 +934,7 @@ def list_image_results(*, category: str | None = None, limit: int = 50, sort: st
     broken placeholder cards after users manually clear Neo_Data outputs.
     """
     limit = max(1, min(int(limit or 50), 200))
+    offset = max(0, int(offset or 0))
     selected_category = sanitize_path_part(category or "", fallback="").strip()
     if selected_category.lower() in {"", "all", "any"}:
         selected_category = ""
@@ -972,11 +973,28 @@ def list_image_results(*, category: str | None = None, limit: int = 50, sort: st
                 continue
     reverse = str(sort or "newest").lower() not in {"oldest", "old_to_new", "asc"}
     records.sort(key=lambda item: str(item.get("created_at") or ""), reverse=reverse)
+    unique_records: list[dict[str, Any]] = []
+    seen_result_ids: set[str] = set()
+    for record in records:
+        result_id = str(record.get("result_id") or "").strip()
+        if not result_id or result_id in seen_result_ids:
+            continue
+        seen_result_ids.add(result_id)
+        unique_records.append(record)
+    total = len(unique_records)
+    page = unique_records[offset:offset + limit]
+    next_offset = offset + len(page)
     return {
-        "schema_version": "neo.image.results_api.v1",
-        "count": min(len(records), limit),
-        "total": len(records),
-        "results": records[:limit],
+        "schema_version": "neo.image.results_api.v2",
+        "count": len(page),
+        "loaded_count": len(page),
+        "total": total,
+        "total_matching": total,
+        "offset": offset,
+        "limit": limit,
+        "next_offset": next_offset,
+        "has_more": next_offset < total,
+        "results": page,
         "source": "neo_data/outputs/image_metadata",
         "category": selected_category or "all",
         "sort": "newest" if reverse else "oldest",

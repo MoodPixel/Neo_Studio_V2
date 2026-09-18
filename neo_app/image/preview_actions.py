@@ -682,20 +682,31 @@ def _resolve_active_saved_output_file(state_snapshot: Dict[str, Any]) -> Optiona
     return _find_file_by_id(files, active_id) or (files[0] if files else None)
 
 
-def _resolve_active_saved_result_active_file(state_snapshot: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
-    metadata = _as_dict(state_snapshot.get("activeSavedResultMetadata")) or _as_dict(state_snapshot.get("active_saved_result_metadata"))
-    outputs = _as_dict(metadata.get("outputs"))
-    active = _as_dict(outputs.get("active_file"))
-    if active:
-        return active, metadata
+def _resolve_active_saved_summary(state_snapshot: Dict[str, Any]) -> Dict[str, Any]:
     summaries = _as_list(state_snapshot.get("imageSavedResults")) or _as_list(state_snapshot.get("image_saved_results"))
+    active_id = _first_text(state_snapshot.get("activeSavedResultId"), state_snapshot.get("active_saved_result_id"))
+    if active_id:
+        for item in summaries:
+            if isinstance(item, dict) and _first_text(item.get("result_id")) == active_id:
+                return item
     index = state_snapshot.get("activeSavedResultIndex", state_snapshot.get("active_saved_result_index", 0))
     try:
         index = int(index)
     except Exception:
         index = 0
     if 0 <= index < len(summaries) and isinstance(summaries[index], dict):
-        summary = summaries[index]
+        return summaries[index]
+    return {}
+
+
+def _resolve_active_saved_result_active_file(state_snapshot: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    metadata = _as_dict(state_snapshot.get("activeSavedResultMetadata")) or _as_dict(state_snapshot.get("active_saved_result_metadata"))
+    outputs = _as_dict(metadata.get("outputs"))
+    active = _as_dict(outputs.get("active_file"))
+    if active:
+        return active, metadata
+    summary = _resolve_active_saved_summary(state_snapshot)
+    if summary:
         return _as_dict(summary.get("active_file")), summary
     return None, metadata
 
@@ -740,14 +751,7 @@ def resolve_preview_action_source(state_snapshot: Dict[str, Any] | None = None) 
     """
     state_snapshot = _as_dict(state_snapshot)
     metadata = _as_dict(state_snapshot.get("activeSavedResultMetadata")) or _as_dict(state_snapshot.get("active_saved_result_metadata"))
-    summary = {}
-    saved_results = _as_list(state_snapshot.get("imageSavedResults")) or _as_list(state_snapshot.get("image_saved_results"))
-    try:
-        saved_index = int(state_snapshot.get("activeSavedResultIndex", state_snapshot.get("active_saved_result_index", 0)))
-    except Exception:
-        saved_index = 0
-    if 0 <= saved_index < len(saved_results) and isinstance(saved_results[saved_index], dict):
-        summary = saved_results[saved_index]
+    summary = _resolve_active_saved_summary(state_snapshot)
     explicit_sources = _as_dict(state_snapshot.get("preview_action_sources"))
 
     for rank, priority_key in enumerate(SOURCE_PRIORITY):

@@ -150,15 +150,24 @@ const state = {
   videoRunProgress: null,
   videoProgressSocket: null,
   videoResultPoller: null,
+  videoProgressReconnectTimer: null,
+  videoResultTracking: null,
   videoProviderJobPoller: null,
   videoLivePreviewUrl: '',
   videoLivePreviewLabel: '',
   videoLivePreviewFrameCount: 0,
   videoExternalNodeManager: null,
   videoBackendProbe: null,
+  videoLoraCatalog: null,
+  videoLoraCatalogLoading: false,
+  videoLoraCatalogError: '',
+  videoLoraCatalogFilter: '',
+  videoLoraCatalogFolder: '',
+  videoLoraCatalogSelection: '',
   videoRouteMatrix: null,
   videoParameterProfile: null,
   videoDraft: {
+    video_lora_stack: { enabled: false, rows: [] },
     family: 'wan22',
     loader: 'unet',
     mode: 'txt2vid',
@@ -522,6 +531,17 @@ const state = {
     krea2_identity_edit_fit_mode: 'fit',
     krea2_identity_edit_grounding_px: 768,
     krea2_identity_edit_system_prompt: '',
+    krea2_identity_edit_ref_boost_mask: '',
+    krea2_identity_edit_ref_boost_mask_path: '',
+    krea2_identity_edit_ref_boost_mask_url: '',
+    krea2_identity_edit_ref_boost_mask_name: '',
+    krea2_identity_edit_ref_boost_mask_preview_url: '',
+    krea2_anypaint_adapter: '',
+    krea2_anypaint_boundary_redraw_px: 32,
+    krea2_anypaint_reference_max_edge: 384,
+    krea2_anypaint_vlm_reference: true,
+    krea2_anypaint_kv_cache: true,
+    krea2_anypaint_lora_strength: 1.0,
     native_crop_stitch_enabled: false,
     lanpaint_crop_stitch_enabled: true,
     inpaint_context_mode: 'masked_region_focus',
@@ -557,6 +577,7 @@ const state = {
     outpaint_source_resolution_mode: 'auto',
     outpaint_source_max_long_edge: 1536,
     outpaint_source_max_megapixels: 4,
+    img2img_source_resolution_mode: 'keep_source_resolution',
     source_image_width: 0,
     source_image_height: 0,
     lora_stack: { rows: [], library: { folder_path: '', search: '', selected_record_id: '', selected_preview_index: 0, edit_mode: false, merge_mode: 'fill_missing', records: [], current_record: null, status: '', catalog_count: 0, available_count: 0, backend_loaded_profile_id: '' } },
@@ -569,6 +590,8 @@ const state = {
   activeResultIndex: 0,
   imageSavedResults: [],
   activeSavedResultIndex: 0,
+  activeSavedResultId: '',
+  imageResultsScrollLeft: 0,
   activeSavedResultMetadata: null,
   activeSavedResultReuse: null,
   activeSavedOutputFileId: '',
@@ -577,6 +600,10 @@ const state = {
   imageResultsLoadedSort: null,
   imageResultsFilterCategory: 'all',
   imageResultsSort: 'newest',
+  imageResultsPageSize: 60,
+  imageResultsNextOffset: 0,
+  imageResultsTotal: 0,
+  imageResultsHasMore: false,
   imageResultsReplaySource: 'none',
   imageResultsLatePassRestorePoint: 'none',
   imageResultsLoading: false,
@@ -1661,6 +1688,7 @@ async function guardImageResultsIntegrity({ selectedResultId = '' } = {}) {
     }
     if (payload.should_clear_selected) {
       state.activeSavedResultIndex = 0;
+      state.activeSavedResultId = '';
       state.activeSavedResultMetadata = null;
       state.activeSavedResultReuse = null;
       state.activeSavedOutputFileId = '';
@@ -2078,6 +2106,102 @@ function outpaintHasPadding() {
   return [d.outpaint_left, d.outpaint_top, d.outpaint_right, d.outpaint_bottom].some((v) => Number(v || 0) > 0);
 }
 
+function imageSupportsImg2ImgSourceResolutionField() {
+  if (isCloudImageProfile()) return false;
+  const current = activeImageMode();
+  if (!['img2img', 'edit'].includes(current)) return false;
+  if (krea2IdentityEditActive()) return false;
+  const hidden = activeParameterProfileHiddenFields();
+  if (routeUsesParameterField('img2img_source_resolution_mode') && !hidden.has('img2img_source_resolution_mode')) return true;
+  if (imageUsesStrictForgeRouteGating()) return false;
+  const profileId = String(activeImageParameterProfile()?.profile_id || '').trim().toLowerCase();
+  return ['flux_native', 'qwen_native', 'qwen_2509_native', 'qwen_2511_native', 'krea2_native', 'krea2_turbo_native', 'z_image_native', 'z_image_turbo_native'].includes(profileId);
+}
+
+function imageImg2ImgSourceResolutionOptions() {
+  return [
+    { id: 'keep_source_resolution', label: 'Keep source resolution' },
+    { id: 'fit_source_to_target_size', label: 'Fit source to target size' },
+    { id: 'crop_to_target', label: 'Crop to target' },
+    { id: 'pad_to_target', label: 'Pad to target' },
+  ];
+}
+
+function imageImg2ImgSourceResolutionMode() {
+  const raw = String(state.imageDraft.img2img_source_resolution_mode || 'keep_source_resolution').trim().toLowerCase();
+  if (['keep', 'keep_source', 'keep_source_size', 'source', 'original'].includes(raw)) return 'keep_source_resolution';
+  if (['fit', 'fit_target', 'fit_to_target', 'resize'].includes(raw)) return 'fit_source_to_target_size';
+  if (['crop', 'cover'].includes(raw)) return 'crop_to_target';
+  if (['pad', 'contain'].includes(raw)) return 'pad_to_target';
+  return ['keep_source_resolution', 'fit_source_to_target_size', 'crop_to_target', 'pad_to_target'].includes(raw) ? raw : 'keep_source_resolution';
+}
+
+function imageImg2ImgSourceResolutionPolicy(draft = state.imageDraft || {}) {
+  const mode = imageImg2ImgSourceResolutionMode();
+  const sourceWidth = Math.max(0, Number(draft.source_image_width || 0));
+  const sourceHeight = Math.max(0, Number(draft.source_image_height || 0));
+  const targetWidth = Math.max(64, Number(draft.width || numberValue('imageWidth', 1024) || 1024));
+  const targetHeight = Math.max(64, Number(draft.height || numberValue('imageHeight', 1024) || 1024));
+  const safeSourceWidth = sourceWidth || targetWidth;
+  const safeSourceHeight = sourceHeight || targetHeight;
+  let workingWidth = safeSourceWidth;
+  let workingHeight = safeSourceHeight;
+  let crop = 'disabled';
+  let padding = { left: 0, top: 0, right: 0, bottom: 0, feather: 0 };
+  let scaleRatio = 1;
+  let reason = 'Neo preserves the source resolution and VAE-encodes it directly before sampling.';
+  if (mode === 'fit_source_to_target_size') {
+    workingWidth = targetWidth;
+    workingHeight = targetHeight;
+    scaleRatio = Math.min(targetWidth / Math.max(1, safeSourceWidth), targetHeight / Math.max(1, safeSourceHeight));
+    reason = 'Neo resizes Image 1 directly to the requested width and height before VAE encode. This can change aspect ratio.';
+  } else if (mode === 'crop_to_target') {
+    workingWidth = targetWidth;
+    workingHeight = targetHeight;
+    crop = 'center';
+    scaleRatio = Math.max(targetWidth / Math.max(1, safeSourceWidth), targetHeight / Math.max(1, safeSourceHeight));
+    reason = 'Neo scales Image 1 to cover the requested size, then center-crops it before VAE encode.';
+  } else if (mode === 'pad_to_target') {
+    scaleRatio = Math.min(targetWidth / Math.max(1, safeSourceWidth), targetHeight / Math.max(1, safeSourceHeight));
+    workingWidth = Math.max(1, Math.round(safeSourceWidth * scaleRatio));
+    workingHeight = Math.max(1, Math.round(safeSourceHeight * scaleRatio));
+    const deltaW = Math.max(0, targetWidth - workingWidth);
+    const deltaH = Math.max(0, targetHeight - workingHeight);
+    padding = {
+      left: Math.floor(deltaW / 2),
+      right: deltaW - Math.floor(deltaW / 2),
+      top: Math.floor(deltaH / 2),
+      bottom: deltaH - Math.floor(deltaH / 2),
+      feather: 0,
+    };
+    reason = 'Neo scales Image 1 to fit inside the requested size and center-pads the remaining canvas before VAE encode.';
+  }
+  const finalWidth = mode === 'keep_source_resolution' ? safeSourceWidth : targetWidth;
+  const finalHeight = mode === 'keep_source_resolution' ? safeSourceHeight : targetHeight;
+  return {
+    mode,
+    source_size: { width: sourceWidth, height: sourceHeight, known: Boolean(sourceWidth && sourceHeight) },
+    target_size: { width: targetWidth, height: targetHeight },
+    working_size: { width: workingWidth, height: workingHeight },
+    final_size: { width: finalWidth, height: finalHeight },
+    padding,
+    image_scale: { upscale_method: 'lanczos', crop, width: mode === 'pad_to_target' ? workingWidth : finalWidth, height: mode === 'pad_to_target' ? workingHeight : finalHeight },
+    scale_ratio: Number(scaleRatio.toFixed(4)),
+    applies_preprocess: mode !== 'keep_source_resolution',
+    reason,
+  };
+}
+
+function imageImg2ImgSourceResolutionSummary(policy = imageImg2ImgSourceResolutionPolicy()) {
+  const source = policy.source_size || {};
+  const target = policy.target_size || {};
+  const finalSize = policy.final_size || target;
+  const sourceText = source.width && source.height ? `${source.width}×${source.height}` : 'source size unknown';
+  const targetText = `${target.width || 1024}×${target.height || 1024}`;
+  if (policy.mode === 'keep_source_resolution') return `Source locked: ${sourceText}`;
+  return `${sourceText} → ${finalSize.width || target.width}×${finalSize.height || target.height} (target ${targetText})`;
+}
+
 function imageOutpaintSourceResolutionOptions() {
   return [
     { id: 'auto', label: 'Auto · recommended' },
@@ -2112,6 +2236,23 @@ function imageOutpaintSourceResolutionPolicy(draft = state.imageDraft || {}) {
   const fallbackHeight = Math.max(64, Number(draft.height || numberValue('imageHeight', 1024) || 1024));
   let baseWidth = sourceWidth || fallbackWidth;
   let baseHeight = sourceHeight || fallbackHeight;
+  if (imageKrea2AnyPaintActive(draft)) {
+    const sourcePixels = sourceWidth && sourceHeight ? sourceWidth * sourceHeight : 0;
+    const workingPixels = baseWidth * baseHeight;
+    return {
+      mode: 'keep_original',
+      max_long_edge: 0,
+      max_megapixels: 0,
+      source_size: { width: sourceWidth, height: sourceHeight, megapixels: sourcePixels ? Number((sourcePixels / 1000000).toFixed(3)) : 0 },
+      working_size: { width: baseWidth, height: baseHeight, megapixels: Number((workingPixels / 1000000).toFixed(3)) },
+      scale_ratio: 1,
+      applies_working_copy: false,
+      preset_label: 'AnyPaint native source',
+      fallback_source_size: !sourceWidth || !sourceHeight ? { width: baseWidth, height: baseHeight } : null,
+      anypaint_owned: true,
+      reason: 'Krea 2 AnyPaint preserves the source at original pixel resolution. Krea2AnyPaintPrepare owns padding and 16 px final-canvas alignment; Neo does not create an outpaint working copy.',
+    };
+  }
   let workingWidth = baseWidth;
   let workingHeight = baseHeight;
   if (mode === 'keep_original' && sourceWidth && sourceHeight) {
@@ -2144,6 +2285,49 @@ function imageOutpaintSourceResolutionPolicy(draft = state.imageDraft || {}) {
     preset_label: preset.label,
     fallback_source_size: !sourceWidth || !sourceHeight ? { width: baseWidth, height: baseHeight } : null,
     reason: mode === 'keep_original' ? 'Neo keeps the source at original resolution. Use carefully with Qwen/Flux.' : 'Neo creates a model-safe working copy before outpaint, then you can upscale/restore later.',
+  };
+}
+
+function imageKrea2AnyPaintAlignUp(value, alignment = 16) {
+  const safeAlignment = Math.max(1, Number(alignment || 16));
+  return Math.max(safeAlignment, Math.ceil(Math.max(1, Number(value || 0)) / safeAlignment) * safeAlignment);
+}
+
+function imageKrea2AnyPaintCanvasContract(draft = state.imageDraft || {}, paddingOverride = null) {
+  const sourceWidth = Math.max(0, Number(draft.source_image_width || 0));
+  const sourceHeight = Math.max(0, Number(draft.source_image_height || 0));
+  const fallbackWidth = Math.max(64, Number(draft.width || numberValue('imageWidth', 1024) || 1024));
+  const fallbackHeight = Math.max(64, Number(draft.height || numberValue('imageHeight', 1024) || 1024));
+  const sourceKnown = Boolean(sourceWidth && sourceHeight);
+  const resolvedWidth = sourceWidth || fallbackWidth;
+  const resolvedHeight = sourceHeight || fallbackHeight;
+  const padding = paddingOverride || {
+    left: Number(draft.outpaint_left || 0),
+    top: Number(draft.outpaint_top || 0),
+    right: Number(draft.outpaint_right || 0),
+    bottom: Number(draft.outpaint_bottom || 0),
+  };
+  const rawWidth = resolvedWidth + Math.max(0, Number(padding.left || 0)) + Math.max(0, Number(padding.right || 0));
+  const rawHeight = resolvedHeight + Math.max(0, Number(padding.top || 0)) + Math.max(0, Number(padding.bottom || 0));
+  const finalWidth = imageKrea2AnyPaintAlignUp(rawWidth, 16);
+  const finalHeight = imageKrea2AnyPaintAlignUp(rawHeight, 16);
+  return {
+    schema_id: 'neo.image.krea2_anypaint_canvas.v1',
+    alignment: 16,
+    source_size: { width: resolvedWidth, height: resolvedHeight, known: sourceKnown, source: sourceKnown ? 'source_image_metadata' : 'requested_size_fallback' },
+    source_resize: { enabled: false, policy: 'preserve_original_source_pixels' },
+    requested_padding: { left: Number(padding.left || 0), top: Number(padding.top || 0), right: Number(padding.right || 0), bottom: Number(padding.bottom || 0) },
+    raw_canvas: { width: rawWidth, height: rawHeight },
+    alignment_delta: { right: finalWidth - rawWidth, bottom: finalHeight - rawHeight },
+    effective_padding: {
+      left: Number(padding.left || 0),
+      top: Number(padding.top || 0),
+      right: Number(padding.right || 0) + (finalWidth - rawWidth),
+      bottom: Number(padding.bottom || 0) + (finalHeight - rawHeight),
+    },
+    final_size: { width: finalWidth, height: finalHeight },
+    source_placement: { x: Number(padding.left || 0), y: Number(padding.top || 0), width: resolvedWidth, height: resolvedHeight },
+    authoritative: sourceKnown,
   };
 }
 
@@ -2601,6 +2785,39 @@ function resetImageMaskDraft() {
   delete state.imageDraft.comfy_mask_image_name;
   delete state.imageDraft.forge_mask_image_b64;
   state.imageMaskEditor.initializedFor = '';
+}
+function krea2IdentityRefBoostMaskTargetLane() {
+  return krea2IdentitySecondReferenceActive() ? 2 : 1;
+}
+function krea2IdentityRefBoostMaskTargetLabel() {
+  return krea2IdentitySecondReferenceActive() ? 'Image 2 · Subject / identity' : 'Image 1 · Primary / identity reference';
+}
+function krea2IdentityRefBoostMaskSourceUrl() {
+  return String(krea2IdentitySecondReferenceActive() ? (state.imageDraft.source_image_2_url || '') : (state.imageDraft.source_image_url || '')).trim();
+}
+function krea2IdentityRefBoostMaskSourceName() {
+  return krea2IdentitySecondReferenceActive()
+    ? (state.imageDraft.source_image_2_name || basename(state.imageDraft.source_image_2 || '') || 'Image 2 reference')
+    : sourceImageLabel();
+}
+function krea2RefBoostMaskReady() {
+  return Boolean(state.imageDraft.krea2_identity_edit_ref_boost_mask || state.imageDraft.krea2_identity_edit_ref_boost_mask_url);
+}
+function krea2RefBoostMaskLabel() {
+  return state.imageDraft.krea2_identity_edit_ref_boost_mask_name || basename(state.imageDraft.krea2_identity_edit_ref_boost_mask || '') || 'No reference attention mask selected';
+}
+function resetKrea2IdentityRefBoostMaskDraft() {
+  state.imageDraft.krea2_identity_edit_ref_boost_mask = '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_path = '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_url = '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_preview_url = '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_name = '';
+  delete state.imageDraft.comfy_krea2_identity_edit_ref_boost_mask_name;
+}
+function clearKrea2IdentityRefBoostMask() {
+  resetKrea2IdentityRefBoostMaskDraft();
+  saveUiState();
+  render();
 }
 function valueOf(id) { const node = document.getElementById(id); return node ? node.value : ''; }
 function numberValue(id, fallback = 0) { const next = Number(valueOf(id)); return Number.isFinite(next) ? next : fallback; }
@@ -3892,6 +4109,10 @@ const VOICE_WORKSPACE_APPS = [
 
 const VIDEO_ROUTE_MATRIX_ENDPOINT = '/api/video/route-matrix';
 const VIDEO_PARAMETER_PROFILE_ENDPOINT = '/api/video/parameter-profile';
+const VIDEO_LORA_CATALOG_ENDPOINT = '/api/video/lora-catalog';
+const VIDEO_LORA_STACK_EXTENSION_ID = 'video.lora_stack';
+const VIDEO_LORA_STACK_MAX_ROWS = 12;
+let videoLoraCatalogFilterTimer = null;
 const VIDEO_ROUTE_SELECTABLE_STATUSES = new Set(['enabled', 'experimental']);
 const VIDEO_ROUTE_RUNNABLE_STATUSES = new Set(['enabled', 'experimental']);
 
@@ -4853,7 +5074,9 @@ function videoFinishSourceVideoPickerHtml({ lane = 'finish', fileInputId = 'vide
 async function refreshVideoResultFromComfy(resultId, options = {}) {
   const cleanId = String(resultId || '').trim();
   if (!cleanId) return null;
-  const response = await fetch(`/api/video/results/${encodeURIComponent(cleanId)}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: 3 }) });
+  const historyTimeout = Number(options?.historyTimeout || options?.timeout || 5);
+  const downloadTimeout = Number(options?.downloadTimeout || 120);
+  const response = await fetch(`/api/video/results/${encodeURIComponent(cleanId)}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: historyTimeout, history_timeout: historyTimeout, download_timeout: downloadTimeout }) });
   const payload = await response.json().catch(() => ({}));
   state.videoLastResultRefresh = payload;
   if (payload?.record?.result_id) {
@@ -4930,6 +5153,425 @@ function videoMultisceneSegments() {
 }
 function videoMultisceneReady() {
   return videoMultisceneSegments().filter((segment) => segment.image).length >= 2;
+}
+
+function videoLoraStackExtensionRecord() {
+  return (state.extensions?.extensions || []).find((record) => extensionId(record) === VIDEO_LORA_STACK_EXTENSION_ID && record?.manifest?.surface === 'video') || null;
+}
+
+// Phase 20: one-way compatibility read; retired fields are never written back.
+const VIDEO_LORA_RETIRED_FIELDS = ['h3_turbo_enabled','h3_turbo_lora','h3_turbo_strength','enable_video_lora','video_lora_mode','video_lora_model','video_lora_strength','video_lora_target','enable_lightx2v','high_noise_lora','low_noise_lora','high_noise_lora_strength','low_noise_lora_strength'];
+
+function retireLegacyVideoLoraDraft() {
+  const draft = state.videoDraft || {};
+  const present = VIDEO_LORA_RETIRED_FIELDS.filter((key) => Object.prototype.hasOwnProperty.call(draft, key));
+  if (!present.length) return;
+  const current = draft.video_lora_stack && typeof draft.video_lora_stack === 'object' ? draft.video_lora_stack : {};
+  const canonical = Array.isArray(current.rows) ? current.rows.slice(0, VIDEO_LORA_STACK_MAX_ROWS) : [];
+  const migrated = [];
+  const unresolved = [];
+  const enabled = (value) => value === true || ['1','true','yes','on'].includes(String(value || '').toLowerCase());
+  const add = (uid, name, strength, role, target) => { const row={ uid, enabled:true, name:String(name || '').trim(), strength_model:Number.isFinite(Number(strength)) ? Number(strength) : 1, role, target }; migrated.push(row); if (!row.name) unresolved.push({ code:`${uid}_file_missing`, message:'A retired Video LoRA control was enabled without a saved filename.' }); };
+  if (!canonical.length && enabled(draft.h3_turbo_enabled)) add('retired_h3_turbo', draft.h3_turbo_lora, draft.h3_turbo_strength ?? 1, 'speed', 'all');
+  if (!canonical.length && enabled(draft.enable_video_lora)) add('retired_wan_standard', draft.video_lora_model, draft.video_lora_strength ?? .8, 'standard', ({both:'all',high_noise:'high',low_noise:'low'}[draft.video_lora_target] || draft.video_lora_target || 'all'));
+  if (!canonical.length && enabled(draft.enable_lightx2v)) { add('retired_wan_speed_high', draft.high_noise_lora, draft.high_noise_lora_strength ?? 1, 'speed', 'high'); add('retired_wan_speed_low', draft.low_noise_lora, draft.low_noise_lora_strength ?? 1, 'speed', 'low'); }
+  const keys = new Set(canonical.map((row) => `${String(row.name || '').toLowerCase()}::${row.target || 'all'}`));
+  migrated.forEach((row) => { const key=`${row.name.toLowerCase()}::${row.target}`; if ((!row.name || !keys.has(key)) && canonical.length < VIDEO_LORA_STACK_MAX_ROWS) { canonical.push(row); if (row.name) keys.add(key); } });
+  present.forEach((key) => delete draft[key]);
+  if (canonical.length || unresolved.length || Object.keys(current).length) draft.video_lora_stack = { ...current, enabled: current.enabled === undefined ? canonical.length > 0 : Boolean(current.enabled), rows: canonical, unresolved:[...(current.unresolved || []), ...(Array.isArray(current.rows) && current.rows.length ? [] : unresolved)], migration:{ schema_version:'neo.video.lora_stack.legacy_retirement.v1', status:'retired', legacy_fields_removed:present } };
+  state.videoDraft = draft;
+  saveUiState();
+  recordMemoryEvent('video.lora_stack.legacy_retired', 'video', { fields: present, migrated_rows: migrated.length });
+}
+
+function videoLoraStackSettings() {
+  retireLegacyVideoLoraDraft();
+  const raw = state.videoDraft?.video_lora_stack;
+  const settings = raw && typeof raw === 'object' ? raw : {};
+  const rows = Array.isArray(settings.rows) ? settings.rows : [];
+  return {
+    enabled: Boolean(settings.enabled),
+    rows: rows.slice(0, VIDEO_LORA_STACK_MAX_ROWS).map((row, index) => ({
+      uid: String(row?.uid || `video_lora_${index + 1}`),
+      enabled: row?.enabled !== false,
+      name: String(row?.name || row?.lora_name || '').trim(),
+      strength_model: Number.isFinite(Number(row?.strength_model)) ? Number(row.strength_model) : 1,
+      role: String(row?.role || 'standard') === 'speed' ? 'speed' : 'standard',
+      target: ['all', 'high', 'low'].includes(String(row?.target || 'all')) ? String(row.target || 'all') : 'all',
+    })),
+  };
+}
+
+function updateVideoLoraStackSettings(patch = {}, { renderAfter = true } = {}) {
+  const current = videoLoraStackSettings();
+  const next = { ...current, ...patch };
+  if (Array.isArray(patch.rows)) next.rows = patch.rows.slice(0, VIDEO_LORA_STACK_MAX_ROWS);
+  state.videoDraft.video_lora_stack = next;
+  saveUiState();
+  const focusToken = videoLoraRememberFocus();
+  if (renderAfter) { render(); window.setTimeout(() => videoLoraRestoreFocus(focusToken), 0); }
+  return next;
+}
+
+function videoLoraCatalogKey() {
+  const route = videoFindRoute();
+  return [route?.route_id || '', videoBackendProfileId() || ''].join('::');
+}
+
+function videoLoraCatalogMatchesActive(payload = state.videoLoraCatalog) {
+  if (!payload) return false;
+  const route = videoFindRoute();
+  return Boolean(route?.route_id && payload?.route?.route_id === route.route_id && String(payload?.profile?.profile_id || '') === String(videoBackendProfileId() || ''));
+}
+
+function videoLoraActiveSupport() {
+  return videoLoraCatalogMatchesActive() ? (state.videoLoraCatalog?.support || null) : null;
+}
+
+function videoLoraAllowedTargets() {
+  const support = videoLoraActiveSupport();
+  const values = Array.isArray(support?.allowed_targets) ? support.allowed_targets.filter((item) => ['all', 'high', 'low'].includes(String(item))) : [];
+  return values.length ? values : ['all'];
+}
+
+function videoLoraCatalogRows() {
+  return videoLoraCatalogMatchesActive() && Array.isArray(state.videoLoraCatalog?.catalog) ? state.videoLoraCatalog.catalog.map(String).filter(Boolean) : [];
+}
+
+function videoLoraSpeedCandidates() {
+  return new Set(videoLoraCatalogMatchesActive() && Array.isArray(state.videoLoraCatalog?.speed_candidates) ? state.videoLoraCatalog.speed_candidates.map(String) : []);
+}
+
+function videoLoraPortableName(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
+}
+
+function videoLoraCatalogFolderForName(value) {
+  const name = videoLoraPortableName(value);
+  return name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
+}
+
+function videoLoraCatalogFolders(catalog = videoLoraCatalogRows()) {
+  const folders = new Set();
+  catalog.forEach((name) => {
+    const parts = videoLoraCatalogFolderForName(name).split('/').filter(Boolean);
+    parts.forEach((_, index) => folders.add(parts.slice(0, index + 1).join('/')));
+  });
+  return Array.from(folders).sort((a, b) => a.localeCompare(b));
+}
+
+function videoLoraFilteredCatalog(catalog = videoLoraCatalogRows()) {
+  const terms = String(state.videoLoraCatalogFilter || '').trim().toLowerCase().match(/"[^"]+"|\S+/g)?.map((item) => item.replace(/^"|"$/g, '')) || [];
+  const folder = videoLoraPortableName(state.videoLoraCatalogFolder || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+  return catalog.filter((name) => {
+    const portable = videoLoraPortableName(name);
+    const itemFolder = videoLoraCatalogFolderForName(portable).toLowerCase();
+    if (folder && itemFolder !== folder && !itemFolder.startsWith(`${folder}/`)) return false;
+    const haystack = portable.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function videoLoraSelectedCatalogName(filtered = videoLoraFilteredCatalog()) {
+  const selected = String(state.videoLoraCatalogSelection || '');
+  return filtered.includes(selected) ? selected : (filtered[0] || '');
+}
+
+async function refreshVideoLoraCatalog({ silent = false } = {}) {
+  const route = videoFindRoute();
+  if (!route || isCloudVideoProfile()) {
+    state.videoLoraCatalog = null;
+    state.videoLoraCatalogError = isCloudVideoProfile() ? 'Video LoRA Stack is a local ComfyUI tool.' : 'No active Video route.';
+    if (!silent) render();
+    return null;
+  }
+  const params = new URLSearchParams({
+    family: route.family,
+    loader: route.loader,
+    generation_type: route.mode,
+    profile_id: videoBackendProfileId() || '',
+  });
+  if (!videoLoraCatalogMatchesActive()) {
+    state.videoLoraCatalogFolder = '';
+    state.videoLoraCatalogSelection = '';
+  }
+  state.videoLoraCatalogLoading = true;
+  state.videoLoraCatalogError = '';
+  if (!silent) render();
+  try {
+    const payload = await loadJson(`${VIDEO_LORA_CATALOG_ENDPOINT}?${params.toString()}`, null);
+    if (!payload) throw new Error('Video LoRA catalog endpoint returned no data.');
+    state.videoLoraCatalog = payload;
+    state.videoLoraCatalogError = Array.isArray(payload.reasons) && payload.reasons.length ? payload.reasons.join(' ') : '';
+    return payload;
+  } catch (error) {
+    state.videoLoraCatalog = null;
+    state.videoLoraCatalogError = error?.message || String(error);
+    return null;
+  } finally {
+    state.videoLoraCatalogLoading = false;
+    render();
+  }
+}
+
+function videoLoraCleanRows() {
+  return videoLoraStackSettings().rows.filter((row) => row.enabled !== false && String(row.name || '').trim()).map((row) => ({
+    uid: row.uid,
+    enabled: true,
+    name: String(row.name).trim(),
+    strength_model: Number(row.strength_model),
+    role: row.role === 'speed' ? 'speed' : 'standard',
+    target: ['all', 'high', 'low'].includes(row.target) ? row.target : 'all',
+  }));
+}
+
+// Phase 19 insertion: loaded into neo.js beside the existing Video LoRA helpers.
+function videoLoraCompatibilityRecovery() {
+  const settings = videoLoraStackSettings();
+  const support = videoLoraActiveSupport() || {};
+  const catalogReady = Boolean(videoLoraCatalogMatchesActive() && state.videoLoraCatalog?.ready);
+  const catalog = videoLoraCatalogRows();
+  const folded = new Map(catalog.map((name) => [String(name).toLowerCase(), String(name)]));
+  const allowedTargets = Array.isArray(support.allowed_targets) ? support.allowed_targets.map(String) : ['all'];
+  const rows = settings.rows.map((row, index) => {
+    const issues = [];
+    const canonicalName = folded.get(String(row.name || '').toLowerCase()) || '';
+    if (!catalogReady) issues.push({ code: 'catalog_unavailable', message: 'Refresh the selected backend profile catalog before generating.' });
+    else if (!canonicalName) issues.push({ code: 'missing_file', message: `${row.name || 'This saved LoRA'} is unavailable on the selected backend profile.` });
+    if (row.role === 'speed' && !support.supports_speed_lora) issues.push({ code: 'role_blocked', message: 'Speed / Turbo is unavailable on this route.' });
+    if (row.role !== 'speed' && !support.supports_standard_lora) issues.push({ code: 'role_blocked', message: 'Standard LoRA is unavailable on this route.' });
+    if (!allowedTargets.includes(String(row.target || 'all'))) issues.push({ code: 'target_blocked', message: `${row.target} targeting is unavailable on this route.` });
+    const blocking = Boolean(settings.enabled && row.enabled !== false && issues.length);
+    return { uid: row.uid, index, name: row.name, canonicalName, issues, blocking, status: blocking ? 'blocked' : issues.length ? 'attention' : 'ready' };
+  });
+  const blocked = rows.filter((row) => row.blocking);
+  return { rows, blocked, blocking: blocked.length > 0, generationAllowed: blocked.length === 0, catalogReady, routeId: videoFindRoute()?.route_id || '', profileId: videoBackendProfileId() || '' };
+}
+
+function videoLoraRecoveryForIndex(index) {
+  return videoLoraCompatibilityRecovery().rows[Number(index)] || { issues: [], blocking: false, status: 'ready' };
+}
+
+function videoLoraRecoveryErrorMessage(recovery = videoLoraCompatibilityRecovery()) {
+  if (!recovery.blocking) return '';
+  const names = recovery.blocked.map((row) => row.name || `Row ${row.index + 1}`).join(', ');
+  return `Video LoRA Stack needs attention before generation: ${names}. Replace the file, disable the row, or remove it.`;
+}
+
+function videoLoraRememberFocus() {
+  const node = document.activeElement?.closest?.('[data-video-lora-row]');
+  if (!node) return null;
+  const field = document.activeElement?.getAttribute?.('data-video-lora-field') || document.activeElement?.getAttribute?.('data-video-lora-move') || document.activeElement?.getAttribute?.('data-video-lora-disable') || document.activeElement?.getAttribute?.('data-video-lora-strength') || document.activeElement?.getAttribute?.('data-video-lora-duplicate') || '';
+  return { uid: node.getAttribute('data-video-lora-uid') || '', field };
+}
+
+function videoLoraRestoreFocus(token) {
+  if (!token?.uid) return;
+  const row = document.querySelector(`[data-video-lora-uid="${CSS.escape(token.uid)}"]`);
+  const target = token.field ? row?.querySelector(`[data-video-lora-field="${CSS.escape(token.field)}"], [data-video-lora-move="${CSS.escape(token.field)}"], [data-video-lora-strength="${CSS.escape(token.field)}"], [data-video-lora-duplicate], [data-video-lora-disable]`) : row;
+  (target || row)?.focus?.();
+}
+
+function videoLoraAnnounce(message) {
+  const live = document.getElementById('videoLoraLiveStatus');
+  if (live) live.textContent = String(message || '');
+}
+
+function videoLoraStackPayloadBlock() {
+  const settings = videoLoraStackSettings();
+  const record = videoLoraStackExtensionRecord();
+  const route = record ? extensionActiveRouteSnapshot(record) : null;
+  const enabled = Boolean(settings.enabled && record && extensionWorkflowApplied(record) && extensionRouteStateActive(route?.route_state));
+  const rows = videoLoraCleanRows();
+  if (!enabled) return null;
+  const recovery = videoLoraCompatibilityRecovery();
+  if (recovery.blocking) throw new Error(videoLoraRecoveryErrorMessage(recovery));
+  if (!rows.length) return null;
+  return {
+    enabled: true,
+    version: 1,
+    inputs: {},
+    params: { loras: rows },
+    assets: {},
+    metadata: {
+      source: 'video.assets.lora_stack',
+      ui_phase: '10',
+      ui_revision: 'modern_video_lora_v7',
+      route_id: route?.route_id || videoFindRoute()?.route_id || '',
+      profile_id: videoBackendProfileId() || '',
+      legacy_field_writeback: false,
+    },
+  };
+}
+
+function videoLoraRowSelectHtml(row, index, catalog, speedCandidates, support) {
+  const recovery = videoLoraRecoveryForIndex(index);
+  const issueText = recovery.issues.map((issue) => issue.message).join(' ');
+  const options = [...catalog];
+  if (row.name && !options.includes(row.name)) options.unshift(row.name);
+  const optionHtml = options.length ? options.map((name) => {
+    const missing = !catalog.includes(name);
+    const speed = speedCandidates.has(name);
+    const label = `${speed ? '⚡ ' : ''}${name}${missing ? ' (not in live catalog)' : ''}`;
+    return `<option value="${escapeAttr(name)}" ${name === row.name ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('') : '<option value="">No live LoRA files</option>';
+  const speedAllowed = Boolean(support?.supports_speed_lora);
+  const targets = videoLoraAllowedTargets();
+  return `<div class="neo-lora-stack-row neo-video-lora-row ${recovery.status === 'ready' ? '' : 'needs-attention'}" data-video-lora-row="${index}" data-video-lora-uid="${escapeAttr(row.uid)}" tabindex="-1" role="group" aria-label="Video LoRA ${index + 1}: ${escapeAttr(row.name || 'unnamed')}">
+    <div class="neo-video-lora-row-head"><div><span class="neo-video-lora-index">${index + 1}</span><strong>${escapeHtml(videoLoraPortableName(row.name).split('/').pop() || 'Select a LoRA')}</strong></div><div class="neo-chipline"><span class="neo-badge">${row.role === 'speed' ? '⚡ Speed' : 'Standard'}</span><span class="neo-badge">${row.target === 'all' ? 'Full model' : `${row.target} noise`}</span>${row.enabled === false ? '<span class="neo-badge">Disabled</span>' : ''}</div></div>
+    ${recovery.issues.length ? `<div class="neo-video-lora-row-status" role="status"><strong>Needs attention</strong><span>${escapeHtml(issueText)}</span></div>` : ''}
+    <div class="neo-lora-row-main"><label class="neo-inline-check"><input type="checkbox" data-video-lora-field="enabled" data-video-lora-index="${index}" ${row.enabled !== false ? 'checked' : ''}>Use</label><label class="neo-video-lora-file-field">LoRA file<select data-video-lora-field="name" data-video-lora-index="${index}">${optionHtml}</select></label></div>
+    <div class="neo-ui-field-grid three compact"><label>Strength<input type="number" min="-10" max="10" step="0.05" value="${escapeAttr(row.strength_model)}" data-video-lora-field="strength_model" data-video-lora-index="${index}"></label><label>Role<select data-video-lora-field="role" data-video-lora-index="${index}"><option value="standard" ${row.role !== 'speed' ? 'selected' : ''}>Standard</option><option value="speed" ${row.role === 'speed' ? 'selected' : ''} ${speedAllowed ? '' : 'disabled'}>Speed / Turbo</option></select></label><label>Target<select data-video-lora-field="target" data-video-lora-index="${index}">${targets.map((target) => `<option value="${target}" ${row.target === target ? 'selected' : ''}>${target === 'all' ? 'All' : target === 'high' ? 'High Noise' : 'Low Noise'}</option>`).join('')}</select></label></div>
+    <div class="neo-video-lora-row-footer"><div class="neo-video-lora-strength-presets" aria-label="Strength presets">${[0.5, 0.75, 1].map((value) => `<button type="button" class="neo-btn secondary ${Number(row.strength_model) === value ? 'active' : ''}" data-video-lora-strength="${value}" data-video-lora-index="${index}">${value}</button>`).join('')}</div><div class="neo-ui-toolbar compact"><button type="button" class="neo-btn secondary" aria-label="Move LoRA up" data-video-lora-move="up" data-video-lora-index="${index}" ${index <= 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-btn secondary" aria-label="Move LoRA down" data-video-lora-move="down" data-video-lora-index="${index}" ${index >= videoLoraStackSettings().rows.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="neo-btn secondary" data-video-lora-duplicate="${index}" ${videoLoraStackSettings().rows.length >= VIDEO_LORA_STACK_MAX_ROWS ? 'disabled' : ''}>Duplicate</button>${recovery.issues.length && row.enabled !== false ? `<button type="button" class="neo-btn secondary" data-video-lora-disable="${index}">Disable row</button>` : ''}<button type="button" class="neo-btn danger" aria-label="Remove ${escapeAttr(row.name || 'LoRA')}" data-video-lora-remove="${index}">Remove</button></div></div>
+  </div>`;
+}
+
+function videoLoraStackPanel(record) {
+  const route = extensionActiveRouteSnapshot(record);
+  const policy = extensionRouteStatePolicy(route.route_state);
+  const settings = videoLoraStackSettings();
+  const support = videoLoraActiveSupport();
+  const catalog = videoLoraCatalogRows();
+  const speedCandidates = videoLoraSpeedCandidates();
+  const recovery = videoLoraCompatibilityRecovery();
+  const filtered = videoLoraFilteredCatalog(catalog);
+  const folders = videoLoraCatalogFolders(catalog);
+  const selectedCatalogName = videoLoraSelectedCatalogName(filtered);
+  const selectedFolder = videoLoraCatalogFolderForName(selectedCatalogName);
+  const activeRows = settings.rows.filter((row) => row.enabled !== false && row.name);
+  const speedRows = activeRows.filter((row) => row.role === 'speed');
+  const loaderReady = Boolean(state.videoLoraCatalog?.loader?.safe);
+  const catalogReady = Boolean(videoLoraCatalogMatchesActive() && state.videoLoraCatalog?.ready);
+  const canConfigure = extensionRouteStateActive(route.route_state);
+  const pickerOptions = filtered.length ? filtered.map((name) => `<option value="${escapeAttr(name)}" ${name === selectedCatalogName ? 'selected' : ''}>${escapeHtml(`${speedCandidates.has(name) ? '⚡ ' : ''}${name}`)}</option>`).join('') : '<option value="">No matching live LoRAs</option>';
+  const folderOptions = [`<option value="">All folders (${catalog.length})</option>`, ...folders.map((folder) => {
+    const count = catalog.filter((name) => { const item = videoLoraCatalogFolderForName(name); return item === folder || item.startsWith(`${folder}/`); }).length;
+    return `<option value="${escapeAttr(folder)}" ${folder === state.videoLoraCatalogFolder ? 'selected' : ''}>${escapeHtml(folder)} (${count})</option>`;
+  })].join('');
+  const statusNotes = [
+    `Route: ${route.route_id || 'unresolved'}`,
+    support ? `Standard: ${support.supports_standard_lora ? 'yes' : 'no'} · Speed: ${support.supports_speed_lora ? 'yes' : 'no'} · Targets: ${(support.allowed_targets || ['all']).join('/')}` : 'Refresh the live catalog to load exact LoRA capabilities.',
+    state.videoLoraCatalogLoading ? 'Refreshing live ComfyUI LoRA catalog…' : catalogReady ? `Live catalog: ${catalog.length} LoRA file(s)` : (state.videoLoraCatalogError || 'Live catalog not loaded yet.'),
+  ];
+  const rowsHtml = settings.rows.length ? settings.rows.map((row, index) => videoLoraRowSelectHtml(row, index, catalog, speedCandidates, support)).join('') : '<div class="neo-empty compact">No Video LoRAs in the stack. Pick a live LoRA below.</div>';
+  return `<section class="neo-lora-stack-panel neo-video-lora-stack-panel modern" aria-labelledby="videoLoraStackTitle" data-testid="video-lora-stack-panel" data-extension-id="${VIDEO_LORA_STACK_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}">
+    <div id="videoLoraLiveStatus" class="neo-sr-only" role="status" aria-live="polite"></div>
+    <header class="neo-video-lora-modern-head"><div><span class="neo-video-lora-eyebrow">Video · Assets</span><strong id="videoLoraStackTitle">Video LoRA Stack</strong><p>Build one ordered stack for style, character, motion, and acceleration adapters.</p></div><label class="neo-video-lora-master"><input id="videoLoraStackEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${canConfigure ? '' : 'disabled'}><span>${settings.enabled ? 'Stack enabled' : 'Stack disabled'}</span></label></header>
+    <div class="neo-video-lora-overview"><div><strong>${activeRows.length}</strong><span>Active</span></div><div><strong>${activeRows.length - speedRows.length}</strong><span>Standard</span></div><div><strong>${speedRows.length}</strong><span>Speed</span></div><div><strong>${settings.rows.length}/${VIDEO_LORA_STACK_MAX_ROWS}</strong><span>Capacity</span></div></div>
+    <details class="neo-video-lora-route-details"><summary>${escapeHtml(policy.label || route.route_state)} · ${escapeHtml(route.route_id || 'Route unresolved')}</summary><div class="neo-ui-card compact">${NeoUI.badgeRow([`Standard ${support?.supports_standard_lora ? '✓' : '—'}`, `Speed ${support?.supports_speed_lora ? '✓' : '—'}`, `Target ${(support?.allowed_targets || ['all']).join('/')}`])}${NeoUI.metaList(statusNotes)}</div></details>
+    ${recovery.blocking ? `<div class="neo-warning-panel neo-video-lora-recovery-summary" role="alert"><strong>Fix ${recovery.blocked.length} LoRA row${recovery.blocked.length === 1 ? '' : 's'} before generation</strong><p>${escapeHtml(videoLoraRecoveryErrorMessage(recovery))}</p></div>` : ''}
+    <div class="neo-ui-card neo-lora-picker neo-video-lora-modern-library"><div class="neo-video-lora-section-head"><div><strong>Live LoRA Library</strong><span class="neo-muted">${filtered.length} of ${catalog.length} files</span></div><button type="button" class="neo-btn secondary" id="videoLoraRefreshCatalogBtn" ${state.videoLoraCatalogLoading ? 'disabled' : ''}>${state.videoLoraCatalogLoading ? 'Refreshing…' : '↻ Refresh'}</button></div><div class="neo-ui-field-grid three"><label>Search<input id="videoLoraCatalogFilter" type="search" value="${escapeAttr(state.videoLoraCatalogFilter || '')}" placeholder="Search filename or folder"></label><label>Folder<select id="videoLoraCatalogFolder">${folderOptions}</select></label><label>LoRA<select id="videoLoraPickerSelect" ${catalogReady ? '' : 'disabled'}>${pickerOptions}</select></label></div>${selectedCatalogName ? `<div class="neo-video-lora-selection-preview"><div><span class="neo-video-lora-file-icon">${speedCandidates.has(selectedCatalogName) ? '⚡' : 'L'}</span><div><strong>${escapeHtml(videoLoraPortableName(selectedCatalogName).split('/').pop())}</strong><span>${escapeHtml(selectedFolder || 'Root catalog')}</span></div></div><span class="neo-badge">${speedCandidates.has(selectedCatalogName) && support?.supports_speed_lora ? 'Speed role suggested' : 'Standard role'}</span></div>` : '<div class="neo-empty compact">No live LoRAs match the current search and folder.</div>'}<div class="neo-video-lora-library-actions"><button type="button" class="neo-btn secondary" id="videoLoraClearFiltersBtn" ${(state.videoLoraCatalogFilter || state.videoLoraCatalogFolder) ? '' : 'disabled'}>Clear filters</button><button type="button" class="neo-btn primary" id="videoLoraAddBtn" ${catalogReady && selectedCatalogName && settings.rows.length < VIDEO_LORA_STACK_MAX_ROWS ? '' : 'disabled'}>+ Add to stack</button></div><p class="neo-muted">⚡ is an advisory speed match. Exact live catalog filenames remain the authority.</p></div>
+    <div class="neo-video-lora-section-head"><div><strong>Current stack</strong><span class="neo-muted">Applied top to bottom</span></div><button type="button" class="neo-btn secondary" id="videoLoraClearStackBtn" ${settings.rows.length ? '' : 'disabled'}>Clear stack</button></div>
+    <div class="neo-lora-stack-rows">${rowsHtml}</div>
+    ${!canConfigure ? `<div class="neo-warning-panel"><strong>Route gated</strong><p>${escapeHtml(route.reason || 'Video LoRA Stack is not enabled for this route.')}</p></div>` : ''}
+    ${canConfigure && !loaderReady && videoLoraCatalogMatchesActive() ? `<div class="neo-warning-panel"><strong>Model-only loader unavailable</strong><p>${escapeHtml(state.videoLoraCatalog?.loader?.reason || 'LoraLoaderModelOnly is unavailable or has an incompatible signature.')}</p></div>` : ''}
+  </section>`;
+}
+
+function bindVideoLoraStackPanel() {
+  const host = document.querySelector('[data-testid="video-lora-stack-panel"]');
+  if (!host) return;
+  const route = videoFindRoute();
+  if (route && !videoLoraCatalogMatchesActive() && !state.videoLoraCatalogLoading) {
+    window.setTimeout(() => refreshVideoLoraCatalog({ silent: true }), 0);
+  }
+  document.getElementById('videoLoraStackEnabled')?.addEventListener('change', (event) => {
+    const enabled = Boolean(event.target.checked);
+    const record = videoLoraStackExtensionRecord();
+    state.videoDraft.video_lora_stack = { ...videoLoraStackSettings(), enabled };
+    if (record) {
+      const gate = extensionAllowedForActiveSurface(record);
+      if (enabled && !gate.allowed) { window.alert(gate.reason || 'Video LoRA Stack is gated on this route.'); state.videoDraft.video_lora_stack.enabled = false; render(); return; }
+      const key = extensionWorkflowApplicationKey(record);
+      state.extensionWorkflowApplications = { ...(state.extensionWorkflowApplications || {}), [key]: enabled };
+    }
+    saveUiState(); render();
+  });
+  document.getElementById('videoLoraRefreshCatalogBtn')?.addEventListener('click', () => refreshVideoLoraCatalog({ silent: false }));
+  document.getElementById('videoLoraCatalogFilter')?.addEventListener('input', (event) => {
+    state.videoLoraCatalogFilter = event.target.value || '';
+    clearTimeout(videoLoraCatalogFilterTimer);
+    videoLoraCatalogFilterTimer = window.setTimeout(() => render(), 140);
+  });
+  document.getElementById('videoLoraCatalogFolder')?.addEventListener('change', (event) => { state.videoLoraCatalogFolder = event.target.value || ''; state.videoLoraCatalogSelection = ''; render(); });
+  document.getElementById('videoLoraPickerSelect')?.addEventListener('change', (event) => { state.videoLoraCatalogSelection = event.target.value || ''; render(); });
+  document.getElementById('videoLoraClearFiltersBtn')?.addEventListener('click', () => { state.videoLoraCatalogFilter = ''; state.videoLoraCatalogFolder = ''; state.videoLoraCatalogSelection = ''; render(); });
+  document.getElementById('videoLoraClearStackBtn')?.addEventListener('click', () => {
+    if (!videoLoraStackSettings().rows.length || !window.confirm('Remove every Video LoRA row from this stack?')) return;
+    updateVideoLoraStackSettings({ rows: [] });
+    videoLoraAnnounce('Video LoRA stack cleared.');
+  });
+  document.getElementById('videoLoraAddBtn')?.addEventListener('click', () => {
+    const select = document.getElementById('videoLoraPickerSelect');
+    const name = String(select?.value || '').trim();
+    if (!name) return;
+    const settings = videoLoraStackSettings();
+    if (settings.rows.length >= VIDEO_LORA_STACK_MAX_ROWS) return;
+    const speed = videoLoraSpeedCandidates().has(name) && Boolean(videoLoraActiveSupport()?.supports_speed_lora);
+    const row = { uid: `video_lora_${Date.now()}_${settings.rows.length + 1}`, enabled: true, name, strength_model: 1, role: speed ? 'speed' : 'standard', target: 'all' };
+    updateVideoLoraStackSettings({ enabled: true, rows: [...settings.rows, row] }, { renderAfter: false });
+    const record = videoLoraStackExtensionRecord();
+    if (record) state.extensionWorkflowApplications = { ...(state.extensionWorkflowApplications || {}), [extensionWorkflowApplicationKey(record)]: true };
+    saveUiState(); render();
+    videoLoraAnnounce(`${name} added to the Video LoRA stack.`);
+  });
+  document.querySelectorAll('[data-video-lora-field]').forEach((node) => node.addEventListener('change', (event) => {
+    const index = Number(node.getAttribute('data-video-lora-index') || -1);
+    if (index < 0) return;
+    const settings = videoLoraStackSettings();
+    const rows = settings.rows.map((row) => ({ ...row }));
+    if (!rows[index]) return;
+    const field = node.getAttribute('data-video-lora-field');
+    let value = node.type === 'checkbox' ? Boolean(node.checked) : node.value;
+    if (field === 'strength_model') value = Number(value);
+    rows[index][field] = value;
+    updateVideoLoraStackSettings({ rows });
+  }));
+  document.querySelectorAll('[data-video-lora-disable]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-video-lora-disable') || -1);
+    const settings = videoLoraStackSettings();
+    const rows = settings.rows.map((row, idx) => idx === index ? { ...row, enabled: false } : { ...row });
+    updateVideoLoraStackSettings({ rows });
+    videoLoraAnnounce('LoRA row disabled.');
+  }));
+  document.querySelectorAll('[data-video-lora-strength]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-video-lora-index') || -1);
+    const strength = Number(button.getAttribute('data-video-lora-strength'));
+    const settings = videoLoraStackSettings();
+    if (index < 0 || !settings.rows[index] || !Number.isFinite(strength)) return;
+    const rows = settings.rows.map((row, idx) => idx === index ? { ...row, strength_model: strength } : { ...row });
+    updateVideoLoraStackSettings({ rows });
+  }));
+  document.querySelectorAll('[data-video-lora-duplicate]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-video-lora-duplicate') || -1);
+    const settings = videoLoraStackSettings();
+    if (index < 0 || !settings.rows[index] || settings.rows.length >= VIDEO_LORA_STACK_MAX_ROWS) return;
+    const copy = { ...settings.rows[index], uid: `video_lora_${Date.now()}_${settings.rows.length + 1}` };
+    const rows = [...settings.rows.slice(0, index + 1), copy, ...settings.rows.slice(index + 1)];
+    updateVideoLoraStackSettings({ rows });
+    videoLoraAnnounce('Video LoRA row duplicated.');
+  }));
+  document.querySelectorAll('[data-video-lora-remove]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-video-lora-remove') || -1);
+    const settings = videoLoraStackSettings();
+    updateVideoLoraStackSettings({ rows: settings.rows.filter((_, idx) => idx !== index) });
+  }));
+  document.querySelectorAll('[data-video-lora-move]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.getAttribute('data-video-lora-index') || -1);
+    const direction = button.getAttribute('data-video-lora-move');
+    const next = direction === 'up' ? index - 1 : index + 1;
+    const settings = videoLoraStackSettings();
+    if (index < 0 || next < 0 || next >= settings.rows.length) return;
+    const rows = settings.rows.map((row) => ({ ...row }));
+    [rows[index], rows[next]] = [rows[next], rows[index]];
+    updateVideoLoraStackSettings({ rows });
+  }));
+  host.addEventListener('keydown', (event) => {
+    const row = event.target?.closest?.('[data-video-lora-row]');
+    if (!row || !event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault();
+    row.querySelector(`[data-video-lora-move="${event.key === 'ArrowUp' ? 'up' : 'down'}"]`)?.click();
+  });
 }
 
 function videoWanPayload({ dryRun = false } = {}) {
@@ -5057,6 +5699,8 @@ function videoWanPayload({ dryRun = false } = {}) {
     first_test_mode: state.videoDraft.first_test_mode === true && !Object.keys(state.videoDraft.manual_parameter_overrides || {}).length,
     dry_run: dryRun,
   };
+  const videoLoraBlock = videoLoraStackPayloadBlock();
+  if (videoLoraBlock) payload.extensions = { ...(payload.extensions || {}), [VIDEO_LORA_STACK_EXTENSION_ID]: videoLoraBlock };
   if (videoIsWanRapidAioGgufRoute(route)) {
     VIDEO_WAN_DUAL_NOISE_ONLY_FIELD_IDS.forEach((fieldId) => { delete payload[fieldId]; });
     return sanitizeVideoRapidAioPayload(payload, route);
@@ -5318,11 +5962,45 @@ function applyVideoPreviewBuffer(buffer) {
   setVideoWorkspaceProgress(label, Math.max(35, videoProgressPercent()));
 }
 
-function closeVideoProgressSocket() {
+function clearVideoProgressReconnect() {
+  if (state.videoProgressReconnectTimer) {
+    clearTimeout(state.videoProgressReconnectTimer);
+    state.videoProgressReconnectTimer = null;
+  }
+}
+
+function closeVideoProgressSocket({ preserveTracking = false } = {}) {
+  clearVideoProgressReconnect();
   if (state.videoProgressSocket) {
     try { state.videoProgressSocket.close(); } catch (_) {}
   }
   state.videoProgressSocket = null;
+  if (!preserveTracking) state.videoResultTracking = null;
+}
+
+function videoResultTrackingActive(resultId = '') {
+  const cleanId = String(resultId || '').trim();
+  const tracking = state.videoResultTracking && typeof state.videoResultTracking === 'object' ? state.videoResultTracking : null;
+  if (!tracking) return false;
+  if (cleanId && String(tracking.resultId || '') !== cleanId) return false;
+  const record = cleanId ? ((Array.isArray(state.videoResults) ? state.videoResults : []).find((item) => item.result_id === cleanId) || null) : activeVideoResultRecord();
+  return !Boolean(videoResultFile(record)?.url);
+}
+
+function scheduleVideoProgressReconnect(reason = 'close') {
+  const tracking = state.videoResultTracking && typeof state.videoResultTracking === 'object' ? state.videoResultTracking : null;
+  if (!tracking?.profileId || !tracking?.clientId || !tracking?.resultId) return;
+  if (!videoResultTrackingActive(tracking.resultId)) return;
+  clearVideoProgressReconnect();
+  const attempt = Math.max(1, Number(tracking.reconnectAttempts || 0) + 1);
+  state.videoResultTracking = { ...tracking, reconnectAttempts: attempt, lastReconnectReason: reason, lastReconnectAt: new Date().toISOString() };
+  const delay = Math.min(30000, 2000 * Math.max(1, attempt));
+  setVideoWorkspaceProgress(`Live progress disconnected — retrying in ${Math.round(delay / 1000)}s`, Math.max(30, videoProgressPercent()), { status: 'running', result_id: tracking.resultId });
+  state.videoProgressReconnectTimer = window.setTimeout(() => {
+    state.videoProgressReconnectTimer = null;
+    if (!videoResultTrackingActive(tracking.resultId)) return;
+    startVideoProgressSocket(tracking.profileId, tracking.clientId, tracking.resultId, { reconnect: true });
+  }, delay);
 }
 
 function videoExecutingNodeLabel(nodeId) {
@@ -5343,9 +6021,21 @@ function videoExecutingNodeLabel(nodeId) {
   return labels[classType] || (classType ? `Executing ${classType}` : `Executing video node ${nodeId}`);
 }
 
-function startVideoProgressSocket(profileId, clientId, resultId = '') {
+function startVideoProgressSocket(profileId, clientId, resultId = '', options = {}) {
   if (!profileId || !clientId) return;
-  closeVideoProgressSocket();
+  const reconnect = Boolean(options?.reconnect);
+  closeVideoProgressSocket({ preserveTracking: true });
+  if (resultId) {
+    const previous = state.videoResultTracking && typeof state.videoResultTracking === 'object' ? state.videoResultTracking : {};
+    state.videoResultTracking = {
+      profileId,
+      clientId,
+      resultId,
+      startedAt: previous.resultId === resultId ? (previous.startedAt || new Date().toISOString()) : new Date().toISOString(),
+      reconnectAttempts: reconnect ? Math.max(0, Number(previous.reconnectAttempts || 0)) : 0,
+      livePreviewSource: 'websocket',
+    };
+  }
   const url = new URL('/api/video/progress/ws', window.location.href);
   url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   url.search = `profile_id=${encodeURIComponent(profileId)}&client_id=${encodeURIComponent(clientId)}`;
@@ -5353,7 +6043,13 @@ function startVideoProgressSocket(profileId, clientId, resultId = '') {
     const socket = new WebSocket(url.toString());
     socket.binaryType = 'arraybuffer';
     state.videoProgressSocket = socket;
-    socket.addEventListener('open', () => setVideoWorkspaceProgress('Video live progress connected', 18));
+    socket.addEventListener('open', () => {
+      clearVideoProgressReconnect();
+      if (state.videoResultTracking && state.videoResultTracking.resultId === resultId) {
+        state.videoResultTracking = { ...state.videoResultTracking, reconnectAttempts: reconnect ? Number(state.videoResultTracking.reconnectAttempts || 0) : 0, connectedAt: new Date().toISOString() };
+      }
+      setVideoWorkspaceProgress(reconnect ? 'Video live progress reconnected' : 'Video live progress connected', 18, { status: 'running', result_id: resultId });
+    });
     socket.addEventListener('message', async (event) => {
       try {
         if (typeof event.data === 'string') {
@@ -5369,7 +6065,7 @@ function startVideoProgressSocket(profileId, clientId, resultId = '') {
             else setVideoWorkspaceProgress(videoExecutingNodeLabel(data.node), Math.max(35, videoProgressPercent()));
           } else if (type === 'execution_success') {
             setVideoWorkspaceProgress('Comfy job finished — importing result', 99);
-            if (resultId) window.setTimeout(() => refreshVideoResultFromComfy(resultId, { renderAfter: true, silent: true }), 250);
+            if (resultId) window.setTimeout(() => refreshVideoResultFromComfy(resultId, { renderAfter: true, silent: true, historyTimeout: 5, downloadTimeout: 120 }), 250);
           } else if (type === 'error') {
             setVideoWorkspaceProgress(data.message || 'Video live progress error', Math.max(25, videoProgressPercent()), { status: 'warning' });
           }
@@ -5379,26 +6075,39 @@ function startVideoProgressSocket(profileId, clientId, resultId = '') {
         else if (event.data instanceof Blob) applyVideoPreviewBuffer(await event.data.arrayBuffer());
       } catch (error) { console.warn('Video live preview message skipped', error); }
     });
-    socket.addEventListener('close', () => { if (state.videoProgressSocket === socket) state.videoProgressSocket = null; });
-    socket.addEventListener('error', () => setVideoWorkspaceProgress('Video live progress waiting', Math.max(25, videoProgressPercent())));
+    socket.addEventListener('close', () => {
+      if (state.videoProgressSocket === socket) state.videoProgressSocket = null;
+      if (resultId && videoResultTrackingActive(resultId)) scheduleVideoProgressReconnect('close');
+    });
+    socket.addEventListener('error', () => {
+      setVideoWorkspaceProgress('Video live progress waiting', Math.max(25, videoProgressPercent()), { status: 'running', result_id: resultId });
+      if (resultId && videoResultTrackingActive(resultId)) scheduleVideoProgressReconnect('error');
+    });
   } catch (error) { console.warn('Video live preview socket failed', error); }
 }
 
-function stopVideoResultPoller() {
+function stopVideoResultPoller({ preserveTracking = false } = {}) {
   if (state.videoResultPoller) {
     clearInterval(state.videoResultPoller);
     state.videoResultPoller = null;
   }
+  if (!preserveTracking) {
+    clearVideoProgressReconnect();
+    state.videoResultTracking = null;
+  }
 }
 
-function startVideoResultPoller(resultId) {
+function startVideoResultPoller(resultId, options = {}) {
   if (!resultId) return;
-  stopVideoResultPoller();
+  stopVideoResultPoller({ preserveTracking: true });
   let attempts = 0;
+  const startedAt = Date.now();
+  const pollIntervalMs = Math.max(3000, Number(options.pollIntervalMs || 5000));
+  const maxDurationMs = Math.max(30 * 60 * 1000, Number(options.maxDurationMs || (3 * 60 * 60 * 1000)));
   state.videoResultPoller = setInterval(async () => {
     attempts += 1;
     try {
-      const payload = await refreshVideoResultFromComfy(resultId, { renderAfter: false, silent: true });
+      const payload = await refreshVideoResultFromComfy(resultId, { renderAfter: false, silent: true, historyTimeout: 5, downloadTimeout: 120 });
       const record = (Array.isArray(state.videoResults) ? state.videoResults : []).find((item) => item.result_id === resultId) || null;
       if (videoResultFile(record)?.url) {
         stopVideoResultPoller();
@@ -5407,21 +6116,24 @@ function startVideoResultPoller(resultId) {
         renderSurfaceUpdate('video');
         return;
       }
+      const elapsedMs = Date.now() - startedAt;
       if (payload?.ok === false && attempts >= 2) {
         setVideoWorkspaceProgress(`Comfy import retry ${attempts}: ${payload?.error || 'history/output not available yet'}`, Math.min(98, Math.max(55, videoProgressPercent())), { status: 'import_retry', result_id: resultId });
-      } else if (attempts <= 120) {
-        const candidates = Number(payload?.import_status?.candidate_count || payload?.import?.candidate_count || 0);
-        setVideoWorkspaceProgress(candidates ? `Comfy output found — importing… ${attempts}` : `Waiting for Comfy video output… ${attempts}`, Math.min(98, Math.max(55, videoProgressPercent())), { result_id: resultId });
       } else {
-        stopVideoResultPoller();
-        setVideoWorkspaceProgress('Import still pending — use Import / Refresh Comfy Job for diagnostics', 100, { status: 'waiting', result_id: resultId });
+        const candidates = Number(payload?.import_status?.candidate_count || payload?.import?.candidate_count || 0);
+        const minutes = Math.max(0, Math.floor(elapsedMs / 60000));
+        setVideoWorkspaceProgress(candidates ? `Comfy output found — importing… ${attempts}` : `Waiting for Comfy video output… ${attempts}${minutes ? ` · ${minutes}m` : ''}`, Math.min(98, Math.max(55, videoProgressPercent())), { status: 'running', result_id: resultId });
+      }
+      if (elapsedMs > maxDurationMs) {
+        stopVideoResultPoller({ preserveTracking: true });
+        setVideoWorkspaceProgress('Import still pending after extended tracking — use Import / Refresh Comfy Job for diagnostics', 100, { status: 'waiting', result_id: resultId });
       }
       renderSurfaceUpdate('video');
     } catch (error) {
       if (attempts > 1) setVideoWorkspaceProgress(`Comfy import retry ${attempts}: ${error.message || error}`, Math.min(98, Math.max(55, videoProgressPercent())), { status: 'import_retry', result_id: resultId });
       if (attempts > 3) console.warn('Video result poll skipped', error);
     }
-  }, 5000);
+  }, pollIntervalMs);
 }
 
 async function compileVideoWanRoute() {
@@ -9145,6 +9857,7 @@ function legacyVideoExtensionApplicationKeys(record, context = null) {
 }
 
 function extensionWorkflowApplied(record, context = null) {
+  if (extensionId(record) === VIDEO_LORA_STACK_EXTENSION_ID && record?.manifest?.surface === 'video') return Boolean(videoLoraStackSettings().enabled);
   const key = extensionWorkflowApplicationKey(record, context);
   const applications = state.extensionWorkflowApplications || {};
   if (applications[key]) return true;
@@ -9414,6 +10127,7 @@ function extensionCardInner(record, options = {}) {
   const expert = state.detailMode === 'expert' ? `<pre>${escapeHtml(JSON.stringify(manifest, null, 2))}</pre>` : '';
   let customPanel = '';
   if (extensionId(record) === LAYERDIFFUSE_EXTENSION_ID) customPanel = layerDiffusePanel(record);
+  else if (extensionId(record) === VIDEO_LORA_STACK_EXTENSION_ID) customPanel = videoLoraStackPanel(record);
   else if (origin === 'external') customPanel = externalExtensionCustomPanel(record);
   const deps = manifest.depends_on?.length && state.detailMode === 'expert' ? `<p>Depends on: ${manifest.depends_on.map((item) => `<code>${escapeHtml(item)}</code>`).join(', ')}</p>` : '';
   const mountSummary = state.detailMode === 'expert' ? `<p>Mounts: ${(manifest.mount_slots || []).map((slot) => `<code>${escapeHtml(slot)}</code>`).join(', ')}</p>` : '';
@@ -9425,7 +10139,7 @@ function extensionCardInner(record, options = {}) {
         <span class="neo-badge ${record.enabled ? 'success' : ''}">${escapeHtml(record.status || 'unknown')}</span>
       </div>
       ${detail}
-      <div class="neo-extension-card-actions">${extensionApplyToggle(record)}</div>
+      <div class="neo-extension-card-actions">${extensionId(record) === VIDEO_LORA_STACK_EXTENSION_ID ? '' : extensionApplyToggle(record)}</div>
       ${customPanel}
       ${mountSummary}
       ${deps}
@@ -21372,8 +22086,10 @@ function bindControlNetControls() {
 }
 
 const LORA_STACK_EXTENSION_ID = 'lora_stack';
+let loraLibrarySearchTimer = null;
 const LORA_STACK_DEFAULT_LIBRARY = {
   folder_path: '',
+  folder_options: [],
   search: '',
   selected_record_id: '',
   selected_preview_index: 0,
@@ -21437,6 +22153,7 @@ function updateLoraStackSettings(patch = {}) {
     library: { ...current.library, ...(patch.library || {}) },
   };
   state.imageDraft[LORA_STACK_EXTENSION_ID] = next;
+  if (Object.prototype.hasOwnProperty.call(patch, 'rows') || hasEnabledPatch) state.imageKrea2LoraCompatibility = [];
   saveUiState();
   if (typeof document !== 'undefined' && document.dispatchEvent) {
     document.dispatchEvent(new CustomEvent('neo:lora-stack-changed', {
@@ -21738,6 +22455,8 @@ function loraCatalogIdentityKey(value) {
   return loraPortableName(value).replace(/\\/g, '/').trim().toLowerCase();
 }
 function loraLiveProviderMatch(record, providerRecords = loraProviderCatalogRecords()) {
+  const selectedProvider = loraProviderContext().provider_id;
+  if (record?.provider_id && selectedProvider && String(record.provider_id).toLowerCase() !== selectedProvider) return null;
   const exactKeys = new Set([record?.catalog_name, record?.name, record?.file]
     .map((value) => loraCatalogIdentityKey(value))
     .filter(Boolean));
@@ -21774,9 +22493,36 @@ function loraAllLibraryRecords() {
 function loraStackLibraryRecords() {
   const library = loraStackSettings().library;
   const allRecords = loraAllLibraryRecords();
-  const query = String(library.search || '').trim().toLowerCase();
-  if (!query) return allRecords;
-  return allRecords.filter((record) => [record.name, record.catalog_name, record.file, record.category, record.base_model].some((value) => String(value || '').toLowerCase().includes(query)));
+  const terms = String(library.search || '').trim().toLowerCase().match(/"[^"]+"|\S+/g)?.map((item) => item.replace(/^"|"$/g, '')) || [];
+  const folder = loraPortableName(library.folder_path || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+  return allRecords.filter((record) => {
+    const catalogName = loraPortableName(record.catalog_name || record.name || '');
+    const recordFolder = String(record.folder_path || (catalogName.includes('/') ? catalogName.slice(0, catalogName.lastIndexOf('/')) : '')).toLowerCase();
+    if (folder && recordFolder !== folder && !recordFolder.startsWith(`${folder}/`)) return false;
+    const promptOptions = Array.isArray(record.prompt_options) ? record.prompt_options.flatMap((item) => [item?.name, item?.prompt]) : [];
+    const values = [record.name, record.catalog_name, record.file, record.category, record.base_model, record.style_category, record.notes, record.caution_notes, record.example_prompt, record.remote_source?.model_name, record.remote_source?.version_name, ...(record.triggers || []), ...(record.keywords || []), ...(record.negative_keywords || []), ...promptOptions];
+    const haystack = values.map((value) => String(value || '').toLowerCase()).join('\n');
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function loraLibraryFolderOptions() {
+  const library = loraStackSettings().library;
+  if (Array.isArray(library.folder_options) && library.folder_options.length) return library.folder_options;
+  const records = loraAllLibraryRecords();
+  const leafFolders = records.map((record) => {
+    const name = loraPortableName(record.catalog_name || record.name || '');
+    return name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
+  }).filter(Boolean);
+  const folders = Array.from(new Set(leafFolders.flatMap((folder) => {
+    const parts = folder.split('/');
+    return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
+  }))).sort((a, b) => a.localeCompare(b));
+  return [{ path: '', label: 'All folders', count: records.length }, ...folders.map((folder) => ({ path: folder, label: folder, count: records.filter((record) => {
+    const name = loraPortableName(record.catalog_name || record.name || '');
+    const recordFolder = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
+    return recordFolder === folder || recordFolder.startsWith(`${folder}/`);
+  }).length }))];
 }
 
 function loraLibraryApiProfileId() {
@@ -21791,8 +22537,6 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
     const url = new URL('/api/extensions/lora_stack/library/browser', window.location.origin);
     const profileId = loraLibraryApiProfileId();
     if (profileId) url.searchParams.set('profile_id', profileId);
-    const q = query === null ? library.search : query;
-    if (q) url.searchParams.set('q', q);
     const result = await loadJson(url.pathname + url.search, { ok: false, records: [] });
     if (loraLibraryApiProfileId() !== profileId) {
       updateLoraStackSettings({ library: { backend_loaded: false, backend_loading: false, status: 'Provider changed · refreshing LoRA catalog…' } });
@@ -21802,6 +22546,7 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
     const records = Array.isArray(result.records) ? result.records : [];
     updateLoraStackSettings({ library: {
       records,
+      folder_options: Array.isArray(result.folder_options) ? result.folder_options : [],
       backend_loaded: true,
       backend_loading: false,
       backend_loaded_profile_id: profileId || '',
@@ -21851,6 +22596,7 @@ async function loraLibrarySaveSelected() {
       triggers: document.getElementById('loraTriggerWordsInput') ? splitLoraTokenInput(document.getElementById('loraTriggerWordsInput').value) : (record.triggers || []),
       keywords: document.getElementById('loraKeywordsInput') ? splitLoraTokenInput(document.getElementById('loraKeywordsInput').value) : (record.keywords || []),
       negative_keywords: document.getElementById('loraNegativeKeywordsInput') ? splitLoraTokenInput(document.getElementById('loraNegativeKeywordsInput').value) : (record.negative_keywords || []),
+      notes: document.getElementById('loraNotesInput') ? document.getElementById('loraNotesInput').value : (record.notes || ''),
     },
   };
   updateLoraStackSettings({ library: { status: 'Saving metadata…' } });
@@ -21859,6 +22605,8 @@ async function loraLibrarySaveSelected() {
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.detail || result.error || 'Save failed');
     loraLibraryMergeRecord(result.record);
+    const persistedAt = result.save_confirmation?.persisted_at || '';
+    updateLoraStackSettings({ library: { status: persistedAt ? `Saved · ${persistedAt}` : 'Saved' } });
     render();
   } catch (error) {
     updateLoraStackSettings({ library: { status: `Save failed: ${error.message || error}` } });
@@ -21897,11 +22645,7 @@ async function loraLibraryPullCivitai() {
 }
 function loraCatalogMatchKeys(value) {
   const text = String(value || '').replace(/\\/g, '/').trim().toLowerCase();
-  if (!text) return [];
-  const file = text.split('/').pop() || text;
-  const stem = file.replace(/\.[^.]+$/, '');
-  const noExt = text.replace(/\.[^.]+$/, '');
-  return Array.from(new Set([text, file, stem, noExt].filter(Boolean)));
+  return text ? [text] : [];
 }
 function loraRecordMatchesName(record, name) {
   const wanted = new Set(loraCatalogMatchKeys(name));
@@ -21953,7 +22697,7 @@ function loraSelectedLibraryRecord() {
   const settings = loraStackSettings();
   const library = settings.library;
   const records = loraStackLibraryRecords();
-  if (library.current_record && (!library.selected_record_id || library.current_record.id === library.selected_record_id)) return library.current_record;
+  if (library.current_record && records.some((record) => record.id === library.current_record.id) && (!library.selected_record_id || library.current_record.id === library.selected_record_id)) return library.current_record;
   const selectedStackRow = loraSelectedRow(settings);
   if (selectedStackRow?.row?.name) {
     const fromRow = records.find((record) => loraRecordMatchesName(record, selectedStackRow.row.name));
@@ -22036,6 +22780,30 @@ function loraPickerSelectedRecord(settings = loraStackSettings()) {
   const selectedId = String(settings.library?.selected_record_id || '');
   return records.find((record) => String(record.id || '') === selectedId) || records[0] || null;
 }
+function captureImageKrea2LoraCompatibility(result = {}) {
+  const actual = result?.runtime?.actual_params || result?.actual_params || result?.backend?.actual_params || {};
+  const entries = actual?._neo_krea2_lora_compatibility;
+  if (Array.isArray(entries)) state.imageKrea2LoraCompatibility = entries.map((item) => ({ ...(item || {}) }));
+}
+
+function loraStackKrea2CompatibilityHtml(route = {}) {
+  if (!['krea2', 'krea2_turbo'].includes(String(route.family || ''))) return '';
+  const entries = Array.isArray(state.imageKrea2LoraCompatibility) ? state.imageKrea2LoraCompatibility : [];
+  if (!entries.length) return '<div class="neo-chipline neo-lora-krea2-compat"><span class="neo-muted">Krea2 LoRA format compatibility is checked at queue time. PEFT-native adapters are normalized automatically when Neo can access the local LoRA file.</span></div>';
+  const normalized = entries.filter((item) => String(item?.status || '').startsWith('normalized_'));
+  const blocked = entries.filter((item) => String(item?.status || '').startsWith('blocked_'));
+  const passthrough = entries.filter((item) => String(item?.status || '') === 'compatible_passthrough');
+  const unavailable = entries.filter((item) => String(item?.status || '') === 'inspection_unavailable_passthrough');
+  const chips = [];
+  if (normalized.length) chips.push(`${normalized.length} normalized`);
+  if (passthrough.length) chips.push(`${passthrough.length} native/compatible`);
+  if (unavailable.length) chips.push(`${unavailable.length} not locally inspected`);
+  if (blocked.length) chips.push(`${blocked.length} blocked`);
+  const details = state.detailMode === 'expert' ? `<details><summary>Krea2 LoRA compatibility report</summary><pre>${escapeHtml(JSON.stringify(entries, null, 2))}</pre></details>` : '';
+  const warning = blocked.length ? `<p class="neo-warn">${escapeHtml(blocked[0]?.reason || 'A Krea2 LoRA format was blocked before queueing.')}</p>` : '';
+  return `<div class="neo-lora-krea2-compat">${badgeRow(chips.length ? chips : ['Krea2 LoRA compatibility checked'])}${warning}${details}</div>`;
+}
+
 function loraStackUserRouteMessage(route = {}) {
   const stateId = String(route.route_state || '').toLowerCase();
   if (stateId === 'implementation_target') return 'LoRA execution is not ready for this model/workflow yet.';
@@ -22089,6 +22857,7 @@ function loraStackPanel(record) {
       <button class="neo-btn secondary" type="button" id="loraStackClearEmpty" ${locked ? 'disabled' : ''}>Clean Empty/Disabled</button>
       <span class="neo-badge">${cleanCount} active</span>
     </div>
+    ${loraStackKrea2CompatibilityHtml(route)}
     ${picker}
     <div class="neo-lora-stack-rows">${rows.length ? rows.map((row, index) => loraRowHtml(row, index, locked, selectedRowIndex)).join('') : '<p class="neo-muted">No LoRAs selected. Use Add LoRA to choose from the active provider catalog.</p>'}</div>
     ${expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Compatibility: ${route.compatibility_route_key || route.route_key}`, `Workflow: ${route.workflow_route_key || route.route_key}`, `Backend: ${route.backend}`, `Engine: ${route.engine} (graph only)`, `LoRA mode: ${loraModeBadge}`, `Provider: ${provider.provider_id}`, `Profile: ${provider.profile_id}`, `Catalog: ${provider.catalog_source}`, `State: ${route.route_state}`, 'Visible prompt mutation: false'])}</div><pre>${escapeHtml(JSON.stringify(loraStackPayloadPreview(record), null, 2))}</pre></div>` : ''}
@@ -22111,6 +22880,7 @@ function loraLibraryPanel(record) {
   const library = settings.library;
   const provider = loraProviderContext();
   const records = loraStackLibraryRecords();
+  const folderOptions = loraLibraryFolderOptions();
   const selected = loraSelectedLibraryRecord();
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
@@ -22118,7 +22888,9 @@ function loraLibraryPanel(record) {
   const previewIndex = Math.min(Math.max(Number(library.selected_preview_index || 0), 0), Math.max(previewImages.length - 1, 0));
   const previewSource = loraPreviewDisplaySrc(previewImages[previewIndex]);
   const preview = previewSource ? `<button class="neo-lora-preview neo-zoomable-preview" type="button" data-zoom-src="${escapeAttr(previewSource)}" data-zoom-label="${escapeAttr(selected?.name || 'LoRA preview')}"><img src="${escapeAttr(previewSource)}" alt="LoRA preview"></button>` : '<div class="neo-lora-preview empty">No preview yet</div>';
-  const recordOptions = records.map((item) => `<option value="${escapeAttr(item.id || '')}" ${(item.id || '') === (library.selected_record_id || selected?.id || '') ? 'selected' : ''}>${escapeHtml(`${item.catalog_available === false ? 'Missing · ' : ''}${item.name || item.file || item.id || 'Unnamed LoRA'}`)}</option>`).join('');
+  const recordOptions = records.map((item) => `<option value="${escapeAttr(item.id || '')}" ${(item.id || '') === (selected?.id || '') ? 'selected' : ''}>${escapeHtml(`${item.catalog_available === false ? 'Missing · ' : ''}${item.catalog_name || item.name || item.file || item.id || 'Unnamed LoRA'}`)}</option>`).join('');
+  const folderSelectOptions = folderOptions.map((item) => `<option value="${escapeAttr(item.path || '')}" ${(item.path || '') === (library.folder_path || '') ? 'selected' : ''}>${escapeHtml(`${item.label || item.path || 'All folders'} (${item.count ?? 0})`)}</option>`).join('');
+  const filtersActive = Boolean(String(library.search || '').trim() || String(library.folder_path || '').trim());
   const editMode = Boolean(library.edit_mode);
   const chipList = (items = [], type = 'trigger', promptField = 'positive_prompt') => items.length ? items.map((item) => {
     const active = promptHasToken(item, promptField);
@@ -22133,9 +22905,11 @@ function loraLibraryPanel(record) {
     <header class="neo-lora-panel-header"><div><strong>LoRA Library</strong>${!compact ? '<span class="neo-muted">Selected stack card details, enrichable with CivitAI</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-badge">${escapeHtml(provider.provider_label)}</span><span class="neo-badge">${records.length} records</span><span class="neo-badge">${library.catalog_count || records.length} catalog</span><span class="neo-state-pill ${library.backend_loading ? '' : 'success'}">${escapeHtml(library.backend_loading ? 'Syncing' : (library.status || 'Ready'))}</span></div></header>
     <div class="neo-lora-library-tools">
       <div class="neo-lora-library-tool-row neo-lora-library-source-row">
-        <label>Search ${escapeHtml(provider.provider_label)} LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Search selected-provider LoRAs"></label>
-        <label>${escapeHtml(provider.provider_label)} LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No selected-provider LoRAs yet</option>'}</select></label>
+        <label>Search ${escapeHtml(provider.provider_label)} LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Name, path, trigger, model, or notes"></label>
+        <label>Folder<select id="loraLibraryFolder">${folderSelectOptions}</select></label>
+        <label>${escapeHtml(provider.provider_label)} LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No LoRAs match these filters</option>'}</select></label>
       </div>
+      <div class="neo-lora-library-filter-summary"><span class="neo-muted">Showing ${records.length} of ${loraAllLibraryRecords().length} records${library.folder_path ? ` in ${escapeHtml(library.folder_path)}` : ''}</span><button class="neo-btn secondary" type="button" id="loraLibraryClearFilters" ${filtersActive ? '' : 'disabled'}>Clear filters</button></div>
       ${compact ? '' : `<p class="neo-muted">LoRAs are loaded only from the selected Image profile. Forge uses its Extra Networks catalog; Comfy uses <code>LoraLoader.lora_name</code>. No default-profile fallback is performed.</p>`}
     </div>
     <div class="neo-lora-library-grid">
@@ -22143,12 +22917,13 @@ function loraLibraryPanel(record) {
       <div class="neo-lora-record-summary">
         <div class="neo-chipline"><span class="neo-badge">${escapeHtml(selected?.base_model || 'Base unknown')}</span><span class="neo-badge">${escapeHtml(selected?.category || 'uncategorized')}</span><span class="neo-badge">Strength ${escapeHtml(selected?.default_strength ?? 0.8)}</span><span class="neo-badge">${selected?.catalog_available === false ? 'Missing from selected provider' : `In ${provider.provider_label} catalog`}</span><span class="neo-badge">${escapeHtml(selected?.metadata_status || 'metadata pending')}</span></div>
         <h4>${escapeHtml(selected?.name || 'No LoRA selected')}</h4><div class="neo-chipline"><span class="neo-badge" title="Provider rendering is applied only at submission">${escapeHtml(loraProviderSyntaxPreview(selected?.catalog_name || selected?.name || '', selected?.default_strength ?? 0.8, provider.provider_id))}</span><span class="neo-muted">Visible prompt mutation: none</span></div>
-        ${compact ? '' : `<p class="neo-muted">${escapeHtml(selected?.notes || 'Selected from the active provider catalog. Add a CivitAI link, then pull to enrich triggers, prompts, and previews.')}</p>`}
+        ${compact ? '' : `<p class="neo-muted">${escapeHtml(selected?.notes || 'No notes saved yet.')}</p>`}
       </div>
       <div class="neo-lora-record-details">
         ${tokenEditor('loraTriggerWordsInput', 'Positive triggers', selected?.triggers || [], 'positive_prompt')}
         ${tokenEditor('loraKeywordsInput', 'Positive keywords', selected?.keywords || [], 'positive_prompt')}
         ${tokenEditor('loraNegativeKeywordsInput', 'Negative keywords', selected?.negative_keywords || [], 'negative_prompt')}
+        ${editMode ? `<label>Notes<textarea id="loraNotesInput" rows="4" placeholder="Usage tips, strengths, compatibility, or reminders">${escapeHtml(selected?.notes || '')}</textarea></label>` : `<div class="neo-lora-notes"><strong>Notes</strong><p>${escapeHtml(selected?.notes || 'No notes saved yet.')}</p></div>`}
         ${`<label>Sample prompt<textarea id="loraSamplePrompt" rows="3">${escapeHtml(selected?.example_prompt || '')}</textarea></label><div class="neo-lora-library-actions"><button class="neo-btn secondary" type="button" id="loraPromptAppend">Append Prompt</button><button class="neo-btn secondary" type="button" id="loraPromptReplace">Replace Prompt</button></div>`}
         <div class="neo-lora-library-actions"><button class="neo-btn primary" type="button" id="loraLibraryAddToStack" ${selected ? '' : 'disabled'}>Add selected LoRA to stack</button><button class="neo-btn secondary" type="button" id="loraLibraryEdit">${library.edit_mode ? 'Lock metadata' : 'Edit metadata'}</button><button class="neo-btn secondary" type="button" id="loraLibrarySave">Save metadata</button></div>
         ${`<div class="neo-lora-civitai-row"><label>CivitAI link<input id="loraCivitaiUrl" type="url" value="${escapeAttr(library.civitai_url || selected?.civitai_url || selected?.remote_source?.url || '')}" placeholder="https://civitai.com/models/... or /model-versions/..."></label><label>CivitAI merge mode<select id="loraCivitaiMergeMode">${['fill_missing', 'smart_merge', 'overwrite_selected', 'previews_only'].map((mode) => `<option value="${mode}" ${mode === library.merge_mode ? 'selected' : ''}>${mode}</option>`).join('')}</select></label><button class="neo-btn secondary" type="button" id="loraCivitaiPull" ${(selected && !library.civitai_loading) ? '' : 'disabled'}>${library.civitai_loading ? 'Pulling…' : 'Pull from CivitAI'}</button></div>${library.civitai_loading ? '<div class="neo-lora-civitai-progress" role="status" aria-live="polite"><span class="neo-lora-spinner"></span><span>Fetching CivitAI metadata, previews, and prompts…</span><span class="neo-lora-progress-bar"><i></i></span></div>' : `<div class="neo-lora-civitai-status" role="status" aria-live="polite">${escapeHtml(library.status || 'Ready')}</div>`}`}
@@ -22839,7 +23614,15 @@ function bindLoraStackControls() {
     render();
   }));
   const search = document.getElementById('loraLibrarySearch');
-  if (search) search.addEventListener('input', (event) => { updateLoraStackSettings({ library: { search: event.target.value } }); loraLibraryFetchBrowser({ query: event.target.value, force: true }); });
+  if (search) search.addEventListener('input', (event) => {
+    updateLoraStackSettings({ library: { search: event.target.value } });
+    clearTimeout(loraLibrarySearchTimer);
+    loraLibrarySearchTimer = setTimeout(() => render(), 140);
+  });
+  const folder = document.getElementById('loraLibraryFolder');
+  if (folder) folder.addEventListener('change', (event) => { updateLoraStackSettings({ library: { folder_path: event.target.value } }); render(); });
+  const clearFilters = document.getElementById('loraLibraryClearFilters');
+  if (clearFilters) clearFilters.addEventListener('click', () => { updateLoraStackSettings({ library: { search: '', folder_path: '' } }); render(); });
   const select = document.getElementById('loraLibraryRecordSelect');
   if (select) select.addEventListener('change', (event) => { updateLoraStackSettings({ library: { selected_record_id: event.target.value, current_record: null, selected_preview_index: 0 } }); loraLibraryFetchRecord(event.target.value); render(); });
   const record = loraSelectedLibraryRecord();
@@ -23824,6 +24607,10 @@ function setWorkflowExtensionApplied(extensionIdValue, applied) {
     const settings = wildcardsSettings();
     state.imageDraft[WILDCARDS_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
   }
+  if (extensionIdValue === VIDEO_LORA_STACK_EXTENSION_ID && record?.manifest?.surface === 'video') {
+    const settings = videoLoraStackSettings();
+    state.videoDraft.video_lora_stack = { ...settings, enabled: Boolean(applied) };
+  }
   if (extensionIdValue === LORA_STACK_EXTENSION_ID) {
     const settings = loraStackSettings();
     state.imageDraft[LORA_STACK_EXTENSION_ID] = {
@@ -23832,6 +24619,7 @@ function setWorkflowExtensionApplied(extensionIdValue, applied) {
       execution_enabled: Boolean(applied),
       execution_intent_version: LORA_STACK_EXECUTION_INTENT_VERSION,
     };
+    state.imageKrea2LoraCompatibility = [];
   }
   if (extensionIdValue === ADETAILER_EXTENSION_ID) {
     const settings = adetailerSettings();
@@ -24981,7 +25769,7 @@ function highResLabPanel(record) {
   const samplerOptions = [{ id: '', label: 'Reuse main sampler' }, { id: 'euler', label: 'Euler' }, { id: 'heun', label: 'Heun' }, { id: 'dpmpp_2m', label: 'DPM++ 2M' }, { id: 'dpmpp_2m_sde', label: 'DPM++ 2M SDE' }];
   const schedulerOptions = [{ id: '', label: 'Reuse main scheduler' }, { id: 'normal', label: 'Normal' }, { id: 'karras', label: 'Karras' }, { id: 'simple', label: 'Simple' }, { id: 'sgm_uniform', label: 'SGM uniform' }];
   const badge = highResLabRouteUiPolicy(route).badge || 'Unavailable';
-  const details = compact ? '' : `<p class="neo-muted">Finish pass for cleaner larger delivery sizes with pixel refinement, aspect preservation, and selected-output source-only refinement.</p>${route.reason && locked ? `<p class="neo-warn">${escapeHtml(route.reason)}</p>` : ''}`;
+  const details = compact ? '' : `<p class="neo-muted">Finish pass for cleaner larger delivery sizes with pixel refinement, aspect preservation, and selected-output source-only refinement.</p>`;
   const expertBlock = expert ? `<div class="neo-extension-expert-block"><div class="neo-badge-row">${badgeRow([`Model: ${route.family}`, `Loader: ${route.loader}`, `Mode: ${route.mode}`, `Status: ${badge}`])}</div><p class="neo-muted">These details show which model route will perform the upscale and refinement.</p></div>` : '';
   const stagedSource = settings.staged_preview_source || null;
   const stagedSourceLabel = highResLabStagedPreviewSourceLabel();
@@ -34711,12 +35499,57 @@ function imageResultsFilterControls() {
 
 function activeSavedResultSummary() {
   const visibleResults = visibleImageSavedResults();
-  return visibleResults[state.activeSavedResultIndex] || visibleResults[0] || null;
+  if (!visibleResults.length) {
+    state.activeSavedResultIndex = 0;
+    state.activeSavedResultId = '';
+    return null;
+  }
+  let index = visibleResults.findIndex((item) => item?.result_id === state.activeSavedResultId);
+  if (index < 0) index = Math.min(Math.max(Number(state.activeSavedResultIndex || 0), 0), visibleResults.length - 1);
+  const selected = visibleResults[index] || visibleResults[0];
+  state.activeSavedResultIndex = index;
+  state.activeSavedResultId = selected?.result_id || '';
+  return selected || null;
 }
 
 function visibleImageSavedResults() {
   const broken = new Set(state.imageBrokenResultIds || []);
   return (state.imageSavedResults || []).filter((item) => item?.result_id && !broken.has(item.result_id));
+}
+
+function reconcileActiveSavedResultSelection({ fallbackIndex = null } = {}) {
+  const visibleResults = visibleImageSavedResults();
+  if (!visibleResults.length) {
+    state.activeSavedResultId = '';
+    state.activeSavedResultIndex = 0;
+    return null;
+  }
+  let index = visibleResults.findIndex((item) => item?.result_id === state.activeSavedResultId);
+  if (index < 0) {
+    const requested = fallbackIndex === null ? Number(state.activeSavedResultIndex || 0) : Number(fallbackIndex || 0);
+    index = Math.min(Math.max(Number.isFinite(requested) ? requested : 0, 0), visibleResults.length - 1);
+  }
+  state.activeSavedResultIndex = index;
+  state.activeSavedResultId = visibleResults[index]?.result_id || '';
+  return visibleResults[index] || null;
+}
+
+function captureImageResultsScrollPosition() {
+  const strip = document.querySelector('.neo-output-card-strip');
+  if (strip) state.imageResultsScrollLeft = Math.max(0, Number(strip.scrollLeft || 0));
+  return state.imageResultsScrollLeft;
+}
+
+function restoreImageResultsScrollPosition() {
+  const strip = document.querySelector('.neo-output-card-strip');
+  if (!strip) return;
+  strip.scrollLeft = Math.max(0, Number(state.imageResultsScrollLeft || 0));
+}
+
+function resetImageResultsScrollPosition() {
+  state.imageResultsScrollLeft = 0;
+  const strip = document.querySelector('.neo-output-card-strip');
+  if (strip) strip.scrollLeft = 0;
 }
 
 function basename(value) {
@@ -35862,7 +36695,7 @@ function currentImageSeedInputValue() {
 function lastResolvedImageSeed() {
   const activeOutput = state.imageResults?.[state.activeResultIndex || 0] || null;
   const savedMeta = state.activeSavedResultMetadata || null;
-  const activeSaved = state.imageSavedResults?.[state.activeSavedResultIndex || 0] || null;
+  const activeSaved = activeSavedResultSummary();
   const candidates = [state.imageDraft._last_resolved_seed, activeOutput, savedMeta, activeSaved, state.activeImageJob];
   for (const item of candidates) {
     const seed = seedFromNestedObject(item);
@@ -36884,6 +37717,46 @@ function renderOutputParameterIntegrity(activeMetadata = {}) {
     </div>`;
 }
 
+function imageAnyPaintRuntimeDiagnosticsFromMetadata(activeMetadata = {}) {
+  const candidates = [
+    activeMetadata?.params?._neo_krea2_anypaint_runtime_diagnostics,
+    activeMetadata?.runtime?.krea2_anypaint_runtime_diagnostics,
+    activeMetadata?.runtime?.actual_params?._neo_krea2_anypaint_runtime_diagnostics,
+  ];
+  return candidates.find((item) => item && typeof item === 'object' && item.active === true) || null;
+}
+
+function renderOutputAnyPaintRuntimeDiagnostics(activeMetadata = {}) {
+  const diag = imageAnyPaintRuntimeDiagnosticsFromMetadata(activeMetadata);
+  if (!diag) return '';
+  const errors = Array.isArray(diag.errors) ? diag.errors : [];
+  const warnings = Array.isArray(diag.warnings) ? diag.warnings : [];
+  const outputs = Array.isArray(diag.outputs) ? diag.outputs : [];
+  const expected = diag.expected_canvas && typeof diag.expected_canvas === 'object' ? diag.expected_canvas : {};
+  const proof = diag.runtime_proof && typeof diag.runtime_proof === 'object' ? diag.runtime_proof : {};
+  const firstOutput = outputs.find((item) => Number(item?.width || 0) > 0 && Number(item?.height || 0) > 0) || outputs[0] || {};
+  const stateClass = errors.length ? 'danger' : (warnings.length ? 'warning' : 'success');
+  const statusLabel = errors.length ? 'Runtime mismatch' : (warnings.length ? 'Verified with warnings' : 'Verified');
+  const expectedSize = Number(expected.width || 0) && Number(expected.height || 0) ? `${expected.width}×${expected.height}` : 'runtime-owned';
+  const observedSize = Number(firstOutput.width || 0) && Number(firstOutput.height || 0) ? `${firstOutput.width}×${firstOutput.height}` : 'unavailable';
+  const checks = [
+    ['Submitted graph', diag.forbidden_native_nodes_found?.length ? 'blocked' : 'available', diag.forbidden_native_nodes_found?.length ? `Forbidden: ${diag.forbidden_native_nodes_found.join(', ')}` : 'AnyPaint graph only · Native masked nodes absent'],
+    ['Adapter', proof.adapter_load_state === 'inferred_executed_or_cached' ? 'available' : 'required', `${diag.adapter?.observed || diag.adapter?.expected || 'unknown'} · strength ${diag.adapter?.strength_observed ?? diag.adapter?.strength_expected ?? '?'}`],
+    ['Prepare', proof.prepare_execution_state === 'inferred_executed_or_cached' ? 'available' : 'required', `boundary ${diag.prepare?.boundary_redraw_px ?? '?'}px · reference ${diag.prepare?.reference_max_edge ?? '?'} · padding ${JSON.stringify(diag.prepare?.padding || {})}`],
+    ['Model Patch', proof.model_patch_state === 'inferred_executed_or_cached' ? 'available' : 'required', `K/V cache ${diag.model_patch?.kv_cache ? 'on' : 'off'}`],
+    ['Canvas', firstOutput.matches_expected_canvas === false ? (expected.authoritative ? 'blocked' : 'required') : 'available', `Expected ${expectedSize}${expected.authoritative ? ' · authoritative' : ' · predicted'} · observed ${observedSize}`],
+  ];
+  const checkRows = checks.map(([label, checkState, detail]) => `<div class="neo-output-replay-check" data-replay-check-state="${escapeAttr(checkState)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small></div>`).join('');
+  const issueRows = [...errors, ...warnings].slice(0, 8).map((item) => `<div class="neo-output-replay-check" data-replay-check-state="${item?.severity === 'warning' ? 'required' : 'blocked'}"><span>${escapeHtml(humanize(item?.code || 'diagnostic'))}</span><small>${escapeHtml(item?.message || '')}</small></div>`).join('');
+  return `<div class="neo-output-provider-replay" data-output-anypaint-runtime-diagnostics="true">
+    <div class="neo-output-provider-replay-head"><strong>Krea 2 AnyPaint Runtime</strong><span class="neo-state-pill ${stateClass}">${escapeHtml(statusLabel)}</span></div>
+    <p class="neo-output-provider-replay-summary">Runtime verification for the submitted AnyPaint graph and expected canvas. Non-output nodes are inferred from successful dependency-chain completion or cache when ComfyUI does not provide separate node receipts.</p>
+    <div class="neo-output-chip-row"><span class="neo-output-chip is-active">Canvas · ${escapeHtml(observedSize)}</span><span class="neo-output-chip">Expected · ${escapeHtml(expectedSize)}</span><span class="neo-output-chip">K/V · ${proof.kv_cache_requested ? 'On' : 'Off'}</span><span class="neo-output-chip">Forbidden Native nodes · ${diag.forbidden_native_nodes_found?.length || 0}</span></div>
+    <div class="neo-output-replay-check-grid">${checkRows}${issueRows}</div>
+    ${state.detailMode === 'expert' ? `<details class="neo-output-raw-details"><summary>AnyPaint runtime diagnostics JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(diag, null, 2))}</pre></details>` : ''}
+  </div>`;
+}
+
 
 function imageMultiKSamplerFromMetadata(activeMetadata = {}) {
   const candidates = [
@@ -36961,7 +37834,7 @@ function renderOutputGenerationSetup(activeMetadata = {}) {
     setup.family ? humanize(setup.family).replace(/Krea2/gi, 'Krea 2') : '',
     setup.loader ? imageMainModelTypeLabel(setup.loader, setup.loader) : '',
     setup.mode ? humanize(setup.mode) : '',
-    setup.masked ? `${setup.engine === 'lanpaint' ? 'LanPaint' : 'Native'}${setup.cropStitch ? ' + Crop & Stitch' : ''}` : '',
+    setup.masked ? `${setup.engine === 'lanpaint' ? 'LanPaint' : (['krea2_anypaint', 'anypaint'].includes(setup.engine) ? 'Krea 2 AnyPaint' : 'Native')}${setup.cropStitch ? ' + Crop & Stitch' : ''}` : '',
     samplerEngine,
     `${setup.stageCount} sampling stage${setup.stageCount === 1 ? '' : 's'}`,
     setup.upscaleCount ? `${setup.upscaleCount} latent upscale${setup.upscaleCount === 1 ? '' : 's'}` : '',
@@ -37134,6 +38007,7 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
       ${renderOutputGenerationSetup(metadata)}
       ${renderOutputProviderReplayValidation(metadata)}
       ${renderOutputParameterIntegrity(metadata)}
+      ${renderOutputAnyPaintRuntimeDiagnostics(metadata)}
       ${renderOutputMultiKSampler(metadata)}
       ${renderOutputPreviewActionDiagnostics(buildInspectorPreviewActionSource(metadata, media || activeFile || {}))}
       ${renderImagePendingRevalidationNotice({ compact: false, resultId: metadata.result_id || '', placement: 'output_inspector' })}
@@ -37366,57 +38240,80 @@ function imageResultsWorkspaceBody() {
     ? results.map((item, index) => {
       const file = item.active_file || {};
       const filename = file.filename || item.result_id || `Saved Output ${index + 1}`;
-      const selected = index === state.activeSavedResultIndex;
+      const selected = item.result_id === state.activeSavedResultId;
       const imageUrl = imageResultImageUrl(file, item);
       return `
-      <button class="neo-output-card ${selected ? 'active' : ''}" type="button" data-saved-result-index="${index}" title="Inspect saved output ${index + 1}" aria-label="Inspect saved output ${index + 1}">
+      <button class="neo-output-card ${selected ? 'active' : ''}" type="button" data-saved-result-id="${escapeAttr(item.result_id || '')}" data-saved-result-index="${index}" title="Inspect saved output ${index + 1}" aria-label="Inspect saved output ${index + 1}">
         ${imageUrl ? `<img src="${escapeAttr(imageUrl)}" alt="Saved output ${index + 1}" data-result-thumb="${escapeAttr(item.result_id || '')}">` : '<span class="neo-output-card-empty">No preview</span>'}
         <strong>${escapeHtml(filename)}</strong>
         <small>${escapeHtml(item.save_category || item.created_at || item.subtab || 'Neo_Data')}</small>
       </button>`;
     }).join('')
     : `<div class="neo-empty-state"><strong>${state.imageResultsLoading ? 'Loading saved outputs…' : 'No saved outputs yet'}</strong><p>Completed generations saved into Neo_Data will appear here.</p></div>`;
+  const loadedCount = results.length;
+  const totalCount = Math.max(loadedCount, Number(state.imageResultsTotal || 0));
+  const remainingCount = Math.max(0, totalCount - loadedCount);
+  const paginationControl = state.imageResultsHasMore
+    ? `<button class="neo-btn secondary" id="imageResultsLoadMoreBtn" type="button" ${state.imageResultsLoading ? 'disabled' : ''}>${state.imageResultsLoading ? 'Loading…' : `Load ${escapeHtml(String(Math.min(Number(state.imageResultsPageSize || 60), remainingCount)))} More`}</button>`
+    : (loadedCount ? '<span class="neo-muted">All matching outputs loaded</span>' : '');
 
   return `
     <div class="neo-results-shell" data-results-category="${escapeAttr(activeImageResultsCategory())}">
       ${renderImageOutputSaveDetails()}
       <section class="neo-results-block">
-        <div class="neo-results-block-head"><strong>Saved Outputs</strong><span class="neo-muted">Loaded from /api/image/results · Neo_Data only · ${escapeHtml((state.imageResultsSort || 'newest') === 'newest' ? 'New to old' : 'Old to new')}</span></div>
+        <div class="neo-results-block-head"><strong>Saved Outputs · ${escapeHtml(String(loadedCount))} of ${escapeHtml(String(totalCount))}</strong><span class="neo-muted">Loaded from /api/image/results · Neo_Data only · ${escapeHtml((state.imageResultsSort || 'newest') === 'newest' ? 'New to old' : 'Old to new')}</span></div>
         ${imageResultsFilterControls()}
         ${state.imageResultsError ? `<p class="neo-error-text">${escapeHtml(state.imageResultsError)}</p>` : ''}
         <div class="neo-output-card-strip">${outputCards}</div>
+        <div class="neo-results-pagination">${paginationControl}</div>
       </section>
       ${renderOutputInspectorCard(activeSummary, activeMetadata, activeFile)}
     </div>`;
 }
 
-async function loadImageResults({ force = false } = {}) {
+async function loadImageResults({ force = false, append = false } = {}) {
   const category = activeImageResultsCategory();
   const sort = state.imageResultsSort || 'newest';
   // Empty category guard: if (!force && state.imageResultsLoadedCategory === category) return;
-  if (!force && state.imageResultsLoadedCategory === category && state.imageResultsLoadedSort === sort) return;
+  if (!append && !force && state.imageResultsLoadedCategory === category && state.imageResultsLoadedSort === sort) return;
+  if (append && !state.imageResultsHasMore) return;
   if (state.imageResultsLoading) return;
-  await guardImageResultsIntegrity({ selectedResultId: activeSavedResultSummary()?.result_id || '' });
+  if (!append) await guardImageResultsIntegrity({ selectedResultId: activeSavedResultSummary()?.result_id || '' });
   state.imageResultsLoading = true;
   state.imageResultsError = '';
   try {
-    const response = await fetch(`/api/image/results?category=${encodeURIComponent(category)}&sort=${encodeURIComponent(sort)}&limit=60`);
+    const pageSize = Math.max(1, Number(state.imageResultsPageSize || 60));
+    const offset = append ? Math.max(0, Number(state.imageResultsNextOffset || 0)) : 0;
+    const response = await fetch(`/api/image/results?category=${encodeURIComponent(category)}&sort=${encodeURIComponent(sort)}&limit=${encodeURIComponent(pageSize)}&offset=${encodeURIComponent(offset)}`);
     if (!response.ok) throw new Error('Results API failed');
     const payload = await response.json();
-    state.imageSavedResults = Array.isArray(payload.results) ? payload.results : [];
-    state.imageBrokenResultIds = [];
+    const page = Array.isArray(payload.results) ? payload.results : [];
+    if (append) {
+      const merged = new Map((state.imageSavedResults || []).filter((item) => item?.result_id).map((item) => [item.result_id, item]));
+      page.forEach((item) => { if (item?.result_id) merged.set(item.result_id, item); });
+      state.imageSavedResults = Array.from(merged.values());
+    } else {
+      state.imageSavedResults = Array.from(new Map(page.filter((item) => item?.result_id).map((item) => [item.result_id, item])).values());
+      state.imageBrokenResultIds = [];
+    }
+    state.imageResultsTotal = Math.max(0, Number(payload.total_matching ?? payload.total ?? state.imageSavedResults.length));
+    state.imageResultsNextOffset = Math.max(0, Number(payload.next_offset ?? (offset + page.length)));
+    state.imageResultsHasMore = Boolean(payload.has_more);
     const visibleResults = visibleImageSavedResults();
-    state.activeSavedResultIndex = Math.min(state.activeSavedResultIndex, Math.max(0, visibleResults.length - 1));
+    const activeSummary = reconcileActiveSavedResultSelection();
     state.imageResultsLoadedCategory = category;
     state.imageResultsLoadedSort = sort;
-    state.activeSavedResultMetadata = null;
-    state.activeSavedResultReuse = null;
-    state.activeSavedOutputFileId = '';
-    if (visibleResults.length) {
-      await loadImageResultDetail(visibleResults[state.activeSavedResultIndex].result_id, { renderAfter: false });
-    } else {
-      state.activeSavedResultIndex = 0;
-      state.imageResultsError = '';
+    if (!append) {
+      state.activeSavedResultMetadata = null;
+      state.activeSavedResultReuse = null;
+      state.activeSavedOutputFileId = '';
+      if (visibleResults.length) {
+        await loadImageResultDetail(activeSummary?.result_id || visibleResults[0].result_id, { renderAfter: false });
+      } else {
+        state.activeSavedResultIndex = 0;
+        state.activeSavedResultId = '';
+        state.imageResultsError = '';
+      }
     }
   } catch (error) {
     state.imageResultsError = error.message || 'Could not load saved Image results.';
@@ -37432,13 +38329,16 @@ async function loadImageResultDetail(resultId, { renderAfter = true } = {}) {
   try {
     const response = await fetch(`/api/image/results/${encodeURIComponent(resultId)}?category=${encodeURIComponent(category)}`);
     if (response.status === 404) {
+      const removedIndex = Math.max(0, state.imageSavedResults.findIndex((item) => item?.result_id === resultId));
       state.imageSavedResults = state.imageSavedResults.filter((item) => item?.result_id !== resultId);
-      state.activeSavedResultIndex = Math.min(state.activeSavedResultIndex, Math.max(0, state.imageSavedResults.length - 1));
+      if (state.activeSavedResultId === resultId) state.activeSavedResultId = '';
+      const nextSummary = reconcileActiveSavedResultSelection({ fallbackIndex: removedIndex });
       state.activeSavedResultMetadata = null;
       state.activeSavedResultReuse = null;
       state.activeSavedOutputFileId = '';
       state.activeSavedInspectorMediaId = '';
       state.imageResultsError = state.imageSavedResults.length ? 'Selected output is missing from Neo_Data and was removed from the Results list.' : '';
+      if (nextSummary?.result_id) await loadImageResultDetail(nextSummary.result_id, { renderAfter });
       return;
     }
     if (!response.ok) throw new Error('Result detail API failed');
@@ -38236,8 +39136,10 @@ async function performImageResultDelete(cascade = 'output_only') {
     const response = await fetch(`/api/image/results/${encodeURIComponent(resultId)}?category=${encodeURIComponent(category)}&cascade=${encodeURIComponent(cascade)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Delete failed');
+    const removedIndex = Math.max(0, state.imageSavedResults.findIndex((item) => item?.result_id === resultId));
     state.imageSavedResults = state.imageSavedResults.filter((item) => item?.result_id !== resultId);
-    state.activeSavedResultIndex = Math.min(state.activeSavedResultIndex, Math.max(0, state.imageSavedResults.length - 1));
+    if (state.activeSavedResultId === resultId) state.activeSavedResultId = '';
+    reconcileActiveSavedResultSelection({ fallbackIndex: removedIndex });
     state.activeSavedResultMetadata = null;
     state.activeSavedResultReuse = null;
     state.activeSavedOutputFileId = '';
@@ -38383,7 +39285,9 @@ function bindImageResultsWorkspace() {
   document.querySelectorAll('[data-saved-result-index]').forEach((button) => {
     button.addEventListener('click', async () => {
       const index = Number(button.dataset.savedResultIndex || 0);
+      state.activeSavedResultId = button.dataset.savedResultId || '';
       state.activeSavedResultIndex = Number.isFinite(index) ? index : 0;
+      captureImageResultsScrollPosition();
       state.activeSavedOutputFileId = '';
       state.activeSavedInspectorMediaId = '';
       const summary = activeSavedResultSummary();
@@ -38415,15 +39319,17 @@ function bindImageResultsWorkspace() {
     });
   });
   document.querySelectorAll('[data-result-thumb]').forEach((img) => {
-    img.addEventListener('error', () => {
+    img.addEventListener('error', async () => {
       const resultId = img.getAttribute('data-result-thumb');
       if (!resultId) return;
+      const selectedWasBroken = state.activeSavedResultId === resultId;
       const broken = new Set(state.imageBrokenResultIds || []);
       broken.add(resultId);
       state.imageBrokenResultIds = Array.from(broken);
       img.closest('.neo-output-card')?.remove();
       const visibleResults = visibleImageSavedResults();
-      state.activeSavedResultIndex = Math.min(state.activeSavedResultIndex, Math.max(0, visibleResults.length - 1));
+      if (selectedWasBroken) state.activeSavedResultId = '';
+      const nextSummary = reconcileActiveSavedResultSelection({ fallbackIndex: state.activeSavedResultIndex });
       if (!visibleResults.length) {
         state.activeSavedResultMetadata = null;
         state.activeSavedResultReuse = null;
@@ -38431,6 +39337,7 @@ function bindImageResultsWorkspace() {
       state.imageResultsError = visibleResults.length
         ? 'A missing output thumbnail was hidden from this Results view.'
         : 'No available saved outputs found in Neo_Data.';
+      if (selectedWasBroken && nextSummary?.result_id) await loadImageResultDetail(nextSummary.result_id);
       // Do not invalidate loaded category/sort or call render() here. Broken image
       // events can fire during render; re-rendering from the error handler creates
       // a refresh loop if metadata exists but the image file was deleted manually.
@@ -38438,10 +39345,22 @@ function bindImageResultsWorkspace() {
   });
   const refresh = document.getElementById('imageResultsRefreshBtn');
   if (refresh) refresh.addEventListener('click', () => loadImageResults({ force: true }));
+  const resultStrip = document.querySelector('.neo-output-card-strip');
+  if (resultStrip) resultStrip.addEventListener('scroll', () => {
+    state.imageResultsScrollLeft = Math.max(0, Number(resultStrip.scrollLeft || 0));
+  }, { passive: true });
+  const loadMore = document.getElementById('imageResultsLoadMoreBtn');
+  if (loadMore) loadMore.addEventListener('click', () => loadImageResults({ append: true }));
   const categoryFilter = document.getElementById('imageResultsCategoryFilter');
   if (categoryFilter) categoryFilter.addEventListener('change', () => {
     state.imageResultsFilterCategory = categoryFilter.value || 'all';
     state.activeSavedResultIndex = 0;
+    state.activeSavedResultId = '';
+    resetImageResultsScrollPosition();
+    state.imageSavedResults = [];
+    state.imageResultsNextOffset = 0;
+    state.imageResultsTotal = 0;
+    state.imageResultsHasMore = false;
     state.imageResultsLoadedCategory = null;
     state.imageResultsIntegrityChecked = false;
     loadImageResults({ force: true });
@@ -38450,6 +39369,12 @@ function bindImageResultsWorkspace() {
   if (sortFilter) sortFilter.addEventListener('change', () => {
     state.imageResultsSort = sortFilter.value || 'newest';
     state.activeSavedResultIndex = 0;
+    state.activeSavedResultId = '';
+    resetImageResultsScrollPosition();
+    state.imageSavedResults = [];
+    state.imageResultsNextOffset = 0;
+    state.imageResultsTotal = 0;
+    state.imageResultsHasMore = false;
     state.imageResultsLoadedSort = null;
     state.imageResultsIntegrityChecked = false;
     loadImageResults({ force: true });
@@ -38884,6 +39809,54 @@ function imageLanpaintCatalogContains(catalog, selected) {
   return Boolean(target) && (Array.isArray(catalog) ? catalog : []).some((item) => imageLanpaintPortableAssetName(item) === target);
 }
 
+function imageLanpaintKrea2SelectedAssetOverride({ family = '', loader = '', key = '', selected = '', modelItems = {} } = {}) {
+  if (String(family || '').toLowerCase() !== 'krea2_turbo') return { allowed: false, reason: '' };
+  if (!['diffusion_model', 'gguf'].includes(String(loader || '').toLowerCase())) return { allowed: false, reason: '' };
+  if (!['model', 'vae'].includes(String(key || '').toLowerCase())) return { allowed: false, reason: '' };
+  if (!imageLanpaintAssetSelectionUsable(selected)) return { allowed: false, reason: '' };
+  const catalog = Array.isArray(modelItems?.[key]?.catalog) ? modelItems[key].catalog : [];
+  if (!imageLanpaintCatalogContains(catalog, selected)) return { allowed: false, reason: '' };
+  if (key === 'model') {
+    const name = imageLanpaintPortableAssetName(selected);
+    const identifiesKrea = name.includes('krea2') || name.includes('krea_2') || name.includes('krea-2');
+    const explicitlyTurbo = name.includes('turbo');
+    const explicitlyRaw = identifiesKrea && (name.includes('raw') || name.includes('base'));
+    if (explicitlyRaw && !explicitlyTurbo) {
+      return { allowed: false, reason: 'The selected model filename explicitly identifies a RAW/Base Krea 2 model while the active route is Krea 2 Turbo.' };
+    }
+    return {
+      allowed: true,
+      reason: 'Selected custom Krea 2 Turbo model exists in the connected ComfyUI catalog. Its filename is not required to contain krea/turbo; Neo trusts the explicit Krea 2 Turbo route and lets the runtime compatibility contract validate the file.',
+    };
+  }
+  return {
+    allowed: true,
+    reason: 'Selected custom Krea 2 VAE exists in the connected ComfyUI catalog. Neo treats it as an experimental runtime override, matching the main Krea 2 compatibility contract.',
+  };
+}
+
+function imageLanpaintReconcileKrea2SelectedAssets({ family = '', loader = '', blockers = [], warnings = [], selectedAssets = {}, modelItems = {} } = {}) {
+  if (String(family || '').toLowerCase() !== 'krea2_turbo') return { blockers, warnings, overrides: {} };
+  const nextBlockers = Array.isArray(blockers) ? blockers.map((item) => ({ ...item })) : [];
+  const nextWarnings = Array.isArray(warnings) ? warnings.map((item) => ({ ...item })) : [];
+  const overrides = {};
+  ['model', 'vae'].forEach((key) => {
+    const selected = selectedAssets?.[key] || '';
+    const result = imageLanpaintKrea2SelectedAssetOverride({ family, loader, key, selected, modelItems });
+    if (!result.allowed) return;
+    overrides[key] = result;
+    for (let i = nextBlockers.length - 1; i >= 0; i -= 1) {
+      const code = String(nextBlockers[i]?.code || '');
+      if (code === `missing_compatible_${key}` || code === `selected_${key}_incompatible`) nextBlockers.splice(i, 1);
+    }
+    const warningCode = `selected_${key}_runtime_override`;
+    if (!nextWarnings.some((item) => String(item?.code || '') === warningCode)) {
+      nextWarnings.push({ code: warningCode, field: key, message: result.reason, assets: [selected] });
+    }
+  });
+  return { blockers: nextBlockers, warnings: nextWarnings, overrides };
+}
+
 function imageLanpaintCapabilityEvaluation({ contractEligible = false, family = '', loader = '', mode = 'inpaint', policy = null } = {}) {
   if (!contractEligible) {
     return {
@@ -38927,13 +39900,24 @@ function imageLanpaintCapabilityEvaluation({ contractEligible = false, family = 
       selected_assets: imageLanpaintSelectedAssets({ family, loader }),
     };
   }
-  const blockers = Array.isArray(snapshot.blockers) ? snapshot.blockers.map((item) => ({ ...item })) : [];
-  const warnings = Array.isArray(snapshot.warnings) ? snapshot.warnings.map((item) => ({ ...item })) : [];
+  let blockers = Array.isArray(snapshot.blockers) ? snapshot.blockers.map((item) => ({ ...item })) : [];
+  let warnings = Array.isArray(snapshot.warnings) ? snapshot.warnings.map((item) => ({ ...item })) : [];
   const remediation = Array.isArray(snapshot.remediation) ? [...snapshot.remediation] : [];
   let status = String(snapshot.status || 'blocked_missing_nodes');
   let selectable = Boolean(snapshot.selectable);
   const selectedAssets = imageLanpaintSelectedAssets({ family, loader });
   const modelItems = snapshot?.checks?.models?.items || {};
+  const kreaReconciled = imageLanpaintReconcileKrea2SelectedAssets({ family, loader, blockers, warnings, selectedAssets, modelItems });
+  blockers = kreaReconciled.blockers;
+  warnings = kreaReconciled.warnings;
+  if (!blockers.length && String(family || '').toLowerCase() === 'krea2_turbo') {
+    const nodeChecksOk = snapshot?.checks?.nodes?.ok !== false;
+    const loaderChecksOk = snapshot?.checks?.loaders?.ok !== false;
+    if (nodeChecksOk && loaderChecksOk) {
+      selectable = true;
+      if (status.startsWith('blocked_')) status = 'experimental_available';
+    }
+  }
   if (selectable) {
     const requiredAssets = family === 'sd35'
       ? { model: 'SD 3.5 model', text_encoder: 'SD 3.5 CLIP-L', text_encoder_2: 'SD 3.5 CLIP-G', text_encoder_3: 'SD 3.5 T5XXL', vae: 'SD 3.5 VAE' }
@@ -38971,6 +39955,7 @@ function imageLanpaintCapabilityEvaluation({ contractEligible = false, family = 
     remediation: [...new Set(remediation)],
     snapshot,
     selected_assets: selectedAssets,
+    selected_asset_overrides: kreaReconciled.overrides || {},
     capability_fingerprint: snapshot.capability_fingerprint || '',
   };
 }
@@ -39190,6 +40175,7 @@ function imageLanpaintUiStatePayload(p = {}) {
 
 function imageMaskedCropStitchEnabled(engine = null) {
   const selected = String(engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  if (selected === 'krea2_anypaint' || selected === 'anypaint') return false;
   return selected === 'lanpaint'
     ? state.imageDraft.lanpaint_crop_stitch_enabled !== false
     : Boolean(state.imageDraft.native_crop_stitch_enabled);
@@ -39200,6 +40186,7 @@ function imageMaskedCropStitchDiagnostics(route = imageLanpaintRouteContext()) {
   const diag = caps?.masked_edit_node_diagnostics || {};
   const engine = String(state.imageDraft.inpaint_engine || 'native').toLowerCase();
   if (engine === 'lanpaint') return { available: true, provider: 'LanPaint internal crop/stitch', missing: [] };
+  if (engine === 'krea2_anypaint' || engine === 'anypaint') return { available: false, provider: 'AnyPaint owns mask/canvas preparation and the latent preservation path', missing: [] };
   return {
     available: diag.crop_stitch_available === true,
     provider: diag.required_crop_stitch_pack || 'ComfyUI-Inpaint-CropAndStitch',
@@ -39207,18 +40194,47 @@ function imageMaskedCropStitchDiagnostics(route = imageLanpaintRouteContext()) {
   };
 }
 
+function imageKrea2AnyPaintEngineRegistration() {
+  const report = imageKrea2AnyPaintCapabilityReport();
+  const identityConflict = typeof krea2IdentityEditActive === 'function' && krea2IdentityEditActive();
+  if (!report) return { visible: false, selectable: false, ready: false, reason: 'Krea 2 AnyPaint is registered only for Krea 2 Turbo Safetensors/Components inpaint/outpaint routes.' };
+  const blockers = Array.isArray(report.blockers) ? report.blockers : [];
+  const capabilityReady = report.capability_ready === true && blockers.length === 0;
+  if (identityConflict) return { visible: true, selectable: false, ready: capabilityReady, reason: 'Krea 2 AnyPaint cannot be combined with Krea 2 Identity Edit. Select the native Krea edit engine first.' };
+  return {
+    visible: true,
+    selectable: capabilityReady,
+    ready: capabilityReady,
+    reason: capabilityReady
+      ? 'Krea 2 AnyPaint is installed and execution-ready for Krea 2 Turbo Safetensors/Components inpaint/outpaint routes.'
+      : (blockers[0]?.message || 'Resolve the Krea 2 AnyPaint readiness blockers before selecting this engine.'),
+  };
+}
+
 function imageInpaintEngineOptions(route = imageLanpaintRouteContext()) {
   const reason = route.capability?.blockers?.[0]?.message || 'LanPaint requirements are not available on the selected backend.';
+  const identityConflict = typeof krea2IdentityEditActive === 'function' && krea2IdentityEditActive();
   const nativeCompat = imageFamilyCompatibilityFeature('native_masked_edit', { engine: 'native' });
   const nativeAvailable = nativeCompat ? nativeCompat.available === true : true;
   const nativeReason = nativeCompat?.reason || 'Native masked workflow availability is determined by the selected family compiler.';
   const lanpaintCompat = imageFamilyCompatibilityFeature('lanpaint', { engine: 'lanpaint' });
   const lanpaintRouteAvailable = lanpaintCompat ? lanpaintCompat.available === true : true;
-  const lanpaintAvailable = Boolean(route.selectable && lanpaintRouteAvailable);
-  return [
+  const lanpaintAvailable = Boolean(!identityConflict && route.selectable && lanpaintRouteAvailable);
+  const lanpaintReason = identityConflict
+    ? 'LanPaint cannot be combined with Krea 2 Identity Edit. Use Native Inpaint/Outpaint while Identity Edit is enabled.'
+    : (lanpaintCompat?.reason || reason);
+  const anypaint = imageKrea2AnyPaintEngineRegistration();
+  const rows = [
     { id: 'native', label: nativeAvailable ? `Native ${activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint'}` : `Native ${activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint'} — unavailable`, disabled: !nativeAvailable, title: nativeReason },
-    { id: 'lanpaint', label: lanpaintAvailable ? 'LanPaint' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`, disabled: !lanpaintAvailable, title: lanpaintCompat?.reason || reason },
   ];
+  if (anypaint.visible) rows.push({ id: 'krea2_anypaint', label: anypaint.selectable ? 'Krea 2 AnyPaint' : 'Krea 2 AnyPaint — unavailable', disabled: !anypaint.selectable, title: anypaint.reason });
+  rows.push({
+    id: 'lanpaint',
+    label: lanpaintAvailable ? 'LanPaint' : (identityConflict ? 'LanPaint — unavailable with Identity Edit' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`),
+    disabled: !lanpaintAvailable,
+    title: lanpaintReason,
+  });
+  return rows;
 }
 
 function imageLanpaintResizeOptions() {
@@ -39238,7 +40254,36 @@ function imageLanpaintPromptModeOptions() {
   ];
 }
 
-function renderLanpaintCapabilityDiagnostics(route = imageLanpaintRouteContext()) {
+function imageMaskedReadinessIssuePresentation(item = {}, engine = '') {
+  const code = String(item?.code || item?.field || '').trim().toLowerCase();
+  const selectedEngine = String(engine || '').trim().toLowerCase();
+  if (selectedEngine === 'lanpaint' && code === 'selected_model_runtime_override') {
+    return {
+      label: 'Custom model',
+      message: 'Your selected custom Krea 2 Turbo model is available in ComfyUI and can be used with LanPaint.',
+    };
+  }
+  if (selectedEngine === 'lanpaint' && code === 'selected_vae_runtime_override') {
+    return {
+      label: 'Custom VAE',
+      message: 'Your selected custom VAE is available in ComfyUI and can be used with LanPaint.',
+    };
+  }
+  if (['krea2_anypaint', 'anypaint'].includes(selectedEngine) && code === 'krea2_turbo_model_runtime_validation') {
+    return {
+      label: 'Custom model',
+      message: 'Your selected Krea 2 Turbo model is available in ComfyUI and will be checked when generation starts.',
+    };
+  }
+  return {
+    label: humanize(item?.code || item?.field || 'diagnostic'),
+    message: String(item?.message || ''),
+  };
+}
+
+function renderLanpaintCapabilityDiagnostics(route = imageLanpaintRouteContext(), engine = null) {
+  const selectedEngine = String(engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  if (selectedEngine !== 'lanpaint') return '';
   if (!route.contract_eligible) return '';
   const capability = route.capability || {};
   const policy = imageLanpaintCapabilityPolicy(route.route_state);
@@ -39246,18 +40291,148 @@ function renderLanpaintCapabilityDiagnostics(route = imageLanpaintRouteContext()
   const warnings = Array.isArray(capability.warnings) ? capability.warnings : [];
   const remediation = Array.isArray(capability.remediation) ? capability.remediation : [];
   const missingPacks = capability?.snapshot?.checks?.nodes?.missing_by_pack || [];
-  const issueItems = [...blockers, ...warnings].map((item) => `<li><strong>${escapeHtml(humanize(item.code || item.field || 'diagnostic'))}</strong> — ${escapeHtml(item.message || '')}</li>`).join('');
+  const issueItems = [...blockers, ...warnings].map((item) => {
+    const presented = imageMaskedReadinessIssuePresentation(item, 'lanpaint');
+    return `<li><strong>${escapeHtml(presented.label)}</strong> — ${escapeHtml(presented.message)}</li>`;
+  }).join('');
   const packBadges = missingPacks.map((item) => `<span class="neo-badge">${escapeHtml(item.pack_id || 'Node pack')}: ${escapeHtml((item.missing_node_classes || []).join(', '))}</span>`).join('');
   const fixes = remediation.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
   const readyText = route.selectable
-    ? 'All required node classes, signatures, loader roles, and model catalogs are available. Physical validation is still required.'
+    ? 'LanPaint is available with the current backend and selected model components.'
     : 'LanPaint is disabled for this profile until the blockers below are resolved.';
-  return `<section class="neo-lanpaint-diagnostics ${escapeAttr(policy.tone)}" data-testid="image-lanpaint-capability-diagnostics" data-capability-status="${escapeAttr(route.route_state)}">
-    <div class="neo-lanpaint-diagnostics-head"><div><strong>LanPaint Readiness</strong><p class="neo-muted">${escapeHtml(readyText)}</p></div><span class="neo-state-pill ${escapeAttr(policy.tone)}">${escapeHtml(policy.label)}</span></div>
+  return `<details class="neo-lanpaint-diagnostics ${escapeAttr(policy.tone)}" data-testid="image-lanpaint-capability-diagnostics" data-capability-status="${escapeAttr(route.route_state)}">
+    <summary class="neo-lanpaint-diagnostics-head"><strong>LanPaint Readiness</strong><span class="neo-state-pill ${escapeAttr(policy.tone)}">${escapeHtml(policy.label)}</span></summary>
+    <p class="neo-muted">${escapeHtml(readyText)}</p>
     ${packBadges ? `<div class="neo-badge-row">${packBadges}</div>` : ''}
     ${issueItems ? `<ul class="neo-lanpaint-diagnostic-list">${issueItems}</ul>` : ''}
     ${fixes ? `<details><summary>How to fix</summary><ol class="neo-lanpaint-remediation-list">${fixes}</ol></details>` : ''}
-    <div class="neo-badge-row"><span class="neo-badge">Backend check: ${capability.checked ? 'complete' : 'not checked'}</span><span class="neo-badge">LoRA: ${capability.snapshot?.lora?.supported === true ? (route.policy?.lora_mode === 'model_only' ? 'model-only ready' : 'model + CLIP ready') : 'base route only / unavailable'}</span></div>
+    <div class="neo-badge-row"><span class="neo-badge">Backend: ${capability.checked ? 'ready' : 'not checked'}</span><span class="neo-badge">LoRA: ${capability.snapshot?.lora?.supported === true ? 'ready' : 'unavailable'}</span></div>
+  </details>`;
+}
+
+const IMAGE_KREA2_ANYPAINT_CAPABILITY_STATUS = Object.freeze({
+  ready_for_integration: { label: 'Engine ready', tone: 'success' },
+  blocked_missing_nodes: { label: 'Missing nodes', tone: 'danger' },
+  blocked_missing_adapter: { label: 'Missing adapter', tone: 'danger' },
+  blocked_missing_components: { label: 'Missing components', tone: 'danger' },
+  blocked_backend_unavailable: { label: 'Backend unavailable', tone: 'danger' },
+});
+
+function imageKrea2AnyPaintCapabilityReport() {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const mode = activeImageMode();
+  if (family !== 'krea2_turbo' || loader !== 'diffusion_model' || !['inpaint', 'outpaint'].includes(mode)) return null;
+  const caps = imageLanpaintBackendCapabilities(activeImageProfile());
+  const report = caps?.krea2_anypaint_capabilities;
+  return report && typeof report === 'object' ? report : {
+    schema_id: 'neo.image.krea2_anypaint_capabilities.v1',
+    phase: 'phase4_standalone_compiler_ready',
+    status: 'blocked_backend_unavailable',
+    checked: false,
+    capability_ready: false,
+    execution_enabled: false,
+    blockers: [{ code: 'capability_report_unavailable', message: 'No Krea 2 AnyPaint capability report is available for the selected ComfyUI profile.' }],
+    warnings: [],
+    remediation: ['Connect/Test the selected ComfyUI profile to refresh /object_info.'],
+  };
+}
+
+function renderKrea2AnyPaintCapabilityDiagnostics(engine = null) {
+  const selectedEngine = String(engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  if (!['krea2_anypaint', 'anypaint'].includes(selectedEngine)) return '';
+  const report = imageKrea2AnyPaintCapabilityReport();
+  if (!report) return '';
+  const policy = IMAGE_KREA2_ANYPAINT_CAPABILITY_STATUS[String(report.status || '')] || IMAGE_KREA2_ANYPAINT_CAPABILITY_STATUS.blocked_missing_components;
+  const blockers = Array.isArray(report.blockers) ? report.blockers : [];
+  const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+  const remediation = Array.isArray(report.remediation) ? report.remediation : [];
+  const nodePack = report.node_pack && typeof report.node_pack === 'object' ? report.node_pack : {};
+  const nodeChecks = nodePack.nodes && typeof nodePack.nodes === 'object' ? nodePack.nodes : {};
+  const adapter = report.adapter && typeof report.adapter === 'object' ? report.adapter : {};
+  const components = report.components && typeof report.components === 'object' ? report.components : {};
+  const nodeBadges = Object.entries(nodeChecks).map(([nodeName, check]) => `<span class="neo-badge ${check?.signature_ok ? 'success' : 'warning'}">${escapeHtml(nodeName)}: ${check?.signature_ok ? 'ready' : (check?.present ? 'signature mismatch' : 'missing')}</span>`).join('');
+  const issues = [...blockers, ...warnings].map((item) => {
+    const presented = imageMaskedReadinessIssuePresentation(item, 'krea2_anypaint');
+    return `<li><strong>${escapeHtml(presented.label)}</strong> — ${escapeHtml(presented.message)}</li>`;
+  }).join('');
+  const fixes = remediation.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const adapterName = String(adapter.required_basename || 'krea2_anypaint_rank32.safetensors');
+  const adapterReady = adapter.available === true;
+  const encoderCount = Array.isArray(components.qwen3vl_4b_candidates) ? components.qwen3vl_4b_candidates.length : 0;
+  const vaeCount = Array.isArray(components.qwen_image_vae_candidates) ? components.qwen_image_vae_candidates.length : 0;
+  const modelCount = Number(components.diffusion_model_catalog_count || 0);
+  const readyText = report.capability_ready
+    ? 'Krea 2 AnyPaint is ready with the current backend and selected model components.'
+    : 'AnyPaint cannot be selected until the readiness blockers are resolved. Native Inpaint and LanPaint remain unchanged.';
+  return `<details class="neo-lanpaint-diagnostics ${escapeAttr(policy.tone)}" data-testid="image-krea2-anypaint-capability-diagnostics" data-capability-status="${escapeAttr(report.status || '')}">
+    <summary class="neo-lanpaint-diagnostics-head"><strong>Krea 2 AnyPaint Readiness</strong><span class="neo-state-pill ${escapeAttr(policy.tone)}">${escapeHtml(policy.label)}</span></summary>
+    <p class="neo-muted">${escapeHtml(readyText)}</p>
+    <div class="neo-badge-row"><span class="neo-badge ${adapterReady ? 'success' : 'warning'}">Adapter: ${escapeHtml(adapterReady ? adapterName : 'missing')}</span><span class="neo-badge ${encoderCount ? 'success' : 'warning'}">Qwen3-VL-4B: ${encoderCount ? `${encoderCount} candidate${encoderCount === 1 ? '' : 's'}` : 'missing'}</span><span class="neo-badge ${vaeCount ? 'success' : 'warning'}">Qwen Image VAE: ${vaeCount ? `${vaeCount} candidate${vaeCount === 1 ? '' : 's'}` : 'missing'}</span><span class="neo-badge ${modelCount ? 'success' : 'warning'}">Diffusion catalog: ${modelCount}</span></div>
+    ${nodeBadges ? `<div class="neo-badge-row">${nodeBadges}</div>` : ''}
+    ${issues ? `<ul class="neo-lanpaint-diagnostic-list">${issues}</ul>` : ''}
+    ${fixes ? `<details><summary>How to prepare AnyPaint</summary><ol class="neo-lanpaint-remediation-list">${fixes}</ol></details>` : ''}
+  </details>`;
+}
+
+function imageKrea2AnyPaintActive(p = {}) {
+  const mode = activeImageMode();
+  const engine = String(p.masked_edit_engine || p.inpaint_engine || state.imageDraft.inpaint_engine || 'native').trim().toLowerCase();
+  return ['inpaint', 'outpaint'].includes(mode) && ['krea2_anypaint', 'anypaint'].includes(engine);
+}
+
+function imageKrea2AnyPaintAdapterOptions() {
+  const report = imageKrea2AnyPaintCapabilityReport();
+  const adapter = report?.adapter && typeof report.adapter === 'object' ? report.adapter : {};
+  const candidates = Array.isArray(adapter.candidates) ? adapter.candidates.filter(Boolean).map((item) => String(item)) : [];
+  const fallback = String(adapter.required_basename || 'krea2_anypaint_rank32.safetensors');
+  const rows = candidates.map((item) => ({ id: item, label: item }));
+  if (!rows.length) rows.push({ id: fallback, label: `${fallback} — not detected`, disabled: true });
+  return rows;
+}
+
+function imageKrea2AnyPaintSelectedAdapter(p = {}) {
+  const rows = imageKrea2AnyPaintAdapterOptions();
+  const requested = String(state.imageDraft.krea2_anypaint_adapter || p.krea2_anypaint_adapter || '').trim();
+  if (requested && rows.some((row) => row.id === requested && !row.disabled)) return requested;
+  return String(rows.find((row) => !row.disabled)?.id || requested || rows[0]?.id || 'krea2_anypaint_rank32.safetensors');
+}
+
+function renderKrea2AnyPaintControlPanel(p = {}) {
+  if (!imageKrea2AnyPaintActive(p)) return '';
+  const report = imageKrea2AnyPaintCapabilityReport();
+  const ready = report?.capability_ready === true && report?.execution_enabled === true;
+  const adapterOptions = imageKrea2AnyPaintAdapterOptions();
+  const adapterValue = imageKrea2AnyPaintSelectedAdapter(p);
+  const boundary = Number(state.imageDraft.krea2_anypaint_boundary_redraw_px ?? p.krea2_anypaint_boundary_redraw_px ?? 32);
+  const referenceEdge = Number(state.imageDraft.krea2_anypaint_reference_max_edge ?? p.krea2_anypaint_reference_max_edge ?? 384);
+  const vlmReference = (state.imageDraft.krea2_anypaint_vlm_reference ?? p.krea2_anypaint_vlm_reference ?? true) !== false;
+  const kvCache = (state.imageDraft.krea2_anypaint_kv_cache ?? p.krea2_anypaint_kv_cache ?? true) !== false;
+  const loraStrength = Number(state.imageDraft.krea2_anypaint_lora_strength ?? p.krea2_anypaint_lora_strength ?? 1.0);
+  const disabled = ready ? '' : 'disabled aria-disabled="true"';
+  return `<section class="neo-lanpaint-panel neo-anypaint-panel ${ready ? '' : 'is-gated'}" data-testid="image-krea2-anypaint-controls" data-ready="${ready ? 'true' : 'false'}">
+    <header class="neo-lanpaint-panel-head">
+      <div><strong>Krea 2 AnyPaint Controls</strong><p class="neo-muted">Dedicated controls for AnyPaint's functional adapter, seam redraw band, semantic reference, and model patch. Native Mask Grow/Blur do not apply to this engine.</p></div>
+      <div class="neo-badge-row"><span class="neo-badge">Standalone compiler</span><span class="neo-state-pill ${ready ? 'success' : 'danger'}">${ready ? 'Ready' : 'Blocked'}</span></div>
+    </header>
+    <div class="neo-lanpaint-grid">
+      <fieldset class="neo-lanpaint-control-group"><legend>AnyPaint Adapter</legend>
+        <label>Adapter${optionSelect('imageKrea2AnyPaintAdapter', adapterOptions, adapterValue).replace('<select ', `<select ${disabled} `)}</label>
+        <label>LoRA Strength<input id="imageKrea2AnyPaintLoraStrength" type="number" step="0.05" value="${escapeAttr(loraStrength)}" ${disabled}></label>
+        <p class="neo-muted">This is the functional AnyPaint LoRA loaded after normal user Krea 2 LoRAs and before Krea2AnyPaintModelPatch. Upstream recommended strength is 1.0.</p>
+      </fieldset>
+      <fieldset class="neo-lanpaint-control-group"><legend>Boundary Blend</legend>
+        <label>Boundary Redraw<input id="imageKrea2AnyPaintBoundaryRedraw" type="number" min="0" max="256" step="1" value="${escapeAttr(boundary)}" ${disabled}></label>
+        <p class="neo-muted">Pixels around the generated-mask boundary that AnyPaint is allowed to redraw for a smoother transition. Upstream default: 32 px. Set 0 only when a hard boundary is intentional.</p>
+      </fieldset>
+      <fieldset class="neo-lanpaint-control-group"><legend>Reference Conditioning</legend>
+        <label>Reference Max Edge<input id="imageKrea2AnyPaintReferenceMaxEdge" type="number" min="128" max="768" step="16" value="${escapeAttr(referenceEdge)}" ${disabled}></label>
+        <label class="neo-check-row"><input id="imageKrea2AnyPaintVlmReference" type="checkbox" ${vlmReference ? 'checked' : ''} ${disabled}> VLM Reference</label>
+        <label class="neo-check-row"><input id="imageKrea2AnyPaintKvCache" type="checkbox" ${kvCache ? 'checked' : ''} ${disabled}> Reference K/V Cache</label>
+        <p class="neo-muted">Reference Max Edge controls the semantic reference resolution. VLM Reference feeds that image into Qwen3-VL. K/V Cache is the upstream speed/VRAM optimization and is not a quality-strength control.</p>
+      </fieldset>
+    </div>
+    <footer class="neo-lanpaint-panel-foot"><span class="neo-badge">Mask owner: Krea2AnyPaintPrepare</span><span class="neo-badge">Final source composite: none</span><span class="neo-muted">White mask pixels generate; black pixels preserve. Outpaint padding is passed directly to AnyPaint Prepare.</span></footer>
   </section>`;
 }
 
@@ -39333,6 +40508,32 @@ function renderImageSourceMaskWorkflowCard({ hasSource = false, hasMask = false 
   </div>`;
 }
 
+function renderKrea2IdentityRefBoostMaskCard() {
+  if (!krea2IdentityEditActive()) return '';
+  const targetSourceReady = Boolean(krea2IdentityRefBoostMaskSourceUrl());
+  const hasMask = krea2RefBoostMaskReady();
+  const targetLabel = krea2IdentityRefBoostMaskTargetLabel();
+  const buttonLabel = hasMask ? 'Edit Ref Mask' : 'Paint Ref Mask';
+  return `<div class="neo-source-mask-workflow neo-krea2-ref-boost-mask" data-testid="krea2-identity-ref-boost-mask">
+    <div class="neo-source-mask-workflow-head">
+      <strong>Reference Attention Mask</strong>
+      <span class="neo-badge ${hasMask ? 'success' : ''}">${hasMask ? 'Active' : 'Optional'}</span>
+    </div>
+    <div class="neo-source-mask-steps" aria-label="Krea 2 reference-attention mask readiness">
+      <span class="neo-source-step ${targetSourceReady ? 'is-ready' : 'is-blocked'}"><strong>1</strong> Target ${escapeHtml(targetSourceReady ? targetLabel : 'missing')}</span>
+      <span class="neo-source-step ${hasMask ? 'is-ready' : 'is-info'}"><strong>2</strong> ref_boost_mask ${escapeHtml(hasMask ? 'ready' : 'not set')}</span>
+    </div>
+    <p class="neo-muted">Optional upstream <strong>ref_boost_mask</strong> for <strong>Krea2EditModelPatch</strong>. Paint white over the part of ${escapeHtml(targetLabel)} that should receive stronger identity/reference attention. This is separate from the Inpaint mask and never controls which output pixels are allowed to change. Neo clears this mask whenever the relevant reference image changes so dimensions stay aligned.</p>
+    ${hasMask ? `<div class="neo-source-meta neo-mask-inline-status"><span class="neo-badge success">Mask: ready</span><span class="neo-badge">${escapeHtml(krea2RefBoostMaskLabel())}</span></div>` : ''}
+    <div class="neo-source-actions neo-source-actions-grid">
+      <button class="neo-btn primary" id="imageOpenKrea2RefBoostMaskEditorBtn" type="button" ${targetSourceReady ? '' : 'disabled'}>${buttonLabel}</button>
+      <label class="neo-source-file-label neo-file-action ${targetSourceReady ? '' : 'is-disabled'}">Upload Ref Mask
+        <input id="imageKrea2RefBoostMaskFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.png,.jpg,.jpeg,.webp,.bmp" ${targetSourceReady ? '' : 'disabled'}>
+      </label>
+      <button class="neo-btn secondary" id="imageClearKrea2RefBoostMaskBtn" type="button" ${hasMask ? '' : 'disabled'}>Clear Ref Mask</button>
+    </div>
+  </div>`;
+}
 
 function renderImageSourcePanelBody() {
   const hasSource = Boolean(state.imageDraft.source_image || state.imageDraft.source_image_url);
@@ -39358,8 +40559,9 @@ function renderImageSourcePanelBody() {
     ? `<div class="neo-source-meta neo-mask-inline-status"><span class="neo-badge ${hasVisibilityMask ? 'success' : ''}">Hidden areas: ${hasVisibilityMask ? 'active' : 'none'}</span>${hasVisibilityMask ? `<span class="neo-badge">${escapeHtml(visibilityMask.name || 'Visibility mask')}</span>` : ''}</div>`
     : '';
   const maskWorkflow = isInpaint ? renderImageSourceMaskWorkflowCard({ hasSource, hasMask }) : '';
+  const kreaRefBoostMask = krea2IdentityEditActive() ? renderKrea2IdentityRefBoostMaskCard() : '';
   const maskActions = isInpaint
-    ? `<button class="neo-btn primary" id="imageOpenMaskEditorBtn" type="button" ${hasSource ? '' : 'disabled'} title="${hasSource ? 'Paint or refine the inpaint mask on this source image' : 'Select a source image before painting a mask'}">Edit Mask</button><button class="neo-btn secondary" id="imageClearMaskBtn" type="button" ${hasMask ? '' : 'disabled'} title="Clear the saved mask attached to this source image">Clear Mask</button>`
+    ? `<button class="neo-btn primary" id="imageOpenMaskEditorBtn" type="button" ${hasSource ? '' : 'disabled'} title="${hasSource ? 'Paint or refine the inpaint mask on this source image' : 'Select a source image before painting a mask'}">Edit Mask</button><label class="neo-source-file-label neo-file-action ${hasSource ? '' : 'is-disabled'}">Upload Mask<input id="imageMaskFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.png,.jpg,.jpeg,.webp,.bmp" ${hasSource ? '' : 'disabled'}></label><button class="neo-btn secondary" id="imageClearMaskBtn" type="button" ${hasMask ? '' : 'disabled'} title="Clear the saved mask attached to this source image">Clear Mask</button>`
     : '';
   const visibilityActions = visibilitySupported
     ? `<button class="neo-btn secondary" id="imageOpenSourceVisibilityMaskBtn" type="button" ${hasSource ? '' : 'disabled'} title="Paint over source details that should be hidden before Comfy receives the image">${hasVisibilityMask ? 'Edit Hidden Areas' : 'Hide Parts'}</button><button class="neo-btn ghost" id="imageClearSourceVisibilityMaskBtn" type="button" ${hasVisibilityMask ? '' : 'disabled'}>Clear Hidden Mask</button>`
@@ -39418,6 +40620,7 @@ function renderImageSourcePanelBody() {
         ${visibilitySupported ? '<p class="neo-muted">Hidden-area masks are separate from Inpaint masks. Paint white over content to remove it from the submitted source; Neo replaces those pixels with black before Comfy encodes or stitches the image.</p>' : ''}
         ${isOutpaint ? '<p class="neo-muted">Use the same source image as the center canvas. Click <strong>Outpaint Canvas</strong> to expand sides.</p>' : ''}
         ${qwenRefs}
+        ${kreaRefBoostMask}
         ${imagePreparation}
         ${renderQwenStitchSection()}
       </div>
@@ -39568,6 +40771,9 @@ function renderImageParameterField(field, p) {
     const select = optionSelect(id, options, value);
     return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span>${select}${required}${helpText}</label>`;
   }
+  if (field.control_type === 'textarea') {
+    return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><textarea id="${id}" rows="4" aria-label="${escapeAttr(label)}" spellcheck="false">${escapeHtml(value)}</textarea>${required}${helpText}</label>`;
+  }
   const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.01' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength'].includes(fieldId) ? '0.1' : '1'));
   const inputType = field.control_type === 'slider' || field.control_type === 'number' ? 'number' : 'text';
   const kreaRange = ['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId)
@@ -39678,16 +40884,23 @@ function activeKrea2EditParameterFields() {
 function renderKrea2EditParameterRows(p = {}) {
   const fields = activeKrea2EditParameterFields();
   if (!fields.length) return '';
-  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
-  if (!fieldHtml) return '';
   const active = krea2IdentityEditActive();
+  const engineFields = fields.filter((field) => field.field_id === 'krea2_edit_engine');
+  const identityGridFields = fields.filter((field) => !['krea2_edit_engine', 'krea2_identity_edit_system_prompt'].includes(field.field_id));
+  const identityWideFields = fields.filter((field) => field.field_id === 'krea2_identity_edit_system_prompt');
+  const engineHtml = engineFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
+  const identityGridHtml = active ? identityGridFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
+  const identityWideHtml = active ? identityWideFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
+  if (!engineHtml && !identityGridHtml && !identityWideHtml) return '';
   const badges = [
     active ? 'Identity Edit v1.2' : 'Neo Native Adapter',
     state.imageDraft.loader === 'gguf' ? 'GGUF transformer' : 'Safetensors / Components',
   ];
   return `<div class="neo-parameter-profile-card neo-krea2-edit-card" data-testid="krea2-edit-parameters">
-    <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Neo's existing source adapter or the training-matched Krea 2 Identity Edit v1.2 workflow.</p></div>${badgeRow(badges)}</div>
-    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+    <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Native editing or Krea 2 Identity Edit for stronger identity-preserving image edits.</p></div>${badgeRow(badges)}</div>
+    ${engineHtml ? `<div class="neo-parameter-row neo-krea2-edit-engine-row">${engineHtml}</div>` : ''}
+    ${identityGridHtml ? `<div class="neo-krea2-identity-grid" data-testid="krea2-identity-edit-grid">${identityGridHtml}</div>` : ''}
+    ${identityWideHtml ? `<div class="neo-krea2-identity-wide" data-testid="krea2-identity-edit-wide-controls">${identityWideHtml}</div>` : ''}
   </div>`;
 }
 
@@ -39852,9 +41065,32 @@ function shouldShowProfileField(fieldId) {
   return routeUsesParameterField(fieldId) && !activeParameterProfileHiddenFields().has(fieldId);
 }
 
+function renderImageImg2ImgSourceResolutionRow(p = {}) {
+  if (!imageSupportsImg2ImgSourceResolutionField()) return '';
+  const policy = imageImg2ImgSourceResolutionPolicy({ ...state.imageDraft, ...p });
+  const mode = policy.mode || 'keep_source_resolution';
+  const source = policy.source_size || {};
+  const sourceMeta = source.width && source.height ? `Original: ${source.width}×${source.height}` : 'Original size unknown until the source preview loads';
+  return `<div class="neo-parameter-row neo-img2img-source-resolution-row" data-testid="image-img2img-source-resolution-controls">
+    <label>Source Resolution${optionSelect('imageImg2ImgSourceResolutionMode', imageImg2ImgSourceResolutionOptions(), mode)}</label>
+    <span class="neo-muted neo-param-note"><strong>${escapeHtml(imageImg2ImgSourceResolutionSummary(policy))}</strong><br>${escapeHtml(sourceMeta)} · ${escapeHtml(policy.reason || '')}</span>
+  </div>`;
+}
+
 function renderImageOutpaintSourceResolutionRow(p = {}) {
   if (!imageNeedsOutpaintCanvas() || !shouldShowProfileField('outpaint_padding')) return '';
   const policy = imageOutpaintSourceResolutionPolicy({ ...state.imageDraft, ...p });
+  if (policy.anypaint_owned === true) {
+    const contract = imageKrea2AnyPaintCanvasContract({ ...state.imageDraft, ...p });
+    const source = contract.source_size || {};
+    const finalSize = contract.final_size || {};
+    const delta = contract.alignment_delta || {};
+    const sourceText = source.known ? `${source.width}×${source.height}` : `source size pending · fallback ${source.width}×${source.height}`;
+    return `<div class="neo-parameter-row neo-outpaint-source-resolution-row" data-testid="image-outpaint-source-resolution-controls" data-anypaint-owned="true">
+      <span class="neo-badge">AnyPaint Native Source</span>
+      <span class="neo-muted neo-param-note"><strong>${escapeHtml(sourceText)} → ${escapeHtml(`${finalSize.width}×${finalSize.height}`)} aligned canvas</strong><br>No source resize or working copy. AnyPaint aligns the final canvas to 16 px and places any extra alignment pixels on the right/bottom${delta.right || delta.bottom ? ` (+${delta.right || 0}px right, +${delta.bottom || 0}px bottom)` : ''}.</span>
+    </div>`;
+  }
   const mode = policy.mode || 'auto';
   const maxLongEdge = Number(state.imageDraft.outpaint_source_max_long_edge || p.outpaint_source_max_long_edge || policy.max_long_edge || 1536);
   const maxMegapixels = Number(state.imageDraft.outpaint_source_max_megapixels || p.outpaint_source_max_megapixels || policy.max_megapixels || 4);
@@ -39886,9 +41122,12 @@ function renderImageInpaintVisibilityRow(p = {}) {
   const cropStitchEnabled = imageMaskedCropStitchEnabled(engineValue);
   const cropDiag = imageMaskedCropStitchDiagnostics(route);
   const modeLabel = activeImageMode() === 'outpaint' ? 'Outpaint' : 'Inpaint';
+  const anypaintEngine = ['krea2_anypaint', 'anypaint'].includes(String(engineValue || '').toLowerCase());
   const cropStitchNote = engineValue === 'lanpaint'
     ? 'Uses LanPaint’s existing internal crop/context/restore graph.'
-    : (cropDiag.available ? 'Uses ComfyUI-Inpaint-CropAndStitch.' : `Requires ${cropDiag.provider}${cropDiag.missing.length ? ` (${cropDiag.missing.join(', ')})` : ''}.`);
+    : (anypaintEngine
+      ? 'AnyPaint owns mask/canvas preparation, latent preservation, and the final decode path. Crop & Stitch is mutually exclusive and disabled for this engine.'
+      : (cropDiag.available ? 'Uses ComfyUI-Inpaint-CropAndStitch.' : `Requires ${cropDiag.provider}${cropDiag.missing.length ? ` (${cropDiag.missing.join(', ')})` : ''}.`));
   const contextLatentCard = fluxKontextActive ? `<div class="neo-context-latent-card" data-testid="image-context-latent-controls">
     <div class="neo-ui-section-head"><div><strong>RMBG Context + Latent Assist</strong><p class="neo-muted">Experimental Flux Kontext route. Reuses Image 1 latent context and the existing inpaint mask through the live Reference Latent Mask node.</p></div><span class="neo-badge">Live-gated</span></div>
     <label class="neo-check-row"><input id="imageContextLatentEnabled" type="checkbox" ${state.imageDraft.context_latent_enabled ? 'checked' : ''}> Enable Reference Latent Mask</label>
@@ -39896,14 +41135,14 @@ function renderImageInpaintVisibilityRow(p = {}) {
     <p class="neo-muted">The run is blocked if the exact live AILab_ReferenceLatentMask contract or an inpaint mask is unavailable. No fallback route is used.</p>
   </div>` : '';
   const routeNote = engineVisible
-    ? `${route.provider_label} · ${route.family_label} · ${route.loader_label}. Choose Native or LanPaint; Crop & Stitch is an independent optional wrapper.`
+    ? `${route.provider_label} · ${route.family_label} · ${route.loader_label}. Choose Native, Krea 2 AnyPaint when available, or LanPaint. AnyPaint now submits its own prepare/encode/model-patch graph; Crop & Stitch remains independent for Native/LanPaint only.`
     : 'Shown only when the active route profile exposes masked/not-masked area controls.';
   return `<div class="neo-parameter-row neo-inpaint-visibility-row" data-testid="image-inpaint-visibility-controls">
-    ${engineVisible ? `<label>${escapeHtml(modeLabel)} Engine${optionSelect('imageInpaintEngine', imageInpaintEngineOptions(route), engineValue)}</label><label class="neo-check-row"><input id="imageCropStitchEnabled" type="checkbox" ${cropStitchEnabled ? 'checked' : ''}> Crop & Stitch</label><span class="neo-muted neo-param-note">${escapeHtml(cropStitchNote)}</span>` : ''}
+    ${engineVisible ? `<label>${escapeHtml(modeLabel)} Engine${optionSelect('imageInpaintEngine', imageInpaintEngineOptions(route), engineValue)}</label><label class="neo-check-row"><input id="imageCropStitchEnabled" type="checkbox" ${cropStitchEnabled ? 'checked' : ''} ${anypaintEngine ? 'disabled aria-disabled="true"' : ''}> Crop & Stitch</label><span class="neo-muted neo-param-note">${escapeHtml(cropStitchNote)}</span>` : ''}
     ${targetVisible ? `<label>Inpaint Target${optionSelect('imageParam_inpaint_selection_target', imageOptionsForField('inpaint_selection_target'), targetValue)}</label>` : ''}
     ${contextVisible ? `<label>Inpaint Context${optionSelect('imageParam_inpaint_context_mode', imageOptionsForField('inpaint_context_mode'), contextValue)}</label>` : ''}
     <span class="neo-muted neo-param-note">${escapeHtml(routeNote)}</span>
-  </div>${renderLanpaintCapabilityDiagnostics(route)}${renderLanpaintControlPanel(p)}${contextLatentCard}`;
+  </div>${renderLanpaintCapabilityDiagnostics(route, engineValue)}${renderKrea2AnyPaintCapabilityDiagnostics(engineValue)}${renderKrea2AnyPaintControlPanel(p)}${renderLanpaintControlPanel(p)}${contextLatentCard}`;
 }
 
 function checkpointModelValue(p = {}) {
@@ -40087,7 +41326,8 @@ function imageFamilyCompatibilityEntry({ engine = null, family = '', loader = ''
   const resolvedFamily = String(family || state.imageDraft.family || imageCommandValue('family') || 'sdxl').toLowerCase();
   const resolvedLoader = String(loader || state.imageDraft.loader || imageCommandValue('loader') || defaultLoaderForFamily(resolvedFamily) || 'checkpoint').toLowerCase();
   const resolvedMode = String(mode || uiModeToRouteMode(activeImageMode()) || 'txt2img').toLowerCase();
-  const resolvedEngine = String(engine || ((['inpaint', 'outpaint'].includes(resolvedMode) ? (state.imageDraft.inpaint_engine || 'native') : 'native'))).toLowerCase() === 'lanpaint' ? 'lanpaint' : 'native';
+  const rawEngine = String(engine || ((['inpaint', 'outpaint'].includes(resolvedMode) ? (state.imageDraft.inpaint_engine || 'native') : 'native'))).toLowerCase();
+  const resolvedEngine = rawEngine === 'lanpaint' ? 'lanpaint' : (['krea2_anypaint', 'anypaint'].includes(rawEngine) ? 'krea2_anypaint' : 'native');
   return matrix.entries[`${resolvedFamily}:${resolvedLoader}:${resolvedMode}:${resolvedEngine}`] || null;
 }
 
@@ -40122,6 +41362,9 @@ function imageRes4lyfSamplerAvailability(p = {}) {
   const maskedEngine = String(state.imageDraft.inpaint_engine || p.inpaint_engine || 'native').toLowerCase();
   if (['inpaint', 'outpaint'].includes(mode) && maskedEngine === 'lanpaint') {
     return { available: false, installed: true, reason: 'LanPaint owns a custom sampler graph and is not replaced by ClownsharKSampler in this phase.' };
+  }
+  if (['inpaint', 'outpaint'].includes(mode) && ['krea2_anypaint', 'anypaint'].includes(maskedEngine)) {
+    return { available: false, installed: true, reason: 'Krea 2 AnyPaint owns its sampler/model-patch graph. Alternate sampler backends stay disabled for this engine.' };
   }
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').toLowerCase();
   const compat = imageFamilyCompatibilityFeature('res4lyf_clownshark', { engine: 'native' });
@@ -40196,6 +41439,9 @@ function imageMultiKSamplerAvailability(p = {}) {
   if (compat) return { available: compat.available === true, reason: compat.reason || (compat.available ? 'Compatible core-KSampler route.' : 'Multi-KSampler is gated for this route.'), compatibility: compat };
   if (['inpaint', 'outpaint'].includes(mode) && maskedEngine === 'lanpaint') {
     return { available: false, reason: 'LanPaint uses a route-native sampler graph. Multi-KSampler support for LanPaint will use a dedicated adapter instead of replacing that graph.' };
+  }
+  if (['inpaint', 'outpaint'].includes(mode) && ['krea2_anypaint', 'anypaint'].includes(maskedEngine)) {
+    return { available: false, reason: 'Krea 2 AnyPaint already owns its latent/noise-mask sampler graph. Multi-KSampler stays gated for this engine.' };
   }
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').toLowerCase();
   if (family === 'ideogram4') return { available: false, reason: 'Ideogram 4 uses a custom advanced sampler graph, so direct KSampler refinement is not enabled for this route yet.' };
@@ -40487,11 +41733,12 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
         <span class="neo-muted neo-param-note">${escapeHtml(imageLatentCaptureHelp(p.latent_capture_mode || 'off'))}</span>
       </div>` : ''}
       ${renderImageInpaintVisibilityRow(p)}
-      ${(shouldShowProfileField('mask_grow') || shouldShowProfileField('mask_blur')) ? `<div class="neo-parameter-row neo-inpaint-mask-row">
+      ${(!imageKrea2AnyPaintActive(p) && (shouldShowProfileField('mask_grow') || shouldShowProfileField('mask_blur'))) ? `<div class="neo-parameter-row neo-inpaint-mask-row">
         ${shouldShowProfileField('mask_grow') ? `<label>Mask Grow<input id="imageMaskGrow" type="number" min="0" max="128" step="1" value="${p.mask_grow ?? 6}" aria-label="Mask grow"></label>` : ''}
         ${shouldShowProfileField('mask_blur') ? `<label>Mask Blur<input id="imageMaskBlur" type="number" min="0" max="128" step="1" value="${p.mask_blur ?? 0}" aria-label="Mask blur"></label>` : ''}
         <span class="neo-muted neo-param-note">Mask tuning stays profile-owned and only appears on inpaint routes that declare mask growth/blur fields.</span>
       </div>` : ''}
+      ${renderImageImg2ImgSourceResolutionRow(p)}
       ${renderImageOutpaintSourceResolutionRow(p)}
       ${shouldShowProfileField('outpaint_padding') ? `<div class="neo-parameter-row neo-outpaint-row">
         <div class="neo-outpaint-padding-grid" data-testid="outpaint-padding-grid">
@@ -40500,7 +41747,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
           <label>Top<input id="imageOutpaintTop" type="number" min="0" step="8" value="${p.outpaint_top || 0}" aria-label="Outpaint top"></label>
           <label>Bottom<input id="imageOutpaintBottom" type="number" min="0" step="8" value="${p.outpaint_bottom || 0}" aria-label="Outpaint bottom"></label>
         </div>
-        <label class="neo-outpaint-feather-field">Feather<input id="imageOutpaintFeather" type="number" min="0" max="256" step="1" value="${p.outpaint_feather ?? 32}" aria-label="Outpaint feather"></label>
+        ${imageKrea2AnyPaintActive(p) ? '<span class="neo-muted neo-param-note">AnyPaint ignores Native outpaint feathering; use Boundary Redraw in AnyPaint Controls for edge blending.</span>' : `<label class="neo-outpaint-feather-field">Feather<input id="imageOutpaintFeather" type="number" min="0" max="256" step="1" value="${p.outpaint_feather ?? 32}" aria-label="Outpaint feather"></label>`}
       </div>` : ''}
     </div>${renderProfileCapabilitySummary()}${expert}`;
   }
@@ -52506,8 +53753,7 @@ function videoParameterPanelHtml() {
     renderLine('Models', ['wan_model_mode', 'model_name', 'clip_name', 'clip_name2', 'vae_name', 'audio_vae_name']),
     renderLine('WAN Dual Noise', ['high_noise_model', 'low_noise_model']),
     renderLine('Rapid AIO GGUF', ['rapid_aio_model', 'rapid_aio_text_encoder', 'rapid_aio_vae']),
-    renderLine('Video LoRA / LightX2V', ['enable_video_lora', 'video_lora_mode', 'video_lora_model', 'video_lora_strength', 'video_lora_target', 'enable_lightx2v', 'high_noise_lora', 'low_noise_lora', 'high_noise_lora_strength', 'low_noise_lora_strength'], 'video-lora-vg8'),
-    renderLine('MiniMax H3', ['h3_keyframe_role', 'h3_ref_image_size', 'h3_shift_video', 'h3_shift_audio', 'h3_turbo_enabled', 'h3_turbo_lora', 'h3_turbo_strength', 'h3_acceleration_mode', 'h3_spectrum_blend', 'h3_block_cache_threshold'], 'video-h3-v1'),
+    renderLine('MiniMax H3', ['h3_keyframe_role', 'h3_ref_image_size', 'h3_shift_video', 'h3_shift_audio', 'h3_acceleration_mode', 'h3_spectrum_blend', 'h3_block_cache_threshold'], 'video-h3-v1'),
     renderLine('Profile + Size', ['vram_profile', 'width', 'height']),
     renderLine('Timing', ['frames', 'fps']),
     renderLine('Sampling', ['steps', 'guidance', 'split_step', 'seed'], 'sampling-a'),
@@ -52519,7 +53765,7 @@ function videoParameterPanelHtml() {
   const warningHtml = profile.warnings.length ? `<div class="neo-ui-card warning"><strong>Profile notes</strong>${NeoUI.metaList(profile.warnings)}</div>` : '';
   const vramNotes = profile.vram_profile.notes || [];
   const h3HelperHtml = (state.videoDraft.family || '') === 'minimax_h3'
-    ? `<div class="neo-ui-card compact" data-testid="video-h3-helper-card"><strong>H3 Accelerator</strong><p>MiniMax H3 can use an optional Turbo LoRA plus one accelerator at a time. Spectrum and BlockCache stay mutually exclusive by design.</p><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoApplyH3TurboPresetBtn">Apply H3 Turbo Preset</button></div></div>`
+    ? `<div class="neo-ui-card compact" data-testid="video-h3-helper-card"><strong>H3 Acceleration</strong><p>Turbo / LightX2V is now configured in <b>Assets → Video LoRA Stack</b> as role <code>Speed / Turbo</code>. Spectrum and BlockCache remain separate H3 acceleration controls and stay mutually exclusive.</p></div>`
     : '';
   return `<div class="neo-parameter-stack neo-video-parameter-stack" data-testid="video-parameter-stack" data-schema="neo.video.parameter_profile.v3">
     <div class="neo-ui-card neo-video-profile-summary" data-testid="video-parameter-profile-summary"><strong>Parameters</strong><p>Select backend-loaded models, generation size, timing, sampling, decode safety, and output settings.</p>${NeoUI.badgeRow([`Backend: ${videoBackendConnected() ? 'connected' : (videoBackendCanProbe() ? 'not probed' : 'disconnected')}`, `VRAM: ${profile.vram_profile.label}`, `Target: ${profile.vram_profile.target}`, `Batch: 1`])}${vramNotes.length ? NeoUI.metaList(vramNotes) : ''}</div>
@@ -52975,6 +54221,18 @@ function videoInspectorReplayHtml(inspector = {}) {
   return `<div class="neo-video-inspector-replay" data-testid="video-output-inspector-replay">${badgeRow(statusBadges)}${issues.length ? `<div class="neo-warning-panel">${NeoUI.metaList(issues)}</div>` : ''}<p class="neo-muted">${escapeHtml(validation.execution_policy || 'Loading stages the recipe only; Generate remains separately gated.')}</p><div class="neo-ui-toolbar"><button type="button" class="neo-btn primary" id="videoInspectorLoadRecipeBtn" ${loadDisabled}>Load Recipe into Generation</button><button type="button" class="neo-btn secondary" id="videoLoadReplayMetadataBtn">Refresh Replay Metadata</button><button type="button" class="neo-btn secondary" id="videoCopyReplayBtn" ${Object.keys(payload).length ? '' : 'disabled'}>Copy Replay JSON</button><button type="button" class="neo-btn secondary" id="videoExportMemoryBtn">Export to Memory</button></div>${Object.keys(payload).length ? `<details class="neo-output-replay"><summary>Replay payload</summary><pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre></details>` : ''}</div>`;
 }
 
+function videoInspectorLoraStackHtml(stack = {}) {
+  const rows = Array.isArray(stack?.rows) ? stack.rows : [];
+  const unresolved = Array.isArray(stack?.unresolved) ? stack.unresolved : [];
+  if (!rows.length) return NeoUI.emptyState('No Video LoRA stack recorded.', 'This recipe did not preserve any Video LoRA rows.');
+  const rowMarkup = rows.map((row, index) => {
+    const status = row.enabled === false ? 'Disabled' : unresolved.some((item) => item.uid === row.uid || item.name === row.name) ? 'Repair required' : 'Saved';
+    return `<div class="neo-ui-card compact"><strong>${escapeHtml(row.name || `LoRA ${index + 1}`)}</strong><small>${escapeHtml([row.role || 'standard', row.target || 'all', `strength ${row.strength_model ?? 1}`, status].join(' · '))}</small></div>`;
+  }).join('');
+  const warning = unresolved.length ? `<div class="neo-warning-panel">${NeoUI.metaList(unresolved.map((item) => `${item.name || item.uid}: missing from the current catalog; refresh, replace, disable, or remove before generation.`))}</div>` : '';
+  return `<div data-testid="video-output-inspector-lora-stack">${badgeRow([stack.enabled ? 'Stack enabled' : 'Stack disabled', `${rows.length} saved row(s)`, stack.applied?.active ? `${stack.applied.rows?.length || 0} applied` : 'Not applied'].filter(Boolean))}${warning}<div class="neo-ui-stack">${rowMarkup}</div></div>`;
+}
+
 function videoOutputInspectorHtml() {
   const record = activeVideoResultRecord();
   if (!record) return `<section class="neo-results-block neo-output-inspector-card neo-video-output-inspector" data-testid="video-output-inspector"><div class="neo-results-block-head"><div><strong>Video Output Inspector</strong><span class="neo-muted neo-block-subtitle">Playback, recipe, lineage, replay</span></div></div>${NeoUI.emptyState('Select a saved Video result.', 'Generation history appears on the left. The selected result will be inspected here.')}</section>`;
@@ -52993,6 +54251,7 @@ function videoOutputInspectorHtml() {
   const recipeParams = inspector.replay?.uses_ancestor_recipe ? (base.parameters || {}) : params;
   const recipeSources = inspector.replay?.uses_ancestor_recipe ? (base.sources || {}) : (inspector.sources || {});
   const recipeExtensions = inspector.replay?.uses_ancestor_recipe ? (base.extensions || {}) : (inspector.extensions || {});
+  const recipeLoraStack = inspector.replay?.uses_ancestor_recipe ? (base.video_lora_stack || {}) : (inspector.video_lora_stack || {});
   const positivePrompt = recipePrompts.positive || inspector.replay?.payload?.prompt || '';
   const negativePrompt = recipePrompts.negative || inspector.replay?.payload?.negative_prompt || '';
   const mediaMarkup = activeFile.url
@@ -53024,6 +54283,7 @@ function videoOutputInspectorHtml() {
     <section class="neo-video-inspector-section" data-inspector-section="parameters"><div class="neo-video-inspector-section-head"><div><strong>Parameters</strong><span>High-signal settings first; the full saved parameter map stays inspectable.</span></div></div>${videoInspectorParameterTiles(recipeParams.highlights || [])}${recipeParams.all && Object.keys(recipeParams.all).length ? `<details><summary>All recorded parameters</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(recipeParams.all, null, 2))}</pre></details>` : ''}</section>
     <section class="neo-video-inspector-section" data-inspector-section="sources"><div class="neo-video-inspector-section-head"><div><strong>Sources</strong><span>Images, videos, frames, controls, and source-result references attached to the recipe.</span></div></div>${videoInspectorSourceHtml(recipeSources)}</section>
     <section class="neo-video-inspector-section" data-inspector-section="extensions"><div class="neo-video-inspector-section-head"><div><strong>Executed Extensions</strong><span>Only extensions persisted in output metadata are reported as used.</span></div></div>${videoInspectorExtensionsHtml(inspector.extensions || {})}${inspector.replay?.uses_ancestor_recipe && recipeExtensions?.recorded ? `<details><summary>Generation ancestor extensions</summary>${videoInspectorExtensionsHtml(recipeExtensions)}</details>` : ''}</section>
+    <section class="neo-video-inspector-section" data-inspector-section="video-lora-stack"><div class="neo-video-inspector-section-head"><div><strong>Video LoRA Stack</strong><span>Canonical saved rows, applied truth, and missing-file recovery.</span></div></div>${videoInspectorLoraStackHtml(recipeLoraStack)}</section>
     <section class="neo-video-inspector-section" data-inspector-section="lineage"><div class="neo-video-inspector-section-head"><div><strong>Lineage</strong><span>Root generation → child finish or continuation outputs → selected result.</span></div></div>${videoInspectorLineageHtml(inspector.lineage || {})}</section>
     <section class="neo-video-inspector-section" data-inspector-section="replay"><div class="neo-video-inspector-section-head"><div><strong>Replay</strong><span>Load the validated generation recipe without automatically executing it.</span></div></div>${videoInspectorReplayHtml(inspector)}</section>
     ${state.detailMode === 'expert' ? `<section class="neo-video-inspector-section" data-inspector-section="expert"><div class="neo-video-inspector-section-head"><div><strong>Expert Metadata</strong><span>Normalized Inspector payload and original saved ledger record.</span></div></div><details><summary>Normalized Inspector JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(inspector, null, 2))}</pre></details><details><summary>Raw Video record JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(inspector.expert?.record || record, null, 2))}</pre></details></section>` : ''}
@@ -53074,12 +54334,24 @@ async function loadVideoInspectorRecipeIntoGeneration() {
     Object.entries(payload).forEach(([key, value]) => {
       if (key in state.videoDraft && !['family', 'loader', 'generation_type', 'prompt', 'negative_prompt', 'surface', 'route_id', 'category'].includes(key)) state.videoDraft[key] = value;
     });
+    const savedLora = payload.video_lora_stack_state;
+    if (savedLora && typeof savedLora === 'object') {
+      state.videoDraft.video_lora_stack = {
+        enabled: Boolean(savedLora.enabled),
+        rows: Array.isArray(savedLora.rows) ? savedLora.rows.slice(0, VIDEO_LORA_STACK_MAX_ROWS).map((row, index) => ({
+          uid: String(row?.uid || `video_lora_${index + 1}`), enabled: row?.enabled !== false, name: String(row?.name || '').trim(),
+          strength_model: Number.isFinite(Number(row?.strength_model)) ? Number(row.strength_model) : 1,
+          role: row?.role === 'speed' ? 'speed' : 'standard', target: ['all', 'high', 'low'].includes(row?.target) ? row.target : 'all',
+        })).filter((row) => row.name) : [],
+      };
+    }
     if (Array.isArray(payload.segments)) state.videoDraft.multiscene_segments = payload.segments;
     if (Array.isArray(payload.prompt_events)) state.videoDraft.schedule_prompt_events = payload.prompt_events;
     if (Array.isArray(payload.motion_events)) state.videoDraft.schedule_motion_events = payload.motion_events;
     const sourceResultId = String(payload.source_result_id || '').trim();
     if (sourceResultId && Array.isArray(state.videoResults) && state.videoResults.some((item) => item.result_id === sourceResultId)) state.videoActiveResultId = sourceResultId;
     await refreshVideoParameterProfile({ applyDefaults: false, force: false });
+    if (payload.video_lora_stack_state) await refreshVideoLoraCatalog({ silent: true });
   }
 
   setSurfaceWorkspaceAppId('video', 'generation');
@@ -53348,7 +54620,10 @@ function videoAssetInventoryHtml() {
 }
 
 function videoAssetsWorkspaceHtml() {
-  return `${videoAssetInventoryHtml()}${videoBuiltInToolsHtml('assets')}${videoExternalExtensionsHtml('assets')}`;
+  const loraRecord = videoLoraStackExtensionRecord();
+  const loraPanel = loraRecord ? extensionCard(loraRecord, { direct: true, collapsible: false }) : '';
+  const handled = new Set([...VIDEO_NATIVE_BUILTIN_EXTENSION_IDS, VIDEO_LORA_STACK_EXTENSION_ID]);
+  return `${videoAssetInventoryHtml()}${loraPanel}${videoBuiltInToolsHtml('assets', handled)}${videoExternalExtensionsHtml('assets')}`;
 }
 
 function videoReferenceWorkspaceHtml() {
@@ -55775,7 +57050,6 @@ function renderVideoPanels(surface, subtab) {
   document.getElementById('videoFinishMotionTimingPolicy')?.addEventListener('change', (event) => { state.videoDraft.finish_motion_timing_policy = event.target.value || 'same_duration'; if (state.videoDraft.finish_motion_timing_policy === 'motion_speed_repair' && !state.videoDraft.finish_motion_speed_multiplier) state.videoDraft.finish_motion_speed_multiplier = 1.2; saveUiState(); render(); });
   document.getElementById('videoFinishMotionSpeedMultiplier')?.addEventListener('change', (event) => { state.videoDraft.finish_motion_speed_multiplier = Number(event.target.value || 1); state.videoDraft.finish_pipeline_preset = 'custom'; saveUiState(); render(); });
   document.getElementById('videoApplyFinishPipelinePresetBtn')?.addEventListener('click', () => { applyVideoFinishPipelinePreset(state.videoDraft.finish_pipeline_preset || 'custom'); saveUiState(); recordMemoryEvent('video.finish_pipeline_preset.applied', 'video', { preset: state.videoDraft.finish_pipeline_preset || 'custom', motion_policy: state.videoDraft.finish_motion_timing_policy || 'same_duration', speed: state.videoDraft.finish_motion_speed_multiplier || 1 }); render(); });
-  document.getElementById('videoApplyH3TurboPresetBtn')?.addEventListener('click', () => { applyVideoH3TurboPreset(); saveUiState(); recordMemoryEvent('video.h3_turbo_preset.applied', 'video', { turbo_enabled: Boolean(state.videoDraft.h3_turbo_enabled), acceleration: state.videoDraft.h3_acceleration_mode || 'off', steps: Number(state.videoDraft.steps || 0) }); render(); });
   document.getElementById('videoCompileInterpolationBtn')?.addEventListener('click', async () => { await compileVideoInterpolation(); });
   document.getElementById('videoGenerateInterpolationBtn')?.addEventListener('click', async () => { await generateVideoInterpolation(); });
   document.getElementById('videoInterpolationVramProfile')?.addEventListener('change', (event) => { const profile = event.target.value || 'medium'; state.videoDraft.interpolation_vram_profile = profile; const contract = videoFrameInterpolationProfileContract(profile); state.videoDraft.interpolation_clear_cache_after_n_frames = contract.cache || state.videoDraft.interpolation_clear_cache_after_n_frames || 8; if (!contract.multipliers.includes(Number(state.videoDraft.interpolation_multiplier || 2))) state.videoDraft.interpolation_multiplier = contract.multipliers[0] || 2; saveUiState(); render(); });
@@ -55933,6 +57207,7 @@ function renderVideoPanels(surface, subtab) {
     document.getElementById(`videoScheduleMotionStrength${idx}`)?.addEventListener('change', (event) => updateVideoScheduleEvent('motion', idx, { strength: Number(event.target.value || 0.5) }));
   }
 
+  bindVideoLoraStackPanel();
   bindVideoDraftInputs();
 }
 
@@ -56166,9 +57441,12 @@ async function uploadImageSourceFile(file) {
   state.imageDraft.source_image_name = payload.filename || payload.stored_filename || file.name;
   state.imageDraft.source_image_width = dims.width || 0;
   state.imageDraft.source_image_height = dims.height || 0;
+  delete state.imageDraft.comfy_source_image_name;
+  delete state.imageDraft.source_image_uploaded_to_comfy;
   clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
   resetSourceVisibilityMaskDraft();
+  resetKrea2IdentityRefBoostMaskDraft();
   saveUiState();
   render();
 }
@@ -56179,9 +57457,12 @@ function clearImageSource() {
   state.imageDraft.source_image_name = '';
   state.imageDraft.source_image_width = 0;
   state.imageDraft.source_image_height = 0;
+  delete state.imageDraft.comfy_source_image_name;
+  delete state.imageDraft.source_image_uploaded_to_comfy;
   clearPreviewSourceActionOwnership();
   resetImageMaskDraft();
   resetSourceVisibilityMaskDraft();
+  resetKrea2IdentityRefBoostMaskDraft();
   saveUiState();
   render();
 }
@@ -56199,9 +57480,14 @@ async function uploadImageSourceLaneFile(lane, file) {
   state.imageDraft[`source_image_${numericLane}`] = payload.path || '';
   state.imageDraft[`source_image_${numericLane}_url`] = payload.url || '';
   state.imageDraft[`source_image_${numericLane}_name`] = payload.filename || payload.stored_filename || file.name;
+  delete state.imageDraft[`comfy_source_image_${numericLane}_name`];
+  delete state.imageDraft[`source_image_${numericLane}_uploaded_to_comfy`];
   state.imageDraft.qwen_source_slot_count = Math.max(qwenVisibleSourceSlotCount(), numericLane);
   if (numericLane === 3) state.imageDraft.qwen_composition_source_mode = 'composition_image';
-  if (numericLane === 2) syncKrea2IdentityReferenceRoles();
+  if (numericLane === 2) {
+    syncKrea2IdentityReferenceRoles();
+    resetKrea2IdentityRefBoostMaskDraft();
+  }
   saveUiState();
   render();
 }
@@ -56239,12 +57525,17 @@ function clearQwenReferenceSource(lane, options = {}) {
   state.imageDraft[`source_image_${numericLane}`] = '';
   state.imageDraft[`source_image_${numericLane}_url`] = '';
   state.imageDraft[`source_image_${numericLane}_name`] = '';
+  delete state.imageDraft[`comfy_source_image_${numericLane}_name`];
+  delete state.imageDraft[`source_image_${numericLane}_uploaded_to_comfy`];
   if (numericLane === 3) state.imageDraft.qwen_composition_source_mode = 'source_image';
   if (options.remove) {
     const higherLaneHasImage = numericLane === 2 && !controlNetPoseTransferActive() && Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
     if (!higherLaneHasImage) state.imageDraft.qwen_source_slot_count = Math.max(1, numericLane - 1);
   }
-  if (numericLane === 2) syncKrea2IdentityReferenceRoles();
+  if (numericLane === 2) {
+    syncKrea2IdentityReferenceRoles();
+    resetKrea2IdentityRefBoostMaskDraft();
+  }
   saveUiState();
   render();
 }
@@ -57460,6 +58751,19 @@ async function uploadImageMaskFile(file, options = {}) {
   return payload;
 }
 
+async function uploadKrea2IdentityRefBoostMaskFile(file, options = {}) {
+  const payload = await uploadImageMaskAsset(file, { ...options, filename: options.filename || file?.name || 'neo_krea2_ref_boost_mask.png' });
+  if (!payload) return null;
+  state.imageDraft.krea2_identity_edit_ref_boost_mask = payload.path || '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_path = payload.path || '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_url = payload.url || '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_preview_url = payload.preview_url || payload.url || '';
+  state.imageDraft.krea2_identity_edit_ref_boost_mask_name = payload.filename || '';
+  saveUiState();
+  if (!options.skipRender) render();
+  return payload;
+}
+
 function sourceVisibilityMaskFromUpload(payload, current = {}) {
   return normalizeSourceVisibilityMask({
     ...current,
@@ -57504,6 +58808,26 @@ function openImageMaskEditor() {
     sourceName: sourceImageLabel(),
     existingMaskUrl: String(state.imageDraft.mask_image_preview_url || state.imageDraft.mask_image_url || '').trim(),
     existingMaskName: maskImageLabel(),
+  };
+  state.imageMaskEditor.open = true;
+  state.imageMaskEditor.initializedFor = '';
+  state.imageMaskEditor.loadedMaskFor = '';
+  renderImageMaskEditorModal();
+}
+
+function openKrea2IdentityRefBoostMaskEditor() {
+  const sourceUrl = krea2IdentityRefBoostMaskSourceUrl();
+  if (!sourceUrl) {
+    alert('Select the Krea 2 reference image before opening the reference attention mask editor.');
+    return;
+  }
+  state.imageMaskEditor.target = {
+    kind: 'krea2_ref_boost',
+    sourceUrl,
+    sourceName: krea2IdentityRefBoostMaskSourceName(),
+    targetLabel: krea2IdentityRefBoostMaskTargetLabel(),
+    existingMaskUrl: String(state.imageDraft.krea2_identity_edit_ref_boost_mask_preview_url || state.imageDraft.krea2_identity_edit_ref_boost_mask_url || '').trim(),
+    existingMaskName: krea2RefBoostMaskLabel(),
   };
   state.imageMaskEditor.open = true;
   state.imageMaskEditor.initializedFor = '';
@@ -57567,6 +58891,17 @@ function closeImageMaskEditor() {
 }
 
 function imageMaskEditorCopy(target) {
+  if (target?.kind === 'krea2_ref_boost') {
+    return {
+      title: 'Krea 2 Reference Attention Mask',
+      aria: 'Krea 2 reference attention mask editor',
+      help: `Paint white over the region of ${target?.targetLabel || 'the active reference image'} that should receive stronger identity/reference attention. This is not an inpaint mask.`,
+      save: 'Use Ref Mask',
+      saving: 'Saving reference attention mask…',
+      saved: 'Reference attention mask saved.',
+      filename: 'neo_krea2_ref_boost_mask.png',
+    };
+  }
   const visibility = target?.kind === 'source_visibility' || target?.kind === 'stitch_visibility';
   if (visibility) {
     return {
@@ -57877,6 +59212,12 @@ async function saveMaskCanvasAsImage() {
       if (!group) throw new Error('The stitch group is no longer available.');
       const currentMask = qwenStitchInputVisibilityMask(group, target.side);
       qwenStitchSetInputVisibilityMask(target.groupId, target.side, sourceVisibilityMaskFromUpload(payload, currentMask));
+    } else if (target.kind === 'krea2_ref_boost') {
+      state.imageDraft.krea2_identity_edit_ref_boost_mask = payload.path || '';
+      state.imageDraft.krea2_identity_edit_ref_boost_mask_path = payload.path || '';
+      state.imageDraft.krea2_identity_edit_ref_boost_mask_url = payload.url || '';
+      state.imageDraft.krea2_identity_edit_ref_boost_mask_preview_url = payload.preview_url || payload.url || '';
+      state.imageDraft.krea2_identity_edit_ref_boost_mask_name = payload.filename || '';
     } else {
       state.imageDraft.mask_image = payload.path || '';
       state.imageDraft.mask_image_url = payload.url || '';
@@ -57985,13 +59326,31 @@ function previewActionSourceName(source = {}) {
 const PREVIEW_SOURCE_HANDOFF_SCHEMA = 'neo.image.preview_source_handoff.v1';
 const PREVIEW_SOURCE_PROVIDER_TRANSIENT_KEYS = [
   'comfy_source_image_name',
+  'comfy_source_image_2_name',
+  'comfy_source_image_3_name',
   'source_image_uploaded_to_comfy',
+  'source_image_2_uploaded_to_comfy',
+  'source_image_3_uploaded_to_comfy',
   'comfy_mask_image_name',
+  'comfy_krea2_identity_edit_ref_boost_mask_name',
   'comfy_outpaint_canvas_image_name',
   'comfy_outpaint_mask_image_name',
   'forge_source_image_b64',
   'forge_mask_image_b64',
 ];
+
+function imageStableComfyHandoffName(value = '') {
+  const name = basename(String(value || '').trim());
+  return name.startsWith('neo_img2img_cache_') || name.startsWith('neo_mask_cache_') ? name : '';
+}
+
+function syncImageStableComfyHandoffsFromRuntime(runtime = {}) {
+  const actual = runtime?.actual_params && typeof runtime.actual_params === 'object' ? runtime.actual_params : {};
+  ['comfy_source_image_name', 'comfy_source_image_2_name', 'comfy_source_image_3_name'].forEach((key) => {
+    const stable = imageStableComfyHandoffName(actual[key]);
+    if (stable) state.imageDraft[key] = stable;
+  });
+}
 
 const IMAGE_ACTION_TRANSIENT_KEYS = [
   '_neo_derived_action',
@@ -58087,10 +59446,14 @@ function imageFinalizeActionLifecycle(reason = 'completed', options = {}) {
   }
   if (options.clearProviderCaches !== false) {
     IMAGE_PROVIDER_UPLOAD_CACHE_KEYS.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(state.imageDraft, key)) {
-        delete state.imageDraft[key];
-        cleared.push(key);
-      }
+      if (!Object.prototype.hasOwnProperty.call(state.imageDraft, key)) return;
+      const value = state.imageDraft[key];
+      const preserveStableComfySource = options.preserveCanonicalSource !== false
+        && ['comfy_source_image_name', 'comfy_source_image_2_name', 'comfy_source_image_3_name'].includes(key)
+        && Boolean(imageStableComfyHandoffName(value));
+      if (preserveStableComfySource) return;
+      delete state.imageDraft[key];
+      cleared.push(key);
     });
     delete state.imageDraft._neo_provider_state_owner;
   }
@@ -58238,6 +59601,30 @@ async function materializePreviewActionSource(source = {}) {
   };
 }
 
+async function preflightPreviewActionSource(source = {}, evaluation = {}) {
+  const profileId = String(evaluation.profileId || evaluation.profile_id || selectedBackendProfileIdForSurface('image') || '').trim();
+  const providerId = String(evaluation.providerId || evaluation.provider_id || activeImageProfile()?.provider_id || activeImageProfile()?.backend || '').trim().toLowerCase();
+  if (!profileId || !providerId) throw new Error('Select an Image backend profile before staging this output.');
+  const response = await fetch('/api/image/source-handoff/preflight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: previewActionSourceRecord(source), profile_id: profileId, provider_id: providerId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    const detail = payload?.detail;
+    throw new Error(detail?.message || detail || payload.message || 'The selected output could not be prepared as an Image source.');
+  }
+  if (String(payload.profile_id || '') !== profileId || String(payload.provider_id || '').toLowerCase() !== providerId) {
+    throw new Error('Source preflight returned a different backend profile. The handoff was blocked.');
+  }
+  return {
+    ...source,
+    ...(payload.canonical_source || {}),
+    canonical_source: payload.canonical_source || {},
+  };
+}
+
 function buildPreviewSourceHandoffContract(action = {}, evaluation = {}, source = {}, replayInfo = {}) {
   const mode = previewSourceActionMode(action, evaluation.targetMode || 'img2img');
   return {
@@ -58356,7 +59743,8 @@ async function sendOutputToSourceMode(mode, sourceOverride = null, options = {})
   const lockedProfileId = evaluation.profileId;
   clearImageLatePassContinuation();
   setWorkspaceStatus(`Staging ${previewActionSourceName(source)} for ${cleanMode}…`, 'info');
-  const stagedSource = await materializePreviewActionSource(source);
+  const materializedSource = await materializePreviewActionSource(source);
+  const stagedSource = await preflightPreviewActionSource(materializedSource, evaluation);
   let replayInfo = { replaySource: 'none', applied: null, branch: null };
   replayInfo = await applySelectedReplaySourceForOutputHandoff(`send_output_to_${cleanMode}`, {
     source: stagedSource,
@@ -58524,7 +59912,8 @@ function previewFinishStageGenerationSource(actionId = '', source = {}, evaluati
 }
 
 async function previewActionRunSelectedProviderDerived(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materialized = await materializePreviewActionSource(source);
+  const materializedRaw = await materializePreviewActionSource(source);
+  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
   const cleanSource = previewFinishStageGenerationSource(actionId, materialized, evaluation, contract);
@@ -58547,7 +59936,8 @@ async function previewActionRunSelectedProviderDerived(actionId = '', source = {
 }
 
 async function previewActionRunForgeNativeHires(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materialized = await materializePreviewActionSource(source);
+  const materializedRaw = await materializePreviewActionSource(source);
+  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
   const previousHighResSettings = { ...highResLabSettings() };
@@ -58609,7 +59999,8 @@ async function previewActionRunForgeNativeHires(actionId = '', source = {}, eval
 }
 
 async function previewActionRunSelectedProviderUpscale(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materialized = await materializePreviewActionSource(source);
+  const materializedRaw = await materializePreviewActionSource(source);
+  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   imageUpscaleStagePreviewSource(materialized, { renderPanel: false });
   updateImageUpscaleSettings({ preview_derived_action: contract, staged_preview_source: imageUpscaleStagedPreviewSource, source_mode: 'preview_action_selected_output' });
@@ -60729,6 +62120,7 @@ function bindImageDraftInputs() {
     ['imageLanpaintPromptMode', 'lanpaint_prompt_mode', 'value'],
     ['imageLanpaintStitchResizeMethod', 'lanpaint_stitch_resize_method', 'value'],
     ['imageOutpaintSourceResolutionMode', 'outpaint_source_resolution_mode', 'value'],
+    ['imageImg2ImgSourceResolutionMode', 'img2img_source_resolution_mode', 'value'],
   ];
   bindings.forEach(([id, key]) => {
     const node = document.getElementById(id);
@@ -60911,6 +62303,24 @@ function bindImageDraftInputs() {
       if (key === 'cfg') window.NeoNegativePromptEligibility?.applyToDom?.(document);
     });
   });
+
+  const anypaintAdapter = document.getElementById('imageKrea2AnyPaintAdapter');
+  if (anypaintAdapter) anypaintAdapter.addEventListener('change', (event) => updateDraftValue('krea2_anypaint_adapter', String(event.target.value || '')));
+  [
+    ['imageKrea2AnyPaintBoundaryRedraw', 'krea2_anypaint_boundary_redraw_px'],
+    ['imageKrea2AnyPaintReferenceMaxEdge', 'krea2_anypaint_reference_max_edge'],
+    ['imageKrea2AnyPaintLoraStrength', 'krea2_anypaint_lora_strength'],
+  ].forEach(([id, key]) => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const apply = (event) => updateDraftValue(key, event.target.value === '' ? '' : Number(event.target.value));
+    node.addEventListener('input', apply);
+    node.addEventListener('change', apply);
+  });
+  const anypaintVlmReference = document.getElementById('imageKrea2AnyPaintVlmReference');
+  if (anypaintVlmReference) anypaintVlmReference.addEventListener('change', (event) => updateDraftValue('krea2_anypaint_vlm_reference', Boolean(event.target.checked)));
+  const anypaintKvCache = document.getElementById('imageKrea2AnyPaintKvCache');
+  if (anypaintKvCache) anypaintKvCache.addEventListener('change', (event) => updateDraftValue('krea2_anypaint_kv_cache', Boolean(event.target.checked)));
 
   const contextLatentEnabled = document.getElementById('imageContextLatentEnabled');
   if (contextLatentEnabled) contextLatentEnabled.addEventListener('change', (event) => updateDraftValue('context_latent_enabled', Boolean(event.target.checked)));
@@ -61171,6 +62581,12 @@ function bindImageDraftInputs() {
   if (clearMask) clearMask.addEventListener('click', clearImageMask);
   const openMaskEditor = document.getElementById('imageOpenMaskEditorBtn');
   if (openMaskEditor) openMaskEditor.addEventListener('click', openImageMaskEditor);
+  const kreaRefMaskFile = document.getElementById('imageKrea2RefBoostMaskFile');
+  if (kreaRefMaskFile) kreaRefMaskFile.addEventListener('change', (event) => uploadKrea2IdentityRefBoostMaskFile(event.target.files?.[0]).catch((error) => alert(`Reference attention mask failed: ${error.message}`)));
+  const clearKreaRefMask = document.getElementById('imageClearKrea2RefBoostMaskBtn');
+  if (clearKreaRefMask) clearKreaRefMask.addEventListener('click', clearKrea2IdentityRefBoostMask);
+  const openKreaRefMaskEditor = document.getElementById('imageOpenKrea2RefBoostMaskEditorBtn');
+  if (openKreaRefMaskEditor) openKreaRefMaskEditor.addEventListener('click', openKrea2IdentityRefBoostMaskEditor);
   const openSourceVisibilityMask = document.getElementById('imageOpenSourceVisibilityMaskBtn');
   if (openSourceVisibilityMask) openSourceVisibilityMask.addEventListener('click', () => openSourceVisibilityMaskEditor({ kind: 'source_visibility' }));
   const clearSourceVisibilityMask = document.getElementById('imageClearSourceVisibilityMaskBtn');
@@ -61977,6 +63393,23 @@ function buildImageJobPayload() {
     params.inpaint_engine = requestedMaskedEngine === 'lanpaint' && !lanpaintRoute.eligible ? 'native' : requestedMaskedEngine;
     params.masked_edit_engine = params.inpaint_engine;
     params.crop_stitch_enabled = imageMaskedCropStitchEnabled(params.inpaint_engine);
+    if (['krea2_anypaint', 'anypaint'].includes(String(params.inpaint_engine || '').toLowerCase())) {
+      const anypaintReport = imageKrea2AnyPaintCapabilityReport();
+      params.inpaint_engine = 'krea2_anypaint';
+      params.masked_edit_engine = 'krea2_anypaint';
+      params.crop_stitch_enabled = false;
+      params.krea2_anypaint_phase = 'phase7_runtime_validation';
+      params.krea2_anypaint_runtime_validation = true;
+      params.krea2_anypaint_capability_status = String(anypaintReport?.status || 'capability_report_unavailable');
+      params.krea2_anypaint_capability_ready = anypaintReport?.capability_ready === true;
+      params.krea2_anypaint_execution_enabled = anypaintReport?.execution_enabled === true;
+      params.krea2_anypaint_adapter = imageKrea2AnyPaintSelectedAdapter(params);
+      params.krea2_anypaint_reference_max_edge = Number(draft.krea2_anypaint_reference_max_edge ?? 384);
+      params.krea2_anypaint_boundary_redraw_px = Number(draft.krea2_anypaint_boundary_redraw_px ?? 32);
+      params.krea2_anypaint_kv_cache = draft.krea2_anypaint_kv_cache !== false;
+      params.krea2_anypaint_vlm_reference = draft.krea2_anypaint_vlm_reference !== false;
+      params.krea2_anypaint_lora_strength = Number(draft.krea2_anypaint_lora_strength ?? 1);
+    }
     if (params.inpaint_engine === 'lanpaint') {
       const lanpaintState = imageLanpaintUiStatePayload(draft);
       Object.assign(params, lanpaintState.flat);
@@ -62045,6 +63478,7 @@ function buildImageJobPayload() {
       source_image_path: sourceImage || '',
       source_image_url: sourceImageUrl || '',
       source_image_name: draft.source_image_name || '',
+      ...(imageStableComfyHandoffName(draft.comfy_source_image_name) ? { comfy_source_image_name: imageStableComfyHandoffName(draft.comfy_source_image_name) } : {}),
     });
     const visibilityMask = sourceVisibilityMaskDraft();
     if (sourceVisibilityMaskSupported(profile, runtimeMode) && sourceVisibilityMaskReady(visibilityMask)) {
@@ -62069,6 +63503,7 @@ function buildImageJobPayload() {
         source_image_2_path: draft.source_image_2 || '',
         source_image_2_url: draft.source_image_2_url || '',
         source_image_2_name: draft.source_image_2_name || '',
+        ...(imageStableComfyHandoffName(draft.comfy_source_image_2_name) ? { comfy_source_image_2_name: imageStableComfyHandoffName(draft.comfy_source_image_2_name) } : {}),
         source_image_2_role: kreaIdentityPayload ? 'main_subject' : (draft.source_image_2_role || 'secondary_subject'),
         source_image__2_name: draft.source_image_2_name || '',
         reference_image_2_name: draft.source_image_2_name || '',
@@ -62076,12 +63511,24 @@ function buildImageJobPayload() {
         source_image_3_path: draft.source_image_3 || '',
         source_image_3_url: draft.source_image_3_url || '',
         source_image_3_name: draft.source_image_3_name || '',
+        ...(imageStableComfyHandoffName(draft.comfy_source_image_3_name) ? { comfy_source_image_3_name: imageStableComfyHandoffName(draft.comfy_source_image_3_name) } : {}),
         source_image_3_role: draft.source_image_3_role || 'composition_guide',
         source_image__3_name: draft.source_image_3_name || '',
         composition_image_name: draft.source_image_3_name || '',
         qwen_composition_source_mode: draft.qwen_composition_source_mode || 'source_image',
         composition_source_mode: draft.qwen_composition_source_mode || 'source_image',
       });
+      if (kreaIdentityPayload && krea2RefBoostMaskReady()) {
+        Object.assign(params, {
+          krea2_identity_edit_ref_boost_mask: draft.krea2_identity_edit_ref_boost_mask || draft.krea2_identity_edit_ref_boost_mask_url || '',
+          krea2_identity_edit_ref_boost_mask_path: draft.krea2_identity_edit_ref_boost_mask || '',
+          krea2_identity_edit_ref_boost_mask_url: draft.krea2_identity_edit_ref_boost_mask_url || '',
+          krea2_identity_edit_ref_boost_mask_name: draft.krea2_identity_edit_ref_boost_mask_name || '',
+          krea2_identity_edit_ref_boost_mask_preview_url: draft.krea2_identity_edit_ref_boost_mask_preview_url || draft.krea2_identity_edit_ref_boost_mask_url || '',
+          krea2_identity_edit_ref_boost_mask_target_lane: krea2IdentityRefBoostMaskTargetLane(),
+          krea2_identity_edit_ref_boost_mask_target_label: krea2IdentityRefBoostMaskTargetLabel(),
+        });
+      }
     }
   }
   if (usesField('mask')) {
@@ -62101,8 +63548,8 @@ function buildImageJobPayload() {
   params.context_latent_expand = Number(draft.context_latent_expand ?? 5);
   params.context_latent_blur = Number(draft.context_latent_blur ?? 3.0);
   params.context_latent_mask_only = draft.context_latent_mask_only !== false;
-  if (usesField('mask_grow')) params.mask_grow = Number(draft.mask_grow ?? numberValue('imageMaskGrow', 6));
-  if (usesField('mask_blur')) params.mask_blur = Number(draft.mask_blur ?? numberValue('imageMaskBlur', 0));
+  if (!imageKrea2AnyPaintActive(params) && usesField('mask_grow')) params.mask_grow = Number(draft.mask_grow ?? numberValue('imageMaskGrow', 6));
+  if (!imageKrea2AnyPaintActive(params) && usesField('mask_blur')) params.mask_blur = Number(draft.mask_blur ?? numberValue('imageMaskBlur', 0));
   if (draft._replay_context && typeof draft._replay_context === 'object') {
     const replayContext = { ...draft._replay_context };
     const continuation = replayContext.late_pass_continuation && typeof replayContext.late_pass_continuation === 'object'
@@ -62178,6 +63625,15 @@ function buildImageJobPayload() {
     params.supir_enabled = false;
   }
 
+  if (imageSupportsImg2ImgSourceResolutionField()) {
+    const sourceResolution = imageImg2ImgSourceResolutionPolicy(draft);
+    Object.assign(params, {
+      img2img_source_resolution_mode: sourceResolution.mode,
+      img2img_source_resolution: sourceResolution,
+      source_image_width: sourceResolution.source_size.width || Number(draft.source_image_width || 0),
+      source_image_height: sourceResolution.source_size.height || Number(draft.source_image_height || 0),
+    });
+  }
   if (usesField('outpaint_padding')) {
     const padding = {
       left: Number(draft.outpaint_left || 0),
@@ -62186,6 +63642,13 @@ function buildImageJobPayload() {
       bottom: Number(draft.outpaint_bottom || 0),
     };
     const sourceResolution = imageOutpaintSourceResolutionPolicy(draft);
+    const anypaintCanvas = imageKrea2AnyPaintActive(params) ? imageKrea2AnyPaintCanvasContract(draft, padding) : null;
+    const genericFinalSize = {
+      width: sourceResolution.working_size.width + padding.left + padding.right,
+      height: sourceResolution.working_size.height + padding.top + padding.bottom,
+    };
+    const finalWidth = anypaintCanvas ? Number(anypaintCanvas.final_size?.width || genericFinalSize.width) : genericFinalSize.width;
+    const finalHeight = anypaintCanvas ? Number(anypaintCanvas.final_size?.height || genericFinalSize.height) : genericFinalSize.height;
     Object.assign(params, {
       outpaint_left: padding.left,
       outpaint_top: padding.top,
@@ -62200,6 +63663,7 @@ function buildImageJobPayload() {
       source_image_width: sourceResolution.source_size.width,
       source_image_height: sourceResolution.source_size.height,
       outpaint_source_resolution: sourceResolution,
+      ...(anypaintCanvas ? { krea2_anypaint_canvas_contract: anypaintCanvas } : {}),
       padding,
       mask: {
         auto_generate: true,
@@ -62207,8 +63671,8 @@ function buildImageJobPayload() {
         blur: Number(draft.outpaint_blur ?? 8),
       },
       final_size: {
-        width: sourceResolution.working_size.width + padding.left + padding.right,
-        height: sourceResolution.working_size.height + padding.top + padding.bottom,
+        width: finalWidth,
+        height: finalHeight,
       },
     });
   }
@@ -62484,6 +63948,31 @@ function startImageProgressSocket(profileId, clientId) {
               const label = imageLivePreviewLabelForNode(data.node) || `Executing node ${data.node}`;
               setWorkspaceProgress(label, 45);
               setImageLivePreviewStatus(label);
+            }
+          } else if (type === 'execution_cached') {
+            const cachedNodes = Array.isArray(data.nodes) ? data.nodes.map((item) => String(item)) : [];
+            const cacheContract = state.activeImageJob?.runtime?.qwen_cache_contract || {};
+            const conditioningNodes = Array.isArray(cacheContract.qwen_conditioning_node_ids) ? cacheContract.qwen_conditioning_node_ids.map((item) => String(item)) : [];
+            const conditioningHit = conditioningNodes.length > 0 && conditioningNodes.every((nodeId) => cachedNodes.includes(nodeId));
+            if (state.activeImageJob) {
+              state.activeImageJob.runtime = {
+                ...(state.activeImageJob.runtime || {}),
+                comfy_cache: {
+                  schema_id: 'neo.image.qwen_comfy_cache_diagnostics.v1',
+                  event_seen: cachedNodes.length > 0,
+                  cached_node_ids: cachedNodes,
+                  cached_node_count: cachedNodes.length,
+                  qwen_conditioning_node_ids: conditioningNodes,
+                  qwen_conditioning_cached_node_ids: conditioningNodes.filter((nodeId) => cachedNodes.includes(nodeId)),
+                  qwen_conditioning_cache_hit: conditioningHit,
+                  same_contract_as_previous: Boolean(cacheContract.same_contract_as_previous),
+                  source_handoffs_content_addressed: Boolean(cacheContract.source_handoffs_content_addressed),
+                },
+              };
+            }
+            if (conditioningHit) {
+              setWorkspaceProgress('Qwen conditioning cache hit — reusing encoder output', Math.max(30, Number(state.imageGenerationProgress?.percent || 30)));
+              setImageLivePreviewStatus('Qwen conditioning cache hit — text/image encoder reused');
             }
           } else if (type === 'execution_success') {
             setWorkspaceProgress('Finishing', 99);
@@ -62810,6 +64299,7 @@ async function submitSingleImageGenerationPayload(payload, profile, queueContext
     try { window.localStorage?.setItem?.('neo_image_parameter_integrity_latest', JSON.stringify(parameterIntegrity)); } catch (_) {}
   }
   const derivedAction = payload.job?.params?._neo_derived_action || payload.job?.params?._neo_preview_action || null;
+  syncImageStableComfyHandoffsFromRuntime(result.runtime || {});
   state.activeImageJob = {
     profile_id: profile.profile_id,
     job_id: result.job_id,
@@ -63041,6 +64531,7 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     await new Promise((resolve) => setTimeout(resolve, pollSettings.intervalMs));
     return pollImageGeneration(profileId, jobId, attempt + 1);
   }
+  captureImageKrea2LoraCompatibility(result);
   const runtimeProgress = result.runtime?.progress || result.progress || {};
   const runtimePercent = Number(runtimeProgress.percent);
   const percent = Number.isFinite(runtimePercent) ? runtimePercent : fallbackPercent;
@@ -63114,7 +64605,11 @@ async function pollImageGeneration(profileId, jobId, attempt) {
     imageFinalizeActionLifecycle('generation_failed', { clearProviderCaches: true, preserveCanonicalSource: true, preserveReplayContext: true });
     saveUiState();
     updateImageGenerationControls();
-    throw new Error(imageProviderErrorMessage(result, 'Generation failed while polling'));
+    const error = new Error(imageProviderErrorMessage(result, 'Generation failed while polling'));
+    error.neoResponse = result;
+    error.neoHttpStatus = 200;
+    error.neoStage = 'pollImageGeneration';
+    throw error;
   }
   if (state.activeImageJob?.job_id === jobId) {
     state.activeImageJob = {
@@ -63169,6 +64664,7 @@ function renderSurfaceUpdate(surfaceId, { deferWhileEditing = true } = {}) {
 }
 
 function render() {
+  captureImageResultsScrollPosition();
   document.body.classList.add('neo-modern-shell');
   document.body.dataset.detailMode = state.detailMode || 'guided';
   const surface = activeSurface();
@@ -63224,6 +64720,7 @@ function render() {
     bindStyleStackControls();
     bindExtensionCardOpenState();
     bindImageResultsWorkspace();
+    restoreImageResultsScrollPosition();
     bindImageZoomTriggers();
     bindOutputImageFallbacks();
     restoreImageLivePreviewAfterRender();
