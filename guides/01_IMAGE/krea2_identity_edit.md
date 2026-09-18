@@ -1,235 +1,26 @@
----
-guide_id: image.krea2_identity_edit
-title: Krea 2 Identity Edit
-surface: image
-scope: built_in
-applies_to:
-  - image_workspace
-  - img2img
-  - inpaint
-  - outpaint
-  - krea2
-  - krea2_turbo
-  - diffusion_model
-  - gguf
-  - lora
-  - identity_edit
-tags:
-  - image
-  - krea 2
-  - identity edit
-  - image editing
-  - reference image
-  - gguf
-  - safetensors
-  - qwen3-vl
-priority: 117
-version: 3
-updated: 2026-08-12
----
-
 # Krea 2 Identity Edit
 
-Neo exposes **Krea 2 Identity Edit v1.2** as an opt-in edit engine inside the existing Krea 2 RAW and Krea 2 Turbo image routes. It does not replace Neo's existing Krea 2 source-latent/mask/canvas adapters, and it is not a separate Krea model family.
+## Masked-edit engine compatibility
 
-The upstream node pack is `comfyui-krea2edit` and the recommended current weight is `krea2_identity_edit_v1_2.safetensors`. The user-supplied model page for this integration is `https://civitai.com/models/2761113/krea-2-identity-edit?modelVersionId=3139172`.
+When **Krea 2 Identity Edit** is enabled for Inpaint or Outpaint, Neo uses the Identity Edit workflow together with the **Native Inpaint/Outpaint** masked path.
 
-## What it is for
+While Identity Edit is active:
 
-The v1.2 model/node workflow is intended for instruction-based, appearance-preserving editing. Useful trained use cases include:
+- **Native Inpaint / Outpaint** — available
+- **Krea 2 AnyPaint** — unavailable
+- **LanPaint** — unavailable
 
-- identity/face-likeness preserving restaging;
-- recolor, attribute, scene, and style changes;
-- character reference sheet use and creation;
-- head / face / eye / person replacement;
-- object/person removal and replacement;
-- garment try-on;
-- inpainting;
-- outpainting;
-- two-reference scene + subject edits.
+AnyPaint and LanPaint own separate masked-edit workflow architectures, so Neo does not stack them on top of Krea 2 Identity Edit. The UI disables those choices and the backend compile router also fails closed if a manually crafted request tries to combine them.
 
-This is a community Krea 2 editing workflow, not an official new Krea family owned by Neo.
+## Identity Edit controls
 
-## Required Comfy dependencies
+Identity Edit controls use a compact responsive grid.
 
-Install the custom node pack into ComfyUI and restart. In Neo, this can be done from **Admin → Image → Node Manager → Install GitHub** using:
+Desktop layout:
 
-```text
-https://github.com/lbouaraba/comfyui-krea2edit.git
-```
+- Row 1: **Identity Edit LoRA** · **Identity Edit LoRA Strength** · **Reference Fit**
+- Row 2: **Identity Reference Boost** · **Grounding Resolution** · optional additional reference control when the active workflow exposes one
 
-Required runtime pieces:
+The optional Identity Edit system prompt remains full-width below the compact controls in Expert mode.
 
-- a ComfyUI build with native Krea 2 support;
-- Krea 2 RAW or Krea 2 Turbo diffusion model;
-- Qwen3-VL-4B text encoder loaded through `CLIPLoader(type=krea2)`;
-- Qwen Image VAE;
-- `krea2_identity_edit_v1_2.safetensors` in the Comfy LoRA catalog;
-- custom nodes `Krea2EditModelPatch` and `Krea2EditGroundedEncode`;
-- core `LoraLoaderModelOnly` and `EmptySD3LatentImage`.
-
-Neo validates the current v1.2 socket contract. An older node build that exposes the same class names but lacks the two-reference, pixel-fit, or `target_latent` sockets is blocked instead of being submitted optimistically.
-
-## Native / SafeTensor workflow
-
-```text
-UNETLoader(Krea 2)
-  -> LoraLoaderModelOnly(Identity Edit LoRA)
-  -> Krea2EditModelPatch
-  -> KSampler.model
-
-LoadImage(Image 1)
-  -> VAEEncode
-  -> Krea2EditModelPatch.source_latent
-
-LoadImage(Image 1)
-  -> Krea2EditModelPatch.source_image
-  -> Krea2EditGroundedEncode.image
-
-CLIPLoader(Qwen3-VL-4B, type=krea2)
-  -> Krea2EditGroundedEncode(prompt)
-  -> KSampler.positive
-
-CLIPLoader(Qwen3-VL-4B, type=krea2)
-  -> Krea2EditGroundedEncode(empty prompt, same image)
-  -> KSampler.negative
-
-EmptySD3LatentImage
-  -> KSampler.latent_image
-  -> Krea2EditModelPatch.target_latent
-```
-
-The graph deliberately uses both edit-conditioning paths:
-
-1. **appearance path** — clean VAE source tokens through `Krea2EditModelPatch`;
-2. **semantic path** — the source image is visible to Qwen3-VL through `Krea2EditGroundedEncode` while it reads the instruction.
-
-Using stock `CLIPTextEncode` instead of the grounded encoder is not the supported Identity Edit graph.
-
-## GGUF workflow
-
-GGUF changes only the first diffusion-model loader:
-
-```text
-UnetLoaderGGUF / LoaderGGUF
-  -> LoraLoaderModelOnly(Identity Edit LoRA safetensors)
-  -> Krea2EditModelPatch
-```
-
-Everything else stays native/safetensors:
-
-- Qwen3-VL-4B through `CLIPLoader(type=krea2)`;
-- Qwen Image VAE;
-- Identity Edit LoRA;
-- grounded encoder and model patch nodes.
-
-Neo therefore treats Krea 2 GGUF Identity Edit as **transformer-only GGUF**. Do not select a GGUF Qwen3-VL encoder for this route.
-
-## Neo controls
-
-Choose Krea 2 RAW or Turbo, select Components or GGUF, then use an image mode and set **Krea 2 Edit Engine → Krea 2 Identity Edit v1.2**.
-
-The engine card is mounted in **Parameters** only for `img2img`, `inpaint`, and `outpaint`. It is intentionally absent from `txt2img`. M17.1 fixed a frontend mounting bug where the parameter profile contained the Identity Edit fields but the fixed Parameters renderer did not insert them into the visible surface, especially obvious on GGUF routes.
-
-| Control | Meaning | Starting point |
-|---|---|---|
-| **Identity Edit LoRA** | Dedicated model-only edit LoRA. Required when the engine is enabled. | `krea2_identity_edit_v1_2.safetensors` |
-| **Identity Edit LoRA Strength** | LoRA model strength. | `1.0` |
-| **Reference Fit** | Source-to-target geometry. | `fit` |
-| **Identity Reference Boost** | Reference-fidelity boost for the last reference block. In single-reference mode this is Image 1; in two-reference mode this is Image 2 / subject identity. | `4.0` for strong likeness, then tune |
-| **Scene Reference Boost (Image 1)** | First-reference boost in the two-image scene + subject workflow. It is hidden until Image 2 is actually populated because upstream `ref_boost_a` has no effect in single-reference mode. | `1.0` |
-| **Grounding Resolution** | Longest-side cap shown to Qwen3-VL for semantic grounding. Available in normal Guided UI after IMG-K2E1. | `768`; upstream socket range is `0–4096`, step `64`; `0` means native resolution |
-| **Grounding System Prompt** | Expert-only override for `Krea2EditGroundedEncode.system_prompt`. Empty uses the upstream training default. | Leave blank unless you intentionally need to steer visual attention |
-
-`target_latent` is always wired to the same `EmptySD3LatentImage` used by KSampler. This lets the node pre-encode the pixel-fit source before sampling and avoids the known VRAM/offload slowdown that can occur when source VAE encoding starts mid-sampler.
-
-## One reference vs two references
-
-Single-reference edit:
-
-```text
-Image 1 = primary edit / identity / appearance reference
-```
-
-In this mode Neo labels Image 1 as the primary/identity reference and **Identity Reference Boost** controls that only reference. This is the correct mode when a character sheet is the only source image.
-
-Two-reference edit uses the training order:
-
-```text
-Image 1 = scene / composition / main edit canvas
-Image 2 = subject / identity reference
-```
-
-Image 2 is connected to `source_latent_b`, `source_image_b`, and grounded `image_b`. Once Image 2 is populated, Neo relabels Image 1 as scene/context and Image 2 as subject/identity, then reveals **Scene Reference Boost (Image 1)**. Clearing Image 2 returns the UI to single-reference semantics. Neo intentionally caps this engine at two source images. Image 3 is not routed into Krea 2 Identity Edit.
-
-## Inpaint behavior
-
-Identity Edit owns the generation graph, so Neo does **not** inject generic `InpaintModelConditioning`, `SetLatentNoiseMask`, or `DifferentialDiffusion` into it.
-
-Neo runs the trained instruction edit against the full source, then uses the user's inpaint mask as the final `ImageCompositeMasked` commit boundary. This keeps the edit model's training-matched target-noise path intact while preventing unmasked generated pixels from replacing the original image.
-
-Identity Edit and LanPaint cannot be stacked on the same Krea masked job. Selecting Identity Edit uses the Identity Edit family graph.
-
-## Outpaint behavior
-
-Krea 2 Identity Edit v1.2 learned outpainting through its **centered `fit` reference geometry**. Neo therefore keeps Image 1 clean and creates a larger `EmptySD3LatentImage` target; it does not feed blank `ImagePadForOutpaint` pixels into the clean appearance-token path.
-
-The Outpaint Left / Right / Top / Bottom controls determine the requested **target size**. The v1.2 reference itself is centered inside that target. If padding is asymmetric, Neo warns that the source cannot be side-anchored exactly by this trained graph. Use balanced padding when exact source placement matters.
-
-For outpainting, prefer Euler/ODE-style sampling. The upstream v1.2.4 advisory warns that SDE noise can disrupt the reference-copy channel.
-
-## Sampling guidance
-
-These are starting points, not forced values. **Parameter Truth remains authoritative.**
-
-- Turbo: roughly 8 steps / CFG 1 is the fast general-edit path.
-- RAW: use stronger real guidance for removals or stubborn destructive changes; upstream suggests around CFG 3 and ~20 steps as a useful starting point.
-- Keep generation at or below roughly 2 MP for the trained range; larger targets can duplicate/bleed source content.
-- `grounding_px` lower values can improve edit adherence; higher values can increase identity/likeness emphasis.
-- Denoise remains user-owned, but Identity Edit samples from a fresh `EmptySD3LatentImage`; it is not the same source-latent blend semantics as Neo's legacy Img2Img adapter.
-
-## Negative conditioning
-
-Identity Edit always uses a second `Krea2EditGroundedEncode` with:
-
-```text
-prompt = ""
-image = same source image(s)
-```
-
-That matches the trained unconditional path. A normal user negative prompt is not applied by this engine; Neo records a warning when one is present rather than silently implying that it reached the Identity Edit negative branch.
-
-## LoRA Stack interaction
-
-The dedicated Identity Edit LoRA is part of the Krea 2 Identity Edit engine and is separate from the general **Image → Assets → LoRA Stack**.
-
-If global model-only Krea LoRAs are also enabled, the compiler-owned patch profile rewires them upstream:
-
-```text
-base Krea model
-  -> global LoRA Stack rows
-  -> dedicated Identity Edit LoRA
-  -> Krea2EditModelPatch
-  -> sampler
-```
-
-The Qwen3-VL CLIP branch remains unpatched by Krea model-only LoRAs.
-
-## Validation status
-
-Neo's local validation proves graph construction, route ownership, current-node socket checks, model/LoRA wiring, two-reference ordering, and legacy Krea regression compatibility. It does **not** prove visual quality or physical GPU behavior. Run real Krea 2 images on the target Comfy/RunPod environment before treating the route as physically validated.
-
-## IMG-K2E1 UI / backend parity repair — 2026-08-12
-
-The Krea compiler already routed `ref_boost_a`, `grounding_px`, and `system_prompt` into the current upstream node sockets, but the normal Guided UI exposed only the first four identity controls because Scene Reference Boost and Grounding Resolution were marked `advanced`, while Grounding System Prompt was not declared in the parameter profile at all.
-
-IMG-K2E1 repairs that mismatch without changing the Identity Edit graph:
-
-- **Grounding Resolution** is now a normal Guided control.
-- **Scene Reference Boost (Image 1)** is a normal Guided control, but appears only when Image 2 contains a real second reference.
-- **Grounding System Prompt** is now declared and remains Expert-only.
-- Reference roles are contextual instead of misleading: single-reference Image 1 is primary/identity; two-reference mode becomes Image 1 scene/context + Image 2 subject/identity.
-- Browser numeric inputs mirror upstream limits for `ref_boost` / `ref_boost_a` (`0–1000`, step `0.01`) and `grounding_px` (`0–4096`, step `64`). Provider compile fails closed for out-of-range values instead of letting Comfy reject them later.
-- Upstream `ref_boost_mask` remains intentionally unimplemented because it requires a dedicated reference-mask asset/UI workflow; IMG-K2E1 does not pretend that capability exists.
-
-The source-of-truth graph remains the M17 dual-conditioning architecture; this phase repairs UI visibility, request truth, role semantics, and range validation only.
+At narrower window sizes the grid automatically falls back to two columns and then one column so labels and model names stay readable.

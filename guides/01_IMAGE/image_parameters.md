@@ -333,3 +333,15 @@ Neo's shared parameter-integrity guard now understands that **outpaint intention
 - final latent canvas derived from `working_size + padding`
 
 This means outpaint jobs no longer fail merely because `workflow_final.width/height` differ from the original requested width/height. Neo now verifies the **derived outpaint final size** instead of demanding a raw equality match. If the compiled workflow's final canvas does not match the derived outpaint contract, Neo still blocks the queue as a real integrity error.
+
+## Krea 2 Native Inpaint Composite Seam Guard (2026-08-28)
+
+Krea 2 native inpaint now uses **separate sampling and final-composite mask paths** when Native Crop & Stitch is disabled.
+
+- **Sampling mask:** keeps the user's exact `Mask Grow` / `Mask Blur` values and remains the mask used by `SetLatentNoiseMask` / `InpaintModelConditioning`.
+- **Final composite mask:** uses the same grow value but applies a minimum **8 px blur** before `ImageCompositeMasked` so small VAE/exposure/color differences cannot create a hard paste-back seam.
+- If the user's blur is already greater than 8, Neo keeps that larger value; it never reduces the requested feather.
+- `Inpaint not masked` / unmasked-target inversion is applied independently to both paths.
+- **Native Crop & Stitch is unchanged** and continues to own its own final stitch behavior; the Krea seam guard is disabled for that path.
+
+Runtime metadata records `_neo_krea2_inpaint_sampling_mask` and `_neo_krea2_inpaint_composite_mask` so diagnostics can show the actual grow/blur/inversion values used at queue time.

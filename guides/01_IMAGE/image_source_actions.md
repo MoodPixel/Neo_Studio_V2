@@ -26,6 +26,10 @@ updated: 2026-08-07
 
 The Preview and Output Inspector **Source** group contains **Img2Img**, **Inpaint**, and **Outpaint**. These buttons stage the selected output as the next Image source. They do not start generation.
 
+Before Neo changes modes, it now runs a canonical source preflight. The selected file must still exist inside Neo-owned Image input/output storage, contain a supported PNG/JPEG/WEBP/BMP image, and expose valid dimensions. URL-only previews are first materialized into Neo storage. If validation fails, Neo stays in the current mode and shows the failure instead of waiting for the provider upload to fail later.
+
+The preflight preserves the currently selected backend profile. Sending an output to a source mode never selects the provider recorded in the old result unless the user separately chooses an explicit recipe replay. Stale Comfy and Forge upload aliases are cleared so the selected file is uploaded again through the active provider.
+
 ## Provider ownership
 
 A Source action is evaluated against the currently selected Image backend profile. The same selected profile remains active through staging, optional recipe replay, mode switching, and the next explicit Generate action.

@@ -109,3 +109,29 @@ Check:
 - Neo's ComfyUI profile was refreshed/Tested after the restart.
 
 If the route is still disabled, read the visible disabled reason instead of forcing the workflow. Neo intentionally fails closed when a required family-specific node or model component is missing.
+
+## Krea 2 Turbo custom-model readiness fallback (2026-08-28)
+
+LanPaint readiness for `krea2_turbo + diffusion_model` now trusts Neo's explicit Krea route contract when a selected custom model filename is **opaque** rather than self-identifying.
+
+- If the selected model exists in the connected Comfy catalog and does **not** positively contradict the chosen Krea 2 Turbo route, LanPaint no longer rejects it just because the filename lacks `krea`/`turbo`.
+- The same fallback now applies to the selected VAE slot for custom/experimental Krea-compatible VAEs already allowed by the shared Krea 2 compatibility contract.
+- Exact contradictions still fail closed. Example: a selected filename that clearly resolves to `RAW` on a Turbo route is still blocked.
+- The text encoder remains architecture-strict and must still satisfy the Qwen3-VL-4B Krea contract.
+
+Neo records these accepted custom-model/VAE cases as runtime-override warnings so the UI stays honest: the route is allowed, but Neo is trusting the explicit route contract and letting Comfy validate the custom file at runtime.
+
+## Krea 2 selected-asset UI reconciliation (2026-08-28)
+
+The LanPaint readiness card is rendered from a cached backend capability snapshot created during `/object_info` discovery. That snapshot is intentionally built without the user's current model selection, so a custom Krea 2 Turbo filename can still appear as `missing_compatible_model` even though the later runtime evaluator accepts the selected asset.
+
+Neo now reconciles the live selected Krea 2 assets against the snapshot before rendering readiness:
+
+- selected custom model must be a concrete selection and exist in the exact connected Comfy catalog;
+- selected custom VAE must likewise exist in the exact connected catalog;
+- false `missing_compatible_model` / `missing_compatible_vae` snapshot blockers are removed only for those exact selected assets;
+- explicit RAW/Base model evidence on a Turbo route is still not overridden;
+- node/signature/text-encoder/catalog/stale-snapshot blockers remain authoritative;
+- accepted selections are surfaced as runtime-override warnings and stored in the client capability result for diagnostics.
+
+This UI reconciliation mirrors the backend selected-asset fallback added to `lanpaint_capabilities.py`; both halves are required for custom model names to become selectable in the actual Neo interface.

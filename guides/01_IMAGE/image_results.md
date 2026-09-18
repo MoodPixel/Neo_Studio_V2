@@ -24,8 +24,8 @@ tags:
   - reuse
   - delete
 priority: 112
-version: 3
-updated: 2026-08-02
+version: 4
+updated: 2026-09-18
 ---
 
 # Image Results Workspace
@@ -79,9 +79,16 @@ Do not confuse orphan latent cleanup with deleting a saved output. Saved output 
 | **Category filter** | Shows all categories or one category. |
 | **Date sort** | New-to-old or old-to-new. |
 | **Saved output cards** | Click a card to load its metadata into Output Inspector. |
+| **Load More** | Loads the next page and appends it without discarding already loaded cards or the active Inspector. |
 | **Refresh Results** | Reloads the list and active metadata from `/api/image/results`. |
 
 If a saved file is missing, Neo hides/removes the broken entry from the Results view instead of crashing the UI.
+
+The header shows **loaded count of total matching count**. Results are paginated in 60-item pages by default. Category or date-sort changes restart paging from the first matching page; repeated result IDs are deduplicated before display. Continue with **Load More** until Neo reports that all matching outputs are loaded.
+
+Selection is stored by stable Result ID rather than card position. Opening an Inspector, loading another page, refreshing the current collection, or hiding a broken thumbnail keeps the same result selected whenever that ID is still present. If the selected result was removed, Neo chooses the nearest remaining card instead of silently jumping to an unrelated array position.
+
+The Saved Outputs strip also preserves its horizontal scroll position through Results renders. Selecting a card does not automatically scroll it into view or return the strip to the first card. Changing category or date sort intentionally resets both selection and scroll because it creates a different visible collection.
 
 ## Output Inspector
 

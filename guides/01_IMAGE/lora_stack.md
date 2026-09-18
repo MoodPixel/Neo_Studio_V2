@@ -34,8 +34,8 @@ tags:
   - route aware
   - loader aware
 priority: 115
-version: 7
-updated: 2026-08-14
+version: 10
+updated: 2026-09-18
 ---
 
 # LoRA Stack and LoRA Library
@@ -78,6 +78,7 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | Field / control | What it does | Advice |
 |---|---|---|
 | **Search provider LoRAs** | Filters LoRA names reported by the selected Image profile. | Forge uses its Extra Networks/shared catalog; Comfy uses `LoraLoader.lora_name`. |
+| **Folder** | Limits the library to one provider-relative folder and its descendants. | Folder paths are navigation only; the full provider + catalog path remains the record identity. |
 | **Provider LoRA** | Selects a LoRA record from the active provider catalog. | Selection focuses metadata; use **Add selected LoRA to stack** to apply it. |
 | **Preview carousel** | Shows saved/CivitAI/local preview images when available. | Useful to identify the LoRA before adding it. |
 | **Positive triggers** | Trigger words that should usually be added to the positive prompt. | Append when the LoRA needs activation tokens. |
@@ -86,6 +87,7 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | **Sample prompt** | Example prompt from metadata/CivitAI. | Use **Append Prompt** to add it or **Replace Prompt** when using it as the full baseline. |
 | **Add selected LoRA to stack** | Creates/updates a LoRA Stack row from the selected library record. | This is the normal path from library browsing to generation use. |
 | **Edit metadata / Save metadata** | Edits local metadata record. | Saves to Neo runtime data, not the original safetensors file. |
+| **Notes** | Stores personal usage tips, compatibility reminders, and strength guidance on the exact LoRA record. | Notes are searchable and remain separate for same-name LoRAs in different folders. |
 | **CivitAI link** | URL for metadata enrichment. | Use a CivitAI model/model-version/download URL. |
 | **CivitAI merge mode** | Controls how fetched metadata merges with local data. | **fill_missing** is safest. **overwrite_selected** is aggressive. |
 | **Pull from CivitAI** | Fetches triggers, tags, prompts, previews, base model info, etc. | If CivitAI returns no usable metadata, Neo should report that honestly. |
@@ -118,6 +120,24 @@ Rules:
 - Switching providers preserves canonical LoRA rows but changes the displayed provider syntax.
 - Existing Forge prompt tags are deduplicated against stack rows using path-, extension-, and case-insensitive identity matching.
 - Absolute backend paths stay server-side. Browser records and saved public metadata use portable catalog names only.
+- Library identity is the selected provider plus the complete portable relative catalog path. Basename and stem aliases are search aids only and never merge metadata.
+- Save responses confirm the durable record ID, canonical identity, saved fields, and persisted timestamp after a disk reload.
+- CivitAI links are persisted in both `civitai_url` and `remote_source.url` for backward-compatible reads.
+- Identity repair is preview-first. Applying the exact preview creates a timestamped index backup; ambiguous basename-only legacy entries are reported and never guessed, merged, or deleted.
+
+## Phase 6 search, folders, and notes
+
+LoRA Library search covers the full relative catalog path, display name, base model, category, triggers, positive/negative keywords, sample and saved prompt options, notes, caution notes, and CivitAI model/version names. Multiple terms use **all-term matching**; quoted phrases stay together.
+
+The Folder control is built from the selected provider-relative catalog tree. Choosing a folder includes its nested subfolders, while **Clear filters** restores the complete record list. The UI always shows the filtered count against the total and gives an explicit zero-result option instead of silently retaining a hidden selection.
+
+Search and folder aliases never participate in identity matching. A basename can help find a record, but only the provider plus full relative path can select, reconcile, or save metadata to it.
+
+## Phase 8 release and migration
+
+Before upgrading, back up `neo_data/`. Run `python scripts/audit_lora_release_phase8.py` to inspect the integrated release and Image LoRA index without changing it. If the report finds legacy Image records, use the identity-audit preview endpoint first and apply only that exact preview; Neo creates a timestamped index backup before rewriting. Ambiguous provider or basename-only records remain untouched.
+
+`code_ready=true` proves the packaged contracts, documentation, manifests, and syntax checks are present. It is not GPU inference evidence; `production_proven=true` additionally requires a complete passing physical validation report.
 - Forge supports global base/both rows. Regional and finish-only rows remain preserved but fail closed for direct Forge base generation.
 
 ## Route support
@@ -248,3 +268,44 @@ What changed:
 - queue payload normalization still keeps the value numeric and rounded, but it no longer forcibly shrinks a request like `5`.
 
 This matters for LoRAs that document unusual guidance such as `1.4`, `2.5`, or `5.0`. Neo now preserves that intent instead of silently flattening it.
+
+
+## 2026-08-23 — Krea 2 LoRA format normalization (Phase 1)
+
+Krea 2 RAW/Turbo keeps the normal **LoRA Stack** UX and the existing model-only `LoraLoaderModelOnly` graph path. Neo now adds a Krea-only compatibility preflight immediately before exact Comfy catalog binding so a locally visible Krea LoRA can be inspected without changing the saved LoRA identity.
+
+### Supported Phase-1 input formats
+
+| Detected format | Example key | Neo behavior |
+|---|---|---|
+| **Comfy/native** | `diffusion_model.blocks.0.attn.wq.lora_A.weight` | Pass through unchanged. |
+| **Krea diffusers / Comfy-compatible** | `transformer_blocks.0.attn.to_q.lora_down.weight` | Pass through unchanged. |
+| **PEFT/native** | `base_model.model.blocks.0.attn.wq.lora_A.weight` | Normalize automatically when Neo can resolve the selected LoRA on the same local Comfy filesystem. |
+| **Kohya/native** | `lora_unet_blocks_0_attn_wq.lora_down.weight` | Fail closed in Phase 1 when locally inspectable. No speculative key rewrite is performed. |
+| **Unknown / partially mappable** | other vocabularies | Fail closed when locally inspectable. |
+
+The PEFT/native rewrite is semantic, not a blind prefix replacement. Neo maps Krea module vocabulary such as:
+
+```text
+base_model.model.blocks.N.attn.wq  -> transformer_blocks.N.attn.to_q
+base_model.model.blocks.N.attn.wk  -> transformer_blocks.N.attn.to_k
+base_model.model.blocks.N.attn.wv  -> transformer_blocks.N.attn.to_v
+base_model.model.blocks.N.attn.wo  -> transformer_blocks.N.attn.to_out.0
+base_model.model.blocks.N.mlp.*    -> transformer_blocks.N.ff.*
+```
+
+PEFT `lora_A` / `lora_B` tensor names become Comfy-compatible `lora_down` / `lora_up` names. Text-fusion and Krea input/time/final-layer adapters are translated through explicit maps as well.
+
+### Safety and cache rules
+
+- Neo rewrites **only the safetensors header keys**. Tensor bytes, tensor shapes, strengths, and LoRA math are unchanged.
+- Normalization requires every PEFT adapter tensor to map and every A/B pair to be complete. Partial conversion is rejected before queueing.
+- The normalized file is deterministic and cached beside the source LoRA under `_neo_krea2_normalized/`, keyed by the source SHA-256. Reusing the same source reuses the cache.
+- Neo hides `_neo_krea2_normalized` cache entries from normal LoRA discovery so users keep seeing the original asset, not implementation copies.
+- Saved/replay/public metadata keeps the **original portable LoRA name**. Only the provider-submitted runtime name points at the normalized cache file.
+- If Neo cannot resolve the LoRA file locally (for example, a remote Comfy profile), it does **not** pretend to inspect or rewrite the remote filesystem. Existing exact-catalog submission is preserved and the compatibility report says inspection was unavailable.
+- This phase applies only to Krea 2 / Krea 2 Turbo **global base/both** LoRA Stack rows. Scene Director regional rows, finish-only rows, other image families, and Krea 2 Identity Edit's dedicated engine-owned LoRA are not rewritten by this compatibility layer.
+
+### UI diagnostics
+
+For Krea 2 routes, LoRA Stack shows the most recent compatibility preflight result. Guided mode summarizes normalized/native/not-inspected/blocked counts; Expert mode can inspect the structured compatibility report. A locally inspectable unsupported format is blocked before Comfy queue submission instead of allowing hundreds of `lora key not loaded` warnings while presenting the LoRA as successfully applied.
